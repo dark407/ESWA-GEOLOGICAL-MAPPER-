@@ -57,9 +57,10 @@ import {
 } from '../engine/fieldMappingEngine';
 
 export interface DeviceIdHeaderWidgetProps {
-  currentUser: GoogleUserAccountInfo | null;
+  currentUser?: GoogleUserAccountInfo | null;
   onUserChanged?: (user: GoogleUserAccountInfo | null) => void;
   onWorkspaceDataImported?: () => void;
+  onDataImported?: () => void;
   compact?: boolean;
 }
 

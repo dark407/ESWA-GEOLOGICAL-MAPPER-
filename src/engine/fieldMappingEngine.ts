@@ -46,17 +46,20 @@ export type FieldStructuralFeatureType =
 
 export type FieldFaultSubType =
   | 'normal_fault'
+  | 'normal'
   | 'reverse_fault'
   | 'thrust_fault'
   | 'strike_slip_fault'
   | 'oblique_fault'
-  | 'shear_gouge';
+  | 'shear_gouge'
+  | (string & {});
 
 export type FieldFaultElementRole =
   | 'fault_complete'
   | 'fault_plane'
   | 'hanging_wall'
-  | 'footwall';
+  | 'footwall'
+  | 'foot_wall';
 
 export type FieldFoldSubType =
   | 'anticline'
@@ -91,13 +94,19 @@ export interface FieldLithologyStroke {
   panel: FieldPanelId;
   rockType: FieldLithologyId;
   rockName?: string;
+  rockCode?: string;
+  color?: string;
+  fillColor?: string;
   patternId?: string;
   /** Custom user-picked shade from the rock colour gradient picker */
   customColor?: string;
   /** When 2 or 3 lithologies are chosen for sedimentary/metamorphic alternating bands */
   alternateRockTypes?: string[];
+  alternatingRockNames?: string[];
+  alternatingRockIds?: string[];
   /** Spacing / band width in SVG canvas px for alternating lithology bands (16..140) */
   alternateSpacingPx?: number;
+  alternatingSpacingPx?: number;
   /** Orientation angle in deg for alternating lithology bands */
   alternateAngleDeg?: number;
   /** 'region_fill' = broad rock unit brush/polygon; 'vein_band' = thin cross-cutting band/vein; 'foliation_plane' = foliation band + strike/dip symbol; 'lithology_erase' = erases only lithology in a specific painted area */
@@ -118,7 +127,7 @@ export interface FieldLithologyStroke {
 
 export interface FieldJointTrace {
   id: string;
-  label: string;
+  label?: string;
   panel: FieldPanelId;
   points: FieldPoint2D[];
   /** Pencil stroke width in px (1..14, default 3.6) */
@@ -130,13 +139,13 @@ export interface FieldJointTrace {
   /** 0 - 90 deg */
   dipAmount: number;
   /** 0 - 360 deg (especially primary on Crown) */
-  strike: number;
+  strike?: number;
   /** On Crown, Dip Direction = Strike + 90 or Strike - 90 */
-  crownDipSign: '+90' | '-90';
+  crownDipSign?: '+90' | '-90';
   /** Starts as 'unassigned' (pure black, labeled 'J'); changes color & label when grouped into J1..J5, J-Bedding, J-Random */
   setId: FieldJointGroupingId;
-  editedByCompass: boolean;
-  traceLengthM: number;
+  editedByCompass?: boolean;
+  traceLengthM?: number;
 }
 
 export interface FieldDipPlaneSurface {
@@ -177,6 +186,7 @@ export interface FieldStructuralFeature {
   faultSubType?: FieldFaultSubType;
   faultElementRole?: FieldFaultElementRole;
   showHwFw?: boolean;
+  showHwFwBadges?: boolean;
   flipHwFw?: boolean;
   /** Fold structural classification & Fold Axis / Limb / Crest denotation */
   foldSubType?: FieldFoldSubType;
@@ -270,6 +280,9 @@ export type FieldMatlabFilterId =
 export interface FieldPhotoFitConfig {
   /** Scale percentage (40..250, default 100) */
   scalePct: number;
+  zoomPct?: number;
+  scale?: number;
+  filteredDataUrl?: string;
   /** X offset in SVG canvas units (-400..400, default 0) */
   offsetX: number;
   /** Y offset in SVG canvas units (-400..400, default 0) */
@@ -281,7 +294,7 @@ export interface FieldPhotoFitConfig {
   /** Vertical flip */
   mirrorV: boolean;
   /** Aspect fit mode inside the tunnel outline */
-  fitMode: 'cover' | 'contain' | 'stretch';
+  fitMode: 'cover' | 'contain' | 'stretch' | 'fill';
   /** Photo underlay opacity percentage on Face Canvas (10..100, default 75) */
   opacityPct: number;
   /** Brightness percentage (50..200, default 105) */
@@ -374,6 +387,8 @@ export interface FieldSupportSystemConfig {
   forepolingSector?: 'Crown Arch (120°)' | 'Full Crown (180°)' | 'Left Shoulder' | 'Right Shoulder' | 'Cavity Zone';
   pipeRoofingEnabled?: boolean;
   pipeRoofingSpec?: string;
+  pipeRoofingType?: string;
+  pipeRoofingThicknessMm?: number;
   pipeRoofingDiameterMm?: number;
   pipeRoofingLengthM?: number;
   pipeRoofingOverlapM?: number;
@@ -383,6 +398,7 @@ export interface FieldSupportSystemConfig {
   groutingEnabled?: boolean;
   groutingType?: string;
   groutingMaterial?: string;
+  groutingWCRatio?: string;
   groutingHoleLengthM?: number;
   groutingSpacingM?: number;
   groutingPressureBar?: number;
@@ -487,6 +503,7 @@ export interface FieldExcavationRound {
     q: boolean;
     rmr: boolean;
     gsi: boolean;
+    protectionSupport?: boolean;
   };
   reportColorMode?: 'color' | 'bw';
   /** Choosable Strip Align & Report Top Strip layout: 'continuous_cad' (one continuous uniform-height rectangle with zero gap, X=Perimeter, Y=Pull) or 'separated_boxes' (3 boxes with X=Pull, Y=Wall/Crown Length) */
@@ -551,6 +568,13 @@ export interface FieldExcavationRound {
   completedAtIso?: string;
   /** True when the unified Master Archive (.eswa.json with reports + original photos + JSON) is generated */
   masterPackageReady?: boolean;
+  alternatingLithologyBands?: any;
+  rockCustomColors?: Record<string, string>;
+  qParams?: any;
+  rockType?: string;
+  jointSets?: any[];
+  drawnFeatures?: any[];
+  remarks?: string;
   /** Peer / Client Geologist Review Metadata (Device ID workflow) */
   reviewMetadata?: {
     reviewerDeviceId: string;
@@ -560,6 +584,7 @@ export interface FieldExcavationRound {
     remarks?: string;
     reviewedAtIso?: string;
     transferId?: string;
+    sentAtIso?: string;
   };
 }
 
@@ -683,6 +708,8 @@ export interface FieldTunnelLocationItem {
   heightM: number;
   wallHeightM: number;
   crownRadiusM: number;
+  leftWallLengthM?: number;
+  rightWallLengthM?: number;
   defaultDriveAzimuth: number;
   defaultExcavationMode: string;
   defaultExcavationApproach: string;
@@ -1542,7 +1569,7 @@ export const FIELD_EXTENDED_VEIN_FOLIATION_SUGGESTIONS: {
 export function resolveRockDisplayInfo(
   rockId: string,
   rememberedRocks: FieldRememberedRockItem[] = []
-): { name: string; code: string; patternId: string; colorTint: string } {
+): { name: string; code: string; patternId: string; colorTint: string; color: string; fillColor: string } {
   const fromMain = FIELD_LITHOLOGY_CATALOG.find((r) => r.id === rockId);
   if (fromMain) {
     return {
@@ -1550,6 +1577,8 @@ export function resolveRockDisplayInfo(
       code: fromMain.code,
       patternId: fromMain.patternId,
       colorTint: fromMain.colorTint,
+      color: fromMain.colorTint,
+      fillColor: fromMain.colorTint,
     };
   }
   const fromVein = FIELD_VEIN_AND_FOLIATION_CATALOG.find((v) => v.id === rockId);
@@ -1559,6 +1588,8 @@ export function resolveRockDisplayInfo(
       code: fromVein.code,
       patternId: fromVein.patternId,
       colorTint: fromVein.colorTint,
+      color: fromVein.colorTint,
+      fillColor: fromVein.colorTint,
     };
   }
   const fromExtVein = FIELD_EXTENDED_VEIN_FOLIATION_SUGGESTIONS.find((v) => v.id === rockId);
@@ -1568,6 +1599,8 @@ export function resolveRockDisplayInfo(
       code: fromExtVein.code,
       patternId: fromExtVein.patternId,
       colorTint: fromExtVein.colorTint,
+      color: fromExtVein.colorTint,
+      fillColor: fromExtVein.colorTint,
     };
   }
   const fromRemembered =
@@ -1579,6 +1612,8 @@ export function resolveRockDisplayInfo(
       code: fromRemembered.code,
       patternId: fromRemembered.patternId || 'quartzite',
       colorTint: '#e2e8f0',
+      color: '#e2e8f0',
+      fillColor: '#e2e8f0',
     };
   }
   // Fallback for user-typed custom rock name
@@ -1610,6 +1645,8 @@ export function resolveRockDisplayInfo(
     code: rockId.slice(0, 3).toUpperCase(),
     patternId,
     colorTint: '#e2e8f0',
+    color: '#e2e8f0',
+    fillColor: '#e2e8f0',
   };
 }
 
@@ -4084,6 +4121,11 @@ export function computeFaceTunnelOutlineDetails(
     tunnelH,
     splHeightM,
     springY,
+    splY: springY,
+    showSplLine: Boolean(hasLeftWall && hasRightWall && hasCrown),
+    invertStartX: invertPoly[0]?.x ?? left,
+    invertEndX: invertPoly[invertPoly.length - 1]?.x ?? right,
+    invertY: invertPoly[0]?.y ?? bottom,
   };
 }
 

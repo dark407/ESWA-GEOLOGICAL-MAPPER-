@@ -20,6 +20,7 @@ import {
   FieldJointTrace,
   FieldLithologyStroke,
   FieldPanelId,
+  FieldPoint2D,
   FieldRememberedRockItem,
   FieldStructuralFeature,
   FieldTransformStageMode,

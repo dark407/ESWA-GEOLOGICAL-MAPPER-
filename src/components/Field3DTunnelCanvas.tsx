@@ -215,7 +215,7 @@ interface Field3DTunnelCanvasProps {
   selectedFoldSubType?: FieldFoldSubType;
   selectedFoldElementRole?: FieldFoldElementRole;
   showFoldLimbCrestBadges?: boolean;
-  alternatingBandMode?: boolean;
+  alternatingBandMode?: boolean | string;
   alternatingRockIds?: string[];
   alternatingSpacingPx?: number;
   selectedWaterCondition: FieldWaterCondition;
@@ -1431,7 +1431,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       const added: FieldJointTrace[] = [];
       otherPanels.forEach((panelId, idx) => {
         const rawPts = projected[panelId].map((item) => item.panelPt);
-        const pts = smoothTraceWithLevel(rawPts, effectivePenSmoothLevel);
+        const pts = smoothTraceWithLevel(rawPts, 'high');
         const est = estimateTraceOrientationFromGeometry(
           pts,
           panelId,

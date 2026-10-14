@@ -1,4 +1,5 @@
 import { JointSet, SurfaceType, TunnelGeometry } from '../types/tunnel';
+import { createTunnelGeometry } from './geometryEngine';
 import { FieldPanelId } from './fieldMappingEngine';
 
 export type MappingDomainType = 'TUNNEL' | 'BENCH' | 'TRENCH' | 'SLOPE' | 'ROCK_SURFACE';
@@ -505,14 +506,11 @@ export function buildCompatibleGeometryFromSurfaceParams(
   if (params.subType === 'TRENCH') {
     const w = Math.max(0.8, Number(params.trenchWidthMeters) || 2.0);
     const d = Math.max(0.8, Number(params.trenchDepthMeters) || 2.5);
+    const geom = createTunnelGeometry(w, d, d, 'flat_roof');
     return {
-      width: w,
-      height: d,
-      wallHeight: d,
+      ...geom,
       leftWallHeight: d,
       rightWallHeight: d,
-      crownRadius: Number((w * 2.5).toFixed(2)),
-      crownGeometry: 'flat_roof',
       profileType: 'rectangular',
       source: 'manual',
       hasCrown: true,
@@ -524,14 +522,11 @@ export function buildCompatibleGeometryFromSurfaceParams(
   if (params.subType === 'SLOPE') {
     const w = Math.max(4.0, Number(params.exposureLengthMeters) || 20.0);
     const h = Math.max(2.0, Number(params.slopeHeightMeters) || 18.0);
+    const geom = createTunnelGeometry(w, h, h, 'flat_roof');
     return {
-      width: w,
-      height: h,
-      wallHeight: h,
+      ...geom,
       leftWallHeight: h,
       rightWallHeight: h,
-      crownRadius: Number((w * 1.8).toFixed(2)),
-      crownGeometry: 'flat_roof',
       profileType: 'rectangular',
       source: 'manual',
       hasCrown: true,
@@ -544,14 +539,11 @@ export function buildCompatibleGeometryFromSurfaceParams(
     const w = Math.max(2.0, Number(params.rockExposureWidthMeters || params.exposureLengthMeters) || 12.0);
     const h = Math.max(1.5, Number(params.rockExposureHeightMeters || params.benchHeightMeters) || 8.0);
     const isSingle = params.rockSurfaceLayout === 'SINGLE_PANEL';
+    const geom = createTunnelGeometry(w, h, h, 'flat_roof');
     return {
-      width: w,
-      height: h,
-      wallHeight: h,
+      ...geom,
       leftWallHeight: h,
       rightWallHeight: h,
-      crownRadius: Number((w * 1.8).toFixed(2)),
-      crownGeometry: 'flat_roof',
       profileType: 'rectangular',
       source: 'manual',
       hasCrown: !isSingle,
@@ -564,14 +556,11 @@ export function buildCompatibleGeometryFromSurfaceParams(
   const w = Math.max(3.0, Number(params.exposureLengthMeters) || 15.0);
   const h = Math.max(1.5, Number(params.benchHeightMeters) || 10.0);
   const wallH = Number((h * 0.9).toFixed(2));
+  const geom = createTunnelGeometry(w, h, wallH, 'flat_roof');
   return {
-    width: w,
-    height: h,
-    wallHeight: wallH,
+    ...geom,
     leftWallHeight: wallH,
     rightWallHeight: Number((params.bermWidthMeters || 5.0).toFixed(2)),
-    crownRadius: Number((w * 1.8).toFixed(2)),
-    crownGeometry: 'flat_roof',
     profileType: 'rectangular',
     source: 'manual',
     hasCrown: true,

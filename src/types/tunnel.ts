@@ -359,6 +359,7 @@ export interface TunnelSettings {
   roundLength: number;         // Pull / round length in meters (e.g. 3.5)
   date: string;
   mappedBy: string;
+  geologistName?: string;
   lithology: string;           // e.g. "Quartzite / Phyllite with Shear Seam"
   sheetConfig?: EngineeringSheetConfig;
   strikeDip3DSnapshots?: StrikeDip3DSnapshotAppendix[];
@@ -827,6 +828,7 @@ export interface QIndexParameters {
   suggestedFields?: ('rqd' | 'jn' | 'jr' | 'ja' | 'jw' | 'srf')[];
   userConfirmed?: boolean;
   confirmedAt?: string;
+  qValue?: number;
 }
 
 export type RockMassClassificationMethodId =
@@ -903,6 +905,8 @@ export interface RmrParameters {
   paramStatus: Record<RmrParamKey, ParameterInputStatus>;
   userConfirmed: boolean;
   confirmedAt?: string;
+  rmrTotal?: number;
+  totalRmr?: number;
 }
 
 export interface RmrCalculationResult {
@@ -995,6 +999,8 @@ export interface StationClassificationStorageRecord {
 
 export interface RockMassSummaryTable {
   rockType: string;
+  generalRockType?: string;
+  qRatingRockClass?: string;
   rockUnit: string;
   weatheringGrade: string;      // e.g., "W2 (Slightly Weathered)"
   strengthGrade: string;        // e.g., "R3–R4 (Medium to Strong, 50–100 MPa)"
@@ -1046,6 +1052,7 @@ export interface LithologyRegion {
   // Editable lithology name (e.g. "Quartzite", "Quartzitic Phyllite", "Dolerite Dyke")
   lithologyName: string;
   lithologyType?: string;
+  rockType?: string;
   patternType: LithologyPatternType;
   colorHex: string;
   // Subtle visual geological representation opacity (0.05 to 0.40, default 0.16)

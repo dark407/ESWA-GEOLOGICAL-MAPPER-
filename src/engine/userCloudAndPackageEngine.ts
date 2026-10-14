@@ -1112,6 +1112,10 @@ export interface EswaFaceMasterArchive {
     sketchCompositePngDataUrl: string | null;
     support2DPngDataUrl: string | null;
   };
+  reports?: {
+    sketchPngDataUrl?: string | null;
+    support2DPngDataUrl?: string | null;
+  };
   generatedReports: {
     clean2PageWordHtml: string;
     sketchCompositePngDataUrl: string | null;
@@ -1374,6 +1378,10 @@ export function buildAndStoreFaceMasterArchive(params: {
       sketchCompositePngDataUrl: sketchPngDataUrl,
       support2DPngDataUrl,
     },
+    reports: {
+      sketchPngDataUrl,
+      support2DPngDataUrl,
+    },
     generatedReports: {
       clean2PageWordHtml,
       sketchCompositePngDataUrl: sketchPngDataUrl,
@@ -1440,7 +1448,12 @@ export function getStoredFaceMasterArchive(roundId: string): EswaFaceMasterArchi
   }
 }
 
-export function downloadStoredFaceMasterArchive(archive: EswaFaceMasterArchive): void {
+export function downloadStoredFaceMasterArchive(archiveOrRoundId: EswaFaceMasterArchive | string): void {
+  const archive =
+    typeof archiveOrRoundId === 'string'
+      ? getStoredFaceMasterArchive(archiveOrRoundId)
+      : archiveOrRoundId;
+  if (!archive) return;
   const safeLoc = (archive.location?.name || archive.summary?.locationTitle || 'Location').replace(
     /[^a-zA-Z0-9_-]/g,
     '_'

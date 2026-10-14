@@ -179,6 +179,7 @@ interface FieldMappingModeWorkspaceProps {
   onExitToWelcome?: () => void;
   onOpenDataStorage?: () => void;
   initialWorkflowMode?: 'photo_mapping' | 'field_mapping';
+  onChangeWorkflowMode?: (mode: 'photo_mapping' | 'field_mapping') => void;
   resumeAtLastStage?: boolean;
   initialStage?: FieldWorkflowStage;
   initialMappingDomain?: MappingDomainType;

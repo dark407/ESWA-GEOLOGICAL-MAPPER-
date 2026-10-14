@@ -18,6 +18,8 @@ import {
 import { calculateBartonQSystem } from './photoWarpEngine';
 import { calculateBieniawskiRmr } from './rockMassClassificationEngine';
 
+export type { Point2D };
+
 export type StripRockTypeId =
   | 'Quartzite'
   | 'Phyllite'
@@ -28,14 +30,28 @@ export type StripRockTypeId =
   | 'Siltstone'
   | 'Shale'
   | 'Quartz veins'
-  | 'Dolerite';
+  | 'Dolerite'
+  | 'Qtz'
+  | 'Ph'
+  | 'QP'
+  | 'Gr'
+  | 'Gn'
+  | 'Sch'
+  | 'Ss'
+  | 'Sl'
+  | 'Ls'
+  | 'Bas'
+  | 'FaultGouge'
+  | (string & {});
 
 export type StripFillingThicknessId =
   | 'None'
   | 'Clay Coated'
+  | 'Thin'
   | '2~5cm'
   | '5~10cm'
-  | '>10cm';
+  | '>10cm'
+  | (string & {});
 
 export type StripStructureTypeId =
   | 'JS1 - Foliation'
@@ -45,15 +61,18 @@ export type StripStructureTypeId =
   | 'Shear Joint (5-30mm)'
   | 'Shear Zone'
   | 'Fault'
+  | 'Major Fault'
   | 'Gouge/Clay Seam'
   | 'Vertical Joint'
   | 'Geological Boundary'
   | 'Lithological Boundary'
   | 'Bedding'
+  | 'Bedding/Foliation'
   | 'Joint'
   | 'Foliation'
   | 'Joint Plane/Surface'
-  | 'Fractured';
+  | 'Fractured'
+  | (string & {});
 
 export type StripGroundwaterId =
   | 'Dry'
