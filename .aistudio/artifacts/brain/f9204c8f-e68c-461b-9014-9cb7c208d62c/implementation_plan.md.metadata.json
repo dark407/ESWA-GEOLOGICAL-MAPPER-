@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan for Continuous Tunnel Logging in Underground Mapping:\n1. Welcome screen: Adds 'Continuous Tunnel Logging' button directly below 'Underground Face Mapping'.\n2. Selection flow: Select project and location exclusively from existing Underground Face Mapping projects/locations, then specify Chainage From and To.\n3. A3 Working Window: Renders the standard engineering continuous tunnel log matching 'As built Power Tunnel log' with unwrapped tunnel strip (Left Wall, Crown, Right Wall), chainage ticks, geology strata, joint traces, water inflow symbols, and geotechnical parameters table.\n4. ESWA Continuous CAD Editor: Focused CAD environment for editing the continuous strip canvas (geology layers, joint lines, rock support symbols, annotations) with instant reflection back onto the A3 sheet.\n5. Report Actions & Review: 1-click high-resolution A3 Landscape PDF export, standard DXF export, and 'Send for Review' device sync matching the Underground Face Mapping workflow.",
+  "updatedAt": "2026-10-13T08:03:29.377788785Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

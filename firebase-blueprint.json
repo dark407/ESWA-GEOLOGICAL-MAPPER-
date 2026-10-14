@@ -1,0 +1,386 @@
+{
+  "entities": {
+    "AccessRequest": {
+      "title": "AccessRequest",
+      "description": "Submitted by a user after downloading the software to request login credentials from the Master Admin.",
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "description": "Unique request identifier",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Applicant full name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "description": "Applicant email address",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "phone": {
+          "type": "string",
+          "description": "Applicant phone or WhatsApp number",
+          "minLength": 3,
+          "maxLength": 60
+        },
+        "organization": {
+          "type": "string",
+          "description": "Company or project organization name",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "roleTitle": {
+          "type": "string",
+          "description": "Engineering or geological role",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "pcHardwareId": {
+          "type": "string",
+          "description": "Unique hardware fingerprint of the PC where software was downloaded",
+          "minLength": 4,
+          "maxLength": 128
+        },
+        "pcName": {
+          "type": "string",
+          "description": "Workstation OS/platform label",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "purposeNotes": {
+          "type": "string",
+          "description": "Project details or reason for software access",
+          "maxLength": 500
+        },
+        "status": {
+          "type": "string",
+          "description": "Request approval state",
+          "enum": ["PENDING", "APPROVED", "REJECTED"]
+        },
+        "assignedUserId": {
+          "type": "string",
+          "description": "User ID assigned by admin upon approval",
+          "maxLength": 80
+        },
+        "assignedLicenseKey": {
+          "type": "string",
+          "description": "1-PC License key assigned by admin upon approval",
+          "maxLength": 80
+        },
+        "createdAtIso": {
+          "type": "string",
+          "description": "ISO timestamp when request was submitted",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "requestId",
+        "fullName",
+        "email",
+        "phone",
+        "organization",
+        "roleTitle",
+        "pcHardwareId",
+        "pcName",
+        "purposeNotes",
+        "status",
+        "assignedUserId",
+        "assignedLicenseKey",
+        "createdAtIso"
+      ]
+    },
+    "SoftwareLicense": {
+      "title": "SoftwareLicense",
+      "description": "1-PC hardware-locked user credentials and license key managed by the Master Admin.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Unique login user ID (document ID)",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "password": {
+          "type": "string",
+          "description": "User login password set by Master Admin",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "licenseKey": {
+          "type": "string",
+          "description": "Unique 1-PC license key required on login",
+          "minLength": 6,
+          "maxLength": 80
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Licensed user full name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "description": "Licensed user email",
+          "maxLength": 160
+        },
+        "phone": {
+          "type": "string",
+          "description": "Licensed user phone",
+          "maxLength": 60
+        },
+        "organization": {
+          "type": "string",
+          "description": "Licensed user organization",
+          "maxLength": 160
+        },
+        "boundPcHardwareId": {
+          "type": "string",
+          "description": "Hardware fingerprint ID of the single PC locked to this license (empty until first login or pre-bound from request)",
+          "maxLength": 128
+        },
+        "boundPcName": {
+          "type": "string",
+          "description": "Name/OS of the bound PC",
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "description": "License status",
+          "enum": ["ACTIVE", "SUSPENDED", "REVOKED"]
+        },
+        "installedVersion": {
+          "type": "string",
+          "description": "Software version currently running on the user's PC",
+          "maxLength": 40
+        },
+        "lastSeenAtIso": {
+          "type": "string",
+          "description": "Last login or heartbeat timestamp",
+          "maxLength": 64
+        },
+        "createdAtIso": {
+          "type": "string",
+          "description": "Creation timestamp",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "userId",
+        "password",
+        "licenseKey",
+        "fullName",
+        "email",
+        "phone",
+        "organization",
+        "boundPcHardwareId",
+        "boundPcName",
+        "status",
+        "installedVersion",
+        "lastSeenAtIso",
+        "createdAtIso"
+      ]
+    },
+    "SoftwareRelease": {
+      "title": "SoftwareRelease",
+      "description": "Software update release published by Master Admin to notify target PCs.",
+      "type": "object",
+      "properties": {
+        "releaseId": {
+          "type": "string",
+          "description": "Unique release ID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "version": {
+          "type": "string",
+          "description": "Semantic version string (e.g. 1.2.0)",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "title": {
+          "type": "string",
+          "description": "Release headline",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "releaseNotes": {
+          "type": "string",
+          "description": "Summary of new features and fixes",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "downloadUrl": {
+          "type": "string",
+          "description": "Direct installer download URL or built-in EXE trigger",
+          "maxLength": 500
+        },
+        "targetScope": {
+          "type": "string",
+          "description": "ALL_PCS or SPECIFIC_PCS",
+          "enum": ["ALL_PCS", "SPECIFIC_PCS"]
+        },
+        "targetIdentifierCsv": {
+          "type": "string",
+          "description": "Comma-separated list of target User IDs or PC Hardware IDs when targetScope is SPECIFIC_PCS",
+          "maxLength": 1500
+        },
+        "isMandatory": {
+          "type": "boolean",
+          "description": "Whether the update is mandatory"
+        },
+        "status": {
+          "type": "string",
+          "description": "Release visibility status",
+          "enum": ["PUBLISHED", "ARCHIVED"]
+        },
+        "publishedAtIso": {
+          "type": "string",
+          "description": "ISO timestamp when published",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "releaseId",
+        "version",
+        "title",
+        "releaseNotes",
+        "downloadUrl",
+        "targetScope",
+        "targetIdentifierCsv",
+        "isMandatory",
+        "status",
+        "publishedAtIso"
+      ]
+    },
+    "MasterPc": {
+      "title": "MasterPc",
+      "description": "Workstation designated by the Master Admin to bypass all login gates.",
+      "type": "object",
+      "properties": {
+        "pcHardwareId": {
+          "type": "string",
+          "description": "Hardware ID of the Master PC",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "label": {
+          "type": "string",
+          "description": "Friendly workstation name (e.g. Akash Master Laptop)",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "bypassLogin": {
+          "type": "boolean",
+          "description": "True if this PC skips all software login requirements"
+        },
+        "registeredAtIso": {
+          "type": "string",
+          "description": "Timestamp when authorized",
+          "maxLength": 64
+        }
+      },
+      "required": ["pcHardwareId", "label", "bypassLogin", "registeredAtIso"]
+    },
+    "UserWorkspace": {
+      "title": "UserWorkspace",
+      "description": "Cloud-synced ESWA Tunnel Mapper workspace for a Google-authenticated user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 160 },
+        "displayName": { "type": "string", "maxLength": 160 },
+        "updatedAtIso": { "type": "string", "maxLength": 64 },
+        "payloadJson": { "type": "string", "maxLength": 900000 }
+      },
+      "required": ["uid", "email", "displayName", "updatedAtIso", "payloadJson"]
+    },
+    "DeviceDirectoryEntry": {
+      "title": "DeviceDirectoryEntry",
+      "description": "Maps a short 6-character Device ID (e.g. ESWA-742) and optional custom alias to a user profile.",
+      "type": "object",
+      "properties": {
+        "deviceId": { "type": "string", "maxLength": 40 },
+        "customAlias": { "type": "string", "maxLength": 40 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 160 },
+        "displayName": { "type": "string", "maxLength": 160 },
+        "updatedAtIso": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["deviceId", "customAlias", "uid", "email", "displayName", "updatedAtIso"]
+    },
+    "DeviceTransferRecord": {
+      "title": "DeviceTransferRecord",
+      "description": "Peer review or data package transfer routed via short Device ID.",
+      "type": "object",
+      "properties": {
+        "transferId": { "type": "string", "maxLength": 120 },
+        "portalScope": { "type": "string", "enum": ["ESWA_GLOBAL"] },
+        "transferType": { "type": "string", "enum": ["REVIEW_REQUEST", "DATA_EXPORT"] },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "senderDeviceId": { "type": "string", "maxLength": 40 },
+        "senderName": { "type": "string", "maxLength": 120 },
+        "senderEmail": { "type": "string", "maxLength": 160 },
+        "recipientDeviceId": { "type": "string", "maxLength": 40 },
+        "projectTitle": { "type": "string", "maxLength": 160 },
+        "locationTitle": { "type": "string", "maxLength": 160 },
+        "chainageLabel": { "type": "string", "maxLength": 80 },
+        "mappingDomain": { "type": "string", "maxLength": 32 },
+        "mappingMethod": { "type": "string", "maxLength": 32 },
+        "roundId": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "CHANGES_REQUESTED", "IMPORTED"] },
+        "senderNotes": { "type": "string", "maxLength": 500 },
+        "reviewerRemarks": { "type": "string", "maxLength": 500 },
+        "reviewerName": { "type": "string", "maxLength": 120 },
+        "reviewerSign": { "type": "string", "maxLength": 120 },
+        "packageJson": { "type": "string", "maxLength": 900000 },
+        "createdAtIso": { "type": "string", "maxLength": 64 },
+        "updatedAtIso": { "type": "string", "maxLength": 64 }
+      },
+      "required": [
+        "transferId", "portalScope", "transferType", "senderUid", "senderDeviceId",
+        "senderName", "senderEmail", "recipientDeviceId", "projectTitle", "locationTitle",
+        "chainageLabel", "mappingDomain", "mappingMethod", "roundId", "status",
+        "senderNotes", "reviewerRemarks", "reviewerName", "reviewerSign",
+        "packageJson", "createdAtIso", "updatedAtIso"
+      ]
+    }
+  },
+  "firestore": {
+    "/access_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/AccessRequest" },
+      "description": "Access requests submitted by users after downloading the software."
+    },
+    "/software_licenses/{userId}": {
+      "schema": { "$ref": "#/entities/SoftwareLicense" },
+      "description": "1-PC hardware-locked user accounts and license keys."
+    },
+    "/software_releases/{releaseId}": {
+      "schema": { "$ref": "#/entities/SoftwareRelease" },
+      "description": "Software updates broadcast to all or specific licensed PCs."
+    },
+    "/master_pcs/{pcHardwareId}": {
+      "schema": { "$ref": "#/entities/MasterPc" },
+      "description": "Master workstations that bypass login prompts."
+    },
+    "/user_workspaces/{uid}": {
+      "schema": { "$ref": "#/entities/UserWorkspace" },
+      "description": "Cloud-synced app and mapping data for Google-authenticated users."
+    },
+    "/device_directory/{deviceId}": {
+      "schema": { "$ref": "#/entities/DeviceDirectoryEntry" },
+      "description": "Directory mapping short 6-character Device IDs (e.g. ESWA-742) and custom aliases to user accounts."
+    },
+    "/device_transfers/{transferId}": {
+      "schema": { "$ref": "#/entities/DeviceTransferRecord" },
+      "description": "Peer review requests and face completion packages routed between geologists via Device ID."
+    }
+  }
+}

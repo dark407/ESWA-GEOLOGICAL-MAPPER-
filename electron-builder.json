@@ -1,0 +1,68 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.akash.tunnelmapper",
+  "productName": "AKASH TUNNEL MAPPER",
+  "copyright": "Copyright © 2026 AKASH TUNNEL MAPPER Engineering Suite",
+  "npmRebuild": false,
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "build/icon.ico",
+    "package.json",
+    "!node_modules/**/*"
+  ],
+  "fileAssociations": [
+    {
+      "ext": [
+        "akash",
+        "atmp",
+        "json"
+      ],
+      "name": "AKASH Tunnel Mapping Project",
+      "description": "AKASH TUNNEL MAPPER Geological Project File",
+      "role": "Editor",
+      "icon": "build/icon.ico"
+    },
+    {
+      "ext": [
+        "dxf",
+        "dwg"
+      ],
+      "name": "CAD Tunnel Profile",
+      "description": "AutoCAD DXF/DWG Tunnel Excavation Profile",
+      "role": "Viewer",
+      "icon": "build/icon.ico"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "build/icon.ico",
+    "artifactName": "AKASH-TUNNEL-MAPPER-Setup.exe",
+    "executableName": "AKASH TUNNEL MAPPER"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowElevation": true,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "AKASH TUNNEL MAPPER",
+    "uninstallDisplayName": "AKASH TUNNEL MAPPER",
+    "deleteAppDataOnUninstall": false,
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico",
+    "installerHeaderIcon": "build/icon.ico"
+  }
+}

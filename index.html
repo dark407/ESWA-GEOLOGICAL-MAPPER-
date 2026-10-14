@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function () {
+        function shouldSuppressError(msg) {
+          if (!msg) return false;
+          var s = String(msg);
+          return (
+            s === 'Script error.' ||
+            s === 'Script error' ||
+            s.indexOf('ResizeObserver loop') !== -1 ||
+            s.indexOf('WebSocket closed without opened') !== -1 ||
+            s.indexOf('failed to connect to websocket') !== -1
+          );
+        }
+
+        window.addEventListener(
+          'error',
+          function (event) {
+            var msg = event && event.message ? String(event.message) : '';
+            if (shouldSuppressError(msg)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              return false;
+            }
+          },
+          true
+        );
+
+        window.addEventListener(
+          'unhandledrejection',
+          function (event) {
+            var msg =
+              event && event.reason
+                ? String(event.reason.message || event.reason)
+                : '';
+            if (shouldSuppressError(msg)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              return false;
+            }
+          },
+          true
+        );
+
+        var origAddEventListener = window.addEventListener;
+        window.addEventListener = function (type, listener, options) {
+          if (
+            (type === 'error' || type === 'unhandledrejection') &&
+            typeof listener === 'function'
+          ) {
+            var wrapped = function (event) {
+              var msg =
+                type === 'error'
+                  ? event && event.message
+                    ? String(event.message)
+                    : ''
+                  : event && event.reason
+                    ? String(event.reason.message || event.reason)
+                    : '';
+              if (shouldSuppressError(msg)) {
+                return;
+              }
+              return listener.apply(this, arguments);
+            };
+            return origAddEventListener.call(this, type, wrapped, options);
+          }
+          return origAddEventListener.apply(this, arguments);
+        };
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+    <title>ESWA TUNNEL MAPPER</title>
+    <meta name="description" content="ESWA TUNNEL MAPPER — AI-powered underground tunnel geological joint tracing, 3D structural orientation calculation, and engineering mapping sheet software." />
+    <meta property="og:title" content="ESWA TUNNEL MAPPER" />
+    <meta property="og:description" content="ESWA TUNNEL MAPPER — AI-powered underground tunnel geological joint tracing, 3D structural orientation calculation, and engineering mapping sheet software." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#120B07" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="EswaTunnel" />
+    <meta name="application-name" content="ESWA TUNNEL MAPPER" />
+    <meta name="msapplication-TileColor" content="#120B07" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Cinzel:wght@700;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-[#FFF9F4] text-slate-900 antialiased selection:bg-orange-500/25 selection:text-orange-950">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

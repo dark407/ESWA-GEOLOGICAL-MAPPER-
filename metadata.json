@@ -1,0 +1,6 @@
+{
+  "name": "Akash Tunnel Joint Tracer",
+  "description": "AI-powered underground tunnel geological joint tracing, 3D structural orientation calculation, and engineering mapping sheet software.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

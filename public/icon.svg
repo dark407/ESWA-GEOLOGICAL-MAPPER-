@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16" />
+      <stop offset="55%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#0B192C" />
+    </linearGradient>
+    <linearGradient id="arch" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22D3EE" />
+      <stop offset="55%" stop-color="#0EA5E9" />
+      <stop offset="100%" stop-color="#10B981" />
+    </linearGradient>
+    <linearGradient id="eswaE" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="65%" stop-color="#22D3EE" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="88" fill="url(#bg)" stroke="#1E293B" stroke-width="8" />
+  <rect x="32" y="32" width="448" height="448" rx="68" fill="none" stroke="#38BDF8" stroke-opacity="0.25" stroke-width="3" stroke-dasharray="12 12" />
+  <!-- Overbreak Profile -->
+  <path d="M 88 396 L 80 236 L 128 122 L 256 66 L 384 120 L 432 238 L 424 396" fill="none" stroke="#F43F5E" stroke-width="7" stroke-dasharray="16 12" stroke-linecap="round" />
+  <!-- Tunnel D-Shaped Arch -->
+  <path d="M 106 396 L 106 240 A 150 150 0 0 1 406 240 L 406 396 Z" fill="#0B1324" stroke="url(#arch)" stroke-width="16" stroke-linejoin="round" />
+  <!-- Geological Joint Traces -->
+  <path d="M 122 292 L 208 236 L 304 196 L 390 168" fill="none" stroke="#F59E0B" stroke-width="9" stroke-linecap="round" />
+  <path d="M 152 156 L 244 228 L 328 304 L 390 364" fill="none" stroke="#38BDF8" stroke-width="8" stroke-linecap="round" />
+  <path d="M 118 352 L 236 320 L 356 280" fill="none" stroke="#10B981" stroke-width="7.5" stroke-linecap="round" />
+  <!-- Geometric ESWA "E" Monogram in Tunnel Face -->
+  <path d="M 192 172 H 324 M 192 172 V 344 M 192 258 H 300 M 192 344 H 324" fill="none" stroke="url(#eswaE)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M 192 172 H 324 M 192 172 V 344 M 192 258 H 300 M 192 344 H 324" fill="none" stroke="#F8FAFC" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.7" />
+  <!-- Survey Control Points -->
+  <circle cx="106" cy="240" r="13" fill="#10B981" stroke="#FFFFFF" stroke-width="5" />
+  <circle cx="256" cy="90" r="13" fill="#22D3EE" stroke="#FFFFFF" stroke-width="5" />
+  <circle cx="406" cy="240" r="13" fill="#10B981" stroke="#FFFFFF" stroke-width="5" />
+  <!-- Bottom ESWA Nameplate -->
+  <rect x="124" y="410" width="264" height="58" rx="14" fill="#090D16" stroke="#22D3EE" stroke-width="4" />
+  <text x="256" y="449" text-anchor="middle" fill="#F8FAFC" font-size="36" font-weight="800" font-family="Arial, sans-serif" letter-spacing="8">ESWA</text>
+</svg>

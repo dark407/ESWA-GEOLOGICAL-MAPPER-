@@ -1,0 +1,33 @@
+{
+  "id": "/",
+  "name": "ESWA TUNNEL MAPPER — Mobile & PC Engineering Suite",
+  "short_name": "EswaTunnel",
+  "description": "Underground tunnel geological joint tracing, overbreak/undercut analysis, 3D structural orientation, and engineering mapping app for Android & PC.",
+  "theme_color": "#0B0E14",
+  "background_color": "#0B0E14",
+  "display": "standalone",
+  "orientation": "landscape",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "start_url": "/?edition=user&platform=android",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -1,0 +1,467 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return (
+        isSignedIn() &&
+        (
+          (request.auth.token.email == 'dhoniakash407@gmail.com' && request.auth.token.email_verified == true) ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        )
+      );
+    }
+
+    function hasValidAdminToken(data) {
+      return data.adminAuthSig is string &&
+        data.adminAuthSig.size() <= 64 &&
+        data.adminAuthSig == 'ESWA_MASTER_ADMIN_SIG_v1';
+    }
+
+    // Entity Blueprint Validators (Pillar 2: Anti-Update-Gap)
+    function isValidAccessRequest(data) {
+      return data.keys().hasAll([
+          'requestId',
+          'portalScope',
+          'fullName',
+          'email',
+          'phone',
+          'organization',
+          'roleTitle',
+          'pcHardwareId',
+          'pcName',
+          'purposeNotes',
+          'status',
+          'assignedUserId',
+          'assignedLicenseKey',
+          'createdAtIso'
+        ]) &&
+        data.keys().hasOnly([
+          'requestId',
+          'portalScope',
+          'fullName',
+          'email',
+          'phone',
+          'organization',
+          'roleTitle',
+          'pcHardwareId',
+          'pcName',
+          'purposeNotes',
+          'status',
+          'assignedUserId',
+          'assignedLicenseKey',
+          'createdAtIso',
+          'adminAuthSig'
+        ]) &&
+        isValidId(data.requestId) &&
+        data.portalScope is string && data.portalScope.size() <= 32 && data.portalScope == 'ESWA_GLOBAL' &&
+        data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.phone is string && data.phone.size() >= 3 && data.phone.size() <= 60 &&
+        data.organization is string && data.organization.size() >= 1 && data.organization.size() <= 160 &&
+        data.roleTitle is string && data.roleTitle.size() >= 1 && data.roleTitle.size() <= 100 &&
+        data.pcHardwareId is string && data.pcHardwareId.size() >= 4 && data.pcHardwareId.size() <= 128 &&
+        data.pcName is string && data.pcName.size() >= 1 && data.pcName.size() <= 120 &&
+        data.purposeNotes is string && data.purposeNotes.size() <= 500 &&
+        data.status is string && data.status.size() <= 20 && (data.status in ['PENDING', 'APPROVED', 'REJECTED']) &&
+        data.assignedUserId is string && data.assignedUserId.size() <= 80 &&
+        data.assignedLicenseKey is string && data.assignedLicenseKey.size() <= 80 &&
+        data.createdAtIso is string && data.createdAtIso.size() >= 10 && data.createdAtIso.size() <= 64 &&
+        (!('adminAuthSig' in data) || (data.adminAuthSig is string && data.adminAuthSig.size() <= 64));
+    }
+
+    function isValidSoftwareLicense(data) {
+      return data.keys().hasAll([
+          'userId',
+          'portalScope',
+          'password',
+          'licenseKey',
+          'fullName',
+          'email',
+          'phone',
+          'organization',
+          'boundPcHardwareId',
+          'boundPcName',
+          'status',
+          'installedVersion',
+          'lastSeenAtIso',
+          'createdAtIso',
+          'adminAuthSig'
+        ]) &&
+        data.keys().hasOnly([
+          'userId',
+          'portalScope',
+          'password',
+          'licenseKey',
+          'fullName',
+          'email',
+          'phone',
+          'organization',
+          'boundPcHardwareId',
+          'boundPcName',
+          'status',
+          'installedVersion',
+          'lastSeenAtIso',
+          'createdAtIso',
+          'adminAuthSig'
+        ]) &&
+        isValidId(data.userId) &&
+        data.portalScope is string && data.portalScope.size() <= 32 && data.portalScope == 'ESWA_GLOBAL' &&
+        data.password is string && data.password.size() >= 3 && data.password.size() <= 120 &&
+        data.licenseKey is string && data.licenseKey.size() >= 6 && data.licenseKey.size() <= 80 &&
+        data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120 &&
+        data.email is string && data.email.size() <= 160 &&
+        data.phone is string && data.phone.size() <= 60 &&
+        data.organization is string && data.organization.size() <= 160 &&
+        data.boundPcHardwareId is string && data.boundPcHardwareId.size() <= 128 &&
+        data.boundPcName is string && data.boundPcName.size() <= 120 &&
+        data.status is string && data.status.size() <= 20 && (data.status in ['ACTIVE', 'SUSPENDED', 'REVOKED']) &&
+        data.installedVersion is string && data.installedVersion.size() <= 40 &&
+        data.lastSeenAtIso is string && data.lastSeenAtIso.size() <= 64 &&
+        data.createdAtIso is string && data.createdAtIso.size() >= 10 && data.createdAtIso.size() <= 64 &&
+        data.adminAuthSig is string && data.adminAuthSig.size() <= 64;
+    }
+
+    function isValidSoftwareRelease(data) {
+      return data.keys().hasAll([
+          'releaseId',
+          'portalScope',
+          'version',
+          'title',
+          'releaseNotes',
+          'downloadUrl',
+          'targetScope',
+          'targetIdentifierCsv',
+          'isMandatory',
+          'status',
+          'publishedAtIso',
+          'adminAuthSig'
+        ]) &&
+        data.keys().hasOnly([
+          'releaseId',
+          'portalScope',
+          'version',
+          'title',
+          'releaseNotes',
+          'downloadUrl',
+          'targetScope',
+          'targetIdentifierCsv',
+          'isMandatory',
+          'status',
+          'publishedAtIso',
+          'adminAuthSig'
+        ]) &&
+        isValidId(data.releaseId) &&
+        data.portalScope is string && data.portalScope.size() <= 32 && data.portalScope == 'ESWA_GLOBAL' &&
+        data.version is string && data.version.size() >= 1 && data.version.size() <= 40 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+        data.releaseNotes is string && data.releaseNotes.size() >= 1 && data.releaseNotes.size() <= 2000 &&
+        data.downloadUrl is string && data.downloadUrl.size() <= 500 &&
+        data.targetScope is string && data.targetScope.size() <= 32 && (data.targetScope in ['ALL_PCS', 'SPECIFIC_PCS']) &&
+        data.targetIdentifierCsv is string && data.targetIdentifierCsv.size() <= 1500 &&
+        data.isMandatory is bool &&
+        data.status is string && data.status.size() <= 20 && (data.status in ['PUBLISHED', 'ARCHIVED']) &&
+        data.publishedAtIso is string && data.publishedAtIso.size() >= 10 && data.publishedAtIso.size() <= 64 &&
+        data.adminAuthSig is string && data.adminAuthSig.size() <= 64;
+    }
+
+    function isValidMasterPc(data) {
+      return data.keys().hasAll([
+          'pcHardwareId',
+          'portalScope',
+          'label',
+          'bypassLogin',
+          'registeredAtIso',
+          'adminAuthSig'
+        ]) &&
+        data.keys().hasOnly([
+          'pcHardwareId',
+          'portalScope',
+          'label',
+          'bypassLogin',
+          'registeredAtIso',
+          'adminAuthSig'
+        ]) &&
+        isValidId(data.pcHardwareId) &&
+        data.portalScope is string && data.portalScope.size() <= 32 && data.portalScope == 'ESWA_GLOBAL' &&
+        data.label is string && data.label.size() >= 1 && data.label.size() <= 120 &&
+        data.bypassLogin is bool &&
+        data.registeredAtIso is string && data.registeredAtIso.size() >= 10 && data.registeredAtIso.size() <= 64 &&
+        data.adminAuthSig is string && data.adminAuthSig.size() <= 64;
+    }
+
+    // Connection health check endpoint
+    match /test/{docId} {
+      allow get: if isValidId(docId);
+    }
+
+    // Admins lookup collection
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && isValidId(adminUid) && request.auth.uid == adminUid;
+    }
+
+    // 1. Access Requests (/access_requests/{requestId})
+    match /access_requests/{requestId} {
+      allow get: if isValidId(requestId);
+      allow list: if existing().portalScope == 'ESWA_GLOBAL';
+
+      allow create: if isValidId(requestId) &&
+        isValidAccessRequest(incoming()) &&
+        incoming().requestId == requestId &&
+        incoming().status == 'PENDING' &&
+        incoming().assignedUserId == '' &&
+        incoming().assignedLicenseKey == '';
+
+      allow update: if isValidId(requestId) &&
+        isValidAccessRequest(incoming()) &&
+        incoming().requestId == existing().requestId &&
+        incoming().createdAtIso == existing().createdAtIso &&
+        (
+          isAdmin() ||
+          (
+            hasValidAdminToken(incoming()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
+              'assignedUserId',
+              'assignedLicenseKey',
+              'adminAuthSig'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(requestId) && (isAdmin() || existing().portalScope == 'ESWA_GLOBAL');
+    }
+
+    // 2. 1-PC Hardware-Locked Software Licenses (/software_licenses/{userId})
+    match /software_licenses/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if existing().portalScope == 'ESWA_GLOBAL';
+
+      allow create: if isValidId(userId) &&
+        isValidSoftwareLicense(incoming()) &&
+        incoming().userId == userId &&
+        (isAdmin() || hasValidAdminToken(incoming()));
+
+      allow update: if isValidId(userId) &&
+        isValidSoftwareLicense(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAtIso == existing().createdAtIso &&
+        (
+          isAdmin() ||
+          // Action A: Master Admin updating license fields or resetting PC lock
+          (
+            hasValidAdminToken(incoming()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'password',
+              'licenseKey',
+              'fullName',
+              'email',
+              'phone',
+              'organization',
+              'boundPcHardwareId',
+              'boundPcName',
+              'status',
+              'installedVersion',
+              'lastSeenAtIso',
+              'adminAuthSig'
+            ])
+          ) ||
+          // Action B: Client PC 1-PC Hardware Lock Activation / Heartbeat
+          (
+            existing().status == 'ACTIVE' &&
+            incoming().password == existing().password &&
+            incoming().licenseKey == existing().licenseKey &&
+            incoming().status == existing().status &&
+            (
+              existing().boundPcHardwareId == '' ||
+              existing().boundPcHardwareId == incoming().boundPcHardwareId
+            ) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'boundPcHardwareId',
+              'boundPcName',
+              'installedVersion',
+              'lastSeenAtIso'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(userId) && (isAdmin() || existing().portalScope == 'ESWA_GLOBAL');
+    }
+
+    // 3. Software Update Releases (/software_releases/{releaseId})
+    match /software_releases/{releaseId} {
+      allow get: if isValidId(releaseId);
+      allow list: if existing().portalScope == 'ESWA_GLOBAL';
+
+      allow create: if isValidId(releaseId) &&
+        isValidSoftwareRelease(incoming()) &&
+        incoming().releaseId == releaseId &&
+        (isAdmin() || hasValidAdminToken(incoming()));
+
+      allow update: if isValidId(releaseId) &&
+        isValidSoftwareRelease(incoming()) &&
+        incoming().releaseId == existing().releaseId &&
+        incoming().publishedAtIso == existing().publishedAtIso &&
+        (
+          isAdmin() ||
+          (
+            hasValidAdminToken(incoming()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'version',
+              'title',
+              'releaseNotes',
+              'downloadUrl',
+              'targetScope',
+              'targetIdentifierCsv',
+              'isMandatory',
+              'status',
+              'adminAuthSig'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(releaseId) && (isAdmin() || existing().portalScope == 'ESWA_GLOBAL');
+    }
+
+    // 4. Master PC Bypass Registry (/master_pcs/{pcHardwareId})
+    match /master_pcs/{pcHardwareId} {
+      allow get: if isValidId(pcHardwareId);
+      allow list: if existing().portalScope == 'ESWA_GLOBAL';
+
+      allow create: if isValidId(pcHardwareId) &&
+        isValidMasterPc(incoming()) &&
+        incoming().pcHardwareId == pcHardwareId &&
+        (isAdmin() || hasValidAdminToken(incoming()));
+
+      allow update: if isValidId(pcHardwareId) &&
+        isValidMasterPc(incoming()) &&
+        incoming().pcHardwareId == existing().pcHardwareId &&
+        incoming().registeredAtIso == existing().registeredAtIso &&
+        (
+          isAdmin() ||
+          (
+            hasValidAdminToken(incoming()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'label',
+              'bypassLogin',
+              'adminAuthSig'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(pcHardwareId) && (isAdmin() || existing().portalScope == 'ESWA_GLOBAL');
+    }
+
+    // 5. Google User Cloud Workspaces (/user_workspaces/{uid})
+    match /user_workspaces/{uid} {
+      allow get: if isSignedIn() && request.auth.uid == uid;
+      allow create, update: if isSignedIn() &&
+        request.auth.uid == uid &&
+        incoming().keys().hasAll(['uid', 'email', 'displayName', 'updatedAtIso', 'payloadJson']) &&
+        incoming().keys().hasOnly(['uid', 'email', 'displayName', 'updatedAtIso', 'payloadJson']) &&
+        incoming().uid is string && incoming().uid == uid &&
+        incoming().email is string && incoming().email.size() <= 160 &&
+        incoming().displayName is string && incoming().displayName.size() <= 160 &&
+        incoming().updatedAtIso is string && incoming().updatedAtIso.size() <= 64 &&
+        incoming().payloadJson is string && incoming().payloadJson.size() <= 900000;
+      allow delete: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // 6. Device ID Directory (/device_directory/{deviceId})
+    match /device_directory/{deviceId} {
+      allow get: if isValidId(deviceId);
+      allow create, update: if isValidId(deviceId) &&
+        incoming().keys().hasAll(['deviceId', 'customAlias', 'uid', 'email', 'displayName', 'updatedAtIso']) &&
+        incoming().keys().hasOnly(['deviceId', 'customAlias', 'uid', 'email', 'displayName', 'updatedAtIso']) &&
+        incoming().deviceId is string && incoming().deviceId.size() >= 2 && incoming().deviceId.size() <= 40 &&
+        incoming().customAlias is string && incoming().customAlias.size() <= 40 &&
+        incoming().uid is string && incoming().uid.size() <= 128 &&
+        incoming().email is string && incoming().email.size() <= 160 &&
+        incoming().displayName is string && incoming().displayName.size() <= 160 &&
+        incoming().updatedAtIso is string && incoming().updatedAtIso.size() <= 64;
+    }
+
+    // 7. Device Peer Review & Package Transfers (/device_transfers/{transferId})
+    match /device_transfers/{transferId} {
+      allow get: if isValidId(transferId);
+      allow list: if existing().portalScope == 'ESWA_GLOBAL';
+      allow create: if isValidId(transferId) &&
+        incoming().keys().hasAll([
+          'transferId', 'portalScope', 'transferType', 'senderUid', 'senderDeviceId',
+          'senderName', 'senderEmail', 'recipientDeviceId', 'projectTitle', 'locationTitle',
+          'chainageLabel', 'mappingDomain', 'mappingMethod', 'roundId', 'status',
+          'senderNotes', 'reviewerRemarks', 'reviewerName', 'reviewerSign',
+          'packageJson', 'createdAtIso', 'updatedAtIso'
+        ]) &&
+        incoming().keys().hasOnly([
+          'transferId', 'portalScope', 'transferType', 'senderUid', 'senderDeviceId',
+          'senderName', 'senderEmail', 'recipientDeviceId', 'projectTitle', 'locationTitle',
+          'chainageLabel', 'mappingDomain', 'mappingMethod', 'roundId', 'status',
+          'senderNotes', 'reviewerRemarks', 'reviewerName', 'reviewerSign',
+          'packageJson', 'createdAtIso', 'updatedAtIso'
+        ]) &&
+        incoming().transferId == transferId &&
+        incoming().portalScope == 'ESWA_GLOBAL' &&
+        incoming().transferType in ['REVIEW_REQUEST', 'DATA_EXPORT'] &&
+        incoming().senderUid is string && incoming().senderUid.size() <= 128 &&
+        incoming().senderDeviceId is string && incoming().senderDeviceId.size() >= 2 && incoming().senderDeviceId.size() <= 40 &&
+        incoming().senderName is string && incoming().senderName.size() <= 120 &&
+        incoming().senderEmail is string && incoming().senderEmail.size() <= 160 &&
+        incoming().recipientDeviceId is string && incoming().recipientDeviceId.size() >= 2 && incoming().recipientDeviceId.size() <= 40 &&
+        incoming().projectTitle is string && incoming().projectTitle.size() <= 160 &&
+        incoming().locationTitle is string && incoming().locationTitle.size() <= 160 &&
+        incoming().chainageLabel is string && incoming().chainageLabel.size() <= 80 &&
+        incoming().mappingDomain is string && incoming().mappingDomain.size() <= 32 &&
+        incoming().mappingMethod is string && incoming().mappingMethod.size() <= 32 &&
+        incoming().roundId is string && incoming().roundId.size() <= 120 &&
+        incoming().status == 'PENDING' &&
+        incoming().senderNotes is string && incoming().senderNotes.size() <= 500 &&
+        incoming().reviewerRemarks is string && incoming().reviewerRemarks.size() <= 500 &&
+        incoming().reviewerName is string && incoming().reviewerName.size() <= 120 &&
+        incoming().reviewerSign is string && incoming().reviewerSign.size() <= 120 &&
+        incoming().packageJson is string && incoming().packageJson.size() <= 900000 &&
+        incoming().createdAtIso is string && incoming().createdAtIso.size() <= 64 &&
+        incoming().updatedAtIso is string && incoming().updatedAtIso.size() <= 64;
+
+      allow update: if isValidId(transferId) &&
+        incoming().transferId == existing().transferId &&
+        incoming().senderDeviceId == existing().senderDeviceId &&
+        incoming().recipientDeviceId == existing().recipientDeviceId &&
+        incoming().createdAtIso == existing().createdAtIso &&
+        incoming().status in ['PENDING', 'APPROVED', 'CHANGES_REQUESTED', 'IMPORTED'] &&
+        incoming().reviewerRemarks is string && incoming().reviewerRemarks.size() <= 500 &&
+        incoming().reviewerName is string && incoming().reviewerName.size() <= 120 &&
+        incoming().reviewerSign is string && incoming().reviewerSign.size() <= 120 &&
+        incoming().updatedAtIso is string && incoming().updatedAtIso.size() <= 64 &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status',
+          'reviewerRemarks',
+          'reviewerName',
+          'reviewerSign',
+          'updatedAtIso'
+        ]);
+    }
+  }
+}
