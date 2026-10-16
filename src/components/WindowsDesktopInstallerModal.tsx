@@ -412,8 +412,8 @@ export const WindowsDesktopInstallerModal: React.FC<WindowsDesktopInstallerModal
               <strong className="text-slate-200">
                 Included Offline Electron .EXE Builder (For Local Source Packaging):
               </strong>{' '}
-              This project also includes <code className="text-cyan-300">electron/main.cjs</code>{' '}
-              and <code className="text-cyan-300">BUILD_WINDOWS_EXE.bat</code> in the project root
+              This project includes <code className="text-cyan-300">electron/main.js</code>{' '}
+              and <code className="text-cyan-300">npm run build:electron</code>
               to compile a standalone offline x64 Electron executable via{' '}
               <code className="text-cyan-300">electron-builder</code>.
             </div>

@@ -101,6 +101,19 @@ export interface ContinuousStripTrace {
   /** Exact normalized (0..1, 0..1) image UV coordinates from the 2D unwrapped surface */
   uvPoints?: Point2D[];
   colorHex?: string;
+  roughness?: string;
+  infilling?: string;
+  apertureMm?: string;
+  waterCondition?: string;
+  dipTickSide?: 'left' | 'right';
+  faultSubType?: 'normal' | 'reverse' | 'strike_slip' | 'thrust';
+  faultElementRole?: 'main_fault' | 'hanging_wall' | 'footwall';
+  showHwFw?: boolean;
+  flipHwFw?: boolean;
+  foldSubType?: 'anticline' | 'syncline' | 'monocline';
+  foldElementRole?: 'crest' | 'limb_left' | 'limb_right' | 'axis';
+  showFoldCrest?: boolean;
+  showFoldLimbs?: boolean;
 }
 
 export interface ContinuousStripLithologyZone {

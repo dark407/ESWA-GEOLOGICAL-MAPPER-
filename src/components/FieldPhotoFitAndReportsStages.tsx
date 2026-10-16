@@ -6,12 +6,16 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  Compass,
+  Crop,
+  Crosshair,
   Download,
   Eye,
   EyeOff,
   FileSpreadsheet,
   FlipHorizontal,
   FlipVertical,
+  Grid,
   Image as ImageIcon,
   Layers,
   Maximize2,
@@ -340,12 +344,29 @@ export const FittedPanelPhotoSvgImage: React.FC<{
 }) => {
   const cx = boxX + boxW / 2;
   const cy = boxY + boxH / 2;
-  const scale = Math.max(0.25, Math.min(3.0, (fitConfig.scalePct || 100) / 100));
-  const sx = (fitConfig.mirrorH ? -1 : 1) * scale;
-  const sy = (fitConfig.mirrorV ? -1 : 1) * scale;
+  const baseScale = Math.max(0.15, Math.min(4.0, (fitConfig.scalePct || 100) / 100));
+  const scaleX = baseScale * Math.max(0.2, Math.min(3.5, (fitConfig.scaleXPct ?? 100) / 100));
+  const scaleY = baseScale * Math.max(0.2, Math.min(3.5, (fitConfig.scaleYPct ?? 100) / 100));
+  const sx = (fitConfig.mirrorH ? -1 : 1) * scaleX;
+  const sy = (fitConfig.mirrorV ? -1 : 1) * scaleY;
   const rot = fitConfig.rotationDeg || 0;
+  const skewX = fitConfig.skewXDeg || 0;
+  const skewY = fitConfig.skewYDeg || 0;
   const dx = fitConfig.offsetX || 0;
   const dy = fitConfig.offsetY || 0;
+
+  // Custom Crop Extent inset percentages (shrink from edges or extend)
+  const crop = fitConfig.cropExtent || { leftPct: 0, rightPct: 0, topPct: 0, bottomPct: 0 };
+  const cropLeft = (crop.leftPct || 0) / 100;
+  const cropRight = (crop.rightPct || 0) / 100;
+  const cropTop = (crop.topPct || 0) / 100;
+  const cropBottom = (crop.bottomPct || 0) / 100;
+
+  const effBoxX = boxX + cropLeft * boxW;
+  const effBoxY = boxY + cropTop * boxH;
+  const effBoxW = Math.max(10, boxW * (1 - cropLeft - cropRight));
+  const effBoxH = Math.max(10, boxH * (1 - cropTop - cropBottom));
+
   const preserveAspectRatio =
     fitConfig.fitMode === 'stretch'
       ? 'none'
@@ -357,17 +378,17 @@ export const FittedPanelPhotoSvgImage: React.FC<{
       ? overrideOpacity
       : Math.max(0.08, Math.min(1, (fitConfig.opacityPct ?? 78) / 100));
 
-  const transformStr = `translate(${(cx + dx).toFixed(1)}, ${(cy + dy).toFixed(1)}) rotate(${rot.toFixed(1)}) scale(${sx.toFixed(3)}, ${sy.toFixed(3)}) translate(${(-cx).toFixed(1)}, ${(-cy).toFixed(1)})`;
+  const transformStr = `translate(${(cx + dx).toFixed(1)}, ${(cy + dy).toFixed(1)}) rotate(${rot.toFixed(1)}) skewX(${skewX.toFixed(1)}) skewY(${skewY.toFixed(1)}) scale(${sx.toFixed(3)}, ${sy.toFixed(3)}) translate(${(-cx).toFixed(1)}, ${(-cy).toFixed(1)})`;
 
   return (
     <g clipPath={clipPathId ? `url(#${clipPathId})` : undefined} pointerEvents="none">
       <g transform={transformStr}>
         <image
-          href={photoUrl}
-          x={boxX}
-          y={boxY}
-          width={boxW}
-          height={boxH}
+          href={fitConfig.warpedDataUrl || photoUrl}
+          x={effBoxX}
+          y={effBoxY}
+          width={effBoxW}
+          height={effBoxH}
           preserveAspectRatio={preserveAspectRatio}
           opacity={opacity}
           filter={filterId ? `url(#${filterId})` : undefined}
@@ -1262,9 +1283,25 @@ export const FieldPhotoFitStage: React.FC<{
   onProceedToFaceCanvas,
 }) => {
   const [selectedPanel, setSelectedPanel] = useState<FieldPanelId>('face');
+  const [activeTab, setActiveTab] = useState<'angle' | 'mesh' | 'crop_extent' | 'scale' | 'quality'>('angle');
   const [showGridOverlay, setShowGridOverlay] = useState(true);
-  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
-  const dragStartRef = useRef<{ x: number; y: number; startOffsetX: number; startOffsetY: number } | null>(null);
+  const [showMeshPins, setShowMeshPins] = useState(true);
+  const [showCropHandles, setShowCropHandles] = useState(true);
+  const [dragMode, setDragMode] = useState<string | null>(null);
+
+  const dragStartRef = useRef<{
+    mode: string;
+    startX: number;
+    startY: number;
+    initOffsetX: number;
+    initOffsetY: number;
+    initRot: number;
+    initScaleX: number;
+    initScaleY: number;
+    initCrop: { leftPct: number; rightPct: number; topPct: number; bottomPct: number };
+    initMesh: { tl: { x: number; y: number }; tr: { x: number; y: number }; br: { x: number; y: number }; bl: { x: number; y: number } };
+  } | null>(null);
+
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const isSurface = mappingDomain !== 'TUNNEL';
@@ -1327,65 +1364,209 @@ export const FieldPhotoFitStage: React.FC<{
         )
       : null;
 
-  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!activePhoto || !svgRef.current) return;
+  // Active mesh points (default to 4 corners of the panel box)
+  const meshCorners = activeFit.meshCorners || {
+    tl: { x: 0, y: 0 },
+    tr: { x: 0, y: 0 },
+    br: { x: 0, y: 0 },
+    bl: { x: 0, y: 0 },
+  };
+
+  const cropExtent = activeFit.cropExtent || {
+    leftPct: 0,
+    rightPct: 0,
+    topPct: 0,
+    bottomPct: 0,
+  };
+
+  // Convert client pointer event to SVG coordinates
+  const getSvgCoordinates = (e: React.PointerEvent<SVGSVGElement | SVGCircleElement | SVGPathElement>) => {
+    if (!svgRef.current) return { x: 0, y: 0 };
     const rect = svgRef.current.getBoundingClientRect();
     const scaleX = 1000 / Math.max(1, rect.width);
     const scaleY = 1000 / Math.max(1, rect.height);
-    dragStartRef.current = {
-      x: e.clientX * scaleX,
-      y: e.clientY * scaleY,
-      startOffsetX: activeFit.offsetX,
-      startOffsetY: activeFit.offsetY,
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
     };
-    setIsDraggingPhoto(true);
+  };
+
+  const handlePointerDown = (mode: string, e: React.PointerEvent<any>) => {
+    e.stopPropagation();
+    if (!activePhoto || !svgRef.current) return;
+    const { x, y } = getSvgCoordinates(e);
+
+    dragStartRef.current = {
+      mode,
+      startX: x,
+      startY: y,
+      initOffsetX: activeFit.offsetX,
+      initOffsetY: activeFit.offsetY,
+      initRot: activeFit.rotationDeg || 0,
+      initScaleX: activeFit.scaleXPct || 100,
+      initScaleY: activeFit.scaleYPct || 100,
+      initCrop: { ...cropExtent },
+      initMesh: {
+        tl: { ...meshCorners.tl },
+        tr: { ...meshCorners.tr },
+        br: { ...meshCorners.br },
+        bl: { ...meshCorners.bl },
+      },
+    };
+    setDragMode(mode);
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!isDraggingPhoto || !dragStartRef.current || !svgRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const scaleX = 1000 / Math.max(1, rect.width);
-    const scaleY = 1000 / Math.max(1, rect.height);
-    const dx = e.clientX * scaleX - dragStartRef.current.x;
-    const dy = e.clientY * scaleY - dragStartRef.current.y;
-    updatePanelFit(selectedPanel, {
-      offsetX: Math.round(Math.max(-450, Math.min(450, dragStartRef.current.startOffsetX + dx))),
-      offsetY: Math.round(Math.max(-450, Math.min(450, dragStartRef.current.startOffsetY + dy))),
-    });
+    if (!dragMode || !dragStartRef.current || !svgRef.current) return;
+    const { x, y } = getSvgCoordinates(e);
+    const dx = x - dragStartRef.current.startX;
+    const dy = y - dragStartRef.current.startY;
+
+    if (dragMode === 'pan') {
+      // Direct drag on photo pans without clumsy sliders
+      updatePanelFit(selectedPanel, {
+        offsetX: Math.round(Math.max(-550, Math.min(550, dragStartRef.current.initOffsetX + dx))),
+        offsetY: Math.round(Math.max(-550, Math.min(550, dragStartRef.current.initOffsetY + dy))),
+      });
+    } else if (dragMode === 'mesh_tl') {
+      updatePanelFit(selectedPanel, {
+        meshCorners: {
+          ...meshCorners,
+          tl: {
+            x: Math.round(dragStartRef.current.initMesh.tl.x + dx),
+            y: Math.round(dragStartRef.current.initMesh.tl.y + dy),
+          },
+        },
+      });
+    } else if (dragMode === 'mesh_tr') {
+      updatePanelFit(selectedPanel, {
+        meshCorners: {
+          ...meshCorners,
+          tr: {
+            x: Math.round(dragStartRef.current.initMesh.tr.x + dx),
+            y: Math.round(dragStartRef.current.initMesh.tr.y + dy),
+          },
+        },
+      });
+    } else if (dragMode === 'mesh_br') {
+      updatePanelFit(selectedPanel, {
+        meshCorners: {
+          ...meshCorners,
+          br: {
+            x: Math.round(dragStartRef.current.initMesh.br.x + dx),
+            y: Math.round(dragStartRef.current.initMesh.br.y + dy),
+          },
+        },
+      });
+    } else if (dragMode === 'mesh_bl') {
+      updatePanelFit(selectedPanel, {
+        meshCorners: {
+          ...meshCorners,
+          bl: {
+            x: Math.round(dragStartRef.current.initMesh.bl.x + dx),
+            y: Math.round(dragStartRef.current.initMesh.bl.y + dy),
+          },
+        },
+      });
+    } else if (dragMode === 'extent_left') {
+      // Dragging left handle extends or shrinks left crop boundary
+      const deltaPct = Math.round((dx / Math.max(10, pGeom.boxW)) * 100);
+      const newLeft = Math.max(0, Math.min(45, dragStartRef.current.initCrop.leftPct + deltaPct));
+      updatePanelFit(selectedPanel, {
+        cropExtent: {
+          ...cropExtent,
+          leftPct: newLeft,
+        },
+      });
+    } else if (dragMode === 'extent_right') {
+      const deltaPct = Math.round((-dx / Math.max(10, pGeom.boxW)) * 100);
+      const newRight = Math.max(0, Math.min(45, dragStartRef.current.initCrop.rightPct + deltaPct));
+      updatePanelFit(selectedPanel, {
+        cropExtent: {
+          ...cropExtent,
+          rightPct: newRight,
+        },
+      });
+    } else if (dragMode === 'extent_top') {
+      const deltaPct = Math.round((dy / Math.max(10, pGeom.boxH)) * 100);
+      const newTop = Math.max(0, Math.min(45, dragStartRef.current.initCrop.topPct + deltaPct));
+      updatePanelFit(selectedPanel, {
+        cropExtent: {
+          ...cropExtent,
+          topPct: newTop,
+        },
+      });
+    } else if (dragMode === 'extent_bottom') {
+      const deltaPct = Math.round((-dy / Math.max(10, pGeom.boxH)) * 100);
+      const newBottom = Math.max(0, Math.min(45, dragStartRef.current.initCrop.bottomPct + deltaPct));
+      updatePanelFit(selectedPanel, {
+        cropExtent: {
+          ...cropExtent,
+          bottomPct: newBottom,
+        },
+      });
+    } else if (dragMode === 'rotate_handle') {
+      // Dragging top lollipop rotates photo continuously
+      const cx = pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX;
+      const cy = pGeom.boxY + pGeom.boxH / 2 + activeFit.offsetY;
+      const angle = (Math.atan2(y - cy, x - cx) * 180) / Math.PI + 90;
+      const normalizedAngle = Math.round((((angle + 180) % 360) - 180) * 2) / 2;
+      updatePanelFit(selectedPanel, {
+        rotationDeg: normalizedAngle,
+      });
+    }
   };
 
   const handlePointerUp = () => {
-    setIsDraggingPhoto(false);
+    setDragMode(null);
     dragStartRef.current = null;
   };
 
+  // Center & Dimensions of current fitted box
+  const cx = pGeom.boxX + pGeom.boxW / 2;
+  const cy = pGeom.boxY + pGeom.boxH / 2;
+  const rot = activeFit.rotationDeg || 0;
+  const curScale = (activeFit.scalePct || 100) / 100;
+  const curScaleX = curScale * ((activeFit.scaleXPct ?? 100) / 100);
+  const curScaleY = curScale * ((activeFit.scaleYPct ?? 100) / 100);
+
+  // Mesh 4-Corner Pin Points (in SVG canvas space)
+  const pinTL = { x: pGeom.boxX + meshCorners.tl.x, y: pGeom.boxY + meshCorners.tl.y };
+  const pinTR = { x: pGeom.boxX + pGeom.boxW + meshCorners.tr.x, y: pGeom.boxY + meshCorners.tr.y };
+  const pinBR = { x: pGeom.boxX + pGeom.boxW + meshCorners.br.x, y: pGeom.boxY + pGeom.boxH + meshCorners.br.y };
+  const pinBL = { x: pGeom.boxX + meshCorners.bl.x, y: pGeom.boxY + pGeom.boxH + meshCorners.bl.y };
+
+  // Crop extent visual bounds
+  const cropL = pGeom.boxX + (cropExtent.leftPct / 100) * pGeom.boxW;
+  const cropR = pGeom.boxX + pGeom.boxW - (cropExtent.rightPct / 100) * pGeom.boxW;
+  const cropT = pGeom.boxY + (cropExtent.topPct / 100) * pGeom.boxH;
+  const cropB = pGeom.boxY + pGeom.boxH - (cropExtent.bottomPct / 100) * pGeom.boxH;
+
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 bg-slate-950">
-      <div className="max-w-7xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-5 shadow-xl">
+    <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-4 bg-slate-950">
+      <div className="max-w-7xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-3 sm:p-5 shadow-2xl">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-bold uppercase">
-                Step 4 • Photo Fit &amp; {isSurface ? surfMap.domainTitle : 'Tunnel Shape'} Alignment
+                Step 4 • Professional Photo Fit &amp; Shape Warp
               </span>
               <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-mono">
                 {isSurface
-                  ? `Profile: ${mappingDomain} RECTANGULAR (${effectiveLocation.widthM}m W × ${effectiveLocation.heightM}m H • Bay Span ${activeRound.pullLengthMeters || 3}m)`
+                  ? `Profile: ${mappingDomain} RECTANGULAR (${effectiveLocation.widthM}m W × ${effectiveLocation.heightM}m H)`
                   : `Profile: ${effectiveLocation.shape.toUpperCase()} (${effectiveLocation.widthM}m W × ${effectiveLocation.heightM}m H • Pull ${activeRound.pullLengthMeters || 3}m)`}
               </span>
             </div>
             <h2 className="text-base sm:text-lg font-bold text-white mt-1 flex items-center gap-2">
               <Maximize2 className="w-5 h-5 text-amber-400" />
               {isSurface
-                ? `Fit 4 Uploaded Photos into ${surfMap.domainTitle} Panels & Dimensions`
-                : 'Fit 4 Uploaded Photos into Exact Tunnel Shape & Dimensions'}
+                ? `Fit & Align Photographs into ${surfMap.domainTitle} Panels`
+                : 'Fit, Align Angle & Mesh-Warp Photo to Tunnel Profile'}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              {isSurface
-                ? `Drag directly on the photo to pan, or use the fit controls on the right so the exposed rock face, crest, berm, and walls align with your ${surfMap.domainTitle} boundary.`
-                : `Drag directly on the photo to pan, or use the fit controls on the right so the rock face, SPL, and walls align with your ${effectiveLocation.shape.toUpperCase()} excavation boundary before opening the Face Canvas.`}
+              Drag photo to pan. Use 4-point mesh pins and angle alignment to fit photographs taken at arbitrary perspective angles into your exact tunnel profile.
             </p>
           </div>
 
@@ -1413,11 +1594,11 @@ export const FieldPhotoFitStage: React.FC<{
           </div>
         </div>
 
-        {/* Main 2-column Workspace: Interactive Shape Fit Canvas (Left) + Controls (Right) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-4">
+        {/* Main 2-column Workspace: Interactive SVG Canvas (Left) + Professional Fit Controls (Right) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-3">
           {/* Left 8 Cols: Interactive SVG Profile Fit Viewport */}
           <div className="lg:col-span-8 bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2 border-b border-slate-800 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-800 text-xs">
               <div className="flex items-center gap-2">
                 <span className="font-mono font-bold text-amber-300 uppercase">
                   Active Surface: {panelTabs.find((p) => p.id === selectedPanel)?.label}
@@ -1425,39 +1606,61 @@ export const FieldPhotoFitStage: React.FC<{
                 <span className="text-slate-400 font-mono">
                   ({pGeom.panelWidthM.toFixed(1)}m × {pGeom.panelHeightM.toFixed(1)}m)
                 </span>
+                {selectedPanel === 'crown' && (
+                  <span className="px-1.5 py-0.5 rounded bg-sky-950 border border-sky-800 text-sky-300 text-[10px] font-mono font-bold">
+                    Horizontal (0m Bottom → {pGeom.panelHeightM.toFixed(1)}m Top)
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-2">
+
+              {/* Viewport Overlay Toggles */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowMeshPins((v) => !v)}
+                  className={`px-2 py-1 rounded text-[10.5px] font-mono border cursor-pointer ${
+                    showMeshPins
+                      ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                      : 'bg-slate-900 border-slate-700 text-slate-400'
+                  }`}
+                  title="Toggle 4-Corner Mesh Control Pins"
+                >
+                  Mesh Pins: {showMeshPins ? 'ON' : 'OFF'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCropHandles((v) => !v)}
+                  className={`px-2 py-1 rounded text-[10.5px] font-mono border cursor-pointer ${
+                    showCropHandles
+                      ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                      : 'bg-slate-900 border-slate-700 text-slate-400'
+                  }`}
+                  title="Toggle Crop & Extent Boundary Handles"
+                >
+                  Extents: {showCropHandles ? 'ON' : 'OFF'}
+                </button>
                 <button
                   type="button"
                   onClick={() => setShowGridOverlay((v) => !v)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-mono border cursor-pointer ${
+                  className={`px-2 py-1 rounded text-[10.5px] font-mono border cursor-pointer ${
                     showGridOverlay
                       ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
                       : 'bg-slate-900 border-slate-700 text-slate-400'
                   }`}
                 >
-                  {isSurface
-                    ? showGridOverlay
-                      ? '1m Grid & Crest/Toe: ON'
-                      : '1m Grid & Crest/Toe: OFF'
-                    : showGridOverlay
-                    ? '1m Grid & SPL: ON'
-                    : '1m Grid & SPL: OFF'}
+                  1m Grid: {showGridOverlay ? 'ON' : 'OFF'}
                 </button>
-                <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1">
-                  <Move className="w-3.5 h-3.5 text-cyan-400" /> Drag photo to align
-                </span>
               </div>
             </div>
 
-            <div className="relative flex-1 min-h-[380px] flex items-center justify-center bg-slate-900/60 rounded-lg border border-slate-800/80 overflow-hidden">
+            <div className="relative flex-1 min-h-[420px] flex items-center justify-center bg-slate-900/80 rounded-lg border border-slate-800 overflow-hidden">
               <svg
                 ref={svgRef}
                 viewBox="0 0 1000 1000"
-                className={`w-full max-h-[460px] select-none touch-none ${
-                  activePhoto ? 'cursor-grab active:cursor-grabbing' : ''
+                className={`w-full max-h-[500px] select-none touch-none ${
+                  dragMode ? 'cursor-grabbing' : activePhoto ? 'cursor-grab' : ''
                 }`}
-                onPointerDown={handlePointerDown}
+                onPointerDown={(e) => handlePointerDown('pan', e)}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
@@ -1482,19 +1685,19 @@ export const FieldPhotoFitStage: React.FC<{
                   </clipPath>
                 </defs>
 
-                {/* Dark Surround Outside Shape */}
-                <rect x="0" y="0" width="1000" height="1000" fill="#090d16" />
+                {/* Dark Outer Surround */}
+                <rect x="0" y="0" width="1000" height="1000" fill="#080c14" />
 
-                {/* Base Inside Shape */}
+                {/* Inside Excavation Profile Area */}
                 {selectedPanel === 'face' && faceDetails ? (
-                  <path d={faceDetails.closedFillPathD} fill="#1e293b" />
+                  <path d={faceDetails.closedFillPathD} fill="#131c2e" />
                 ) : (
                   <rect
                     x={pGeom.boxX}
                     y={pGeom.boxY}
                     width={pGeom.boxW}
                     height={pGeom.boxH}
-                    fill="#1e293b"
+                    fill="#131c2e"
                   />
                 )}
 
@@ -1536,9 +1739,9 @@ export const FieldPhotoFitStage: React.FC<{
                           y1={pGeom.boxY}
                           x2={gx}
                           y2={pGeom.boxY + pGeom.boxH}
-                          stroke="rgba(56, 189, 248, 0.4)"
-                          strokeWidth="1.5"
-                          strokeDasharray="6 6"
+                          stroke="rgba(56, 189, 248, 0.35)"
+                          strokeWidth="1.2"
+                          strokeDasharray="4 4"
                         />
                       );
                     })}
@@ -1551,22 +1754,24 @@ export const FieldPhotoFitStage: React.FC<{
                           y1={gy}
                           x2={pGeom.boxX + pGeom.boxW}
                           y2={gy}
-                          stroke="rgba(56, 189, 248, 0.4)"
-                          strokeWidth="1.5"
-                          strokeDasharray="6 6"
+                          stroke="rgba(56, 189, 248, 0.35)"
+                          strokeWidth="1.2"
+                          strokeDasharray="4 4"
                         />
                       );
                     })}
-                    {/* Centerline CL */}
+
+                    {/* Centerline CL (Vertical for Face & Crown) */}
                     <line
                       x1={pGeom.boxX + pGeom.boxW / 2}
                       y1={pGeom.boxY}
                       x2={pGeom.boxX + pGeom.boxW / 2}
                       y2={pGeom.boxY + pGeom.boxH}
                       stroke="#fbbf24"
-                      strokeWidth="2.5"
-                      strokeDasharray="10 6"
+                      strokeWidth="2.2"
+                      strokeDasharray="10 5"
                     />
+
                     {!isSurface && selectedPanel === 'face' && faceDetails && faceDetails.showSplLine && (
                       <line
                         x1={pGeom.boxX}
@@ -1581,14 +1786,14 @@ export const FieldPhotoFitStage: React.FC<{
                   </g>
                 )}
 
-                {/* Crisp Shape Boundary Outline */}
+                {/* Tunnel Profile Outline */}
                 {selectedPanel === 'face' && faceDetails ? (
                   <>
                     <path
                       d={faceDetails.wallStrokePathD}
                       fill="none"
                       stroke="#f59e0b"
-                      strokeWidth="4.5"
+                      strokeWidth="4"
                     />
                     <line
                       x1={faceDetails.invertStartX}
@@ -1608,17 +1813,185 @@ export const FieldPhotoFitStage: React.FC<{
                     height={pGeom.boxH}
                     fill="none"
                     stroke="#f59e0b"
-                    strokeWidth="4.5"
+                    strokeWidth="4"
                   />
                 )}
 
-                {/* Dimension Callouts */}
+                {/* Crown Canonical Annotation: 0m at Bottom, 3m Advance on Top */}
+                {selectedPanel === 'crown' && (
+                  <g pointerEvents="none" fontFamily="IBM Plex Mono, monospace" fontSize="11" fontWeight="bold">
+                    <rect
+                      x={pGeom.boxX}
+                      y={pGeom.boxY + pGeom.boxH - 22}
+                      width={pGeom.boxW}
+                      height="20"
+                      fill="rgba(15, 23, 42, 0.85)"
+                    />
+                    <text
+                      x={pGeom.boxX + pGeom.boxW / 2}
+                      y={pGeom.boxY + pGeom.boxH - 7}
+                      textAnchor="middle"
+                      fill="#38bdf8"
+                    >
+                      ▲ ADVANCE START 0.00m (BOTTOM • PREVIOUS ROUND)
+                    </text>
+                    <rect
+                      x={pGeom.boxX}
+                      y={pGeom.boxY + 2}
+                      width={pGeom.boxW}
+                      height="20"
+                      fill="rgba(15, 23, 42, 0.85)"
+                    />
+                    <text
+                      x={pGeom.boxX + pGeom.boxW / 2}
+                      y={pGeom.boxY + 16}
+                      textAnchor="middle"
+                      fill="#fbbf24"
+                    >
+                      ▲ EXCAVATION FACE {pGeom.panelHeightM.toFixed(1)}m (TOP ADVANCE)
+                    </text>
+                  </g>
+                )}
+
+                {/* Interactive Crop & Extent Boundary Visualizer */}
+                {showCropHandles && activePhoto && (
+                  <g>
+                    <rect
+                      x={cropL}
+                      y={cropT}
+                      width={Math.max(10, cropR - cropL)}
+                      height={Math.max(10, cropB - cropT)}
+                      fill="none"
+                      stroke="#a855f7"
+                      strokeWidth="2"
+                      strokeDasharray="6 3"
+                    />
+                    {/* Left edge handle */}
+                    <rect
+                      x={cropL - 5}
+                      y={pGeom.boxY + pGeom.boxH / 2 - 25}
+                      width="10"
+                      height="50"
+                      rx="4"
+                      fill="#a855f7"
+                      className="cursor-ew-resize"
+                      onPointerDown={(e) => handlePointerDown('extent_left', e)}
+                    />
+                    {/* Right edge handle */}
+                    <rect
+                      x={cropR - 5}
+                      y={pGeom.boxY + pGeom.boxH / 2 - 25}
+                      width="10"
+                      height="50"
+                      rx="4"
+                      fill="#a855f7"
+                      className="cursor-ew-resize"
+                      onPointerDown={(e) => handlePointerDown('extent_right', e)}
+                    />
+                    {/* Top edge handle */}
+                    <rect
+                      x={pGeom.boxX + pGeom.boxW / 2 - 25}
+                      y={cropT - 5}
+                      width="50"
+                      height="10"
+                      rx="4"
+                      fill="#a855f7"
+                      className="cursor-ns-resize"
+                      onPointerDown={(e) => handlePointerDown('extent_top', e)}
+                    />
+                    {/* Bottom edge handle */}
+                    <rect
+                      x={pGeom.boxX + pGeom.boxW / 2 - 25}
+                      y={cropB - 5}
+                      width="50"
+                      height="10"
+                      rx="4"
+                      fill="#a855f7"
+                      className="cursor-ns-resize"
+                      onPointerDown={(e) => handlePointerDown('extent_bottom', e)}
+                    />
+                  </g>
+                )}
+
+                {/* 4-Point Mesh Pins Overlay on Canvas */}
+                {showMeshPins && activePhoto && (
+                  <g>
+                    {/* Perspective mesh quad boundary */}
+                    <polygon
+                      points={`${pinTL.x},${pinTL.y} ${pinTR.x},${pinTR.y} ${pinBR.x},${pinBR.y} ${pinBL.x},${pinBL.y}`}
+                      fill="none"
+                      stroke="#06b6d4"
+                      strokeWidth="2"
+                      strokeDasharray="5 3"
+                    />
+
+                    {/* Top-Left Pin */}
+                    <g
+                      transform={`translate(${pinTL.x}, ${pinTL.y})`}
+                      className="cursor-move"
+                      onPointerDown={(e) => handlePointerDown('mesh_tl', e)}
+                    >
+                      <circle r="12" fill="#06b6d4" stroke="#ffffff" strokeWidth="2.5" />
+                      <text textAnchor="middle" dy="4" fill="#080c14" fontSize="10" fontWeight="bold">TL</text>
+                    </g>
+
+                    {/* Top-Right Pin */}
+                    <g
+                      transform={`translate(${pinTR.x}, ${pinTR.y})`}
+                      className="cursor-move"
+                      onPointerDown={(e) => handlePointerDown('mesh_tr', e)}
+                    >
+                      <circle r="12" fill="#06b6d4" stroke="#ffffff" strokeWidth="2.5" />
+                      <text textAnchor="middle" dy="4" fill="#080c14" fontSize="10" fontWeight="bold">TR</text>
+                    </g>
+
+                    {/* Bottom-Right Pin */}
+                    <g
+                      transform={`translate(${pinBR.x}, ${pinBR.y})`}
+                      className="cursor-move"
+                      onPointerDown={(e) => handlePointerDown('mesh_br', e)}
+                    >
+                      <circle r="12" fill="#06b6d4" stroke="#ffffff" strokeWidth="2.5" />
+                      <text textAnchor="middle" dy="4" fill="#080c14" fontSize="10" fontWeight="bold">BR</text>
+                    </g>
+
+                    {/* Bottom-Left Pin */}
+                    <g
+                      transform={`translate(${pinBL.x}, ${pinBL.y})`}
+                      className="cursor-move"
+                      onPointerDown={(e) => handlePointerDown('mesh_bl', e)}
+                    >
+                      <circle r="12" fill="#06b6d4" stroke="#ffffff" strokeWidth="2.5" />
+                      <text textAnchor="middle" dy="4" fill="#080c14" fontSize="10" fontWeight="bold">BL</text>
+                    </g>
+
+                    {/* Interactive Top Rotation Stem & Handle */}
+                    <line
+                      x1={pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}
+                      y1={pGeom.boxY + activeFit.offsetY}
+                      x2={pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}
+                      y2={pGeom.boxY + activeFit.offsetY - 45}
+                      stroke="#10b981"
+                      strokeWidth="2.5"
+                    />
+                    <g
+                      transform={`translate(${pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}, ${pGeom.boxY + activeFit.offsetY - 45})`}
+                      className="cursor-crosshair"
+                      onPointerDown={(e) => handlePointerDown('rotate_handle', e)}
+                    >
+                      <circle r="11" fill="#10b981" stroke="#ffffff" strokeWidth="2.5" />
+                      <text textAnchor="middle" dy="3.5" fill="#080c14" fontSize="10" fontWeight="black">↻</text>
+                    </g>
+                  </g>
+                )}
+
+                {/* Dimension Callout Header */}
                 <text
                   x={pGeom.boxX + pGeom.boxW / 2}
-                  y={Math.max(28, pGeom.boxY - 16)}
+                  y={Math.max(26, pGeom.boxY - 14)}
                   textAnchor="middle"
                   fill="#f8fafc"
-                  fontSize="18"
+                  fontSize="17"
                   fontWeight="bold"
                   fontFamily="IBM Plex Mono, monospace"
                 >
@@ -1626,200 +1999,791 @@ export const FieldPhotoFitStage: React.FC<{
                     ? isSurface
                       ? `${surfMap.face.fullLabel.toUpperCase()} (${effectiveLocation.widthM.toFixed(1)}m W × ${effectiveLocation.heightM.toFixed(1)}m H)`
                       : `TUNNEL FACE (${effectiveLocation.shape.toUpperCase()} • ${effectiveLocation.widthM.toFixed(1)}m W × ${effectiveLocation.heightM.toFixed(1)}m H)`
+                    : selectedPanel === 'crown'
+                    ? `CROWN ARCH (HORIZONTAL • ${pGeom.panelWidthM.toFixed(1)}m W × ${pGeom.panelHeightM.toFixed(1)}m ADVANCE PULL)`
                     : `${(panelTabs.find((p) => p.id === selectedPanel)?.label || selectedPanel).toUpperCase()} (${pGeom.panelWidthM.toFixed(1)}m × ${pGeom.panelHeightM.toFixed(1)}m)`}
                 </text>
               </svg>
             </div>
           </div>
 
-          {/* Right 4 Cols: Precision Photo Fit Controls */}
-          <div className="lg:col-span-4 bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-4">
-            <div className="space-y-3.5">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+          {/* Right 4 Cols: Professional Photo Fit & Shape Alignment Controls */}
+          <div className="lg:col-span-4 bg-slate-950 border border-slate-800 rounded-xl p-3 sm:p-4 flex flex-col justify-between space-y-3">
+            <div>
+              {/* Header with Title & Reset */}
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2.5">
                 <h3 className="text-xs font-bold font-mono uppercase text-amber-300 flex items-center gap-1.5">
-                  <Sliders className="w-4 h-4" />
-                  Photo Fit Parameters ({panelTabs.find((p) => p.id === selectedPanel)?.shortLabel})
+                  <Sliders className="w-4 h-4 text-amber-400" />
+                  Edit Controls ({panelTabs.find((p) => p.id === selectedPanel)?.shortLabel})
                 </h3>
                 <button
                   type="button"
                   onClick={() =>
                     updatePanelFit(selectedPanel, {
                       scalePct: 100,
+                      scaleXPct: 100,
+                      scaleYPct: 100,
                       offsetX: 0,
                       offsetY: 0,
                       rotationDeg: 0,
+                      skewXDeg: 0,
+                      skewYDeg: 0,
                       mirrorH: false,
                       mirrorV: false,
                       fitMode: 'cover',
+                      cropExtent: { leftPct: 0, rightPct: 0, topPct: 0, bottomPct: 0 },
+                      meshCorners: { tl: { x: 0, y: 0 }, tr: { x: 0, y: 0 }, br: { x: 0, y: 0 }, bl: { x: 0, y: 0 } },
                     })
                   }
-                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center gap-1 cursor-pointer"
+                  className="px-2 py-0.8 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center gap-1 cursor-pointer"
+                  title="Reset all fit transformations to neutral default"
                 >
                   <RefreshCw className="w-3 h-3" /> Reset Fit
                 </button>
               </div>
 
-              {/* Aspect Fit Mode inside Boundary */}
-              <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1.5">
-                  Boundary Fit Mode
-                </label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(
-                    [
-                      { id: 'cover', label: 'Fill Shape' },
-                      { id: 'contain', label: 'Contain All' },
-                      { id: 'stretch', label: 'Exact Stretch' },
-                    ] as const
-                  ).map((m) => (
+              {/* 5 Functional Navigation Tabs */}
+              <div className="grid grid-cols-4 gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg mb-3">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('angle')}
+                  className={`py-1.5 px-1 rounded text-[10px] font-mono font-bold transition-all cursor-pointer truncate ${
+                    activeTab === 'angle'
+                      ? 'bg-amber-500 text-slate-950 shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Align photo angle and perspective skew"
+                >
+                  Angle &amp; Orient
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('mesh')}
+                  className={`py-1.5 px-1 rounded text-[10px] font-mono font-bold transition-all cursor-pointer truncate ${
+                    activeTab === 'mesh'
+                      ? 'bg-cyan-500 text-slate-950 shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="4-Corner Point Mesh Warp"
+                >
+                  Point Mesh
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('crop_extent')}
+                  className={`py-1.5 px-1 rounded text-[10px] font-mono font-bold transition-all cursor-pointer truncate ${
+                    activeTab === 'crop_extent'
+                      ? 'bg-purple-500 text-slate-950 shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Custom Crop Extent & Shrink"
+                >
+                  Crop Extent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('scale')}
+                  className={`py-1.5 px-1 rounded text-[10px] font-mono font-bold transition-all cursor-pointer truncate ${
+                    activeTab === 'scale'
+                      ? 'bg-emerald-500 text-slate-950 shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Scale, Stretch & Fit"
+                >
+                  Scale &amp; Fit
+                </button>
+              </div>
+
+              {/* TAB 1: ANGLE & ORIENTATION (Solves "photo in one angle our outline in one angle") */}
+              {activeTab === 'angle' && (
+                <div className="space-y-3">
+                  <div className="p-2 rounded bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200">
+                    <strong>Angle Alignment:</strong> Fine-tune rotation and perspective skew so oblique camera photographs align with the tunnel axis.
+                  </div>
+
+                  {/* Free Rotation Angle Dial & Slider */}
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-1">
+                      <span className="text-slate-300 font-bold flex items-center gap-1">
+                        <Compass className="w-3.5 h-3.5 text-amber-400" />
+                        Rotation Angle
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={-180}
+                          max={180}
+                          step={0.5}
+                          value={activeFit.rotationDeg || 0}
+                          onChange={(e) =>
+                            updatePanelFit(selectedPanel, { rotationDeg: Number(e.target.value) })
+                          }
+                          className="w-16 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-amber-300 font-mono font-bold text-right text-xs"
+                        />
+                        <span className="text-amber-400 font-bold">°</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={-180}
+                      max={180}
+                      step={0.5}
+                      value={activeFit.rotationDeg || 0}
+                      onChange={(e) =>
+                        updatePanelFit(selectedPanel, { rotationDeg: Number(e.target.value) })
+                      }
+                      className="w-full accent-amber-500 cursor-pointer"
+                    />
+
+                    {/* Fine degree nudge buttons */}
+                    <div className="grid grid-cols-4 gap-1 mt-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            rotationDeg: Math.round((activeFit.rotationDeg - 5) * 2) / 2,
+                          })
+                        }
+                        className="py-1 px-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[10px] font-mono cursor-pointer"
+                      >
+                        -5°
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            rotationDeg: Math.round((activeFit.rotationDeg - 1) * 2) / 2,
+                          })
+                        }
+                        className="py-1 px-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[10px] font-mono cursor-pointer"
+                      >
+                        -1°
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            rotationDeg: Math.round((activeFit.rotationDeg + 1) * 2) / 2,
+                          })
+                        }
+                        className="py-1 px-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[10px] font-mono cursor-pointer"
+                      >
+                        +1°
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            rotationDeg: Math.round((activeFit.rotationDeg + 5) * 2) / 2,
+                          })
+                        }
+                        className="py-1 px-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[10px] font-mono cursor-pointer"
+                      >
+                        +5°
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 90° Orthogonal Turns & Flips */}
+                  <div>
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                      Quick Turns &amp; Flips
+                    </label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            rotationDeg: ((activeFit.rotationDeg - 90 + 540) % 360) - 180,
+                          })
+                        }
+                        className="py-1.5 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer"
+                        title="Rotate 90° Counter-Clockwise"
+                      >
+                        <RotateCcw className="w-3 h-3" /> -90°
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            rotationDeg: ((activeFit.rotationDeg + 90 + 540) % 360) - 180,
+                          })
+                        }
+                        className="py-1.5 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer"
+                        title="Rotate 90° Clockwise"
+                      >
+                        <RotateCw className="w-3 h-3" /> +90°
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, { mirrorH: !activeFit.mirrorH })
+                        }
+                        className={`py-1.5 px-2 rounded border text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer ${
+                          activeFit.mirrorH
+                            ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                        }`}
+                        title="Flip Horizontally (Mirror)"
+                      >
+                        <FlipHorizontal className="w-3 h-3" /> Flip H
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, { mirrorV: !activeFit.mirrorV })
+                        }
+                        className={`py-1.5 px-2 rounded border text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer ${
+                          activeFit.mirrorV
+                            ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                        }`}
+                        title="Flip Vertically (Invert)"
+                      >
+                        <FlipVertical className="w-3 h-3" /> Flip V
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Perspective Skew (Compensates for Oblique Camera Angles) */}
+                  <div className="pt-2 border-t border-slate-800 space-y-2">
+                    <label className="block text-[11px] font-mono text-slate-300 font-bold">
+                      Perspective Skew Angle (Correct Camera Tilt)
+                    </label>
+                    <div>
+                      <div className="flex justify-between text-[10px] font-mono mb-0.5">
+                        <span className="text-slate-400">Horizontal Skew X</span>
+                        <span className="text-cyan-300 font-bold">{activeFit.skewXDeg || 0}°</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={-40}
+                        max={40}
+                        step={1}
+                        value={activeFit.skewXDeg || 0}
+                        onChange={(e) =>
+                          updatePanelFit(selectedPanel, { skewXDeg: Number(e.target.value) })
+                        }
+                        className="w-full accent-cyan-500 cursor-pointer"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] font-mono mb-0.5">
+                        <span className="text-slate-400">Vertical Skew Y</span>
+                        <span className="text-cyan-300 font-bold">{activeFit.skewYDeg || 0}°</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={-40}
+                        max={40}
+                        step={1}
+                        value={activeFit.skewYDeg || 0}
+                        onChange={(e) =>
+                          updatePanelFit(selectedPanel, { skewYDeg: Number(e.target.value) })
+                        }
+                        className="w-full accent-cyan-500 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: POINT MESH WARP (Solves "point mesh") */}
+              {activeTab === 'mesh' && (
+                <div className="space-y-3">
+                  <div className="p-2 rounded bg-cyan-500/10 border border-cyan-500/30 text-[11px] text-cyan-200 leading-snug">
+                    <strong>4-Point Mesh Deformation:</strong> Drag the 4 corner pins (<strong>TL, TR, BR, BL</strong>) directly on the viewport to stretch or shrink any corner to match the excavation geometry.
+                  </div>
+
+                  {/* Mesh Corner Pins Overview */}
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                    <div className="p-2 bg-slate-900 border border-slate-800 rounded">
+                      <div className="font-bold text-cyan-400 mb-1 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-cyan-400" /> Top-Left (TL)
+                      </div>
+                      <div className="text-slate-400">ΔX: {meshCorners.tl.x}px • ΔY: {meshCorners.tl.y}px</div>
+                      <div className="grid grid-cols-4 gap-1 mt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, tl: { ...meshCorners.tl, x: meshCorners.tl.x - 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >◀</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, tl: { ...meshCorners.tl, x: meshCorners.tl.x + 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▶</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, tl: { ...meshCorners.tl, y: meshCorners.tl.y - 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▲</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, tl: { ...meshCorners.tl, y: meshCorners.tl.y + 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▼</button>
+                      </div>
+                    </div>
+
+                    <div className="p-2 bg-slate-900 border border-slate-800 rounded">
+                      <div className="font-bold text-cyan-400 mb-1 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-cyan-400" /> Top-Right (TR)
+                      </div>
+                      <div className="text-slate-400">ΔX: {meshCorners.tr.x}px • ΔY: {meshCorners.tr.y}px</div>
+                      <div className="grid grid-cols-4 gap-1 mt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, tr: { ...meshCorners.tr, x: meshCorners.tr.x - 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >◀</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, tr: { ...meshCorners.tr, x: meshCorners.tr.x + 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▶</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, tr: { ...meshCorners.tr, y: meshCorners.tr.y - 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▲</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, tr: { ...meshCorners.tr, y: meshCorners.tr.y + 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▼</button>
+                      </div>
+                    </div>
+
+                    <div className="p-2 bg-slate-900 border border-slate-800 rounded">
+                      <div className="font-bold text-cyan-400 mb-1 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-cyan-400" /> Bottom-Left (BL)
+                      </div>
+                      <div className="text-slate-400">ΔX: {meshCorners.bl.x}px • ΔY: {meshCorners.bl.y}px</div>
+                      <div className="grid grid-cols-4 gap-1 mt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, bl: { ...meshCorners.bl, x: meshCorners.bl.x - 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >◀</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, bl: { ...meshCorners.bl, x: meshCorners.bl.x + 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▶</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, bl: { ...meshCorners.bl, y: meshCorners.bl.y - 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▲</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, bl: { ...meshCorners.bl, y: meshCorners.bl.y + 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▼</button>
+                      </div>
+                    </div>
+
+                    <div className="p-2 bg-slate-900 border border-slate-800 rounded">
+                      <div className="font-bold text-cyan-400 mb-1 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-cyan-400" /> Bottom-Right (BR)
+                      </div>
+                      <div className="text-slate-400">ΔX: {meshCorners.br.x}px • ΔY: {meshCorners.br.y}px</div>
+                      <div className="grid grid-cols-4 gap-1 mt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, br: { ...meshCorners.br, x: meshCorners.br.x - 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >◀</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, br: { ...meshCorners.br, x: meshCorners.br.x + 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▶</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, br: { ...meshCorners.br, y: meshCorners.br.y - 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▲</button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { meshCorners: { ...meshCorners, br: { ...meshCorners.br, y: meshCorners.br.y + 5 } } })}
+                          className="px-1 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-center"
+                        >▼</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Mesh Actions */}
+                  <div className="grid grid-cols-2 gap-2 pt-1">
                     <button
-                      key={m.id}
                       type="button"
-                      onClick={() => updatePanelFit(selectedPanel, { fitMode: m.id })}
-                      className={`py-1.5 px-2 rounded text-[11px] font-mono font-bold border cursor-pointer ${
-                        activeFit.fitMode === m.id
-                          ? 'bg-cyan-600 text-white border-cyan-400'
-                          : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
-                      }`}
+                      onClick={() =>
+                        updatePanelFit(selectedPanel, {
+                          meshCorners: {
+                            tl: { x: 0, y: 0 },
+                            tr: { x: 0, y: 0 },
+                            br: { x: 0, y: 0 },
+                            bl: { x: 0, y: 0 },
+                          },
+                        })
+                      }
+                      className="py-1.5 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer"
                     >
-                      {m.label}
+                      <RefreshCw className="w-3 h-3" /> Reset 4 Pins
                     </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Zoom / Scale Slider */}
-              <div>
-                <div className="flex justify-between text-[11px] font-mono mb-1">
-                  <span className="text-slate-400 flex items-center gap-1">
-                    <ZoomIn className="w-3.5 h-3.5 text-cyan-400" /> Photo Scale
-                  </span>
-                  <span className="text-cyan-300 font-bold">{activeFit.scalePct}%</span>
-                </div>
-                <input
-                  type="range"
-                  min={40}
-                  max={240}
-                  step={2}
-                  value={activeFit.scalePct}
-                  onChange={(e) =>
-                    updatePanelFit(selectedPanel, { scalePct: Number(e.target.value) })
-                  }
-                  className="w-full accent-cyan-500 cursor-pointer"
-                />
-              </div>
-
-              {/* X & Y Pan Sliders */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex justify-between text-[11px] font-mono mb-1">
-                    <span className="text-slate-400">Pan X</span>
-                    <span className="text-amber-300 font-bold">{activeFit.offsetX}px</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updatePanelFit(selectedPanel, {
+                          fitMode: 'stretch',
+                          meshCorners: {
+                            tl: { x: 0, y: 0 },
+                            tr: { x: 0, y: 0 },
+                            br: { x: 0, y: 0 },
+                            bl: { x: 0, y: 0 },
+                          },
+                          offsetX: 0,
+                          offsetY: 0,
+                        })
+                      }
+                      className="py-1.5 px-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-mono font-bold flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <Maximize2 className="w-3 h-3" /> Snap to Outline
+                    </button>
                   </div>
-                  <input
-                    type="range"
-                    min={-400}
-                    max={400}
-                    step={2}
-                    value={activeFit.offsetX}
-                    onChange={(e) =>
-                      updatePanelFit(selectedPanel, { offsetX: Number(e.target.value) })
-                    }
-                    className="w-full accent-amber-500 cursor-pointer"
-                  />
                 </div>
-                <div>
-                  <div className="flex justify-between text-[11px] font-mono mb-1">
-                    <span className="text-slate-400">Pan Y</span>
-                    <span className="text-amber-300 font-bold">{activeFit.offsetY}px</span>
+              )}
+
+              {/* TAB 3: CUSTOM CROP & EXTENT / SHRINK (Solves "custom crop extent shrink") */}
+              {activeTab === 'crop_extent' && (
+                <div className="space-y-3">
+                  <div className="p-2 rounded bg-purple-500/10 border border-purple-500/30 text-[11px] text-purple-200 leading-snug">
+                    <strong>Custom Crop &amp; Extent:</strong> Shrink unwanted foreground clutter or extend coverage on Left, Right, Top, or Bottom independently.
                   </div>
-                  <input
-                    type="range"
-                    min={-400}
-                    max={400}
-                    step={2}
-                    value={activeFit.offsetY}
-                    onChange={(e) =>
-                      updatePanelFit(selectedPanel, { offsetY: Number(e.target.value) })
-                    }
-                    className="w-full accent-amber-500 cursor-pointer"
-                  />
-                </div>
-              </div>
 
-              {/* Rotation & Mirroring */}
-              <div>
-                <div className="flex justify-between text-[11px] font-mono mb-1">
-                  <span className="text-slate-400">Rotation Angle</span>
-                  <span className="text-emerald-300 font-bold">{activeFit.rotationDeg}°</span>
-                </div>
-                <input
-                  type="range"
-                  min={-180}
-                  max={180}
-                  step={1}
-                  value={activeFit.rotationDeg}
-                  onChange={(e) =>
-                    updatePanelFit(selectedPanel, { rotationDeg: Number(e.target.value) })
-                  }
-                  className="w-full accent-emerald-500 cursor-pointer mb-2"
-                />
-                <div className="grid grid-cols-4 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updatePanelFit(selectedPanel, {
-                        rotationDeg: ((activeFit.rotationDeg - 90 + 540) % 360) - 180,
-                      })
-                    }
-                    className="py-1.5 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <RotateCcw className="w-3 h-3" /> -90°
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updatePanelFit(selectedPanel, {
-                        rotationDeg: ((activeFit.rotationDeg + 90 + 540) % 360) - 180,
-                      })
-                    }
-                    className="py-1.5 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <RotateCw className="w-3 h-3" /> +90°
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updatePanelFit(selectedPanel, { mirrorH: !activeFit.mirrorH })
-                    }
-                    className={`py-1.5 px-2 rounded border text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer ${
-                      activeFit.mirrorH
-                        ? 'bg-amber-500/20 border-amber-400 text-amber-300'
-                        : 'bg-slate-900 border-slate-800 text-slate-300'
-                    }`}
-                  >
-                    <FlipHorizontal className="w-3 h-3" /> Flip H
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updatePanelFit(selectedPanel, { mirrorV: !activeFit.mirrorV })
-                    }
-                    className={`py-1.5 px-2 rounded border text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer ${
-                      activeFit.mirrorV
-                        ? 'bg-amber-500/20 border-amber-400 text-amber-300'
-                        : 'bg-slate-900 border-slate-800 text-slate-300'
-                    }`}
-                  >
-                    <FlipVertical className="w-3 h-3" /> Flip V
-                  </button>
-                </div>
-              </div>
+                  {/* 4 Edge Crop Sliders */}
+                  <div className="space-y-2">
+                    <div>
+                      <div className="flex justify-between text-[10px] font-mono mb-0.5">
+                        <span className="text-slate-400">Left Crop / Extent</span>
+                        <span className="text-purple-300 font-bold">{cropExtent.leftPct}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={45}
+                        step={1}
+                        value={cropExtent.leftPct}
+                        onChange={(e) =>
+                          updatePanelFit(selectedPanel, {
+                            cropExtent: { ...cropExtent, leftPct: Number(e.target.value) },
+                          })
+                        }
+                        className="w-full accent-purple-500 cursor-pointer"
+                      />
+                    </div>
 
-              {/* Brightness, Contrast & Canvas Underlay Opacity */}
-              <div className="pt-2 border-t border-slate-800 space-y-2.5">
+                    <div>
+                      <div className="flex justify-between text-[10px] font-mono mb-0.5">
+                        <span className="text-slate-400">Right Crop / Extent</span>
+                        <span className="text-purple-300 font-bold">{cropExtent.rightPct}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={45}
+                        step={1}
+                        value={cropExtent.rightPct}
+                        onChange={(e) =>
+                          updatePanelFit(selectedPanel, {
+                            cropExtent: { ...cropExtent, rightPct: Number(e.target.value) },
+                          })
+                        }
+                        className="w-full accent-purple-500 cursor-pointer"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[10px] font-mono mb-0.5">
+                        <span className="text-slate-400">Top Crop / Extent</span>
+                        <span className="text-purple-300 font-bold">{cropExtent.topPct}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={45}
+                        step={1}
+                        value={cropExtent.topPct}
+                        onChange={(e) =>
+                          updatePanelFit(selectedPanel, {
+                            cropExtent: { ...cropExtent, topPct: Number(e.target.value) },
+                          })
+                        }
+                        className="w-full accent-purple-500 cursor-pointer"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[10px] font-mono mb-0.5">
+                        <span className="text-slate-400">Bottom Crop / Extent</span>
+                        <span className="text-purple-300 font-bold">{cropExtent.bottomPct}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={45}
+                        step={1}
+                        value={cropExtent.bottomPct}
+                        onChange={(e) =>
+                          updatePanelFit(selectedPanel, {
+                            cropExtent: { ...cropExtent, bottomPct: Number(e.target.value) },
+                          })
+                        }
+                        className="w-full accent-purple-500 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick Extent / Shrink Presets */}
+                  <div className="pt-2 border-t border-slate-800">
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1.5">
+                      Quick Extent &amp; Shrink Actions
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            cropExtent: {
+                              leftPct: Math.min(45, cropExtent.leftPct + 5),
+                              rightPct: Math.min(45, cropExtent.rightPct + 5),
+                              topPct: cropExtent.topPct,
+                              bottomPct: cropExtent.bottomPct,
+                            },
+                          })
+                        }
+                        className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono cursor-pointer"
+                      >
+                        Shrink Width -5%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            cropExtent: {
+                              leftPct: Math.max(0, cropExtent.leftPct - 5),
+                              rightPct: Math.max(0, cropExtent.rightPct - 5),
+                              topPct: cropExtent.topPct,
+                              bottomPct: cropExtent.bottomPct,
+                            },
+                          })
+                        }
+                        className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono cursor-pointer"
+                      >
+                        Extend Width +5%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            cropExtent: {
+                              leftPct: cropExtent.leftPct,
+                              rightPct: cropExtent.rightPct,
+                              topPct: Math.min(45, cropExtent.topPct + 5),
+                              bottomPct: Math.min(45, cropExtent.bottomPct + 5),
+                            },
+                          })
+                        }
+                        className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono cursor-pointer"
+                      >
+                        Shrink Height -5%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            cropExtent: {
+                              leftPct: cropExtent.leftPct,
+                              rightPct: cropExtent.rightPct,
+                              topPct: Math.max(0, cropExtent.topPct - 5),
+                              bottomPct: Math.max(0, cropExtent.bottomPct - 5),
+                            },
+                          })
+                        }
+                        className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono cursor-pointer"
+                      >
+                        Extend Height +5%
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updatePanelFit(selectedPanel, {
+                          cropExtent: { leftPct: 0, rightPct: 0, topPct: 0, bottomPct: 0 },
+                        })
+                      }
+                      className="w-full mt-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Reset Extents to 0%
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: SCALE, STRETCH & FIT (Solves "remove this panx y") */}
+              {activeTab === 'scale' && (
+                <div className="space-y-3">
+                  <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-200 leading-snug">
+                    <strong>Scale &amp; Shape Boundary:</strong> Drag directly on the viewport to pan the photo. Use independent X &amp; Y stretch sliders to match your tunnel aspect ratio.
+                  </div>
+
+                  {/* Boundary Fit Mode */}
+                  <div>
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                      Boundary Fit Mode
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          { id: 'cover', label: 'Fill Shape' },
+                          { id: 'contain', label: 'Contain All' },
+                          { id: 'stretch', label: 'Exact Stretch' },
+                        ] as const
+                      ).map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { fitMode: m.id })}
+                          className={`py-1.5 px-2 rounded text-[11px] font-mono font-bold border cursor-pointer ${
+                            activeFit.fitMode === m.id
+                              ? 'bg-emerald-600 text-white border-emerald-400'
+                              : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Uniform Scale Slider */}
+                  <div>
+                    <div className="flex justify-between text-[11px] font-mono mb-1">
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <ZoomIn className="w-3.5 h-3.5 text-emerald-400" /> Proportional Scale
+                      </span>
+                      <span className="text-emerald-300 font-bold">{activeFit.scalePct}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={30}
+                      max={260}
+                      step={2}
+                      value={activeFit.scalePct}
+                      onChange={(e) =>
+                        updatePanelFit(selectedPanel, { scalePct: Number(e.target.value) })
+                      }
+                      className="w-full accent-emerald-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Independent Width & Height Stretch/Shrink */}
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+                    <div>
+                      <div className="flex justify-between text-[10px] font-mono mb-0.5">
+                        <span className="text-slate-400">Width Stretch X</span>
+                        <span className="text-cyan-300 font-bold">{activeFit.scaleXPct ?? 100}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={30}
+                        max={260}
+                        step={2}
+                        value={activeFit.scaleXPct ?? 100}
+                        onChange={(e) =>
+                          updatePanelFit(selectedPanel, { scaleXPct: Number(e.target.value) })
+                        }
+                        className="w-full accent-cyan-500 cursor-pointer"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] font-mono mb-0.5">
+                        <span className="text-slate-400">Height Stretch Y</span>
+                        <span className="text-cyan-300 font-bold">{activeFit.scaleYPct ?? 100}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={30}
+                        max={260}
+                        step={2}
+                        value={activeFit.scaleYPct ?? 100}
+                        onChange={(e) =>
+                          updatePanelFit(selectedPanel, { scaleYPct: Number(e.target.value) })
+                        }
+                        className="w-full accent-cyan-500 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Direct Nudge D-pad (Replaces clumsy panX/panY sliders) */}
+                  <div className="pt-2 border-t border-slate-800">
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1.5">
+                      Direct Pan Nudges (Or drag photo on screen)
+                    </label>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => updatePanelFit(selectedPanel, { offsetX: activeFit.offsetX - 20 })}
+                        className="px-2.5 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-mono text-xs cursor-pointer"
+                        title="Nudge Left"
+                      >
+                        ◀ Left
+                      </button>
+                      <div className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { offsetY: activeFit.offsetY - 20 })}
+                          className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-mono text-xs cursor-pointer"
+                          title="Nudge Up"
+                        >
+                          ▲ Up
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { offsetX: 0, offsetY: 0 })}
+                          className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono text-[9px] cursor-pointer"
+                          title="Center"
+                        >
+                          Center
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updatePanelFit(selectedPanel, { offsetY: activeFit.offsetY + 20 })}
+                          className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-mono text-xs cursor-pointer"
+                          title="Nudge Down"
+                        >
+                          ▼ Down
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => updatePanelFit(selectedPanel, { offsetX: activeFit.offsetX + 20 })}
+                        className="px-2.5 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-mono text-xs cursor-pointer"
+                        title="Nudge Right"
+                      >
+                        Right ▶
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 5: QUALITY & UNDERLAY OPACITY */}
+              <div className="pt-2.5 mt-2 border-t border-slate-800 space-y-2">
                 <div>
-                  <div className="flex justify-between text-[11px] font-mono mb-0.5">
+                  <div className="flex justify-between text-[10px] font-mono mb-0.5">
                     <span className="text-slate-400">Canvas Underlay Opacity</span>
                     <span className="text-cyan-300 font-bold">{activeFit.opacityPct}%</span>
                   </div>
@@ -1835,9 +2799,9 @@ export const FieldPhotoFitStage: React.FC<{
                     className="w-full accent-cyan-500 cursor-pointer"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <div className="flex justify-between text-[11px] font-mono mb-0.5">
+                    <div className="flex justify-between text-[10px] font-mono mb-0.5">
                       <span className="text-slate-400">Brightness</span>
                       <span className="text-slate-200">{activeFit.brightnessPct}%</span>
                     </div>
@@ -1854,7 +2818,7 @@ export const FieldPhotoFitStage: React.FC<{
                     />
                   </div>
                   <div>
-                    <div className="flex justify-between text-[11px] font-mono mb-0.5">
+                    <div className="flex justify-between text-[10px] font-mono mb-0.5">
                       <span className="text-slate-400">Contrast</span>
                       <span className="text-slate-200">{activeFit.contrastPct}%</span>
                     </div>
@@ -1875,9 +2839,10 @@ export const FieldPhotoFitStage: React.FC<{
             </div>
 
             {/* Quick 4-Surface Fit Thumbnails */}
-            <div className="pt-3 border-t border-slate-800">
-              <div className="text-[10px] font-mono uppercase text-slate-400 mb-2">
-                All 4 {isSurface ? surfMap.domainTitle : 'Tunnel'} Surfaces Fit Status
+            <div className="pt-2 border-t border-slate-800">
+              <div className="text-[10px] font-mono uppercase text-slate-400 mb-1.5 flex items-center justify-between">
+                <span>All 4 Surfaces Fit Status</span>
+                <span className="text-amber-400">{panelTabs.filter((p) => activeRound.collectedPhotos.some((ph) => ph.panel === p.id)).length} of {panelTabs.length}</span>
               </div>
               <div className="grid grid-cols-4 gap-1.5">
                 {panelTabs.map((p) => {
@@ -1887,17 +2852,17 @@ export const FieldPhotoFitStage: React.FC<{
                       key={p.id}
                       type="button"
                       onClick={() => setSelectedPanel(p.id)}
-                      className={`p-1.5 rounded border text-center cursor-pointer ${
+                      className={`p-1.5 rounded border text-center cursor-pointer transition-all ${
                         selectedPanel === p.id
-                          ? 'border-amber-400 bg-amber-500/10'
-                          : 'border-slate-800 bg-slate-900'
+                          ? 'border-amber-400 bg-amber-500/15 ring-1 ring-amber-400/50'
+                          : 'border-slate-800 bg-slate-900 hover:bg-slate-850'
                       }`}
                     >
                       <div className="text-[10px] font-mono font-bold text-slate-200 truncate">
                         {p.shortLabel}
                       </div>
-                      <div className="text-[9px] font-mono text-emerald-400 mt-0.5">
-                        {ph ? 'Fitted' : 'Empty'}
+                      <div className={`text-[9px] font-mono mt-0.5 ${ph ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                        {ph ? '✓ Ready' : 'Empty'}
                       </div>
                     </button>
                   );
@@ -1908,7 +2873,7 @@ export const FieldPhotoFitStage: React.FC<{
         </div>
 
         {/* Bottom Navigation Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mt-5 pt-4 border-t border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-800">
           <button
             type="button"
             onClick={onBackToUpload}
@@ -2641,7 +3606,7 @@ const PhotoReportCropAndPlaceModal: React.FC<{
   const [rotationDeg, setRotationDeg] = useState<number>(0);
   const [flipH, setFlipH] = useState<boolean>(false);
   const [flipV, setFlipV] = useState<boolean>(false);
-  const [fitMode, setFitMode] = useState<'fill' | 'cover' | 'contain'>(
+  const [fitMode, setFitMode] = useState<'fill' | 'cover' | 'contain' | 'stretch'>(
     existingFit.fitMode || 'fill'
   );
   const [zoomPct, setZoomPct] = useState<number>(existingFit.zoomPct || 100);

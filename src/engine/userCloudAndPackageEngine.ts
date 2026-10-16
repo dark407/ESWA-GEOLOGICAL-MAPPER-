@@ -1115,6 +1115,7 @@ export interface EswaFaceMasterArchive {
   reports?: {
     sketchPngDataUrl?: string | null;
     support2DPngDataUrl?: string | null;
+    twoPageReportHtml?: string | null;
   };
   generatedReports: {
     clean2PageWordHtml: string;
@@ -2003,5 +2004,615 @@ export function subscribeToDeviceTransfersAndNotifications(params: {
   };
 }
 
+// ============================================================================
+// MULTI-DEVICE PROJECT COLLABORATION & ROLE-BASED GEOLOGIST PROFILES
+// ============================================================================
+
+export type ProjectOrganizationRole = 'Contractor' | 'PMC' | 'Client' | 'Consultant';
+
+export interface AllocatedDeviceRecord {
+  deviceId: string;
+  alias?: string;
+  role: ProjectOrganizationRole;
+  allocatedBy: string;
+  allocatedAt: string;
+  lastSeenAt?: string;
+}
+
+export interface SharedProjectCollaborationRecord {
+  id: string;
+  joinCode: string; // 6-character code e.g. "TN9481"
+  projectName: string;
+  tunnelLocation: string;
+  chainageBounds?: string;
+  createdAt: string;
+  createdByDeviceId: string;
+  createdByUserEmail?: string;
+  contractorDevices: AllocatedDeviceRecord[];
+  pmcDevices: AllocatedDeviceRecord[];
+  clientDevices: AllocatedDeviceRecord[];
+  allowedDeviceIds: string[];
+  activeRoundsCount: number;
+  lastSyncTimestamp: string;
+}
+
+export interface GeologistUserProfile {
+  id: string;
+  name: string;
+  email?: string;
+  designation: string; // e.g. "Lead Tunnel Geologist", "Resident Engineer"
+  role: ProjectOrganizationRole;
+  pin: string; // 4-digit PIN for device sharing
+  pngSignatureDataUrl?: string; // Transparent PNG base64 Data URL
+  deviceId: string;
+  isDefaultOnDevice: boolean;
+  createdAt: string;
+  lastActiveAt: string;
+}
+
+const ESWA_SHARED_PROJECTS_KEY = 'eswa_shared_collaboration_projects_v1';
+const ESWA_ACTIVE_PROJECT_KEY = 'eswa_active_shared_project_id_v1';
+const ESWA_GEOLOGIST_PROFILES_KEY = 'eswa_geologist_user_profiles_v1';
+const ESWA_ACTIVE_PROFILE_KEY = 'eswa_active_geologist_profile_id_v1';
+
+export function generateProjectJoinCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+export function listStoredSharedProjects(): SharedProjectCollaborationRecord[] {
+  try {
+    const raw = localStorage.getItem(ESWA_SHARED_PROJECTS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+export function saveSharedProjectToStore(project: SharedProjectCollaborationRecord): void {
+  try {
+    const list = listStoredSharedProjects().filter((p) => p.id !== project.id);
+    list.unshift(project);
+    localStorage.setItem(ESWA_SHARED_PROJECTS_KEY, JSON.stringify(list));
+    window.dispatchEvent(new CustomEvent('eswa-shared-projects-updated', { detail: project }));
+  } catch {
+    // Ignore
+  }
+}
+
+export function getActiveSharedProject(): SharedProjectCollaborationRecord | null {
+  try {
+    const activeId = localStorage.getItem(ESWA_ACTIVE_PROJECT_KEY);
+    const list = listStoredSharedProjects();
+    if (!list.length) return null;
+    if (activeId) {
+      const found = list.find((p) => p.id === activeId || p.joinCode === activeId);
+      if (found) return found;
+    }
+    return list[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+export function setActiveSharedProject(project: SharedProjectCollaborationRecord | null): void {
+  try {
+    if (project) {
+      localStorage.setItem(ESWA_ACTIVE_PROJECT_KEY, project.id);
+      saveSharedProjectToStore(project);
+    } else {
+      localStorage.removeItem(ESWA_ACTIVE_PROJECT_KEY);
+    }
+    window.dispatchEvent(new CustomEvent('eswa-shared-projects-updated', { detail: project }));
+  } catch {
+    // Ignore
+  }
+}
+
+export async function createSharedCollaborationProject(params: {
+  projectName: string;
+  tunnelLocation: string;
+  chainageBounds?: string;
+  creatorRole: ProjectOrganizationRole;
+  user?: GoogleUserAccountInfo | null;
+}): Promise<SharedProjectCollaborationRecord> {
+  const { deviceId, customAlias } = getLocalUserDeviceId(params.user?.uid, params.user?.email);
+  const joinCode = generateProjectJoinCode();
+  const id = `PRJ-${joinCode}`;
+  const nowIso = new Date().toISOString();
+
+  const creatorDeviceRecord: AllocatedDeviceRecord = {
+    deviceId,
+    alias: customAlias || `${params.creatorRole} Face Tablet`,
+    role: params.creatorRole,
+    allocatedBy: params.user?.displayName || deviceId,
+    allocatedAt: nowIso,
+    lastSeenAt: nowIso,
+  };
+
+  const newProject: SharedProjectCollaborationRecord = {
+    id,
+    joinCode,
+    projectName: params.projectName.trim() || 'Tunnel Face Excavation Project',
+    tunnelLocation: params.tunnelLocation.trim() || 'Main Access Tunnel (MAT)',
+    chainageBounds: params.chainageBounds || 'RD 0+000 to RD 2+500',
+    createdAt: nowIso,
+    createdByDeviceId: deviceId,
+    createdByUserEmail: params.user?.email || undefined,
+    contractorDevices: params.creatorRole === 'Contractor' ? [creatorDeviceRecord] : [],
+    pmcDevices: params.creatorRole === 'PMC' ? [creatorDeviceRecord] : [],
+    clientDevices: params.creatorRole === 'Client' ? [creatorDeviceRecord] : [],
+    allowedDeviceIds: [deviceId],
+    activeRoundsCount: 1,
+    lastSyncTimestamp: nowIso,
+  };
+
+  saveSharedProjectToStore(newProject);
+  setActiveSharedProject(newProject);
+
+  // Sync to Firestore if online
+  try {
+    await setDoc(doc(db, 'shared_projects', id), newProject);
+    // Also save lookup by join code
+    await setDoc(doc(db, 'project_join_codes', joinCode), {
+      projectId: id,
+      joinCode,
+      projectName: newProject.projectName,
+      tunnelLocation: newProject.tunnelLocation,
+      createdAt: nowIso,
+    });
+  } catch {
+    // Offline fallback is fine
+  }
+
+  return newProject;
+}
+
+export async function joinProjectByCode(params: {
+  joinCode: string;
+  userRole?: ProjectOrganizationRole;
+  user?: GoogleUserAccountInfo | null;
+}): Promise<{ success: boolean; project?: SharedProjectCollaborationRecord; message: string }> {
+  const cleanCode = params.joinCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (cleanCode.length < 4) {
+    return { success: false, message: 'Please enter a valid 6-character Project Code.' };
+  }
+
+  const { deviceId, customAlias } = getLocalUserDeviceId(params.user?.uid, params.user?.email);
+  const nowIso = new Date().toISOString();
+  const role: ProjectOrganizationRole = params.userRole || 'Contractor';
+
+  // 1. Try local cache first
+  const existingList = listStoredSharedProjects();
+  let project = existingList.find(
+    (p) => p.joinCode.toUpperCase() === cleanCode || p.id.toUpperCase() === cleanCode
+  );
+
+  // 2. Try Firestore lookup
+  if (!project) {
+    try {
+      const codeSnap = await getDoc(doc(db, 'project_join_codes', cleanCode));
+      if (codeSnap.exists()) {
+        const lookup = codeSnap.data() as any;
+        const targetId = lookup.projectId || `PRJ-${cleanCode}`;
+        const projSnap = await getDoc(doc(db, 'shared_projects', targetId));
+        if (projSnap.exists()) {
+          project = projSnap.data() as SharedProjectCollaborationRecord;
+        }
+      } else {
+        const directSnap = await getDoc(doc(db, 'shared_projects', `PRJ-${cleanCode}`));
+        if (directSnap.exists()) {
+          project = directSnap.data() as SharedProjectCollaborationRecord;
+        }
+      }
+    } catch {
+      // Offline
+    }
+  }
+
+  if (!project) {
+    return {
+      success: false,
+      message: `Project code "${cleanCode}" not found. Verify the code with the project administrator.`,
+    };
+  }
+
+  // Add this device to the project under specified role if not present
+  const deviceRecord: AllocatedDeviceRecord = {
+    deviceId,
+    alias: customAlias || `${role} Member`,
+    role,
+    allocatedBy: params.user?.displayName || 'Self Joined',
+    allocatedAt: nowIso,
+    lastSeenAt: nowIso,
+  };
+
+  const allowed = new Set(project.allowedDeviceIds || []);
+  allowed.add(deviceId);
+  project.allowedDeviceIds = Array.from(allowed);
+
+  const filterDev = (arr?: AllocatedDeviceRecord[]) =>
+    (arr || []).filter((d) => d.deviceId !== deviceId);
+
+  if (role === 'Contractor') {
+    project.contractorDevices = [...filterDev(project.contractorDevices), deviceRecord];
+  } else if (role === 'PMC') {
+    project.pmcDevices = [...filterDev(project.pmcDevices), deviceRecord];
+  } else {
+    project.clientDevices = [...filterDev(project.clientDevices), deviceRecord];
+  }
+
+  project.lastSyncTimestamp = nowIso;
+  saveSharedProjectToStore(project);
+  setActiveSharedProject(project);
+
+  try {
+    await updateDoc(doc(db, 'shared_projects', project.id), {
+      allowedDeviceIds: project.allowedDeviceIds,
+      contractorDevices: project.contractorDevices,
+      pmcDevices: project.pmcDevices,
+      clientDevices: project.clientDevices,
+      lastSyncTimestamp: nowIso,
+    });
+  } catch {
+    // Offline
+  }
+
+  return {
+    success: true,
+    project,
+    message: `Connected successfully to "${project.projectName}" as ${role}!`,
+  };
+}
+
+export async function allocateDeviceToProjectRole(params: {
+  projectId: string;
+  targetDeviceId: string;
+  alias?: string;
+  role: ProjectOrganizationRole;
+  allocatedBy?: string;
+}): Promise<SharedProjectCollaborationRecord> {
+  const cleanDeviceId = normalizeDeviceIdInput(params.targetDeviceId);
+  const nowIso = new Date().toISOString();
+
+  let project = listStoredSharedProjects().find((p) => p.id === params.projectId);
+  if (!project) {
+    try {
+      const snap = await getDoc(doc(db, 'shared_projects', params.projectId));
+      if (snap.exists()) {
+        project = snap.data() as SharedProjectCollaborationRecord;
+      }
+    } catch {
+      //
+    }
+  }
+
+  if (!project) {
+    throw new Error('Project not found');
+  }
+
+  const record: AllocatedDeviceRecord = {
+    deviceId: cleanDeviceId,
+    alias: params.alias?.trim() || `${params.role} Station`,
+    role: params.role,
+    allocatedBy: params.allocatedBy || 'Project Admin',
+    allocatedAt: nowIso,
+    lastSeenAt: nowIso,
+  };
+
+  const allowed = new Set(project.allowedDeviceIds || []);
+  allowed.add(cleanDeviceId);
+  project.allowedDeviceIds = Array.from(allowed);
+
+  // Remove from other roles first
+  project.contractorDevices = (project.contractorDevices || []).filter(
+    (d) => d.deviceId !== cleanDeviceId
+  );
+  project.pmcDevices = (project.pmcDevices || []).filter((d) => d.deviceId !== cleanDeviceId);
+  project.clientDevices = (project.clientDevices || []).filter((d) => d.deviceId !== cleanDeviceId);
+
+  if (params.role === 'Contractor') {
+    project.contractorDevices.push(record);
+  } else if (params.role === 'PMC') {
+    project.pmcDevices.push(record);
+  } else {
+    project.clientDevices.push(record);
+  }
+
+  project.lastSyncTimestamp = nowIso;
+  saveSharedProjectToStore(project);
+
+  try {
+    await updateDoc(doc(db, 'shared_projects', project.id), {
+      allowedDeviceIds: project.allowedDeviceIds,
+      contractorDevices: project.contractorDevices,
+      pmcDevices: project.pmcDevices,
+      clientDevices: project.clientDevices,
+      lastSyncTimestamp: nowIso,
+    });
+  } catch {
+    // Offline
+  }
+
+  return project;
+}
+
+export async function removeAllocatedDeviceFromProject(params: {
+  projectId: string;
+  targetDeviceId: string;
+}): Promise<SharedProjectCollaborationRecord> {
+  const cleanId = normalizeDeviceIdInput(params.targetDeviceId);
+  let project = listStoredSharedProjects().find((p) => p.id === params.projectId);
+  if (!project) throw new Error('Project not found');
+
+  project.contractorDevices = (project.contractorDevices || []).filter((d) => d.deviceId !== cleanId);
+  project.pmcDevices = (project.pmcDevices || []).filter((d) => d.deviceId !== cleanId);
+  project.clientDevices = (project.clientDevices || []).filter((d) => d.deviceId !== cleanId);
+  project.allowedDeviceIds = (project.allowedDeviceIds || []).filter((d) => d !== cleanId);
+  project.lastSyncTimestamp = new Date().toISOString();
+
+  saveSharedProjectToStore(project);
+
+  try {
+    await updateDoc(doc(db, 'shared_projects', project.id), {
+      allowedDeviceIds: project.allowedDeviceIds,
+      contractorDevices: project.contractorDevices,
+      pmcDevices: project.pmcDevices,
+      clientDevices: project.clientDevices,
+      lastSyncTimestamp: project.lastSyncTimestamp,
+    });
+  } catch {
+    //
+  }
+
+  return project;
+}
+
+export function subscribeToSharedProject(
+  projectId: string,
+  onUpdate: (project: SharedProjectCollaborationRecord | null) => void
+): () => void {
+  const emitLocal = () => {
+    const list = listStoredSharedProjects();
+    const found = list.find((p) => p.id === projectId);
+    onUpdate(found || null);
+  };
+
+  emitLocal();
+  const onCustom = () => emitLocal();
+  window.addEventListener('eswa-shared-projects-updated', onCustom);
+  window.addEventListener('storage', onCustom);
+
+  let unsub: (() => void) | null = null;
+  try {
+    unsub = onSnapshot(
+      doc(db, 'shared_projects', projectId),
+      (snap) => {
+        if (snap.exists()) {
+          const cloudData = snap.data() as SharedProjectCollaborationRecord;
+          saveSharedProjectToStore(cloudData);
+          onUpdate(cloudData);
+        }
+      },
+      () => {
+        // Offline
+      }
+    );
+  } catch {
+    //
+  }
+
+  return () => {
+    window.removeEventListener('eswa-shared-projects-updated', onCustom);
+    window.removeEventListener('storage', onCustom);
+    if (unsub) unsub();
+  };
+}
+
+// ----------------------------------------------------------------------------
+// MULTI-USER PIN PROFILE SWITCHER & DIGITAL SIGNATURES
+// ----------------------------------------------------------------------------
+
+export function getStoredGeologistProfiles(): GeologistUserProfile[] {
+  try {
+    const raw = localStorage.getItem(ESWA_GEOLOGIST_PROFILES_KEY);
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list) && list.length > 0) return list;
+    }
+  } catch {
+    // Ignore
+  }
+
+  // Default seed profiles for zero-configuration testing
+  const { deviceId } = getLocalUserDeviceId();
+  const nowIso = new Date().toISOString();
+  const defaults: GeologistUserProfile[] = [
+    {
+      id: 'prof_contractor_lead',
+      name: 'R. K. Sharma',
+      designation: 'Senior Tunnel Geologist',
+      role: 'Contractor',
+      pin: '1234',
+      deviceId,
+      isDefaultOnDevice: true,
+      createdAt: nowIso,
+      lastActiveAt: nowIso,
+    },
+    {
+      id: 'prof_pmc_reviewer',
+      name: 'Vikram Malhotra',
+      designation: 'Resident Geotechnical Consultant',
+      role: 'PMC',
+      pin: '0000',
+      deviceId,
+      isDefaultOnDevice: false,
+      createdAt: nowIso,
+      lastActiveAt: nowIso,
+    },
+    {
+      id: 'prof_client_rep',
+      name: 'Dr. Amit Roy',
+      designation: 'Executive Engineer (Geology)',
+      role: 'Client',
+      pin: '1111',
+      deviceId,
+      isDefaultOnDevice: false,
+      createdAt: nowIso,
+      lastActiveAt: nowIso,
+    },
+  ];
+
+  try {
+    localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify(defaults));
+    if (!localStorage.getItem(ESWA_ACTIVE_PROFILE_KEY)) {
+      localStorage.setItem(ESWA_ACTIVE_PROFILE_KEY, defaults[0].id);
+    }
+  } catch {
+    // Ignore
+  }
+
+  return defaults;
+}
+
+export function saveGeologistUserProfile(
+  profileInput: Partial<GeologistUserProfile> & { name: string; role: ProjectOrganizationRole; pin: string }
+): GeologistUserProfile {
+  const list = getStoredGeologistProfiles();
+  const nowIso = new Date().toISOString();
+  const { deviceId } = getLocalUserDeviceId();
+
+  const id = profileInput.id || `prof_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const cleanPin = (profileInput.pin || '1234').replace(/[^0-9]/g, '').slice(0, 8);
+
+  const existing = list.find((p) => p.id === id);
+  const updated: GeologistUserProfile = {
+    id,
+    name: profileInput.name.trim() || 'Tunnel Geologist',
+    email: profileInput.email?.trim(),
+    designation: profileInput.designation?.trim() || `${profileInput.role} Geologist`,
+    role: profileInput.role,
+    pin: cleanPin,
+    pngSignatureDataUrl:
+      profileInput.pngSignatureDataUrl !== undefined
+        ? profileInput.pngSignatureDataUrl
+        : existing?.pngSignatureDataUrl,
+    deviceId: existing?.deviceId || deviceId,
+    isDefaultOnDevice: !!profileInput.isDefaultOnDevice,
+    createdAt: existing?.createdAt || nowIso,
+    lastActiveAt: nowIso,
+  };
+
+  const nextList = list.filter((p) => p.id !== id);
+  nextList.unshift(updated);
+
+  try {
+    localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify(nextList));
+    localStorage.setItem(ESWA_ACTIVE_PROFILE_KEY, updated.id);
+    window.dispatchEvent(new CustomEvent('eswa-geologist-profile-changed', { detail: updated }));
+  } catch {
+    //
+  }
+
+  return updated;
+}
+
+export function deleteGeologistUserProfile(profileId: string): void {
+  try {
+    const list = getStoredGeologistProfiles().filter((p) => p.id !== profileId);
+    localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify(list));
+    const activeId = localStorage.getItem(ESWA_ACTIVE_PROFILE_KEY);
+    if (activeId === profileId && list.length > 0) {
+      localStorage.setItem(ESWA_ACTIVE_PROFILE_KEY, list[0].id);
+      window.dispatchEvent(new CustomEvent('eswa-geologist-profile-changed', { detail: list[0] }));
+    }
+  } catch {
+    //
+  }
+}
+
+export function getActiveGeologistProfile(): GeologistUserProfile | null {
+  try {
+    const list = getStoredGeologistProfiles();
+    if (!list.length) return null;
+    const activeId = localStorage.getItem(ESWA_ACTIVE_PROFILE_KEY);
+    if (activeId) {
+      const found = list.find((p) => p.id === activeId);
+      if (found) return found;
+    }
+    return list[0];
+  } catch {
+    return null;
+  }
+}
+
+export function setActiveGeologistProfileDirect(profile: GeologistUserProfile | null): void {
+  try {
+    if (profile) {
+      localStorage.setItem(ESWA_ACTIVE_PROFILE_KEY, profile.id);
+      profile.lastActiveAt = new Date().toISOString();
+      const list = getStoredGeologistProfiles().map((p) => (p.id === profile.id ? profile : p));
+      localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify(list));
+    }
+    window.dispatchEvent(new CustomEvent('eswa-geologist-profile-changed', { detail: profile }));
+  } catch {
+    //
+  }
+}
+
+export function verifyAndSetActiveProfile(
+  profileId: string,
+  enteredPin: string
+): { success: boolean; error?: string; profile?: GeologistUserProfile } {
+  const list = getStoredGeologistProfiles();
+  const profile = list.find((p) => p.id === profileId);
+  if (!profile) {
+    return { success: false, error: 'Profile not found.' };
+  }
+
+  const cleanInput = enteredPin.replace(/[^0-9]/g, '');
+  if (profile.pin && cleanInput !== profile.pin) {
+    return { success: false, error: 'Incorrect PIN. Please re-enter the 4-digit security code.' };
+  }
+
+  setActiveGeologistProfileDirect(profile);
+  return { success: true, profile };
+}
+
+export function stampGeologistSignatureIntoRound(
+  round: any,
+  profile?: GeologistUserProfile | null
+): any {
+  const p = profile || getActiveGeologistProfile();
+  if (!p || !round) return round;
+
+  const updated = { ...round };
+  if (p.role === 'Contractor') {
+    updated.contractorGeologistName = p.name;
+    if (p.pngSignatureDataUrl) {
+      updated.contractorGeologistSign = p.pngSignatureDataUrl;
+    }
+    if (!updated.geologistName) updated.geologistName = p.name;
+  } else if (p.role === 'PMC') {
+    updated.consultantGeologistName = p.name;
+    if (p.pngSignatureDataUrl) {
+      updated.consultantGeologistSign = p.pngSignatureDataUrl;
+    }
+  } else if (p.role === 'Client') {
+    updated.clientGeologistName = p.name;
+    if (p.pngSignatureDataUrl) {
+      updated.clientGeologistSign = p.pngSignatureDataUrl;
+    }
+  }
+
+  return updated;
+}
+
 export { onAuthStateChanged, auth };
 export type { User as FirebaseGoogleUser };
+

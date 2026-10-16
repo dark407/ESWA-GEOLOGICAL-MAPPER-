@@ -132,9 +132,13 @@ import {
 } from './engine/windowsDesktopEngine';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { FieldMappingModeWorkspace } from './components/FieldMappingModeWorkspace';
+import { CoreLoggingWorkspace } from './components/CoreLoggingWorkspace';
 import { DeviceIdAndNotificationHeaderWidget } from './components/DeviceIdReviewAndNotificationCenter';
+import { GlobalSettingsModal } from './components/GlobalSettingsModal';
 import { DataStorageTabId } from './components/OverbreakAndProjectMemoryPanel';
 import {
+  getActiveGeologistProfile,
+  GeologistUserProfile,
   GoogleUserAccountInfo,
   loadFieldMappingResumeState,
   loadPhotogrammetryResumeState,
@@ -177,6 +181,7 @@ import {
   RefreshCw,
   Ruler,
   Save,
+  Settings,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -240,6 +245,7 @@ export default function App({
   const [isBootLoading, setIsBootLoading] = useState<boolean>(true);
   const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(() => Boolean(initialDraft));
   const [isFieldMappingModeOpen, setIsFieldMappingModeOpen] = useState<boolean>(false);
+  const [isCoreLoggingOpen, setIsCoreLoggingOpen] = useState<boolean>(false);
   const [resumeFieldAtLastStage, setResumeFieldAtLastStage] = useState<boolean>(false);
   const [activeFieldWorkflowMode, setActiveFieldWorkflowMode] = useState<
     'field_mapping' | 'photo_mapping'
@@ -539,6 +545,18 @@ export default function App({
     useState<ScreenStep>('start');
   const [isProjectMemoryModalOpen, setIsProjectMemoryModalOpen] = useState<boolean>(false);
   const [projectMemoryTab, setProjectMemoryTab] = useState<DataStorageTabId>('field_data');
+  const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState<boolean>(false);
+  const [activeGeologist, setActiveGeologist] = useState<GeologistUserProfile | null>(() =>
+    getActiveGeologistProfile()
+  );
+
+  useEffect(() => {
+    const handleProfileChange = () => {
+      setActiveGeologist(getActiveGeologistProfile());
+    };
+    window.addEventListener('eswa-geologist-profile-changed', handleProfileChange);
+    return () => window.removeEventListener('eswa-geologist-profile-changed', handleProfileChange);
+  }, []);
 
   // Persisted Project -> Locations Directory for Practical Step-1 Workflow
   const [projectDirectory, setProjectDirectory] = useState<Record<string, string[]>>(() => {
@@ -687,6 +705,7 @@ export default function App({
   // Keep Android WebView / Mobile Browser history armed so hardware/gesture Back navigates step-by-step inside the app instead of closing it
   const backStateRef = useRef({
     screen,
+    isCoreLoggingOpen,
     isExportModalOpen,
     isContinuous3DLoggerOpen,
     isContinuousLogSetupOpen,
@@ -698,6 +717,7 @@ export default function App({
   useEffect(() => {
     backStateRef.current = {
       screen,
+      isCoreLoggingOpen,
       isExportModalOpen,
       isContinuous3DLoggerOpen,
       isContinuousLogSetupOpen,
@@ -708,6 +728,7 @@ export default function App({
     };
   }, [
     screen,
+    isCoreLoggingOpen,
     isExportModalOpen,
     isContinuous3DLoggerOpen,
     isContinuousLogSetupOpen,
@@ -726,6 +747,7 @@ export default function App({
     }
   }, [
     screen,
+    isCoreLoggingOpen,
     isExportModalOpen,
     isContinuous3DLoggerOpen,
     isContinuousLogSetupOpen,
@@ -739,7 +761,9 @@ export default function App({
     if (typeof window === 'undefined') return;
     const handleAndroidBackNavigation = () => {
       const cur = backStateRef.current;
-      if (cur.isA3ContinuousLogOpen) {
+      if (cur.isCoreLoggingOpen) {
+        setIsCoreLoggingOpen(false);
+      } else if (cur.isA3ContinuousLogOpen) {
         setIsA3ContinuousLogOpen(false);
       } else if (cur.isContinuousLogSetupOpen) {
         setIsContinuousLogSetupOpen(false);
@@ -1885,6 +1909,8 @@ export default function App({
 
       if (navigateToMapping) {
         setIsFirstOpening(false);
+        setIsFieldMappingModeOpen(false);
+        setActiveMappingDomain('TUNNEL');
         setScreen('mapping');
       }
 
@@ -2429,6 +2455,19 @@ export default function App({
   };
 
   // ============================================================================
+  // GEOTECHNICAL CORE LOGGING & BOREHOLE STRIP LOG REPORT WORKSPACE
+  // ============================================================================
+  if (isCoreLoggingOpen) {
+    return (
+      <CoreLoggingWorkspace
+        onBackToMain={() => setIsCoreLoggingOpen(false)}
+        onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
+        activeGeologistProfile={activeGeologist}
+      />
+    );
+  }
+
+  // ============================================================================
   // STANDALONE APK FIELD MAPPING MODE ("DIGITAL PENCIL & PAPER IN FIELD")
   // ============================================================================
   if (isFieldMappingModeOpen) {
@@ -2447,6 +2486,10 @@ export default function App({
           }}
           onOpenDataStorage={() => {
             handleOpenProjectMemoryModal('field_data');
+          }}
+          onOpenCoreLogging={() => {
+            setIsFieldMappingModeOpen(false);
+            setIsCoreLoggingOpen(true);
           }}
           onBackToWelcome={() => {
             setIsFieldMappingModeOpen(false);
@@ -2626,6 +2669,38 @@ export default function App({
               }}
             />
 
+            {/* Top Header Settings Gear & Active Geologist Profile Pill */}
+            <div className="flex items-center gap-1.5">
+              {activeGeologist && (
+                <button
+                  type="button"
+                  onClick={() => setIsGlobalSettingsOpen(true)}
+                  className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                    activeGeologist.role === 'Contractor'
+                      ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+                      : activeGeologist.role === 'PMC'
+                      ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 hover:bg-blue-500/20'
+                      : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+                  }`}
+                  title={`Active Geologist: ${activeGeologist.name} (${activeGeologist.role}) - Click to switch profile`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="font-bold">[{activeGeologist.role}]</span>
+                  <span className="truncate max-w-[110px]">{activeGeologist.name}</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsGlobalSettingsOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white/90 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-orange-500 dark:hover:border-orange-500 text-slate-800 dark:text-slate-100 shadow-sm transition-all cursor-pointer"
+                title="Open Global Settings (Google Account, Device ID, Multi-Device Project Sync, Geologist Profiles & Signatures)"
+              >
+                <Settings className="w-4 h-4 text-orange-500 animate-spin-slow" />
+                <span className="hidden sm:inline">Settings</span>
+              </button>
+            </div>
+
             <ThemeToggleButton compact />
             {isMasterSoftware && onOpenAdminPortal && (
               <button
@@ -2717,6 +2792,24 @@ export default function App({
                 <span className="flex items-center gap-2">
                   <FileSpreadsheet className="w-4 h-4 text-orange-600 shrink-0" />
                   <span>Continuous Tunnel Logging</span>
+                </span>
+                <ArrowRight className="w-4 h-4 shrink-0 text-orange-600" />
+              </button>
+            </div>
+
+            {/* Geotechnical Core Logging */}
+            <div className="flex items-stretch gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFirstOpening(false);
+                  setIsCoreLoggingOpen(true);
+                }}
+                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white hover:bg-orange-50 text-stone-900 border-2 border-orange-200 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-orange-600 shrink-0" />
+                  <span>Geotechnical Core Logging &amp; Reports</span>
                 </span>
                 <ArrowRight className="w-4 h-4 shrink-0 text-orange-600" />
               </button>
@@ -5413,6 +5506,13 @@ export default function App({
 
       {projectMemoryModalNode}
       {continuousLoggingModalsNode}
+      <GlobalSettingsModal
+        isOpen={isGlobalSettingsOpen}
+        onClose={() => setIsGlobalSettingsOpen(false)}
+        currentUser={googleUser}
+        onUserChanged={setGoogleUser}
+        onActiveProfileChanged={(p) => setActiveGeologist(p)}
+      />
     </div>
   );
 }

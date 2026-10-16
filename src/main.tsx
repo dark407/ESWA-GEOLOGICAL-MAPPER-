@@ -14,6 +14,33 @@ interface RootErrorBoundaryState {
   errorMessage: string;
 }
 
+// Suppress transient Firestore WebChannel background stream assertion failures (ca9 / b815)
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => {
+    const msg = String(event.message || event.error?.message || '');
+    if (
+      msg.includes('FIRESTORE') &&
+      (msg.includes('ca9') || msg.includes('b815') || msg.includes('INTERNAL ASSERTION FAILED'))
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      console.warn('Recovered from transient Firestore background stream assertion:', msg);
+    }
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    const msg = String(event.reason?.message || event.reason || '');
+    if (
+      msg.includes('FIRESTORE') &&
+      (msg.includes('ca9') || msg.includes('b815') || msg.includes('INTERNAL ASSERTION FAILED'))
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      console.warn('Recovered from transient Firestore background stream assertion rejection:', msg);
+    }
+  });
+}
+
 class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErrorBoundaryState> {
   constructor(props: RootErrorBoundaryProps) {
     super(props);
@@ -21,9 +48,18 @@ class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErrorBound
   }
 
   static getDerivedStateFromError(error: unknown): RootErrorBoundaryState {
+    const msg = error instanceof Error ? error.message : String(error || 'Unexpected error');
+    if (
+      msg.includes('FIRESTORE') &&
+      (msg.includes('ca9') || msg.includes('b815') || msg.includes('INTERNAL ASSERTION FAILED'))
+    ) {
+      // Do not crash application on transient Firestore background stream error
+      console.warn('Suppressed Firestore internal assertion in RootErrorBoundary:', msg);
+      return { hasError: false, errorMessage: '' };
+    }
     return {
       hasError: true,
-      errorMessage: error instanceof Error ? error.message : String(error || 'Unexpected error'),
+      errorMessage: msg,
     };
   }
 

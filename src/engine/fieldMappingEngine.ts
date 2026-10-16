@@ -193,6 +193,7 @@ export interface FieldStructuralFeature {
   foldElementRole?: FieldFoldElementRole;
   showFoldCrest?: boolean;
   showFoldLimbs?: boolean;
+  showFoldLimbCrestBadges?: boolean;
 }
 
 export interface FieldWaterMark {
@@ -277,22 +278,52 @@ export type FieldMatlabFilterId =
   | 'otsu_binary'
   | 'laplacian_sharpen';
 
+export interface FieldPhotoMeshCornerPoints {
+  tl: { x: number; y: number };
+  tr: { x: number; y: number };
+  br: { x: number; y: number };
+  bl: { x: number; y: number };
+}
+
+export interface FieldPhotoCropExtent {
+  leftPct: number;   // 0..45% crop from left
+  rightPct: number;  // 0..45% crop from right
+  topPct: number;    // 0..45% crop from top
+  bottomPct: number; // 0..45% crop from bottom
+}
+
 export interface FieldPhotoFitConfig {
   /** Scale percentage (40..250, default 100) */
-  scalePct: number;
+  scalePct?: number;
+  /** Anisotropic width scale percentage (30..300, default 100) */
+  scaleXPct?: number;
+  /** Anisotropic height scale percentage (30..300, default 100) */
+  scaleYPct?: number;
   zoomPct?: number;
   scale?: number;
   filteredDataUrl?: string;
-  /** X offset in SVG canvas units (-400..400, default 0) */
+  /** X offset in SVG canvas units (-600..600, default 0) */
   offsetX: number;
-  /** Y offset in SVG canvas units (-400..400, default 0) */
+  /** Y offset in SVG canvas units (-600..600, default 0) */
   offsetY: number;
-  /** Fine or orthogonal rotation angle in degrees (-180..180, default 0) */
+  /** Fine rotation angle in degrees (-180..180, default 0) */
   rotationDeg: number;
+  /** Perspective skew angle X (-45..45, default 0) to match tunnel angle */
+  skewXDeg?: number;
+  /** Perspective skew angle Y (-45..45, default 0) to match tunnel angle */
+  skewYDeg?: number;
+  /** 4-corner mesh pin displacements (TL, TR, BR, BL) in canvas units */
+  meshCorners?: FieldPhotoMeshCornerPoints;
+  /** Custom crop extent / shrink per side */
+  cropExtent?: FieldPhotoCropExtent;
+  /** Cached warped or custom-cropped image data URL */
+  warpedDataUrl?: string;
   /** Horizontal flip */
-  mirrorH: boolean;
+  mirrorH?: boolean;
   /** Vertical flip */
-  mirrorV: boolean;
+  mirrorV?: boolean;
+  flipH?: boolean;
+  flipV?: boolean;
   /** Aspect fit mode inside the tunnel outline */
   fitMode: 'cover' | 'contain' | 'stretch' | 'fill';
   /** Photo underlay opacity percentage on Face Canvas (10..100, default 75) */
@@ -304,7 +335,7 @@ export interface FieldPhotoFitConfig {
   /** Active MATLAB / CV filter mode when Advance is enabled */
   matlabFilter: FieldMatlabFilterId;
   /** MATLAB filter sensitivity / edge gain (10..100, default 55) */
-  matlabSensitivity: number;
+  matlabSensitivity?: number;
 }
 
 export interface FieldPanelTransform {
@@ -538,6 +569,10 @@ export interface FieldExcavationRound {
   contractorRepName: string;
   contractorGeologistName?: string;
   contractorGeologistSign?: string;
+  pmcGeologistName?: string;
+  pmcGeologistSign?: string;
+  consultantGeologistName?: string;
+  consultantGeologistSign?: string;
   clientGeologistName?: string;
   clientGeologistSign?: string;
   /** Interactive Page 2 Custom / Missing Data Tick-Box groups */
@@ -563,7 +598,11 @@ export interface FieldExcavationRound {
   /** Mapping Domain ('TUNNEL' | 'BENCH' | 'TRENCH' | 'ROCK_SURFACE' | 'SLOPE') */
   mappingDomain?: 'TUNNEL' | 'BENCH' | 'TRENCH' | 'ROCK_SURFACE' | 'SLOPE';
   /** Completion & Peer Review Status shown in the Face / Station Window */
-  completionStatus?: 'draft' | 'completed' | 'review_required' | 'approved' | 'changes_requested';
+  completionStatus?: 'draft' | 'completed' | 'review_required' | 'approved' | 'changes_requested' | 'in_progress';
+  reviewStatus?: 'none' | 'pending' | 'pending_review' | 'approved' | 'changes_requested' | 'draft' | 'completed' | 'review_required';
+  reviewerDeviceId?: string;
+  reviewerRemarks?: string;
+  rmrTotal?: number;
   /** ISO timestamp when marked Completed */
   completedAtIso?: string;
   /** True when the unified Master Archive (.eswa.json with reports + original photos + JSON) is generated */
@@ -3278,8 +3317,11 @@ export function computePanelCanvasGeometry(
   let panelWidthM = tunnelW;
   let panelHeightM = tunnelH;
   if (panel === 'crown') {
-    panelWidthM = pullM;
-    panelHeightM = Math.max(0.5, crownLengthM || tunnelW);
+    // Crown arch is horizontal across the tunnel profile:
+    // Width = developed arch length (Left SPL -> Crown Apex -> Right SPL)
+    // Height = advance pull length (0m at bottom / prev round -> 3m on top / face)
+    panelWidthM = Math.max(0.5, crownLengthM || tunnelW);
+    panelHeightM = pullM;
   } else if (panel === 'left_wall') {
     panelWidthM = pullM;
     panelHeightM = Math.max(0.5, leftWallLengthM || splHeightM);
@@ -3426,16 +3468,55 @@ export function computePanelOrientationReferenceMeta(
   const tr = getFieldPanelTransform(round, panel, stageMode);
   const isRotated90 = tr.rotationDeg === 90 || tr.rotationDeg === 270;
   const lengthM = panel === 'crown' ? crownLengthM : splHeightM;
-  const widthM = isRotated90 ? lengthM : pullM;
-  const heightM = isRotated90 ? pullM : lengthM;
+  const isCrown = panel === 'crown';
+  const baseWidthM = isCrown ? crownLengthM : pullM;
+  const baseHeightM = isCrown ? pullM : lengthM;
+
+  const widthM = isRotated90 ? baseHeightM : baseWidthM;
+  const heightM = isRotated90 ? baseWidthM : baseHeightM;
 
   // In canonical unmirrored space:
-  // - left_wall & crown have Drive on right (u = 1) and 0m Pull on left (u = 0)
+  // - left_wall has Drive on right (u = 1) and 0m Pull on left (u = 0)
+  // - crown has Drive on TOP (face advance) and 0m Pull on bottom
   // - right_wall has Drive on left (u = 0) and 0m Pull on right (u = 1)
   const uDrive = panel === 'right_wall' ? 0 : 1;
   const driveUV = transformCanonicalUVToDisplayUV(uDrive, 0.5, tr);
   // v = 0 is 0m on the Wall/Crown Length axis (SPL for walls, Left SPL for crown)
   const zeroLenUV = transformCanonicalUVToDisplayUV(0.5, 0, tr);
+
+  if (isCrown) {
+    if (!isRotated90) {
+      return {
+        tr,
+        isRotated90: false,
+        lengthM,
+        pullM,
+        widthM,
+        heightM,
+        xAxisKind: 'length' as const, // Crown arch from Left SPL to Right SPL
+        yAxisKind: 'pull' as const,   // Advance from 0m at bottom to 3m pull on top
+        driveDirectionSide: 'top' as const,
+        /** True if 0m on X-axis (Left SPL) is at Left and increases rightward */
+        xZeroAtStart: true,
+        /** False means 0m is at Bottom (y = bottom) and increases upward to 3m on top */
+        yZeroAtStart: false,
+      };
+    } else {
+      return {
+        tr,
+        isRotated90: true,
+        lengthM,
+        pullM,
+        widthM,
+        heightM,
+        xAxisKind: 'pull' as const,
+        yAxisKind: 'length' as const,
+        driveDirectionSide: 'right' as const,
+        xZeroAtStart: false,
+        yZeroAtStart: true,
+      };
+    }
+  }
 
   if (!isRotated90) {
     const driveOnRight = driveUV.sx >= 0.5;
@@ -5244,13 +5325,17 @@ export function buildFieldMappingTwoPageWordHtml(
 
   <table style="margin-top:2px;">
     <tr>
-      <td style="width:50%;font-size:8pt;padding:3px 6px;">
-        <strong>CONTRACTOR GEOLOGIST:</strong> ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}
-        &nbsp;|&nbsp; <strong>Sign:</strong> ${round.contractorGeologistSign || '________________'}
+      <td style="width:34%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
+        <strong>CONTRACTOR:</strong> ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}<br/>
+        <strong>Sign:</strong> ${round.contractorGeologistSign && round.contractorGeologistSign.startsWith('data:image/') ? `<img src="${round.contractorGeologistSign}" style="max-height:22px;max-width:110px;vertical-align:middle;display:inline-block;" />` : (round.contractorGeologistSign || '________________')}
       </td>
-      <td style="width:50%;font-size:8pt;padding:3px 6px;">
-        <strong>CLIENT GEOLOGIST:</strong> ${round.clientGeologistName || round.clientRepName || '________________'}
-        &nbsp;|&nbsp; <strong>Sign:</strong> ${round.clientGeologistSign || '________________'}
+      <td style="width:33%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
+        <strong>PMC / CONSULTANT:</strong> ${round.consultantGeologistName || '________________'}<br/>
+        <strong>Sign:</strong> ${round.consultantGeologistSign && round.consultantGeologistSign.startsWith('data:image/') ? `<img src="${round.consultantGeologistSign}" style="max-height:22px;max-width:110px;vertical-align:middle;display:inline-block;" />` : (round.consultantGeologistSign || '________________')}
+      </td>
+      <td style="width:33%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
+        <strong>CLIENT / OWNER:</strong> ${round.clientGeologistName || round.clientRepName || '________________'}<br/>
+        <strong>Sign:</strong> ${round.clientGeologistSign && round.clientGeologistSign.startsWith('data:image/') ? `<img src="${round.clientGeologistSign}" style="max-height:22px;max-width:110px;vertical-align:middle;display:inline-block;" />` : (round.clientGeologistSign || '________________')}
       </td>
     </tr>
   </table>
@@ -5426,13 +5511,17 @@ export function buildFieldMappingTwoPageWordHtml(
 
   <table style="margin-top:4px;">
     <tr>
-      <td style="width:50%;font-size:8pt;padding:3px 6px;">
-        <strong>CONTRACTOR GEOLOGIST:</strong> ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}
-        &nbsp;|&nbsp; <strong>Sign:</strong> ${round.contractorGeologistSign || '________________'}
+      <td style="width:34%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
+        <strong>CONTRACTOR:</strong> ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}<br/>
+        <strong>Sign:</strong> ${round.contractorGeologistSign && round.contractorGeologistSign.startsWith('data:image/') ? `<img src="${round.contractorGeologistSign}" style="max-height:22px;max-width:110px;vertical-align:middle;display:inline-block;" />` : (round.contractorGeologistSign || '________________')}
       </td>
-      <td style="width:50%;font-size:8pt;padding:3px 6px;">
-        <strong>CLIENT GEOLOGIST:</strong> ${round.clientGeologistName || round.clientRepName || '________________'}
-        &nbsp;|&nbsp; <strong>Sign:</strong> ${round.clientGeologistSign || '________________'}
+      <td style="width:33%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
+        <strong>PMC / CONSULTANT:</strong> ${round.consultantGeologistName || '________________'}<br/>
+        <strong>Sign:</strong> ${round.consultantGeologistSign && round.consultantGeologistSign.startsWith('data:image/') ? `<img src="${round.consultantGeologistSign}" style="max-height:22px;max-width:110px;vertical-align:middle;display:inline-block;" />` : (round.consultantGeologistSign || '________________')}
+      </td>
+      <td style="width:33%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
+        <strong>CLIENT / OWNER:</strong> ${round.clientGeologistName || round.clientRepName || '________________'}<br/>
+        <strong>Sign:</strong> ${round.clientGeologistSign && round.clientGeologistSign.startsWith('data:image/') ? `<img src="${round.clientGeologistSign}" style="max-height:22px;max-width:110px;vertical-align:middle;display:inline-block;" />` : (round.clientGeologistSign || '________________')}
       </td>
     </tr>
   </table>
@@ -6533,9 +6622,26 @@ export function getFieldPhotoFitConfig(
   const saved = round?.photoFits?.[panel];
   return {
     scalePct: Number.isFinite(saved?.scalePct) ? Number(saved!.scalePct) : 100,
+    scaleXPct: Number.isFinite(saved?.scaleXPct) ? Number(saved!.scaleXPct) : 100,
+    scaleYPct: Number.isFinite(saved?.scaleYPct) ? Number(saved!.scaleYPct) : 100,
     offsetX: Number.isFinite(saved?.offsetX) ? Number(saved!.offsetX) : 0,
     offsetY: Number.isFinite(saved?.offsetY) ? Number(saved!.offsetY) : 0,
     rotationDeg: Number.isFinite(saved?.rotationDeg) ? Number(saved!.rotationDeg) : 0,
+    skewXDeg: Number.isFinite(saved?.skewXDeg) ? Number(saved!.skewXDeg) : 0,
+    skewYDeg: Number.isFinite(saved?.skewYDeg) ? Number(saved!.skewYDeg) : 0,
+    meshCorners: saved?.meshCorners || {
+      tl: { x: 0, y: 0 },
+      tr: { x: 0, y: 0 },
+      br: { x: 0, y: 0 },
+      bl: { x: 0, y: 0 },
+    },
+    cropExtent: saved?.cropExtent || {
+      leftPct: 0,
+      rightPct: 0,
+      topPct: 0,
+      bottomPct: 0,
+    },
+    warpedDataUrl: saved?.warpedDataUrl,
     mirrorH: Boolean(saved?.mirrorH),
     mirrorV: Boolean(saved?.mirrorV),
     fitMode: saved?.fitMode || 'cover',

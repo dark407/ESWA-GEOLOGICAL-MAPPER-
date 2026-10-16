@@ -4248,7 +4248,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
   compact?: boolean;
   isActivePanel?: boolean;
   stageMode?: FieldTransformStageMode;
-  mappingDomain?: 'TUNNEL' | 'BENCH' | 'TRENCH' | 'SLOPE';
+  mappingDomain?: 'TUNNEL' | 'BENCH' | 'TRENCH' | 'SLOPE' | 'ROCK_SURFACE';
 }> = ({
   activePanel,
   location,

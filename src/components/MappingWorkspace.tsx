@@ -146,6 +146,12 @@ import {
   LITHOLOGY_PRESETS,
   removeVertexFromLithologyRegion,
 } from '../engine/lithologyEngine';
+import { detectTraceOverlap, TraceOverlapResult } from '../engine/traceDuplicateEngine';
+import { PhotogrammetryTracedFeaturesDrawer } from './PhotogrammetryTracedFeaturesDrawer';
+import {
+  PhotogrammetryJointConfirmModal,
+  PendingJointConfirmation,
+} from './PhotogrammetryJointConfirmModal';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -603,6 +609,33 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
     useState<PhotogrammetryLabTab>('kinematic');
   const [windowComplexityMode, setWindowComplexityMode] = useState<'simple' | 'advanced'>('simple');
 
+  // Synchronized Dual-Canvas Face Mapping Photogrammetry States
+  const [dualCanvasViewMode, setDualCanvasViewMode] = useState<'dual' | 'single_photo' | 'single_clean'>('dual');
+  const [isPeekingTracesOnPhoto, setIsPeekingTracesOnPhoto] = useState<boolean>(false);
+  const [showTracedFeaturesDrawer, setShowTracedFeaturesDrawer] = useState<boolean>(false);
+  const [pendingJointConfirmation, setPendingJointConfirmation] =
+    useState<PendingJointConfirmation | null>(null);
+
+  // Shift-key peeking: holding Shift reveals confirmed traces over rock photo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setIsPeekingTracesOnPhoto(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setIsPeekingTracesOnPhoto(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
   const openPhotogrammetryLab = (tab: PhotogrammetryLabTab) => {
     setPhotogrammetryInitialTab(tab);
     setShowPhotogrammetryModal(true);
@@ -1001,6 +1034,12 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
       }),
     [joints, activeSurface, layerVisibility]
   );
+
+  // Real-time trace duplicate & overlap detection
+  const activeOverlapResult = useMemo(() => {
+    if (draftJointPoints.length < 2) return null;
+    return detectTraceOverlap(draftJointPoints, surfaceJoints, activeSurface, joints, 0.18);
+  }, [draftJointPoints, surfaceJoints, activeSurface, joints]);
 
   const selectedJoint = useMemo(
     () => joints.find((j) => j.id === selectedJointId) || null,
@@ -1821,40 +1860,30 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
         waterCondition: 'Dry',
       };
 
-      const nextJointsAll = [...joints, newJoint].map((j) => {
-        if (j.surface !== 'crown') return j;
-        const cRel = resolveCrownRelatedDipFromFaceAndWalls(j, [...joints, newJoint]);
-        return {
-          ...j,
-          strike: cRel.strikeDeg,
-          dipDirection: cRel.dipDirectionDeg,
-          dip: cRel.dipDeg,
-        };
+      // Check duplicate / overlap proximity against existing discontinuities
+      const overlapRes = detectTraceOverlap(finalPts, surfaceJoints, activeSurface, joints, 0.18);
+
+      setPendingJointConfirmation({
+        joint: newJoint,
+        isDuplicate: overlapRes.isOverlap,
+        duplicateInfo: overlapRes.closestJoint
+          ? {
+              existingJointId: overlapRes.closestJoint.id,
+              existingName: formatJointTraceLineLabel(overlapRes.closestJoint, joints),
+              distanceCm: overlapRes.minDistanceCm,
+              angleDiffDeg: overlapRes.angleDiffDeg,
+            }
+          : null,
       });
 
-      onUpdateJointsWithHistory(nextJointsAll);
-      setSelectedJointId(newJoint.id);
-      setSelectedJointVertexIdx(null);
-      setDraftJointPoints([]);
-      setIsFreehandDrawingJoint(false);
-      setShowCadPropertiesAlways(true);
-      onUpdateStatusMessage?.(
-        `Created ${
-          jointDrawMode === 'smooth_curve'
-            ? 'Spline Curve'
-            : jointDrawMode === 'two_point_line'
-            ? '2-Point Line'
-            : jointDrawMode === 'freehand'
-            ? 'Freehand Trace'
-            : 'Polyline Trace'
-        } (${newJoint.set}: DipDir ${formatAccurateAngle(
-          newJoint.dipDirection,
-          3
-        )}° / Dip ${formatAccurateAngle(newJoint.dip, 2)}° · Strike ${formatAccurateAngle(
-          newJoint.strike,
-          3
-        )}°, L=${newJoint.persistenceMeters.toFixed(2)}m).`
-      );
+      if (overlapRes.isOverlap) {
+        onUpdateStatusMessage?.(
+          `⚠️ Duplicate / Overlap Detected: Within ${overlapRes.minDistanceCm}cm of existing ${formatJointTraceLineLabel(
+            overlapRes.closestJoint!,
+            joints
+          )}. Please confirm with OK or Retrace.`
+        );
+      }
     },
     [
       draftJointPoints,
@@ -1866,12 +1895,56 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
       settings,
       currentPhoto.calibration,
       joints,
+      surfaceJoints,
       onUpdateJointsWithHistory,
       draftFeatureType,
       draftSetId,
       onUpdateStatusMessage,
     ]
   );
+
+  // Confirm pending joint: commits to CAD Clean Canvas, resets Rock Photo Canvas
+  const handleConfirmPendingJoint = () => {
+    if (!pendingJointConfirmation) return;
+    const newJoint = pendingJointConfirmation.joint;
+    const nextJointsAll = [...joints, newJoint].map((j) => {
+      if (j.surface !== 'crown') return j;
+      const cRel = resolveCrownRelatedDipFromFaceAndWalls(j, [...joints, newJoint]);
+      return {
+        ...j,
+        strike: cRel.strikeDeg,
+        dipDirection: cRel.dipDirectionDeg,
+        dip: cRel.dipDeg,
+      };
+    });
+
+    onUpdateJointsWithHistory(nextJointsAll);
+    setSelectedJointId(newJoint.id);
+    setSelectedJointVertexIdx(null);
+    setDraftJointPoints([]);
+    setIsFreehandDrawingJoint(false);
+    setPendingJointConfirmation(null);
+    setShowCadPropertiesAlways(true);
+    onUpdateStatusMessage?.(
+      `✓ Confirmed ${newJoint.set} (${newJoint.featureType.toUpperCase()}: Dip ${formatAccurateAngle(
+        newJoint.dip,
+        2
+      )}° → ${formatAccurateAngle(newJoint.dipDirection, 3)}°). Locked onto Clean CAD Canvas; Photo Canvas reset for next trace.`
+    );
+  };
+
+  const handleRetracePendingJoint = () => {
+    setDraftJointPoints([]);
+    setIsFreehandDrawingJoint(false);
+    setPendingJointConfirmation(null);
+    onUpdateStatusMessage?.('Trace discarded. Ready to re-trace discontinuity on photo.');
+  };
+
+  const handleCancelPendingJoint = () => {
+    setDraftJointPoints([]);
+    setIsFreehandDrawingJoint(false);
+    setPendingJointConfirmation(null);
+  };
 
   // Mouse Wheel Zoom centered at cursor (Sections 2 & 5)
   const handleCanvasWheel = (e: React.WheelEvent<SVGSVGElement>) => {
@@ -5462,68 +5535,9 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
               )}
             </div>
           )}
-          <svg
-            ref={svgCanvasRef}
-            viewBox={`0 0 ${viewW} ${viewH}`}
-            preserveAspectRatio="xMidYMid meet"
-            style={{
-              touchAction: 'none',
-              backgroundColor: isLight ? '#E2E8F0' : '#090C12',
-            }}
-            onMouseDown={handleCanvasMouseDown}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-            onWheel={handleCanvasWheel}
-            onTouchStart={handleCanvasTouchStart}
-            onTouchMove={handleCanvasTouchMove}
-            onTouchEnd={handleCanvasTouchEnd}
-            onDoubleClick={() => {
-              if (
-                activeTool === 'lithology' &&
-                isDrawingLithologyPolygon &&
-                draftLithologyPoints.length >= 3
-              ) {
-                commitDraftLithologyPolygon(draftLithologyPoints);
-              }
-            }}
-            onContextMenu={(e) => {
-              if (
-                activeTool === 'add_joint' ||
-                activeTool === 'redraw_joint' ||
-                activeTool === 'append_joint'
-              ) {
-                e.preventDefault();
-                if (draftJointPoints.length >= 2) {
-                  finishDraftJoint();
-                } else {
-                  setDraftJointPoints([]);
-                }
-              } else if (activeTool === 'lithology' && isDrawingLithologyPolygon) {
-                e.preventDefault();
-                if (draftLithologyPoints.length >= 3) {
-                  commitDraftLithologyPolygon(draftLithologyPoints);
-                } else {
-                  setDraftLithologyPoints([]);
-                  setIsDrawingLithologyPolygon(false);
-                }
-              }
-            }}
-            className={`w-full h-full max-w-full max-h-full ${
-              isSpacePanning || Boolean(draggingCanvasPan)
-                ? 'cursor-grab active:cursor-grabbing'
-                : activeTool === 'add_joint' ||
-                  activeTool === 'redraw_joint' ||
-                  activeTool === 'append_joint' ||
-                  activeTool === 'measure' ||
-                  activeTool === 'dip_probe' ||
-                  activeTool === 'control_point' ||
-                  (activeTool === 'lithology' && isDrawingLithologyPolygon)
-                ? 'cursor-crosshair'
-                : activeTool === 'photo_fit'
-                ? 'cursor-move'
-                : 'cursor-default'
-            }`}
-          >
+          {(() => {
+            const renderSvgContents = (canvasRole: 'clean_outline' | 'photo_tracing') => (
+              <>
             <defs>
               {/* Master Tunnel Surface Clip Path */}
               <clipPath id="active-surface-master-clip">
@@ -5620,8 +5634,11 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
             {/* Master Tunnel Surface Interior Background */}
             <path d={surfaceBoundaryPath} fill={isLight ? '#FFFFFF' : '#111722'} />
 
-            {/* Registered, Perspective & Piecewise-Mesh-Warped MAIN PHOTO */}
-            {layerVisibility.photo && currentPhoto.image && currentPhoto.opacity > 0 && (
+            {/* Registered, Perspective & Piecewise-Mesh-Warped MAIN PHOTO (Photo Tracing Canvas Only) */}
+            {canvasRole === 'photo_tracing' &&
+              layerVisibility.photo &&
+              currentPhoto.image &&
+              currentPhoto.opacity > 0 && (
               <g
                 clipPath={
                   currentPhoto.transform.cropToGeometry
@@ -6602,8 +6619,11 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                 VECTOR GEOLOGICAL DISCONTINUITY TRACES + DIP/DIP-DIRECTION SYMBOLS (Sections 10, 11, 12, 21)
                 Strictly clipped & constrained inside the active tunnel portion
                ============================================================== */}
-            <g clipPath="url(#active-surface-master-clip)">
-            {(() => {
+            <g
+              clipPath="url(#active-surface-master-clip)"
+              opacity={canvasRole === 'photo_tracing' && isPeekingTracesOnPhoto ? 0.6 : 1.0}
+            >
+            {((canvasRole === 'clean_outline') || isPeekingTracesOnPhoto) && (() => {
               const canvasObstacles: LabelObstacleBox[] = [];
               const canvasSegments: LabelObstacleSegment[] = [];
 
@@ -7274,11 +7294,27 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                         : null;
                     return (
                       <>
+                        {activeOverlapResult?.isOverlap && (
+                          <path
+                            d={d}
+                            fill="none"
+                            stroke="#EA580C"
+                            strokeWidth="7"
+                            opacity="0.38"
+                            className="pointer-events-none"
+                          />
+                        )}
                         <path
                           d={d}
                           fill="none"
-                          stroke={jointDrawMode === 'magnetic_livewire' ? '#22D3EE' : '#F59E0B'}
-                          strokeWidth="2.5"
+                          stroke={
+                            activeOverlapResult?.isOverlap
+                              ? '#F97316'
+                              : jointDrawMode === 'magnetic_livewire'
+                              ? '#22D3EE'
+                              : '#F59E0B'
+                          }
+                          strokeWidth={activeOverlapResult?.isOverlap ? '3.5' : '2.5'}
                           strokeDasharray={
                             jointDrawMode === 'freehand' || jointDrawMode === 'magnetic_livewire'
                               ? undefined
@@ -8409,7 +8445,331 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
               </g>
             )}
             </g>
-          </svg>
+          </>
+        );
+
+        return (
+          <>
+            {/* Live Duplicate / Overlap Real-Time Distance Warning Banner */}
+            {activeOverlapResult?.isOverlap && activeOverlapResult.closestJoint && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-35 max-w-xl w-[90%] px-3.5 py-2 rounded-xl bg-orange-950/95 border border-orange-500/90 shadow-2xl flex items-center justify-between gap-3 font-mono text-xs text-orange-100 animate-in fade-in slide-in-from-top-2 duration-150 pointer-events-auto">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0 animate-pulse" />
+                  <div>
+                    <span className="font-bold text-orange-300">
+                      Duplicate / Overlap Warning ({activeOverlapResult.minDistanceCm} cm):
+                    </span>{' '}
+                    Near existing {formatJointTraceLineLabel(activeOverlapResult.closestJoint, joints)}
+                  </div>
+                </div>
+                <span className="text-[10px] text-orange-200/90 bg-orange-900/60 px-2 py-0.5 rounded border border-orange-700/60 shrink-0">
+                  Highlighting in Orange
+                </span>
+              </div>
+            )}
+
+            {/* Canvas View Mode Switcher (Dual Synced / Photo Only / Clean CAD) */}
+            <div className="absolute top-2.5 right-2.5 z-30 flex items-center gap-1 p-0.5 rounded-lg bg-slate-900/90 border border-slate-700/80 font-mono text-[10px] shadow-md pointer-events-auto">
+              <button
+                type="button"
+                onClick={() => setDualCanvasViewMode('dual')}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                  dualCanvasViewMode === 'dual'
+                    ? 'bg-sky-600 text-white shadow-2xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Synchronized Dual Canvases (Clean Outline + Rock Photo in Lockstep)"
+              >
+                Dual Synced
+              </button>
+              <button
+                type="button"
+                onClick={() => setDualCanvasViewMode('single_photo')}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                  dualCanvasViewMode === 'single_photo'
+                    ? 'bg-sky-600 text-white shadow-2xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Single Photo Tracing Canvas"
+              >
+                Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => setDualCanvasViewMode('single_clean')}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                  dualCanvasViewMode === 'single_clean'
+                    ? 'bg-sky-600 text-white shadow-2xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Single Clean CAD Outline Canvas"
+              >
+                Clean CAD
+              </button>
+            </div>
+
+            {/* Canvas Container Layout */}
+            {dualCanvasViewMode === 'dual' ? (
+              activeSurface === 'crown' ? (
+                /* CROWN: Stacked vertically with Clean CAD on TOP and Photo on BOTTOM */
+                <div className="flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden select-none">
+                  {/* TOP: Clean CAD Outline & Confirmed Geology Canvas */}
+                  <div className="relative flex-1 min-h-0 w-full overflow-hidden flex items-center justify-center bg-slate-950/80 border-b border-sky-500/30">
+                    <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-200 font-mono shadow-sm pointer-events-none">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span className="font-bold text-white">1. Clean Outline &amp; Traced Geology</span>
+                      <span className="text-slate-400">· (Top Crown Arc)</span>
+                    </div>
+                    <svg
+                      viewBox={`0 0 ${viewW} ${viewH}`}
+                      preserveAspectRatio="xMidYMid meet"
+                      style={{
+                        touchAction: 'none',
+                        backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                      }}
+                      onWheel={handleCanvasWheel}
+                      onMouseDown={handleCanvasMouseDown}
+                      onMouseMove={handleCanvasMouseMove}
+                      onMouseUp={handleCanvasMouseUp}
+                      className="w-full h-full max-w-full max-h-full cursor-default"
+                    >
+                      {renderSvgContents('clean_outline')}
+                    </svg>
+                  </div>
+
+                  {/* Synchronized Lockstep Divider */}
+                  <div className="h-5 bg-slate-900 border-y border-slate-800 flex items-center justify-between px-3 text-[9.5px] font-mono text-slate-400 shrink-0 select-none">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sky-400 font-bold">↕ Lockstep Synchronized Viewport</span>
+                      <span>·</span>
+                      <span>Scale: {(viewport.zoom * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-amber-300">Trace discontinuities below on photo → Mirror reflects above in real-time</span>
+                    </div>
+                  </div>
+
+                  {/* BOTTOM: Photo Tracing Canvas */}
+                  <div className="relative flex-1 min-h-0 w-full overflow-hidden flex items-center justify-center bg-[#090C12]">
+                    <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/90 border border-sky-500/80 text-[10px] text-sky-200 font-mono shadow-sm pointer-events-none">
+                      <span className="w-2 h-2 rounded-full bg-sky-400" />
+                      <span className="font-bold text-white">2. Rock Photo &amp; Tracing Canvas</span>
+                      <span className="text-sky-300">· (Bottom Crown Photo)</span>
+                    </div>
+                    <svg
+                      ref={svgCanvasRef}
+                      viewBox={`0 0 ${viewW} ${viewH}`}
+                      preserveAspectRatio="xMidYMid meet"
+                      style={{
+                        touchAction: 'none',
+                        backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                      }}
+                      onMouseDown={handleCanvasMouseDown}
+                      onMouseMove={handleCanvasMouseMove}
+                      onMouseUp={handleCanvasMouseUp}
+                      onWheel={handleCanvasWheel}
+                      onTouchStart={handleCanvasTouchStart}
+                      onTouchMove={handleCanvasTouchMove}
+                      onTouchEnd={handleCanvasTouchEnd}
+                      onDoubleClick={() => {
+                        if (activeTool === 'lithology' && isDrawingLithologyPolygon && draftLithologyPoints.length >= 3) {
+                          commitDraftLithologyPolygon(draftLithologyPoints);
+                        }
+                      }}
+                      onContextMenu={(e) => {
+                        if (activeTool === 'add_joint' || activeTool === 'redraw_joint' || activeTool === 'append_joint') {
+                          e.preventDefault();
+                          if (draftJointPoints.length >= 2) {
+                            finishDraftJoint();
+                          } else {
+                            setDraftJointPoints([]);
+                          }
+                        } else if (activeTool === 'lithology' && isDrawingLithologyPolygon) {
+                          e.preventDefault();
+                          if (draftLithologyPoints.length >= 3) {
+                            commitDraftLithologyPolygon(draftLithologyPoints);
+                          } else {
+                            setDraftLithologyPoints([]);
+                            setIsDrawingLithologyPolygon(false);
+                          }
+                        }
+                      }}
+                      className={`w-full h-full max-w-full max-h-full ${
+                        isSpacePanning || Boolean(draggingCanvasPan)
+                          ? 'cursor-grab active:cursor-grabbing'
+                          : activeTool === 'add_joint' ||
+                            activeTool === 'redraw_joint' ||
+                            activeTool === 'append_joint' ||
+                            activeTool === 'measure' ||
+                            activeTool === 'dip_probe' ||
+                            activeTool === 'control_point' ||
+                            (activeTool === 'lithology' && isDrawingLithologyPolygon)
+                          ? 'cursor-crosshair'
+                          : activeTool === 'photo_fit'
+                          ? 'cursor-move'
+                          : 'cursor-default'
+                      }`}
+                    >
+                      {renderSvgContents('photo_tracing')}
+                    </svg>
+                  </div>
+                </div>
+              ) : (
+                /* FACE & WALLS: Side-by-side with Clean CAD on LEFT and Photo on RIGHT */
+                <div className="flex flex-row w-full h-full min-w-0 min-h-0 overflow-hidden select-none">
+                  {/* LEFT: Clean CAD Outline & Confirmed Geology Canvas */}
+                  <div className="relative flex-1 min-w-0 h-full overflow-hidden flex items-center justify-center bg-slate-950/80 border-r border-slate-800">
+                    <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-200 font-mono shadow-sm pointer-events-none">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span className="font-bold text-white">1. Clean CAD Outline &amp; Traced Geology</span>
+                    </div>
+                    <svg
+                      viewBox={`0 0 ${viewW} ${viewH}`}
+                      preserveAspectRatio="xMidYMid meet"
+                      style={{
+                        touchAction: 'none',
+                        backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                      }}
+                      onWheel={handleCanvasWheel}
+                      onMouseDown={handleCanvasMouseDown}
+                      onMouseMove={handleCanvasMouseMove}
+                      onMouseUp={handleCanvasMouseUp}
+                      className="w-full h-full max-w-full max-h-full cursor-default"
+                    >
+                      {renderSvgContents('clean_outline')}
+                    </svg>
+                  </div>
+
+                  {/* Synchronized Lockstep Divider */}
+                  <div className="w-1 bg-slate-800 hover:bg-sky-500/50 transition-colors shrink-0 flex items-center justify-center cursor-col-resize select-none" />
+
+                  {/* RIGHT: Photo Tracing Canvas */}
+                  <div className="relative flex-1 min-w-0 h-full overflow-hidden flex items-center justify-center bg-[#090C12]">
+                    <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/90 border border-sky-500/80 text-[10px] text-sky-200 font-mono shadow-sm pointer-events-none">
+                      <span className="w-2 h-2 rounded-full bg-sky-400" />
+                      <span className="font-bold text-white">2. Rock Photo &amp; Tracing Canvas</span>
+                    </div>
+                    <svg
+                      ref={svgCanvasRef}
+                      viewBox={`0 0 ${viewW} ${viewH}`}
+                      preserveAspectRatio="xMidYMid meet"
+                      style={{
+                        touchAction: 'none',
+                        backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                      }}
+                      onMouseDown={handleCanvasMouseDown}
+                      onMouseMove={handleCanvasMouseMove}
+                      onMouseUp={handleCanvasMouseUp}
+                      onWheel={handleCanvasWheel}
+                      onTouchStart={handleCanvasTouchStart}
+                      onTouchMove={handleCanvasTouchMove}
+                      onTouchEnd={handleCanvasTouchEnd}
+                      onDoubleClick={() => {
+                        if (activeTool === 'lithology' && isDrawingLithologyPolygon && draftLithologyPoints.length >= 3) {
+                          commitDraftLithologyPolygon(draftLithologyPoints);
+                        }
+                      }}
+                      onContextMenu={(e) => {
+                        if (activeTool === 'add_joint' || activeTool === 'redraw_joint' || activeTool === 'append_joint') {
+                          e.preventDefault();
+                          if (draftJointPoints.length >= 2) {
+                            finishDraftJoint();
+                          } else {
+                            setDraftJointPoints([]);
+                          }
+                        } else if (activeTool === 'lithology' && isDrawingLithologyPolygon) {
+                          e.preventDefault();
+                          if (draftLithologyPoints.length >= 3) {
+                            commitDraftLithologyPolygon(draftLithologyPoints);
+                          } else {
+                            setDraftLithologyPoints([]);
+                            setIsDrawingLithologyPolygon(false);
+                          }
+                        }
+                      }}
+                      className={`w-full h-full max-w-full max-h-full ${
+                        isSpacePanning || Boolean(draggingCanvasPan)
+                          ? 'cursor-grab active:cursor-grabbing'
+                          : activeTool === 'add_joint' ||
+                            activeTool === 'redraw_joint' ||
+                            activeTool === 'append_joint' ||
+                            activeTool === 'measure' ||
+                            activeTool === 'dip_probe' ||
+                            activeTool === 'control_point' ||
+                            (activeTool === 'lithology' && isDrawingLithologyPolygon)
+                          ? 'cursor-crosshair'
+                          : activeTool === 'photo_fit'
+                          ? 'cursor-move'
+                          : 'cursor-default'
+                      }`}
+                    >
+                      {renderSvgContents('photo_tracing')}
+                    </svg>
+                  </div>
+                </div>
+              )
+            ) : (
+              /* SINGLE CANVAS VIEW */
+              <svg
+                ref={svgCanvasRef}
+                viewBox={`0 0 ${viewW} ${viewH}`}
+                preserveAspectRatio="xMidYMid meet"
+                style={{
+                  touchAction: 'none',
+                  backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                }}
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onWheel={handleCanvasWheel}
+                onTouchStart={handleCanvasTouchStart}
+                onTouchMove={handleCanvasTouchMove}
+                onTouchEnd={handleCanvasTouchEnd}
+                onDoubleClick={() => {
+                  if (activeTool === 'lithology' && isDrawingLithologyPolygon && draftLithologyPoints.length >= 3) {
+                    commitDraftLithologyPolygon(draftLithologyPoints);
+                  }
+                }}
+                onContextMenu={(e) => {
+                  if (activeTool === 'add_joint' || activeTool === 'redraw_joint' || activeTool === 'append_joint') {
+                    e.preventDefault();
+                    if (draftJointPoints.length >= 2) {
+                      finishDraftJoint();
+                    } else {
+                      setDraftJointPoints([]);
+                    }
+                  } else if (activeTool === 'lithology' && isDrawingLithologyPolygon) {
+                    e.preventDefault();
+                    if (draftLithologyPoints.length >= 3) {
+                      commitDraftLithologyPolygon(draftLithologyPoints);
+                    } else {
+                      setDraftLithologyPoints([]);
+                      setIsDrawingLithologyPolygon(false);
+                    }
+                  }
+                }}
+                className={`w-full h-full max-w-full max-h-full ${
+                  isSpacePanning || Boolean(draggingCanvasPan)
+                    ? 'cursor-grab active:cursor-grabbing'
+                    : activeTool === 'add_joint' ||
+                      activeTool === 'redraw_joint' ||
+                      activeTool === 'append_joint' ||
+                      activeTool === 'measure' ||
+                      activeTool === 'dip_probe' ||
+                      activeTool === 'control_point' ||
+                      (activeTool === 'lithology' && isDrawingLithologyPolygon)
+                    ? 'cursor-crosshair'
+                    : activeTool === 'photo_fit'
+                    ? 'cursor-move'
+                    : 'cursor-default'
+                }`}
+              >
+                {renderSvgContents(dualCanvasViewMode === 'single_clean' ? 'clean_outline' : 'photo_tracing')}
+              </svg>
+            )}
+          </>
+        );
+      })()}
 
           {/* Interactive On-Canvas Floating Tool & Properties Bar when Drawing a Joint Trace (2-Pt Line / Polyline / Spline / Freehand) */}
           {(activeTool === 'add_joint' ||
@@ -9055,6 +9415,55 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
               </span>
             </button>
           )}
+
+          {/* Bottom Floating Trigger Button: Traced Geological Features Drawer */}
+          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => setShowTracedFeaturesDrawer((prev) => !prev)}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-950/95 hover:bg-slate-900 text-white border border-sky-500/70 shadow-2xl font-mono text-xs font-bold transition-all hover:scale-105 active:scale-95 cursor-pointer"
+              title="Open Traced Geological Features Drawer (Review strike, dip, persistence, roughness, or peek traces on rock photo)"
+            >
+              <Layers className="w-3.5 h-3.5 text-sky-400" />
+              <span>Traced Features ({surfaceJoints.length})</span>
+              {isPeekingTracesOnPhoto && (
+                <span className="px-1.5 py-0.2 rounded bg-amber-500/30 text-[9.5px] text-amber-300 border border-amber-500/50">
+                  PEEK ON
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Traced Geological Features Drawer */}
+          <PhotogrammetryTracedFeaturesDrawer
+            isOpen={showTracedFeaturesDrawer}
+            onClose={() => setShowTracedFeaturesDrawer(false)}
+            activeSurface={activeSurface}
+            joints={joints}
+            jointSets={jointSets}
+            selectedJointId={selectedJointId}
+            onSelectJoint={(id) => {
+              setSelectedJointId(id);
+              if (id) setShowCadPropertiesAlways(true);
+            }}
+            onDeleteJoint={(id) => {
+              const updated = joints.filter((j) => j.id !== id);
+              onUpdateJointsWithHistory(updated);
+              if (selectedJointId === id) setSelectedJointId(null);
+            }}
+            isPeekingTracesOnPhoto={isPeekingTracesOnPhoto}
+            onTogglePeekTracesOnPhoto={() => setIsPeekingTracesOnPhoto((prev) => !prev)}
+            onOpenProperties={() => setShowCadPropertiesAlways(true)}
+            onOpen3DTunnel={() => setShow3DPhotoTunnelModal(true)}
+          />
+
+          {/* Instant OK Confirmation Modal for Traced Features */}
+          <PhotogrammetryJointConfirmModal
+            pending={pendingJointConfirmation}
+            onConfirm={handleConfirmPendingJoint}
+            onRetrace={handleRetracePendingJoint}
+            onCancel={handleCancelPendingJoint}
+          />
         </div>
 
         {/* ====================================================================

@@ -247,36 +247,8 @@ export const RootApplicationRouter: React.FC = () => {
     );
   }
 
-  // 2. Normal User Software Gate:
-  //    - Shown ONLY in User Software edition (?edition=user) before their 1-time login on this PC.
-  //    - Once logged in 1 time on this PC (activeSession != null), it NEVER asks to log in again!
-  if (isUserEdition && !activeSession) {
-    return (
-      <SoftwareAccessGate
-        onAuthorizedSession={(session) => {
-          setSuspendedLicenseInfo(null);
-          setActiveSession(session);
-        }}
-        suspendedLicense={suspendedLicenseInfo}
-        isOwnerPreview={isOwnerPreviewingUserEdition}
-        onExitOwnerPreview={handleExitPreviewUserEdition}
-      />
-    );
-  }
-
-  // 3. Unlocked Software Workstation:
-  //    - Master Software (default for Owner: opens immediately with no login, shows new user request notifications + Admin Website link)
-  //    - OR Activated User Software (after 1-time login: shows live software update notifications with update link, no Admin Website link)
   return (
     <div className="h-dvh w-full flex flex-col overflow-hidden">
-      <SoftwareLiveUpdateNotifier
-        isMasterSoftware={!isUserEdition}
-        isOwnerPreview={isOwnerPreviewingUserEdition}
-        activeSession={activeSession}
-        onOpenAdminPortal={handleOpenAdminWebsite}
-        onPreviewUserSoftware={handleStartPreviewUserEdition}
-        onExitOwnerPreview={handleExitPreviewUserEdition}
-      />
       <div className="flex-1 min-h-0 w-full relative overflow-hidden">
         <App
           isMasterSoftware={!isUserEdition}

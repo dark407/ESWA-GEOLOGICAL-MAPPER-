@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowLeft,
   BookmarkCheck,
+  Box,
   Camera,
   Check,
   CheckCircle2,
@@ -20,6 +22,7 @@ import {
   Redo2,
   RotateCcw,
   Search,
+  Settings,
   Sliders,
   Sparkles,
   Trash2,
@@ -151,14 +154,19 @@ import {
   getFieldToolCursorDataUri,
 } from './Field3DTunnelCanvas';
 import { createTunnelGeometry } from '../engine/geometryEngine';
+import { generateSampleTunnelPhotograph } from '../engine/sampleFieldData';
 import { TunnelGeometry, TunnelSettings } from '../types/tunnel';
 import { EswaAppBackgroundWatermark, EswaTunnelLogo } from './EswaBrandIdentity';
 import { ThemeToggleButton } from '../context/ThemeContext';
+import { GlobalSettingsModal } from './GlobalSettingsModal';
 import {
   exportCompletedFaceMasterBundleToFile,
   FIELD_STAGE_LABELS,
+  getActiveGeologistProfile,
+  GeologistUserProfile,
   loadFieldMappingResumeState,
   saveFieldMappingResumeState,
+  stampGeologistSignatureIntoRound,
 } from '../engine/userCloudAndPackageEngine';
 import {
   FaceCompletionAndReviewBar,
@@ -178,6 +186,7 @@ interface FieldMappingModeWorkspaceProps {
   onBackToWelcome?: () => void;
   onExitToWelcome?: () => void;
   onOpenDataStorage?: () => void;
+  onOpenCoreLogging?: () => void;
   initialWorkflowMode?: 'photo_mapping' | 'field_mapping';
   onChangeWorkflowMode?: (mode: 'photo_mapping' | 'field_mapping') => void;
   resumeAtLastStage?: boolean;
@@ -216,6 +225,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   onBackToWelcome,
   onExitToWelcome,
   onOpenDataStorage,
+  onOpenCoreLogging,
   initialWorkflowMode = 'field_mapping',
   resumeAtLastStage = false,
   initialStage,
@@ -235,6 +245,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [showSurfaceConfigBar, setShowSurfaceConfigBar] = useState<boolean>(
     initialMappingDomain !== 'TUNNEL'
   );
+  const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState(false);
+  const [activeGeologist, setActiveGeologist] = useState<GeologistUserProfile | null>(() =>
+    getActiveGeologistProfile()
+  );
+
+  useEffect(() => {
+    const handleProfileChange = () => {
+      setActiveGeologist(getActiveGeologistProfile());
+    };
+    window.addEventListener('eswa-geologist-profile-changed', handleProfileChange);
+    return () => window.removeEventListener('eswa-geologist-profile-changed', handleProfileChange);
+  }, []);
 
   useEffect(() => {
     setWorkflowMode(initialWorkflowMode);
@@ -419,6 +441,30 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     );
   }, [store.rounds, store.activeRoundId, activeProject, activeLocation]);
 
+  // Automatically stamp active geologist name & PNG signature into active round based on role
+  useEffect(() => {
+    if (!activeRound?.id || !activeGeologist) return;
+    setStore((prev) => {
+      const idx = prev.rounds.findIndex((r) => r.id === activeRound.id);
+      if (idx === -1) return prev;
+      const target = prev.rounds[idx];
+      const stamped = stampGeologistSignatureIntoRound(target, activeGeologist);
+      if (
+        stamped.contractorGeologistSign === target.contractorGeologistSign &&
+        stamped.contractorGeologistName === target.contractorGeologistName &&
+        stamped.consultantGeologistSign === target.consultantGeologistSign &&
+        stamped.consultantGeologistName === target.consultantGeologistName &&
+        stamped.clientGeologistSign === target.clientGeologistSign &&
+        stamped.clientGeologistName === target.clientGeologistName
+      ) {
+        return prev;
+      }
+      const nextRounds = [...prev.rounds];
+      nextRounds[idx] = stamped;
+      return { ...prev, rounds: nextRounds };
+    });
+  }, [activeRound?.id, activeGeologist?.id, activeGeologist?.pngSignatureDataUrl]);
+
   // Stage 1: New Project & New Tunnel Location Modal / Form state
   const [showNewProjectForm, setShowNewProjectForm] = useState(false);
   const [newProjName, setNewProjName] = useState('');
@@ -457,6 +503,36 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [newFaceMethod, setNewFaceMethod] = useState<'field_mapping' | 'photo_mapping'>(
     initialWorkflowMode
   );
+
+  // Photogrammetry Dual-Canvas Face Mapping States (Clean Outline on Left + Rock Photo on Right, Crown on Bottom)
+  const [confirmedPhotoJointIds, setConfirmedPhotoJointIds] = useState<Set<string>>(() => new Set());
+  const [isPeekingTracesOnPhoto, setIsPeekingTracesOnPhoto] = useState<boolean>(false);
+  const [pendingPhotogrammetryJoint, setPendingPhotogrammetryJoint] = useState<FieldJointTrace | null>(null);
+  const [showTracedFeaturesDrawer, setShowTracedFeaturesDrawer] = useState<boolean>(false);
+  const [photogrammetryDuplicateWarning, setPhotogrammetryDuplicateWarning] = useState<{
+    matchId: string;
+    distance: number;
+  } | null>(null);
+
+  // Shift key peeking: hold Shift to temporarily reveal confirmed joints over rock photo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setIsPeekingTracesOnPhoto(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setIsPeekingTracesOnPhoto(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
 
   // Stage 3: In-Built Auto-Upscale & Shadow-Remove Clean Camera state
   const [inAppCameraOpen, setInAppCameraOpen] = useState(false);
@@ -2231,6 +2307,28 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         ...r,
         jointTraces: [...r.jointTraces, newTrace],
       }));
+      if (workflowMode === 'photo_mapping') {
+        const existing = activeRound.jointTraces.filter((t) => t.panel === targetPanel);
+        for (const ex of existing) {
+          if (ex.points.length >= 2 && newTrace.points.length >= 2) {
+            const p0 = newTrace.points[0];
+            const pEnd = newTrace.points[newTrace.points.length - 1];
+            const pMid = newTrace.points[Math.floor(newTrace.points.length / 2)];
+            const ex0 = ex.points[0];
+            const exEnd = ex.points[ex.points.length - 1];
+            const exMid = ex.points[Math.floor(ex.points.length / 2)];
+            const d0 = Math.min(Math.hypot(p0.x - ex0.x, p0.y - ex0.y), Math.hypot(p0.x - exEnd.x, p0.y - exEnd.y));
+            const dEnd = Math.min(Math.hypot(pEnd.x - ex0.x, pEnd.y - exEnd.y), Math.hypot(pEnd.x - exEnd.x, pEnd.y - exEnd.y));
+            const dMid = Math.hypot(pMid.x - exMid.x, pMid.y - exMid.y);
+            const avgD = (d0 + dEnd + dMid) / 3;
+            if (avgD < 25) {
+              setPhotogrammetryDuplicateWarning({ matchId: ex.id, distance: avgD });
+              break;
+            }
+          }
+        }
+        setPendingPhotogrammetryJoint(newTrace);
+      }
     } else if (pTool === '4_dip_surface') {
       const { outlinePolygon } = buildDipSurfacePolygonWithOutlineSnap(
         shapedPts,
@@ -2673,6 +2771,28 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         ...r,
         jointTraces: [...r.jointTraces, newTrace],
       }));
+      if (workflowMode === 'photo_mapping') {
+        const existing = activeRound.jointTraces.filter((t) => t.panel === targetPanel);
+        for (const ex of existing) {
+          if (ex.points.length >= 2 && newTrace.points.length >= 2) {
+            const p0 = newTrace.points[0];
+            const pEnd = newTrace.points[newTrace.points.length - 1];
+            const pMid = newTrace.points[Math.floor(newTrace.points.length / 2)];
+            const ex0 = ex.points[0];
+            const exEnd = ex.points[ex.points.length - 1];
+            const exMid = ex.points[Math.floor(ex.points.length / 2)];
+            const d0 = Math.min(Math.hypot(p0.x - ex0.x, p0.y - ex0.y), Math.hypot(p0.x - exEnd.x, p0.y - exEnd.y));
+            const dEnd = Math.min(Math.hypot(pEnd.x - ex0.x, pEnd.y - exEnd.y), Math.hypot(pEnd.x - exEnd.x, pEnd.y - exEnd.y));
+            const dMid = Math.hypot(pMid.x - exMid.x, pMid.y - exMid.y);
+            const avgD = (d0 + dEnd + dMid) / 3;
+            if (avgD < 25) {
+              setPhotogrammetryDuplicateWarning({ matchId: ex.id, distance: avgD });
+              break;
+            }
+          }
+        }
+        setPendingPhotogrammetryJoint(newTrace);
+      }
       setCurrentPoints([]);
       return;
     }
@@ -3619,9 +3739,38 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           ))}
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {activeGeologist && (
+            <button
+              type="button"
+              onClick={() => setIsGlobalSettingsOpen(true)}
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
+                activeGeologist.role === 'Contractor'
+                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+                  : activeGeologist.role === 'PMC'
+                  ? 'bg-blue-500/10 text-blue-300 border-blue-500/30 hover:bg-blue-500/20'
+                  : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+              }`}
+              title={`Active Geologist: ${activeGeologist.name} (${activeGeologist.role}) - Click to switch profile`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-bold">[{activeGeologist.role}]</span>
+              <span className="truncate max-w-[110px]">{activeGeologist.name}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsGlobalSettingsOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 shadow-sm transition-all cursor-pointer"
+            title="Open Global Settings (Google Account, Device ID, Multi-Device Project Sync, Geologist Profiles & Signatures)"
+          >
+            <Settings className="w-3.5 h-3.5 text-orange-400" />
+            <span className="hidden md:inline">Settings</span>
+          </button>
+
           <ThemeToggleButton compact />
-          <div className="flex items-center gap-1 text-[10.5px] text-emerald-500 font-semibold shrink-0">
+          <div className="hidden md:flex items-center gap-1 text-[10.5px] text-emerald-500 font-semibold shrink-0">
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Saved</span>
           </div>
@@ -10436,6 +10585,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           />
         </div>
       )}
+
+      <GlobalSettingsModal
+        isOpen={isGlobalSettingsOpen}
+        onClose={() => setIsGlobalSettingsOpen(false)}
+        onActiveProfileChanged={(p) => setActiveGeologist(p)}
+      />
       </div>
     </div>
   );

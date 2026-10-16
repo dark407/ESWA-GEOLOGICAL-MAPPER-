@@ -18,22 +18,29 @@ import {
   Crosshair,
   Download,
   Droplet,
+  Droplets,
   Edit2,
   Eye,
   FileSpreadsheet,
+  GitMerge,
   Grid,
   Hash,
   HelpCircle,
   Layers,
+  Link2,
   Maximize2,
   Minimize2,
   Minus,
   Move,
+  Paintbrush,
   PenTool,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Ruler,
   Save,
   Search,
+  Send,
   Shield,
   Sliders,
   Sparkles,
@@ -41,6 +48,7 @@ import {
   Tag,
   Trash2,
   Type,
+  Undo2,
   Wrench,
   X,
   ZoomIn,
@@ -68,19 +76,18 @@ export interface EswaCadContinuousStripModalProps {
   onSaveDataset: (updatedDataset: ContinuousTunnelStripDataset) => void;
 }
 
-type CadToolType =
+export type CadToolType =
   | 'select'
   | 'draw_joint'
   | 'move_joint'
   | 'edit_joint'
+  | 'merge_joint'
   | 'delete_joint'
   | 'add_lithology'
-  | 'place_bolt'
-  | 'place_rib'
+  | 'place_feature'
   | 'place_water'
-  | 'place_annotation'
-  | 'measure'
-  | 'pulls_table';
+  | 'place_support'
+  | 'measure';
 
 function distToSegment(
   p: { x: number; y: number },
@@ -94,7 +101,230 @@ function distToSegment(
   return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
 }
 
-const ROCK_TYPES: Array<{ id: StripRockTypeId; label: string; color: string; pattern: string }> = [
+/** Interactive 360° Geological Compass Rose Wheel */
+export function CompassRoseWheel({
+  dipDirectionDeg,
+  onChangeDipDir,
+}: {
+  dipDirectionDeg: number;
+  onChangeDipDir: (deg: number) => void;
+}) {
+  const wheelRef = useRef<SVGSVGElement | null>(null);
+  const [isInteracting, setIsInteracting] = useState(false);
+
+  const calculateAngle = (clientX: number, clientY: number) => {
+    if (!wheelRef.current) return;
+    const rect = wheelRef.current.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = clientX - cx;
+    const dy = clientY - cy;
+    let deg = Math.round((Math.atan2(dx, -dy) * 180) / Math.PI);
+    if (deg < 0) deg += 360;
+    onChangeDipDir(deg % 360);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    setIsInteracting(true);
+    calculateAngle(e.clientX, e.clientY);
+    try {
+      (e.target as Element).setPointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (isInteracting) {
+      calculateAngle(e.clientX, e.clientY);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    setIsInteracting(false);
+    try {
+      (e.target as Element).releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const needleAngleRad = ((dipDirectionDeg - 90) * Math.PI) / 180;
+  const needleLength = 34;
+  const nx = 50 + Math.cos(needleAngleRad) * needleLength;
+  const ny = 50 + Math.sin(needleAngleRad) * needleLength;
+
+  return (
+    <div className="flex flex-col items-center select-none py-1">
+      <svg
+        ref={wheelRef}
+        viewBox="0 0 100 100"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        className="w-24 h-24 sm:w-28 sm:h-28 cursor-pointer touch-none filter drop-shadow"
+      >
+        <circle cx="50" cy="50" r="46" fill="#18181b" stroke="#3f3f46" strokeWidth="2" />
+        <circle cx="50" cy="50" r="39" fill="#09090b" stroke="#27272a" strokeWidth="1" />
+
+        {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((deg) => {
+          const rad = ((deg - 90) * Math.PI) / 180;
+          const isCardinal = deg % 90 === 0;
+          const r1 = isCardinal ? 36 : 40;
+          const r2 = 45;
+          return (
+            <line
+              key={deg}
+              x1={50 + Math.cos(rad) * r1}
+              y1={50 + Math.sin(rad) * r1}
+              x2={50 + Math.cos(rad) * r2}
+              y2={50 + Math.sin(rad) * r2}
+              stroke={isCardinal ? '#f97316' : '#71717a'}
+              strokeWidth={isCardinal ? 1.6 : 0.8}
+            />
+          );
+        })}
+
+        <text x="50" y="16" fill="#ef4444" fontSize="8" fontWeight="bold" textAnchor="middle">N</text>
+        <text x="86" y="53" fill="#e4e4e7" fontSize="7.5" fontWeight="bold" textAnchor="middle">E</text>
+        <text x="50" y="89" fill="#e4e4e7" fontSize="7.5" fontWeight="bold" textAnchor="middle">S</text>
+        <text x="14" y="53" fill="#e4e4e7" fontSize="7.5" fontWeight="bold" textAnchor="middle">W</text>
+
+        <circle cx="50" cy="50" r="4" fill="#f97316" />
+
+        <line
+          x1="50"
+          y1="50"
+          x2={nx}
+          y2={ny}
+          stroke="#f97316"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+        />
+        <circle cx={nx} cy={ny} r="3" fill="#fbbf24" stroke="#ffffff" strokeWidth="1" />
+      </svg>
+      <div className="text-[11px] font-mono text-orange-400 font-bold mt-1">
+        {dipDirectionDeg.toString().padStart(3, '0')}° Azimuth
+      </div>
+    </div>
+  );
+}
+
+/** Interactive Geological Clinometer (Dip / Plunge Angle 0–90°) */
+export function InteractiveClinometerDial({
+  dipDeg,
+  onChangeDip,
+}: {
+  dipDeg: number;
+  onChangeDip: (deg: number) => void;
+}) {
+  const dialRef = useRef<SVGSVGElement | null>(null);
+  const [isInteracting, setIsInteracting] = useState(false);
+
+  const calculateDip = (clientX: number, clientY: number) => {
+    if (!dialRef.current) return;
+    const rect = dialRef.current.getBoundingClientRect();
+    const cx = rect.left + rect.width * 0.22;
+    const cy = rect.top + rect.height * 0.22;
+    const dx = Math.max(1, clientX - cx);
+    const dy = Math.max(0, clientY - cy);
+    let deg = Math.round((Math.atan2(dy, dx) * 180) / Math.PI);
+    deg = Math.max(0, Math.min(90, deg));
+    onChangeDip(deg);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    setIsInteracting(true);
+    calculateDip(e.clientX, e.clientY);
+    try {
+      (e.target as Element).setPointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (isInteracting) {
+      calculateDip(e.clientX, e.clientY);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    setIsInteracting(false);
+    try {
+      (e.target as Element).releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const rad = (dipDeg * Math.PI) / 180;
+  const radius = 62;
+  const pivotX = 22;
+  const pivotY = 22;
+  const px = pivotX + Math.cos(rad) * radius;
+  const py = pivotY + Math.sin(rad) * radius;
+
+  return (
+    <div className="flex flex-col items-center select-none py-1">
+      <svg
+        ref={dialRef}
+        viewBox="0 0 100 100"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        className="w-24 h-24 sm:w-28 sm:h-28 cursor-pointer touch-none filter drop-shadow"
+      >
+        <path
+          d={`M ${pivotX} ${pivotY} L ${pivotX + radius + 4} ${pivotY} A ${radius + 4} ${radius + 4} 0 0 1 ${pivotX} ${pivotY + radius + 4} Z`}
+          fill="#18181b"
+          stroke="#3f3f46"
+          strokeWidth="1.5"
+        />
+        {[0, 15, 30, 45, 60, 75, 90].map((angle) => {
+          const aRad = (angle * Math.PI) / 180;
+          const isMajor = angle % 30 === 0;
+          const r1 = isMajor ? radius - 8 : radius - 4;
+          const r2 = radius + 2;
+          const x1 = pivotX + Math.cos(aRad) * r1;
+          const y1 = pivotY + Math.sin(aRad) * r1;
+          const x2 = pivotX + Math.cos(aRad) * r2;
+          const y2 = pivotY + Math.sin(aRad) * r2;
+          return (
+            <g key={angle}>
+              <line
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke={isMajor ? '#f59e0b' : '#71717a'}
+                strokeWidth={isMajor ? 1.5 : 0.8}
+              />
+              {isMajor && (
+                <text
+                  x={pivotX + Math.cos(aRad) * (radius - 14)}
+                  y={pivotY + Math.sin(aRad) * (radius - 14) + 3}
+                  fill="#d4d4d8"
+                  fontSize="6.5"
+                  fontWeight="bold"
+                  textAnchor="middle"
+                >
+                  {angle}°
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {/* Baseline references */}
+        <line x1={pivotX} y1={pivotY} x2={pivotX + radius + 2} y2={pivotY} stroke="#71717a" strokeWidth="1" strokeDasharray="2 2" />
+        <line x1={pivotX} y1={pivotY} x2={pivotX} y2={pivotY + radius + 2} stroke="#71717a" strokeWidth="1" strokeDasharray="2 2" />
+        <circle cx={pivotX} cy={pivotY} r="3.5" fill="#f59e0b" />
+        {/* Clinometer Pointer Arm */}
+        <line x1={pivotX} y1={pivotY} x2={px} y2={py} stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx={px} cy={py} r="3" fill="#fbbf24" stroke="#ffffff" strokeWidth="1" />
+      </svg>
+      <div className="text-[11px] font-mono text-amber-400 font-bold mt-1">
+        {dipDeg.toString().padStart(2, '0')}° Dip Angle
+      </div>
+    </div>
+  );
+}
+
+export const ROCK_TYPES: Array<{ id: StripRockTypeId; label: string; color: string; pattern: string }> = [
   { id: 'Qtz', label: 'Quartzite (Qtz)', color: '#d97706', pattern: 'dots' },
   { id: 'Ph', label: 'Phyllite (Ph)', color: '#0284c7', pattern: 'lines' },
   { id: 'QP', label: 'Interbedded Quartzite & Phyllite (QP)', color: '#854d0e', pattern: 'hatch' },
@@ -108,7 +338,14 @@ const ROCK_TYPES: Array<{ id: StripRockTypeId; label: string; color: string; pat
   { id: 'FaultGouge', label: 'Fault Breccia / Gouge', color: '#b91c1c', pattern: 'zigzag' },
 ];
 
-const JOINT_SETS: Array<{ id: string; name: string; structureType: StripStructureTypeId; defaultDipDir: number; defaultDip: number; color: string }> = [
+export const JOINT_SETS: Array<{
+  id: string;
+  name: string;
+  structureType: StripStructureTypeId;
+  defaultDipDir: number;
+  defaultDip: number;
+  color: string;
+}> = [
   { id: 'J1', name: 'Joint Set 1 (J1)', structureType: 'Bedding/Foliation', defaultDipDir: 140, defaultDip: 65, color: '#3b82f6' },
   { id: 'J2', name: 'Joint Set 2 (J2)', structureType: 'Joint', defaultDipDir: 220, defaultDip: 70, color: '#f97316' },
   { id: 'J3', name: 'Joint Set 3 (J3)', structureType: 'Joint', defaultDipDir: 350, defaultDip: 50, color: '#a855f7' },
@@ -192,10 +429,26 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
   const [hoveredTraceId, setHoveredTraceId] = useState<string | null>(null);
   const [hoveredVertexIdx, setHoveredVertexIdx] = useState<number | null>(null);
 
+  // Merge Joint State
+  const [mergeSourceTraceId, setMergeSourceTraceId] = useState<string | null>(null);
+  const [mergeTargetTraceId, setMergeTargetTraceId] = useState<string | null>(null);
+
+  // Measure Tape State
+  const [measureStartPoint, setMeasureStartPoint] = useState<Point2D | null>(null);
+
+  // Floating HUD Expansion Toggle
+  const [showFloatingCompassHud, setShowFloatingCompassHud] = useState<boolean>(true);
+
   // Sidebar Tab
-  const [sidebarTab, setSidebarTab] = useState<'properties' | 'previous_joints' | 'layers'>('properties');
+  const [sidebarTab, setSidebarTab] = useState<'properties' | 'lithology' | 'previous_joints' | 'features' | 'layers'>('properties');
   const [searchJointQuery, setSearchJointQuery] = useState<string>('');
   const [nudgeStepM, setNudgeStepM] = useState<number>(0.2);
+
+  // 1-Click Fill Span States
+  const [fillSpanFromCh, setFillSpanFromCh] = useState<number>(dataset.viewFromRd ?? 0);
+  const [fillSpanToCh, setFillSpanToCh] = useState<number>(dataset.viewToRd ?? 30);
+  const [fillSpanRockType, setFillSpanRockType] = useState<StripRockTypeId>('Qtz');
+  const [fillSpanZoneType, setFillSpanZoneType] = useState<'all' | 'crown' | 'leftWall' | 'rightWall'>('all');
 
   // Active Drawing Buffer for multi-point lines / zones
   const [activeDraftPoints, setActiveDraftPoints] = useState<Point2D[]>([]);
@@ -281,6 +534,126 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     }
   }, [isOpen, handleFitToScreen]);
 
+  // Update selected trace dip and dip direction in real-time
+  const updateSelectedTraceDip = useCallback((newDipDir: number, newDipAngle: number) => {
+    if (!selectedObjectId || selectedObjectType !== 'trace') return;
+    let safeDir = Math.round(newDipDir) % 360;
+    if (safeDir < 0) safeDir += 360;
+    const safeAngle = Math.max(0, Math.min(90, Math.round(newDipAngle)));
+
+    setCurrentDataset((prev) => ({
+      ...prev,
+      traces: (prev.traces || []).map((t) => {
+        if (t.id !== selectedObjectId) return t;
+        return {
+          ...t,
+          dipDirectionDeg: safeDir,
+          dipDeg: safeAngle,
+          orientationLabel: `${safeDir.toString().padStart(3, '0')}/${safeAngle.toString().padStart(2, '0')}`,
+        };
+      }),
+      updatedAt: new Date().toISOString(),
+    }));
+  }, [selectedObjectId, selectedObjectType]);
+
+  // Merge Two Joint Traces into a single continuous trace
+  const handleExecuteMergeTraces = useCallback((id1: string, id2: string) => {
+    const t1 = currentDataset.traces?.find((t) => t.id === id1);
+    const t2 = currentDataset.traces?.find((t) => t.id === id2);
+    if (!t1 || !t2 || !t1.points?.length || !t2.points?.length) return;
+
+    const p1_start = t1.points[0];
+    const p1_end = t1.points[t1.points.length - 1];
+    const p2_start = t2.points[0];
+    const p2_end = t2.points[t2.points.length - 1];
+
+    const d_end1_start2 = Math.hypot(p1_end.x - p2_start.x, p1_end.y - p2_start.y);
+    const d_end1_end2 = Math.hypot(p1_end.x - p2_end.x, p1_end.y - p2_end.y);
+    const d_start1_start2 = Math.hypot(p1_start.x - p2_start.x, p1_start.y - p2_start.y);
+    const d_start1_end2 = Math.hypot(p1_start.x - p2_end.x, p1_start.y - p2_end.y);
+
+    let mergedPoints: Point2D[] = [];
+    const minD = Math.min(d_end1_start2, d_end1_end2, d_start1_start2, d_start1_end2);
+
+    if (minD === d_end1_start2) {
+      mergedPoints = [...t1.points, ...t2.points];
+    } else if (minD === d_end1_end2) {
+      mergedPoints = [...t1.points, ...[...t2.points].reverse()];
+    } else if (minD === d_start1_start2) {
+      mergedPoints = [...[...t1.points].reverse(), ...t2.points];
+    } else {
+      mergedPoints = [...t2.points, ...t1.points];
+    }
+
+    const len1 = Math.max(1, t1.points.length);
+    const len2 = Math.max(1, t2.points.length);
+    const totalLen = len1 + len2;
+    const avgDipDir = Math.round((t1.dipDirectionDeg * len1 + t2.dipDirectionDeg * len2) / totalLen) % 360;
+    const avgDip = Math.max(0, Math.min(90, Math.round((t1.dipDeg * len1 + t2.dipDeg * len2) / totalLen)));
+
+    const mergedTrace: ContinuousStripTrace = {
+      ...t1,
+      id: `${t1.id}_merged`,
+      points: mergedPoints,
+      rawPoints: mergedPoints,
+      dipDirectionDeg: avgDipDir,
+      dipDeg: avgDip,
+      orientationLabel: `${String(avgDipDir).padStart(3, '0')}/${String(avgDip).padStart(2, '0')}`,
+    };
+
+    pushHistory(currentDataset);
+    setCurrentDataset((prev) => ({
+      ...prev,
+      traces: [...(prev.traces || []).filter((t) => t.id !== id1 && t.id !== id2), mergedTrace],
+      updatedAt: new Date().toISOString(),
+    }));
+
+    setSelectedObjectId(mergedTrace.id);
+    setSelectedObjectType('trace');
+    setMergeSourceTraceId(null);
+    setMergeTargetTraceId(null);
+  }, [currentDataset, pushHistory]);
+
+  // 1-Click Fill Between Chainages for Lithology Strata
+  const handleFillBetweenChainages = () => {
+    let yTop = 0;
+    let yBottom = totalPerimeterM;
+
+    if (fillSpanZoneType === 'leftWall') {
+      yTop = 0;
+      yBottom = leftWallHeight;
+    } else if (fillSpanZoneType === 'crown') {
+      yTop = leftWallHeight;
+      yBottom = leftWallHeight + crownWidth;
+    } else if (fillSpanZoneType === 'rightWall') {
+      yTop = leftWallHeight + crownWidth;
+      yBottom = totalPerimeterM;
+    }
+
+    const rockDef = ROCK_TYPES.find((r) => r.id === fillSpanRockType) || ROCK_TYPES[0];
+    const newZone: ContinuousStripLithologyZone = {
+      id: `litho-fill-${Date.now()}`,
+      rockType: fillSpanRockType,
+      label: `${rockDef.label} (CH ${fillSpanFromCh}m–${fillSpanToCh}m)`,
+      codeSymbol: rockDef.id,
+      polygon: [
+        { x: fillSpanFromCh, y: yTop },
+        { x: fillSpanToCh, y: yTop },
+        { x: fillSpanToCh, y: yBottom },
+        { x: fillSpanFromCh, y: yBottom },
+      ],
+    };
+
+    pushHistory(currentDataset);
+    setCurrentDataset((prev) => ({
+      ...prev,
+      lithologyZones: [...(prev.lithologyZones || []), newZone],
+      updatedAt: new Date().toISOString(),
+    }));
+    setSelectedObjectId(newZone.id);
+    setSelectedObjectType('lithology');
+  };
+
   // Main Canvas Render Loop
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -288,7 +661,6 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Handle high-DPI
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
     if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
@@ -302,8 +674,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     const w = rect.width;
     const h = rect.height;
 
-    // Background
-    ctx.fillStyle = isDarkMode ? '#121316' : '#f8fafc';
+    // Background matching Underground Face Mapping
+    ctx.fillStyle = isDarkMode ? '#0a0d14' : '#f8fafc';
     ctx.fillRect(0, 0, w, h);
 
     // 1. Draw CAD Engineering Grid
@@ -315,20 +687,20 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     const botY = worldToScreenY(totalPerimeterM);
 
     // Subtle background for tunnel strip bounds
-    ctx.fillStyle = isDarkMode ? '#1a1b20' : '#ffffff';
+    ctx.fillStyle = isDarkMode ? '#111726' : '#ffffff';
     ctx.fillRect(startX, topY, endX - startX, botY - topY);
 
     // Strip perimeter bounding box
-    ctx.strokeStyle = isDarkMode ? '#3f3f46' : '#cbd5e1';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = isDarkMode ? '#334155' : '#cbd5e1';
+    ctx.lineWidth = 1.8;
     ctx.strokeRect(startX, topY, endX - startX, botY - topY);
 
-    // Horizontal Boundary Lines (Left Wall Springline, Right Wall Springline)
+    // Horizontal Springlines (Left Wall Springline, Right Wall Springline)
     const spg1Y = worldToScreenY(leftWallHeight);
     const spg2Y = worldToScreenY(leftWallHeight + crownWidth);
 
-    ctx.strokeStyle = isDarkMode ? '#52525b' : '#94a3b8';
-    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = isDarkMode ? '#0ea5e9' : '#0284c7';
+    ctx.setLineDash([8, 4]);
     ctx.beginPath();
     ctx.moveTo(startX, spg1Y);
     ctx.lineTo(endX, spg1Y);
@@ -338,8 +710,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     ctx.setLineDash([]);
 
     // Wall Label Annotations on left margin
-    ctx.font = '10px monospace';
-    ctx.fillStyle = isDarkMode ? '#a1a1aa' : '#64748b';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillStyle = isDarkMode ? '#38bdf8' : '#0369a1';
     ctx.textAlign = 'right';
     ctx.fillText('LEFT WALL', startX - 8, topY + (spg1Y - topY) / 2);
     ctx.fillText('CROWN ARCH', startX - 8, spg1Y + (spg2Y - spg1Y) / 2);
@@ -351,8 +723,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       const isMajor = ch % gridMajorSpacingX === 0;
 
       ctx.strokeStyle = isMajor
-        ? (isDarkMode ? '#3f3f46' : '#e2e8f0')
-        : (isDarkMode ? '#27272a' : '#f1f5f9');
+        ? (isDarkMode ? '#334155' : '#e2e8f0')
+        : (isDarkMode ? '#1e293b' : '#f1f5f9');
       ctx.lineWidth = isMajor ? 1 : 0.5;
 
       ctx.beginPath();
@@ -365,8 +737,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         ctx.fillStyle = isDarkMode ? '#f97316' : '#ea580c';
         ctx.textAlign = 'center';
         ctx.font = 'bold 10px monospace';
-        ctx.fillText(`CH ${ch}m`, scrX, topY - 10);
-        ctx.fillText(`CH ${ch}m`, scrX, botY + 16);
+        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, topY - 10);
+        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, botY + 16);
       }
     }
 
@@ -387,11 +759,83 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         });
         ctx.closePath();
 
-        // Semi-transparent fill
         ctx.fillStyle = isSelected
           ? 'rgba(249, 115, 22, 0.45)'
-          : `${rockDef.color}35`;
+          : `${rockDef.color}38`;
         ctx.fill();
+
+        // Procedural geological rock hatch patterns
+        ctx.save();
+        ctx.clip();
+        const xs = zone.polygon.map((p) => worldToScreenX(p.x));
+        const ys = zone.polygon.map((p) => worldToScreenY(p.y));
+        const pMinX = Math.min(...xs);
+        const pMaxX = Math.max(...xs);
+        const pMinY = Math.min(...ys);
+        const pMaxY = Math.max(...ys);
+
+        ctx.strokeStyle = isDarkMode ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.18)';
+        ctx.fillStyle = isDarkMode ? 'rgba(255, 255, 255, 0.20)' : 'rgba(0, 0, 0, 0.20)';
+        ctx.lineWidth = 0.8;
+
+        if (rockDef.pattern === 'dots' || rockDef.id === 'Qtz' || rockDef.id === 'Ss') {
+          for (let px = pMinX; px <= pMaxX; px += 14) {
+            for (let py = pMinY; py <= pMaxY; py += 14) {
+              ctx.beginPath();
+              ctx.arc(px + ((Math.floor(py) % 28) ? 7 : 0), py, 1.2, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        } else if (rockDef.pattern === 'cross' || rockDef.id === 'Gr') {
+          for (let px = pMinX; px <= pMaxX; px += 20) {
+            for (let py = pMinY; py <= pMaxY; py += 20) {
+              ctx.beginPath();
+              ctx.moveTo(px - 3, py); ctx.lineTo(px + 3, py);
+              ctx.moveTo(px, py - 3); ctx.lineTo(px, py + 3);
+              ctx.stroke();
+            }
+          }
+        } else if (rockDef.pattern === 'brick' || rockDef.id === 'Ls') {
+          const bH = 10;
+          const bW = 22;
+          for (let py = pMinY; py <= pMaxY; py += bH) {
+            ctx.beginPath();
+            ctx.moveTo(pMinX, py); ctx.lineTo(pMaxX, py);
+            ctx.stroke();
+            const rowIdx = Math.floor((py - pMinY) / bH);
+            const shift = (rowIdx % 2) * (bW / 2);
+            for (let px = pMinX + shift; px <= pMaxX; px += bW) {
+              ctx.beginPath();
+              ctx.moveTo(px, py); ctx.lineTo(px, py + bH);
+              ctx.stroke();
+            }
+          }
+        } else if (rockDef.pattern === 'lines' || rockDef.id === 'Ph' || rockDef.id === 'Sch') {
+          for (let px = pMinX - (pMaxY - pMinY); px <= pMaxX; px += 14) {
+            ctx.beginPath();
+            ctx.moveTo(px, pMinY);
+            ctx.lineTo(px + (pMaxY - pMinY) * 0.7, pMaxY);
+            ctx.stroke();
+          }
+        } else if (rockDef.pattern === 'wavy' || rockDef.id === 'Gn') {
+          for (let py = pMinY; py <= pMaxY; py += 14) {
+            ctx.beginPath();
+            for (let px = pMinX; px <= pMaxX; px += 10) {
+              const wy = py + Math.sin(px * 0.1) * 3;
+              if (px === pMinX) ctx.moveTo(px, wy);
+              else ctx.lineTo(px, wy);
+            }
+            ctx.stroke();
+          }
+        } else if (rockDef.pattern === 'hatch' || rockDef.id === 'QP') {
+          for (let px = pMinX - (pMaxY - pMinY); px <= pMaxX; px += 18) {
+            ctx.beginPath();
+            ctx.moveTo(px, pMinY); ctx.lineTo(px + (pMaxY - pMinY), pMaxY);
+            ctx.moveTo(px + (pMaxY - pMinY), pMinY); ctx.lineTo(px, pMaxY);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
 
         ctx.strokeStyle = isSelected ? '#f97316' : rockDef.color;
         ctx.lineWidth = isSelected ? 2.5 : 1.2;
@@ -401,10 +845,22 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         if (zone.polygon.length > 0) {
           const avgX = zone.polygon.reduce((sum, p) => sum + p.x, 0) / zone.polygon.length;
           const avgY = zone.polygon.reduce((sum, p) => sum + p.y, 0) / zone.polygon.length;
+          const lx = worldToScreenX(avgX);
+          const ly = worldToScreenY(avgY);
+          const lbl = zone.label || rockDef.label;
+
+          ctx.font = 'bold 9.5px sans-serif';
+          const lw = ctx.measureText(lbl).width;
+          ctx.fillStyle = isDarkMode ? 'rgba(9, 9, 11, 0.88)' : 'rgba(255, 255, 255, 0.88)';
+          ctx.fillRect(lx - lw / 2 - 4, ly - 7, lw + 8, 14);
+          ctx.strokeStyle = rockDef.color;
+          ctx.lineWidth = 0.8;
+          ctx.strokeRect(lx - lw / 2 - 4, ly - 7, lw + 8, 14);
+
           ctx.fillStyle = isDarkMode ? '#ffffff' : '#0f172a';
-          ctx.font = 'bold 9px sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillText(zone.label || rockDef.label, worldToScreenX(avgX), worldToScreenY(avgY));
+          ctx.textBaseline = 'middle';
+          ctx.fillText(lbl, lx, ly);
         }
       }
     }
@@ -416,7 +872,6 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         const pullEndX = worldToScreenX(pull.toRd);
         const isSelected = selectedObjectType === 'pull' && selectedObjectId === pull.id;
 
-        // Pull boundary vertical line
         ctx.strokeStyle = isSelected ? '#fbbf24' : '#eab308';
         ctx.lineWidth = isSelected ? 2 : 1;
         ctx.setLineDash([4, 2]);
@@ -426,17 +881,17 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Pull indicator badge along crown
         const midX = (pullStartX + pullEndX) / 2;
-        ctx.fillStyle = isDarkMode ? '#27272a' : '#f1f5f9';
-        ctx.fillRect(midX - 24, topY + 4, 48, 14);
-        ctx.strokeStyle = isDarkMode ? '#52525b' : '#cbd5e1';
-        ctx.strokeRect(midX - 24, topY + 4, 48, 14);
+        ctx.fillStyle = isDarkMode ? '#1e293b' : '#f1f5f9';
+        ctx.fillRect(midX - 26, topY + 4, 52, 14);
+        ctx.strokeStyle = isDarkMode ? '#475569' : '#cbd5e1';
+        ctx.strokeRect(midX - 26, topY + 4, 52, 14);
 
         ctx.fillStyle = isDarkMode ? '#fef08a' : '#854d0e';
         ctx.font = 'bold 9px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(`PULL`, midX, topY + 14);
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`PULL #${pull.id.replace('round-', '')}`, midX, topY + 11);
       }
     }
 
@@ -448,10 +903,12 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
         const isSelected = selectedObjectType === 'trace' && selectedObjectId === trace.id;
         const isHovered = hoveredTraceId === trace.id && !isSelected;
+        const isMergeMaster = mergeSourceTraceId === trace.id;
+        const isMergeTarget = mergeTargetTraceId === trace.id;
         const color = resolveStripTraceColor(trace);
 
         // Hover or Selection halo glow
-        if (isSelected || isHovered) {
+        if (isSelected || isHovered || isMergeMaster || isMergeTarget) {
           ctx.beginPath();
           points.forEach((pt, i) => {
             const scrX = worldToScreenX(pt.x);
@@ -459,8 +916,14 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             if (i === 0) ctx.moveTo(scrX, scrY);
             else ctx.lineTo(scrX, scrY);
           });
-          ctx.strokeStyle = isSelected ? 'rgba(251, 191, 36, 0.4)' : 'rgba(56, 189, 248, 0.35)';
-          ctx.lineWidth = isSelected ? 9 : 6;
+          ctx.strokeStyle = isMergeMaster
+            ? 'rgba(245, 158, 11, 0.65)'
+            : isMergeTarget
+            ? 'rgba(6, 182, 212, 0.65)'
+            : isSelected
+            ? 'rgba(251, 191, 36, 0.45)'
+            : 'rgba(56, 189, 248, 0.35)';
+          ctx.lineWidth = isSelected || isMergeMaster || isMergeTarget ? 11 : 7;
           ctx.stroke();
         }
 
@@ -472,8 +935,16 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           else ctx.lineTo(scrX, scrY);
         });
 
-        ctx.strokeStyle = isSelected ? '#fbbf24' : isHovered ? '#38bdf8' : color;
-        ctx.lineWidth = isSelected ? 3.5 : (trace.fillingThickness === 'Thin' ? 1.5 : 2.5);
+        ctx.strokeStyle = isMergeMaster
+          ? '#f59e0b'
+          : isMergeTarget
+          ? '#06b6d4'
+          : isSelected
+          ? '#fbbf24'
+          : isHovered
+          ? '#38bdf8'
+          : color;
+        ctx.lineWidth = isSelected || isMergeMaster ? 3.5 : (trace.fillingThickness === 'Thin' ? 1.8 : 2.8);
 
         if (trace.structureType === 'Shear Zone') {
           ctx.setLineDash([8, 3]);
@@ -486,27 +957,26 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Highlight endpoints & Interactive Vertex Drag Handles for Selected Trace
-        if (isSelected) {
+        // Highlight endpoints & Interactive Vertex Drag Handles
+        if (isSelected || activeTool === 'edit_joint') {
           points.forEach((pt, i) => {
             const vx = worldToScreenX(pt.x);
             const vy = worldToScreenY(pt.y);
             const isVertexActive = draggingVertexIdx === i || hoveredVertexIdx === i;
 
-            // Handle outer ring
             ctx.fillStyle = isVertexActive ? '#fbbf24' : '#06b6d4';
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(vx, vy, isVertexActive ? 7.5 : 6, 0, Math.PI * 2);
+            ctx.arc(vx, vy, isVertexActive ? 8 : 6, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
 
-            // Handle vertex index badge
             ctx.fillStyle = '#09090b';
             ctx.font = 'bold 8px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText(`${i + 1}`, vx, vy + 2.5);
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${i + 1}`, vx, vy);
           });
 
           // Draw Move icon / center badge at midpoint
@@ -523,11 +993,11 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           ctx.stroke();
 
           ctx.fillStyle = '#fbbf24';
-          ctx.font = 'bold 8px sans-serif';
+          ctx.font = 'bold 9px sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillText('✥', cx, cy + 3);
+          ctx.textBaseline = 'middle';
+          ctx.fillText('✥', cx, cy);
         } else {
-          // Standard endpoint dots for non-selected traces
           points.forEach((pt) => {
             ctx.fillStyle = isHovered ? '#38bdf8' : color;
             ctx.beginPath();
@@ -536,22 +1006,71 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           });
         }
 
-        // Orientation tag e.g. "140/65"
-        if (trace.orientationLabel && points.length > 0) {
-          const midPt = points[Math.floor(points.length / 2)];
-          const tagX = worldToScreenX(midPt.x);
-          const tagY = worldToScreenY(midPt.y);
+        // Structural Geology Dip Tick & Dip Angle Label
+        if (points.length >= 2) {
+          const midIdx = Math.floor(points.length / 2);
+          const p1 = points[Math.max(0, midIdx - 1)];
+          const p2 = points[Math.min(points.length - 1, midIdx + 1)];
+          const midPt = points[midIdx];
 
-          ctx.fillStyle = isDarkMode ? '#09090b' : '#ffffff';
-          ctx.fillRect(tagX - 18, tagY - 8, 36, 12);
+          const p1x = worldToScreenX(p1.x);
+          const p1y = worldToScreenY(p1.y);
+          const p2x = worldToScreenX(p2.x);
+          const p2y = worldToScreenY(p2.y);
+          const mx = worldToScreenX(midPt.x);
+          const my = worldToScreenY(midPt.y);
+
+          const segAngle = Math.atan2(p2y - p1y, p2x - p1x);
+          const tickSide = trace.dipTickSide === 'left' ? -1 : 1;
+          const tickLen = 14;
+          const tickAngle = segAngle + (Math.PI / 2) * tickSide;
+
+          const tx = mx + Math.cos(tickAngle) * tickLen;
+          const ty = my + Math.sin(tickAngle) * tickLen;
+
+          // Draw perpendicular tick
+          ctx.strokeStyle = isSelected ? '#fbbf24' : color;
+          ctx.lineWidth = 2.2;
+          ctx.beginPath();
+          ctx.moveTo(mx, my);
+          ctx.lineTo(tx, ty);
+          ctx.stroke();
+
+          // Dip angle numerical text badge e.g. "65°"
+          const lblX = tx + Math.cos(tickAngle) * 9;
+          const lblY = ty + Math.sin(tickAngle) * 9;
+
+          ctx.font = 'bold 9px monospace';
+          ctx.fillStyle = isSelected ? '#fbbf24' : (isDarkMode ? '#ffffff' : '#0f172a');
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${trace.dipDeg}°`, lblX, lblY);
+
+          // Joint Set label badge (e.g. J1)
+          const setBadgeX = mx - Math.cos(tickAngle) * 12;
+          const setBadgeY = my - Math.sin(tickAngle) * 12;
+          ctx.fillStyle = isDarkMode ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+          ctx.fillRect(setBadgeX - 12, setBadgeY - 6, 24, 12);
           ctx.strokeStyle = color;
           ctx.lineWidth = 0.8;
-          ctx.strokeRect(tagX - 18, tagY - 8, 36, 12);
+          ctx.strokeRect(setBadgeX - 12, setBadgeY - 6, 24, 12);
 
-          ctx.fillStyle = isDarkMode ? '#f4f4f5' : '#09090b';
-          ctx.font = 'bold 8px monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText(trace.orientationLabel, tagX, tagY + 1);
+          ctx.fillStyle = color;
+          ctx.font = 'bold 8.5px monospace';
+          ctx.fillText(trace.setId, setBadgeX, setBadgeY);
+
+          // HW / FW markers for faults/shears
+          if (trace.showHwFw) {
+            const hwX = mx + Math.cos(tickAngle) * 22;
+            const hwY = my + Math.sin(tickAngle) * 22;
+            const fwX = mx - Math.cos(tickAngle) * 22;
+            const fwY = my - Math.sin(tickAngle) * 22;
+            ctx.fillStyle = '#ef4444';
+            ctx.font = 'bold 8.5px sans-serif';
+            ctx.fillText(trace.flipHwFw ? 'FW' : 'HW', hwX, hwY);
+            ctx.fillStyle = '#3b82f6';
+            ctx.fillText(trace.flipHwFw ? 'HW' : 'FW', fwX, fwY);
+          }
         }
       }
     }
@@ -563,7 +1082,6 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         const scrY = worldToScreenY(sym.position.y);
         const isSelected = selectedObjectType === 'water' && selectedObjectId === sym.id;
 
-        // Water droplet icon symbol
         ctx.fillStyle = isSelected ? '#38bdf8' : '#0284c7';
         ctx.beginPath();
         ctx.arc(scrX, scrY, isSelected ? 7 : 5, 0, Math.PI * 2);
@@ -583,7 +1101,68 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       }
     }
 
-    // 6. Render Active Drafting Line / Points
+    // 6. Preview line between Merge Master & Target
+    if (mergeSourceTraceId && mergeTargetTraceId) {
+      const t1 = currentDataset.traces?.find((t) => t.id === mergeSourceTraceId);
+      const t2 = currentDataset.traces?.find((t) => t.id === mergeTargetTraceId);
+      if (t1 && t2 && t1.points?.length && t2.points?.length) {
+        const p1_last = t1.points[t1.points.length - 1];
+        const p2_first = t2.points[0];
+
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(worldToScreenX(p1_last.x), worldToScreenY(p1_last.y));
+        ctx.lineTo(worldToScreenX(p2_first.x), worldToScreenY(p2_first.y));
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // 7. Render Measurement Ruler Line
+    if (activeTool === 'measure' && measureStartPoint) {
+      const mx = mouseCoord.chainage;
+      const my = mouseCoord.yPerimeter;
+      const x1 = worldToScreenX(measureStartPoint.x);
+      const y1 = worldToScreenY(measureStartPoint.y);
+      const x2 = worldToScreenX(mx);
+      const y2 = worldToScreenY(my);
+
+      ctx.strokeStyle = '#06b6d4';
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const distM = Math.hypot(mx - measureStartPoint.x, my - measureStartPoint.y);
+      const dxM = Math.abs(mx - measureStartPoint.x);
+      const dyM = Math.abs(my - measureStartPoint.y);
+      const appDeg = Math.round((Math.atan2(dyM, dxM || 0.0001) * 180) / Math.PI);
+
+      const midScrX = (x1 + x2) / 2;
+      const midScrY = (y1 + y2) / 2;
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.fillRect(midScrX - 45, midScrY - 18, 90, 24);
+      ctx.strokeStyle = '#06b6d4';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(midScrX - 45, midScrY - 18, 90, 24);
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 9.5px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${distM.toFixed(2)}m (∠${appDeg}°)`, midScrX, midScrY - 7);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '8px monospace';
+      ctx.fillText(`ΔX: ${dxM.toFixed(2)}m • ΔY: ${dyM.toFixed(2)}m`, midScrX, midScrY + 4);
+    }
+
+    // 8. Render Active Drafting Line / Points
     if (activeDraftPoints.length > 0) {
       ctx.beginPath();
       activeDraftPoints.forEach((pt, i) => {
@@ -606,7 +1185,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       });
     }
 
-    // 7. Crosshair Cursor at Mouse
+    // 9. Crosshair Cursor at Mouse
     if (mouseCoord.chainage >= fromRd && mouseCoord.chainage <= toRd) {
       const curX = worldToScreenX(mouseCoord.chainage);
       const curY = worldToScreenY(mouseCoord.yPerimeter);
@@ -615,7 +1194,6 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       ctx.lineWidth = 0.7;
       ctx.setLineDash([3, 3]);
 
-      // Crosshair horizontal and vertical
       ctx.beginPath();
       ctx.moveTo(startX, curY);
       ctx.lineTo(endX, curY);
@@ -644,6 +1222,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     selectedObjectType,
     activeDraftPoints,
     mouseCoord,
+    hoveredTraceId,
+    hoveredVertexIdx,
+    draggingVertexIdx,
+    mergeSourceTraceId,
+    mergeTargetTraceId,
+    activeTool,
+    measureStartPoint,
   ]);
 
   // Handle Mouse Move on Canvas
@@ -692,7 +1277,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       return;
     }
 
-    // 2. If dragging the entire trace
+    // 2. If dragging the entire trace (Move Joint tool)
     if (isDraggingTrace && dragStartWorld && selectedObjectId && selectedObjectType === 'trace') {
       const deltaX = ch - dragStartWorld.x;
       const deltaY = yPerim - dragStartWorld.y;
@@ -766,12 +1351,45 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       return;
     }
 
-    if (e.button !== 0) return; // Only primary click for drawing
+    if (e.button !== 0) return; // Only primary click for editing
 
     const ch = screenToWorldX(mouseX);
     const yPerim = screenToWorldY(mouseY);
 
-    // 0. Check if user clicked on an active vertex handle of the selected trace -> start vertex drag
+    // MERGE JOINT TOOL
+    if (activeTool === 'merge_joint') {
+      for (const trace of currentDataset.traces || []) {
+        const pts = trace.points || [];
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p1 = { x: worldToScreenX(pts[i].x), y: worldToScreenY(pts[i].y) };
+          const p2 = { x: worldToScreenX(pts[i + 1].x), y: worldToScreenY(pts[i + 1].y) };
+          if (distToSegment({ x: mouseX, y: mouseY }, p1, p2) < 12) {
+            if (!mergeSourceTraceId) {
+              setMergeSourceTraceId(trace.id);
+            } else if (mergeSourceTraceId === trace.id) {
+              setMergeSourceTraceId(null);
+              setMergeTargetTraceId(null);
+            } else {
+              setMergeTargetTraceId(trace.id);
+            }
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    // MEASURE TAPE TOOL
+    if (activeTool === 'measure') {
+      if (!measureStartPoint) {
+        setMeasureStartPoint({ x: ch, y: yPerim });
+      } else {
+        setMeasureStartPoint(null);
+      }
+      return;
+    }
+
+    // 0. Check if user clicked on an active vertex handle -> start vertex drag
     if (selectedObjectId && selectedObjectType === 'trace') {
       const selTrace = (currentDataset.traces || []).find((t) => t.id === selectedObjectId);
       if (selTrace && selTrace.points) {
@@ -785,10 +1403,32 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             return;
           }
         }
+
+        // If in EDIT_JOINT mode and clicked on a segment, insert a new vertex!
+        if (activeTool === 'edit_joint') {
+          for (let i = 0; i < selTrace.points.length - 1; i++) {
+            const p1 = { x: worldToScreenX(selTrace.points[i].x), y: worldToScreenY(selTrace.points[i].y) };
+            const p2 = { x: worldToScreenX(selTrace.points[i + 1].x), y: worldToScreenY(selTrace.points[i + 1].y) };
+            if (distToSegment({ x: mouseX, y: mouseY }, p1, p2) < 8) {
+              pushHistory(currentDataset);
+              const newPts = [...selTrace.points];
+              newPts.splice(i + 1, 0, { x: ch, y: yPerim });
+              setCurrentDataset((prev) => ({
+                ...prev,
+                traces: (prev.traces || []).map((t) =>
+                  t.id === selectedObjectId ? { ...t, points: newPts, rawPoints: newPts } : t
+                ),
+                updatedAt: new Date().toISOString(),
+              }));
+              setDraggingVertexIdx(i + 1);
+              return;
+            }
+          }
+        }
       }
     }
 
-    // 1. If tool is move_joint OR clicking on trace line of selected trace -> start whole trace drag
+    // 1. If tool is MOVE_JOINT OR clicking on trace line of selected trace -> start whole trace drag
     if (activeTool === 'move_joint' || (activeTool === 'select' && selectedObjectId && selectedObjectType === 'trace')) {
       for (const trace of currentDataset.traces || []) {
         const pts = trace.points || [];
@@ -808,7 +1448,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       }
     }
 
-    // 2. If tool is delete_joint -> delete clicked joint trace instantly
+    // 2. If tool is DELETE_JOINT -> delete clicked joint trace instantly
     if (activeTool === 'delete_joint') {
       for (const trace of currentDataset.traces || []) {
         const pts = trace.points || [];
@@ -832,8 +1472,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       }
     }
 
-    if (activeTool === 'select' || activeTool === 'move_joint') {
-      // Hit testing for joints, lithology, water
+    if (activeTool === 'select' || activeTool === 'move_joint' || activeTool === 'edit_joint') {
       let hit = false;
 
       // Check joint traces
@@ -889,11 +1528,9 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         setSelectedObjectId(null);
         setSelectedObjectType(null);
       }
-    } else if (activeTool === 'draw_joint' || activeTool === 'edit_joint') {
-      // Add point to active line
+    } else if (activeTool === 'draw_joint') {
       setActiveDraftPoints((prev) => [...prev, { x: ch, y: yPerim }]);
     } else if (activeTool === 'place_water') {
-      // Instantly place a water seepage marker
       const newSym: ContinuousStripWaterSymbol = {
         id: `water-${Date.now()}`,
         condition: selectedWaterCondition,
@@ -911,7 +1548,6 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       setSelectedObjectId(newSym.id);
       setSelectedObjectType('water');
     } else if (activeTool === 'add_lithology') {
-      // Add lithology zone point
       setActiveDraftPoints((prev) => [...prev, { x: ch, y: yPerim }]);
     }
   };
@@ -933,7 +1569,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
     pushHistory(currentDataset);
 
-    if (activeTool === 'draw_joint' || activeTool === 'edit_joint') {
+    if (activeTool === 'draw_joint') {
       const jointDef = JOINT_SETS.find((j) => j.id === selectedJointSetId) || JOINT_SETS[0];
       const newTrace: ContinuousStripTrace = {
         id: `trace-${Date.now()}`,
@@ -1037,7 +1673,32 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     }));
   };
 
-  // Reverse joint direction / dip azimuth
+  // Smooth trace line points with 3-point moving average
+  const handleSmoothTraceCurve = () => {
+    if (!selectedObjectId || selectedObjectType !== 'trace') return;
+    const trace = currentDataset.traces?.find((t) => t.id === selectedObjectId);
+    if (!trace || !trace.points || trace.points.length < 3) return;
+    const pts = trace.points;
+    const smoothed: Point2D[] = [pts[0]];
+    for (let i = 1; i < pts.length - 1; i++) {
+      smoothed.push({
+        x: Math.round(((pts[i - 1].x + pts[i].x * 2 + pts[i + 1].x) / 4) * 100) / 100,
+        y: Math.round(((pts[i - 1].y + pts[i].y * 2 + pts[i + 1].y) / 4) * 100) / 100,
+      });
+    }
+    smoothed.push(pts[pts.length - 1]);
+
+    pushHistory(currentDataset);
+    setCurrentDataset((prev) => ({
+      ...prev,
+      traces: (prev.traces || []).map((t) =>
+        t.id === selectedObjectId ? { ...t, points: smoothed, rawPoints: smoothed } : t
+      ),
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  // Reverse joint direction / dip azimuth (+180°)
   const handleReverseTrace = () => {
     if (!selectedObjectId || selectedObjectType !== 'trace') return;
     pushHistory(currentDataset);
@@ -1053,7 +1714,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           points: revPts,
           rawPoints: revRaw,
           dipDirectionDeg: newDipDir,
-          orientationLabel: `${newDipDir.toString().padStart(3, '0')}/${t.dipDeg}`,
+          orientationLabel: `${newDipDir.toString().padStart(3, '0')}/${t.dipDeg.toString().padStart(2, '0')}`,
         };
       }),
       updatedAt: new Date().toISOString(),
@@ -1106,6 +1767,35 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     setSelectedObjectType('trace');
   };
 
+  // Delete selected item
+  const handleDeleteSelected = () => {
+    if (!selectedObjectId || !selectedObjectType) return;
+    pushHistory(currentDataset);
+
+    if (selectedObjectType === 'trace') {
+      setCurrentDataset((prev) => ({
+        ...prev,
+        traces: (prev.traces || []).filter((t) => t.id !== selectedObjectId),
+        updatedAt: new Date().toISOString(),
+      }));
+    } else if (selectedObjectType === 'lithology') {
+      setCurrentDataset((prev) => ({
+        ...prev,
+        lithologyZones: (prev.lithologyZones || []).filter((z) => z.id !== selectedObjectId),
+        updatedAt: new Date().toISOString(),
+      }));
+    } else if (selectedObjectType === 'water') {
+      setCurrentDataset((prev) => ({
+        ...prev,
+        waterSymbols: (prev.waterSymbols || []).filter((w) => w.id !== selectedObjectId),
+        updatedAt: new Date().toISOString(),
+      }));
+    }
+
+    setSelectedObjectId(null);
+    setSelectedObjectType(null);
+  };
+
   // Delete a specific trace by ID
   const handleDeleteTraceById = (traceId: string) => {
     pushHistory(currentDataset);
@@ -1135,6 +1825,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     }
   };
 
+  // AI Joint Trend Alignment
+  const handleRunAiTrendAlignment = () => {
+    pushHistory(currentDataset);
+    const result = runAiTrendAlignmentOnDataset(currentDataset);
+    setCurrentDataset(result.updatedDataset);
+  };
+
   // Undo / Redo
   const handleUndo = () => {
     if (historyIndex >= 0 && history[historyIndex]) {
@@ -1150,6 +1847,12 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       setHistoryIndex((idx) => idx + 1);
       setCurrentDataset(next);
     }
+  };
+
+  // Save changes & update A3 Report Window
+  const handleSaveAndCommit = () => {
+    onSaveDataset(currentDataset);
+    onClose();
   };
 
   // Global Keyboard Shortcuts (Delete, Undo, Redo, Esc, Enter)
@@ -1176,59 +1879,43 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         handleRedo();
       } else if (e.key === 'Escape') {
         setActiveDraftPoints([]);
+        setMergeSourceTraceId(null);
+        setMergeTargetTraceId(null);
+        setMeasureStartPoint(null);
         setSelectedObjectId(null);
         setSelectedObjectType(null);
       } else if (e.key === 'Enter') {
-        if (activeDraftPoints.length >= 2) {
+        if (mergeSourceTraceId && mergeTargetTraceId) {
+          handleExecuteMergeTraces(mergeSourceTraceId, mergeTargetTraceId);
+        } else if (activeDraftPoints.length >= 2) {
           handleCommitDraft();
         }
+      } else if (e.key.toLowerCase() === 'v') {
+        setActiveTool('select');
+      } else if (e.key.toLowerCase() === 'm') {
+        setActiveTool('move_joint');
+      } else if (e.key.toLowerCase() === 'e') {
+        setActiveTool('edit_joint');
+      } else if (e.key.toLowerCase() === 'g') {
+        setActiveTool('merge_joint');
+      } else if (e.key.toLowerCase() === 'j') {
+        setActiveTool('draw_joint');
+      } else if (e.key.toLowerCase() === 'l') {
+        setActiveTool('add_lithology');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectId, selectedObjectType, activeDraftPoints, history, historyIndex]);
-
-  // Execute AI Trend Alignment
-  const handleRunAiTrendAlignment = () => {
-    const aligned = runAiTrendAlignmentOnDataset(currentDataset);
-    pushHistory(currentDataset);
-    setCurrentDataset(aligned.updatedDataset);
-  };
-
-  // Delete Selected Object
-  const handleDeleteSelected = () => {
-    if (!selectedObjectId) return;
-    pushHistory(currentDataset);
-
-    if (selectedObjectType === 'trace') {
-      setCurrentDataset((prev) => ({
-        ...prev,
-        traces: (prev.traces || []).filter((t) => t.id !== selectedObjectId),
-        updatedAt: new Date().toISOString(),
-      }));
-    } else if (selectedObjectType === 'lithology') {
-      setCurrentDataset((prev) => ({
-        ...prev,
-        lithologyZones: (prev.lithologyZones || []).filter((z) => z.id !== selectedObjectId),
-        updatedAt: new Date().toISOString(),
-      }));
-    } else if (selectedObjectType === 'water') {
-      setCurrentDataset((prev) => ({
-        ...prev,
-        waterSymbols: (prev.waterSymbols || []).filter((w) => w.id !== selectedObjectId),
-        updatedAt: new Date().toISOString(),
-      }));
-    }
-
-    setSelectedObjectId(null);
-    setSelectedObjectType(null);
-  };
-
-  // Save changes & update A3 Report Window
-  const handleSaveAndCommit = () => {
-    onSaveDataset(currentDataset);
-    onClose();
-  };
+  }, [
+    selectedObjectId,
+    selectedObjectType,
+    activeDraftPoints,
+    history,
+    historyIndex,
+    mergeSourceTraceId,
+    mergeTargetTraceId,
+    handleExecuteMergeTraces,
+  ]);
 
   // Currently Selected Object Data for Inspector
   const selectedTrace = useMemo(() => {
@@ -1254,61 +1941,55 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     return list.filter(
       (t) =>
         t.id.toLowerCase().includes(q) ||
-        (t.setId || '').toLowerCase().includes(q) ||
-        (t.structureType || '').toLowerCase().includes(q) ||
+        t.setId.toLowerCase().includes(q) ||
         (t.orientationLabel || '').toLowerCase().includes(q)
     );
   }, [currentDataset.traces, searchJointQuery]);
 
-  // Helper to update dip angle & dip direction of selected trace
-  const updateSelectedTraceDip = (dipDir: number, dipAngle: number) => {
-    if (!selectedObjectId || selectedObjectType !== 'trace') return;
-    const normDir = ((dipDir % 360) + 360) % 360;
-    const normDip = Math.max(0, Math.min(90, dipAngle));
-    pushHistory(currentDataset);
-    setCurrentDataset((prev) => ({
-      ...prev,
-      traces: (prev.traces || []).map((t) =>
-        t.id === selectedObjectId
-          ? {
-              ...t,
-              dipDirectionDeg: normDir,
-              dipDeg: normDip,
-              orientationLabel: `${normDir.toString().padStart(3, '0')}/${normDip}`,
-            }
-          : t
-      ),
-      updatedAt: new Date().toISOString(),
-    }));
-  };
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9995] flex flex-col bg-stone-950 text-stone-100 select-none animate-in fade-in duration-200">
-      {/* 1. Top CAD Navigation & Command Bar */}
-      <div className="h-12 bg-stone-900 border-b border-stone-800 px-3 flex items-center justify-between shrink-0">
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-stone-950 text-stone-100 select-none overflow-hidden font-sans">
+      {/* 1. TOP HEADER (Matching Underground Face Mapping) */}
+      <div className="h-13 bg-stone-900 border-b border-stone-800 px-3 flex items-center justify-between shrink-0 shadow-md">
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400 font-bold text-xs">
+          {/* Back button */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-2.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white border border-stone-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+            title="Exit CAD and Return"
+          >
+            <ArrowLeft className="w-4 h-4 text-orange-400" />
+            <span className="hidden sm:inline">Exit CAD</span>
+          </button>
+
+          <div className="flex items-center gap-2 pl-1">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 border border-orange-400 flex items-center justify-center text-stone-950 font-black text-xs shadow-sm">
               CAD
             </div>
             <div>
               <h1 className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
-                ESWA CAD
-                <span className="text-[10px] text-stone-400 font-normal">
-                  — Continuous Tunnel Strip Editor
+                ESWA CONTINUOUS CAD
+                <span className="text-[10px] text-orange-400 font-semibold px-1.5 py-0.2 rounded bg-orange-950/60 border border-orange-500/30">
+                  UNDERGROUND LOG
                 </span>
               </h1>
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 pl-3 border-l border-stone-800 text-[11px] text-stone-400">
-            <span>Project: <strong className="text-stone-200">{currentDataset.projectName || 'Tunnel'}</strong></span>
+          <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-stone-800 text-[11px] text-stone-400">
+            <span>Project: <strong className="text-stone-200">{currentDataset.projectName || 'Tunnel Drive'}</strong></span>
             <span>•</span>
-            <span>Heading: <strong className="text-stone-200">{currentDataset.tunnelLocationName || 'Main'}</strong></span>
+            <span>Loc: <strong className="text-stone-200">{currentDataset.tunnelLocationName || 'Power Tunnel'}</strong></span>
             <span>•</span>
-            <span className="font-mono text-orange-400">CH {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m</span>
+            <span className="font-mono text-orange-400 font-bold">
+              RD {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m ({totalLengthM.toFixed(1)}m)
+            </span>
+            <span>•</span>
+            <span className="px-1.5 py-0.2 rounded bg-stone-800 text-stone-300 font-mono text-[10px]">
+              Horseshoe Arch
+            </span>
           </div>
         </div>
 
@@ -1350,8 +2031,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           <button
             type="button"
             onClick={handleRunAiTrendAlignment}
-            className="px-2.5 py-1.5 rounded-lg bg-purple-950/60 hover:bg-purple-900/60 border border-purple-800 text-purple-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-            title="AI Trend Alignment: Smoothly interpolate and align joint trends across face mapping rounds"
+            className="px-2.5 py-1.5 rounded-lg bg-purple-950/70 hover:bg-purple-900/70 border border-purple-700 text-purple-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+            title="AI Trend Alignment: Smoothly align and interpolate joint discontinuity trends across tunnel rounds"
           >
             <Sparkles className="w-3.5 h-3.5 text-purple-400" />
             <span className="hidden sm:inline">AI Trend Align</span>
@@ -1364,7 +2045,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             className="p-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 border border-stone-700 text-xs transition cursor-pointer"
             title={isDarkMode ? 'Switch to Light CAD' : 'Switch to Dark CAD'}
           >
-            {isDarkMode ? '🌙 Dark' : '☀️ Light'}
+            {isDarkMode ? '🌙' : '☀️'}
           </button>
 
           {/* Fit Screen */}
@@ -1399,10 +2080,10 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         </div>
       </div>
 
-      {/* 2. Main CAD Workspace (Tool Palette + Canvas + Property Inspector) */}
+      {/* 2. MAIN CAD WORKSPACE (Left Tools + Central Canvas + Right Inspector) */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Left CAD Tool Palette */}
-        <div className="w-14 sm:w-16 bg-stone-900 border-r border-stone-800 flex flex-col items-center py-2 gap-1.5 shrink-0 z-10">
+        <div className="w-14 sm:w-16 bg-stone-900 border-r border-stone-800 flex flex-col items-center py-2 gap-1.5 shrink-0 z-20 shadow-lg">
           {/* Select Tool */}
           <button
             type="button"
@@ -1412,7 +2093,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
                 : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
             }`}
-            title="Select & Inspect (Click element or drag vertex points)"
+            title="Select & Inspect (Shortcut: V)"
           >
             <Crosshair className="w-4 h-4" />
             <span className="text-[9px]">Select</span>
@@ -1427,10 +2108,10 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
                 : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
             }`}
-            title="Add New Joint Trace (Click points along tunnel strip)"
+            title="Add Joint Trace (Shortcut: J)"
           >
             <PenTool className="w-4 h-4" />
-            <span className="text-[9px]">Add Joint</span>
+            <span className="text-[9px]">Joint</span>
           </button>
 
           {/* Move Joint Tool */}
@@ -1442,13 +2123,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
                 : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
             }`}
-            title="Move Joint (Drag entire trace or individual points across chainage and perimeter)"
+            title="Move Joint (Shortcut: M) — Drag joint trace or points across chainage and perimeter"
           >
             <Move className="w-4 h-4" />
             <span className="text-[9px]">Move</span>
           </button>
 
-          {/* Edit / Append Joint Tool */}
+          {/* Edit / Reshape Joint Tool */}
           <button
             type="button"
             onClick={() => setActiveTool('edit_joint')}
@@ -1457,10 +2138,29 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
                 : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
             }`}
-            title="Edit / Append Joint Trace"
+            title="Edit Vertices (Shortcut: E) — Drag points or click line segment to insert new vertex"
           >
             <Edit2 className="w-4 h-4" />
             <span className="text-[9px]">Edit</span>
+          </button>
+
+          {/* Merge Joints Tool */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('merge_joint');
+              setMergeSourceTraceId(null);
+              setMergeTargetTraceId(null);
+            }}
+            className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
+              activeTool === 'merge_joint'
+                ? 'bg-amber-500 text-stone-950 font-bold shadow-md shadow-amber-500/30'
+                : 'text-stone-400 hover:text-amber-400 hover:bg-stone-800'
+            }`}
+            title="Merge Joints (Shortcut: G) — Click two joint traces to fuse into continuous line"
+          >
+            <GitMerge className="w-4 h-4" />
+            <span className="text-[9px]">Merge</span>
           </button>
 
           {/* Delete Joint Tool */}
@@ -1472,7 +2172,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 ? 'bg-red-600 text-white font-bold shadow-md shadow-red-600/30'
                 : 'text-stone-400 hover:text-red-400 hover:bg-stone-800'
             }`}
-            title="Delete Joint (Click any joint trace to delete)"
+            title="Delete Joint (Click any joint trace on canvas)"
           >
             <Trash2 className="w-4 h-4" />
             <span className="text-[9px]">Delete</span>
@@ -1489,7 +2189,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
                 : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
             }`}
-            title="Add Lithology Rock Zone Polygon"
+            title="Add Lithology Strata (Shortcut: L) — Draw custom zone polygon or use 1-click fill"
           >
             <Layers className="w-4 h-4" />
             <span className="text-[9px]">Litho</span>
@@ -1501,13 +2201,31 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             onClick={() => setActiveTool('place_water')}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'place_water'
-                ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
+                ? 'bg-cyan-500 text-stone-950 font-bold shadow-md shadow-cyan-500/30'
+                : 'text-stone-400 hover:text-cyan-400 hover:bg-stone-800'
             }`}
-            title="Place Groundwater Seepage Marker"
+            title="Groundwater Inflow — Place seepage marker (Dripping, Flowing, Wet)"
           >
             <Droplet className="w-4 h-4" />
             <span className="text-[9px]">Water</span>
+          </button>
+
+          {/* Measurement Tape */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('measure');
+              setMeasureStartPoint(null);
+            }}
+            className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
+              activeTool === 'measure'
+                ? 'bg-cyan-500 text-stone-950 font-bold shadow-md shadow-cyan-500/30'
+                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
+            }`}
+            title="Measure Tape / Inclination (Click two points to measure distance & angle)"
+          >
+            <Ruler className="w-4 h-4" />
+            <span className="text-[9px]">Measure</span>
           </button>
 
           <div className="w-8 h-px bg-stone-800 my-1" />
@@ -1539,18 +2257,18 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             className={`w-9 h-9 rounded-lg flex items-center justify-center transition cursor-pointer ${
               snapToGrid ? 'text-orange-400 bg-orange-950/40' : 'text-stone-500 hover:text-stone-300'
             }`}
-            title={snapToGrid ? 'Snap to Grid: ON' : 'Snap to Grid: OFF'}
+            title={snapToGrid ? `Snap to Grid (${gridStepM}m): ON` : 'Snap to Grid: OFF'}
           >
             <Grid className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Central CAD Canvas */}
+        {/* Central CAD Canvas Container */}
         <div className="flex-1 relative overflow-hidden bg-black flex flex-col">
-          {/* Top Quick Joint Presets Strip (Matching Underground Face Mapping Ribbon) */}
+          {/* Top Quick Joint Presets Strip */}
           <div className="bg-stone-900 border-b border-stone-800 px-3 py-1.5 flex items-center justify-between gap-2 overflow-x-auto shrink-0 z-20">
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[10px] uppercase font-bold text-stone-400 mr-1 hidden sm:inline">Presets:</span>
+              <span className="text-[10px] uppercase font-bold text-stone-400 mr-1 hidden sm:inline">Joint Sets:</span>
               {JOINT_SETS.map((js) => {
                 const isSelected = selectedJointSetId === js.id;
                 return (
@@ -1570,7 +2288,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                                   setId: js.id,
                                   colorHex: js.color,
                                   structureType: js.structureType,
-                                  orientationLabel: `${js.defaultDipDir.toString().padStart(3, '0')}/${js.defaultDip}`,
+                                  orientationLabel: `${js.defaultDipDir.toString().padStart(3, '0')}/${js.defaultDip.toString().padStart(2, '0')}`,
                                   dipDirectionDeg: js.defaultDipDir,
                                   dipDeg: js.defaultDip,
                                 }
@@ -1588,99 +2306,280 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                   >
                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: js.color }} />
                     <span>{js.id}</span>
-                    <span className="text-[9.5px] text-stone-400 font-mono hidden md:inline">
-                      {js.defaultDipDir}°/{js.defaultDip}°
-                    </span>
                   </button>
                 );
               })}
             </div>
 
-            <div className="flex items-center gap-2 shrink-0 text-xs">
-              <span className="text-[10px] text-stone-400 hidden xl:inline">
-                Tool: <strong className="text-orange-400 uppercase font-bold">{activeTool.replace('_', ' ')}</strong>
-              </span>
+            {/* Current Active Mode Status Indicator */}
+            <div className="flex items-center gap-2 text-[11px] font-mono text-stone-300 shrink-0">
+              {activeTool === 'move_joint' && (
+                <span className="px-2 py-0.5 rounded bg-orange-950 border border-orange-500/40 text-orange-400 font-bold flex items-center gap-1">
+                  <Move className="w-3 h-3" />
+                  <span>MOVE JOINT: Drag trace on canvas</span>
+                </span>
+              )}
+              {activeTool === 'edit_joint' && (
+                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-400 font-bold flex items-center gap-1">
+                  <Edit2 className="w-3 h-3" />
+                  <span>EDIT VERTICES: Drag points or click line to add point</span>
+                </span>
+              )}
+              {activeTool === 'merge_joint' && (
+                <span className="px-2 py-0.5 rounded bg-amber-950 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1">
+                  <GitMerge className="w-3 h-3" />
+                  <span>
+                    {mergeSourceTraceId
+                      ? (mergeTargetTraceId ? 'MERGE: Ready to connect traces' : 'MERGE: Select second trace')
+                      : 'MERGE: Select first trace'}
+                  </span>
+                </span>
+              )}
+              {activeTool === 'measure' && (
+                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 font-bold flex items-center gap-1">
+                  <Ruler className="w-3 h-3" />
+                  <span>{measureStartPoint ? 'MEASURE: Click target point' : 'MEASURE: Click start point'}</span>
+                </span>
+              )}
             </div>
           </div>
-          {/* Active Tool Instruction Banner */}
-          {activeTool !== 'select' && (
-            <div className="absolute top-2 left-4 z-20 bg-stone-900/90 border border-orange-500/50 backdrop-blur-md rounded-xl px-3 py-1.5 flex items-center gap-3 text-xs shadow-lg">
-              <span className="text-orange-400 font-bold uppercase tracking-wider text-[10px]">
-                {activeTool === 'draw_joint' && 'Drawing Joint Trace:'}
-                {activeTool === 'add_lithology' && 'Drafting Lithology Polygon:'}
-                {activeTool === 'place_water' && 'Placing Groundwater Symbol:'}
-              </span>
-              <span className="text-stone-300">
-                {activeTool === 'draw_joint' && 'Click points along the tunnel strip. Press "Commit Line" when done.'}
-                {activeTool === 'add_lithology' && 'Click polygon vertices around rock zone. Press "Commit Polygon".'}
-                {activeTool === 'place_water' && 'Click anywhere on strip to place seepage marker.'}
-              </span>
-              {activeDraftPoints.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleCommitDraft}
-                  className="px-2.5 py-1 rounded bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs transition cursor-pointer"
-                >
-                  ✓ Commit ({activeDraftPoints.length} pts)
-                </button>
-              )}
-              {activeDraftPoints.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setActiveDraftPoints([])}
-                  className="px-2 py-1 rounded text-stone-400 hover:text-white text-xs cursor-pointer"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          )}
 
-          {/* Quick Tool Selector Dropdown for creation */}
-          {activeTool === 'draw_joint' && (
-            <div className="absolute top-12 left-4 z-20 bg-stone-900/95 border border-stone-800 rounded-xl p-2.5 flex items-center gap-2 text-xs shadow-xl">
-              <span className="text-stone-400 text-[11px]">Set:</span>
-              <select
-                value={selectedJointSetId}
-                onChange={(e) => setSelectedJointSetId(e.target.value)}
-                className="bg-stone-950 border border-stone-700 rounded-lg px-2 py-1 text-xs text-white"
+          {/* Floating Merge Action Banner */}
+          {activeTool === 'merge_joint' && mergeSourceTraceId && mergeTargetTraceId && (
+            <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-stone-900 border-2 border-amber-500 rounded-2xl p-3 shadow-2xl flex items-center gap-3 animate-in fade-in zoom-in-95">
+              <div className="flex items-center gap-2">
+                <GitMerge className="w-5 h-5 text-amber-400" />
+                <div className="text-xs">
+                  <div className="font-bold text-white">Merge Discontinuity Joint Traces?</div>
+                  <div className="text-[11px] font-mono text-stone-400">
+                    <strong className="text-amber-400">{mergeSourceTraceId}</strong> + <strong className="text-cyan-400">{mergeTargetTraceId}</strong>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleExecuteMergeTraces(mergeSourceTraceId, mergeTargetTraceId)}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md"
               >
-                {JOINT_SETS.map((j) => (
-                  <option key={j.id} value={j.id}>
-                    {j.name} ({j.defaultDipDir}°/{j.defaultDip}°)
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {activeTool === 'add_lithology' && (
-            <div className="absolute top-12 left-4 z-20 bg-stone-900/95 border border-stone-800 rounded-xl p-2.5 flex items-center gap-2 text-xs shadow-xl">
-              <span className="text-stone-400 text-[11px]">Rock:</span>
-              <select
-                value={selectedRockTypeId}
-                onChange={(e) => setSelectedRockTypeId(e.target.value as StripRockTypeId)}
-                className="bg-stone-950 border border-stone-700 rounded-lg px-2 py-1 text-xs text-white"
+                <Check className="w-4 h-4" />
+                <span>Confirm Merge</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMergeSourceTraceId(null);
+                  setMergeTargetTraceId(null);
+                }}
+                className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition cursor-pointer"
               >
-                {ROCK_TYPES.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
 
+          {/* Active Drawing Banner */}
+          {activeDraftPoints.length > 0 && (
+            <div className="absolute top-12 left-4 z-30 bg-stone-900/95 border border-orange-500/60 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs shadow-xl backdrop-blur-md">
+              <span className="text-stone-300 font-medium">
+                Drafting {activeTool === 'draw_joint' ? 'Joint' : 'Lithology'} ({activeDraftPoints.length} pts)
+              </span>
+              <button
+                type="button"
+                onClick={handleCommitDraft}
+                className="px-2.5 py-1 rounded bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs transition cursor-pointer shadow-sm"
+              >
+                ✓ Commit (Enter)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveDraftPoints([])}
+                className="px-2 py-1 rounded text-stone-400 hover:text-white text-xs cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          {/* Canvas Rendering Area */}
           <canvas
             ref={canvasRef}
             onMouseMove={handleMouseMove}
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
-            className="w-full h-full cursor-crosshair"
+            className={`w-full h-full ${
+              activeTool === 'move_joint'
+                ? 'cursor-move'
+                : activeTool === 'edit_joint'
+                ? 'cursor-crosshair'
+                : activeTool === 'merge_joint'
+                ? 'cursor-pointer'
+                : activeTool === 'draw_joint'
+                ? 'cursor-crosshair'
+                : 'cursor-default'
+            }`}
           />
 
-          {/* Bottom Coordinate HUD */}
+          {/* Floating Live Field Compass & Clinometer HUD (Matching Underground Face Mapping) */}
+          {selectedTrace && showFloatingCompassHud && (
+            <div className="absolute bottom-10 left-4 z-20 bg-stone-900/95 border border-stone-700/80 rounded-2xl p-3 shadow-2xl backdrop-blur-md flex flex-col gap-2 max-w-sm">
+              <div className="flex items-center justify-between border-b border-stone-800 pb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Compass className="w-4 h-4 text-orange-400" />
+                  <span className="text-[11px] font-bold text-white uppercase tracking-wider">
+                    Trace Live Orientation: {selectedTrace.id}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="font-mono text-orange-400 font-bold text-xs">
+                    {selectedTrace.dipDirectionDeg.toString().padStart(3, '0')}°/{selectedTrace.dipDeg.toString().padStart(2, '0')}°
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowFloatingCompassHud(false)}
+                    className="p-1 rounded text-stone-500 hover:text-stone-300"
+                    title="Minimize HUD"
+                  >
+                    <Minimize2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Side-by-Side Compass Rose & Clinometer Arc */}
+              <div className="grid grid-cols-2 gap-3 items-center">
+                <div className="flex flex-col items-center bg-stone-950/80 rounded-xl p-2 border border-stone-800">
+                  <span className="text-[10px] text-stone-400 font-semibold mb-0.5">Dip Direction</span>
+                  <CompassRoseWheel
+                    dipDirectionDeg={selectedTrace.dipDirectionDeg}
+                    onChangeDipDir={(deg) => updateSelectedTraceDip(deg, selectedTrace.dipDeg)}
+                  />
+                  {/* Steppers */}
+                  <div className="flex items-center gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg - 5, selectedTrace.dipDeg)}
+                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
+                    >
+                      -5°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg - 1, selectedTrace.dipDeg)}
+                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
+                    >
+                      -1°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg + 1, selectedTrace.dipDeg)}
+                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
+                    >
+                      +1°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg + 5, selectedTrace.dipDeg)}
+                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
+                    >
+                      +5°
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center bg-stone-950/80 rounded-xl p-2 border border-stone-800">
+                  <span className="text-[10px] text-stone-400 font-semibold mb-0.5">Dip Angle</span>
+                  <InteractiveClinometerDial
+                    dipDeg={selectedTrace.dipDeg}
+                    onChangeDip={(deg) => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, deg)}
+                  />
+                  {/* Steppers */}
+                  <div className="flex items-center gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg - 5)}
+                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
+                    >
+                      -5°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg - 1)}
+                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
+                    >
+                      -1°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg + 1)}
+                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
+                    >
+                      +1°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg + 5)}
+                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
+                    >
+                      +5°
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions Bar */}
+              <div className="grid grid-cols-3 gap-1 pt-1 border-t border-stone-800">
+                <button
+                  type="button"
+                  onClick={handleReverseTrace}
+                  className="py-1 px-1.5 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10px] font-semibold flex items-center justify-center gap-1 transition"
+                  title="Reverse Dip Azimuth (+180°)"
+                >
+                  <ArrowDownUp className="w-3 h-3 text-amber-400" />
+                  <span>Flip +180°</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    pushHistory(currentDataset);
+                    setCurrentDataset((prev) => ({
+                      ...prev,
+                      traces: prev.traces.map((t) =>
+                        t.id === selectedTrace.id ? { ...t, dipTickSide: t.dipTickSide === 'left' ? 'right' : 'left' } : t
+                      ),
+                    }));
+                  }}
+                  className="py-1 px-1.5 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10px] font-semibold flex items-center justify-center gap-1 transition"
+                  title="Invert Dip Tick Side"
+                >
+                  <ArrowLeft className="w-3 h-3 text-cyan-400" />
+                  <span>Tick Side</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTool('move_joint')}
+                  className="py-1 px-1.5 rounded bg-orange-600 hover:bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition"
+                  title="Activate Move Tool for this Joint"
+                >
+                  <Move className="w-3 h-3" />
+                  <span>Move Tool</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Minimized HUD Restore Button */}
+          {selectedTrace && !showFloatingCompassHud && (
+            <button
+              type="button"
+              onClick={() => setShowFloatingCompassHud(true)}
+              className="absolute bottom-10 left-4 z-20 px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-700 text-orange-400 text-xs font-bold flex items-center gap-1.5 shadow-lg cursor-pointer"
+            >
+              <Compass className="w-4 h-4" />
+              <span>Show Compass ({selectedTrace.orientationLabel})</span>
+            </button>
+          )}
+
+          {/* Bottom Coordinate HUD Bar */}
           <div className="h-7 bg-stone-900/95 border-t border-stone-800 px-3 flex items-center justify-between text-[11px] font-mono text-stone-400 shrink-0 z-10">
             <div className="flex items-center gap-4">
               <span className="flex items-center gap-1 text-stone-200">
@@ -1690,7 +2589,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               <span>•</span>
               <span>Y: <strong className="text-stone-300">{mouseCoord.yPerimeter.toFixed(2)} m</strong></span>
               <span>•</span>
-              <span className="px-1.5 py-0.5 rounded bg-stone-800 text-stone-300 text-[10px]">
+              <span className="px-1.5 py-0.2 rounded bg-stone-800 text-stone-300 text-[10px]">
                 {mouseCoord.zone}
               </span>
             </div>
@@ -1702,26 +2601,38 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           </div>
         </div>
 
-        {/* Right Property Inspector Panel */}
-        <div className="w-72 sm:w-80 bg-stone-900 border-l border-stone-800 flex flex-col shrink-0 overflow-hidden">
+        {/* 3. RIGHT PROPERTY INSPECTOR PANEL */}
+        <div className="w-72 sm:w-84 bg-stone-900 border-l border-stone-800 flex flex-col shrink-0 overflow-hidden shadow-2xl">
           {/* Sidebar Tabs */}
-          <div className="flex items-center border-b border-stone-800 bg-stone-950 shrink-0">
+          <div className="flex items-center border-b border-stone-800 bg-stone-950 shrink-0 overflow-x-auto">
             <button
               type="button"
               onClick={() => setSidebarTab('properties')}
-              className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer ${
+              className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
                 sidebarTab === 'properties'
                   ? 'border-orange-500 text-orange-400 bg-stone-900/60'
                   : 'border-transparent text-stone-400 hover:text-stone-200'
               }`}
             >
               <Sliders className="w-3.5 h-3.5" />
-              <span>Properties</span>
+              <span>Inspector</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarTab('lithology')}
+              className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
+                sidebarTab === 'lithology'
+                  ? 'border-orange-500 text-orange-400 bg-stone-900/60'
+                  : 'border-transparent text-stone-400 hover:text-stone-200'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Lithology</span>
             </button>
             <button
               type="button"
               onClick={() => setSidebarTab('previous_joints')}
-              className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer ${
+              className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
                 sidebarTab === 'previous_joints'
                   ? 'border-orange-500 text-orange-400 bg-stone-900/60'
                   : 'border-transparent text-stone-400 hover:text-stone-200'
@@ -1735,14 +2646,26 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             </button>
             <button
               type="button"
+              onClick={() => setSidebarTab('features')}
+              className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
+                sidebarTab === 'features'
+                  ? 'border-orange-500 text-orange-400 bg-stone-900/60'
+                  : 'border-transparent text-stone-400 hover:text-stone-200'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Features</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setSidebarTab('layers')}
-              className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer ${
+              className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
                 sidebarTab === 'layers'
                   ? 'border-orange-500 text-orange-400 bg-stone-900/60'
                   : 'border-transparent text-stone-400 hover:text-stone-200'
               }`}
             >
-              <Layers className="w-3.5 h-3.5" />
+              <Shield className="w-3.5 h-3.5" />
               <span>Layers</span>
             </button>
           </div>
@@ -1773,7 +2696,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         <button
                           type="button"
                           onClick={() => handleCenterOnTrace(selectedTrace)}
-                          className="p-1 rounded bg-stone-900 hover:bg-stone-800 text-stone-300 text-[10px] flex items-center justify-center gap-1 transition"
+                          className="p-1 rounded bg-stone-900 hover:bg-stone-800 text-stone-300 text-[10px] flex items-center justify-center gap-1 transition cursor-pointer"
                           title="Zoom to Center on Trace"
                         >
                           <Eye className="w-3 h-3 text-cyan-400" />
@@ -1782,7 +2705,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         <button
                           type="button"
                           onClick={() => setActiveTool('move_joint')}
-                          className={`p-1 rounded text-[10px] flex items-center justify-center gap-1 transition ${
+                          className={`p-1 rounded text-[10px] flex items-center justify-center gap-1 transition cursor-pointer ${
                             activeTool === 'move_joint'
                               ? 'bg-orange-500 text-white font-bold'
                               : 'bg-stone-900 hover:bg-stone-800 text-stone-300'
@@ -1794,17 +2717,21 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         </button>
                         <button
                           type="button"
-                          onClick={handleReverseTrace}
-                          className="p-1 rounded bg-stone-900 hover:bg-stone-800 text-stone-300 text-[10px] flex items-center justify-center gap-1 transition"
-                          title="Reverse Direction & Flip Dip (+180°)"
+                          onClick={() => setActiveTool('edit_joint')}
+                          className={`p-1 rounded text-[10px] flex items-center justify-center gap-1 transition cursor-pointer ${
+                            activeTool === 'edit_joint'
+                              ? 'bg-cyan-500 text-stone-950 font-bold'
+                              : 'bg-stone-900 hover:bg-stone-800 text-stone-300'
+                          }`}
+                          title="Edit Joint Vertices"
                         >
-                          <ArrowDownUp className="w-3 h-3 text-amber-400" />
-                          <span>Flip</span>
+                          <Edit2 className="w-3 h-3 text-cyan-400" />
+                          <span>Edit</span>
                         </button>
                         <button
                           type="button"
                           onClick={handleDuplicateTrace}
-                          className="p-1 rounded bg-stone-900 hover:bg-stone-800 text-stone-300 text-[10px] flex items-center justify-center gap-1 transition"
+                          className="p-1 rounded bg-stone-900 hover:bg-stone-800 text-stone-300 text-[10px] flex items-center justify-center gap-1 transition cursor-pointer"
                           title="Duplicate Trace"
                         >
                           <Copy className="w-3 h-3 text-emerald-400" />
@@ -1845,189 +2772,133 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                       </select>
                     </div>
 
-                    {/* Structure Type */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] text-stone-400 font-semibold">Discontinuity Structure Type:</label>
-                      <select
-                        value={selectedTrace.structureType || 'Joint'}
-                        onChange={(e) => {
-                          setCurrentDataset((prev) => ({
-                            ...prev,
-                            traces: prev.traces.map((t) =>
-                              t.id === selectedTrace.id
-                                ? { ...t, structureType: e.target.value as any }
-                                : t
-                            ),
-                          }));
-                        }}
-                        className="w-full bg-stone-950 border border-stone-700 rounded-lg p-2 text-xs text-white"
-                      >
-                        <option value="Joint">Joint (Systematic Discontinuity)</option>
-                        <option value="Bedding/Foliation">Bedding / Foliation</option>
-                        <option value="Shear Zone">Shear Zone / Fault</option>
-                        <option value="Cleavage">Cleavage / Micro-fracture</option>
-                        <option value="Random Joint">Random / Incidental Joint</option>
-                      </select>
-                    </div>
-
-                    {/* Dip Direction Steppers */}
-                    <div className="space-y-1">
+                    {/* Dip Direction & Dip Angle Stepper / Inputs */}
+                    <div className="space-y-2 p-2.5 rounded-xl bg-stone-950 border border-stone-800">
                       <div className="flex items-center justify-between">
-                        <label className="text-[11px] text-stone-400 font-semibold">Dip Direction (°Azimuth):</label>
-                        <span className="font-mono text-orange-400 font-bold text-xs">{selectedTrace.dipDirectionDeg}°</span>
-                      </div>
-                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] font-bold text-stone-200">Orientation (Strike &amp; Dip):</span>
                         <button
                           type="button"
-                          onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg - 10, selectedTrace.dipDeg)}
-                          className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
+                          onClick={handleReverseTrace}
+                          className="text-[10px] text-orange-400 hover:underline flex items-center gap-1"
                         >
-                          -10°
+                          <ArrowDownUp className="w-3 h-3" />
+                          <span>Invert (+180°)</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg - 1, selectedTrace.dipDeg)}
-                          className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
-                        >
-                          -1°
-                        </button>
-                        <input
-                          type="number"
-                          min="0"
-                          max="360"
-                          value={selectedTrace.dipDirectionDeg}
-                          onChange={(e) => updateSelectedTraceDip(parseInt(e.target.value) || 0, selectedTrace.dipDeg)}
-                          className="flex-1 min-w-0 bg-stone-950 border border-stone-700 rounded p-1 text-center font-mono text-white text-xs"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg + 1, selectedTrace.dipDeg)}
-                          className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
-                        >
-                          +1°
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg + 10, selectedTrace.dipDeg)}
-                          className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
-                        >
-                          +10°
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Dip Angle Steppers */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] text-stone-400 font-semibold">Dip Angle (0–90° Plunge):</label>
-                        <span className="font-mono text-orange-400 font-bold text-xs">{selectedTrace.dipDeg}°</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg - 5)}
-                          className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
-                        >
-                          -5°
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg - 1)}
-                          className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
-                        >
-                          -1°
-                        </button>
-                        <input
-                          type="number"
-                          min="0"
-                          max="90"
-                          value={selectedTrace.dipDeg}
-                          onChange={(e) => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, parseInt(e.target.value) || 0)}
-                          className="flex-1 min-w-0 bg-stone-950 border border-stone-700 rounded p-1 text-center font-mono text-white text-xs"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg + 1)}
-                          className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
-                        >
-                          +1°
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg + 5)}
-                          className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
-                        >
-                          +5°
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Infilling Thickness & Material */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10.5px] text-stone-400 font-semibold block mb-1">Aperture / Infill:</label>
-                        <select
-                          value={selectedTrace.fillingThickness || 'Thin'}
-                          onChange={(e) => {
-                            setCurrentDataset((prev) => ({
-                              ...prev,
-                              traces: prev.traces.map((t) =>
-                                t.id === selectedTrace.id ? { ...t, fillingThickness: e.target.value as any } : t
-                              ),
-                            }));
-                          }}
-                          className="w-full bg-stone-950 border border-stone-700 rounded-lg p-1.5 text-xs text-white"
-                        >
-                          <option value="None">None / Tight</option>
-                          <option value="Thin">Thin (&lt; 1mm)</option>
-                          <option value="Medium">Medium (1–5mm)</option>
-                          <option value="Thick">Thick (&gt; 5mm)</option>
-                        </select>
                       </div>
 
-                      <div>
-                        <label className="text-[10.5px] text-stone-400 font-semibold block mb-1">Infill Material:</label>
-                        <select
-                          className="w-full bg-stone-950 border border-stone-700 rounded-lg p-1.5 text-xs text-white"
-                          defaultValue="Quartz"
-                        >
-                          <option value="Clean">Clean / None</option>
-                          <option value="Quartz">Quartz Vein</option>
-                          <option value="Calcite">Calcite</option>
-                          <option value="Clay">Clay Gouge</option>
-                          <option value="Chlorite">Chlorite / Mica</option>
-                          <option value="Silt">Silt / Sand</option>
-                        </select>
+                      {/* Dip Direction Steppers */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-stone-400">Dip Direction (°Azimuth):</span>
+                          <span className="font-mono text-orange-400 font-bold">{selectedTrace.dipDirectionDeg}°</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg - 10, selectedTrace.dipDeg)}
+                            className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
+                          >
+                            -10°
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg - 1, selectedTrace.dipDeg)}
+                            className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
+                          >
+                            -1°
+                          </button>
+                          <input
+                            type="number"
+                            min="0"
+                            max="360"
+                            value={selectedTrace.dipDirectionDeg}
+                            onChange={(e) => updateSelectedTraceDip(parseInt(e.target.value) || 0, selectedTrace.dipDeg)}
+                            className="flex-1 min-w-0 bg-stone-900 border border-stone-700 rounded p-1 text-center font-mono text-white text-xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg + 1, selectedTrace.dipDeg)}
+                            className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
+                          >
+                            +1°
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg + 10, selectedTrace.dipDeg)}
+                            className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
+                          >
+                            +10°
+                          </button>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Joint Roughness & Weathering */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10.5px] text-stone-400 font-semibold block mb-1">Roughness (JRC):</label>
-                        <select
-                          className="w-full bg-stone-950 border border-stone-700 rounded-lg p-1.5 text-xs text-white"
-                          defaultValue="Undulating"
-                        >
-                          <option value="Rough">Rough Stepped</option>
-                          <option value="Undulating">Rough Undulating</option>
-                          <option value="Smooth">Smooth Planar</option>
-                          <option value="Slickensided">Slickensided</option>
-                        </select>
+                      {/* Dip Angle Steppers */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-stone-400">Dip Angle (0–90°):</span>
+                          <span className="font-mono text-amber-400 font-bold">{selectedTrace.dipDeg}°</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg - 5)}
+                            className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
+                          >
+                            -5°
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg - 1)}
+                            className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
+                          >
+                            -1°
+                          </button>
+                          <input
+                            type="number"
+                            min="0"
+                            max="90"
+                            value={selectedTrace.dipDeg}
+                            onChange={(e) => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, parseInt(e.target.value) || 0)}
+                            className="flex-1 min-w-0 bg-stone-900 border border-stone-700 rounded p-1 text-center font-mono text-white text-xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg + 1)}
+                            className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
+                          >
+                            +1°
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg + 5)}
+                            className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-[10px] text-stone-300 font-mono transition"
+                          >
+                            +5°
+                          </button>
+                        </div>
                       </div>
 
-                      <div>
-                        <label className="text-[10.5px] text-stone-400 font-semibold block mb-1">Weathering:</label>
-                        <select
-                          className="w-full bg-stone-950 border border-stone-700 rounded-lg p-1.5 text-xs text-white"
-                          defaultValue="W2"
-                        >
-                          <option value="W1">W1 - Fresh</option>
-                          <option value="W2">W2 - Slightly</option>
-                          <option value="W3">W3 - Moderately</option>
-                          <option value="W4">W4 - Highly</option>
-                          <option value="W5">W5 - Completely</option>
-                        </select>
+                      {/* Quick Cardinal Direction Pills */}
+                      <div className="flex flex-wrap items-center gap-1 pt-1">
+                        {[
+                          { l: 'N', d: 0 },
+                          { l: 'NE', d: 45 },
+                          { l: 'E', d: 90 },
+                          { l: 'SE', d: 135 },
+                          { l: 'S', d: 180 },
+                          { l: 'SW', d: 225 },
+                          { l: 'W', d: 270 },
+                          { l: 'NW', d: 315 },
+                        ].map((c) => (
+                          <button
+                            key={c.l}
+                            type="button"
+                            onClick={() => updateSelectedTraceDip(c.d, selectedTrace.dipDeg)}
+                            className="flex-1 min-w-[28px] py-0.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-800 text-stone-300 hover:text-white text-[10px] font-mono text-center cursor-pointer"
+                          >
+                            {c.l}
+                          </button>
+                        ))}
                       </div>
                     </div>
 
@@ -2097,36 +2968,39 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         </button>
                         <div />
                       </div>
-                      <p className="text-[9.5px] text-stone-500 text-center">
-                        Or select <button type="button" onClick={() => setActiveTool('move_joint')} className="text-orange-400 underline font-bold cursor-pointer">Move Tool</button> &amp; drag trace directly on canvas
-                      </p>
                     </div>
 
                     {/* Vertex Editing Controls */}
                     <div className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold text-stone-300">
-                          Vertices ({selectedTrace.points?.length || 0})
+                          Vertices ({selectedTrace.points?.length || 0} pts)
                         </span>
-                        <span className="text-[10px] text-stone-500 font-mono">
-                          Drag cyan dots on canvas
-                        </span>
+                        <button
+                          type="button"
+                          onClick={handleSmoothTraceCurve}
+                          className="text-[10px] text-cyan-400 hover:underline flex items-center gap-1"
+                          title="Apply smooth spline smoothing to joint curve"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>Smooth Curve</span>
+                        </button>
                       </div>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={handleAddVertexToTrace}
-                          className="flex-1 py-1 px-2 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10.5px] flex items-center justify-center gap-1 transition cursor-pointer"
+                          className="flex-1 py-1.5 px-2 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10.5px] flex items-center justify-center gap-1 transition cursor-pointer"
                           title="Append new vertex point"
                         >
                           <Plus className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Add Vertex</span>
+                          <span>Add Point</span>
                         </button>
                         <button
                           type="button"
                           onClick={handleDeleteLastVertex}
                           disabled={(selectedTrace.points || []).length <= 2}
-                          className={`flex-1 py-1 px-2 rounded text-[10.5px] flex items-center justify-center gap-1 transition ${
+                          className={`flex-1 py-1.5 px-2 rounded text-[10.5px] flex items-center justify-center gap-1 transition ${
                             (selectedTrace.points || []).length > 2
                               ? 'bg-stone-800 hover:bg-stone-700 text-stone-200 cursor-pointer'
                               : 'bg-stone-900/50 text-stone-600 cursor-not-allowed'
@@ -2136,6 +3010,71 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                           <Minus className="w-3.5 h-3.5 text-amber-400" />
                           <span>Delete Point</span>
                         </button>
+                      </div>
+                    </div>
+
+                    {/* Merge with Another Joint Dropdown */}
+                    <div className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 space-y-2">
+                      <span className="text-[11px] font-bold text-stone-300 flex items-center gap-1.5">
+                        <GitMerge className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Merge With Another Trace:</span>
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          className="flex-1 bg-stone-900 border border-stone-700 rounded-lg p-1.5 text-xs text-white"
+                          defaultValue=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleExecuteMergeTraces(selectedTrace.id, e.target.value);
+                            }
+                          }}
+                        >
+                          <option value="" disabled>Select target trace to merge...</option>
+                          {(currentDataset.traces || [])
+                            .filter((t) => t.id !== selectedTrace.id)
+                            .map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.id} ({t.setId} - {t.orientationLabel})
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Geological Infilling & Roughness */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10.5px] text-stone-400 font-semibold block mb-1">Aperture / Infill:</label>
+                        <select
+                          value={selectedTrace.fillingThickness || 'Thin'}
+                          onChange={(e) => {
+                            setCurrentDataset((prev) => ({
+                              ...prev,
+                              traces: prev.traces.map((t) =>
+                                t.id === selectedTrace.id ? { ...t, fillingThickness: e.target.value as any } : t
+                              ),
+                            }));
+                          }}
+                          className="w-full bg-stone-950 border border-stone-700 rounded-lg p-1.5 text-xs text-white"
+                        >
+                          <option value="None">None / Tight</option>
+                          <option value="Thin">Thin (&lt; 1mm)</option>
+                          <option value="Medium">Medium (1–5mm)</option>
+                          <option value="Thick">Thick (&gt; 5mm)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10.5px] text-stone-400 font-semibold block mb-1">Roughness (JRC):</label>
+                        <select
+                          className="w-full bg-stone-950 border border-stone-700 rounded-lg p-1.5 text-xs text-white"
+                          defaultValue="Undulating"
+                        >
+                          <option value="Rough">Rough Stepped</option>
+                          <option value="Undulating">Rough Undulating</option>
+                          <option value="Smooth">Smooth Planar</option>
+                          <option value="Slickensided">Slickensided</option>
+                        </select>
                       </div>
                     </div>
 
@@ -2291,23 +3230,15 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         <span>Interactive Mapping Tools:</span>
                       </p>
                       <ul className="space-y-1.5 list-disc pl-4 text-stone-400">
-                        <li>Click any joint trace or water point on the canvas to inspect, move, and edit properties.</li>
-                        <li>Drag cyan dots to reshape vertex coordinates interactively.</li>
-                        <li>Drag the central ✥ icon to reposition the entire trace.</li>
-                        <li>Switch to the <strong>Traces</strong> tab to browse all previous joint records.</li>
+                        <li>Click any joint trace or water point on the canvas to inspect, move, and edit.</li>
+                        <li>Use the <strong>Move Tool (M)</strong> to grab and drag joints anywhere along the strip.</li>
+                        <li>Use the <strong>Edit Tool (E)</strong> to reposition vertices or click a line segment to add new points.</li>
+                        <li>Use the <strong>Merge Tool (G)</strong> to fuse two joint traces into one continuous trace.</li>
+                        <li>Use the live <strong>Compass &amp; Clinometer</strong> dials to adjust dip direction and amount.</li>
                       </ul>
                     </div>
 
                     <div className="space-y-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setSidebarTab('previous_joints')}
-                        className="w-full py-2 px-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs flex items-center justify-center gap-2 border border-stone-700 transition cursor-pointer"
-                      >
-                        <Hash className="w-4 h-4 text-orange-400" />
-                        <span>Browse Previous Joint Traces ({(currentDataset.traces || []).length})</span>
-                      </button>
-
                       <button
                         type="button"
                         onClick={() => setActiveTool('draw_joint')}
@@ -2325,13 +3256,127 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         <Move className="w-4 h-4 text-amber-400" />
                         <span>Switch to Move Joint Tool</span>
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTool('merge_joint');
+                          setMergeSourceTraceId(null);
+                          setMergeTargetTraceId(null);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs flex items-center justify-center gap-2 border border-stone-700 transition cursor-pointer"
+                      >
+                        <GitMerge className="w-4 h-4 text-amber-400" />
+                        <span>Switch to Merge Tool</span>
+                      </button>
                     </div>
                   </div>
                 )}
               </>
             )}
 
-            {/* TAB 2: PREVIOUS JOINT TRACES (Dedicated Editor for Previous Discontinuities) */}
+            {/* TAB 2: LITHOLOGY PALETTE & 1-CLICK FILL */}
+            {sidebarTab === 'lithology' && (
+              <div className="space-y-4">
+                {/* 1-Click Fill Between Chainages Card */}
+                <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-3">
+                  <div className="flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-orange-400" />
+                    <span className="font-bold text-white text-xs">Fill Strata Between Chainages:</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10.5px] text-stone-400 font-semibold block">Select Rock Type:</label>
+                    <select
+                      value={fillSpanRockType}
+                      onChange={(e) => setFillSpanRockType(e.target.value as StripRockTypeId)}
+                      className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-xs text-white"
+                    >
+                      {ROCK_TYPES.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-stone-400 font-semibold block mb-1">From Chainage (m):</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={fillSpanFromCh}
+                        onChange={(e) => setFillSpanFromCh(parseFloat(e.target.value) || 0)}
+                        className="w-full bg-stone-900 border border-stone-700 rounded p-1.5 text-xs text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-stone-400 font-semibold block mb-1">To Chainage (m):</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={fillSpanToCh}
+                        onChange={(e) => setFillSpanToCh(parseFloat(e.target.value) || 0)}
+                        className="w-full bg-stone-900 border border-stone-700 rounded p-1.5 text-xs text-white font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-stone-400 font-semibold block">Tunnel Surface Span:</label>
+                    <select
+                      value={fillSpanZoneType}
+                      onChange={(e) => setFillSpanZoneType(e.target.value as any)}
+                      className="w-full bg-stone-900 border border-stone-700 rounded-lg p-1.5 text-xs text-white"
+                    >
+                      <option value="all">Full Tunnel Perimeter (Left Wall + Crown + Right Wall)</option>
+                      <option value="crown">Crown Arch Only</option>
+                      <option value="leftWall">Left Wall Only</option>
+                      <option value="rightWall">Right Wall Only</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleFillBetweenChainages}
+                    className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Create Lithology Zone</span>
+                  </button>
+                </div>
+
+                {/* Rock Catalog List */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-bold text-stone-300 block">Rock Mass Classification Catalog:</span>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {ROCK_TYPES.map((rock) => (
+                      <div
+                        key={rock.id}
+                        onClick={() => setSelectedRockTypeId(rock.id)}
+                        className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition ${
+                          selectedRockTypeId === rock.id
+                            ? 'bg-stone-950 border-orange-500'
+                            : 'bg-stone-950/70 border-stone-800 hover:border-stone-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-4 h-4 rounded-md shrink-0 border border-white/20"
+                            style={{ backgroundColor: rock.color }}
+                          />
+                          <span className="text-xs text-white font-medium">{rock.label}</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-stone-400 uppercase">{rock.pattern}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: TRACES & MERGE (Discontinuities Manager) */}
             {sidebarTab === 'previous_joints' && (
               <div className="space-y-3">
                 {/* Search & Stats Header */}
@@ -2485,7 +3530,68 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               </div>
             )}
 
-            {/* TAB 3: LAYERS & DISPLAY SETTINGS */}
+            {/* TAB 4: STRUCTURAL FEATURES & GROUNDWATER */}
+            {sidebarTab === 'features' && (
+              <div className="space-y-4">
+                <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-2">
+                  <span className="text-[11px] font-bold text-stone-200 block">
+                    Structural Discontinuity Features:
+                  </span>
+                  <div className="space-y-1.5 text-xs">
+                    {[
+                      { name: 'Major Fault Line', type: 'Major Fault', color: '#dc2626' },
+                      { name: 'Shear Zone / Seam', type: 'Shear Zone', color: '#ef4444' },
+                      { name: 'Bedding / Foliation', type: 'Bedding/Foliation', color: '#3b82f6' },
+                      { name: 'Quartz / Calcite Vein', type: 'Joint', color: '#fbbf24' },
+                    ].map((f) => (
+                      <button
+                        key={f.name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedJointSetId(f.name.includes('Fault') ? 'Fault' : f.name.includes('Shear') ? 'Shear' : 'J1');
+                          setActiveTool('draw_joint');
+                        }}
+                        className="w-full p-2 rounded-lg bg-stone-900 hover:bg-stone-800 border border-stone-800 flex items-center justify-between text-left cursor-pointer transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full" style={{ backgroundColor: f.color }} />
+                          <span className="text-white font-medium">{f.name}</span>
+                        </div>
+                        <span className="text-[10px] text-stone-400 font-mono">+ Trace</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-2">
+                  <span className="text-[11px] font-bold text-stone-200 block">
+                    Groundwater Inflow Seepage:
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5 text-xs">
+                    {(['Dry', 'Damp', 'Wet', 'Dripping', 'Flowing'] as StripGroundwaterId[]).map((cond) => (
+                      <button
+                        key={cond}
+                        type="button"
+                        onClick={() => {
+                          setSelectedWaterCondition(cond);
+                          setActiveTool('place_water');
+                        }}
+                        className={`p-2 rounded-lg border text-left cursor-pointer transition flex items-center gap-1.5 ${
+                          selectedWaterCondition === cond && activeTool === 'place_water'
+                            ? 'bg-cyan-950 border-cyan-500 text-cyan-200'
+                            : 'bg-stone-900 border-stone-800 hover:bg-stone-800 text-stone-300'
+                        }`}
+                      >
+                        <Droplet className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>{cond}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 5: LAYERS & DISPLAY SETTINGS */}
             {sidebarTab === 'layers' && (
               <div className="space-y-4">
                 <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-3">
@@ -2540,19 +3646,22 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         snapToGrid ? 'bg-orange-500 text-white' : 'bg-stone-800 text-stone-400'
                       }`}
                     >
-                      {snapToGrid ? 'ON' : 'OFF'}
+                      {snapToGrid ? 'ENABLED' : 'DISABLED'}
                     </button>
                   </div>
-                  <div className="flex items-center gap-1.5 pt-1">
+                  <div className="flex items-center gap-1 text-xs">
                     {[0.1, 0.25, 0.5, 1.0].map((step) => (
                       <button
                         key={step}
                         type="button"
-                        onClick={() => setGridStepM(step)}
-                        className={`flex-1 py-1 rounded text-[10px] font-mono cursor-pointer ${
-                          gridStepM === step
-                            ? 'bg-orange-500 text-white font-bold'
-                            : 'bg-stone-800 text-stone-400 hover:text-white'
+                        onClick={() => {
+                          setGridStepM(step);
+                          setSnapToGrid(true);
+                        }}
+                        className={`flex-1 py-1 rounded text-center font-mono cursor-pointer transition ${
+                          snapToGrid && gridStepM === step
+                            ? 'bg-orange-950 border border-orange-500 text-orange-400 font-bold'
+                            : 'bg-stone-900 hover:bg-stone-800 text-stone-400 border border-stone-800'
                         }`}
                       >
                         {step}m
@@ -2562,37 +3671,25 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 </div>
 
                 <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-2">
-                  <span className="text-[11px] font-bold text-stone-300 block">CAD Canvas Theme:</span>
-                  <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-stone-300 block">CAD Canvas Viewport:</span>
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setIsDarkMode(true)}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        isDarkMode ? 'bg-stone-800 text-orange-400 border border-orange-500/40' : 'bg-stone-900 text-stone-400'
-                      }`}
+                      onClick={handleFitToScreen}
+                      className="py-1.5 px-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
                     >
-                      🌙 Dark CAD
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span>Fit All</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => setIsDarkMode(false)}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        !isDarkMode ? 'bg-stone-100 text-stone-900 font-bold border border-stone-300' : 'bg-stone-900 text-stone-400'
-                      }`}
+                      onClick={() => setIsDarkMode(!isDarkMode)}
+                      className="py-1.5 px-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
                     >
-                      ☀️ Light CAD
+                      <span>{isDarkMode ? '🌙 Dark CAD' : '☀️ Light CAD'}</span>
                     </button>
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleFitToScreen}
-                  className="w-full py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs flex items-center justify-center gap-2 border border-stone-700 transition cursor-pointer"
-                >
-                  <Maximize2 className="w-4 h-4 text-cyan-400" />
-                  <span>Fit Strip to Screen</span>
-                </button>
               </div>
             )}
           </div>

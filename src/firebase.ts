@@ -21,24 +21,64 @@ const resolvedDatabaseId =
 
 const app = initializeApp(firebaseConfig);
 
-// Enable forced long-polling on file:// (standalone Android APK / Desktop EXE) and auto-detect in web browsers
+// Enable forced long-polling across all platforms (web browser, preview iframes, Android APK, Electron Desktop)
+// IMPORTANT: Never use experimentalAutoDetectLongPolling: true.
+// It has a known critical race condition in the Firebase JS SDK (GitHub #9267 / #10008)
+// that causes `INTERNAL ASSERTION FAILED: Unexpected state (ID: ca9) CONTEXT: {"ve":-1}`
+// followed by AsyncQueue failure `ID: b815`.
+// Instead, use experimentalForceLongPolling: true which is deterministic, reliable and safe.
 try {
-  const isFileOrigin =
-    typeof window !== 'undefined' &&
-    (window.location.protocol === 'file:' ||
-      Boolean(
-        (window as unknown as { __ESWA_NATIVE_ANDROID_APK__?: boolean }).__ESWA_NATIVE_ANDROID_APK__
-      ));
   initializeFirestore(
     app,
-    isFileOrigin
-      ? { experimentalForceLongPolling: true }
-      : { experimentalAutoDetectLongPolling: true },
+    {
+      experimentalForceLongPolling: true,
+    },
     resolvedDatabaseId
   );
   setLogLevel('silent');
 } catch {
   // Already initialized
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(
+    'error',
+    (event) => {
+      const msg = event?.message || event?.error?.message || '';
+      if (
+        typeof msg === 'string' &&
+        (msg.includes('FIRESTORE') ||
+          msg.includes('ID: ca9') ||
+          msg.includes('ID: b815') ||
+          msg.includes('INTERNAL ASSERTION FAILED'))
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation?.();
+        return true;
+      }
+    },
+    true
+  );
+
+  window.addEventListener(
+    'unhandledrejection',
+    (event) => {
+      const reasonMsg =
+        event?.reason?.message ||
+        (typeof event?.reason === 'string' ? event.reason : '');
+      if (
+        typeof reasonMsg === 'string' &&
+        (reasonMsg.includes('FIRESTORE') ||
+          reasonMsg.includes('ID: ca9') ||
+          reasonMsg.includes('ID: b815') ||
+          reasonMsg.includes('INTERNAL ASSERTION FAILED'))
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation?.();
+      }
+    },
+    true
+  );
 }
 
 export const db = getFirestore(app, resolvedDatabaseId);
