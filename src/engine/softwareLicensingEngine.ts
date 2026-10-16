@@ -26,7 +26,7 @@ import {
 } from './windowsDesktopEngine';
 
 export const CURRENT_SOFTWARE_VERSION = '1.0.0';
-export const MASTER_ADMIN_DEFAULT_EMAIL = 'dhoniakash407@gmail.com';
+export const MASTER_ADMIN_DEFAULT_EMAIL = 'akashdhanusheswar@gmail.com';
 const ADMIN_AUTH_SIG = 'ESWA_MASTER_ADMIN_SIG_v1';
 const PORTAL_SCOPE = 'ESWA_GLOBAL';
 
@@ -892,7 +892,7 @@ export async function submitSoftwareAccessRequest(input: {
 
 /**
  * Builds the official Welcome Email with ESWA Tunnel Mapper App & Software Features
- * sent automatically from dhoniakash407@gmail.com when a new user registers & logs in.
+ * sent automatically from akashdhanusheswar@gmail.com when a new user registers & logs in.
  */
 export function buildWelcomeFeaturesEmailContent(params: {
   fullName: string;
@@ -970,7 +970,7 @@ ${MASTER_ADMIN_DEFAULT_EMAIL}`;
  * - Immediately logs the user in and unlocks the App / Software without waiting for Master activation.
  * - Syncs the user's profile and device type (ANDROID_APP or PC_SOFTWARE) to the unified Cloud Database
  *   so the Master App AND Master Software both see all Android + PC users and can Suspend/Reactivate them at any time.
- * - Automatically sends the Welcome Email with App & Software Features from dhoniakash407@gmail.com.
+ * - Automatically sends the Welcome Email with App & Software Features from akashdhanusheswar@gmail.com.
  */
 export async function registerInstantUserAndLogin(input: {
   fullName: string;
@@ -1390,7 +1390,7 @@ export async function verifyAndActivateOnePcLogin(input: {
   const storedAdmin = getStoredAdminCredentials();
   const { pcHardwareId, pcName } = getOrGeneratePcHardwareId();
 
-  // Allow Master Owner (dhoniakash407@gmail.com / admin) to log in directly with Master Password
+  // Allow Master Owner (akashdhanusheswar@gmail.com / admin) to log in directly with Master Password
   const isMasterUser =
     rawUser === storedAdmin.email.toLowerCase() ||
     rawUser === MASTER_ADMIN_DEFAULT_EMAIL.toLowerCase() ||
@@ -1562,7 +1562,7 @@ export async function verifyAndActivateOnePcLogin(input: {
       return {
         ok: false,
         message:
-          'Invalid User ID or offline. Tip: Master Owner can log in directly with dhoniakash407@gmail.com and akash@master2026.',
+          'Invalid User ID or offline. Tip: Master Owner can log in directly with akashdhanusheswar@gmail.com and akash@master2026.',
       };
     }
     handleFirestoreError(error, OperationType.UPDATE, path);

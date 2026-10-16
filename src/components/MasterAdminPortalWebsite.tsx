@@ -254,7 +254,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
   // Admin Password Customization
   const [newAdminPassInput, setNewAdminPassInput] = useState<string>('');
 
-  // Gmail OAuth & Auto-SMTP Connection State (for sending automatic approval & update emails from dhoniakash407@gmail.com)
+  // Gmail OAuth & Auto-SMTP Connection State (for sending automatic approval & update emails from akashdhanusheswar@gmail.com)
   const [needsAuth, setNeedsAuth] = useState<boolean>(true);
   const [gmailToken, setGmailToken] = useState<string | null>(null);
   const [gmailUser, setGmailUser] = useState<User | null>(null);

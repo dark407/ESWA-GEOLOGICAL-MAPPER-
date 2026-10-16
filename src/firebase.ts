@@ -169,7 +169,7 @@ function loadGoogleIdentityServicesScript(): Promise<void> {
 }
 
 async function signInWithGoogleIdentityServices(
-  loginHint = 'dhoniakash407@gmail.com'
+  loginHint = 'akashdhanusheswar@gmail.com'
 ): Promise<{ user: User; accessToken: string }> {
   await loadGoogleIdentityServicesScript();
   const clientId =
@@ -292,7 +292,7 @@ export const googleSignIn = async (): Promise<{
     // 1. Primary: Use Google Identity Services (initTokenClient) directly with oAuthClientId.
     // This completely bypasses firebaseapp.com/__/auth/handler so it NEVER shows "The requested action is invalid".
     try {
-      return await signInWithGoogleIdentityServices('dhoniakash407@gmail.com');
+      return await signInWithGoogleIdentityServices('akashdhanusheswar@gmail.com');
     } catch (gisError) {
       // Only fall back to signInWithPopup if not on file:// and GIS script failed to load
       const isFileProtocol =
@@ -401,7 +401,7 @@ export async function sendGmailMessage(params: {
     params.fromEmail ||
     cachedGisUser?.email ||
     auth.currentUser?.email ||
-    'dhoniakash407@gmail.com';
+    'akashdhanusheswar@gmail.com';
   const gmailComposeUrl = buildGmailWebComposeUrl({
     to: cleanTo,
     subject: params.subject,

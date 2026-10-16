@@ -2230,24 +2230,14 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
           <div className="w-8 h-px bg-stone-800 my-1" />
 
-          {/* Zoom In */}
+          {/* Zoom % Reset (Mouse Wheel & Touch Pinch to Zoom) */}
           <button
             type="button"
-            onClick={() => setZoom((z) => Math.min(3.0, z * 1.2))}
-            className="w-9 h-9 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 flex items-center justify-center transition cursor-pointer"
-            title="Zoom In"
+            onClick={() => setZoom(1.0)}
+            className="w-9 h-8 rounded-lg text-stone-300 hover:text-white hover:bg-stone-800 flex items-center justify-center font-mono text-[10px] font-bold transition cursor-pointer"
+            title="Mouse Wheel / Trackpad / 2-Finger Pinch to Zoom. Click to reset to 100%."
           >
-            <ZoomIn className="w-4 h-4" />
-          </button>
-
-          {/* Zoom Out */}
-          <button
-            type="button"
-            onClick={() => setZoom((z) => Math.max(0.3, z / 1.2))}
-            className="w-9 h-9 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 flex items-center justify-center transition cursor-pointer"
-            title="Zoom Out"
-          >
-            <ZoomOut className="w-4 h-4" />
+            {Math.round(zoom * 100)}%
           </button>
 
           {/* Snap Grid Toggle */}

@@ -2517,7 +2517,7 @@ export default function App({
 
     return (
       <main
-        className="min-h-dvh h-dvh w-full flex flex-col items-center justify-center relative overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain p-3 sm:p-6 select-none"
+        className="min-h-dvh h-dvh w-full flex flex-col items-center justify-center relative overflow-y-auto overflow-x-hidden no-scrollbar mouse-scrollable p-2 sm:p-4 select-none"
         style={{
           backgroundColor: '#EE8711',
           color: '#1C130E',
@@ -2724,7 +2724,7 @@ export default function App({
           </div>
         )}
 
-        <div className="relative z-10 w-full max-w-[680px] my-auto shrink-0 flex flex-col items-center text-center justify-center p-2 sm:p-4 gap-4 sm:gap-5 eswa-stage-transition">
+        <div className="relative z-10 w-full max-w-[650px] my-auto shrink-0 flex flex-col items-center text-center justify-center p-2 sm:p-3 gap-2.5 sm:gap-4 eswa-stage-transition">
           <div
             onClick={() => playEswaWelcomeChime(true)}
             className="cursor-pointer transition-transform hover:scale-[1.02]"

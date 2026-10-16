@@ -7,7 +7,9 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  Columns,
   Compass,
+  Crosshair,
   Droplets,
   Eraser,
   Eye,
@@ -15,16 +17,19 @@ import {
   FolderPlus,
   Layers,
   MapPin,
+  Maximize2,
   Move,
   Paintbrush,
   Pencil,
   Plus,
   Redo2,
+  RefreshCw,
   RotateCcw,
   Search,
   Settings,
   Sliders,
   Sparkles,
+  Sun,
   Trash2,
   Undo2,
   Video,
@@ -145,6 +150,7 @@ import {
   FieldPhotoFitStage,
   FieldSvgMatlabFilterDefs,
   FieldTwoPagePhotoReportStage,
+  FittedPanelPhotoSvgImage,
 } from './FieldPhotoFitAndReportsStages';
 import { FreeformCustomProfileEditor } from './FreeformCustomProfileEditor';
 import {
@@ -508,11 +514,43 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [confirmedPhotoJointIds, setConfirmedPhotoJointIds] = useState<Set<string>>(() => new Set());
   const [isPeekingTracesOnPhoto, setIsPeekingTracesOnPhoto] = useState<boolean>(false);
   const [pendingPhotogrammetryJoint, setPendingPhotogrammetryJoint] = useState<FieldJointTrace | null>(null);
-  const [showTracedFeaturesDrawer, setShowTracedFeaturesDrawer] = useState<boolean>(false);
   const [photogrammetryDuplicateWarning, setPhotogrammetryDuplicateWarning] = useState<{
     matchId: string;
     distance: number;
   } | null>(null);
+
+  // Photogrammetry Dual-Canvas View & Realtime Sync States
+  const [isPhotogrammetryDualCanvas, setIsPhotogrammetryDualCanvas] = useState<boolean>(true);
+  const [syncPhotoZoomPan, setSyncPhotoZoomPan] = useState<boolean>(true);
+  const [photoBrightness, setPhotoBrightness] = useState<number>(100);
+  const [photoContrast, setPhotoContrast] = useState<number>(100);
+  const [photoMatlabFilter, setPhotoMatlabFilter] = useState<boolean>(false);
+  const [syncCursorCoord, setSyncCursorCoord] = useState<FieldPoint2D | null>(null);
+  const [dualCanvasMobileTab, setDualCanvasMobileTab] = useState<'map' | 'photo' | 'split'>('split');
+  const photoCanvasSvgRef = useRef<SVGSVGElement | null>(null);
+
+  // Default authentic high-contrast rock photograph if user hasn't uploaded one yet
+  const defaultSampleFacePhoto = useMemo(() => {
+    if (!activeLocation) return '';
+    try {
+      const geom =
+        activeLocation.customGeometry ||
+        createTunnelGeometry(
+          activeLocation.widthM || 8.5,
+          activeLocation.heightM || 7.5,
+          4.0,
+          'd_shaped'
+        );
+      return generateSampleTunnelPhotograph('face', geom);
+    } catch {
+      return '';
+    }
+  }, [activeLocation]);
+
+  const effectiveFacePhotoDataUrl = useMemo(() => {
+    const p = activeRound?.collectedPhotos.slice().reverse().find((ph) => ph.panel === 'face');
+    return p?.dataUrl || defaultSampleFacePhoto;
+  }, [activeRound?.collectedPhotos, defaultSampleFacePhoto]);
 
   // Shift key peeking: hold Shift to temporarily reveal confirmed joints over rock photo
   useEffect(() => {
@@ -919,11 +957,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   ]);
   const [alternatingSpacingPx, setAlternatingSpacingPx] = useState<number>(18);
 
-  // Collapsible & Draggable Left and Right sidebars on Stage 4 / Stage 5 Canvas
-  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState<boolean>(false);
-  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(false);
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState<number>(264);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(276);
+  // Collapsible & Draggable Left and Right sidebars on Stage 4 / Stage 5 Canvas (Prioritizes Canvas on Android & Compact screens)
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) return true;
+    return false;
+  });
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1280) return true;
+    return false;
+  });
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState<number>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1280) return Math.min(240, Math.max(190, Math.floor(window.innerWidth * 0.22)));
+    return 264;
+  });
+  const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1280) return Math.min(250, Math.max(190, Math.floor(window.innerWidth * 0.22)));
+    return 276;
+  });
   const [draggingSidebarSide, setDraggingSidebarSide] = useState<'left' | 'right' | null>(null);
   const workspaceColumnsRef = useRef<HTMLDivElement | null>(null);
   const sidebarDragRef = useRef<{
@@ -1475,7 +1525,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
    * map with 100% sub-pixel accuracy inside the `0 0 1000 1000` viewBox regardless of aspect ratio or zoom!
    */
   const getNormalizedCanvasPoint = (e: React.PointerEvent<SVGSVGElement>): FieldPoint2D => {
-    const svg = canvasSvgRef.current;
+    const svg = (e.currentTarget as SVGSVGElement) || canvasSvgRef.current;
     if (!svg) return { x: 500, y: 500 };
 
     const ctm = svg.getScreenCTM();
@@ -1937,6 +1987,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
     if (!activeLocation || !activeRound) return;
     const rawPt = getNormalizedCanvasPoint(e);
+    setSyncCursorCoord(rawPt);
     const hoverTargetPanel =
       canvasViewMode === 'unfolded_t'
         ? isDrawing
@@ -7321,6 +7372,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </button>
                 )}
 
+                {/* Dual Canvas (Photogrammetry Mode: Tunnel Face Rock Photo + Realtime Sync) */}
+                {stage === 'field_canvas' && activePanel === 'face' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsPhotogrammetryDualCanvas((prev) => !prev)}
+                    className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
+                      isPhotogrammetryDualCanvas
+                        ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow font-black'
+                        : 'bg-slate-950 text-cyan-300 border-cyan-500/40 hover:bg-slate-800'
+                    }`}
+                    title="Toggle Dual Canvas Mode: Tunnel Face Photo on one canvas with real-time synchronization"
+                  >
+                    <Columns className="w-3 h-3" />
+                    <span>{isPhotogrammetryDualCanvas ? 'Dual Canvas: ON' : 'Dual Canvas'}</span>
+                  </button>
+                )}
+
                 {/* Small Top Button for Black & White vs Colour on Canvas */}
                 <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700">
                   <button
@@ -7400,44 +7468,106 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 onUpdateRound={updateActiveRound}
                 onSyncTraceStateChange={setSyncTrace3DState}
               />
-            ) : (
-            <div
-              ref={canvasWrapperRef}
-              className="flex-1 min-h-0 bg-[#E2E8F0] rounded-lg border-2 border-slate-700 overflow-hidden flex items-center justify-center relative touch-none"
-            >
-              <svg
-                ref={canvasSvgRef}
-                viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
-                  500 -
-                  500 / canvasZoom +
-                  canvasPan.y
-                ).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)}`}
-                preserveAspectRatio="xMidYMid meet"
-                style={{
-                  backgroundColor: '#E2E8F0',
-                  cursor:
-                    isCanvasPanMode ||
-                    (isPanelMoveMode && (stage === 'joint_grouping' || activePanel !== 'face'))
-                      ? 'grab'
-                      : stage === 'field_canvas'
-                      ? getFieldToolCursorDataUri(activeTool, lithologySubMode, {
-                          jointColor: (
-                            FIELD_JOINT_GROUP_COLORS[activeGroupingSet] ||
-                            FIELD_JOINT_GROUP_COLORS.unassigned
-                          ).stroke,
-                          rockColor:
-                            (activeRound.rockCustomColors || {})[selectedRockType] ||
-                            resolveRockDisplayInfo(selectedRockType, rememberedRocksList).colorTint,
-                          geoFeatureType: selectedGeoFeatureType,
-                        })
-                      : 'crosshair',
-                }}
-                onPointerDown={handleCanvasPointerDown}
-                onPointerMove={handleCanvasPointerMove}
-                onPointerUp={handleCanvasPointerUp}
-                onPointerCancel={handleCanvasPointerUp}
-                className="w-full h-full touch-none select-none"
-              >
+            ) : (() => {
+              const isDualCanvasActive =
+                stage === 'field_canvas' && activePanel === 'face' && isPhotogrammetryDualCanvas;
+              return (
+                <div
+                  ref={canvasWrapperRef}
+                  className={`flex-1 min-h-0 bg-slate-950 rounded-lg border-2 border-slate-700 overflow-hidden flex flex-col ${
+                    isDualCanvasActive ? 'lg:flex-row p-1 gap-1' : ''
+                  } items-stretch justify-center relative touch-none`}
+                >
+                  {/* Small Screen Dual Canvas Selector Tab */}
+                  {isDualCanvasActive && (
+                    <div className="lg:hidden flex items-center justify-between bg-slate-900 px-2 py-1 border-b border-slate-800 rounded shrink-0 w-full">
+                      <span className="text-[10px] font-bold text-slate-300">Face View:</span>
+                      <div className="inline-flex items-center rounded bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setDualCanvasMobileTab('split')}
+                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer ${
+                            dualCanvasMobileTab === 'split' ? 'bg-cyan-500 text-slate-950 shadow' : 'text-slate-400'
+                          }`}
+                        >
+                          Split
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDualCanvasMobileTab('map')}
+                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer ${
+                            dualCanvasMobileTab === 'map' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400'
+                          }`}
+                        >
+                          Map Only
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDualCanvasMobileTab('photo')}
+                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer ${
+                            dualCanvasMobileTab === 'photo' ? 'bg-cyan-500 text-slate-950 shadow' : 'text-slate-400'
+                          }`}
+                        >
+                          Photo Only
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 1. FACE GEOLOGICAL MAPPING CANVAS PANE */}
+                  <div
+                    className={`flex-1 min-w-0 min-h-0 flex flex-col bg-[#E2E8F0] rounded-lg border border-slate-700 overflow-hidden relative ${
+                      isDualCanvasActive && dualCanvasMobileTab === 'photo' ? 'hidden lg:flex' : 'flex'
+                    }`}
+                  >
+                    {isDualCanvasActive && (
+                      <div className="bg-slate-900/95 px-2.5 py-1 border-b border-slate-700 flex items-center justify-between text-[11px] font-bold text-slate-200 shrink-0">
+                        <span className="flex items-center gap-1.5 text-amber-400 font-mono">
+                          <Layers className="w-3.5 h-3.5" />
+                          <span>1. Face Geological Map (1:1 CAD)</span>
+                        </span>
+                        {syncCursorCoord && (
+                          <span className="font-mono text-[10px] text-amber-300 bg-slate-950 px-2 py-0.5 rounded border border-amber-500/30">
+                            X: {(syncCursorCoord.x / 100).toFixed(2)}m | Y: {(syncCursorCoord.y / 100).toFixed(2)}m
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex-1 min-h-0 relative flex items-center justify-center">
+                      <svg
+                        ref={canvasSvgRef}
+                        viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
+                          500 -
+                          500 / canvasZoom +
+                          canvasPan.y
+                        ).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)}`}
+                        preserveAspectRatio="xMidYMid meet"
+                        style={{
+                          backgroundColor: '#E2E8F0',
+                          cursor:
+                            isCanvasPanMode ||
+                            (isPanelMoveMode && (stage === 'joint_grouping' || activePanel !== 'face'))
+                              ? 'grab'
+                              : stage === 'field_canvas'
+                              ? getFieldToolCursorDataUri(activeTool, lithologySubMode, {
+                                  jointColor: (
+                                    FIELD_JOINT_GROUP_COLORS[activeGroupingSet] ||
+                                    FIELD_JOINT_GROUP_COLORS.unassigned
+                                  ).stroke,
+                                  rockColor:
+                                    (activeRound.rockCustomColors || {})[selectedRockType] ||
+                                    resolveRockDisplayInfo(selectedRockType, rememberedRocksList).colorTint,
+                                  geoFeatureType: selectedGeoFeatureType,
+                                })
+                              : 'crosshair',
+                        }}
+                        onPointerDown={handleCanvasPointerDown}
+                        onPointerMove={handleCanvasPointerMove}
+                        onPointerUp={handleCanvasPointerUp}
+                        onPointerCancel={handleCanvasPointerUp}
+                        onPointerLeave={() => setSyncCursorCoord(null)}
+                        className="w-full h-full touch-none select-none"
+                      >
                 <FieldMonochromeGeologicalPatterns
                   prefix="fcanv"
                   colorMode={activeRound.reportColorMode ?? 'color'}
@@ -7631,41 +7761,22 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                         {/* Clipped Geological Mapping Layers + SPL & Center Line */}
                         <g clipPath={`url(#${clipId})`}>
-                          {workflowMode === 'photo_mapping' && pPhoto && showPhotoUnderlay && (() => {
-                            const tr = getFieldPanelTransform(
-                              activeRound,
-                              panelId,
-                              activeStageTransformMode
-                            );
-                            const fitCfg = getFieldPhotoFitConfig(activeRound, panelId);
-                            const isRot90 = tr.rotationDeg === 90 || tr.rotationDeg === 270;
-                            const imgW = isRot90 ? targetBox.h : targetBox.w;
-                            const imgH = isRot90 ? targetBox.w : targetBox.h;
-                            const cx = targetBox.x + targetBox.w / 2;
-                            const cy = targetBox.y + targetBox.h / 2;
-                            const fitTx = (fitCfg.offsetX / 100) * targetBox.w;
-                            const fitTy = (fitCfg.offsetY / 100) * targetBox.h;
-                            const sx = (tr.mirrorH ? -1 : 1) * (fitCfg.mirrorH ? -1 : 1) * fitCfg.scale;
-                            const sy = (tr.mirrorV ? -1 : 1) * (fitCfg.mirrorV ? -1 : 1) * fitCfg.scale;
-                            const totalRot = (tr.rotationDeg + fitCfg.rotationDeg) % 360;
-                            return (
-                              <image
-                                href={pPhoto.dataUrl}
-                                x={-imgW / 2}
-                                y={-imgH / 2}
-                                width={imgW}
-                                height={imgH}
-                                transform={`translate(${(cx + fitTx).toFixed(1)}, ${(cy + fitTy).toFixed(1)}) scale(${sx}, ${sy}) rotate(${totalRot})`}
-                                preserveAspectRatio="none"
-                                filter={`url(#fcanv-matlab-${panelId})`}
-                                opacity={
-                                  activeRound.advanceCanvasEnabled
-                                    ? Math.max(0.15, Math.min(1, (fitCfg.opacityPct ?? 78) / 100))
-                                    : 0.45
-                                }
-                              />
-                            );
-                          })()}
+                          {workflowMode === 'photo_mapping' && pPhoto && showPhotoUnderlay && (
+                            <FittedPanelPhotoSvgImage
+                              photoUrl={pPhoto.dataUrl}
+                              fitConfig={getFieldPhotoFitConfig(activeRound, panelId)}
+                              boxX={targetBox.x}
+                              boxY={targetBox.y}
+                              boxW={targetBox.w}
+                              boxH={targetBox.h}
+                              filterId={`fcanv-matlab-${panelId}`}
+                              overrideOpacity={
+                                activeRound.advanceCanvasEnabled
+                                  ? Math.max(0.15, Math.min(1, (getFieldPhotoFitConfig(activeRound, panelId).opacityPct ?? 78) / 100))
+                                  : 0.45
+                              }
+                            />
+                          )}
 
                           {/* SPL (Springline) & Center Line (CL) Reference Overlay */}
                           <FieldCanvasGeometryReferenceOverlay
@@ -8487,6 +8598,43 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           </g>
                         );
                       })()}
+                      {/* Synchronized Crosshair Reticle for Dual Canvas Realtime Mapping */}
+                      {syncCursorCoord && (
+                        <g className="pointer-events-none select-none" id="fcanv-sync-reticle">
+                          <line
+                            x1={syncCursorCoord.x - 24}
+                            y1={syncCursorCoord.y}
+                            x2={syncCursorCoord.x + 24}
+                            y2={syncCursorCoord.y}
+                            stroke="#F59E0B"
+                            strokeWidth="1.6"
+                            strokeDasharray="4 2"
+                          />
+                          <line
+                            x1={syncCursorCoord.x}
+                            y1={syncCursorCoord.y - 24}
+                            x2={syncCursorCoord.x}
+                            y2={syncCursorCoord.y + 24}
+                            stroke="#F59E0B"
+                            strokeWidth="1.6"
+                            strokeDasharray="4 2"
+                          />
+                          <circle
+                            cx={syncCursorCoord.x}
+                            cy={syncCursorCoord.y}
+                            r="7"
+                            fill="none"
+                            stroke="#F59E0B"
+                            strokeWidth="2"
+                          />
+                          <circle
+                            cx={syncCursorCoord.x}
+                            cy={syncCursorCoord.y}
+                            r="2.5"
+                            fill="#F59E0B"
+                          />
+                        </g>
+                      )}
                     </>
                   );
                 })()}
@@ -8553,7 +8701,348 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 </div>
               )}
             </div>
-            )}
+          </div>
+
+          {/* 2. TUNNEL FACE ROCK PHOTO CANVAS (DUAL CANVAS MODE) */}
+          {isDualCanvasActive && (
+            <div
+              className={`flex-1 min-w-0 min-h-0 flex flex-col bg-slate-950 rounded-lg border border-cyan-500/50 overflow-hidden relative ${
+                dualCanvasMobileTab === 'map' ? 'hidden lg:flex' : 'flex'
+              }`}
+            >
+              {/* Photo Canvas Top Bar */}
+              <div className="bg-slate-900/95 px-2 py-1 border-b border-slate-800 flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold text-slate-200 shrink-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Camera className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <span className="text-cyan-300 font-mono font-bold truncate">2. Face Photo (Sync ON)</span>
+                  {syncCursorCoord && (
+                    <span className="font-mono text-[10px] text-cyan-300 bg-slate-950 px-1.5 py-0.5 rounded border border-cyan-500/30 shrink-0">
+                      X: {(syncCursorCoord.x / 100).toFixed(2)}m | Y: {(syncCursorCoord.y / 100).toFixed(2)}m
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0 flex-wrap">
+                  {/* Peek Traces on Photo Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setIsPeekingTracesOnPhoto((prev) => !prev)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all ${
+                      isPeekingTracesOnPhoto
+                        ? 'bg-amber-500 text-slate-950 shadow'
+                        : 'bg-slate-800 text-slate-300 hover:text-white'
+                    }`}
+                    title="Show/Hide confirmed geological traces over rock photo (or hold Shift)"
+                  >
+                    <Eye className="w-3 h-3" />
+                    <span>{isPeekingTracesOnPhoto ? 'Traces: ON' : 'Peek Traces'}</span>
+                  </button>
+
+                  {/* Photo Brightness & Contrast Controls */}
+                  <div className="inline-flex items-center bg-slate-950 rounded p-0.5 border border-slate-800 gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setPhotoBrightness((b) => Math.max(50, b - 15))}
+                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                      title="Decrease Photo Brightness"
+                    >
+                      ☀-
+                    </button>
+                    <span className="text-[9px] font-mono text-amber-300 px-0.5">{photoBrightness}%</span>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoBrightness((b) => Math.min(200, b + 15))}
+                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                      title="Increase Photo Brightness"
+                    >
+                      ☀+
+                    </button>
+                  </div>
+
+                  {/* MATLAB Edge Enhancement Filter */}
+                  <button
+                    type="button"
+                    onClick={() => setPhotoMatlabFilter((f) => !f)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all ${
+                      photoMatlabFilter
+                        ? 'bg-emerald-500 text-slate-950 font-bold'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                    title="Toggle MATLAB Edge Enhancement Filter on Face Photo"
+                  >
+                    Edges
+                  </button>
+
+                  {/* Upload / Change Face Photo Button */}
+                  <label
+                    className="px-1.5 py-0.5 rounded bg-cyan-700/80 hover:bg-cyan-600 text-white text-[10px] font-black cursor-pointer flex items-center gap-0.5 shadow-sm"
+                    title="Upload or Change Tunnel Face Rock Photo"
+                  >
+                    <span>Photo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const url = ev.target?.result as string;
+                            if (url) {
+                              updateActiveRound((r) => {
+                                const otherPhotos = r.collectedPhotos.filter((p) => p.panel !== 'face');
+                                const newP: FieldCollectedPhoto = {
+                                  id: `photo-face-${Date.now()}`,
+                                  panel: 'face',
+                                  dataUrl: url,
+                                  label: 'Underground Tunnel Face High-Resolution Rock Photo',
+                                  capturedAt: new Date().toISOString(),
+                                };
+                                return {
+                                  ...r,
+                                  collectedPhotos: [...otherPhotos, newP],
+                                };
+                              });
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Photo SVG Canvas with Real-Time Drawing & Synced Crosshair */}
+              <div className="flex-1 min-h-0 relative flex items-center justify-center bg-slate-950">
+                <svg
+                  ref={photoCanvasSvgRef}
+                  viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
+                    500 -
+                    500 / canvasZoom +
+                    canvasPan.y
+                  ).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)}`}
+                  preserveAspectRatio="xMidYMid meet"
+                  style={{
+                    backgroundColor: '#020617',
+                    cursor:
+                      isCanvasPanMode
+                        ? 'grab'
+                        : getFieldToolCursorDataUri(activeTool, lithologySubMode, {
+                            jointColor: (
+                              FIELD_JOINT_GROUP_COLORS[activeGroupingSet] ||
+                              FIELD_JOINT_GROUP_COLORS.unassigned
+                            ).stroke,
+                            rockColor:
+                              (activeRound.rockCustomColors || {})[selectedRockType] ||
+                              resolveRockDisplayInfo(selectedRockType, rememberedRocksList).colorTint,
+                            geoFeatureType: selectedGeoFeatureType,
+                          }),
+                  }}
+                  onPointerDown={handleCanvasPointerDown}
+                  onPointerMove={handleCanvasPointerMove}
+                  onPointerUp={handleCanvasPointerUp}
+                  onPointerCancel={handleCanvasPointerUp}
+                  onPointerLeave={() => setSyncCursorCoord(null)}
+                  className="w-full h-full touch-none select-none"
+                >
+                  <FieldSvgMatlabFilterDefs round={activeRound} idPrefix="fcanv-photo-matlab" />
+
+                  {(() => {
+                    const dispGeom = computeDisplayPanelGeometry(
+                      'face',
+                      activeLocation,
+                      activeRound,
+                      activeStageTransformMode
+                    );
+                    const targetBox = {
+                      x: dispGeom.boxX,
+                      y: dispGeom.boxY,
+                      w: dispGeom.boxW,
+                      h: dispGeom.boxH,
+                    };
+                    const faceOutline = computeFaceTunnelOutlineDetails(
+                      activeLocation,
+                      targetBox.x,
+                      targetBox.y,
+                      targetBox.w,
+                      targetBox.h
+                    );
+                    const faceOutlinePathD = faceOutline?.closedFillPathD || '';
+                    const tr = getFieldPanelTransform(
+                      activeRound,
+                      'face',
+                      activeStageTransformMode
+                    );
+                    const fitCfg = getFieldPhotoFitConfig(activeRound, 'face');
+                    const isRot90 = tr.rotationDeg === 90 || tr.rotationDeg === 270;
+                    const imgW = isRot90 ? targetBox.h : targetBox.w;
+                    const imgH = isRot90 ? targetBox.w : targetBox.h;
+                    const cx = targetBox.x + targetBox.w / 2;
+                    const cy = targetBox.y + targetBox.h / 2;
+                    const fitTx = (fitCfg.offsetX / 100) * targetBox.w;
+                    const fitTy = (fitCfg.offsetY / 100) * targetBox.h;
+                    const sx = (tr.mirrorH ? -1 : 1) * (fitCfg.mirrorH ? -1 : 1) * fitCfg.scale;
+                    const sy = (tr.mirrorV ? -1 : 1) * (fitCfg.mirrorV ? -1 : 1) * fitCfg.scale;
+                    const totalRot = (tr.rotationDeg + fitCfg.rotationDeg) % 360;
+
+                    return (
+                      <>
+                        {/* Clipped Tunnel Face Rock Photo */}
+                        <clipPath id="dual-canvas-face-clip">
+                          <path d={faceOutlinePathD} />
+                        </clipPath>
+
+                        {/* Background Tunnel Profile Grid & Outline Area */}
+                        <path
+                          d={faceOutlinePathD}
+                          fill="#1E293B"
+                          stroke="#0284C7"
+                          strokeWidth="2.5"
+                        />
+
+                        {/* Actual High-Resolution Tunnel Face Photo */}
+                        <g clipPath="url(#dual-canvas-face-clip)">
+                          {effectiveFacePhotoDataUrl && (
+                            <image
+                              href={effectiveFacePhotoDataUrl}
+                              x={-imgW / 2}
+                              y={-imgH / 2}
+                              width={imgW}
+                              height={imgH}
+                              transform={`translate(${(cx + fitTx).toFixed(1)}, ${(cy + fitTy).toFixed(1)}) scale(${sx}, ${sy}) rotate(${totalRot})`}
+                              preserveAspectRatio="none"
+                              filter={photoMatlabFilter ? `url(#fcanv-photo-matlab-face)` : undefined}
+                              style={{
+                                filter: `brightness(${photoBrightness}%) contrast(${photoContrast}%)`,
+                              }}
+                              opacity={1}
+                            />
+                          )}
+                        </g>
+
+                        {/* Tunnel Profile Outline, Springline (SPL) and Centerline (CL) */}
+                        <FieldCanvasGeometryReferenceOverlay
+                          activePanel="face"
+                          location={activeLocation}
+                          round={activeRound}
+                          boxX={targetBox.x}
+                          boxY={targetBox.y}
+                          boxW={targetBox.w}
+                          boxH={targetBox.h}
+                          layer="underlay_grid"
+                          stageMode={activeStageTransformMode}
+                          mappingDomain={mappingDomain}
+                        />
+
+                        {/* Outer Profile Golden Perimeter Line */}
+                        <path
+                          d={faceOutlinePathD}
+                          fill="none"
+                          stroke="#F59E0B"
+                          strokeWidth="2.5"
+                        />
+
+                        {/* Real-time Drawing Stroke overlay (syncs as user draws on either canvas!) */}
+                        {isDrawing && currentPoints.length >= 2 && (
+                          <path
+                            d={buildSmoothSvgPath(currentPoints)}
+                            fill="none"
+                            stroke={
+                              activeTool === '1_lithology'
+                                ? '#38BDF8'
+                                : (
+                                    FIELD_JOINT_GROUP_COLORS[activeGroupingSet] ||
+                                    FIELD_JOINT_GROUP_COLORS.unassigned
+                                  ).stroke
+                            }
+                            strokeWidth={Math.max(2.5, Math.min(8, jointPencilSizePx))}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        )}
+
+                        {/* Real-time Pending 2D Trace overlay */}
+                        {pending2DTrace && pending2DTrace.points.length >= 2 && (
+                          <path
+                            d={buildSmoothSvgPath(pending2DTrace.points)}
+                            fill="none"
+                            stroke="#FACC15"
+                            strokeWidth="3"
+                            strokeDasharray="5 3"
+                            strokeLinecap="round"
+                          />
+                        )}
+
+                        {/* Peek Traces on Photo (Confirmed Joint Traces & Geology) */}
+                        {isPeekingTracesOnPhoto && (
+                          <g className="pointer-events-none opacity-90">
+                            {panelTraces.map((trItem) => {
+                              const grpCol =
+                                FIELD_JOINT_GROUP_COLORS[trItem.setId || 'unassigned'] ||
+                                FIELD_JOINT_GROUP_COLORS.unassigned;
+                              return (
+                                <path
+                                  key={`peek-tr-${trItem.id}`}
+                                  d={buildSmoothSvgPath(trItem.points)}
+                                  fill="none"
+                                  stroke={grpCol.stroke}
+                                  strokeWidth={Math.max(2, trItem.strokeWidthPx || 2)}
+                                  strokeLinecap="round"
+                                />
+                              );
+                            })}
+                          </g>
+                        )}
+
+                        {/* Real-time Synchronized Crosshair Reticle on Photo Canvas */}
+                        {syncCursorCoord && (
+                          <g className="pointer-events-none select-none">
+                            <line
+                              x1={syncCursorCoord.x - 30}
+                              y1={syncCursorCoord.y}
+                              x2={syncCursorCoord.x + 30}
+                              y2={syncCursorCoord.y}
+                              stroke="#38BDF8"
+                              strokeWidth="1.8"
+                              strokeDasharray="4 2"
+                            />
+                            <line
+                              x1={syncCursorCoord.x}
+                              y1={syncCursorCoord.y - 30}
+                              x2={syncCursorCoord.x}
+                              y2={syncCursorCoord.y + 30}
+                              stroke="#38BDF8"
+                              strokeWidth="1.8"
+                              strokeDasharray="4 2"
+                            />
+                            <circle
+                              cx={syncCursorCoord.x}
+                              cy={syncCursorCoord.y}
+                              r="8"
+                              fill="none"
+                              stroke="#38BDF8"
+                              strokeWidth="2"
+                            />
+                            <circle
+                              cx={syncCursorCoord.x}
+                              cy={syncCursorCoord.y}
+                              r="2.5"
+                              fill="#38BDF8"
+                            />
+                          </g>
+                        )}
+                      </>
+                    );
+                  })()}
+                </svg>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    })()}
 
             {/* Bottom Bar: Stage 4 shows Face, Left Wall, Right Wall, Crown, then 3D in that exact sequence; Stage 5 shows Group Joints navigation */}
             <div className="pt-1 mt-0.5 flex items-center justify-between gap-1 shrink-0 overflow-x-auto no-scrollbar touch-pan-x">

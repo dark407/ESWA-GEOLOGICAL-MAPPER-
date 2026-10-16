@@ -4694,6 +4694,8 @@ export const FieldSurveyOverbreakStage: React.FC<{
 }) => {
   const faceSvgRef = useRef<SVGSVGElement | null>(null);
   const [showTemplateEditor, setShowTemplateEditor] = useState<boolean>(false);
+  const [draggingPointIdx, setDraggingPointIdx] = useState<number | null>(null);
+  const [hoverCoord, setHoverCoord] = useState<{ x: number; y: number } | null>(null);
   const survey = useMemo(
     () => ({
       ...createDefaultSurveyOverbreak(activeLocation),
@@ -4897,15 +4899,47 @@ export const FieldSurveyOverbreakStage: React.FC<{
     });
   };
 
-  const handleFaceCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
+  // Accurate SVG coordinate calculation using getScreenCTM().inverse()
+  const getSvgCoordinatesFromPointer = (clientX: number, clientY: number): { x: number; y: number } | null => {
     const svg = faceSvgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    const sx = Number((((e.clientX - rect.left) / Math.max(1, rect.width)) * 600).toFixed(1));
-    const sy = Number((((e.clientY - rect.top) / Math.max(1, rect.height)) * 460).toFixed(1));
+    if (!svg) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const svgP = pt.matrixTransform(ctm.inverse());
+    return {
+      x: Number(Math.max(10, Math.min(590, svgP.x)).toFixed(1)),
+      y: Number(Math.max(10, Math.min(450, svgP.y)).toFixed(1)),
+    };
+  };
 
-    const nextPts = [...(survey.surveyPoints || []), { x: sx, y: sy }];
+  const handleFaceCanvasPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    // If user tapped directly on a survey point, point dragging is handled by that handle
+    if ((e.target as Element)?.closest('[data-survey-point]')) {
+      return;
+    }
+    const coords = getSvgCoordinatesFromPointer(e.clientX, e.clientY);
+    if (!coords) return;
+    const nextPts = [...(survey.surveyPoints || []), coords];
     recomputeOverbreakMetrics(nextPts, 'completed');
+  };
+
+  const handleFaceCanvasPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const coords = getSvgCoordinatesFromPointer(e.clientX, e.clientY);
+    if (!coords) return;
+    setHoverCoord(coords);
+
+    if (draggingPointIdx !== null && survey.surveyPoints && draggingPointIdx < survey.surveyPoints.length) {
+      const nextPts = [...survey.surveyPoints];
+      nextPts[draggingPointIdx] = coords;
+      recomputeOverbreakMetrics(nextPts, 'completed');
+    }
+  };
+
+  const handleFaceCanvasPointerUp = () => {
+    setDraggingPointIdx(null);
   };
 
   const handleAutoSampleOverbreakTrace = () => {
@@ -5051,10 +5085,10 @@ export const FieldSurveyOverbreakStage: React.FC<{
         />
       )}
 
-      {/* Main 12-Col Survey Workspace */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2.5 overflow-y-auto lg:overflow-hidden">
-        {/* Left 7 Columns: Interactive Tunnel Face Point Locator & Overbreak Trace Connector */}
-        <div className="lg:col-span-7 min-h-0 bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col gap-2 overflow-hidden">
+      {/* Main 12-Col Survey Workspace: Main Importance for Survey Canvas */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2 overflow-hidden">
+        {/* Left 8 Columns: Interactive Tunnel Face Point Locator & Overbreak Trace Connector (Canvas) */}
+        <div className="lg:col-span-8 xl:col-span-8 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div>
               <div className="text-xs font-black uppercase text-cyan-400">
@@ -5095,12 +5129,18 @@ export const FieldSurveyOverbreakStage: React.FC<{
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 flex items-center justify-center bg-slate-950 rounded-xl border border-slate-800 p-2">
+          <div className="flex-1 min-h-0 h-full w-full flex items-center justify-center bg-slate-950 rounded-xl border border-slate-800 p-2 overflow-hidden">
             <svg
               ref={faceSvgRef}
               viewBox="0 0 600 460"
-              onClick={handleFaceCanvasClick}
-              className="w-full h-full max-h-[390px] bg-white rounded-lg border border-slate-700 cursor-crosshair block"
+              onPointerDown={handleFaceCanvasPointerDown}
+              onPointerMove={handleFaceCanvasPointerMove}
+              onPointerUp={handleFaceCanvasPointerUp}
+              onPointerLeave={() => {
+                setHoverCoord(null);
+                setDraggingPointIdx(null);
+              }}
+              className="w-full h-full max-h-full bg-white rounded-lg border border-slate-700 cursor-crosshair block select-none touch-none object-contain"
             >
               {/* 1m × 1m Coordinate Grid */}
               {Array.from({ length: Math.floor(W) + 1 }).map((_, idx) => {
@@ -5197,29 +5237,104 @@ export const FieldSurveyOverbreakStage: React.FC<{
                   strokeWidth="2.8"
                 />
               )}
+
+              {/* Real-time Crosshair Reticle for Finger / Mouse Touch */}
+              {hoverCoord && (
+                <g pointerEvents="none">
+                  <line
+                    x1={hoverCoord.x}
+                    y1={boxY - 25}
+                    x2={hoverCoord.x}
+                    y2={boxY + boxH + 20}
+                    stroke="#0284c7"
+                    strokeWidth="1.2"
+                    strokeDasharray="3 3"
+                    opacity="0.8"
+                  />
+                  <line
+                    x1={boxX - 25}
+                    y1={hoverCoord.y}
+                    x2={boxX + boxW + 25}
+                    y2={hoverCoord.y}
+                    stroke="#0284c7"
+                    strokeWidth="1.2"
+                    strokeDasharray="3 3"
+                    opacity="0.8"
+                  />
+                  <circle
+                    cx={hoverCoord.x}
+                    cy={hoverCoord.y}
+                    r="6"
+                    fill="none"
+                    stroke="#0284c7"
+                    strokeWidth="2"
+                  />
+                  <text
+                    x={hoverCoord.x + 8}
+                    y={hoverCoord.y - 8}
+                    fontSize="9.5"
+                    fontWeight="900"
+                    fontFamily="IBM Plex Mono, monospace"
+                    fill="#0284c7"
+                    stroke="#ffffff"
+                    strokeWidth="2.5"
+                    paintOrder="stroke"
+                  >
+                    {(((hoverCoord.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2)}m,{' '}
+                    {(((boxY + boxH - hoverCoord.y) / boxH) * H).toFixed(2)}m
+                  </text>
+                </g>
+              )}
+
+              {/* Plotted Survey Points with Touch Targets & Drag Support */}
               {(survey.surveyPoints || []).map((pt, idx) => {
                 const xM = (((pt.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2);
                 const yM = (((boxY + boxH - pt.y) / boxH) * H).toFixed(2);
+                const isDraggingThis = draggingPointIdx === idx;
                 return (
-                  <g key={`sv-pt-${idx}`}>
+                  <g key={`sv-pt-${idx}`} data-survey-point="true">
+                    {/* Generous touch target circle (18px radius) for fingers on mobile */}
                     <circle
                       cx={pt.x}
                       cy={pt.y}
-                      r="5"
-                      fill="#dc2626"
+                      r="18"
+                      fill="transparent"
+                      className="cursor-move touch-none"
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        setDraggingPointIdx(idx);
+                        try {
+                          (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+                        } catch {
+                          // Ignore
+                        }
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        const nextPts = (survey.surveyPoints || []).filter((_, i) => i !== idx);
+                        recomputeOverbreakMetrics(nextPts, survey.status);
+                      }}
+                    />
+                    <circle
+                      cx={pt.x}
+                      cy={pt.y}
+                      r={isDraggingThis ? '7' : '5'}
+                      fill={isDraggingThis ? '#0284c7' : '#dc2626'}
                       stroke="#ffffff"
-                      strokeWidth="1.6"
+                      strokeWidth={isDraggingThis ? '2.4' : '1.6'}
+                      className="pointer-events-none"
                     />
                     <text
-                      x={pt.x + 6}
-                      y={pt.y - 5}
-                      fontSize="8.5"
+                      x={pt.x + 7}
+                      y={pt.y - 6}
+                      fontSize="9"
                       fontWeight="900"
                       fontFamily="IBM Plex Mono, monospace"
-                      fill="#b91c1c"
+                      fill={isDraggingThis ? '#0369a1' : '#b91c1c'}
                       stroke="#ffffff"
                       strokeWidth="2"
                       paintOrder="stroke"
+                      className="pointer-events-none"
                     >
                       P{idx + 1} ({xM},{yM}m)
                     </text>
@@ -5230,8 +5345,8 @@ export const FieldSurveyOverbreakStage: React.FC<{
           </div>
         </div>
 
-        {/* Right 5 Columns: Calculated Overbreak Metrics + Mechanical / Geological Cause & Overall Geological Description */}
-        <div className="lg:col-span-5 min-h-0 bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col gap-3 overflow-y-auto">
+        {/* Right 4 Columns: Calculated Overbreak Metrics + Mechanical / Geological Cause & Overall Geological Description */}
+        <div className="lg:col-span-4 xl:col-span-4 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2.5 overflow-y-auto no-scrollbar mouse-scrollable">
           {survey.status !== 'completed' ? (
             <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-xs text-amber-200 space-y-1">
               <div className="font-black uppercase">

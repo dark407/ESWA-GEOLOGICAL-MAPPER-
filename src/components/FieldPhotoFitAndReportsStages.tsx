@@ -378,7 +378,34 @@ export const FittedPanelPhotoSvgImage: React.FC<{
       ? overrideOpacity
       : Math.max(0.08, Math.min(1, (fitConfig.opacityPct ?? 78) / 100));
 
-  const transformStr = `translate(${(cx + dx).toFixed(1)}, ${(cy + dy).toFixed(1)}) rotate(${rot.toFixed(1)}) skewX(${skewX.toFixed(1)}) skewY(${skewY.toFixed(1)}) scale(${sx.toFixed(3)}, ${sy.toFixed(3)}) translate(${(-cx).toFixed(1)}, ${(-cy).toFixed(1)})`;
+  // 4-Corner Mesh Warp calculation (affects mesh translation, scale, and perspective skew)
+  const meshTL = fitConfig.meshCorners?.tl || { x: 0, y: 0 };
+  const meshTR = fitConfig.meshCorners?.tr || { x: 0, y: 0 };
+  const meshBR = fitConfig.meshCorners?.br || { x: 0, y: 0 };
+  const meshBL = fitConfig.meshCorners?.bl || { x: 0, y: 0 };
+
+  const meshDx = (meshTL.x + meshTR.x + meshBR.x + meshBL.x) / 4;
+  const meshDy = (meshTL.y + meshTR.y + meshBR.y + meshBL.y) / 4;
+
+  const topWidthDelta = meshTR.x - meshTL.x;
+  const bottomWidthDelta = meshBR.x - meshBL.x;
+  const leftHeightDelta = meshBL.y - meshTL.y;
+  const rightHeightDelta = meshBR.y - meshTR.y;
+
+  const meshScaleX = Math.max(0.15, 1 + (topWidthDelta + bottomWidthDelta) / (2 * Math.max(10, boxW)));
+  const meshScaleY = Math.max(0.15, 1 + (leftHeightDelta + rightHeightDelta) / (2 * Math.max(10, boxH)));
+
+  const meshSkewX = Math.max(-45, Math.min(45, (((meshTR.y - meshTL.y) + (meshBR.y - meshBL.y)) / 2) * 0.12));
+  const meshSkewY = Math.max(-45, Math.min(45, (((meshBL.x - meshTL.x) + (meshBR.x - meshTR.x)) / 2) * 0.12));
+
+  const totalDx = dx + meshDx;
+  const totalDy = dy + meshDy;
+  const totalScaleX = sx * meshScaleX;
+  const totalScaleY = sy * meshScaleY;
+  const totalSkewX = Math.max(-60, Math.min(60, skewX + meshSkewX));
+  const totalSkewY = Math.max(-60, Math.min(60, skewY + meshSkewY));
+
+  const transformStr = `translate(${(cx + totalDx).toFixed(1)}, ${(cy + totalDy).toFixed(1)}) rotate(${rot.toFixed(1)}) skewX(${totalSkewX.toFixed(1)}) skewY(${totalSkewY.toFixed(1)}) scale(${totalScaleX.toFixed(3)}, ${totalScaleY.toFixed(3)}) translate(${(-cx).toFixed(1)}, ${(-cy).toFixed(1)})`;
 
   return (
     <g clipPath={clipPathId ? `url(#${clipPathId})` : undefined} pointerEvents="none">
@@ -1296,11 +1323,16 @@ export const FieldPhotoFitStage: React.FC<{
     initOffsetX: number;
     initOffsetY: number;
     initRot: number;
+    initScalePct: number;
     initScaleX: number;
     initScaleY: number;
     initCrop: { leftPct: number; rightPct: number; topPct: number; bottomPct: number };
     initMesh: { tl: { x: number; y: number }; tr: { x: number; y: number }; br: { x: number; y: number }; bl: { x: number; y: number } };
   } | null>(null);
+
+  const activePointersRef = useRef<Map<number, { clientX: number; clientY: number }>>(new Map());
+  const pinchStartDistRef = useRef<number | null>(null);
+  const pinchStartScaleRef = useRef<number>(100);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -1379,10 +1411,19 @@ export const FieldPhotoFitStage: React.FC<{
     bottomPct: 0,
   };
 
-  // Convert client pointer event to SVG coordinates
+  // Convert client pointer event to exact SVG coordinates using SVG Coordinate Transformation Matrix
   const getSvgCoordinates = (e: React.PointerEvent<SVGSVGElement | SVGCircleElement | SVGPathElement>) => {
     if (!svgRef.current) return { x: 0, y: 0 };
-    const rect = svgRef.current.getBoundingClientRect();
+    const svg = svgRef.current;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (ctm) {
+      const svgP = pt.matrixTransform(ctm.inverse());
+      return { x: svgP.x, y: svgP.y };
+    }
+    const rect = svg.getBoundingClientRect();
     const scaleX = 1000 / Math.max(1, rect.width);
     const scaleY = 1000 / Math.max(1, rect.height);
     return {
@@ -1391,9 +1432,83 @@ export const FieldPhotoFitStage: React.FC<{
     };
   };
 
+  // 1-Click Fit 100% Inside Tunnel Profile Outline (No part cut off)
+  const handleFitFullInsideOutline = () => {
+    updatePanelFit(selectedPanel, {
+      fitMode: 'contain',
+      scalePct: 100,
+      scaleXPct: 100,
+      scaleYPct: 100,
+      offsetX: 0,
+      offsetY: 0,
+      rotationDeg: 0,
+      skewXDeg: 0,
+      skewYDeg: 0,
+      cropExtent: { leftPct: 0, rightPct: 0, topPct: 0, bottomPct: 0 },
+      meshCorners: { tl: { x: 0, y: 0 }, tr: { x: 0, y: 0 }, br: { x: 0, y: 0 }, bl: { x: 0, y: 0 } },
+    });
+  };
+
+  // Stretch & Fill Tunnel Shape
+  const handleFitFillStretch = () => {
+    updatePanelFit(selectedPanel, {
+      fitMode: 'stretch',
+      scalePct: 100,
+      scaleXPct: 100,
+      scaleYPct: 100,
+      offsetX: 0,
+      offsetY: 0,
+      cropExtent: { leftPct: 0, rightPct: 0, topPct: 0, bottomPct: 0 },
+    });
+  };
+
+  // Mesh Extend all 4 corners outward
+  const handleMeshExtend = (deltaPx = 12) => {
+    updatePanelFit(selectedPanel, {
+      meshCorners: {
+        tl: { x: meshCorners.tl.x - deltaPx, y: meshCorners.tl.y - deltaPx },
+        tr: { x: meshCorners.tr.x + deltaPx, y: meshCorners.tr.y - deltaPx },
+        br: { x: meshCorners.br.x + deltaPx, y: meshCorners.br.y + deltaPx },
+        bl: { x: meshCorners.bl.x - deltaPx, y: meshCorners.bl.y + deltaPx },
+      },
+    });
+  };
+
+  // Mesh Shrink all 4 corners inward
+  const handleMeshShrink = (deltaPx = 12) => {
+    updatePanelFit(selectedPanel, {
+      meshCorners: {
+        tl: { x: meshCorners.tl.x + deltaPx, y: meshCorners.tl.y + deltaPx },
+        tr: { x: meshCorners.tr.x - deltaPx, y: meshCorners.tr.y + deltaPx },
+        br: { x: meshCorners.br.x - deltaPx, y: meshCorners.br.y - deltaPx },
+        bl: { x: meshCorners.bl.x + deltaPx, y: meshCorners.bl.y - deltaPx },
+      },
+    });
+  };
+
+  // Mouse wheel zoom in & out smoothly
+  const handleSvgWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.06 : 0.94;
+    const currentScale = activeFit.scalePct || 100;
+    const nextScale = Math.round(Math.max(25, Math.min(400, currentScale * zoomFactor)));
+    updatePanelFit(selectedPanel, { scalePct: nextScale });
+  };
+
   const handlePointerDown = (mode: string, e: React.PointerEvent<any>) => {
     e.stopPropagation();
     if (!activePhoto || !svgRef.current) return;
+    activePointersRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+    // Handle 2-finger touch pinch-to-zoom
+    if (activePointersRef.current.size === 2) {
+      const pts = Array.from(activePointersRef.current.values());
+      pinchStartDistRef.current = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY) || 1;
+      pinchStartScaleRef.current = activeFit.scalePct || 100;
+      setDragMode('pinch_zoom');
+      return;
+    }
+
     const { x, y } = getSvgCoordinates(e);
 
     dragStartRef.current = {
@@ -1403,6 +1518,7 @@ export const FieldPhotoFitStage: React.FC<{
       initOffsetX: activeFit.offsetX,
       initOffsetY: activeFit.offsetY,
       initRot: activeFit.rotationDeg || 0,
+      initScalePct: activeFit.scalePct || 100,
       initScaleX: activeFit.scaleXPct || 100,
       initScaleY: activeFit.scaleYPct || 100,
       initCrop: { ...cropExtent },
@@ -1414,17 +1530,35 @@ export const FieldPhotoFitStage: React.FC<{
       },
     };
     setDragMode(mode);
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {
+      // Ignore if not supported
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+    }
+
+    // Two-finger pinch-to-zoom calculation
+    if (dragMode === 'pinch_zoom' && activePointersRef.current.size === 2 && pinchStartDistRef.current) {
+      const pts = Array.from(activePointersRef.current.values());
+      const currentDist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY) || 1;
+      const ratio = currentDist / pinchStartDistRef.current;
+      const nextScale = Math.round(Math.max(25, Math.min(400, pinchStartScaleRef.current * ratio)));
+      updatePanelFit(selectedPanel, { scalePct: nextScale });
+      return;
+    }
+
     if (!dragMode || !dragStartRef.current || !svgRef.current) return;
     const { x, y } = getSvgCoordinates(e);
     const dx = x - dragStartRef.current.startX;
     const dy = y - dragStartRef.current.startY;
 
     if (dragMode === 'pan') {
-      // Direct drag on photo pans without clumsy sliders
+      // Direct drag on photo pans smoothly with mouse or finger
       updatePanelFit(selectedPanel, {
         offsetX: Math.round(Math.max(-550, Math.min(550, dragStartRef.current.initOffsetX + dx))),
         offsetY: Math.round(Math.max(-550, Math.min(550, dragStartRef.current.initOffsetY + dy))),
@@ -1470,7 +1604,6 @@ export const FieldPhotoFitStage: React.FC<{
         },
       });
     } else if (dragMode === 'extent_left') {
-      // Dragging left handle extends or shrinks left crop boundary
       const deltaPct = Math.round((dx / Math.max(10, pGeom.boxW)) * 100);
       const newLeft = Math.max(0, Math.min(45, dragStartRef.current.initCrop.leftPct + deltaPct));
       updatePanelFit(selectedPanel, {
@@ -1507,7 +1640,6 @@ export const FieldPhotoFitStage: React.FC<{
         },
       });
     } else if (dragMode === 'rotate_handle') {
-      // Dragging top lollipop rotates photo continuously
       const cx = pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX;
       const cy = pGeom.boxY + pGeom.boxH / 2 + activeFit.offsetY;
       const angle = (Math.atan2(y - cy, x - cx) * 180) / Math.PI + 90;
@@ -1518,7 +1650,11 @@ export const FieldPhotoFitStage: React.FC<{
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent<any>) => {
+    activePointersRef.current.delete(e.pointerId);
+    if (activePointersRef.current.size < 2) {
+      pinchStartDistRef.current = null;
+    }
     setDragMode(null);
     dragStartRef.current = null;
   };
@@ -1544,10 +1680,10 @@ export const FieldPhotoFitStage: React.FC<{
   const cropB = pGeom.boxY + pGeom.boxH - (cropExtent.bottomPct / 100) * pGeom.boxH;
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-4 bg-slate-950">
-      <div className="max-w-7xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-3 sm:p-5 shadow-2xl">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+    <div className="flex-1 min-h-0 h-full w-full flex flex-col p-2 sm:p-2.5 bg-slate-950 overflow-hidden select-none">
+      <div className="w-full h-full flex-1 min-h-0 bg-slate-900 border border-slate-800 rounded-xl p-2 sm:p-3 shadow-2xl flex flex-col overflow-hidden">
+        {/* Header - Compact & Responsive */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800 shrink-0">
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-bold uppercase">
@@ -1559,19 +1695,16 @@ export const FieldPhotoFitStage: React.FC<{
                   : `Profile: ${effectiveLocation.shape.toUpperCase()} (${effectiveLocation.widthM}m W × ${effectiveLocation.heightM}m H • Pull ${activeRound.pullLengthMeters || 3}m)`}
               </span>
             </div>
-            <h2 className="text-base sm:text-lg font-bold text-white mt-1 flex items-center gap-2">
-              <Maximize2 className="w-5 h-5 text-amber-400" />
+            <h2 className="text-sm sm:text-base font-bold text-white mt-0.5 flex items-center gap-1.5">
+              <Maximize2 className="w-4 h-4 text-amber-400" />
               {isSurface
                 ? `Fit & Align Photographs into ${surfMap.domainTitle} Panels`
                 : 'Fit, Align Angle & Mesh-Warp Photo to Tunnel Profile'}
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Drag photo to pan. Use 4-point mesh pins and angle alignment to fit photographs taken at arbitrary perspective angles into your exact tunnel profile.
-            </p>
           </div>
 
           {/* 4 Surface Selector Tabs */}
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar mouse-scrollable">
             {panelTabs.map((pInfo, idx) => {
               const hasPhoto = activeRound.collectedPhotos.some((p) => p.panel === pInfo.id);
               const isSel = selectedPanel === pInfo.id;
@@ -1580,25 +1713,25 @@ export const FieldPhotoFitStage: React.FC<{
                   key={pInfo.id}
                   type="button"
                   onClick={() => setSelectedPanel(pInfo.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono flex items-center gap-1.5 border transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono flex items-center gap-1 border transition-all cursor-pointer ${
                     isSel
                       ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
                       : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
                   }`}
                 >
                   <span>{idx + 1}. {pInfo.shortLabel}</span>
-                  {hasPhoto && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                  {hasPhoto && <Check className="w-3 h-3 text-emerald-400" />}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Main 2-column Workspace: Interactive SVG Canvas (Left) + Professional Fit Controls (Right) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-3">
-          {/* Left 8 Cols: Interactive SVG Profile Fit Viewport */}
-          <div className="lg:col-span-8 bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-800 text-xs">
+        {/* Main 2-column Workspace: Full-Height SVG Canvas (Left, Main Importance) + Fit Controls (Right) */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2 mt-2 overflow-hidden">
+          {/* Left 8 Cols (9 on xl): Interactive SVG Profile Fit Viewport */}
+          <div className="lg:col-span-8 xl:col-span-9 h-full min-h-0 bg-slate-950 border border-slate-800 rounded-xl p-2 flex flex-col overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 mb-1.5 border-b border-slate-800 text-xs shrink-0">
               <div className="flex items-center gap-2">
                 <span className="font-mono font-bold text-amber-300 uppercase">
                   Active Surface: {panelTabs.find((p) => p.id === selectedPanel)?.label}
@@ -1613,8 +1746,96 @@ export const FieldPhotoFitStage: React.FC<{
                 )}
               </div>
 
-              {/* Viewport Overlay Toggles */}
-              <div className="flex items-center gap-1.5">
+              {/* Viewport Overlay Toggles & Quick Action Bar */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleFitFullInsideOutline}
+                  className="px-2.5 py-1 rounded text-[11px] font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow flex items-center gap-1 cursor-pointer"
+                  title="Fit 100% of the photograph inside the tunnel outline with zero clipping"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Fit Inside Tunnel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFitFillStretch}
+                  className="px-2 py-1 rounded text-[10.5px] font-mono bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                  title="Stretch and fill the photo to the tunnel profile bounds"
+                >
+                  Fill Profile
+                </button>
+                {/* Zoom Scale Display & 100% Reset */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    updatePanelFit(selectedPanel, { scalePct: 100 })
+                  }
+                  className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-[10.5px] font-mono text-emerald-400 font-bold hover:bg-slate-800 cursor-pointer"
+                  title="Mouse Wheel / 2-Finger Touch Pinch to Zoom. Click to reset to 100%."
+                >
+                  {activeFit.scalePct || 100}%
+                </button>
+                {/* Quick Rotate 90 & Mirror */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    updatePanelFit(selectedPanel, {
+                      rotationDeg: ((activeFit.rotationDeg + 90 + 540) % 360) - 180,
+                    })
+                  }
+                  className="px-1.5 py-1 rounded text-[10px] font-mono bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 cursor-pointer"
+                  title="Rotate 90° Clockwise"
+                >
+                  ↻ 90°
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updatePanelFit(selectedPanel, { mirrorH: !activeFit.mirrorH })
+                  }
+                  className={`px-1.5 py-1 rounded text-[10px] font-mono border cursor-pointer ${
+                    activeFit.mirrorH
+                      ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                  }`}
+                  title="Flip Horizontal (Mirror)"
+                >
+                  Flip H
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updatePanelFit(selectedPanel, { mirrorV: !activeFit.mirrorV })
+                  }
+                  className={`px-1.5 py-1 rounded text-[10px] font-mono border cursor-pointer ${
+                    activeFit.mirrorV
+                      ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                  }`}
+                  title="Flip Vertical"
+                >
+                  Flip V
+                </button>
+                <div className="h-4 w-px bg-slate-700 mx-0.5" />
+                {/* Mesh Quick Extend / Shrink */}
+                <button
+                  type="button"
+                  onClick={() => handleMeshExtend(10)}
+                  className="px-1.5 py-1 rounded text-[10px] font-mono bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 cursor-pointer"
+                  title="Extend all 4 mesh corners outward (+10px)"
+                >
+                  Mesh +10
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMeshShrink(10)}
+                  className="px-1.5 py-1 rounded text-[10px] font-mono bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 cursor-pointer"
+                  title="Shrink all 4 mesh corners inward (-10px)"
+                >
+                  Mesh -10
+                </button>
+                <div className="h-4 w-px bg-slate-700 mx-0.5" />
                 <button
                   type="button"
                   onClick={() => setShowMeshPins((v) => !v)}
@@ -1625,7 +1846,7 @@ export const FieldPhotoFitStage: React.FC<{
                   }`}
                   title="Toggle 4-Corner Mesh Control Pins"
                 >
-                  Mesh Pins: {showMeshPins ? 'ON' : 'OFF'}
+                  Pins: {showMeshPins ? 'ON' : 'OFF'}
                 </button>
                 <button
                   type="button"
@@ -1637,7 +1858,7 @@ export const FieldPhotoFitStage: React.FC<{
                   }`}
                   title="Toggle Crop & Extent Boundary Handles"
                 >
-                  Extents: {showCropHandles ? 'ON' : 'OFF'}
+                  Crop: {showCropHandles ? 'ON' : 'OFF'}
                 </button>
                 <button
                   type="button"
@@ -1653,13 +1874,14 @@ export const FieldPhotoFitStage: React.FC<{
               </div>
             </div>
 
-            <div className="relative flex-1 min-h-[420px] flex items-center justify-center bg-slate-900/80 rounded-lg border border-slate-800 overflow-hidden">
+            <div className="relative flex-1 min-h-0 h-full w-full flex items-center justify-center bg-slate-900/80 rounded-lg border border-slate-800 overflow-hidden">
               <svg
                 ref={svgRef}
                 viewBox="0 0 1000 1000"
-                className={`w-full max-h-[500px] select-none touch-none ${
+                className={`w-full h-full max-h-full select-none touch-none object-contain ${
                   dragMode ? 'cursor-grabbing' : activePhoto ? 'cursor-grab' : ''
                 }`}
+                onWheel={handleSvgWheel}
                 onPointerDown={(e) => handlePointerDown('pan', e)}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
@@ -2007,8 +2229,8 @@ export const FieldPhotoFitStage: React.FC<{
             </div>
           </div>
 
-          {/* Right 4 Cols: Professional Photo Fit & Shape Alignment Controls */}
-          <div className="lg:col-span-4 bg-slate-950 border border-slate-800 rounded-xl p-3 sm:p-4 flex flex-col justify-between space-y-3">
+          {/* Right 4 Cols (3 on xl): Professional Photo Fit & Shape Alignment Controls */}
+          <div className="lg:col-span-4 xl:col-span-3 h-full min-h-0 bg-slate-950 border border-slate-800 rounded-xl p-2.5 sm:p-3 flex flex-col justify-between overflow-y-auto no-scrollbar mouse-scrollable gap-2.5">
             <div>
               {/* Header with Title & Reset */}
               <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2.5">
@@ -2414,8 +2636,24 @@ export const FieldPhotoFitStage: React.FC<{
                     </div>
                   </div>
 
-                  {/* Mesh Actions */}
+                  {/* Mesh Actions: Extend, Shrink, Reset & Snap */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleMeshExtend(10)}
+                      className="py-1.5 px-2 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-700 text-cyan-200 text-[10px] font-mono font-bold flex items-center justify-center gap-1 cursor-pointer"
+                      title="Expand all 4 mesh corners outward to cover irregular perimeter"
+                    >
+                      <span>+ Extend Mesh (+10px)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMeshShrink(10)}
+                      className="py-1.5 px-2 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-700 text-cyan-200 text-[10px] font-mono font-bold flex items-center justify-center gap-1 cursor-pointer"
+                      title="Pull all 4 mesh corners inward to shrink photo"
+                    >
+                      <span>- Shrink Mesh (-10px)</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() =>
@@ -2647,9 +2885,9 @@ export const FieldPhotoFitStage: React.FC<{
                     <div className="grid grid-cols-3 gap-1.5">
                       {(
                         [
-                          { id: 'cover', label: 'Fill Shape' },
-                          { id: 'contain', label: 'Contain All' },
+                          { id: 'contain', label: 'Fit Inside (100% Visible)' },
                           { id: 'stretch', label: 'Exact Stretch' },
+                          { id: 'cover', label: 'Cover Profile' },
                         ] as const
                       ).map((m) => (
                         <button
@@ -2873,7 +3111,7 @@ export const FieldPhotoFitStage: React.FC<{
         </div>
 
         {/* Bottom Navigation Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800 shrink-0">
           <button
             type="button"
             onClick={onBackToUpload}

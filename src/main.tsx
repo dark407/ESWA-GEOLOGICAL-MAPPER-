@@ -3,7 +3,11 @@ import {createRoot} from 'react-dom/client';
 import {RootApplicationRouter} from './RootApplicationRouter.tsx';
 import {ThemeProvider} from './context/ThemeContext.tsx';
 import {initializeDesktopRuntimeBridge} from './engine/desktopBridge.ts';
+import {initGlobalMouseDragScroll} from './utils/mouseDragScroll.ts';
 import './index.css';
+
+// Initialize PC mouse drag-to-scroll sliding on all scrollable bars and containers
+initGlobalMouseDragScroll();
 
 interface RootErrorBoundaryProps {
   children: ReactNode;

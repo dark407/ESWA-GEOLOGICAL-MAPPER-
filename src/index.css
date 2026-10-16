@@ -746,6 +746,37 @@ html[data-android-app="true"] *::-webkit-scrollbar {
 }
 
 /* ============================================================================
+   CLEAN SLIM NON-INTRUSIVE SCROLLBARS & MOUSE SLIDING FOR PC SOFTWARE & ANDROID
+   Eliminates bulky grey slidebars while enabling mouse drag-to-scroll sliding
+   ============================================================================ */
+::-webkit-scrollbar {
+  width: 4px !important;
+  height: 4px !important;
+}
+::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22) !important;
+  border-radius: 9999px !important;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(249, 115, 22, 0.6) !important;
+}
+* {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(148, 163, 184, 0.22) transparent !important;
+}
+
+.mouse-scrollable {
+  cursor: grab;
+  user-select: none;
+}
+.mouse-scrollable:active {
+  cursor: grabbing;
+}
+
+/* ============================================================================
    PROMINENT WORKFLOW & TOOLBAR STYLING (CRISP, READABLE & TOUCH-FRIENDLY)
    ============================================================================ */
 [data-has-canvas="true"] .canvas-chrome {

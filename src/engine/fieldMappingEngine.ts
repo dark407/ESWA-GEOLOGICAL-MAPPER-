@@ -6644,7 +6644,7 @@ export function getFieldPhotoFitConfig(
     warpedDataUrl: saved?.warpedDataUrl,
     mirrorH: Boolean(saved?.mirrorH),
     mirrorV: Boolean(saved?.mirrorV),
-    fitMode: saved?.fitMode || 'cover',
+    fitMode: saved?.fitMode || 'contain',
     opacityPct: Number.isFinite(saved?.opacityPct) ? Number(saved!.opacityPct) : 78,
     brightnessPct: Number.isFinite(saved?.brightnessPct) ? Number(saved!.brightnessPct) : 104,
     contrastPct: Number.isFinite(saved?.contrastPct) ? Number(saved!.contrastPct) : 108,

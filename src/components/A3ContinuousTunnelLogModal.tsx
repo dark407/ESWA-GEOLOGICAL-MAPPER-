@@ -278,29 +278,11 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
             <div className="flex items-center gap-1 border-l border-stone-800 pl-2">
               <button
                 type="button"
-                onClick={() => setSheetZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(1)))}
-                className="p-1 rounded text-stone-400 hover:text-white"
-                title="Zoom Out"
-              >
-                <ZoomOut className="w-3.5 h-3.5" />
-              </button>
-              <span className="font-mono text-[11px] w-12 text-center text-stone-200">
-                {Math.round(sheetZoom * 100)}%
-              </span>
-              <button
-                type="button"
-                onClick={() => setSheetZoom((z) => Math.min(1.8, +(z + 0.1).toFixed(1)))}
-                className="p-1 rounded text-stone-400 hover:text-white"
-                title="Zoom In"
-              >
-                <ZoomIn className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
                 onClick={() => setSheetZoom(1.0)}
-                className="px-1.5 py-0.5 text-[10px] text-stone-400 hover:text-white border-l border-stone-800 ml-1"
+                className="px-2 py-0.5 rounded font-mono text-[11px] text-stone-200 hover:text-white bg-stone-900 border border-stone-800 cursor-pointer"
+                title="Mouse Wheel / 2-Finger Pinch to Zoom. Click to reset to 100%."
               >
-                Reset
+                {Math.round(sheetZoom * 100)}% (1:1)
               </button>
             </div>
           </div>

@@ -9304,27 +9304,11 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => zoomViewportAtScreenPoint(viewport.zoom * 1.25)}
-              className="p-1 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded cursor-pointer"
-              title="ZOOM IN (+)"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => zoomViewportAtScreenPoint(viewport.zoom / 1.25)}
-              className="p-1 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded cursor-pointer"
-              title="ZOOM OUT (-)"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
               onClick={() => setViewport({ zoom: 1, panX: 0, panY: 0 })}
-              className="px-1 py-0.5 text-[9.5px] font-mono font-bold text-cyan-700 hover:bg-slate-100 rounded cursor-pointer"
-              title="Reset Zoom & Scroll (1:1)"
+              className="px-1.5 py-0.5 text-[9.5px] font-mono font-bold text-cyan-700 hover:bg-slate-100 rounded cursor-pointer"
+              title="Mouse Wheel / Trackpad / 2-Finger Pinch to Zoom. Click to reset to 1:1 (100%)."
             >
-              1:1
+              {Math.round(viewport.zoom * 100)}%
             </button>
           </div>
 
