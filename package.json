@@ -9,7 +9,7 @@
   "author": "AKASH TUNNEL MAPPER Engineering",
   "scripts": {
     "dev": "tsx server.ts",
-    "start": "node --import tsx server.ts",
+    "start": "node server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "icon": "node scripts/generate-win-icon.mjs",

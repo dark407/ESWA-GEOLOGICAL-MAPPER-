@@ -139,6 +139,7 @@ import { DataStorageTabId } from './components/OverbreakAndProjectMemoryPanel';
 import {
   getActiveGeologistProfile,
   GeologistUserProfile,
+  getSavedGoogleUser,
   GoogleUserAccountInfo,
   loadFieldMappingResumeState,
   loadPhotogrammetryResumeState,
@@ -258,7 +259,9 @@ export default function App({
   );
 
   // Google Email Login & Cloud Workspace Synchronization State
-  const [googleUser, setGoogleUser] = useState<GoogleUserAccountInfo | null>(null);
+  const [googleUser, setGoogleUser] = useState<GoogleUserAccountInfo | null>(() =>
+    getSavedGoogleUser()
+  );
   const [isAuthBusy, setIsAuthBusy] = useState<boolean>(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<string>('');
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
@@ -2365,6 +2368,16 @@ export default function App({
     </>
   );
 
+  const globalSettingsModalNode = (
+    <GlobalSettingsModal
+      isOpen={isGlobalSettingsOpen}
+      onClose={() => setIsGlobalSettingsOpen(false)}
+      currentUser={googleUser}
+      onUserChanged={setGoogleUser}
+      onActiveProfileChanged={(p) => setActiveGeologist(p)}
+    />
+  );
+
   // Theme-aware spacing, radius, and elevation utility to eliminate boxy hardcoded containers
   const layoutStyles = {
     viewportShell: `min-h-dvh h-dvh w-full flex flex-col items-center justify-start relative overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain transition-colors duration-200 ${
@@ -2459,11 +2472,14 @@ export default function App({
   // ============================================================================
   if (isCoreLoggingOpen) {
     return (
-      <CoreLoggingWorkspace
-        onBackToMain={() => setIsCoreLoggingOpen(false)}
-        onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
-        activeGeologistProfile={activeGeologist}
-      />
+      <>
+        <CoreLoggingWorkspace
+          onBackToMain={() => setIsCoreLoggingOpen(false)}
+          onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
+          activeGeologistProfile={activeGeologist}
+        />
+        {globalSettingsModalNode}
+      </>
     );
   }
 
@@ -2503,6 +2519,7 @@ export default function App({
           }}
         />
         {projectMemoryModalNode}
+        {globalSettingsModalNode}
       </>
     );
   }
@@ -2567,12 +2584,13 @@ export default function App({
                       setCloudSyncStatus('Signed in & loaded your account data');
                     } else if (res.error) {
                       setCloudSyncStatus(res.error);
+                      setIsGlobalSettingsOpen(true);
                     }
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white/95 hover:bg-orange-50 text-stone-900 border-orange-300 shadow-sm transition-all cursor-pointer text-xs font-semibold whitespace-nowrap"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white/95 hover:bg-orange-50 text-stone-900 border-orange-300 shadow-sm transition-all cursor-pointer text-xs font-semibold whitespace-nowrap active:scale-95"
                   title="Sign in with your Google Email to access and sync your ESWA Tunnel Mapper app & data"
                 >
-                  <LogIn className="w-3.5 h-3.5 text-orange-600" />
+                  <LogIn className={`w-3.5 h-3.5 text-orange-600 ${isAuthBusy ? 'animate-spin' : ''}`} />
                   <span>{isAuthBusy ? 'Signing in...' : 'Google Login'}</span>
                 </button>
               )}
@@ -2693,10 +2711,10 @@ export default function App({
               <button
                 type="button"
                 onClick={() => setIsGlobalSettingsOpen(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white/90 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-orange-500 dark:hover:border-orange-500 text-slate-800 dark:text-slate-100 shadow-sm transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white/95 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-orange-500 hover:bg-orange-50 dark:hover:border-orange-500 text-slate-800 dark:text-slate-100 shadow-sm transition-all cursor-pointer active:scale-95"
                 title="Open Global Settings (Google Account, Device ID, Multi-Device Project Sync, Geologist Profiles & Signatures)"
               >
-                <Settings className="w-4 h-4 text-orange-500 animate-spin-slow" />
+                <Settings className="w-4 h-4 text-orange-500 hover:rotate-90 transition-transform duration-300" />
                 <span className="hidden sm:inline">Settings</span>
               </button>
             </div>
@@ -2886,6 +2904,7 @@ export default function App({
         {projectMemoryModalNode}
         {welcomeAiChatbotNode}
         {continuousLoggingModalsNode}
+        {globalSettingsModalNode}
       </main>
     );
   }
@@ -4230,6 +4249,7 @@ export default function App({
 
         {isBootLoading && <EswaLoadingScreen onComplete={() => setIsBootLoading(false)} />}
         {projectMemoryModalNode}
+        {globalSettingsModalNode}
       </main>
     );
   }
@@ -5506,13 +5526,7 @@ export default function App({
 
       {projectMemoryModalNode}
       {continuousLoggingModalsNode}
-      <GlobalSettingsModal
-        isOpen={isGlobalSettingsOpen}
-        onClose={() => setIsGlobalSettingsOpen(false)}
-        currentUser={googleUser}
-        onUserChanged={setGoogleUser}
-        onActiveProfileChanged={(p) => setActiveGeologist(p)}
-      />
+      {globalSettingsModalNode}
     </div>
   );
 }
