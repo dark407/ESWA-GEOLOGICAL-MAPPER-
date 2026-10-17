@@ -3703,34 +3703,33 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       ? '2. Round & Pull'
                       : `2. ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station`,
                   ],
-                  ['camera_prompt', '3. Field Camera'],
                   [
                     'field_canvas',
                     mappingDomain === 'TUNNEL'
-                      ? '4. Face Canvas'
-                      : `4. ${domainPanelMap.face.shortLabel}`,
+                      ? '3. Face Canvas'
+                      : `3. ${domainPanelMap.face.shortLabel}`,
                   ],
                   [
                     'joint_grouping',
-                    mappingDomain === 'TRENCH' ? '5. Unrolled 3-Panel Log' : '5. Group Joints',
+                    mappingDomain === 'TRENCH' ? '4. Unrolled 3-Panel Log' : '4. Group Joints',
                   ],
-                  ['strip_align', '6. Strip Log'],
-                  ['discontinuity_sets', '7. Discontinuity Sets'],
+                  ['strip_align', '5. Strip Log'],
+                  ['discontinuity_sets', '6. Discontinuity Sets'],
                   [
                     'q_rmr_gsi',
-                    mappingDomain === 'TUNNEL' ? '8. Q / RMR / GSI' : '8. SMR / RMR / GSI',
+                    mappingDomain === 'TUNNEL' ? '7. Q / RMR / GSI' : '7. SMR / RMR / GSI',
                   ],
                   [
                     'support_system',
-                    mappingDomain === 'TUNNEL' ? '9. Support System' : '9. Surface Stabilization',
+                    mappingDomain === 'TUNNEL' ? '8. Support System' : '8. Surface Stabilization',
                   ],
                   [
                     'survey_overbreak',
-                    mappingDomain === 'TUNNEL' ? '10. Survey & OB' : '10. Crest/Toe Survey',
+                    mappingDomain === 'TUNNEL' ? '9. Survey & OB' : '9. Crest/Toe Survey',
                   ],
-                  ['word_template_export', '11. Clean Report'],
-                  ['photo_2d_report', '12. 2D Photo Report'],
-                  ['geology_3d_report', '13. 3D Geology Report'],
+                  ['word_template_export', '10. Clean Report'],
+                  ['photo_2d_report', '11. 2D Photo Report'],
+                  ['geology_3d_report', '12. 3D Geology Report'],
                 ]
               : [
                   ['project_setup', '1. Project & Data'],
@@ -5779,29 +5778,37 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     ← Back to {domainPanelMap.domainTitle} Sectors
                   </button>
                   <div className="flex flex-wrap items-center gap-2">
-                    {workflowMode === 'field_mapping' && (
+                    {workflowMode === 'field_mapping' ? (
                       <button
                         type="button"
                         onClick={() => {
                           handleApplySurfaceDimensionsToLocation();
                           setStage('field_canvas');
                         }}
-                        className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs border border-emerald-500/40 cursor-pointer"
+                        className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer flex items-center gap-2"
                       >
-                        Skip Field Camera → {domainPanelMap.face.shortLabel} Canvas
+                        <span>
+                          {mappingDomain === 'TUNNEL'
+                            ? 'Save Round & Open Face Canvas →'
+                            : `Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Open Canvas →`}
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleApplySurfaceDimensionsToLocation();
+                          setStage('camera_prompt');
+                        }}
+                        className="px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer flex items-center gap-2"
+                      >
+                        <span>
+                          {mappingDomain === 'TUNNEL'
+                            ? 'Save Round & Upload Tunnel Photos →'
+                            : `Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Upload Photos →`}
+                        </span>
                       </button>
                     )}
-                    <button
-                      onClick={() => {
-                        handleApplySurfaceDimensionsToLocation();
-                        setStage('camera_prompt');
-                      }}
-                      className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer"
-                    >
-                      {workflowMode === 'field_mapping'
-                        ? `Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Open Field Camera →`
-                        : `Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Upload Surface Photos →`}
-                    </button>
                   </div>
                 </div>
               </>
@@ -5810,22 +5817,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         </div>
       )}
 
-      {/* ==================== STAGE 3: FIELD CAMERA (FIELD MAPPING) OR UPLOAD PHOTOS (PHOTOGRAMMETRY) ==================== */}
+      {/* ==================== STAGE 3: UPLOAD PHOTOS (PHOTOGRAMMETRY ONLY) ==================== */}
       {stage === 'camera_prompt' &&
         activeRound &&
         activeProject &&
         activeLocation &&
-        (workflowMode === 'field_mapping' ? (
-          <FieldInBuiltCameraStage
-            activeProject={activeProject}
-            activeLocation={activeLocation}
-            activeRound={activeRound}
-            mappingDomain={mappingDomain}
-            onUpdateRound={updateActiveRound}
-            onBackToRoundDetails={() => setStage('excavation_round')}
-            onSkipOrProceedToCanvas={() => setStage('field_canvas')}
-          />
-        ) : (
+        (workflowMode === 'photo_mapping' ? (
           <FieldFourPhotoUploadStage
             activeProject={activeProject}
             activeLocation={activeLocation}
@@ -5835,6 +5832,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             onBackToRoundDetails={() => setStage('excavation_round')}
             onProceedToPhotoFit={() => setStage('photo_fit')}
           />
+        ) : (
+          (() => {
+            // Field mapping mode completely bypasses photo upload stage
+            setStage('field_canvas');
+            return null;
+          })()
         ))}
 
       {/* ==================== STAGE 4: INTERACTIVE PHOTO FIT TO SHAPE & SIZE (PHOTOGRAMMETRY ONLY) ==================== */}

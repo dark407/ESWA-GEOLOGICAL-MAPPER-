@@ -6620,8 +6620,15 @@ export function getFieldPhotoFitConfig(
   panel: FieldPanelId
 ): FieldPhotoFitConfig {
   const saved = round?.photoFits?.[panel];
+  const scalePctVal = Number.isFinite(saved?.scalePct)
+    ? Number(saved!.scalePct)
+    : Number.isFinite(saved?.scale)
+    ? Number(saved!.scale) * 100
+    : 100;
   return {
-    scalePct: Number.isFinite(saved?.scalePct) ? Number(saved!.scalePct) : 100,
+    scalePct: scalePctVal,
+    scale: scalePctVal / 100,
+    zoomPct: scalePctVal,
     scaleXPct: Number.isFinite(saved?.scaleXPct) ? Number(saved!.scaleXPct) : 100,
     scaleYPct: Number.isFinite(saved?.scaleYPct) ? Number(saved!.scaleYPct) : 100,
     offsetX: Number.isFinite(saved?.offsetX) ? Number(saved!.offsetX) : 0,

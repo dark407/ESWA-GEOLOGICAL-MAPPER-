@@ -361,6 +361,7 @@ export interface TunnelSettings {
   mappedBy: string;
   geologistName?: string;
   lithology: string;           // e.g. "Quartzite / Phyllite with Shear Seam"
+  mappingMethod?: 'field_mapping' | 'photo_mapping';
   sheetConfig?: EngineeringSheetConfig;
   strikeDip3DSnapshots?: StrikeDip3DSnapshotAppendix[];
 }
