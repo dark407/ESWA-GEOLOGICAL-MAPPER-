@@ -12,7 +12,12 @@
             s === 'Script error' ||
             s.indexOf('ResizeObserver loop') !== -1 ||
             s.indexOf('WebSocket closed without opened') !== -1 ||
-            s.indexOf('failed to connect to websocket') !== -1
+            s.indexOf('failed to connect to websocket') !== -1 ||
+            s.indexOf('FIRESTORE') !== -1 ||
+            s.indexOf('ca9') !== -1 ||
+            s.indexOf('b815') !== -1 ||
+            s.indexOf('INTERNAL ASSERTION FAILED') !== -1 ||
+            s.indexOf('Unexpected state') !== -1
           );
         }
 

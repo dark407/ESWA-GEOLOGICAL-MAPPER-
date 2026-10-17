@@ -35,8 +35,6 @@ import {
   Video,
   VideoOff,
   X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import {
   addAndRememberCustomRock,
@@ -3685,7 +3683,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       />
 
       {/* ==================== TOP HORIZONTAL FIELD BAR ==================== */}
-      <header className="relative z-20 eswa-landscape-compact-header min-h-10 h-11 px-2 sm:px-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 overflow-x-auto no-scrollbar touch-pan-x">
+      <header className="relative z-20 eswa-landscape-compact-header min-h-10 h-11 px-2 sm:px-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x">
         <div className="flex items-center gap-1.5 shrink-0">
           <EswaTunnelLogo size="xs" variant="emblem" />
           <button
@@ -7330,16 +7328,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               )}
 
               <div className="flex items-center gap-1.5 shrink-0">
-                {/* Touch Pinch / PC Scroll Zoom Status & Reset Pill */}
+                {/* Touch Pinch / PC Scroll Zoom Status & 100% Reset Pill (Zoom with Mouse Wheel or 2-Finger Touch Pinch) */}
                 <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setCanvasZoom((z) => Math.max(0.02, Number((z * 0.8).toFixed(3))))}
-                    className="px-1 text-[10px] font-mono font-bold text-slate-400 hover:text-white cursor-pointer"
-                    title="Zoom Out (Infinite Zoom)"
-                  >
-                    -
-                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -7347,18 +7337,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       setCanvasPan({ x: 0, y: 0 });
                       setIsCanvasPanMode(false);
                     }}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-amber-300 hover:bg-slate-800 cursor-pointer"
-                    title="Infinite Zoom in/out via Mouse Wheel, Touch Pinch, or + / -. Click to reset 100%."
+                    className="px-2 py-0.5 rounded text-[10px] font-mono font-bold text-amber-300 hover:bg-slate-800 cursor-pointer transition-colors"
+                    title="Zoom with Mouse Wheel or 2-Finger Touch Pinch. Click to reset to 100%."
                   >
                     {Math.round(canvasZoom * 100)}%
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCanvasZoom((z) => Math.min(250.0, Number((z * 1.25).toFixed(3))))}
-                    className="px-1 text-[10px] font-mono font-bold text-slate-400 hover:text-white cursor-pointer"
-                    title="Zoom In (Infinite Zoom)"
-                  >
-                    +
                   </button>
                   <button
                     type="button"

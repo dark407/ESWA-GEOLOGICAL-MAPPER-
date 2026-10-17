@@ -50,8 +50,6 @@ import {
   Undo2,
   Wrench,
   X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import {
   ContinuousPullRecord,

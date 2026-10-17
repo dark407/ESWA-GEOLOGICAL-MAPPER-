@@ -13,7 +13,6 @@ import {
   memoryLocalCache,
   setLogLevel,
   doc,
-  getDocFromServer,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -81,22 +80,8 @@ try {
   dbInstance = getFirestore(app, resolvedDatabaseId);
 }
 
-// Connection test according to Firebase guidelines
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(dbInstance, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firestore offline status:', error.message);
-    }
-  }
-}
 if (typeof window !== 'undefined') {
-  void testConnection();
-}
-
-if (typeof window !== 'undefined') {
-  // Global catch for Firestore internal SDK assertion failures
+  // Global catch for Firestore internal SDK assertion failures (e.g. ca9 / b815)
   window.addEventListener(
     'error',
     (event) => {
@@ -106,7 +91,8 @@ if (typeof window !== 'undefined') {
         (msg.includes('FIRESTORE') ||
           msg.includes('ID: ca9') ||
           msg.includes('ID: b815') ||
-          msg.includes('INTERNAL ASSERTION FAILED'))
+          msg.includes('INTERNAL ASSERTION FAILED') ||
+          msg.includes('Unexpected state'))
       ) {
         event.preventDefault();
         event.stopImmediatePropagation?.();
@@ -127,7 +113,8 @@ if (typeof window !== 'undefined') {
         (reasonMsg.includes('FIRESTORE') ||
           reasonMsg.includes('ID: ca9') ||
           reasonMsg.includes('ID: b815') ||
-          reasonMsg.includes('INTERNAL ASSERTION FAILED'))
+          reasonMsg.includes('INTERNAL ASSERTION FAILED') ||
+          reasonMsg.includes('Unexpected state'))
       ) {
         event.preventDefault();
         event.stopImmediatePropagation?.();

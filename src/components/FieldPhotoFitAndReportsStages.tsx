@@ -33,8 +33,6 @@ import {
   VideoOff,
   Wand2,
   X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import {
   buildSmoothSvgPath,
@@ -1753,9 +1751,9 @@ export const FieldPhotoFitStage: React.FC<{
         </div>
 
         {/* Main 2-column Workspace: Full-Height SVG Canvas (Left, Main Importance) + Fit Controls (Right) */}
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2 mt-2 overflow-hidden">
-          {/* Left 8 Cols (9 on xl): Interactive SVG Profile Fit Viewport */}
-          <div className="lg:col-span-8 xl:col-span-9 h-full min-h-0 bg-slate-950 border border-slate-800 rounded-xl p-2 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 grid grid-cols-1 landscape:grid-cols-12 lg:grid-cols-12 gap-2 mt-2 overflow-hidden">
+          {/* Left Columns (8 of 12 in landscape/desktop): Interactive SVG Profile Fit Viewport — Main Importance */}
+          <div className="landscape:col-span-8 lg:col-span-8 xl:col-span-9 h-full min-h-0 bg-slate-950 border border-slate-800 rounded-xl p-2 flex flex-col overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 mb-1.5 border-b border-slate-800 text-xs shrink-0">
               <div className="flex items-center gap-2">
                 <span className="font-mono font-bold text-amber-300 uppercase">
@@ -1790,42 +1788,18 @@ export const FieldPhotoFitStage: React.FC<{
                 >
                   Fill Profile
                 </button>
-                {/* Canvas View Zoom Controls: Zoom Out (-), % / 100% Reset, Zoom In (+) */}
-                <div className="inline-flex items-center rounded-lg bg-slate-900 p-0.5 border border-slate-700 gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCanvasZoom((z) => Math.max(0.25, Math.round((z / 1.25) * 100) / 100))
-                    }
-                    className="px-2 py-0.5 rounded text-[11px] font-mono font-bold text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-0.5 transition-colors"
-                    title="Zoom Out Canvas (-)"
-                  >
-                    <ZoomOut className="w-3 h-3" />
-                    <span>-</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCanvasZoom(1.0);
-                      setCanvasPan({ x: 0, y: 0 });
-                    }}
-                    className="px-2 py-0.5 rounded bg-slate-950 text-[10.5px] font-mono text-emerald-400 font-bold hover:bg-slate-800 cursor-pointer transition-colors"
-                    title="Reset Canvas Zoom to 100% and Center"
-                  >
-                    {Math.round(canvasZoom * 100)}%
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCanvasZoom((z) => Math.min(6.0, Math.round(z * 1.25 * 100) / 100))
-                    }
-                    className="px-2 py-0.5 rounded text-[11px] font-mono font-bold text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-0.5 transition-colors"
-                    title="Zoom In Canvas (+)"
-                  >
-                    <ZoomIn className="w-3 h-3" />
-                    <span>+</span>
-                  </button>
-                </div>
+                {/* Canvas View Zoom Status Badge (Click to reset 100%; zoom via mouse wheel or finger pinch) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCanvasZoom(1.0);
+                    setCanvasPan({ x: 0, y: 0 });
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[10.5px] font-mono text-emerald-400 font-bold hover:bg-slate-800 cursor-pointer transition-colors"
+                  title="Zoom with Mouse Wheel or 2-Finger Touch Pinch. Click to reset Canvas Zoom to 100% and Center."
+                >
+                  {Math.round(canvasZoom * 100)}%
+                </button>
                 {/* Quick Rotate 90 & Mirror */}
                 <button
                   type="button"
@@ -2289,8 +2263,8 @@ export const FieldPhotoFitStage: React.FC<{
             </div>
           </div>
 
-          {/* Right 4 Cols (3 on xl): Professional Photo Fit & Shape Alignment Controls */}
-          <div className="lg:col-span-4 xl:col-span-3 h-full min-h-0 bg-slate-950 border border-slate-800 rounded-xl p-2.5 sm:p-3 flex flex-col justify-between overflow-y-auto no-scrollbar mouse-scrollable gap-2.5">
+          {/* Right Columns (4 of 12 in landscape, 3-4 on desktop): Professional Photo Fit & Shape Alignment Controls */}
+          <div className="landscape:col-span-4 lg:col-span-4 xl:col-span-3 h-full min-h-0 bg-slate-950 border border-slate-800 rounded-xl p-2.5 sm:p-3 flex flex-col justify-between overflow-y-auto no-scrollbar mouse-scrollable gap-2.5">
             <div>
               {/* Header with Title & Reset */}
               <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2.5">
@@ -2970,7 +2944,7 @@ export const FieldPhotoFitStage: React.FC<{
                   <div>
                     <div className="flex justify-between text-[11px] font-mono mb-1">
                       <span className="text-slate-400 flex items-center gap-1">
-                        <ZoomIn className="w-3.5 h-3.5 text-emerald-400" /> Proportional Scale
+                        <Maximize2 className="w-3.5 h-3.5 text-emerald-400" /> Proportional Scale
                       </span>
                       <span className="text-emerald-300 font-bold">{activeFit.scalePct}%</span>
                     </div>

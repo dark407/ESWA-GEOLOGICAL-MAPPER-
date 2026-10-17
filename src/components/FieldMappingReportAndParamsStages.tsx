@@ -16,8 +16,6 @@ import {
   Trash2,
   Undo2,
   Upload,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import {
   APERTURE_OPTIONS,

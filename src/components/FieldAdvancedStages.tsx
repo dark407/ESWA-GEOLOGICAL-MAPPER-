@@ -5086,9 +5086,9 @@ export const FieldSurveyOverbreakStage: React.FC<{
       )}
 
       {/* Main 12-Col Survey Workspace: Main Importance for Survey Canvas */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2 overflow-hidden">
-        {/* Left 8 Columns: Interactive Tunnel Face Point Locator & Overbreak Trace Connector (Canvas) */}
-        <div className="lg:col-span-8 xl:col-span-8 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2 overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-1 landscape:grid-cols-12 lg:grid-cols-12 gap-2 overflow-hidden">
+        {/* Left Columns (8 of 12 in landscape/desktop): Interactive Tunnel Face Point Locator & Overbreak Trace Connector (Canvas — Main Importance) */}
+        <div className="landscape:col-span-8 lg:col-span-8 xl:col-span-8 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div>
               <div className="text-xs font-black uppercase text-cyan-400">
@@ -5345,8 +5345,8 @@ export const FieldSurveyOverbreakStage: React.FC<{
           </div>
         </div>
 
-        {/* Right 4 Columns: Calculated Overbreak Metrics + Mechanical / Geological Cause & Overall Geological Description */}
-        <div className="lg:col-span-4 xl:col-span-4 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2.5 overflow-y-auto no-scrollbar mouse-scrollable">
+        {/* Right Columns (4 of 12 in landscape/desktop): Calculated Overbreak Metrics + Mechanical / Geological Cause & Overall Geological Description */}
+        <div className="landscape:col-span-4 lg:col-span-4 xl:col-span-4 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2.5 overflow-y-auto no-scrollbar mouse-scrollable">
           {survey.status !== 'completed' ? (
             <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-xs text-amber-200 space-y-1">
               <div className="font-black uppercase">

@@ -7,9 +7,13 @@ import {
 } from 'firebase/auth';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  limit,
   onSnapshot,
+  orderBy,
   query,
   setDoc,
   updateDoc,
@@ -40,12 +44,15 @@ import {
 import { loadChainageProfileSchedule, saveChainageProfileSchedule } from './customProfileEngine';
 import { loadSavedSheetConfig, saveSheetConfigToStorage } from './sheetLayoutEngine';
 import {
+  AiTrainingJointPolyline,
+  AiTrainingTelemetryRecord,
   ChainageProfileSegmentRecord,
   EngineeringSheetConfig,
   SavedDesignGeometryRecord,
   SavedProjectRecord,
   SurfaceType,
 } from '../types/tunnel';
+import { getOrGeneratePcHardwareId } from './softwareLicensingEngine';
 
 const FIELD_RESUME_STORAGE_KEY = 'eswa_field_mapping_resume_state_v1';
 const PHOTOGRAMMETRY_RESUME_STORAGE_KEY = 'eswa_photogrammetry_resume_state_v1';
@@ -2083,8 +2090,14 @@ export function subscribeToDeviceTransfersAndNotifications(params: {
   return () => {
     window.removeEventListener('eswa-device-transfer-updated', onLocalEvent);
     window.removeEventListener('storage', onLocalEvent);
-    if (unsubIncoming) unsubIncoming();
-    if (unsubOutgoing) unsubOutgoing();
+    window.setTimeout(() => {
+      try {
+        if (unsubIncoming) unsubIncoming();
+        if (unsubOutgoing) unsubOutgoing();
+      } catch {
+        // Ignore unlisten race
+      }
+    }, 250);
   };
 }
 
@@ -2494,7 +2507,15 @@ export function subscribeToSharedProject(
   return () => {
     window.removeEventListener('eswa-shared-projects-updated', onCustom);
     window.removeEventListener('storage', onCustom);
-    if (unsub) unsub();
+    if (unsub) {
+      window.setTimeout(() => {
+        try {
+          unsub?.();
+        } catch {
+          // Ignore unlisten race
+        }
+      }, 250);
+    }
   };
 }
 
@@ -2700,3 +2721,471 @@ export function stampGeologistSignatureIntoRound(
 export { onAuthStateChanged, auth };
 export type { User as FirebaseGoogleUser };
 
+// ============================================================================
+// AI TRAINING TELEMETRY & MASTER ADMIN DATASET HUB ENGINE
+// ============================================================================
+
+export const AI_TELEMETRY_OFFLINE_QUEUE_KEY = 'eswa_ai_telemetry_offline_queue_v1';
+export const MASTER_ADMIN_TARGET_EMAIL = 'dhoniakash407@gmail.com';
+
+/**
+ * Compresses/downscales data URLs for fast, compact Firestore document synchronization (< 60KB).
+ */
+export async function downscalePhotoForTelemetry(
+  dataUrl?: string,
+  maxDim: number = 420
+): Promise<string | undefined> {
+  if (!dataUrl || typeof window === 'undefined') return undefined;
+  if (!dataUrl.startsWith('data:image/')) {
+    return dataUrl.slice(0, 500); // external URL
+  }
+  if (dataUrl.length < 40000) return dataUrl;
+
+  try {
+    return await new Promise<string>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          let w = img.naturalWidth || img.width;
+          let h = img.naturalHeight || img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w >= h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          canvas.width = Math.max(1, w);
+          canvas.height = Math.max(1, h);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(dataUrl.slice(0, 30000));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.65));
+        } catch {
+          resolve(dataUrl.slice(0, 30000));
+        }
+      };
+      img.onerror = () => resolve(undefined);
+      img.src = dataUrl;
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+export interface SyncMappingForAiTrainingInput {
+  mappingMethod: 'FIELD' | 'PHOTOGRAMMETRY' | 'CORE_LOG';
+  triggerEvent:
+    | 'AI_TRACE_COMPLETED'
+    | 'MANUAL_TRACE_SAVED'
+    | 'GEOTECH_CALCULATED'
+    | 'EXPORT_GENERATED';
+  projectName?: string;
+  locationName?: string;
+  chainageLabel?: string;
+  tunnelGeometry?: {
+    shape?: string;
+    spanM?: number;
+    heightM?: number;
+    chainageM?: number;
+    driveAzimuthDeg?: number;
+  };
+  facePhotoDataUrl?: string;
+  facePhotoFitTransform?: {
+    scalePct: number;
+    offsetX: number;
+    offsetY: number;
+    rotationDeg: number;
+  };
+  structuralJoints?: AiTrainingJointPolyline[];
+  geotechRatings?: {
+    qSystem?: {
+      rqd: number;
+      jn: number;
+      jr: number;
+      ja: number;
+      jw: number;
+      srf: number;
+      finalQ: number;
+      classification: string;
+    };
+    rmr89?: {
+      strengthScore: number;
+      rqdScore: number;
+      spacingScore: number;
+      conditionScore: number;
+      waterScore: number;
+      orientationAdjustment: number;
+      totalRmr: number;
+      rockClass: string;
+    };
+    gsi?: number;
+    smr?: number;
+    kinematicFos?: number;
+  };
+  overbreakData?: {
+    designProfileVectors?: Array<{ x: number; y: number }>;
+    actualProfileVectors?: Array<{ x: number; y: number }>;
+    overbreakAreaM2?: number;
+    overbreakVolumeM3PerM?: number;
+    maxRadialOverbreakM?: number;
+    dominantCategory?: 'GEOLOGICAL' | 'MECHANICAL' | 'COMBINED';
+    primaryDiagnosis?: string;
+  };
+}
+
+/**
+ * Automatic Non-blocking background telemetry sync with offline queue fallback.
+ * Sends ground-truth mapping data to Firestore collection `ai_training_telemetry/{recordId}`.
+ */
+export async function syncMappingForAiTraining(
+  input: SyncMappingForAiTrainingInput
+): Promise<void> {
+  // Execute asynchronously in background; never block user UI or workflow
+  setTimeout(async () => {
+    try {
+      const { pcHardwareId } = getOrGeneratePcHardwareId();
+      const activeProfile = getActiveGeologistProfile();
+      const userEmail =
+        auth.currentUser?.email ||
+        activeProfile?.email ||
+        localStorage.getItem('eswa_last_login_user_id') ||
+        'anonymous@tunnelmapper.app';
+      const userId =
+        auth.currentUser?.uid ||
+        activeProfile?.id ||
+        (pcHardwareId ? `DEV_${pcHardwareId.slice(0, 16)}` : 'GUEST_USER');
+
+      const recordId = `telemetry_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+      const compressedPhoto = input.facePhotoDataUrl
+        ? await downscalePhotoForTelemetry(input.facePhotoDataUrl, 420)
+        : undefined;
+
+      const record: AiTrainingTelemetryRecord = {
+        id: recordId,
+        userId,
+        userEmail,
+        boundPcHardwareId: pcHardwareId || 'PC_UNKNOWN',
+        timestamp: new Date().toISOString(),
+        appVersion: '1.0.0',
+        mappingMethod: input.mappingMethod || 'FIELD',
+        projectName: input.projectName || 'Tunnel Project',
+        locationName: input.locationName || 'Tunnel Heading',
+        chainageLabel: input.chainageLabel || 'CH 0+000',
+        tunnelGeometry: {
+          shape: input.tunnelGeometry?.shape || 'd_shaped',
+          spanM: Number(input.tunnelGeometry?.spanM) || 8.4,
+          heightM: Number(input.tunnelGeometry?.heightM) || 7.2,
+          chainageM: Number(input.tunnelGeometry?.chainageM) || 0,
+          driveAzimuthDeg: Number(input.tunnelGeometry?.driveAzimuthDeg) || 0,
+        },
+        facePhotoData: compressedPhoto
+          ? {
+              photoUrl: compressedPhoto,
+              normalizedFitTransform: input.facePhotoFitTransform,
+            }
+          : undefined,
+        structuralJoints: input.structuralJoints || [],
+        geotechRatings: input.geotechRatings || {},
+        overbreakData: input.overbreakData,
+        metadata: {
+          triggerEvent: input.triggerEvent,
+          offlineQueued: false,
+          clientPlatform:
+            typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 100) : 'Web/Electron',
+        },
+      };
+
+      // 1. Save to local offline queue fallback
+      const queue: AiTrainingTelemetryRecord[] = (() => {
+        try {
+          const raw = localStorage.getItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY);
+          return raw ? JSON.parse(raw) : [];
+        } catch {
+          return [];
+        }
+      })();
+      queue.push(record);
+      if (queue.length > 50) queue.shift();
+      try {
+        localStorage.setItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+      } catch {
+        // Local quota catch
+      }
+
+      // 2. Direct Firestore push
+      try {
+        await setDoc(doc(db, 'ai_training_telemetry', recordId), record);
+        // Remove from offline queue on confirmed upload
+        try {
+          const rawUpdated = localStorage.getItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY);
+          if (rawUpdated) {
+            const curQueue: AiTrainingTelemetryRecord[] = JSON.parse(rawUpdated);
+            const nextQueue = curQueue.filter((item) => item.id !== recordId);
+            localStorage.setItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY, JSON.stringify(nextQueue));
+          }
+        } catch {
+          // Ignore
+        }
+      } catch (fsErr) {
+        // Safe offline queue fallback
+        console.warn('Telemetry queued for offline sync:', fsErr);
+      }
+    } catch (err) {
+      console.warn('Telemetry background sync notice:', err);
+    }
+  }, 10);
+}
+
+/**
+ * Flushes pending offline telemetry items to Firestore.
+ */
+export async function flushOfflineAiTelemetryQueue(): Promise<number> {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const raw = localStorage.getItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY);
+    if (!raw) return 0;
+    const queue: AiTrainingTelemetryRecord[] = JSON.parse(raw);
+    if (!queue.length) return 0;
+
+    let synced = 0;
+    const remaining: AiTrainingTelemetryRecord[] = [];
+    for (const item of queue) {
+      try {
+        await setDoc(doc(db, 'ai_training_telemetry', item.id), item);
+        synced++;
+      } catch {
+        remaining.push(item);
+      }
+    }
+    localStorage.setItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
+    return synced;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Fetches all telemetry records from Firestore.
+ * RESTRICTED STRICTLY TO MASTER ADMIN (dhoniakash407@gmail.com).
+ */
+export async function fetchAiTrainingTelemetryRecords(
+  adminEmail: string
+): Promise<AiTrainingTelemetryRecord[]> {
+  const cleanEmail = (adminEmail || '').trim().toLowerCase();
+  if (cleanEmail !== MASTER_ADMIN_TARGET_EMAIL.toLowerCase()) {
+    throw new Error(
+      `Access Denied: Only Master Admin (${MASTER_ADMIN_TARGET_EMAIL}) can access AI training telemetry.`
+    );
+  }
+
+  const q = query(
+    collection(db, 'ai_training_telemetry'),
+    orderBy('timestamp', 'desc'),
+    limit(300)
+  );
+
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => d.data() as AiTrainingTelemetryRecord);
+}
+
+/**
+ * Deletes a telemetry record.
+ * RESTRICTED STRICTLY TO MASTER ADMIN (dhoniakash407@gmail.com).
+ */
+export async function deleteAiTrainingTelemetryRecord(
+  recordId: string,
+  adminEmail: string
+): Promise<boolean> {
+  const cleanEmail = (adminEmail || '').trim().toLowerCase();
+  if (cleanEmail !== MASTER_ADMIN_TARGET_EMAIL.toLowerCase()) {
+    throw new Error(
+      `Access Denied: Only Master Admin (${MASTER_ADMIN_TARGET_EMAIL}) can delete AI training telemetry.`
+    );
+  }
+
+  await deleteDoc(doc(db, 'ai_training_telemetry', recordId));
+  return true;
+}
+
+/**
+ * Exports all telemetry records into a prompt-completion JSONL dataset for Gemini model fine-tuning.
+ */
+export function exportGeminiFineTuningJsonl(records: AiTrainingTelemetryRecord[]): void {
+  if (!records || !records.length) {
+    alert('No telemetry records available to export.');
+    return;
+  }
+
+  const lines: string[] = [];
+
+  for (const rec of records) {
+    const userPrompt = `Input Tunnel Face Geometry & Excavation Parameters:
+- Shape: ${rec.tunnelGeometry.shape}
+- Span: ${rec.tunnelGeometry.spanM}m, Height: ${rec.tunnelGeometry.heightM}m
+- Chainage: ${rec.chainageLabel || rec.tunnelGeometry.chainageM + 'm'}
+- Drive Azimuth: ${rec.tunnelGeometry.driveAzimuthDeg}°
+- Mapping Method: ${rec.mappingMethod}
+${
+  rec.facePhotoData?.photoUrl
+    ? `- Photo Fit Transform: Scale=${rec.facePhotoData.normalizedFitTransform?.scalePct || 100}%, Rot=${rec.facePhotoData.normalizedFitTransform?.rotationDeg || 0}°`
+    : ''
+}
+
+Task: Predict all geological joint traces in normalized [u, v] coordinates across the tunnel face and determine Barton Q and Bieniawski RMR89 ratings.`;
+
+    const modelResponse = JSON.stringify(
+      {
+        structuralJoints: (rec.structuralJoints || []).map((j) => ({
+          setId: j.setId,
+          pointsNorm: j.pointsNorm,
+          strikeDeg: j.strikeDeg,
+          dipDeg: j.dipDeg,
+          dipDirectionDeg: j.dipDirectionDeg,
+          roughnessJrc: j.roughnessJrc,
+          apertureMm: j.apertureMm,
+          infilling: j.infilling,
+          waterCondition: j.waterCondition,
+        })),
+        geotechnicalRatings: {
+          qSystem: rec.geotechRatings.qSystem,
+          rmr89: rec.geotechRatings.rmr89,
+          gsi: rec.geotechRatings.gsi,
+          smr: rec.geotechRatings.smr,
+        },
+        overbreakDiagnosis: rec.overbreakData
+          ? {
+              overbreakVolumeM3PerM: rec.overbreakData.overbreakVolumeM3PerM,
+              dominantCategory: rec.overbreakData.dominantCategory,
+              primaryDiagnosis: rec.overbreakData.primaryDiagnosis,
+            }
+          : null,
+      },
+      null,
+      2
+    );
+
+    const lineObj = {
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert geotechnical tunnel engineering AI model trained to identify rock mass discontinuities, trace joint sets on tunnel excavation profiles, and determine Barton Q and Bieniawski RMR89 ratings.',
+        },
+        {
+          role: 'user',
+          content: userPrompt,
+        },
+        {
+          role: 'model',
+          content: modelResponse,
+        },
+      ],
+    };
+
+    lines.push(JSON.stringify(lineObj));
+  }
+
+  const blob = new Blob([lines.join('\n')], { type: 'application/x-jsonlines;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `eswa_gemini_finetune_tunnel_telemetry_${Date.now()}.jsonl`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Exports complete CSV and JSON dataset files for machine learning research.
+ */
+export function exportGeotechDatasetBundle(records: AiTrainingTelemetryRecord[]): void {
+  if (!records || !records.length) {
+    alert('No telemetry records available to export.');
+    return;
+  }
+
+  // 1. Download JSON
+  const jsonBlob = new Blob([JSON.stringify(records, null, 2)], {
+    type: 'application/json;charset=utf-8',
+  });
+  const jsonUrl = URL.createObjectURL(jsonBlob);
+  const jsonA = document.createElement('a');
+  jsonA.href = jsonUrl;
+  jsonA.download = `eswa_geotech_ai_ground_truth_${Date.now()}.json`;
+  document.body.appendChild(jsonA);
+  jsonA.click();
+  document.body.removeChild(jsonA);
+  URL.revokeObjectURL(jsonUrl);
+
+  // 2. Download CSV
+  const csvHeaders = [
+    'RecordID',
+    'Timestamp',
+    'UserEmail',
+    'HardwareID',
+    'MappingMethod',
+    'ProjectName',
+    'LocationName',
+    'Chainage',
+    'TunnelShape',
+    'SpanM',
+    'HeightM',
+    'DriveAzimuthDeg',
+    'JointCount',
+    'BartonFinalQ',
+    'QClass',
+    'BieniawskiRMR',
+    'RMRClass',
+    'GSI',
+    'SMR',
+    'OverbreakAreaM2',
+    'OverbreakVolumeM3PerM',
+    'DominantOverbreakCause',
+  ];
+
+  const csvRows = records.map((r) => [
+    `"${r.id}"`,
+    `"${r.timestamp}"`,
+    `"${r.userEmail}"`,
+    `"${r.boundPcHardwareId}"`,
+    `"${r.mappingMethod}"`,
+    `"${(r.projectName || '').replace(/"/g, '""')}"`,
+    `"${(r.locationName || '').replace(/"/g, '""')}"`,
+    `"${r.chainageLabel || ''}"`,
+    `"${r.tunnelGeometry?.shape || 'd_shaped'}"`,
+    r.tunnelGeometry?.spanM ?? '',
+    r.tunnelGeometry?.heightM ?? '',
+    r.tunnelGeometry?.driveAzimuthDeg ?? '',
+    (r.structuralJoints || []).length,
+    r.geotechRatings?.qSystem?.finalQ ?? '',
+    `"${r.geotechRatings?.qSystem?.classification ?? ''}"`,
+    r.geotechRatings?.rmr89?.totalRmr ?? '',
+    `"${r.geotechRatings?.rmr89?.rockClass ?? ''}"`,
+    r.geotechRatings?.gsi ?? '',
+    r.geotechRatings?.smr ?? '',
+    r.overbreakData?.overbreakAreaM2 ?? '',
+    r.overbreakData?.overbreakVolumeM3PerM ?? '',
+    `"${r.overbreakData?.dominantCategory ?? ''}"`,
+  ]);
+
+  const csvContent = [csvHeaders.join(','), ...csvRows.map((row) => row.join(','))].join('\n');
+  const csvBlob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+  const csvUrl = URL.createObjectURL(csvBlob);
+  const csvA = document.createElement('a');
+  csvA.href = csvUrl;
+  csvA.download = `eswa_geotech_ai_ground_truth_${Date.now()}.csv`;
+  document.body.appendChild(csvA);
+  csvA.click();
+  document.body.removeChild(csvA);
+  URL.revokeObjectURL(csvUrl);
+}

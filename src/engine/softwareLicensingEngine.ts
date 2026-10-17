@@ -1359,7 +1359,13 @@ export function subscribeAccessRequestById(
     window.clearInterval(pollTimer);
     window.removeEventListener('eswa-licensing-mirror-updated', onLocalEvent);
     window.removeEventListener('storage', onLocalEvent);
-    unsub();
+    window.setTimeout(() => {
+      try {
+        unsub();
+      } catch {
+        // Ignore unlisten race
+      }
+    }, 250);
   };
 }
 
@@ -2323,7 +2329,13 @@ export function subscribeUserAccountStatus(
 
   return () => {
     window.clearInterval(pollTimer);
-    unsub();
+    window.setTimeout(() => {
+      try {
+        unsub();
+      } catch {
+        // Ignore unlisten race
+      }
+    }, 250);
   };
 }
 
@@ -2706,6 +2718,12 @@ export function subscribeClientSoftwareUpdates(
     window.clearInterval(relPollTimer);
     window.removeEventListener('eswa-licensing-mirror-updated', handleLocalChange);
     window.removeEventListener('storage', handleLocalChange);
-    unsub();
+    window.setTimeout(() => {
+      try {
+        unsub();
+      } catch {
+        // Ignore unlisten race
+      }
+    }, 250);
   };
 }

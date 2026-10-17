@@ -46,8 +46,6 @@ import {
   UserCheck,
   Wrench,
   X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import {
   ContinuousTunnelStripDataset,

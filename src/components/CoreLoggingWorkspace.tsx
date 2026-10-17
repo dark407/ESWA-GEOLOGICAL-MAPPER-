@@ -416,7 +416,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans">
+    <div className="flex flex-col h-[100dvh] max-h-[100dvh] w-screen min-h-0 min-w-0 overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans">
       {/* Top Header Bar */}
       <header className="h-14 px-4 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex items-center justify-between shrink-0 z-20 shadow-sm">
         <div className="flex items-center gap-3">

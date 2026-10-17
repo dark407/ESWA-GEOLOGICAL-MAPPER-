@@ -43,7 +43,7 @@ interface StereonetAndSupportPanelProps {
   compact?: boolean;
 }
 
-export const StereonetAndSupportPanel: React.FC<StereonetAndSupportPanelProps> = ({
+const StereonetAndSupportPanelComponent: React.FC<StereonetAndSupportPanelProps> = ({
   geometry,
   settings,
   joints,
@@ -788,3 +788,5 @@ export const StereonetAndSupportPanel: React.FC<StereonetAndSupportPanelProps> =
     </div>
   );
 };
+
+export const StereonetAndSupportPanel = React.memo(StereonetAndSupportPanelComponent);

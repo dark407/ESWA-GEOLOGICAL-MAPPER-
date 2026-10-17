@@ -463,5 +463,12 @@ service cloud.firestore {
           'updatedAtIso'
         ]);
     }
+
+    // 8. AI Training Telemetry & Global Ground-Truth Dataset (/ai_training_telemetry/{recordId})
+    // Restricted strictly to dhoniakash407@gmail.com for read/export/delete
+    match /ai_training_telemetry/{recordId} {
+      allow get, list, delete: if isSignedIn() && request.auth.token.email == 'dhoniakash407@gmail.com';
+      allow create, update: if isValidId(recordId);
+    }
   }
 }

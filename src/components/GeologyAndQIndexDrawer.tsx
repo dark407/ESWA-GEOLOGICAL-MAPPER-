@@ -160,7 +160,7 @@ const SRF_OPTIONS = [
   { val: 20.0, label: '20.0 — Heavy squeezing or swelling rock pressure' },
 ];
 
-export const GeologyAndQIndexDrawer: React.FC<GeologyAndQIndexDrawerProps> = ({
+const GeologyAndQIndexDrawerComponent: React.FC<GeologyAndQIndexDrawerProps> = ({
   activeTab,
   onChangeTab,
   onClose,
@@ -3690,3 +3690,5 @@ export const GeologyAndQIndexDrawer: React.FC<GeologyAndQIndexDrawerProps> = ({
     </div>
   );
 };
+
+export const GeologyAndQIndexDrawer = React.memo(GeologyAndQIndexDrawerComponent);

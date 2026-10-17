@@ -189,8 +189,6 @@ import {
   Unlock,
   Upload,
   Wand2,
-  ZoomIn,
-  ZoomOut,
   Box,
 } from 'lucide-react';
 import { EswaTunnelLogo } from './EswaBrandIdentity';

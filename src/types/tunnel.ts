@@ -1477,12 +1477,108 @@ export interface AdvancedOverbreakPredictionResult {
   nextPullPredictedMaxRadialM: number;
   predictedCriticalSectors: string[];
   nextPullCriticalSectors: string;
-  recommendedSupportMitigation: string;
   zonePredictions: AdvancedOverbreakZonePrediction[];
 }
 
+// ============================================================================
+// AI TRAINING TELEMETRY & GLOBAL FIELD DATASET TYPES
+// ============================================================================
 
+export interface AiTrainingJointPolyline {
+  setId: string;
+  pointsNorm: Array<{ u: number; v: number }>; // Normalized in [0.0, 1.0] relative to face bounds
+  strikeDeg?: number;
+  dipDeg?: number;
+  dipDirectionDeg?: number;
+  roughnessJrc?: number | string;
+  apertureMm?: number | string;
+  infilling?: string;
+  waterCondition?: string;
+  persistenceM?: number;
+}
 
+export interface AiTrainingTelemetryRecord {
+  id: string; // recordId in ai_training_telemetry collection
+  userId: string;
+  userEmail: string;
+  boundPcHardwareId: string;
+  timestamp: string; // ISO 8601 string
+  appVersion: string;
+  mappingMethod: 'FIELD' | 'PHOTOGRAMMETRY' | 'CORE_LOG';
+  projectName: string;
+  locationName: string;
+  chainageLabel?: string;
 
+  // Tunnel Geometry
+  tunnelGeometry: {
+    shape: string;
+    spanM: number;
+    heightM: number;
+    chainageM: number;
+    driveAzimuthDeg: number;
+  };
 
+  // Face Photo Data
+  facePhotoData?: {
+    photoUrl?: string; // compressed base64 or URL
+    widthPx?: number;
+    heightPx?: number;
+    normalizedFitTransform?: {
+      scalePct: number;
+      offsetX: number;
+      offsetY: number;
+      rotationDeg: number;
+    };
+  };
 
+  // Ground Truth Structural Joints
+  structuralJoints: AiTrainingJointPolyline[];
+
+  // Geotechnical Classification Ratings
+  geotechRatings: {
+    qSystem?: {
+      rqd: number;
+      jn: number;
+      jr: number;
+      ja: number;
+      jw: number;
+      srf: number;
+      finalQ: number;
+      classification: string;
+    };
+    rmr89?: {
+      strengthScore: number;
+      rqdScore: number;
+      spacingScore: number;
+      conditionScore: number;
+      waterScore: number;
+      orientationAdjustment: number;
+      totalRmr: number;
+      rockClass: string;
+    };
+    gsi?: number;
+    smr?: number;
+    kinematicFos?: number;
+  };
+
+  // Overbreak Data
+  overbreakData?: {
+    designProfileVectors?: Array<{ x: number; y: number }>;
+    actualProfileVectors?: Array<{ x: number; y: number }>;
+    overbreakAreaM2?: number;
+    overbreakVolumeM3PerM?: number;
+    maxRadialOverbreakM?: number;
+    dominantCategory?: 'GEOLOGICAL' | 'MECHANICAL' | 'COMBINED';
+    primaryDiagnosis?: string;
+  };
+
+  metadata?: {
+    triggerEvent?:
+      | 'AI_TRACE_COMPLETED'
+      | 'MANUAL_TRACE_SAVED'
+      | 'GEOTECH_CALCULATED'
+      | 'EXPORT_GENERATED';
+    offlineQueued?: boolean;
+    clientPlatform?: string;
+  };
+}

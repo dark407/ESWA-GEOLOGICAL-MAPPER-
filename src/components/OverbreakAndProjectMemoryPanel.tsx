@@ -110,7 +110,7 @@ interface OverbreakAnalysisPanelProps {
   onStatusMessage?: (msg: string) => void;
 }
 
-export const OverbreakAnalysisPanel: React.FC<OverbreakAnalysisPanelProps> = ({
+const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = ({
   activeSurface,
   geometry,
   settings,
@@ -1498,6 +1498,8 @@ export const OverbreakAnalysisPanel: React.FC<OverbreakAnalysisPanelProps> = ({
     </aside>
   );
 };
+
+export const OverbreakAnalysisPanel = React.memo(OverbreakAnalysisPanelComponent);
 
 // ============================================================================
 // SYSTEMATIC DATA STORAGE, IMPORT & EXPORT MANAGER

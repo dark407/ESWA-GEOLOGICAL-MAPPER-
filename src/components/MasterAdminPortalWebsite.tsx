@@ -58,18 +58,28 @@ import {
   prepareAndroidApkBlobUrl,
 } from '../engine/windowsDesktopEngine';
 import {
+  AlertTriangle,
   Bell,
   CheckCircle2,
+  Code,
+  Compass,
   Copy,
+  Database,
   Download,
+  ExternalLink,
   Eye,
+  FileJson,
+  FileSpreadsheet,
+  Filter,
   KeyRound,
   Laptop,
+  Layers,
   Lock,
   LogOut,
   Mail,
   Plus,
   RefreshCw,
+  Search,
   Send,
   ShieldCheck,
   Sparkles,
@@ -79,6 +89,15 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import {
+  deleteAiTrainingTelemetryRecord,
+  exportGeminiFineTuningJsonl,
+  exportGeotechDatasetBundle,
+  fetchAiTrainingTelemetryRecords,
+  MASTER_ADMIN_TARGET_EMAIL,
+  syncMappingForAiTraining,
+} from '../engine/userCloudAndPackageEngine';
+import { AiTrainingTelemetryRecord } from '../types/tunnel';
 
 interface MasterAdminPortalWebsiteProps {
   onSwitchToSoftware: () => void;
@@ -170,11 +189,24 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
 
   // Admin Portal Navigation (Default to 'licenses' = Unified All Users: Android App + PC Software)
   const [activeTab, setActiveTab] = useState<
-    'requests' | 'licenses' | 'updates' | 'master_pc'
+    'requests' | 'licenses' | 'updates' | 'master_pc' | 'ai_telemetry'
   >('licenses');
   const [userPlatformFilter, setUserPlatformFilter] = useState<
     'ALL' | 'ANDROID' | 'PC' | 'ACTIVE' | 'SUSPENDED'
   >('ALL');
+
+  // AI Training Telemetry Hub State
+  const [telemetryRecords, setTelemetryRecords] = useState<AiTrainingTelemetryRecord[]>([]);
+  const [isTelemetryLoading, setIsTelemetryLoading] = useState<boolean>(false);
+  const [telemetryError, setTelemetryError] = useState<string | null>(null);
+  const [inspectingTelemetry, setInspectingTelemetry] =
+    useState<AiTrainingTelemetryRecord | null>(null);
+  const [telemetrySearch, setTelemetrySearch] = useState<string>('');
+  const [telemetryModeFilter, setTelemetryModeFilter] = useState<
+    'ALL' | 'FIELD' | 'PHOTOGRAMMETRY' | 'CORE_LOG'
+  >('ALL');
+  const [telemetryRockClassFilter, setTelemetryRockClassFilter] = useState<string>('ALL');
+  const [telemetryShapeFilter, setTelemetryShapeFilter] = useState<string>('ALL');
 
   // Real-time Firestore state
   const [requests, setRequests] = useState<AccessRequestRecord[]>([]);
