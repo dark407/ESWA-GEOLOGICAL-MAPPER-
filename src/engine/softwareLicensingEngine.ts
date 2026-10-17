@@ -18,6 +18,7 @@ import {
 import {
   getConfiguredGithubRepo,
   getGithubUserExeDownloadUrl,
+  getPublicShareOrigin,
   getUserAndroidAppShareUrl,
   getUserEditionShareUrl,
   normalizeGithubRepoSlug,
@@ -235,22 +236,16 @@ function fromFirestoreRestFields<T>(
 }
 
 function getServerRelayUrls(subpath: string): string[] {
-  const urls: string[] = [];
   if (
     typeof window !== 'undefined' &&
-    (window.location.protocol === 'http:' || window.location.protocol === 'https:')
+    (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
+    window.location.origin &&
+    window.location.origin !== 'null'
   ) {
-    urls.push(subpath);
+    return [subpath];
   }
-  const pubUrl = `${PUBLIC_SHARED_APP_ORIGIN}${subpath}`;
-  if (
-    typeof window === 'undefined' ||
-    !window.location.origin ||
-    window.location.origin !== PUBLIC_SHARED_APP_ORIGIN
-  ) {
-    urls.push(pubUrl);
-  }
-  return urls;
+  const shareOrigin = getPublicShareOrigin();
+  return [`${shareOrigin}${subpath}`];
 }
 
 async function serverRelayUpsert(

@@ -29,7 +29,6 @@ import {
   Layers,
   Link2,
   Maximize2,
-  Minimize2,
   Minus,
   Move,
   Paintbrush,
@@ -435,9 +434,6 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
   // Measure Tape State
   const [measureStartPoint, setMeasureStartPoint] = useState<Point2D | null>(null);
-
-  // Floating HUD Expansion Toggle
-  const [showFloatingCompassHud, setShowFloatingCompassHud] = useState<boolean>(true);
 
   // Sidebar Tab
   const [sidebarTab, setSidebarTab] = useState<'properties' | 'lithology' | 'previous_joints' | 'features' | 'layers'>('properties');
@@ -2410,180 +2406,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             }`}
           />
 
-          {/* Floating Live Field Compass & Clinometer HUD (Matching Underground Face Mapping) */}
-          {selectedTrace && showFloatingCompassHud && (
-            <div className="absolute bottom-10 left-4 z-20 bg-stone-900/95 border border-stone-700/80 rounded-2xl p-3 shadow-2xl backdrop-blur-md flex flex-col gap-2 max-w-sm">
-              <div className="flex items-center justify-between border-b border-stone-800 pb-1.5">
-                <div className="flex items-center gap-1.5">
-                  <Compass className="w-4 h-4 text-orange-400" />
-                  <span className="text-[11px] font-bold text-white uppercase tracking-wider">
-                    Trace Live Orientation: {selectedTrace.id}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="font-mono text-orange-400 font-bold text-xs">
-                    {selectedTrace.dipDirectionDeg.toString().padStart(3, '0')}°/{selectedTrace.dipDeg.toString().padStart(2, '0')}°
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowFloatingCompassHud(false)}
-                    className="p-1 rounded text-stone-500 hover:text-stone-300"
-                    title="Minimize HUD"
-                  >
-                    <Minimize2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Side-by-Side Compass Rose & Clinometer Arc */}
-              <div className="grid grid-cols-2 gap-3 items-center">
-                <div className="flex flex-col items-center bg-stone-950/80 rounded-xl p-2 border border-stone-800">
-                  <span className="text-[10px] text-stone-400 font-semibold mb-0.5">Dip Direction</span>
-                  <CompassRoseWheel
-                    dipDirectionDeg={selectedTrace.dipDirectionDeg}
-                    onChangeDipDir={(deg) => updateSelectedTraceDip(deg, selectedTrace.dipDeg)}
-                  />
-                  {/* Steppers */}
-                  <div className="flex items-center gap-1 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg - 5, selectedTrace.dipDeg)}
-                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
-                    >
-                      -5°
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg - 1, selectedTrace.dipDeg)}
-                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
-                    >
-                      -1°
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg + 1, selectedTrace.dipDeg)}
-                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
-                    >
-                      +1°
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg + 5, selectedTrace.dipDeg)}
-                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
-                    >
-                      +5°
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-center bg-stone-950/80 rounded-xl p-2 border border-stone-800">
-                  <span className="text-[10px] text-stone-400 font-semibold mb-0.5">Dip Angle</span>
-                  <InteractiveClinometerDial
-                    dipDeg={selectedTrace.dipDeg}
-                    onChangeDip={(deg) => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, deg)}
-                  />
-                  {/* Steppers */}
-                  <div className="flex items-center gap-1 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg - 5)}
-                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
-                    >
-                      -5°
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg - 1)}
-                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
-                    >
-                      -1°
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg + 1)}
-                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
-                    >
-                      +1°
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateSelectedTraceDip(selectedTrace.dipDirectionDeg, selectedTrace.dipDeg + 5)}
-                      className="px-1.5 py-0.5 rounded bg-stone-800 text-[10px] text-stone-300 hover:text-white"
-                    >
-                      +5°
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick Actions Bar */}
-              <div className="grid grid-cols-3 gap-1 pt-1 border-t border-stone-800">
-                <button
-                  type="button"
-                  onClick={handleReverseTrace}
-                  className="py-1 px-1.5 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10px] font-semibold flex items-center justify-center gap-1 transition"
-                  title="Reverse Dip Azimuth (+180°)"
-                >
-                  <ArrowDownUp className="w-3 h-3 text-amber-400" />
-                  <span>Flip +180°</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    pushHistory(currentDataset);
-                    setCurrentDataset((prev) => ({
-                      ...prev,
-                      traces: prev.traces.map((t) =>
-                        t.id === selectedTrace.id ? { ...t, dipTickSide: t.dipTickSide === 'left' ? 'right' : 'left' } : t
-                      ),
-                    }));
-                  }}
-                  className="py-1 px-1.5 rounded bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10px] font-semibold flex items-center justify-center gap-1 transition"
-                  title="Invert Dip Tick Side"
-                >
-                  <ArrowLeft className="w-3 h-3 text-cyan-400" />
-                  <span>Tick Side</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTool('move_joint')}
-                  className="py-1 px-1.5 rounded bg-orange-600 hover:bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition"
-                  title="Activate Move Tool for this Joint"
-                >
-                  <Move className="w-3 h-3" />
-                  <span>Move Tool</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Minimized HUD Restore Button */}
-          {selectedTrace && !showFloatingCompassHud && (
-            <button
-              type="button"
-              onClick={() => setShowFloatingCompassHud(true)}
-              className="absolute bottom-10 left-4 z-20 px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-700 text-orange-400 text-xs font-bold flex items-center gap-1.5 shadow-lg cursor-pointer"
-            >
-              <Compass className="w-4 h-4" />
-              <span>Show Compass ({selectedTrace.orientationLabel})</span>
-            </button>
-          )}
-
-          {/* Bottom Coordinate HUD Bar */}
-          <div className="h-7 bg-stone-900/95 border-t border-stone-800 px-3 flex items-center justify-between text-[11px] font-mono text-stone-400 shrink-0 z-10">
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1 text-stone-200">
-                <Compass className="w-3 h-3 text-orange-400" />
-                <span>CH: <strong className="text-orange-400">{mouseCoord.chainage.toFixed(2)} m</strong></span>
-              </span>
-              <span>•</span>
-              <span>Y: <strong className="text-stone-300">{mouseCoord.yPerimeter.toFixed(2)} m</strong></span>
-              <span>•</span>
-              <span className="px-1.5 py-0.2 rounded bg-stone-800 text-stone-300 text-[10px]">
-                {mouseCoord.zone}
-              </span>
-            </div>
-
+          {/* Bottom Status Bar */}
+          <div className="h-7 bg-stone-900/95 border-t border-stone-800 px-3 flex items-center justify-end text-[11px] font-mono text-stone-400 shrink-0 z-10">
             <div className="flex items-center gap-3">
               <span>Zoom: {Math.round(zoom * 100)}%</span>
               <span>Snap: {snapToGrid ? `${gridStepM}m` : 'OFF'}</span>

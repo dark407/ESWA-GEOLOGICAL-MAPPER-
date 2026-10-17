@@ -12,8 +12,21 @@ import {
   initializeFirestore,
   memoryLocalCache,
   setLogLevel,
+  doc,
+  getDocFromServer,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+
+export const RUNTIME_PUBLIC_ORIGIN =
+  'https://ais-pre-7ikzqfzql6gljr6mfk6quj-728524179497.asia-northeast1.run.app';
+
+export function getApiBase(): string {
+  if (typeof window === 'undefined') return RUNTIME_PUBLIC_ORIGIN;
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    return '';
+  }
+  return RUNTIME_PUBLIC_ORIGIN;
+}
 
 const DEFAULT_FIRESTORE_DB_ID =
   'ai-studio-eswatunnelmapper-f9204c8f-e68c-461b-9014-9cb7c208d62c';
@@ -66,6 +79,20 @@ try {
   setLogLevel('silent');
 } catch {
   dbInstance = getFirestore(app, resolvedDatabaseId);
+}
+
+// Connection test according to Firebase guidelines
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(dbInstance, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firestore offline status:', error.message);
+    }
+  }
+}
+if (typeof window !== 'undefined') {
+  void testConnection();
 }
 
 if (typeof window !== 'undefined') {
@@ -141,10 +168,7 @@ export function saveGmailAppPassword(appPassword: string): void {
   } catch {
     // Ignore storage errors
   }
-  const apiBase =
-    window.location.protocol === 'file:' || window.location.origin === 'null'
-      ? 'https://ais-pre-a4hhtle4c5nnrzjnsyntzb-386382408800.asia-southeast1.run.app'
-      : '';
+  const apiBase = getApiBase();
   fetch(`${apiBase}/api/email/save-config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -282,11 +306,7 @@ async function signInWithGoogleIdentityServices(
 
   cachedAccessToken = accessToken;
   cachedGisUser = syntheticUser;
-  const apiBase =
-    typeof window !== 'undefined' &&
-    (window.location.protocol === 'file:' || window.location.origin === 'null')
-      ? 'https://ais-pre-a4hhtle4c5nnrzjnsyntzb-386382408800.asia-southeast1.run.app'
-      : '';
+  const apiBase = getApiBase();
   fetch(`${apiBase}/api/email/save-config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -442,11 +462,7 @@ export async function sendGmailMessage(params: {
   const savedAppPass = (params.smtpAppPassword || getSavedGmailAppPassword()).trim();
   let token = await getAccessToken();
 
-  const apiBase =
-    typeof window !== 'undefined' &&
-    (window.location.protocol === 'file:' || window.location.origin === 'null')
-      ? 'https://ais-pre-a4hhtle4c5nnrzjnsyntzb-386382408800.asia-southeast1.run.app'
-      : '';
+  const apiBase = getApiBase();
 
   if (savedAppPass || token) {
     try {

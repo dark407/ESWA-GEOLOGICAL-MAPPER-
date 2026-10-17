@@ -182,6 +182,7 @@ import {
   evaluateSurfaceStabilityAndRomanaSmr,
   getSurfacePanelLabelMap,
   loadSavedSurfaceGeometryParameters,
+  loadSurfaceMappingResumeState,
   MappingDomainType,
   saveSurfaceGeometryParameters,
   saveSurfaceMappingResumeState,
@@ -1988,7 +1989,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
     if (!activeLocation || !activeRound) return;
     const rawPt = getNormalizedCanvasPoint(e);
-    setSyncCursorCoord(rawPt);
+    // Cursor coordinate tracking disabled per user preference
     const hoverTargetPanel =
       canvasViewMode === 'unfolded_t'
         ? isDrawing
@@ -7392,7 +7393,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 {stage === 'field_canvas' && activePanel === 'face' && (
                   <button
                     type="button"
-                    onClick={() => setIsPhotogrammetryDualCanvas((prev) => !prev)}
+                    onClick={() => {
+                      setIsPhotogrammetryDualCanvas((prev) => {
+                        const next = !prev;
+                        if (next && dualCanvasMobileTab === 'map') {
+                          setDualCanvasMobileTab('split');
+                        }
+                        return next;
+                      });
+                    }}
                     className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
                       isPhotogrammetryDualCanvas
                         ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow font-black'
@@ -7490,22 +7499,25 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               return (
                 <div
                   ref={canvasWrapperRef}
-                  className={`flex-1 min-h-0 ${photoCanvasTheme === 'light' ? 'bg-slate-200 border-slate-300' : 'bg-slate-950 border-slate-700'} rounded-lg border-2 overflow-hidden flex flex-col ${
-                    isDualCanvasActive && dualCanvasMobileTab === 'split' ? 'lg:flex-row p-1 gap-1' : ''
-                  } items-stretch justify-center relative touch-none`}
+                  className={`flex-1 min-h-0 ${photoCanvasTheme === 'light' ? 'bg-slate-200' : 'bg-slate-950'} overflow-hidden flex flex-col items-stretch justify-center relative touch-none`}
                 >
-                  {/* Dual Canvas Selector Tab: Map Only (Default) and Split for ALL portions (Face, R-Wall, L-Wall, Crown) */}
+                  {/* Top selector bar containing the view label and the "Map Only" / "Split (Map + Photo/3D)" buttons (shown when Dual Canvas button is clicked/active) */}
                   {isDualCanvasActive && (
-                    <div className="flex items-center justify-between bg-slate-900 px-2 py-1 border-b border-slate-800 rounded shrink-0 w-full">
-                      <span className="text-[10px] font-bold text-slate-300">
-                        {FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} View:
-                      </span>
-                      <div className="inline-flex items-center rounded bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
+                    <div className="flex items-center justify-between px-3 py-1 bg-slate-900 border-b border-slate-800 text-[11px] font-semibold text-slate-300 shrink-0 select-none z-10 w-full">
+                      <div className="flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span className="font-semibold text-slate-200">
+                          {FIELD_PANEL_DISPLAY_LABELS[activePanel] || 'Face'} Canvas
+                        </span>
+                      </div>
+                      <div className="flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-800">
                         <button
                           type="button"
                           onClick={() => setDualCanvasMobileTab('map')}
-                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer transition-colors ${
-                            dualCanvasMobileTab === 'map' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                          className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                            dualCanvasMobileTab === 'map'
+                              ? 'bg-cyan-500 text-slate-950 shadow'
+                              : 'text-slate-400 hover:text-white'
                           }`}
                         >
                           Map Only
@@ -7513,8 +7525,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         <button
                           type="button"
                           onClick={() => setDualCanvasMobileTab('split')}
-                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer transition-colors ${
-                            dualCanvasMobileTab === 'split' ? 'bg-cyan-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                          className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                            dualCanvasMobileTab === 'split'
+                              ? 'bg-cyan-500 text-slate-950 shadow'
+                              : 'text-slate-400 hover:text-white'
                           }`}
                         >
                           Split (Map + Photo/3D)
@@ -7523,24 +7537,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     </div>
                   )}
 
-                  {/* 1. GEOLOGICAL MAPPING CANVAS PANE */}
+                  {/* Dual or Single Canvas Container */}
                   <div
-                    className={`flex-1 min-w-0 min-h-0 flex flex-col bg-[#E2E8F0] rounded-lg border border-slate-700 overflow-hidden relative flex`}
+                    className={`flex-1 min-h-0 overflow-hidden flex ${
+                      isDualCanvasActive && dualCanvasMobileTab === 'split' ? 'lg:flex-row gap-1' : ''
+                    } items-stretch justify-center relative w-full h-full`}
                   >
-                    {isDualCanvasActive && (
-                      <div className="bg-slate-900/95 px-2.5 py-1 border-b border-slate-700 flex items-center justify-between text-[11px] font-bold text-slate-200 shrink-0">
-                        <span className="flex items-center gap-1.5 text-amber-400 font-mono">
-                          <Layers className="w-3.5 h-3.5" />
-                          <span>1. {FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Map (1:1 CAD)</span>
-                        </span>
-                        {syncCursorCoord && (
-                          <span className="font-mono text-[10px] text-amber-300 bg-slate-950 px-2 py-0.5 rounded border border-amber-500/30">
-                            X: {(syncCursorCoord.x / 100).toFixed(2)}m | Y: {(syncCursorCoord.y / 100).toFixed(2)}m
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    <div className="flex-1 min-h-0 relative flex items-center justify-center">
+                    {/* 1. GEOLOGICAL MAPPING CANVAS PANE */}
+                    <div
+                      className={`flex-1 min-w-0 min-h-0 flex flex-col bg-[#E2E8F0] overflow-hidden relative w-full h-full ${
+                        isDualCanvasActive && dualCanvasMobileTab === 'photo' ? 'hidden' : 'flex'
+                      }`}
+                    >
+                    <div className="flex-1 min-h-0 relative flex items-center justify-center w-full h-full">
                       <svg
                         ref={canvasSvgRef}
                         viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
@@ -7551,8 +7560,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         preserveAspectRatio="xMidYMid meet"
                         style={{
                           backgroundColor: '#E2E8F0',
-                          maxWidth: '85%',
-                          maxHeight: '85%',
+                          width: '100%',
+                          height: '100%',
+                          maxWidth: '100%',
+                          maxHeight: '100%',
                           cursor:
                             isCanvasPanMode ||
                             (isPanelMoveMode && (stage === 'joint_grouping' || activePanel !== 'face'))
@@ -7575,7 +7586,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         onPointerUp={handleCanvasPointerUp}
                         onPointerCancel={handleCanvasPointerUp}
                         onPointerLeave={() => setSyncCursorCoord(null)}
-                        className="w-full h-full max-w-[85%] max-h-[85%] touch-none select-none m-auto transition-all shadow-sm rounded-md"
+                        className="w-full h-full touch-none select-none m-auto transition-all"
                       >
                 <FieldMonochromeGeologicalPatterns
                   prefix="fcanv"
@@ -8607,43 +8618,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           </g>
                         );
                       })()}
-                      {/* Synchronized Crosshair Reticle for Dual Canvas Realtime Mapping */}
-                      {syncCursorCoord && (
-                        <g className="pointer-events-none select-none" id="fcanv-sync-reticle">
-                          <line
-                            x1={syncCursorCoord.x - 24}
-                            y1={syncCursorCoord.y}
-                            x2={syncCursorCoord.x + 24}
-                            y2={syncCursorCoord.y}
-                            stroke="#F59E0B"
-                            strokeWidth="1.6"
-                            strokeDasharray="4 2"
-                          />
-                          <line
-                            x1={syncCursorCoord.x}
-                            y1={syncCursorCoord.y - 24}
-                            x2={syncCursorCoord.x}
-                            y2={syncCursorCoord.y + 24}
-                            stroke="#F59E0B"
-                            strokeWidth="1.6"
-                            strokeDasharray="4 2"
-                          />
-                          <circle
-                            cx={syncCursorCoord.x}
-                            cy={syncCursorCoord.y}
-                            r="7"
-                            fill="none"
-                            stroke="#F59E0B"
-                            strokeWidth="2"
-                          />
-                          <circle
-                            cx={syncCursorCoord.x}
-                            cy={syncCursorCoord.y}
-                            r="2.5"
-                            fill="#F59E0B"
-                          />
-                        </g>
-                      )}
+                      {/* Synchronized crosshair reticle removed per user preference */}
                     </>
                   );
                 })()}
@@ -8717,9 +8692,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             <div
               className={`flex-1 min-w-0 min-h-0 flex flex-col ${
                 photoCanvasTheme === 'light'
-                  ? 'bg-slate-100 border border-slate-300'
-                  : 'bg-slate-950 border border-cyan-500/50'
-              } rounded-lg overflow-hidden relative ${
+                  ? 'bg-slate-100'
+                  : 'bg-slate-950'
+              } overflow-hidden relative ${
                 dualCanvasMobileTab === 'map' ? 'hidden' : 'flex'
               }`}
             >
@@ -8734,11 +8709,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   <span className={`${photoCanvasTheme === 'light' ? 'text-cyan-800' : 'text-cyan-300'} font-mono font-bold truncate`}>
                     2. {FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Photo / 3D
                   </span>
-                  {syncCursorCoord && (
-                    <span className="font-mono text-[10px] text-cyan-400 bg-slate-900 px-1.5 py-0.5 rounded border border-cyan-500/30 shrink-0">
-                      X: {(syncCursorCoord.x / 100).toFixed(2)}m | Y: {(syncCursorCoord.y / 100).toFixed(2)}m
-                    </span>
-                  )}
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0 flex-wrap">
@@ -9063,43 +9033,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           </g>
                         )}
 
-                        {/* Real-time Synchronized Crosshair Reticle on Photo Canvas */}
-                        {syncCursorCoord && (
-                          <g className="pointer-events-none select-none">
-                            <line
-                              x1={syncCursorCoord.x - 30}
-                              y1={syncCursorCoord.y}
-                              x2={syncCursorCoord.x + 30}
-                              y2={syncCursorCoord.y}
-                              stroke="#38BDF8"
-                              strokeWidth="1.8"
-                              strokeDasharray="4 2"
-                            />
-                            <line
-                              x1={syncCursorCoord.x}
-                              y1={syncCursorCoord.y - 30}
-                              x2={syncCursorCoord.x}
-                              y2={syncCursorCoord.y + 30}
-                              stroke="#38BDF8"
-                              strokeWidth="1.8"
-                              strokeDasharray="4 2"
-                            />
-                            <circle
-                              cx={syncCursorCoord.x}
-                              cy={syncCursorCoord.y}
-                              r="8"
-                              fill="none"
-                              stroke="#38BDF8"
-                              strokeWidth="2"
-                            />
-                            <circle
-                              cx={syncCursorCoord.x}
-                              cy={syncCursorCoord.y}
-                              r="2.5"
-                              fill="#38BDF8"
-                            />
-                          </g>
-                        )}
+                        {/* Real-time Synchronized Crosshair Reticle removed per user preference */}
                       </>
                     );
                   })()}
@@ -9108,6 +9042,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             )}
           </div>
         )}
+          </div>
         </div>
       );
     })()}

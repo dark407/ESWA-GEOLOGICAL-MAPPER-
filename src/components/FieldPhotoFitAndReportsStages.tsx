@@ -34,6 +34,7 @@ import {
   Wand2,
   X,
   ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import {
   buildSmoothSvgPath,
@@ -344,9 +345,9 @@ export const FittedPanelPhotoSvgImage: React.FC<{
 }) => {
   const cx = boxX + boxW / 2;
   const cy = boxY + boxH / 2;
-  const baseScale = Math.max(0.15, Math.min(4.0, (fitConfig.scalePct || 100) / 100));
-  const scaleX = baseScale * Math.max(0.2, Math.min(3.5, (fitConfig.scaleXPct ?? 100) / 100));
-  const scaleY = baseScale * Math.max(0.2, Math.min(3.5, (fitConfig.scaleYPct ?? 100) / 100));
+  const baseScale = Math.max(0.05, Math.min(10.0, (fitConfig.scalePct || 100) / 100));
+  const scaleX = baseScale * Math.max(0.05, Math.min(6.0, (fitConfig.scaleXPct ?? 100) / 100));
+  const scaleY = baseScale * Math.max(0.05, Math.min(6.0, (fitConfig.scaleYPct ?? 100) / 100));
   const sx = (fitConfig.mirrorH ? -1 : 1) * scaleX;
   const sy = (fitConfig.mirrorV ? -1 : 1) * scaleY;
   const rot = fitConfig.rotationDeg || 0;
@@ -1316,6 +1317,9 @@ export const FieldPhotoFitStage: React.FC<{
   const [showCropHandles, setShowCropHandles] = useState(true);
   const [dragMode, setDragMode] = useState<string | null>(null);
 
+  const [canvasZoom, setCanvasZoom] = useState<number>(1.0);
+  const [canvasPan, setCanvasPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
   const dragStartRef = useRef<{
     mode: string;
     startX: number;
@@ -1328,11 +1332,16 @@ export const FieldPhotoFitStage: React.FC<{
     initScaleY: number;
     initCrop: { leftPct: number; rightPct: number; topPct: number; bottomPct: number };
     initMesh: { tl: { x: number; y: number }; tr: { x: number; y: number }; br: { x: number; y: number }; bl: { x: number; y: number } };
+    clientStartX: number;
+    clientStartY: number;
+    initPanX: number;
+    initPanY: number;
   } | null>(null);
 
   const activePointersRef = useRef<Map<number, { clientX: number; clientY: number }>>(new Map());
   const pinchStartDistRef = useRef<number | null>(null);
   const pinchStartScaleRef = useRef<number>(100);
+  const pinchStartZoomRef = useRef<number>(1.0);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -1486,33 +1495,34 @@ export const FieldPhotoFitStage: React.FC<{
     });
   };
 
-  // Mouse wheel zoom in & out smoothly
+  // Mouse wheel zoom in & out smoothly on canvas viewport
   const handleSvgWheel = (e: React.WheelEvent<SVGSVGElement>) => {
     e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.06 : 0.94;
-    const currentScale = activeFit.scalePct || 100;
-    const nextScale = Math.round(Math.max(25, Math.min(400, currentScale * zoomFactor)));
-    updatePanelFit(selectedPanel, { scalePct: nextScale });
+    const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
+    setCanvasZoom((prev) => Math.max(0.25, Math.min(6.0, Math.round(prev * zoomFactor * 100) / 100)));
   };
 
   const handlePointerDown = (mode: string, e: React.PointerEvent<any>) => {
     e.stopPropagation();
-    if (!activePhoto || !svgRef.current) return;
+    if (!svgRef.current) return;
     activePointersRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
 
     // Handle 2-finger touch pinch-to-zoom
     if (activePointersRef.current.size === 2) {
       const pts = Array.from(activePointersRef.current.values());
       pinchStartDistRef.current = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY) || 1;
-      pinchStartScaleRef.current = activeFit.scalePct || 100;
+      pinchStartZoomRef.current = canvasZoom;
       setDragMode('pinch_zoom');
       return;
     }
 
     const { x, y } = getSvgCoordinates(e);
 
+    // If middle click or if clicking on empty canvas/background or if no photo: pan canvas!
+    const effectiveMode = e.button === 1 || !activePhoto || mode === 'canvas_pan' ? 'canvas_pan' : mode;
+
     dragStartRef.current = {
-      mode,
+      mode: effectiveMode,
       startX: x,
       startY: y,
       initOffsetX: activeFit.offsetX,
@@ -1528,8 +1538,12 @@ export const FieldPhotoFitStage: React.FC<{
         br: { ...meshCorners.br },
         bl: { ...meshCorners.bl },
       },
+      clientStartX: e.clientX,
+      clientStartY: e.clientY,
+      initPanX: canvasPan.x,
+      initPanY: canvasPan.y,
     };
-    setDragMode(mode);
+    setDragMode(effectiveMode);
     try {
       e.currentTarget.setPointerCapture?.(e.pointerId);
     } catch {
@@ -1547,12 +1561,23 @@ export const FieldPhotoFitStage: React.FC<{
       const pts = Array.from(activePointersRef.current.values());
       const currentDist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY) || 1;
       const ratio = currentDist / pinchStartDistRef.current;
-      const nextScale = Math.round(Math.max(25, Math.min(400, pinchStartScaleRef.current * ratio)));
-      updatePanelFit(selectedPanel, { scalePct: nextScale });
+      const nextZoom = Math.round(Math.max(0.25, Math.min(6.0, pinchStartZoomRef.current * ratio)) * 100) / 100;
+      setCanvasZoom(nextZoom);
       return;
     }
 
     if (!dragMode || !dragStartRef.current || !svgRef.current) return;
+
+    if (dragMode === 'canvas_pan') {
+      const dxPx = (e.clientX - dragStartRef.current.clientStartX) / canvasZoom;
+      const dyPx = (e.clientY - dragStartRef.current.clientStartY) / canvasZoom;
+      setCanvasPan({
+        x: Math.round(dragStartRef.current.initPanX - dxPx),
+        y: Math.round(dragStartRef.current.initPanY - dyPx),
+      });
+      return;
+    }
+
     const { x, y } = getSvgCoordinates(e);
     const dx = x - dragStartRef.current.startX;
     const dy = y - dragStartRef.current.startY;
@@ -1560,8 +1585,8 @@ export const FieldPhotoFitStage: React.FC<{
     if (dragMode === 'pan') {
       // Direct drag on photo pans smoothly with mouse or finger
       updatePanelFit(selectedPanel, {
-        offsetX: Math.round(Math.max(-550, Math.min(550, dragStartRef.current.initOffsetX + dx))),
-        offsetY: Math.round(Math.max(-550, Math.min(550, dragStartRef.current.initOffsetY + dy))),
+        offsetX: Math.round(Math.max(-1500, Math.min(1500, dragStartRef.current.initOffsetX + dx))),
+        offsetY: Math.round(Math.max(-1500, Math.min(1500, dragStartRef.current.initOffsetY + dy))),
       });
     } else if (dragMode === 'mesh_tl') {
       updatePanelFit(selectedPanel, {
@@ -1765,17 +1790,42 @@ export const FieldPhotoFitStage: React.FC<{
                 >
                   Fill Profile
                 </button>
-                {/* Zoom Scale Display & 100% Reset */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    updatePanelFit(selectedPanel, { scalePct: 100 })
-                  }
-                  className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-[10.5px] font-mono text-emerald-400 font-bold hover:bg-slate-800 cursor-pointer"
-                  title="Mouse Wheel / 2-Finger Touch Pinch to Zoom. Click to reset to 100%."
-                >
-                  {activeFit.scalePct || 100}%
-                </button>
+                {/* Canvas View Zoom Controls: Zoom Out (-), % / 100% Reset, Zoom In (+) */}
+                <div className="inline-flex items-center rounded-lg bg-slate-900 p-0.5 border border-slate-700 gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCanvasZoom((z) => Math.max(0.25, Math.round((z / 1.25) * 100) / 100))
+                    }
+                    className="px-2 py-0.5 rounded text-[11px] font-mono font-bold text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-0.5 transition-colors"
+                    title="Zoom Out Canvas (-)"
+                  >
+                    <ZoomOut className="w-3 h-3" />
+                    <span>-</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCanvasZoom(1.0);
+                      setCanvasPan({ x: 0, y: 0 });
+                    }}
+                    className="px-2 py-0.5 rounded bg-slate-950 text-[10.5px] font-mono text-emerald-400 font-bold hover:bg-slate-800 cursor-pointer transition-colors"
+                    title="Reset Canvas Zoom to 100% and Center"
+                  >
+                    {Math.round(canvasZoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCanvasZoom((z) => Math.min(6.0, Math.round(z * 1.25 * 100) / 100))
+                    }
+                    className="px-2 py-0.5 rounded text-[11px] font-mono font-bold text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-0.5 transition-colors"
+                    title="Zoom In Canvas (+)"
+                  >
+                    <ZoomIn className="w-3 h-3" />
+                    <span>+</span>
+                  </button>
+                </div>
                 {/* Quick Rotate 90 & Mirror */}
                 <button
                   type="button"
@@ -1874,12 +1924,22 @@ export const FieldPhotoFitStage: React.FC<{
               </div>
             </div>
 
-            <div className="relative flex-1 min-h-0 h-full w-full flex items-center justify-center bg-slate-900/80 rounded-lg border border-slate-800 overflow-hidden">
+            <div className="relative flex-1 min-h-0 h-full w-full flex items-center justify-center bg-transparent overflow-hidden">
               <svg
                 ref={svgRef}
-                viewBox="0 0 1000 1000"
+                viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
+                  500 -
+                  500 / canvasZoom +
+                  canvasPan.y
+                ).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)}`}
                 className={`w-full h-full max-h-full select-none touch-none object-contain ${
-                  dragMode ? 'cursor-grabbing' : activePhoto ? 'cursor-grab' : ''
+                  dragMode === 'canvas_pan'
+                    ? 'cursor-grabbing'
+                    : dragMode
+                    ? 'cursor-grabbing'
+                    : activePhoto
+                    ? 'cursor-grab'
+                    : 'cursor-default'
                 }`}
                 onWheel={handleSvgWheel}
                 onPointerDown={(e) => handlePointerDown('pan', e)}
@@ -1907,19 +1967,18 @@ export const FieldPhotoFitStage: React.FC<{
                   </clipPath>
                 </defs>
 
-                {/* Dark Outer Surround */}
-                <rect x="0" y="0" width="1000" height="1000" fill="#080c14" />
+                {/* Dark outer surround black box removed per user preference */}
 
-                {/* Inside Excavation Profile Area */}
+                {/* Inside Excavation Profile Area (Bright White Background - Not Dark) */}
                 {selectedPanel === 'face' && faceDetails ? (
-                  <path d={faceDetails.closedFillPathD} fill="#131c2e" />
+                  <path d={faceDetails.closedFillPathD} fill="#FFFFFF" />
                 ) : (
                   <rect
                     x={pGeom.boxX}
                     y={pGeom.boxY}
                     width={pGeom.boxW}
                     height={pGeom.boxH}
-                    fill="#131c2e"
+                    fill="#FFFFFF"
                   />
                 )}
 
@@ -1941,8 +2000,9 @@ export const FieldPhotoFitStage: React.FC<{
                     x={pGeom.boxX + pGeom.boxW / 2}
                     y={pGeom.boxY + pGeom.boxH / 2}
                     textAnchor="middle"
-                    fill="#94a3b8"
-                    fontSize="22"
+                    fill="#64748b"
+                    fontSize="20"
+                    fontWeight="bold"
                     fontFamily="IBM Plex Mono, monospace"
                   >
                     No photo uploaded for this surface yet
@@ -2916,10 +2976,10 @@ export const FieldPhotoFitStage: React.FC<{
                     </div>
                     <input
                       type="range"
-                      min={30}
-                      max={260}
+                      min={10}
+                      max={500}
                       step={2}
-                      value={activeFit.scalePct}
+                      value={activeFit.scalePct || 100}
                       onChange={(e) =>
                         updatePanelFit(selectedPanel, { scalePct: Number(e.target.value) })
                       }

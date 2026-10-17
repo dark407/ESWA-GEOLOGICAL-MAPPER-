@@ -123,8 +123,12 @@ const SURFACE_RESUME_STORAGE_KEY = 'eswa_surface_mapping_resume_v1';
 
 export interface SurfaceMappingResumeState {
   subType: SurfaceMappingSubType;
-  workflowMode: 'FIELD' | 'PHOTOGRAMMETRY';
-  stageOrScreen: string;
+  workflowMode?: 'FIELD' | 'PHOTOGRAMMETRY' | 'field_mapping' | 'photo_mapping';
+  stageOrScreen?: string;
+  stage?: string;
+  activeProjectId?: string;
+  activeLocationId?: string;
+  activeRoundId?: string;
   projectName?: string;
   locationName?: string;
   stationLabel?: string;
@@ -285,7 +289,7 @@ export function loadSurfaceMappingResumeState(): SurfaceMappingResumeState | nul
     const raw = localStorage.getItem(SURFACE_RESUME_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as SurfaceMappingResumeState;
-    if (!parsed || !parsed.subType || !parsed.workflowMode) return null;
+    if (!parsed || !parsed.subType) return null;
     return parsed;
   } catch {
     return null;

@@ -8381,69 +8381,9 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
               </g>
             )}
 
-            {dynamicInputReadout && cursorCanvasPx && (
-              <g className="pointer-events-none">
-                <line
-                  x1={dynamicInputReadout.refCx}
-                  y1={dynamicInputReadout.refCy}
-                  x2={cursorCanvasPx.cx}
-                  y2={cursorCanvasPx.cy}
-                  stroke="#38BDF8"
-                  strokeWidth={1.3 / viewport.zoom}
-                  strokeDasharray={`${4 / viewport.zoom} ${3 / viewport.zoom}`}
-                />
-                <rect
-                  x={cursorCanvasPx.cx + 12 / viewport.zoom}
-                  y={cursorCanvasPx.cy + 10 / viewport.zoom}
-                  width={128 / viewport.zoom}
-                  height={20 / viewport.zoom}
-                  rx={2 / viewport.zoom}
-                  fill={isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(9, 13, 22, 0.92)'}
-                  stroke={isLight ? '#0284C7' : '#38BDF8'}
-                  strokeWidth={1 / viewport.zoom}
-                />
-                <text
-                  x={cursorCanvasPx.cx + 17 / viewport.zoom}
-                  y={cursorCanvasPx.cy + 23.5 / viewport.zoom}
-                  fontSize={9.5 / viewport.zoom}
-                  fontWeight="700"
-                  fontFamily="IBM Plex Mono, monospace"
-                  fill={isLight ? '#0F172A' : '#E0F2FE'}
-                >
-                  L={dynamicInputReadout.lenMeters}m ∠{dynamicInputReadout.angleDeg}°
-                </text>
-              </g>
-            )}
+            {/* Dynamic input cursor box removed per user preference */}
 
-            {/* Legacy Layer 8 placeholder removed: rendered in unified obstacle-aware pass above */}
-            {cursorCanvasPx && (
-              <g className="pointer-events-none" opacity="0.88">
-                <line
-                  x1={cursorCanvasPx.cx - 10 / viewport.zoom}
-                  y1={cursorCanvasPx.cy}
-                  x2={cursorCanvasPx.cx + 10 / viewport.zoom}
-                  y2={cursorCanvasPx.cy}
-                  stroke={isLight ? '#000000' : '#FFFFFF'}
-                  strokeWidth={1.4 / viewport.zoom}
-                />
-                <line
-                  x1={cursorCanvasPx.cx}
-                  y1={cursorCanvasPx.cy - 10 / viewport.zoom}
-                  x2={cursorCanvasPx.cx}
-                  y2={cursorCanvasPx.cy + 10 / viewport.zoom}
-                  stroke={isLight ? '#000000' : '#FFFFFF'}
-                  strokeWidth={1.4 / viewport.zoom}
-                />
-                <circle
-                  cx={cursorCanvasPx.cx}
-                  cy={cursorCanvasPx.cy}
-                  r={2.5 / viewport.zoom}
-                  fill="none"
-                  stroke={isLight ? '#000000' : '#FFFFFF'}
-                  strokeWidth={1.2 / viewport.zoom}
-                />
-              </g>
-            )}
+            {/* Cursor reticle removed per user preference */}
             </g>
           </>
         );

@@ -795,7 +795,16 @@ export interface FieldMappingStoreState {
   idealGroupJointPanelTransforms?: Partial<Record<FieldPanelId, FieldPanelTransform>>;
 }
 
-const FIELD_MAPPING_STORAGE_KEY = 'eswa_apk_field_mapping_store_v1';
+export const FIELD_MAPPING_STORAGE_KEY = 'eswa_apk_field_mapping_store_v1';
+export const SURFACE_MAPPING_STORAGE_KEY = 'eswa_apk_surface_mapping_store_v1';
+
+export function getFieldMappingStorageKey(domain?: MappingDomainType): string {
+  if (domain && domain !== 'TUNNEL') {
+    return SURFACE_MAPPING_STORAGE_KEY;
+  }
+  return FIELD_MAPPING_STORAGE_KEY;
+}
+
 const FIELD_IDEAL_PANEL_TRANSFORMS_KEY = 'eswa_apk_ideal_panel_transforms_v1';
 
 interface StoredIdealPanelTransforms {
@@ -2215,9 +2224,10 @@ export function createNewExcavationRound(
   };
 }
 
-export function loadFieldMappingStore(): FieldMappingStoreState {
+export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingStoreState {
+  const storageKey = getFieldMappingStorageKey(domain);
   try {
-    const raw = localStorage.getItem(FIELD_MAPPING_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (raw) {
       const parsed = JSON.parse(raw) as FieldMappingStoreState;
       if (
@@ -2324,6 +2334,10 @@ export function loadFieldMappingStore(): FieldMappingStoreState {
     // Ignore storage read failure
   }
 
+  if (domain && domain !== 'TUNNEL') {
+    return createDefaultSurfaceMappingStore(domain);
+  }
+
   // Seed 1 default project & 2 locations so the geologist can test in 1 tap or add their own
   const defaultLoc1: FieldTunnelLocationItem = {
     id: 'floc-main-hrt',
@@ -2374,9 +2388,74 @@ export function loadFieldMappingStore(): FieldMappingStoreState {
   };
 }
 
-export function saveFieldMappingStore(state: FieldMappingStoreState): void {
+export function createDefaultSurfaceMappingStore(domain: MappingDomainType = 'BENCH'): FieldMappingStoreState {
+  const isBench = domain === 'BENCH';
+  const isTrench = domain === 'TRENCH';
+  const isSlope = domain === 'SLOPE';
+
+  const defaultLoc: FieldTunnelLocationItem = {
+    id: `floc-surf-${domain.toLowerCase()}-1`,
+    name: isBench
+      ? 'Quarry Bench BL-1240'
+      : isTrench
+      ? 'Exploration Trench TR-01'
+      : isSlope
+      ? 'Cut Slope CS-01'
+      : 'Rock Surface Exposure RS-01',
+    shape: 'rectangular',
+    widthM: isTrench ? 4 : 15,
+    heightM: isTrench ? 3 : 8,
+    wallHeightM: isTrench ? 3 : 8,
+    roofRadiusM: 0,
+    directionDeg: 135,
+    chainagePrefix: isBench ? 'Bench' : isTrench ? 'Trench' : 'Station',
+  };
+
+  const defaultProject: FieldProjectItem = {
+    id: `fproj-surf-${domain.toLowerCase()}-1`,
+    projectName: isBench
+      ? 'Open-Pit & Quarry Bench Mapping Project'
+      : isTrench
+      ? 'Foundation & Exploration Trench Logging Project'
+      : isSlope
+      ? 'Engineered Rock Slope Stability Project'
+      : 'Surface Rock Outcrop Geological Mapping Project',
+    clientName: 'Surface Operations Authority',
+    contractorName: 'Surface Civil & Mining Works',
+    consultantName: 'ESWA Surface Rock Geology',
+    createdAt: new Date().toISOString(),
+    locations: [defaultLoc],
+    customWordTemplate: null,
+  };
+
+  const initialRound = createNewExcavationRound(defaultProject, defaultLoc, null);
+  initialRound.roundNumber = 1;
+  initialRound.pullLengthMeters = isTrench ? 5 : 15;
+  initialRound.mappingDomain = domain;
+  initialRound.faceTitle = isBench
+    ? 'Bench Face BF-01'
+    : isTrench
+    ? 'Trench Section TS-01'
+    : isSlope
+    ? 'Slope Section SS-01'
+    : 'Rock Exposure 01';
+
+  return {
+    projects: [defaultProject],
+    rounds: [initialRound],
+    activeProjectId: defaultProject.id,
+    activeLocationId: defaultLoc.id,
+    activeRoundId: initialRound.id,
+    rememberedRocks: [],
+  };
+}
+
+export function saveFieldMappingStore(state: FieldMappingStoreState, domain?: MappingDomainType): void {
+  const activeR = state.rounds.find((r) => r.id === state.activeRoundId);
+  const effectiveDomain = domain || activeR?.mappingDomain || 'TUNNEL';
+  const storageKey = getFieldMappingStorageKey(effectiveDomain);
   try {
-    localStorage.setItem(FIELD_MAPPING_STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(storageKey, JSON.stringify(state));
   } catch {
     // If photos exceed quota, strip bulky dataUrls from older rounds first
     try {
@@ -2391,7 +2470,7 @@ export function saveFieldMappingStore(state: FieldMappingStoreState): void {
               }
         ),
       };
-      localStorage.setItem(FIELD_MAPPING_STORAGE_KEY, JSON.stringify(compact));
+      localStorage.setItem(storageKey, JSON.stringify(compact));
     } catch {
       // Ignore
     }

@@ -1117,8 +1117,11 @@ export const EswaLoadingScreen: React.FC<EswaLoadingScreenProps> = ({ onComplete
 
   return (
     <div
-      onClick={() => playEswaWelcomeChime(true)}
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center px-4 select-none overflow-hidden transition-all duration-300 ${
+      onClick={() => {
+        playEswaWelcomeChime(true);
+        onComplete();
+      }}
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center px-4 select-none overflow-hidden cursor-pointer transition-all duration-300 ${
         isExiting ? 'opacity-0 scale-[1.03]' : 'opacity-100 scale-100'
       }`}
       style={{
@@ -1131,13 +1134,23 @@ export const EswaLoadingScreen: React.FC<EswaLoadingScreenProps> = ({ onComplete
       <EswaGeologicalOrangeMapBackdrop />
 
       {/* Logo Only — No Box Around It! Eagle Flies in From Left + Logo Slowly Pops Out Over 3 Seconds */}
-      <div className="relative z-10 flex items-center justify-center">
+      <div className="relative z-10 flex flex-col items-center justify-center">
         <EswaTunnelLogo
           size="splash"
           variant="emblem"
           eagleEntranceAnimation
           showBadge={false}
         />
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onComplete();
+          }}
+          className="mt-6 px-4 py-1.5 rounded-full bg-slate-900/60 hover:bg-slate-900/80 text-white/90 text-xs font-semibold tracking-wider uppercase transition-colors shadow-sm"
+        >
+          Click anywhere to enter
+        </button>
       </div>
     </div>
   );

@@ -2629,28 +2629,28 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
           </button>
 
           {/* B&W vs Colour Mode Toggle in 3D View */}
-          <div className="inline-flex items-center rounded bg-slate-900 p-0.5 border border-slate-700">
+          <div className="inline-flex items-center rounded-lg bg-slate-900 p-0.5 border border-slate-700 gap-0.5">
             <button
               type="button"
               onClick={() => onUpdateRound((r) => ({ ...r, reportColorMode: 'bw' }))}
-              className={`px-1.5 py-0.5 rounded text-[9.5px] font-black transition-all cursor-pointer ${
+              className={`px-2 py-0.5 rounded text-[9.5px] font-black transition-all cursor-pointer ${
                 (activeRound.reportColorMode ?? 'color') === 'bw'
-                  ? 'bg-slate-200 text-slate-950 shadow'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-slate-100 text-slate-950 shadow-md ring-1 ring-slate-300 font-black'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
-              title="Switch 3D Canvas to Black & White Mode"
+              title="Switch to Black & White Mode (Independent monochrome canvas — changes will not affect Colour mode)"
             >
               B&amp;W
             </button>
             <button
               type="button"
               onClick={() => onUpdateRound((r) => ({ ...r, reportColorMode: 'color' }))}
-              className={`px-1.5 py-0.5 rounded text-[9.5px] font-black transition-all cursor-pointer ${
+              className={`px-2 py-0.5 rounded text-[9.5px] font-black transition-all cursor-pointer ${
                 (activeRound.reportColorMode ?? 'color') === 'color'
-                  ? 'bg-amber-500 text-slate-950 shadow'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-gradient-to-r from-amber-500 to-cyan-400 text-slate-950 shadow-md ring-1 ring-amber-300 font-black'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
-              title="Switch 3D Canvas to Geological Colour Mode"
+              title="Switch to Geological Colour Mode (Independent colour canvas — changes will not affect B&W mode)"
             >
               Colour
             </button>
