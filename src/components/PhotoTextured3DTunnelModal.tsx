@@ -460,12 +460,31 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
 
   // Build the 3D tunnel perimeter arch & wall profile points
   // Ordered continuously from Left Invert -> Left SPL -> Crown Apex -> Right SPL -> Right Invert
+  // Supports D-Shaped, Horseshoe, Circular, Basket-Handle, and Custom CAD tunnel profiles
   const perimeterProfileNodes = useMemo(() => {
     const W = Math.max(2.0, geometry.width);
     const H = Math.max(2.0, geometry.height);
-    const wallH = Math.min(H * 0.72, Math.max(1.2, geometry.wallHeight || H * 0.52));
+    const wallH = Math.min(H * 0.75, Math.max(0.8, geometry.wallHeight || H * 0.52));
     const archH = Math.max(0.5, H - wallH);
     const halfW = W / 2;
+    const shape = geometry.profileType || geometry.crownGeometry || 'horseshoe';
+
+    const isCircular = shape === 'circular';
+    const isHorseshoe = shape === 'horseshoe' || shape === 'modified_horseshoe';
+    const isBasketHandle = shape === 'flat_arch' || shape === 'top_heading';
+    const isDShaped =
+      shape === 'd_shaped' ||
+      (!isCircular && !isHorseshoe && !isBasketHandle && shape !== 'custom_cad' && shape !== 'freeform_custom');
+
+    const shapeLabel = isCircular
+      ? 'Circular'
+      : isHorseshoe
+      ? 'Horseshoe'
+      : isBasketHandle
+      ? 'Basket-Handle'
+      : isDShaped
+      ? 'D-Shaped'
+      : 'Custom CAD';
 
     const nodes: {
       x: number;
@@ -476,17 +495,37 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
       ny: number; // Inward normal Y
     }[] = [];
 
-    // 1. Left Wall: 8 segments from y = 0 to y = wallH at x = -halfW
+    // 1. Left Wall: 8 segments from y = 0 to y = wallH
     const nWall = 8;
     for (let i = 0; i <= nWall; i++) {
       const t = i / nWall;
+      let x = -halfW;
+      let y = t * wallH;
+      let nx = 1;
+      let ny = 0;
+
+      if (isCircular) {
+        // Lower left arc of circle from invert to springline
+        const theta = -Math.PI / 2 - (1 - t) * (Math.PI / 2);
+        x = halfW * Math.cos(theta);
+        y = H / 2 + (H / 2) * Math.sin(theta);
+        nx = -Math.cos(theta);
+        ny = -Math.sin(theta);
+      } else if (isHorseshoe) {
+        // Horseshoe haunch curves inward toward invert
+        x = -halfW * (0.91 + 0.09 * t);
+        y = t * wallH;
+        nx = 0.98;
+        ny = -0.09;
+      }
+
       nodes.push({
-        x: -halfW,
-        y: t * wallH,
+        x,
+        y: Math.max(0, y),
         surface: 'leftWall',
         u: 1 - t, // v=0 is top SPL, v=1 is bottom invert
-        nx: 1,
-        ny: 0,
+        nx,
+        ny,
       });
     }
 
@@ -495,10 +534,22 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
     for (let i = 0; i <= nCrown; i++) {
       const t = i / nCrown; // 0 = Left SPL, 0.5 = Crown Apex, 1 = Right SPL
       const theta = Math.PI * (1 - t);
-      const x = halfW * Math.cos(theta);
-      const y = wallH + archH * Math.sin(theta);
-      const nx = -Math.cos(theta);
-      const ny = -Math.sin(theta);
+      let x = halfW * Math.cos(theta);
+      let y = wallH + archH * Math.sin(theta);
+      let nx = -Math.cos(theta);
+      let ny = -Math.sin(theta);
+
+      if (isCircular) {
+        y = H / 2 + (H / 2) * Math.sin(theta);
+        nx = -Math.cos(theta);
+        ny = -Math.sin(theta);
+      } else if (isBasketHandle) {
+        // 3-centered basket-handle profile: broader roof, tighter corners
+        const archFactor = Math.pow(Math.sin(theta), 0.72);
+        y = wallH + archH * archFactor;
+        ny = -Math.max(0.2, Math.sin(theta));
+      }
+
       const nLen = Math.hypot(nx, ny) || 1;
       nodes.push({
         x,
@@ -510,21 +561,57 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
       });
     }
 
-    // 3. Right Wall: 8 segments from y = wallH down to y = 0 at x = +halfW
+    // 3. Right Wall: 8 segments from y = wallH down to y = 0
     for (let i = 0; i <= nWall; i++) {
       const t = i / nWall; // 0 = Right SPL (top), 1 = Right Invert (bottom)
+      let x = halfW;
+      let y = (1 - t) * wallH;
+      let nx = -1;
+      let ny = 0;
+
+      if (isCircular) {
+        const theta = -t * (Math.PI / 2);
+        x = halfW * Math.cos(theta);
+        y = H / 2 + (H / 2) * Math.sin(theta);
+        nx = -Math.cos(theta);
+        ny = -Math.sin(theta);
+      } else if (isHorseshoe) {
+        x = halfW * (0.91 + 0.09 * (1 - t));
+        y = (1 - t) * wallH;
+        nx = -0.98;
+        ny = -0.09;
+      }
+
       nodes.push({
-        x: halfW,
-        y: (1 - t) * wallH,
+        x,
+        y: Math.max(0, y),
         surface: 'rightWall',
         u: t,
-        nx: -1,
-        ny: 0,
+        nx,
+        ny,
       });
     }
 
-    return { nodes, W, H, wallH, archH, halfW };
-  }, [geometry.width, geometry.height, geometry.wallHeight]);
+    return {
+      nodes,
+      W,
+      H,
+      wallH,
+      archH,
+      halfW,
+      shapeLabel,
+      isCircular,
+      isHorseshoe,
+      isBasketHandle,
+      isDShaped,
+    };
+  }, [
+    geometry.width,
+    geometry.height,
+    geometry.wallHeight,
+    geometry.profileType,
+    geometry.crownGeometry,
+  ]);
 
   // Build 3D textured quads for Left Wall, Crown Arch, Right Wall, and Excavation Face
   const meshData = useMemo(() => {
@@ -652,10 +739,22 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
       const y0 = ty0 * H;
       const y1 = ty1 * H;
 
-      // Determine max half-span at y0 and y1 for the tunnel arch
+      // Determine max half-span at y0 and y1 matching the exact tunnel profile shape
       const getSpanAtY = (y: number) => {
-        if (y <= wallH) return halfW;
+        if (perimeterProfileNodes.isCircular) {
+          const dy = Math.abs(y - H / 2);
+          return halfW * Math.sqrt(Math.max(0, 1 - Math.pow(dy / Math.max(0.1, H / 2), 2)));
+        }
+        if (y <= wallH) {
+          if (perimeterProfileNodes.isHorseshoe) {
+            return halfW * (0.91 + 0.09 * (y / wallH));
+          }
+          return halfW;
+        }
         const dy = Math.min(1, (y - wallH) / Math.max(0.1, archH));
+        if (perimeterProfileNodes.isBasketHandle) {
+          return halfW * Math.pow(Math.max(0, 1 - Math.pow(dy, 2.4)), 0.38);
+        }
         return halfW * Math.sqrt(Math.max(0, 1 - dy * dy));
       };
       const span0 = getSpanAtY(y0);
@@ -1387,12 +1486,23 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
             <span>·</span>
             <span className="text-sky-300 font-semibold">{settings.tunnelName}</span>
             <span>·</span>
-            <span className="text-amber-300 font-semibold">{settings.faceChainage}</span>
-            <span>·</span>
-            <span>
-              {geometry.width.toFixed(1)}m × {geometry.height.toFixed(1)}m ×{' '}
-              {meshData.totalLength.toFixed(1)}m
+            <span className="px-2 py-0.5 rounded bg-sky-950/90 border border-sky-500/50 text-sky-200 font-bold">
+              {perimeterProfileNodes.shapeLabel} Profile
             </span>
+            <span>·</span>
+            <span className="text-amber-300 font-semibold">
+              {geometry.width.toFixed(1)}m W × {geometry.height.toFixed(1)}m H
+            </span>
+            <span>·</span>
+            <span className="text-sky-300 font-semibold">
+              Chainage: {settings.faceChainage || settings.chainage || 'RD 0+00'}
+            </span>
+            <span>·</span>
+            <span className="text-emerald-400 font-bold">
+              Azimuth: {settings.driveDirection || 70}°
+            </span>
+            <span>·</span>
+            <span className="text-slate-300">{meshData.totalLength.toFixed(1)}m Model</span>
           </div>
         </div>
 

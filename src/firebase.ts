@@ -7,8 +7,10 @@ import {
   User,
 } from 'firebase/auth';
 import {
+  Firestore,
   getFirestore,
   initializeFirestore,
+  memoryLocalCache,
   setLogLevel,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -21,26 +23,53 @@ const resolvedDatabaseId =
 
 const app = initializeApp(firebaseConfig);
 
-// Enable forced long-polling across all platforms (web browser, preview iframes, Android APK, Electron Desktop)
-// IMPORTANT: Never use experimentalAutoDetectLongPolling: true.
-// It has a known critical race condition in the Firebase JS SDK (GitHub #9267 / #10008)
-// that causes `INTERNAL ASSERTION FAILED: Unexpected state (ID: ca9) CONTEXT: {"ve":-1}`
-// followed by AsyncQueue failure `ID: b815`.
-// Instead, use experimentalForceLongPolling: true which is deterministic, reliable and safe.
+// Clean any stale legacy IndexedDB persistence from earlier SDK versions that cause
+// TargetState internal assertion failures (ca9 / b815 with ve: -1).
+if (typeof window !== 'undefined' && window.indexedDB) {
+  try {
+    const req = window.indexedDB.databases?.();
+    if (req && typeof req.then === 'function') {
+      req.then((dbs) => {
+        dbs.forEach((dbInfo) => {
+          if (
+            dbInfo.name &&
+            (dbInfo.name.includes('firestore') ||
+              dbInfo.name.includes('firebase') ||
+              dbInfo.name.includes('[DEFAULT]'))
+          ) {
+            try {
+              window.indexedDB.deleteDatabase(dbInfo.name);
+            } catch {
+              // Ignore
+            }
+          }
+        });
+      }).catch(() => {});
+    }
+  } catch {
+    // Ignore
+  }
+}
+
+// Memory local cache prevents multi-tab and iframe target corruption
+// experimentalForceLongPolling guarantees stable connection through iframes and proxies
+let dbInstance: Firestore;
 try {
-  initializeFirestore(
+  dbInstance = initializeFirestore(
     app,
     {
+      localCache: memoryLocalCache(),
       experimentalForceLongPolling: true,
     },
     resolvedDatabaseId
   );
   setLogLevel('silent');
 } catch {
-  // Already initialized
+  dbInstance = getFirestore(app, resolvedDatabaseId);
 }
 
 if (typeof window !== 'undefined') {
+  // Global catch for Firestore internal SDK assertion failures
   window.addEventListener(
     'error',
     (event) => {
@@ -81,7 +110,7 @@ if (typeof window !== 'undefined') {
   );
 }
 
-export const db = getFirestore(app, resolvedDatabaseId);
+export const db = dbInstance;
 export const auth = getAuth(app);
 
 export const SCOPES = ['https://www.googleapis.com/auth/gmail.send'];

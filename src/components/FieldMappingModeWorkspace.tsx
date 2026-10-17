@@ -142,6 +142,7 @@ import {
   FieldSupportSystemStage,
   FieldSurveyOverbreakStage,
 } from './FieldAdvancedStages';
+import { Tunnel3DPhotoCanvas } from './Tunnel3DPhotoCanvas';
 import {
   Field3DTunnelGeologicalReportStage,
   FieldCanvasAdvanceMatlabPanel,
@@ -526,7 +527,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [photoContrast, setPhotoContrast] = useState<number>(100);
   const [photoMatlabFilter, setPhotoMatlabFilter] = useState<boolean>(false);
   const [syncCursorCoord, setSyncCursorCoord] = useState<FieldPoint2D | null>(null);
-  const [dualCanvasMobileTab, setDualCanvasMobileTab] = useState<'map' | 'photo' | 'split'>('split');
+  const [dualCanvasMobileTab, setDualCanvasMobileTab] = useState<'map' | 'photo' | 'split'>('map');
+  const [photoCanvasViewMode, setPhotoCanvasViewMode] = useState<'2d' | '3d'>('3d');
+  const [photoCanvasTheme, setPhotoCanvasTheme] = useState<'light' | 'dark'>('light');
   const photoCanvasSvgRef = useRef<SVGSVGElement | null>(null);
 
   // Default authentic high-contrast rock photograph if user hasn't uploaded one yet
@@ -743,6 +746,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [activePanel, setActivePanel] = useState<FieldPanelId>(() =>
     resumeAtLastStage && savedResume?.activePanel ? savedResume.activePanel : 'face'
   );
+
+  const effectiveActivePanelPhotoDataUrl = useMemo(() => {
+    const p = activeRound?.collectedPhotos.slice().reverse().find((ph) => ph.panel === activePanel);
+    return p?.dataUrl || defaultSampleFacePhoto;
+  }, [activeRound?.collectedPhotos, activePanel, defaultSampleFacePhoto]);
   const [is3DMappingMode, setIs3DMappingMode] = useState<boolean>(() =>
     resumeAtLastStage && typeof savedResume?.is3DMappingMode === 'boolean'
       ? savedResume.is3DMappingMode
@@ -1388,21 +1396,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         : 1 / 1.15;
 
       setCanvasZoom((prevZoom) => {
-        const nextZoom = Math.max(0.6, Math.min(5.0, Number((prevZoom * factor).toFixed(3))));
-        if (nextZoom <= 1) {
-          setCanvasPan({ x: 0, y: 0 });
-        } else {
-          const normX = (e.clientX - rect.left) / Math.max(1, rect.width) - 0.5;
-          const normY = (e.clientY - rect.top) / Math.max(1, rect.height) - 0.5;
-          const shiftX = normX * (1000 / prevZoom - 1000 / nextZoom);
-          const shiftY = normY * (1000 / prevZoom - 1000 / nextZoom);
-          const viewSpan = 1000 / nextZoom;
-          const maxOffset = Math.max(0, 500 - viewSpan / 2 + 160);
-          setCanvasPan((prevPan) => ({
-            x: Math.max(-maxOffset, Math.min(maxOffset, prevPan.x + shiftX)),
-            y: Math.max(-maxOffset, Math.min(maxOffset, prevPan.y + shiftY)),
-          }));
-        }
+        // Infinite zoom in and out: down to 0.02 (super macro) and up to 250.0 (micro-crack detail)
+        const nextZoom = Math.max(0.02, Math.min(250.0, Number((prevZoom * factor).toFixed(4))));
+        const normX = (e.clientX - rect.left) / Math.max(1, rect.width) - 0.5;
+        const normY = (e.clientY - rect.top) / Math.max(1, rect.height) - 0.5;
+        const shiftX = normX * (1000 / prevZoom - 1000 / nextZoom);
+        const shiftY = normY * (1000 / prevZoom - 1000 / nextZoom);
+        const maxOffset = Math.max(1500, (5000 / nextZoom) + 3000);
+        setCanvasPan((prevPan) => ({
+          x: Math.max(-maxOffset, Math.min(maxOffset, prevPan.x + shiftX)),
+          y: Math.max(-maxOffset, Math.min(maxOffset, prevPan.y + shiftY)),
+        }));
         return nextZoom;
       });
     };
@@ -1912,10 +1916,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       const ps = pinchStateRef.current;
 
       const scaleRatio = currDist / ps.startDist;
-      const nextZoom = Math.max(0.6, Math.min(5.0, Number((ps.startZoom * scaleRatio).toFixed(3))));
+      // Infinite zoom with touch fingers: down to 0.02 and up to 250.0
+      const nextZoom = Math.max(0.02, Math.min(250.0, Number((ps.startZoom * scaleRatio).toFixed(4))));
       const svg = canvasSvgRef.current;
       const rect = svg?.getBoundingClientRect();
-      const viewSpan = 1000 / Math.max(0.5, nextZoom);
+      const viewSpan = 1000 / Math.max(0.02, nextZoom);
       const scaleX = viewSpan / Math.max(1, rect?.width || 600);
       const scaleY = viewSpan / Math.max(1, rect?.height || 600);
 
@@ -1926,16 +1931,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       const zoomShiftX = normMidX * (1000 / ps.startZoom - 1000 / nextZoom);
       const zoomShiftY = normMidY * (1000 / ps.startZoom - 1000 / nextZoom);
 
-      const maxOffset = Math.max(0, 500 - viewSpan / 2 + 160);
+      const maxOffset = Math.max(1500, (5000 / nextZoom) + 3000);
       setCanvasZoom(nextZoom);
-      if (nextZoom <= 1) {
-        setCanvasPan({ x: 0, y: 0 });
-      } else {
-        setCanvasPan({
-          x: Math.max(-maxOffset, Math.min(maxOffset, ps.startPanX + zoomShiftX + panDx)),
-          y: Math.max(-maxOffset, Math.min(maxOffset, ps.startPanY + zoomShiftY + panDy)),
-        });
-      }
+      setCanvasPan({
+        x: Math.max(-maxOffset, Math.min(maxOffset, ps.startPanX + zoomShiftX + panDx)),
+        y: Math.max(-maxOffset, Math.min(maxOffset, ps.startPanY + zoomShiftY + panDy)),
+      });
       return;
     }
 
@@ -1944,12 +1945,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     if (panDragOrigin) {
       const svg = canvasSvgRef.current;
       const rect = svg?.getBoundingClientRect();
-      const viewSpan = 1000 / Math.max(0.5, canvasZoom);
+      const viewSpan = 1000 / Math.max(0.02, canvasZoom);
       const scaleX = viewSpan / Math.max(1, rect?.width || 600);
       const scaleY = viewSpan / Math.max(1, rect?.height || 600);
       const dx = (panDragOrigin.clientX - e.clientX) * scaleX;
       const dy = (panDragOrigin.clientY - e.clientY) * scaleY;
-      const maxOffset = Math.max(0, 500 - viewSpan / 2 + 160);
+      const maxOffset = Math.max(1500, (5000 / Math.max(0.02, canvasZoom)) + 3000);
       setCanvasPan({
         x: Math.max(-maxOffset, Math.min(maxOffset, panDragOrigin.startPanX + dx)),
         y: Math.max(-maxOffset, Math.min(maxOffset, panDragOrigin.startPanY + dy)),
@@ -5788,9 +5789,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer flex items-center gap-2"
                       >
                         <span>
-                          {mappingDomain === 'TUNNEL'
-                            ? 'Save Round & Open Face Canvas →'
-                            : `Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Open Canvas →`}
+                          {`Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Open Canvas →`}
                         </span>
                       </button>
                     ) : (
@@ -5803,9 +5802,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         className="px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer flex items-center gap-2"
                       >
                         <span>
-                          {mappingDomain === 'TUNNEL'
-                            ? 'Save Round & Upload Tunnel Photos →'
-                            : `Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Upload Photos →`}
+                          {`Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Upload Photos →`}
                         </span>
                       </button>
                     )}
@@ -7310,15 +7307,31 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
                   <button
                     type="button"
+                    onClick={() => setCanvasZoom((z) => Math.max(0.02, Number((z * 0.8).toFixed(3))))}
+                    className="px-1 text-[10px] font-mono font-bold text-slate-400 hover:text-white cursor-pointer"
+                    title="Zoom Out (Infinite Zoom)"
+                  >
+                    -
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       setCanvasZoom(1);
                       setCanvasPan({ x: 0, y: 0 });
                       setIsCanvasPanMode(false);
                     }}
                     className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-amber-300 hover:bg-slate-800 cursor-pointer"
-                    title="Pinch with 2 fingers or Scroll on PC to Zoom. Tap to Reset to 100%."
+                    title="Infinite Zoom in/out via Mouse Wheel, Touch Pinch, or + / -. Click to reset 100%."
                   >
                     {Math.round(canvasZoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasZoom((z) => Math.min(250.0, Number((z * 1.25).toFixed(3))))}
+                    className="px-1 text-[10px] font-mono font-bold text-slate-400 hover:text-white cursor-pointer"
+                    title="Zoom In (Infinite Zoom)"
+                  >
+                    +
                   </button>
                   <button
                     type="button"
@@ -7473,61 +7486,52 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               />
             ) : (() => {
               const isDualCanvasActive =
-                stage === 'field_canvas' && activePanel === 'face' && isPhotogrammetryDualCanvas;
+                stage === 'field_canvas' && isPhotogrammetryDualCanvas;
               return (
                 <div
                   ref={canvasWrapperRef}
-                  className={`flex-1 min-h-0 bg-slate-950 rounded-lg border-2 border-slate-700 overflow-hidden flex flex-col ${
-                    isDualCanvasActive ? 'lg:flex-row p-1 gap-1' : ''
+                  className={`flex-1 min-h-0 ${photoCanvasTheme === 'light' ? 'bg-slate-200 border-slate-300' : 'bg-slate-950 border-slate-700'} rounded-lg border-2 overflow-hidden flex flex-col ${
+                    isDualCanvasActive && dualCanvasMobileTab === 'split' ? 'lg:flex-row p-1 gap-1' : ''
                   } items-stretch justify-center relative touch-none`}
                 >
-                  {/* Small Screen Dual Canvas Selector Tab */}
+                  {/* Dual Canvas Selector Tab: Map Only (Default) and Split for ALL portions (Face, R-Wall, L-Wall, Crown) */}
                   {isDualCanvasActive && (
-                    <div className="lg:hidden flex items-center justify-between bg-slate-900 px-2 py-1 border-b border-slate-800 rounded shrink-0 w-full">
-                      <span className="text-[10px] font-bold text-slate-300">Face View:</span>
+                    <div className="flex items-center justify-between bg-slate-900 px-2 py-1 border-b border-slate-800 rounded shrink-0 w-full">
+                      <span className="text-[10px] font-bold text-slate-300">
+                        {FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} View:
+                      </span>
                       <div className="inline-flex items-center rounded bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
                         <button
                           type="button"
-                          onClick={() => setDualCanvasMobileTab('split')}
-                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer ${
-                            dualCanvasMobileTab === 'split' ? 'bg-cyan-500 text-slate-950 shadow' : 'text-slate-400'
-                          }`}
-                        >
-                          Split
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => setDualCanvasMobileTab('map')}
-                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer ${
-                            dualCanvasMobileTab === 'map' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400'
+                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer transition-colors ${
+                            dualCanvasMobileTab === 'map' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
                           }`}
                         >
                           Map Only
                         </button>
                         <button
                           type="button"
-                          onClick={() => setDualCanvasMobileTab('photo')}
-                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer ${
-                            dualCanvasMobileTab === 'photo' ? 'bg-cyan-500 text-slate-950 shadow' : 'text-slate-400'
+                          onClick={() => setDualCanvasMobileTab('split')}
+                          className={`px-2 py-0.5 rounded text-[9.5px] font-black cursor-pointer transition-colors ${
+                            dualCanvasMobileTab === 'split' ? 'bg-cyan-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
                           }`}
                         >
-                          Photo Only
+                          Split (Map + Photo/3D)
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* 1. FACE GEOLOGICAL MAPPING CANVAS PANE */}
+                  {/* 1. GEOLOGICAL MAPPING CANVAS PANE */}
                   <div
-                    className={`flex-1 min-w-0 min-h-0 flex flex-col bg-[#E2E8F0] rounded-lg border border-slate-700 overflow-hidden relative ${
-                      isDualCanvasActive && dualCanvasMobileTab === 'photo' ? 'hidden lg:flex' : 'flex'
-                    }`}
+                    className={`flex-1 min-w-0 min-h-0 flex flex-col bg-[#E2E8F0] rounded-lg border border-slate-700 overflow-hidden relative flex`}
                   >
                     {isDualCanvasActive && (
                       <div className="bg-slate-900/95 px-2.5 py-1 border-b border-slate-700 flex items-center justify-between text-[11px] font-bold text-slate-200 shrink-0">
                         <span className="flex items-center gap-1.5 text-amber-400 font-mono">
                           <Layers className="w-3.5 h-3.5" />
-                          <span>1. Face Geological Map (1:1 CAD)</span>
+                          <span>1. {FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Map (1:1 CAD)</span>
                         </span>
                         {syncCursorCoord && (
                           <span className="font-mono text-[10px] text-amber-300 bg-slate-950 px-2 py-0.5 rounded border border-amber-500/30">
@@ -7547,6 +7551,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         preserveAspectRatio="xMidYMid meet"
                         style={{
                           backgroundColor: '#E2E8F0',
+                          maxWidth: '85%',
+                          maxHeight: '85%',
                           cursor:
                             isCanvasPanMode ||
                             (isPanelMoveMode && (stage === 'joint_grouping' || activePanel !== 'face'))
@@ -7569,7 +7575,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         onPointerUp={handleCanvasPointerUp}
                         onPointerCancel={handleCanvasPointerUp}
                         onPointerLeave={() => setSyncCursorCoord(null)}
-                        className="w-full h-full touch-none select-none"
+                        className="w-full h-full max-w-[85%] max-h-[85%] touch-none select-none m-auto transition-all shadow-sm rounded-md"
                       >
                 <FieldMonochromeGeologicalPatterns
                   prefix="fcanv"
@@ -8706,40 +8712,90 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             </div>
           </div>
 
-          {/* 2. TUNNEL FACE ROCK PHOTO CANVAS (DUAL CANVAS MODE) */}
+          {/* 2. TUNNEL ROCK PHOTO & 3D PHOTOGRAMMETRY CANVAS (DUAL CANVAS MODE FOR ALL PORTIONS) */}
           {isDualCanvasActive && (
             <div
-              className={`flex-1 min-w-0 min-h-0 flex flex-col bg-slate-950 rounded-lg border border-cyan-500/50 overflow-hidden relative ${
-                dualCanvasMobileTab === 'map' ? 'hidden lg:flex' : 'flex'
+              className={`flex-1 min-w-0 min-h-0 flex flex-col ${
+                photoCanvasTheme === 'light'
+                  ? 'bg-slate-100 border border-slate-300'
+                  : 'bg-slate-950 border border-cyan-500/50'
+              } rounded-lg overflow-hidden relative ${
+                dualCanvasMobileTab === 'map' ? 'hidden' : 'flex'
               }`}
             >
-              {/* Photo Canvas Top Bar */}
-              <div className="bg-slate-900/95 px-2 py-1 border-b border-slate-800 flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold text-slate-200 shrink-0">
+              {/* Photo & 3D Canvas Top Bar */}
+              <div className={`${
+                photoCanvasTheme === 'light'
+                  ? 'bg-slate-200 border-b border-slate-300 text-slate-800'
+                  : 'bg-slate-900/95 border-b border-slate-800 text-slate-200'
+              } px-2 py-1 flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold shrink-0`}>
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <Camera className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                  <span className="text-cyan-300 font-mono font-bold truncate">2. Face Photo (Sync ON)</span>
+                  <Camera className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                  <span className={`${photoCanvasTheme === 'light' ? 'text-cyan-800' : 'text-cyan-300'} font-mono font-bold truncate`}>
+                    2. {FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Photo / 3D
+                  </span>
                   {syncCursorCoord && (
-                    <span className="font-mono text-[10px] text-cyan-300 bg-slate-950 px-1.5 py-0.5 rounded border border-cyan-500/30 shrink-0">
+                    <span className="font-mono text-[10px] text-cyan-400 bg-slate-900 px-1.5 py-0.5 rounded border border-cyan-500/30 shrink-0">
                       X: {(syncCursorCoord.x / 100).toFixed(2)}m | Y: {(syncCursorCoord.y / 100).toFixed(2)}m
                     </span>
                   )}
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0 flex-wrap">
-                  {/* Peek Traces on Photo Toggle */}
+                  {/* 2D Photo vs 3D Tunnel Photogrammetry Mode Selector */}
+                  <div className="inline-flex items-center rounded bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setPhotoCanvasViewMode('2d')}
+                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold cursor-pointer transition-colors ${
+                        photoCanvasViewMode === '2d'
+                          ? 'bg-cyan-500 text-slate-950 shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="2D Rock Photograph Overlay"
+                    >
+                      2D Photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoCanvasViewMode('3d')}
+                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold cursor-pointer transition-colors ${
+                        photoCanvasViewMode === '3d'
+                          ? 'bg-amber-500 text-slate-950 shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Interactive 3D Procedural Tunnel Photogrammetry Model"
+                    >
+                      3D Tunnel
+                    </button>
+                  </div>
+
+                  {/* Dark Mode vs Light Mode Toggle for Photo Canvas (Answers: "Why this is dark mode") */}
                   <button
                     type="button"
-                    onClick={() => setIsPeekingTracesOnPhoto((prev) => !prev)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all ${
-                      isPeekingTracesOnPhoto
-                        ? 'bg-amber-500 text-slate-950 shadow'
-                        : 'bg-slate-800 text-slate-300 hover:text-white'
-                    }`}
-                    title="Show/Hide confirmed geological traces over rock photo (or hold Shift)"
+                    onClick={() => setPhotoCanvasTheme((t) => (t === 'light' ? 'dark' : 'light'))}
+                    className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-600 cursor-pointer transition-colors"
+                    title="Toggle Theme between Light Engineering Mode and Dark Rock Mode"
                   >
-                    <Eye className="w-3 h-3" />
-                    <span>{isPeekingTracesOnPhoto ? 'Traces: ON' : 'Peek Traces'}</span>
+                    {photoCanvasTheme === 'light' ? '☀️ Light' : '🌙 Dark'}
                   </button>
+
+                  {/* Peek Traces on Photo Toggle */}
+                  {photoCanvasViewMode === '2d' && (
+                    <button
+                      type="button"
+                      onClick={() => setIsPeekingTracesOnPhoto((prev) => !prev)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all ${
+                        isPeekingTracesOnPhoto
+                          ? 'bg-amber-500 text-slate-950 shadow'
+                          : 'bg-slate-800 text-slate-300 hover:text-white'
+                      }`}
+                      title="Show/Hide confirmed geological traces over rock photo (or hold Shift)"
+                    >
+                      <Eye className="w-3 h-3" />
+                      <span>{isPeekingTracesOnPhoto ? 'Traces: ON' : 'Peek'}</span>
+                    </button>
+                  )}
 
                   {/* Photo Brightness & Contrast Controls */}
                   <div className="inline-flex items-center bg-slate-950 rounded p-0.5 border border-slate-800 gap-0.5">
@@ -8762,24 +8818,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     </button>
                   </div>
 
-                  {/* MATLAB Edge Enhancement Filter */}
-                  <button
-                    type="button"
-                    onClick={() => setPhotoMatlabFilter((f) => !f)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all ${
-                      photoMatlabFilter
-                        ? 'bg-emerald-500 text-slate-950 font-bold'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                    title="Toggle MATLAB Edge Enhancement Filter on Face Photo"
-                  >
-                    Edges
-                  </button>
-
-                  {/* Upload / Change Face Photo Button */}
+                  {/* Upload / Change Photo for current portion (face, rwall, lwall, crown) */}
                   <label
                     className="px-1.5 py-0.5 rounded bg-cyan-700/80 hover:bg-cyan-600 text-white text-[10px] font-black cursor-pointer flex items-center gap-0.5 shadow-sm"
-                    title="Upload or Change Tunnel Face Rock Photo"
+                    title={`Upload Photo for ${FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel}`}
                   >
                     <span>Photo</span>
                     <input
@@ -8794,12 +8836,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             const url = ev.target?.result as string;
                             if (url) {
                               updateActiveRound((r) => {
-                                const otherPhotos = r.collectedPhotos.filter((p) => p.panel !== 'face');
+                                const otherPhotos = r.collectedPhotos.filter((p) => p.panel !== activePanel);
                                 const newP: FieldCollectedPhoto = {
-                                  id: `photo-face-${Date.now()}`,
-                                  panel: 'face',
+                                  id: `photo-${activePanel}-${Date.now()}`,
+                                  panel: activePanel,
                                   dataUrl: url,
-                                  label: 'Underground Tunnel Face High-Resolution Rock Photo',
+                                  label: `Underground Tunnel ${activePanel} High-Resolution Rock Photo`,
                                   capturedAt: new Date().toISOString(),
                                 };
                                 return {
@@ -8817,18 +8859,35 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 </div>
               </div>
 
-              {/* Photo SVG Canvas with Real-Time Drawing & Synced Crosshair */}
-              <div className="flex-1 min-h-0 relative flex items-center justify-center bg-slate-950">
-                <svg
-                  ref={photoCanvasSvgRef}
-                  viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
-                    500 -
-                    500 / canvasZoom +
-                    canvasPan.y
-                  ).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)}`}
-                  preserveAspectRatio="xMidYMid meet"
-                  style={{
-                    backgroundColor: '#020617',
+              {/* Main Content Area: 3D Tunnel Photogrammetry Model OR 2D Photo Canvas */}
+              {photoCanvasViewMode === '3d' ? (
+                <div className="flex-1 min-h-0 relative w-full h-full">
+                  <Tunnel3DPhotoCanvas
+                    location={activeLocation}
+                    round={activeRound}
+                    activePanel={activePanel}
+                    photoUrl={effectiveActivePanelPhotoDataUrl}
+                    brightness={photoBrightness}
+                    contrast={photoContrast}
+                    matlabFilter={photoMatlabFilter}
+                    isLightMode={photoCanvasTheme === 'light'}
+                  />
+                </div>
+              ) : (
+                /* Photo SVG Canvas with Real-Time Drawing & Synced Crosshair */
+                <div className={`flex-1 min-h-0 relative flex items-center justify-center ${
+                  photoCanvasTheme === 'light' ? 'bg-[#E2E8F0]' : 'bg-slate-950'
+                }`}>
+                  <svg
+                    ref={photoCanvasSvgRef}
+                    viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
+                      500 -
+                      500 / canvasZoom +
+                      canvasPan.y
+                    ).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)}`}
+                    preserveAspectRatio="xMidYMid meet"
+                    style={{
+                      backgroundColor: photoCanvasTheme === 'light' ? '#E2E8F0' : '#020617',
                     cursor:
                       isCanvasPanMode
                         ? 'grab'
@@ -8854,7 +8913,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                   {(() => {
                     const dispGeom = computeDisplayPanelGeometry(
-                      'face',
+                      activePanel,
                       activeLocation,
                       activeRound,
                       activeStageTransformMode
@@ -8865,20 +8924,25 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       w: dispGeom.boxW,
                       h: dispGeom.boxH,
                     };
-                    const faceOutline = computeFaceTunnelOutlineDetails(
-                      activeLocation,
-                      targetBox.x,
-                      targetBox.y,
-                      targetBox.w,
-                      targetBox.h
-                    );
-                    const faceOutlinePathD = faceOutline?.closedFillPathD || '';
+                    const faceOutline =
+                      activePanel === 'face'
+                        ? computeFaceTunnelOutlineDetails(
+                            activeLocation,
+                            targetBox.x,
+                            targetBox.y,
+                            targetBox.w,
+                            targetBox.h
+                          )
+                        : null;
+                    const panelOutlinePathD =
+                      faceOutline?.closedFillPathD ||
+                      `M ${targetBox.x} ${targetBox.y} L ${targetBox.x + targetBox.w} ${targetBox.y} L ${targetBox.x + targetBox.w} ${targetBox.y + targetBox.h} L ${targetBox.x} ${targetBox.y + targetBox.h} Z`;
                     const tr = getFieldPanelTransform(
                       activeRound,
-                      'face',
+                      activePanel,
                       activeStageTransformMode
                     );
-                    const fitCfg = getFieldPhotoFitConfig(activeRound, 'face');
+                    const fitCfg = getFieldPhotoFitConfig(activeRound, activePanel);
                     const isRot90 = tr.rotationDeg === 90 || tr.rotationDeg === 270;
                     const imgW = isRot90 ? targetBox.h : targetBox.w;
                     const imgH = isRot90 ? targetBox.w : targetBox.h;
@@ -8892,24 +8956,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                     return (
                       <>
-                        {/* Clipped Tunnel Face Rock Photo */}
-                        <clipPath id="dual-canvas-face-clip">
-                          <path d={faceOutlinePathD} />
+                        {/* Clipped Tunnel Rock Photo */}
+                        <clipPath id="dual-canvas-panel-clip">
+                          <path d={panelOutlinePathD} />
                         </clipPath>
 
                         {/* Background Tunnel Profile Grid & Outline Area */}
                         <path
-                          d={faceOutlinePathD}
-                          fill="#1E293B"
+                          d={panelOutlinePathD}
+                          fill={photoCanvasTheme === 'light' ? '#E2E8F0' : '#1E293B'}
                           stroke="#0284C7"
                           strokeWidth="2.5"
                         />
 
-                        {/* Actual High-Resolution Tunnel Face Photo */}
-                        <g clipPath="url(#dual-canvas-face-clip)">
-                          {effectiveFacePhotoDataUrl && (
+                        {/* Actual High-Resolution Tunnel Rock Photo */}
+                        <g clipPath="url(#dual-canvas-panel-clip)">
+                          {effectiveActivePanelPhotoDataUrl && (
                             <image
-                              href={effectiveFacePhotoDataUrl}
+                              href={effectiveActivePanelPhotoDataUrl}
                               x={-imgW / 2}
                               y={-imgH / 2}
                               width={imgW}
@@ -8941,7 +9005,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                         {/* Outer Profile Golden Perimeter Line */}
                         <path
-                          d={faceOutlinePathD}
+                          d={panelOutlinePathD}
                           fill="none"
                           stroke="#F59E0B"
                           strokeWidth="2.5"
@@ -9041,8 +9105,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   })()}
                 </svg>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+        )}
         </div>
       );
     })()}

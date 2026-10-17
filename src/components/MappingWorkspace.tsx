@@ -610,7 +610,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
   const [windowComplexityMode, setWindowComplexityMode] = useState<'simple' | 'advanced'>('simple');
 
   // Synchronized Dual-Canvas Face Mapping Photogrammetry States
-  const [dualCanvasViewMode, setDualCanvasViewMode] = useState<'dual' | 'single_photo' | 'single_clean'>('dual');
+  const [dualCanvasViewMode, setDualCanvasViewMode] = useState<'dual' | 'single_photo' | 'single_clean'>('single_clean');
   const [isPeekingTracesOnPhoto, setIsPeekingTracesOnPhoto] = useState<boolean>(false);
   const [showTracedFeaturesDrawer, setShowTracedFeaturesDrawer] = useState<boolean>(false);
   const [pendingJointConfirmation, setPendingJointConfirmation] =
@@ -8468,8 +8468,20 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
               </div>
             )}
 
-            {/* Canvas View Mode Switcher (Dual Synced / Photo Only / Clean CAD) */}
+            {/* Canvas View Mode Switcher (Map Only / Dual Synced) */}
             <div className="absolute top-2.5 right-2.5 z-30 flex items-center gap-1 p-0.5 rounded-lg bg-slate-900/90 border border-slate-700/80 font-mono text-[10px] shadow-md pointer-events-auto">
+              <button
+                type="button"
+                onClick={() => setDualCanvasViewMode('single_clean')}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                  dualCanvasViewMode === 'single_clean'
+                    ? 'bg-sky-600 text-white shadow-2xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Map Only (Single Clean CAD Outline Canvas)"
+              >
+                Map Only
+              </button>
               <button
                 type="button"
                 onClick={() => setDualCanvasViewMode('dual')}
@@ -8481,30 +8493,6 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                 title="Synchronized Dual Canvases (Clean Outline + Rock Photo in Lockstep)"
               >
                 Dual Synced
-              </button>
-              <button
-                type="button"
-                onClick={() => setDualCanvasViewMode('single_photo')}
-                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                  dualCanvasViewMode === 'single_photo'
-                    ? 'bg-sky-600 text-white shadow-2xs'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Single Photo Tracing Canvas"
-              >
-                Photo
-              </button>
-              <button
-                type="button"
-                onClick={() => setDualCanvasViewMode('single_clean')}
-                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                  dualCanvasViewMode === 'single_clean'
-                    ? 'bg-sky-600 text-white shadow-2xs'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Single Clean CAD Outline Canvas"
-              >
-                Clean CAD
               </button>
             </div>
 
@@ -8615,39 +8603,13 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                   </div>
                 </div>
               ) : (
-                /* FACE & WALLS: Side-by-side with Clean CAD on LEFT and Photo on RIGHT */
+                /* FACE & WALLS: Side-by-side with Calibrated Photo on LEFT and Clean CAD on RIGHT */
                 <div className="flex flex-row w-full h-full min-w-0 min-h-0 overflow-hidden select-none">
-                  {/* LEFT: Clean CAD Outline & Confirmed Geology Canvas */}
-                  <div className="relative flex-1 min-w-0 h-full overflow-hidden flex items-center justify-center bg-slate-950/80 border-r border-slate-800">
-                    <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-200 font-mono shadow-sm pointer-events-none">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                      <span className="font-bold text-white">1. Clean CAD Outline &amp; Traced Geology</span>
-                    </div>
-                    <svg
-                      viewBox={`0 0 ${viewW} ${viewH}`}
-                      preserveAspectRatio="xMidYMid meet"
-                      style={{
-                        touchAction: 'none',
-                        backgroundColor: isLight ? '#E2E8F0' : '#090C12',
-                      }}
-                      onWheel={handleCanvasWheel}
-                      onMouseDown={handleCanvasMouseDown}
-                      onMouseMove={handleCanvasMouseMove}
-                      onMouseUp={handleCanvasMouseUp}
-                      className="w-full h-full max-w-full max-h-full cursor-default"
-                    >
-                      {renderSvgContents('clean_outline')}
-                    </svg>
-                  </div>
-
-                  {/* Synchronized Lockstep Divider */}
-                  <div className="w-1 bg-slate-800 hover:bg-sky-500/50 transition-colors shrink-0 flex items-center justify-center cursor-col-resize select-none" />
-
-                  {/* RIGHT: Photo Tracing Canvas */}
-                  <div className="relative flex-1 min-w-0 h-full overflow-hidden flex items-center justify-center bg-[#090C12]">
+                  {/* LEFT: Calibrated Photo inside Tunnel Outline & Tracing Canvas */}
+                  <div className="relative flex-1 min-w-0 h-full overflow-hidden flex items-center justify-center bg-[#090C12] border-r border-slate-800">
                     <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/90 border border-sky-500/80 text-[10px] text-sky-200 font-mono shadow-sm pointer-events-none">
                       <span className="w-2 h-2 rounded-full bg-sky-400" />
-                      <span className="font-bold text-white">2. Rock Photo &amp; Tracing Canvas</span>
+                      <span className="font-bold text-white">1. Calibrated Photo inside Tunnel Outline</span>
                     </div>
                     <svg
                       ref={svgCanvasRef}
@@ -8704,6 +8666,32 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                       }`}
                     >
                       {renderSvgContents('photo_tracing')}
+                    </svg>
+                  </div>
+
+                  {/* Synchronized Lockstep Divider */}
+                  <div className="w-1 bg-slate-800 hover:bg-sky-500/50 transition-colors shrink-0 flex items-center justify-center cursor-col-resize select-none" />
+
+                  {/* RIGHT: Empty CAD Tunnel Profile Canvas where all traced joints/features sync in real-time */}
+                  <div className="relative flex-1 min-w-0 h-full overflow-hidden flex items-center justify-center bg-slate-950/80">
+                    <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-200 font-mono shadow-sm pointer-events-none">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span className="font-bold text-white">2. CAD Tunnel Profile Canvas (Real-Time Sync)</span>
+                    </div>
+                    <svg
+                      viewBox={`0 0 ${viewW} ${viewH}`}
+                      preserveAspectRatio="xMidYMid meet"
+                      style={{
+                        touchAction: 'none',
+                        backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                      }}
+                      onWheel={handleCanvasWheel}
+                      onMouseDown={handleCanvasMouseDown}
+                      onMouseMove={handleCanvasMouseMove}
+                      onMouseUp={handleCanvasMouseUp}
+                      className="w-full h-full max-w-full max-h-full cursor-default"
+                    >
+                      {renderSvgContents('clean_outline')}
                     </svg>
                   </div>
                 </div>
