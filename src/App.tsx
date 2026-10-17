@@ -1279,6 +1279,7 @@ export default function App({
         overbreakVolumeM3: overbreakAnalysis.overbreakVolumeCubicMeters,
         undercutVolumeM3: overbreakAnalysis.undercutVolumeCubicMeters,
       },
+      mappingDomain: activeMappingDomain,
     };
     const { records, storageWarning } = saveProjectRecordToMemory(record);
     setSavedProjects(records);
@@ -1906,6 +1907,7 @@ export default function App({
         tunnelName: fullSample.settings.tunnelName,
         location: fullSample.settings.locationName || 'Adit-2 Junction · Devprayag Sector',
         chainage: fullSample.settings.faceChainage,
+        domain: 'TUNNEL',
         geometry: targetGeom,
       });
       setSavedGeometries(nextGeomLib);
@@ -2225,6 +2227,7 @@ export default function App({
           tunnelName: settings.tunnelName,
           location: settings.locationName || 'Underground Tunnel Works',
           chainage: settings.faceChainage || settings.chainage,
+          domain: activeMappingDomain,
           geometry,
         });
         setSavedGeometries(next);
@@ -2833,51 +2836,88 @@ export default function App({
               </button>
             </div>
 
-            {/* 2. Second Option: Surface Mapping */}
-            <div className="flex items-stretch gap-2 w-full">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsFirstOpening(false);
-                  setActiveMappingDomain(selectedSurfaceSubType);
-                  setActiveFieldWorkflowMode('field_mapping');
-                  setResumeFieldAtLastStage(false);
-                  setIsFieldMappingModeOpen(true);
-                }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white hover:bg-orange-50 text-stone-900 border-2 border-orange-200 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer"
-              >
-                <span className="flex items-center gap-2">
-                  <Mountain className="w-4 h-4 text-orange-600 shrink-0" />
-                  <span>Surface Mapping</span>
-                </span>
-                <ArrowRight className="w-4 h-4 shrink-0 text-orange-600" />
-              </button>
+            {/* 2. Second Option: Surface Mapping (Isolated Subtypes) */}
+            <div className="w-full bg-white/95 rounded-xl border-2 border-orange-200 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] p-2.5 space-y-2">
+              <div className="flex items-stretch gap-2 w-full">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    setActiveMappingDomain(selectedSurfaceSubType);
+                    setActiveFieldWorkflowMode('field_mapping');
+                    setResumeFieldAtLastStage(false);
+                    setIsFieldMappingModeOpen(true);
+                  }}
+                  className="flex-1 py-1 px-2 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 text-stone-900 hover:text-orange-600 transition-all cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Mountain className="w-4 h-4 text-orange-600 shrink-0" />
+                    <span>Surface Mapping</span>
+                    <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 font-mono text-[10px] font-bold">
+                      {selectedSurfaceSubType}
+                    </span>
+                  </span>
+                  <ArrowRight className="w-4 h-4 shrink-0 text-orange-600" />
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setIsFirstOpening(false);
-                  const resumeSubType = surfaceResumeMeta?.subType || selectedSurfaceSubType;
-                  setSelectedSurfaceSubType(resumeSubType);
-                  setActiveMappingDomain(resumeSubType);
-                  setActiveFieldWorkflowMode(
-                    surfaceResumeMeta?.workflowMode === 'PHOTOGRAMMETRY'
-                      ? 'photo_mapping'
-                      : 'field_mapping'
-                  );
-                  setResumeFieldAtLastStage(true);
-                  setIsFieldMappingModeOpen(true);
-                }}
-                className="px-3.5 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-50 text-stone-900 font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.20)] transition-all cursor-pointer border-2 border-white shrink-0"
-                title={
-                  surfaceResumeMeta
-                    ? `Resume Surface Mapping where you stopped (${surfaceResumeMeta.subType})`
-                    : 'Resume Surface Mapping where you stopped'
-                }
-              >
-                <Play className="w-3.5 h-3.5 text-orange-600 fill-orange-600 shrink-0" />
-                <span>Resume</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    const resumeSubType = surfaceResumeMeta?.subType || selectedSurfaceSubType;
+                    setSelectedSurfaceSubType(resumeSubType);
+                    setActiveMappingDomain(resumeSubType);
+                    setActiveFieldWorkflowMode(
+                      surfaceResumeMeta?.workflowMode === 'PHOTOGRAMMETRY'
+                        ? 'photo_mapping'
+                        : 'field_mapping'
+                    );
+                    setResumeFieldAtLastStage(true);
+                    setIsFieldMappingModeOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-50 text-stone-900 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer border border-amber-300 shrink-0"
+                  title={
+                    surfaceResumeMeta
+                      ? `Resume Surface Mapping where you stopped (${surfaceResumeMeta.subType})`
+                      : 'Resume Surface Mapping where you stopped'
+                  }
+                >
+                  <Play className="w-3.5 h-3.5 text-orange-600 fill-orange-600 shrink-0" />
+                  <span>Resume</span>
+                </button>
+              </div>
+
+              {/* Isolated Subtype Direct Launchers */}
+              <div className="grid grid-cols-4 gap-1.5 pt-1.5 border-t border-orange-100">
+                {(
+                  [
+                    ['BENCH', 'Bench'],
+                    ['TRENCH', 'Trench'],
+                    ['SLOPE', 'Slope'],
+                    ['ROCK_SURFACE', 'Outcrop'],
+                  ] as [SurfaceMappingSubType, string][]
+                ).map(([sub, lbl]) => (
+                  <button
+                    key={sub}
+                    type="button"
+                    onClick={() => {
+                      setIsFirstOpening(false);
+                      setSelectedSurfaceSubType(sub);
+                      setActiveMappingDomain(sub);
+                      setActiveFieldWorkflowMode('field_mapping');
+                      setResumeFieldAtLastStage(false);
+                      setIsFieldMappingModeOpen(true);
+                    }}
+                    className={`py-1 px-1 rounded-md text-[10px] font-bold text-center transition-all cursor-pointer border ${
+                      selectedSurfaceSubType === sub
+                        ? 'bg-orange-500 text-white border-orange-600 shadow-sm'
+                        : 'bg-orange-50/70 text-stone-700 border-orange-200/80 hover:bg-orange-100 hover:text-stone-900'
+                    }`}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* 3. Third Option: Data Storage, Import & Export */}
@@ -4634,6 +4674,7 @@ export default function App({
                 tunnelName: settings.tunnelName || activeLocationName,
                 location: settings.locationName || activeLocationName,
                 chainage: settings.faceChainage || settings.chainage,
+                domain: activeMappingDomain,
                 geometry: geomToSave,
               });
               setSavedGeometries(next);

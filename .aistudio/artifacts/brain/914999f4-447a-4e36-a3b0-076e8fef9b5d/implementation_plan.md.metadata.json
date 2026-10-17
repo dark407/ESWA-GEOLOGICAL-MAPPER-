@@ -1,0 +1,6 @@
+{
+  "summary": "Architectural implementation plan for strict workspace isolation across Tunnel, Bench, Trench, Slope, and Outcrop domains, and decoupling Field Mapping from Photogrammetry mode.",
+  "updatedAt": "2026-10-17T15:58:00.350823963Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

@@ -19,6 +19,8 @@ export type FieldTunnelShapeType =
   | 'open_slush_no_crown'
   | 'freeform_custom';
 
+export type MappingDomainType = 'TUNNEL' | 'BENCH' | 'TRENCH' | 'SLOPE' | 'ROCK_SURFACE';
+
 export type FieldPanelId = 'face' | 'crown' | 'left_wall' | 'right_wall';
 
 export type FieldLithologyId = string;
@@ -597,6 +599,8 @@ export interface FieldExcavationRound {
   mappingMethod?: 'field_mapping' | 'photo_mapping';
   /** Mapping Domain ('TUNNEL' | 'BENCH' | 'TRENCH' | 'ROCK_SURFACE' | 'SLOPE') */
   mappingDomain?: 'TUNNEL' | 'BENCH' | 'TRENCH' | 'ROCK_SURFACE' | 'SLOPE';
+  roundNumber?: number;
+  faceTitle?: string;
   /** Completion & Peer Review Status shown in the Face / Station Window */
   completionStatus?: 'draft' | 'completed' | 'review_required' | 'approved' | 'changes_requested' | 'in_progress';
   reviewStatus?: 'none' | 'pending' | 'pending_review' | 'approved' | 'changes_requested' | 'draft' | 'completed' | 'review_required';
@@ -747,6 +751,9 @@ export interface FieldTunnelLocationItem {
   heightM: number;
   wallHeightM: number;
   crownRadiusM: number;
+  roofRadiusM?: number;
+  directionDeg?: number;
+  chainagePrefix?: string;
   leftWallLengthM?: number;
   rightWallLengthM?: number;
   defaultDriveAzimuth: number;
@@ -795,24 +802,37 @@ export interface FieldMappingStoreState {
   idealGroupJointPanelTransforms?: Partial<Record<FieldPanelId, FieldPanelTransform>>;
 }
 
-export const FIELD_MAPPING_STORAGE_KEY = 'eswa_apk_field_mapping_store_v1';
-export const SURFACE_MAPPING_STORAGE_KEY = 'eswa_apk_surface_mapping_store_v1';
+export const FIELD_MAPPING_STORAGE_KEY = 'eswa_apk_field_mapping_store_tunnel_v2';
+export const SURFACE_MAPPING_STORAGE_KEY = 'eswa_surface_mapping_store_bench_v2';
 
 export function getFieldMappingStorageKey(domain?: MappingDomainType): string {
-  if (domain && domain !== 'TUNNEL') {
-    return SURFACE_MAPPING_STORAGE_KEY;
+  const clean = (domain || 'TUNNEL').toUpperCase();
+  switch (clean) {
+    case 'BENCH':
+      return 'eswa_surface_mapping_store_bench_v2';
+    case 'TRENCH':
+      return 'eswa_surface_mapping_store_trench_v2';
+    case 'SLOPE':
+      return 'eswa_surface_mapping_store_slope_v2';
+    case 'ROCK_SURFACE':
+      return 'eswa_surface_mapping_store_rock_surface_v2';
+    case 'TUNNEL':
+    default:
+      return 'eswa_apk_field_mapping_store_tunnel_v2';
   }
-  return FIELD_MAPPING_STORAGE_KEY;
 }
 
-const FIELD_IDEAL_PANEL_TRANSFORMS_KEY = 'eswa_apk_ideal_panel_transforms_v1';
+export function getFieldIdealPanelTransformsKey(domain?: MappingDomainType): string {
+  const clean = (domain || 'TUNNEL').toLowerCase();
+  return `eswa_apk_ideal_panel_transforms_${clean}_v2`;
+}
 
 interface StoredIdealPanelTransforms {
   field_canvas: Partial<Record<FieldPanelId, FieldPanelTransform>>;
   joint_grouping: Partial<Record<FieldPanelId, FieldPanelTransform>>;
 }
 
-let cachedIdealTransforms: StoredIdealPanelTransforms | null = null;
+const cachedIdealTransformsByDomain: Partial<Record<string, StoredIdealPanelTransforms>> = {};
 
 function sanitizePanelTransform(raw?: Partial<FieldPanelTransform> | null): FieldPanelTransform {
   const rot =
@@ -830,35 +850,51 @@ function sanitizePanelTransform(raw?: Partial<FieldPanelTransform> | null): Fiel
   };
 }
 
-export function loadIdealPanelTransforms(): StoredIdealPanelTransforms {
-  if (cachedIdealTransforms) return cachedIdealTransforms;
+export function loadIdealPanelTransforms(domain?: MappingDomainType): StoredIdealPanelTransforms {
+  const domKey = (domain || 'TUNNEL').toUpperCase();
+  if (cachedIdealTransformsByDomain[domKey]) return cachedIdealTransformsByDomain[domKey]!;
+  const storageKey = getFieldIdealPanelTransformsKey(domain);
   try {
-    const raw = localStorage.getItem(FIELD_IDEAL_PANEL_TRANSFORMS_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<StoredIdealPanelTransforms>;
-      cachedIdealTransforms = {
+      cachedIdealTransformsByDomain[domKey] = {
         field_canvas: parsed.field_canvas || {},
         joint_grouping: parsed.joint_grouping || {},
       };
-      return cachedIdealTransforms;
+      return cachedIdealTransformsByDomain[domKey]!;
+    }
+    // Check legacy key for TUNNEL fallback
+    if (domKey === 'TUNNEL') {
+      const legacyRaw = localStorage.getItem('eswa_apk_ideal_panel_transforms_v1');
+      if (legacyRaw) {
+        const legacyParsed = JSON.parse(legacyRaw) as Partial<StoredIdealPanelTransforms>;
+        cachedIdealTransformsByDomain[domKey] = {
+          field_canvas: legacyParsed.field_canvas || {},
+          joint_grouping: legacyParsed.joint_grouping || {},
+        };
+        return cachedIdealTransformsByDomain[domKey]!;
+      }
     }
   } catch {
     // Ignore storage read failure
   }
-  cachedIdealTransforms = {
+  cachedIdealTransformsByDomain[domKey] = {
     field_canvas: {},
     joint_grouping: {},
   };
-  return cachedIdealTransforms;
+  return cachedIdealTransformsByDomain[domKey]!;
 }
 
 export function saveIdealPanelTransform(
   panel: FieldPanelId,
   transform: FieldPanelTransform,
-  stageMode: FieldTransformStageMode = 'field_canvas'
+  stageMode: FieldTransformStageMode = 'field_canvas',
+  domain?: MappingDomainType
 ): void {
   if (panel === 'face' || stageMode === 'fixed') return;
-  const current = loadIdealPanelTransforms();
+  const domKey = (domain || 'TUNNEL').toUpperCase();
+  const current = loadIdealPanelTransforms(domain);
   const clean = sanitizePanelTransform(transform);
   if (stageMode === 'joint_grouping') {
     current.joint_grouping = {
@@ -871,9 +907,10 @@ export function saveIdealPanelTransform(
       [panel]: clean,
     };
   }
-  cachedIdealTransforms = current;
+  cachedIdealTransformsByDomain[domKey] = current;
+  const storageKey = getFieldIdealPanelTransformsKey(domain);
   try {
-    localStorage.setItem(FIELD_IDEAL_PANEL_TRANSFORMS_KEY, JSON.stringify(current));
+    localStorage.setItem(storageKey, JSON.stringify(current));
   } catch {
     // Ignore storage write failure
   }
@@ -881,12 +918,13 @@ export function saveIdealPanelTransform(
 
 export function getIdealFieldPanelTransform(
   panel: FieldPanelId,
-  stageMode: FieldTransformStageMode = 'field_canvas'
+  stageMode: FieldTransformStageMode = 'field_canvas',
+  domain?: MappingDomainType
 ): FieldPanelTransform {
   if (panel === 'face' || stageMode === 'fixed') {
     return sanitizePanelTransform(null);
   }
-  const ideal = loadIdealPanelTransforms();
+  const ideal = loadIdealPanelTransforms(domain);
   const map = stageMode === 'joint_grouping' ? ideal.joint_grouping : ideal.field_canvas;
   return sanitizePanelTransform(map?.[panel]);
 }
@@ -894,11 +932,12 @@ export function getIdealFieldPanelTransform(
 export function isPanelAtIdealPosition(
   round: FieldExcavationRound | null | undefined,
   panel: FieldPanelId,
-  stageMode: FieldTransformStageMode = 'field_canvas'
+  stageMode: FieldTransformStageMode = 'field_canvas',
+  domain?: MappingDomainType
 ): boolean {
   if (panel === 'face' || stageMode === 'fixed') return true;
   const current = getFieldPanelTransform(round, panel, stageMode);
-  const ideal = getIdealFieldPanelTransform(panel, stageMode);
+  const ideal = getIdealFieldPanelTransform(panel, stageMode, domain);
   return (
     Math.abs(current.offsetX - ideal.offsetX) < 0.5 &&
     Math.abs(current.offsetY - ideal.offsetY) < 0.5 &&
@@ -2225,9 +2264,42 @@ export function createNewExcavationRound(
 }
 
 export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingStoreState {
-  const storageKey = getFieldMappingStorageKey(domain);
+  const effectiveDomain = domain || 'TUNNEL';
+  const storageKey = getFieldMappingStorageKey(effectiveDomain);
   try {
-    const raw = localStorage.getItem(storageKey);
+    let raw = localStorage.getItem(storageKey);
+    // Legacy migration check if new key does not exist yet
+    if (!raw) {
+      if (effectiveDomain === 'TUNNEL') {
+        const legacy = localStorage.getItem('eswa_apk_field_mapping_store_v1');
+        if (legacy) {
+          raw = legacy;
+          try {
+            localStorage.setItem(storageKey, legacy);
+          } catch {
+            // Ignore
+          }
+        }
+      } else {
+        const legacySurf = localStorage.getItem('eswa_apk_surface_mapping_store_v1');
+        if (legacySurf) {
+          try {
+            const parsedLegacy = JSON.parse(legacySurf) as FieldMappingStoreState;
+            if (parsedLegacy && parsedLegacy.rounds?.[0]?.mappingDomain === effectiveDomain) {
+              raw = legacySurf;
+              try {
+                localStorage.setItem(storageKey, legacySurf);
+              } catch {
+                // Ignore
+              }
+            }
+          } catch {
+            // Ignore
+          }
+        }
+      }
+    }
+
     if (raw) {
       const parsed = JSON.parse(raw) as FieldMappingStoreState;
       if (
@@ -2238,7 +2310,7 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
       ) {
         const defaultSets = createDefaultDiscontinuitySets();
         // Automatically lock in any panel transforms currently positioned on the user's canvas as the Ideal Position
-        const idealStore = loadIdealPanelTransforms();
+        const idealStore = loadIdealPanelTransforms(effectiveDomain);
         const orderedRounds = [
           ...parsed.rounds.filter((r) => r.id === parsed.activeRoundId),
           ...parsed.rounds.filter((r) => r.id !== parsed.activeRoundId),
@@ -2247,19 +2319,19 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
           if (r.panelTransforms) {
             (['left_wall', 'crown', 'right_wall'] as FieldPanelId[]).forEach((pid) => {
               if (r.panelTransforms?.[pid]) {
-                saveIdealPanelTransform(pid, r.panelTransforms[pid]!, 'field_canvas');
+                saveIdealPanelTransform(pid, r.panelTransforms[pid]!, 'field_canvas', effectiveDomain);
               }
             });
           }
           if (r.groupJointPanelTransforms) {
             (['left_wall', 'crown', 'right_wall'] as FieldPanelId[]).forEach((pid) => {
               if (r.groupJointPanelTransforms?.[pid]) {
-                saveIdealPanelTransform(pid, r.groupJointPanelTransforms[pid]!, 'joint_grouping');
+                saveIdealPanelTransform(pid, r.groupJointPanelTransforms[pid]!, 'joint_grouping', effectiveDomain);
               }
             });
           }
         }
-        const finalIdeal = loadIdealPanelTransforms();
+        const finalIdeal = loadIdealPanelTransforms(effectiveDomain);
 
         return {
           ...parsed,
@@ -2406,8 +2478,12 @@ export function createDefaultSurfaceMappingStore(domain: MappingDomainType = 'BE
     widthM: isTrench ? 4 : 15,
     heightM: isTrench ? 3 : 8,
     wallHeightM: isTrench ? 3 : 8,
+    crownRadiusM: 0,
     roofRadiusM: 0,
     directionDeg: 135,
+    defaultDriveAzimuth: 135,
+    defaultExcavationMode: 'Mechanical Cut',
+    defaultExcavationApproach: 'Full Bench',
     chainagePrefix: isBench ? 'Bench' : isTrench ? 'Trench' : 'Station',
   };
 

@@ -167,7 +167,7 @@ export function loadSavedDesignGeometries(): SavedDesignGeometryRecord[] {
 }
 
 export function saveDesignGeometryToLibrary(
-  record: Omit<SavedDesignGeometryRecord, 'id' | 'savedAt'> & { id?: string }
+  record: Omit<SavedDesignGeometryRecord, 'id' | 'savedAt'> & { id?: string; domain?: string }
 ): SavedDesignGeometryRecord[] {
   const existing = loadSavedDesignGeometries();
   const newItem: SavedDesignGeometryRecord = {
@@ -177,6 +177,7 @@ export function saveDesignGeometryToLibrary(
     location: record.location,
     chainage: record.chainage,
     savedAt: new Date().toISOString(),
+    domain: record.domain,
     geometry: record.geometry,
   };
   const next = [newItem, ...existing.filter((g) => g.id !== newItem.id)].slice(0, 30);

@@ -1186,6 +1186,7 @@ export interface SavedDesignGeometryRecord {
   location: string;
   chainage: string;
   savedAt: string;
+  domain?: string;
   geometry: TunnelGeometry;
 }
 
@@ -1200,6 +1201,7 @@ export interface SavedProjectRecord {
   date: string;
   savedAt: string;
   mappingMode: MappingWorkspaceMode;
+  mappingDomain?: string;
   planeSurfaceConfig?: PlaneSurfaceConfig;
   geometry: TunnelGeometry;
   settings: TunnelSettings;

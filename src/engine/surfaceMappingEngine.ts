@@ -246,51 +246,90 @@ export function createDefaultSurfaceGeometryParameters(
   };
 }
 
+export function getSurfaceParamsStorageKey(subType: SurfaceMappingSubType = 'BENCH'): string {
+  return `eswa_surface_params_${subType.toLowerCase()}_v2`;
+}
+
+export function getSurfaceResumeStorageKey(subType: SurfaceMappingSubType = 'BENCH'): string {
+  return `eswa_surface_resume_${subType.toLowerCase()}_v2`;
+}
+
 export function loadSavedSurfaceGeometryParameters(
-  subType?: SurfaceMappingSubType
+  subType: SurfaceMappingSubType = 'BENCH'
 ): SurfaceGeometryParameters {
+  const targetKey = getSurfaceParamsStorageKey(subType);
   try {
-    const raw = localStorage.getItem(SURFACE_PARAMS_STORAGE_KEY);
+    const raw = localStorage.getItem(targetKey);
     if (raw) {
       const parsed = JSON.parse(raw) as SurfaceGeometryParameters;
       if (parsed && typeof parsed === 'object') {
-        if (!subType || parsed.subType === subType) {
-          return {
-            ...createDefaultSurfaceGeometryParameters(parsed.subType || 'BENCH'),
-            ...parsed,
-          };
+        return {
+          ...createDefaultSurfaceGeometryParameters(subType),
+          ...parsed,
+          subType,
+        };
+      }
+    }
+    // Backward-compatibility migration: check legacy single key
+    const legacyRaw = localStorage.getItem(SURFACE_PARAMS_STORAGE_KEY);
+    if (legacyRaw) {
+      const legacyParsed = JSON.parse(legacyRaw) as SurfaceGeometryParameters;
+      if (legacyParsed && legacyParsed.subType === subType) {
+        const migrated: SurfaceGeometryParameters = {
+          ...createDefaultSurfaceGeometryParameters(subType),
+          ...legacyParsed,
+          subType,
+        };
+        try {
+          localStorage.setItem(targetKey, JSON.stringify(migrated));
+        } catch {
+          // Ignore
         }
+        return migrated;
       }
     }
   } catch {
     // Ignore storage read errors
   }
-  return createDefaultSurfaceGeometryParameters(subType || 'BENCH');
+  return createDefaultSurfaceGeometryParameters(subType);
 }
 
 export function saveSurfaceGeometryParameters(params: SurfaceGeometryParameters): void {
+  const targetKey = getSurfaceParamsStorageKey(params.subType || 'BENCH');
   try {
-    localStorage.setItem(SURFACE_PARAMS_STORAGE_KEY, JSON.stringify(params));
+    localStorage.setItem(targetKey, JSON.stringify(params));
   } catch {
     // Ignore storage write errors
   }
 }
 
 export function saveSurfaceMappingResumeState(state: SurfaceMappingResumeState): void {
+  const targetKey = getSurfaceResumeStorageKey(state.subType || 'BENCH');
   try {
+    localStorage.setItem(targetKey, JSON.stringify(state));
+    // Also store to legacy pointer so global status indicator can read most recent
     localStorage.setItem(SURFACE_RESUME_STORAGE_KEY, JSON.stringify(state));
   } catch {
     // Ignore
   }
 }
 
-export function loadSurfaceMappingResumeState(): SurfaceMappingResumeState | null {
+export function loadSurfaceMappingResumeState(subType?: SurfaceMappingSubType): SurfaceMappingResumeState | null {
   try {
-    const raw = localStorage.getItem(SURFACE_RESUME_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as SurfaceMappingResumeState;
-    if (!parsed || !parsed.subType) return null;
-    return parsed;
+    if (subType) {
+      const key = getSurfaceResumeStorageKey(subType);
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw) as SurfaceMappingResumeState;
+        if (parsed && parsed.subType === subType) return parsed;
+      }
+    }
+    const rawGlobal = localStorage.getItem(SURFACE_RESUME_STORAGE_KEY);
+    if (!rawGlobal) return null;
+    const parsedGlobal = JSON.parse(rawGlobal) as SurfaceMappingResumeState;
+    if (!parsedGlobal || !parsedGlobal.subType) return null;
+    if (subType && parsedGlobal.subType !== subType) return null;
+    return parsedGlobal;
   } catch {
     return null;
   }

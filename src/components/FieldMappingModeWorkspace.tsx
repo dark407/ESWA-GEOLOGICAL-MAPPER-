@@ -266,12 +266,22 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     return () => window.removeEventListener('eswa-geologist-profile-changed', handleProfileChange);
   }, []);
 
+  const mappingDomainRef = useRef<MappingDomainType>(mappingDomain);
+  mappingDomainRef.current = mappingDomain;
+
   useEffect(() => {
     setWorkflowMode(initialWorkflowMode);
   }, [initialWorkflowMode]);
 
   useEffect(() => {
-    setMappingDomain(initialMappingDomain);
+    if (initialMappingDomain !== mappingDomain) {
+      saveFieldMappingStore(latestStoreRef.current, mappingDomain);
+      setMappingDomain(initialMappingDomain);
+      mappingDomainRef.current = initialMappingDomain;
+      const nextStore = loadFieldMappingStore(initialMappingDomain);
+      setStore(nextStore);
+      latestStoreRef.current = nextStore;
+    }
     if (initialMappingDomain !== 'TUNNEL') {
       setSurfaceParams((prev) => {
         const next =
@@ -288,8 +298,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   }, [initialMappingDomain]);
 
   const handleSelectMappingDomain = (nextDomain: MappingDomainType) => {
+    if (nextDomain === mappingDomain) return;
+    // 1. Immediately flush/save active store to current domain's isolated key
+    saveFieldMappingStore(latestStoreRef.current, mappingDomain);
+
+    // 2. Switch domain
     setMappingDomain(nextDomain);
+    mappingDomainRef.current = nextDomain;
     if (onChangeMappingDomain) onChangeMappingDomain(nextDomain);
+
+    // 3. Load target domain's independent store
+    const nextStore = loadFieldMappingStore(nextDomain);
+    setStore(nextStore);
+    latestStoreRef.current = nextStore;
+
+    // 4. Update surface geometry parameters
     if (nextDomain !== 'TUNNEL') {
       const loaded = loadSavedSurfaceGeometryParameters(nextDomain as SurfaceMappingSubType);
       const updated = { ...loaded, subType: nextDomain as SurfaceMappingSubType };
@@ -327,9 +350,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const formatDomainProjName = formatProjectNameForDomain;
   const formatDomainLocName = formatLocationNameForDomain;
 
-  // 100% Automatic Persistent Store
+  // 100% Automatic Persistent Store - strictly isolated by mapping domain
   const [store, setStore] = useState<FieldMappingStoreState>(() => {
-    const loaded = loadFieldMappingStore();
+    const loaded = loadFieldMappingStore(initialMappingDomain);
     if (resumeAtLastStage && savedResume) {
       return {
         ...loaded,
@@ -361,19 +384,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   }, [workflowMode, stage]);
 
-  // Debounced auto-save whenever store changes (prevents blocking the main UI thread with JSON.stringify on every stroke/slider tick!)
+  // Debounced auto-save strictly to active mapping domain
   const latestStoreRef = useRef(store);
   latestStoreRef.current = store;
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      saveFieldMappingStore(latestStoreRef.current);
+      saveFieldMappingStore(latestStoreRef.current, mappingDomainRef.current);
     }, 350);
     return () => window.clearTimeout(timer);
   }, [store]);
 
   useEffect(() => {
     const flushStoreNow = () => {
-      saveFieldMappingStore(latestStoreRef.current);
+      saveFieldMappingStore(latestStoreRef.current, mappingDomainRef.current);
     };
     window.addEventListener('beforeunload', flushStoreNow);
     return () => {
@@ -3677,20 +3700,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             <span>Menu</span>
           </button>
 
-          {/* Compact Surface Mapping Sub-Type Selector (Hidden in Face Mapping Work Window) */}
-          {mappingDomain !== 'TUNNEL' && (
+          {/* Isolated Domain Selector & Status Badge */}
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-orange-950/60 border border-orange-500/40 text-[10.5px] font-mono font-bold text-orange-200 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="text-[10px] text-orange-400/80 uppercase">Domain:</span>
             <select
               value={mappingDomain}
               onChange={(e) => handleSelectMappingDomain(e.target.value as MappingDomainType)}
-              className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[10.5px] font-bold text-amber-300 cursor-pointer shrink-0"
-              title="Switch Surface Mapping Type"
+              className="bg-transparent text-amber-300 font-bold outline-none cursor-pointer"
+              title="Current Isolated Workspace Domain (Switch to load independent domain state)"
             >
-              <option value="BENCH">Surface: Bench Mapping</option>
-              <option value="TRENCH">Surface: Trench Mapping</option>
-              <option value="SLOPE">Surface: Slope Mapping</option>
-              <option value="ROCK_SURFACE">Surface: Rock Surface</option>
+              <option value="TUNNEL" className="bg-slate-900 text-slate-100">Underground Tunnel</option>
+              <option value="BENCH" className="bg-slate-900 text-slate-100">Surface: Bench Mapping</option>
+              <option value="TRENCH" className="bg-slate-900 text-slate-100">Surface: Trench Mapping</option>
+              <option value="SLOPE" className="bg-slate-900 text-slate-100">Surface: Slope Stability</option>
+              <option value="ROCK_SURFACE" className="bg-slate-900 text-slate-100">Surface: Rock Outcrop</option>
             </select>
-          )}
+          </div>
         </div>
 
         {/* Horizontal Field & Photo Mapping Workflow Navigation */}
