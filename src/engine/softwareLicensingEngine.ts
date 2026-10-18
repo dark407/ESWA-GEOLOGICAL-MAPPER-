@@ -737,28 +737,211 @@ export function setLocalMasterPcBypass(enabled: boolean): void {
   }
 }
 
+export const ESWA_ENTERPRISE_TOKEN_SALT = 'ESWA_ENTERPRISE_TOKEN_SALT_SEC_2026';
+export const ESWA_GATEWAY_SALT = 'ESWA_GATEWAY_API_SIG_2026';
+export const LOCAL_TAMPER_LOCKOUT_KEY = 'eswa_tamper_lockout_active_v1';
+
+export function computeSha256Hex(ascii: string): string {
+  function rightRotate(value: number, amount: number) {
+    return (value >>> amount) | (value << (32 - amount));
+  }
+  const mathPow = Math.pow;
+  const maxWord = mathPow(2, 32);
+  const lengthProperty = 'length';
+  let i: number, j: number;
+  let result = '';
+  const words: number[] = [];
+  const asciiBitLength = ascii[lengthProperty] * 8;
+  let hash: number[] = [];
+  const k: number[] = [];
+  let primeCounter = 0;
+  const isComposite: Record<number, number> = {};
+  for (let candidate = 2; primeCounter < 64; candidate++) {
+    if (!isComposite[candidate]) {
+      for (i = 0; i < 313; i += candidate) {
+        isComposite[i] = candidate;
+      }
+      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
+      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+    }
+  }
+  ascii += '\x80';
+  while ((ascii[lengthProperty] % 64) - 56) ascii += '\x00';
+  for (i = 0; i < ascii[lengthProperty]; i++) {
+    j = ascii.charCodeAt(i);
+    if (j >> 8) return '';
+    words[i >> 2] |= j << (((3 - i) % 4) * 8);
+  }
+  words[words[lengthProperty]] = (asciiBitLength / maxWord) | 0;
+  words[words[lengthProperty]] = asciiBitLength;
+  for (j = 0; j < words[lengthProperty]; ) {
+    const w = words.slice(j, (j += 16));
+    const oldHash = hash;
+    hash = hash.slice(0, 8);
+    for (i = 0; i < 64; i++) {
+      const w15 = w[i - 15],
+        w2 = w[i - 2];
+      const a = hash[0],
+        e = hash[4];
+      const temp1 =
+        hash[7] +
+        (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
+        ((e & hash[5]) ^ (~e & hash[6])) +
+        k[i] +
+        (w[i] =
+          i < 16
+            ? w[i]
+            : (w[i - 16] +
+                (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
+                w[i - 7] +
+                (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) |
+              0);
+      const temp2 =
+        (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
+        ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+      hash = [(temp1 + temp2) | 0].concat(hash);
+      hash[4] = (hash[4] + temp1) | 0;
+    }
+    for (i = 0; i < 8; i++) {
+      hash[i] = (hash[i] + oldHash[i]) | 0;
+    }
+  }
+  for (i = 0; i < 8; i++) {
+    for (j = 3; j + 1; j--) {
+      const b = (hash[i] >> (j * 8)) & 255;
+      result += ((b < 16) ? '0' : '') + b.toString(16);
+    }
+  }
+  return result;
+}
+
+export function generateEswaApiSignature(hwId: string): string {
+  return computeSha256Hex(`${hwId}:${ESWA_GATEWAY_SALT}`);
+}
+
+export function getEswaApiSecurityHeaders(): Record<string, string> {
+  try {
+    const { pcHardwareId } = getOrGeneratePcHardwareId();
+    return {
+      'X-ESWA-Hardware-ID': pcHardwareId,
+      'X-ESWA-Signature': generateEswaApiSignature(pcHardwareId),
+    };
+  } catch {
+    return {
+      'X-ESWA-Hardware-ID': 'STANDALONE_ESWA_PC',
+      'X-ESWA-Signature': generateEswaApiSignature('STANDALONE_ESWA_PC'),
+    };
+  }
+}
+
+interface SecureSessionEnvelope {
+  __eswa_enc__: true;
+  hwId: string;
+  payload: string;
+  checksum: string;
+}
+
+function xorCipher(text: string, key: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    out += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  }
+  return out;
+}
+
+export function triggerTamperViolationLockout(reason: string): void {
+  try {
+    localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
+    localStorage.setItem(
+      LOCAL_TAMPER_LOCKOUT_KEY,
+      JSON.stringify({
+        lockedAt: new Date().toISOString(),
+        reason,
+      })
+    );
+    window.dispatchEvent(new CustomEvent('eswa-security-tamper-detected', { detail: { reason } }));
+  } catch {
+    // Ignore storage write error
+  }
+}
+
+export function isTamperViolationLockoutActive(): boolean {
+  try {
+    return !!localStorage.getItem(LOCAL_TAMPER_LOCKOUT_KEY);
+  } catch {
+    return false;
+  }
+}
+
+export function clearTamperViolationLockout(): void {
+  try {
+    localStorage.removeItem(LOCAL_TAMPER_LOCKOUT_KEY);
+  } catch {
+    // Ignore
+  }
+}
+
 export function getLocalActivatedSession(): ActivatedClientSession | null {
   try {
-    const raw = localStorage.getItem(LOCAL_ACTIVE_SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as ActivatedClientSession;
-    if (parsed?.userId === 'standalone_user') {
-      localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
+    if (isTamperViolationLockoutActive()) {
       return null;
     }
-    if (parsed && parsed.userId && parsed.licenseKey && parsed.pcHardwareId) {
-      const existingHwId = localStorage.getItem(LOCAL_PC_HW_ID_KEY);
-      if (!existingHwId) {
-        localStorage.setItem(LOCAL_PC_HW_ID_KEY, parsed.pcHardwareId);
-        return parsed;
+    const raw = localStorage.getItem(LOCAL_ACTIVE_SESSION_KEY);
+    if (!raw) return null;
+
+    const { pcHardwareId: currentHwId } = getOrGeneratePcHardwareId();
+    let session: ActivatedClientSession | null = null;
+
+    if (raw.includes('__eswa_enc__')) {
+      const envelope = JSON.parse(raw) as SecureSessionEnvelope;
+      if (!envelope || envelope.__eswa_enc__ !== true || !envelope.hwId || !envelope.payload || !envelope.checksum) {
+        triggerTamperViolationLockout('Invalid encrypted token envelope structure.');
+        return null;
       }
-      const { pcHardwareId } = getOrGeneratePcHardwareId();
-      if (parsed.pcHardwareId === pcHardwareId || parsed.pcHardwareId === existingHwId) {
-        return parsed;
+
+      // Check if machine hardware ID matches bound token hardware ID
+      if (envelope.hwId !== currentHwId) {
+        triggerTamperViolationLockout(`Hardware token mismatch: bound ${envelope.hwId} vs machine ${currentHwId}`);
+        return null;
+      }
+
+      // Verify cryptographic runtime signature / checksum
+      const expectedChecksum = computeSha256Hex(`${envelope.payload}:${envelope.hwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
+      if (envelope.checksum !== expectedChecksum) {
+        triggerTamperViolationLockout('Cryptographic token signature verification failed (offline token tampered).');
+        return null;
+      }
+
+      const decrypted = xorCipher(atob(envelope.payload), `${envelope.hwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
+      session = JSON.parse(decrypted) as ActivatedClientSession;
+
+      if (!session || !session.userId || !session.licenseKey || session.pcHardwareId !== envelope.hwId) {
+        triggerTamperViolationLockout('Session payload integrity verification failed.');
+        return null;
+      }
+    } else {
+      // Legacy plaintext migration & immediate hardening
+      const parsed = JSON.parse(raw) as ActivatedClientSession;
+      if (parsed?.userId === 'standalone_user') {
+        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
+        return null;
+      }
+      if (parsed && parsed.userId && parsed.licenseKey && parsed.pcHardwareId) {
+        const existingHwId = localStorage.getItem(LOCAL_PC_HW_ID_KEY);
+        if (parsed.pcHardwareId === currentHwId || parsed.pcHardwareId === existingHwId) {
+          session = parsed;
+          // Upgrade immediately to secured cryptographic envelope
+          saveLocalActivatedSession(session);
+        } else {
+          triggerTamperViolationLockout('Legacy session bound to different PC hardware ID.');
+          return null;
+        }
       }
     }
-    return null;
-  } catch {
+
+    return session;
+  } catch (err: unknown) {
+    triggerTamperViolationLockout(err instanceof Error ? err.message : 'Session decrypt error');
     return null;
   }
 }
@@ -767,13 +950,132 @@ export function saveLocalActivatedSession(session: ActivatedClientSession | null
   try {
     if (!session) {
       localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
-    } else {
-      localStorage.setItem(LOCAL_ACTIVE_SESSION_KEY, JSON.stringify(session));
+      return;
+    }
+
+    const { pcHardwareId: currentHwId } = getOrGeneratePcHardwareId();
+    const boundHwId = session.pcHardwareId || currentHwId;
+    const sessionJson = JSON.stringify({
+      ...session,
+      pcHardwareId: boundHwId,
+    });
+
+    const ciphered = xorCipher(sessionJson, `${boundHwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
+    const b64Payload = btoa(ciphered);
+    const checksum = computeSha256Hex(`${b64Payload}:${boundHwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
+
+    const envelope: SecureSessionEnvelope = {
+      __eswa_enc__: true,
+      hwId: boundHwId,
+      payload: b64Payload,
+      checksum,
+    };
+
+    localStorage.setItem(LOCAL_ACTIVE_SESSION_KEY, JSON.stringify(envelope));
+  } catch {
+    // Ignore storage quota error
+  }
+}
+
+export function isMasterAdminLoggedIn(): boolean {
+  try {
+    if (getLocalMasterPcBypass()) return true;
+    const creds = getStoredAdminCredentials();
+    const email = (creds?.email || '').trim().toLowerCase();
+    if (email === 'dhoniakash407@gmail.com' || email === 'akashdhanusheswar@gmail.com') {
+      return true;
+    }
+    const sess = getLocalActivatedSession();
+    if (sess?.userId === 'dhoniakash407@gmail.com' || sess?.userId === 'akashdhanusheswar@gmail.com') {
+      return true;
     }
   } catch {
     // Ignore
   }
+  return false;
 }
+
+/**
+ * Enterprise Runtime Shield: Protects proprietary mathematical engines and UI
+ * against DevTools tampering, reverse-engineering, inspect element, and source viewing.
+ * Bypassed ONLY when logged in as Master Admin (dhoniakash407@gmail.com).
+ */
+export function initEnterpriseSecurityShield(): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  // Bypass if running in dev mode or logged in as Master Admin
+  if (import.meta.env.DEV) {
+    return () => {};
+  }
+
+  const handleContextMenu = (e: MouseEvent) => {
+    if (isMasterAdminLoggedIn()) return;
+    e.preventDefault();
+    return false;
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (isMasterAdminLoggedIn()) return;
+
+    // F12 key
+    if (e.key === 'F12' || e.keyCode === 123) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+
+    // Ctrl+Shift+I / J / C (DevTools inspector & console)
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      e.shiftKey &&
+      (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+
+    // Ctrl+U (View Source) & Ctrl+S (Save Page)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'U' || e.key === 'u' || e.key === 'S' || e.key === 's')) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  };
+
+  const handleDragStart = (e: DragEvent) => {
+    if (isMasterAdminLoggedIn()) return;
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'CANVAS' || target.tagName === 'IMG')) {
+      e.preventDefault();
+      return false;
+    }
+  };
+
+  window.addEventListener('contextmenu', handleContextMenu, true);
+  window.addEventListener('keydown', handleKeyDown, true);
+  window.addEventListener('dragstart', handleDragStart, true);
+
+  // Periodic cryptographic runtime integrity check
+  const integrityTimer = window.setInterval(() => {
+    if (isMasterAdminLoggedIn()) return;
+    const session = getLocalActivatedSession();
+    if (session) {
+      const { pcHardwareId } = getOrGeneratePcHardwareId();
+      if (session.pcHardwareId && session.pcHardwareId !== pcHardwareId) {
+        triggerTamperViolationLockout('Hardware ID spoofing detected during runtime cycle.');
+      }
+    }
+  }, 12000);
+
+  return () => {
+    window.removeEventListener('contextmenu', handleContextMenu, true);
+    window.removeEventListener('keydown', handleKeyDown, true);
+    window.removeEventListener('dragstart', handleDragStart, true);
+    window.clearInterval(integrityTimer);
+  };
+}
+
 
 export function getStoredAdminCredentials(): { email: string; password: string } {
   try {

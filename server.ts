@@ -5,11 +5,19 @@ import fs from 'fs';
 import { exec, execSync } from 'child_process';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
 
 const PORT = 3000;
+const ESWA_GATEWAY_SALT = 'ESWA_GATEWAY_API_SIG_2026';
+
+function validateEswaGatewaySignature(hwId: string, sig: string): boolean {
+  if (!hwId || !sig) return false;
+  const expected = crypto.createHash('sha256').update(`${hwId}:${ESWA_GATEWAY_SALT}`).digest('hex');
+  return expected.toLowerCase() === sig.toLowerCase();
+}
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;

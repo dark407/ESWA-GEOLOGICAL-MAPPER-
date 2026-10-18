@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle,
   ArrowLeft,
   BookmarkCheck,
   Box,
@@ -13,27 +12,21 @@ import {
   Droplets,
   Eraser,
   Eye,
-  FileSpreadsheet,
   FolderPlus,
   Layers,
   MapPin,
-  Maximize2,
   Move,
   Paintbrush,
   Pencil,
   Plus,
   Redo2,
-  RefreshCw,
   RotateCcw,
   Search,
   Settings,
   Sliders,
   Sparkles,
-  Sun,
   Trash2,
   Undo2,
-  Video,
-  VideoOff,
   X,
 } from 'lucide-react';
 import {
@@ -41,12 +34,9 @@ import {
   autoComputeOrientationFromPlot,
   buildDipSurfaceOutlineAndCentroid,
   buildDipSurfacePolygonWithOutlineSnap,
-  buildFieldTunnelOutlineSvgPath,
-  buildSampleIntervalsForChannelLine,
   buildSmoothSvgPath,
   clampPointToFieldPanelOutline,
   clipSegmentToFieldPanelOutline,
-  computeCrownLengthMeters,
   computeDisplayPanelGeometry,
   computeFaceTunnelOutlineDetails,
   computePanelCanvasGeometry,
@@ -56,7 +46,6 @@ import {
   createDefaultExcavationRound,
   estimateTraceOrientationFromGeometry,
   getFieldPanelTransform,
-  getIdealFieldPanelTransform,
   interpolateCatmullRomSpline,
   isPanelAtIdealPosition,
   isPointInsideFieldPanelOutline,
@@ -74,7 +63,6 @@ import {
   FIELD_FOLD_ELEMENT_ROLES,
   FIELD_FOLD_SUBTYPE_CATALOG,
   FIELD_JOINT_GROUP_COLORS,
-  FIELD_JOINT_SET_IDS,
   FIELD_LITHOLOGY_CATALOG,
   FIELD_LITHOLOGY_COLOR_FAMILIES,
   FIELD_PANEL_DISPLAY_LABELS,
@@ -117,7 +105,9 @@ import {
   saveFieldMappingStore,
   smoothFieldTracePoints,
 } from '../engine/fieldMappingEngine';
-import { evaluateCustomProfileGeometry } from '../engine/customProfileEngine';
+import {
+  evaluateCustomProfileGeometry,
+} from '../engine/customProfileEngine';
 import {
   FieldCanvasGeometryReferenceOverlay,
   FieldLiveCompassInclinometer,
@@ -130,7 +120,6 @@ import {
   FieldWaterSymbolSvgRenderer,
 } from './FieldMappingCompassAndPatterns';
 import {
-  FieldDiscontinuityAndClassificationsStage,
   FieldStripAlignmentStage,
   FieldTwoPageReportAndTemplateStage,
 } from './FieldMappingReportAndParamsStages';
@@ -140,38 +129,54 @@ import {
   FieldSupportSystemStage,
   FieldSurveyOverbreakStage,
 } from './FieldAdvancedStages';
-import { Tunnel3DPhotoCanvas } from './Tunnel3DPhotoCanvas';
+import {
+  Tunnel3DPhotoCanvas,
+} from './Tunnel3DPhotoCanvas';
 import {
   Field3DTunnelGeologicalReportStage,
   FieldCanvasAdvanceMatlabPanel,
   FieldFourPhotoUploadStage,
-  FieldInBuiltCameraStage,
   FieldPhotoFitStage,
   FieldSvgMatlabFilterDefs,
   FieldTwoPagePhotoReportStage,
   FittedPanelPhotoSvgImage,
 } from './FieldPhotoFitAndReportsStages';
-import { FreeformCustomProfileEditor } from './FreeformCustomProfileEditor';
+import {
+  FreeformCustomProfileEditor,
+} from './FreeformCustomProfileEditor';
 import {
   Field3DNewTraceUnfoldedSyncBox,
   Field3DSyncTraceState,
   Field3DTunnelCanvas,
   getFieldToolCursorDataUri,
 } from './Field3DTunnelCanvas';
-import { createTunnelGeometry } from '../engine/geometryEngine';
-import { generateSampleTunnelPhotograph } from '../engine/sampleFieldData';
-import { TunnelGeometry, TunnelSettings } from '../types/tunnel';
-import { EswaAppBackgroundWatermark, EswaTunnelLogo } from './EswaBrandIdentity';
-import { ThemeToggleButton } from '../context/ThemeContext';
-import { GlobalSettingsModal } from './GlobalSettingsModal';
 import {
-  exportCompletedFaceMasterBundleToFile,
+  createTunnelGeometry,
+} from '../engine/geometryEngine';
+import {
+  generateSampleTunnelPhotograph,
+} from '../engine/sampleFieldData';
+import {
+  TunnelGeometry,
+} from '../types/tunnel';
+import {
+  EswaAppBackgroundWatermark,
+  EswaTunnelLogo,
+} from './EswaBrandIdentity';
+import {
+  ThemeToggleButton,
+} from '../context/ThemeContext';
+import {
+  GlobalSettingsModal,
+} from './GlobalSettingsModal';
+import {
   FIELD_STAGE_LABELS,
   getActiveGeologistProfile,
   GeologistUserProfile,
   loadFieldMappingResumeState,
   saveFieldMappingResumeState,
   stampGeologistSignatureIntoRound,
+  syncFieldMappingRoundForAiTraining,
 } from '../engine/userCloudAndPackageEngine';
 import {
   FaceCompletionAndReviewBar,
@@ -180,7 +185,6 @@ import {
   evaluateSurfaceStabilityAndRomanaSmr,
   getSurfacePanelLabelMap,
   loadSavedSurfaceGeometryParameters,
-  loadSurfaceMappingResumeState,
   MappingDomainType,
   saveSurfaceGeometryParameters,
   saveSurfaceMappingResumeState,
@@ -382,6 +386,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   }, [workflowMode, stage]);
 
+
   // Debounced auto-save strictly to active mapping domain
   const latestStoreRef = useRef(store);
   latestStoreRef.current = store;
@@ -469,6 +474,37 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       ) || null
     );
   }, [store.rounds, store.activeRoundId, activeProject, activeLocation]);
+
+  // Automatic non-blocking telemetry sync for AI training on key workflow milestones
+  useEffect(() => {
+    if (!activeRound) return;
+    if (stage === 'joint_grouping' || stage === 'strip_align') {
+      syncFieldMappingRoundForAiTraining(
+        activeRound,
+        activeProject || undefined,
+        activeLocation || undefined,
+        'MANUAL_TRACE_SAVED'
+      );
+    } else if (stage === 'support_system' || stage === 'survey_overbreak') {
+      syncFieldMappingRoundForAiTraining(
+        activeRound,
+        activeProject || undefined,
+        activeLocation || undefined,
+        'GEOTECH_CALCULATED'
+      );
+    } else if (
+      stage === 'word_template_export' ||
+      stage === 'photo_2d_report' ||
+      stage === 'geology_3d_report'
+    ) {
+      syncFieldMappingRoundForAiTraining(
+        activeRound,
+        activeProject || undefined,
+        activeLocation || undefined,
+        'EXPORT_GENERATED'
+      );
+    }
+  }, [stage, activeRound?.id, activeProject, activeLocation]);
 
   // Automatically stamp active geologist name & PNG signature into active round based on role
   useEffect(() => {
@@ -3697,24 +3733,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             <ArrowLeft className="w-3.5 h-3.5 text-orange-500" />
             <span>Menu</span>
           </button>
-
-          {/* Isolated Domain Selector & Status Badge */}
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-orange-950/60 border border-orange-500/40 text-[10.5px] font-mono font-bold text-orange-200 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <span className="text-[10px] text-orange-400/80 uppercase">Domain:</span>
-            <select
-              value={mappingDomain}
-              onChange={(e) => handleSelectMappingDomain(e.target.value as MappingDomainType)}
-              className="bg-transparent text-amber-300 font-bold outline-none cursor-pointer"
-              title="Current Isolated Workspace Domain (Switch to load independent domain state)"
-            >
-              <option value="TUNNEL" className="bg-slate-900 text-slate-100">Underground Tunnel</option>
-              <option value="BENCH" className="bg-slate-900 text-slate-100">Surface: Bench Mapping</option>
-              <option value="TRENCH" className="bg-slate-900 text-slate-100">Surface: Trench Mapping</option>
-              <option value="SLOPE" className="bg-slate-900 text-slate-100">Surface: Slope Stability</option>
-              <option value="ROCK_SURFACE" className="bg-slate-900 text-slate-100">Surface: Rock Outcrop</option>
-            </select>
-          </div>
         </div>
 
         {/* Horizontal Field & Photo Mapping Workflow Navigation */}

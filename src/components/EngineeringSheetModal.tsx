@@ -1,6 +1,12 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useContainerResizeObserver, useResponsiveLayout } from '../hooks/useResponsiveLayout';
-import { ThemeToggleButton, useTheme } from '../context/ThemeContext';
+import {
+  useContainerResizeObserver,
+  useResponsiveLayout,
+} from '../hooks/useResponsiveLayout';
+import {
+  ThemeToggleButton,
+  useTheme,
+} from '../context/ThemeContext';
 import {
   Joint,
   JointSet,
@@ -24,21 +30,24 @@ import {
   TunnelGeometry,
   TunnelSettings,
 } from '../types/tunnel';
-import { getDisplayedJointGeometry } from '../engine/geometryEngine';
+import {
+  getDisplayedJointGeometry,
+} from '../engine/geometryEngine';
 import {
   clusterJointsIntoSets,
   formatJointTraceLineLabel,
   JOINT_SET_PALETTE,
   runQualityControlValidation,
 } from '../engine/orientationEngine';
-import { analyzeOverbreakAndUndercut } from '../engine/overbreakEngine';
+import {
+  analyzeOverbreakAndUndercut,
+} from '../engine/overbreakEngine';
 import {
   computeSectionToSectionVolumes,
   parseNumericChainageMeters,
   saveProjectRecordToMemory,
 } from '../engine/projectMemoryEngine';
 import {
-  calculateBartonQSystem,
   createDefaultQIndexParameters,
   createDefaultRockMassSummary,
   exportGeologyAndQIndexToCSV,
@@ -79,7 +88,9 @@ import {
   createDefaultRmrParameters,
   evaluateQSystemWithValidation,
 } from '../engine/rockMassClassificationEngine';
-import { generateSampleTunnelPhotograph } from '../engine/sampleFieldData';
+import {
+  generateSampleTunnelPhotograph,
+} from '../engine/sampleFieldData';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -96,7 +107,9 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { SheetSettingsAndStorageEditor } from './SheetSettingsAndStorageEditor';
+import {
+  SheetSettingsAndStorageEditor,
+} from './SheetSettingsAndStorageEditor';
 import {
   BatchQueueItem,
   BatchSheetProcessorPanel,

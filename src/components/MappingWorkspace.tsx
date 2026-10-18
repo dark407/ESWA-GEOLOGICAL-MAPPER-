@@ -55,6 +55,7 @@ import {
   downloadEngineeringSheetAsPDF,
   downloadEngineeringSheetAsWordDoc,
 } from '../engine/pdfAndWordExportEngine';
+import { syncPhotogrammetryProjectForAiTraining } from '../engine/userCloudAndPackageEngine';
 import {
   calculateBieniawskiRmr,
   calculateHoekGsi,
@@ -3374,6 +3375,19 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
       const splDedup = deduplicateAndLinkSplOverlapJoints(merged, geometry, settings);
       onUpdateJointsWithHistory(splDedup.joints);
       setSelectedJointId(newJoints[0].id);
+
+      // Trigger automatic background AI training telemetry sync for ground-truth dataset
+      syncPhotogrammetryProjectForAiTraining(
+        settings,
+        geometry,
+        splDedup.joints,
+        photos,
+        qIndexParams,
+        rmrParams,
+        overbreakAnalysis,
+        'AI_TRACE_COMPLETED'
+      );
+
       onUpdateStatusMessage?.(
         `6-Filter + MATLAB Cross-Verified: ${filterLabel} extracted & verified ${newJoints.length} high-accuracy trace(s) on ${activeSurface.toUpperCase()} · ${splDedup.summary}`
       );
@@ -4359,48 +4373,6 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     </select>
                   </div>
 
-                  {/* MULTI-FILTER SPECTRAL & PHOTOMETRIC SELECTOR + TRACE SCAN */}
-                  <div className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 rounded-md border border-indigo-200">
-                    <span className="text-[10px] font-mono font-bold text-indigo-800">
-                      Photo Filter:
-                    </span>
-                    <select
-                      value={
-                        showCrackXRayOverlay
-                          ? 'xray_ridge'
-                          : showDepthReliefOverlay
-                          ? 'depth_relief'
-                          : activePhotoFilterMode
-                      }
-                      onChange={(e) => {
-                        const mode = e.target.value as PhotoSpectralFilterMode;
-                        setActivePhotoFilterMode(mode);
-                        setShowCrackXRayOverlay(mode === 'xray_ridge');
-                        setShowDepthReliefOverlay(mode === 'depth_relief');
-                      }}
-                      disabled={!currentPhoto.image}
-                      className="bg-white text-indigo-950 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border border-indigo-300 cursor-pointer disabled:opacity-40"
-                      title="Switch Photo Analysis Filter (Negative, False Color, Green-Red Spectral, Edge Relief, Crack X-Ray)"
-                    >
-                      <option value="original">Original (Enhanced HD)</option>
-                      <option value="negative">Negative (Hairline Joints)</option>
-                      <option value="false_color">False Color (Thermal Aperture)</option>
-                      <option value="green_red">Green–Red (Clay / Vein / Shear)</option>
-                      <option value="edge_relief">Edge Relief (Bedding / Step)</option>
-                      <option value="xray_ridge">Crack X-Ray (Hessian Ridge)</option>
-                      <option value="depth_relief">3D Depth Relief (Hypsometric)</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => handleExtractTracesFromPhotoFilter()}
-                      disabled={!activePhotoRidgeField}
-                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded cursor-pointer shadow-2xs"
-                      title="Identify and extract traces using the active photo filter (or Multi-Filter Ensemble)"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      Identify Filter Traces
-                    </button>
-                  </div>
 
                   {/* ADVANCED PHOTO & VISION TOOLS (Shown when Advanced is active) */}
                   {windowComplexityMode === 'advanced' && (

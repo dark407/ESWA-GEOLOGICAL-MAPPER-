@@ -1,10 +1,8 @@
 import React, { useRef, useState } from 'react';
 import {
   buildDipSurfaceOutlineAndCentroid,
-  buildFieldTunnelOutlineSvgPath,
   buildSmoothSvgPath,
   computeCrownLengthMeters,
-  computeFaceCrownArcMeterTicks,
   computeFaceTunnelOutlineDetails,
   computePanelCanvasGeometry,
   computePanelOrientationReferenceMeta,
@@ -17,7 +15,6 @@ import {
   FieldDipPlaneSurface,
   FieldExcavationRound,
   FieldJointGroupingId,
-  FieldJointTrace,
   FieldLithologyStroke,
   FieldPanelId,
   FieldPoint2D,
@@ -30,7 +27,9 @@ import {
   pruneFullyErasedLithologyStrokes,
   resolveRockDisplayInfo,
 } from '../engine/fieldMappingEngine';
-import { Compass } from 'lucide-react';
+import {
+  Compass,
+} from 'lucide-react';
 
 /**
  * Geological SVG Hatch Patterns

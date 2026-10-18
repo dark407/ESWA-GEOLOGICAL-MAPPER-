@@ -1,26 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bot,
   CheckCircle2,
-  ChevronDown,
-  Compass,
   Cpu,
-  Database,
   Download,
-  FileCode2,
-  FileSpreadsheet,
-  FileText,
-  Layers,
   Maximize2,
   Minimize2,
   Printer,
   Send,
-  ShieldCheck,
   Sparkles,
-  Terminal,
-  Wand2,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   Joint,
@@ -46,8 +34,12 @@ import {
   computeAdvancedOverbreakPrediction,
   computeRockStrataSupportSpotBoltingAndFailureFos,
 } from '../engine/supportSpotBoltFailureEngine';
-import { EswaTunnelLogo } from './EswaBrandIdentity';
-import { useTheme } from '../context/ThemeContext';
+import {
+  EswaTunnelLogo,
+} from './EswaBrandIdentity';
+import {
+  useTheme,
+} from '../context/ThemeContext';
 
 export type EngineeringExportTemplateId =
   | 'AUTO_BEST_TEMPLATE'

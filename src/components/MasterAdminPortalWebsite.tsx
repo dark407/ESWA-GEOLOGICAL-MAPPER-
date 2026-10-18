@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { signOut, User } from 'firebase/auth';
 import {
   auth,
@@ -94,6 +94,7 @@ import {
   exportGeminiFineTuningJsonl,
   exportGeotechDatasetBundle,
   fetchAiTrainingTelemetryRecords,
+  flushOfflineAiTelemetryQueue,
   MASTER_ADMIN_TARGET_EMAIL,
   syncMappingForAiTraining,
 } from '../engine/userCloudAndPackageEngine';
@@ -726,6 +727,214 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
     setStatusToast(msg);
     window.setTimeout(() => setStatusToast(null), 5000);
   };
+
+  const loadTelemetryData = useCallback(async () => {
+    setIsTelemetryLoading(true);
+    setTelemetryError(null);
+    try {
+      const email = auth.currentUser?.email || MASTER_ADMIN_TARGET_EMAIL;
+      const records = await fetchAiTrainingTelemetryRecords(email);
+      setTelemetryRecords(records);
+    } catch (err: any) {
+      console.warn('Telemetry load failed:', err);
+      setTelemetryError(err?.message || 'Failed to load telemetry from Firestore.');
+    } finally {
+      setIsTelemetryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'ai_telemetry') {
+      loadTelemetryData();
+    }
+  }, [activeTab, loadTelemetryData]);
+
+  const handleFlushTelemetryQueue = async () => {
+    try {
+      const flushed = await flushOfflineAiTelemetryQueue();
+      showToast(
+        flushed > 0
+          ? `Flushed ${flushed} offline telemetry record(s) to Firestore!`
+          : 'No pending offline telemetry records in local queue.'
+      );
+      await loadTelemetryData();
+    } catch (err: any) {
+      showToast('Error syncing offline queue: ' + (err?.message || 'Network error'));
+    }
+  };
+
+  const handleDeleteTelemetryItem = async (recordId: string) => {
+    if (!window.confirm('Are you sure you want to delete this ground-truth AI telemetry record?')) {
+      return;
+    }
+    try {
+      const email = auth.currentUser?.email || MASTER_ADMIN_TARGET_EMAIL;
+      await deleteAiTrainingTelemetryRecord(recordId, email);
+      setTelemetryRecords((prev) => prev.filter((r) => r.id !== recordId));
+      if (inspectingTelemetry?.id === recordId) {
+        setInspectingTelemetry(null);
+      }
+      showToast('Telemetry record successfully deleted.');
+    } catch (err: any) {
+      alert(err?.message || 'Failed to delete telemetry record.');
+    }
+  };
+
+  const handleSeedSampleTelemetry = async () => {
+    try {
+      showToast('Generating & uploading sample ground-truth telemetry record...');
+      await syncMappingForAiTraining({
+        mappingMethod: 'FIELD',
+        triggerEvent: 'MANUAL_TRACE_SAVED',
+        projectName: 'Himalayan Head Race Tunnel (HRT)',
+        locationName: 'Heading 04 - Face Mapping Station',
+        chainageLabel: 'CH 12+450m',
+        tunnelGeometry: {
+          shape: 'd_shaped',
+          spanM: 8.4,
+          heightM: 7.2,
+          chainageM: 12450,
+          driveAzimuthDeg: 285,
+        },
+        structuralJoints: [
+          {
+            setId: 'J1',
+            pointsNorm: [
+              { u: 0.15, v: 0.35 },
+              { u: 0.35, v: 0.52 },
+              { u: 0.55, v: 0.68 },
+            ],
+            strikeDeg: 275,
+            dipDeg: 65,
+            dipDirectionDeg: 5,
+            roughnessJrc: 'Rough / Stepped (JRC 12-14)',
+            apertureMm: '0.5 - 2.5 mm',
+            infilling: 'Calcite + Chlorite slickensides',
+            waterCondition: 'Damp / Seeping (0.2 L/min)',
+            persistenceM: 5.2,
+          },
+          {
+            setId: 'J2',
+            pointsNorm: [
+              { u: 0.65, v: 0.25 },
+              { u: 0.72, v: 0.58 },
+              { u: 0.78, v: 0.85 },
+            ],
+            strikeDeg: 5,
+            dipDeg: 78,
+            dipDirectionDeg: 95,
+            roughnessJrc: 'Smooth / Undulating (JRC 8-10)',
+            apertureMm: '< 0.5 mm tight',
+            infilling: 'None / Clean hard walls',
+            waterCondition: 'Dry',
+            persistenceM: 4.8,
+          },
+        ],
+        geotechRatings: {
+          qSystem: {
+            rqd: 75,
+            jn: 6,
+            jr: 2,
+            ja: 1,
+            jw: 1,
+            srf: 1,
+            finalQ: 25,
+            classification: 'Good Rock Mass (Class B)',
+          },
+          rmr89: {
+            strengthScore: 12,
+            rqdScore: 17,
+            spacingScore: 15,
+            conditionScore: 22,
+            waterScore: 10,
+            orientationAdjustment: -5,
+            totalRmr: 71,
+            rockClass: 'Class II — Good Rock',
+          },
+          gsi: 65,
+          smr: 68,
+        },
+        overbreakData: {
+          overbreakAreaM2: 1.85,
+          overbreakVolumeM3PerM: 2.25,
+          maxRadialOverbreakM: 0.32,
+          dominantCategory: 'GEOLOGICAL',
+          primaryDiagnosis: 'Structural wedge slip along J1/J2 intersection at Left Crown',
+        },
+      });
+      setTimeout(() => {
+        loadTelemetryData();
+        showToast('Sample ground-truth telemetry record created!');
+      }, 700);
+    } catch (err: any) {
+      showToast('Error seeding telemetry: ' + (err?.message || 'Error'));
+    }
+  };
+
+  const filteredTelemetry = useMemo(() => {
+    return telemetryRecords.filter((rec) => {
+      if (telemetryModeFilter !== 'ALL' && rec.mappingMethod !== telemetryModeFilter) {
+        return false;
+      }
+      if (telemetryShapeFilter !== 'ALL') {
+        const shape = (rec.tunnelGeometry?.shape || '').toLowerCase();
+        if (telemetryShapeFilter === 'd_shaped' && !shape.includes('d_shape')) return false;
+        if (telemetryShapeFilter === 'horse_shoe' && !shape.includes('horse')) return false;
+        if (telemetryShapeFilter === 'circular' && !shape.includes('circ')) return false;
+        if (telemetryShapeFilter === 'box' && !shape.includes('box')) return false;
+        if (telemetryShapeFilter === 'borehole_core' && !shape.includes('borehole') && !shape.includes('core')) return false;
+      }
+      if (telemetryRockClassFilter !== 'ALL') {
+        const qClass = (rec.geotechRatings?.qSystem?.classification || '').toLowerCase();
+        const rmrClass = (rec.geotechRatings?.rmr89?.rockClass || '').toLowerCase();
+        const target = telemetryRockClassFilter.toLowerCase();
+        if (!qClass.includes(target) && !rmrClass.includes(target)) {
+          return false;
+        }
+      }
+      if (telemetrySearch.trim()) {
+        const q = telemetrySearch.toLowerCase();
+        const str = `${rec.userEmail || ''} ${rec.projectName || ''} ${rec.locationName || ''} ${rec.chainageLabel || ''} ${rec.boundPcHardwareId || ''} ${rec.id || ''}`.toLowerCase();
+        if (!str.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [telemetryRecords, telemetryModeFilter, telemetryShapeFilter, telemetryRockClassFilter, telemetrySearch]);
+
+  const telemetryStats = useMemo(() => {
+    const totalFaces = telemetryRecords.length;
+    const totalJoints = telemetryRecords.reduce(
+      (acc, r) => acc + (r.structuralJoints?.length || 0),
+      0
+    );
+    const uniqueDevices = new Set(telemetryRecords.map((r) => r.boundPcHardwareId)).size;
+
+    const rmrClasses = {
+      'Class I': 0,
+      'Class II': 0,
+      'Class III': 0,
+      'Class IV': 0,
+      'Class V': 0,
+    };
+    telemetryRecords.forEach((r) => {
+      const cls = r.geotechRatings?.rmr89?.rockClass || '';
+      if (cls.includes('Class I') && !cls.includes('Class II') && !cls.includes('Class III') && !cls.includes('Class IV') && !cls.includes('Class V')) {
+        rmrClasses['Class I']++;
+      } else if (cls.includes('Class II')) {
+        rmrClasses['Class II']++;
+      } else if (cls.includes('Class III')) {
+        rmrClasses['Class III']++;
+      } else if (cls.includes('Class IV')) {
+        rmrClasses['Class IV']++;
+      } else if (cls.includes('Class V')) {
+        rmrClasses['Class V']++;
+      } else {
+        rmrClasses['Class III']++;
+      }
+    });
+
+    return { totalFaces, totalJoints, uniqueDevices, rmrClasses };
+  }, [telemetryRecords]);
 
   const handleAdminEmailLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1673,6 +1882,27 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
         >
           <Laptop className="w-4 h-4" />
           <span>04. My Master Device Settings</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('ai_telemetry');
+            loadTelemetryData();
+          }}
+          className={`flex items-center gap-2 px-4 py-2.5 border-b-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+            activeTab === 'ai_telemetry'
+              ? 'border-indigo-500 text-indigo-400 bg-slate-900'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-indigo-400" />
+          <span>05. AI Training &amp; Global Field Data Hub</span>
+          {telemetryRecords.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-300 font-mono font-bold">
+              {telemetryRecords.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -3183,6 +3413,454 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
               </div>
             </div>
           )}
+
+          {/* ====================================================================
+              TAB 5: AI TRAINING & GLOBAL FIELD DATA HUB
+              ==================================================================== */}
+          {activeTab === 'ai_telemetry' && (
+            <div className="space-y-6">
+              {/* Header Box & Verification Banner */}
+              <div className="p-6 rounded-xl bg-slate-900 border border-indigo-500/50 space-y-4 shadow-xl">
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-4">
+                  <div className="space-y-1 max-w-2xl">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                        RESTRICTED: MASTER ADMIN AI REPOSITORY
+                      </span>
+                      <span className="flex items-center gap-1 text-[11px] font-mono text-emerald-400">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        akashdhanusheswar@gmail.com
+                      </span>
+                    </div>
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-indigo-400" />
+                      AI Training &amp; Global Field Data Hub
+                    </h2>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Continuous, non-blocking telemetry automatically aggregated from all field mapping, photogrammetry &amp; borehole core logging operations worldwide. Records are paired as ground-truth geometry + joint polylines for Gemini model fine-tuning.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={loadTelemetryData}
+                      disabled={isTelemetryLoading}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 cursor-pointer disabled:opacity-50"
+                      title="Reload latest telemetry from Firestore"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isTelemetryLoading ? 'animate-spin text-indigo-400' : ''}`} />
+                      <span>{isTelemetryLoading ? 'Syncing...' : 'Refresh'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleFlushTelemetryQueue}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 cursor-pointer"
+                      title="Flush offline queued telemetry records"
+                    >
+                      <Database className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Flush Offline Queue</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSeedSampleTelemetry}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 text-xs font-semibold border border-indigo-700/60 cursor-pointer"
+                      title="Seed a sample tunnel mapping ground-truth record for AI training"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Seed Test Record</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 1-Click Exporters Banner */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-lg bg-slate-950/80 border border-indigo-900/60">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Code className="w-4 h-4 text-indigo-400" />
+                      <span>1-Click AI Training Dataset Exporter</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      Export active dataset ({filteredTelemetry.length} records) formatted for Google Gemini Fine-Tuning or Machine Learning CSV/JSON bundle.
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => exportGeminiFineTuningJsonl(filteredTelemetry)}
+                      disabled={filteredTelemetry.length === 0}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs cursor-pointer shadow-md"
+                    >
+                      <FileJson className="w-4 h-4" />
+                      <span>Export Gemini Fine-Tuning JSONL</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => exportGeotechDatasetBundle(filteredTelemetry)}
+                      disabled={filteredTelemetry.length === 0}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold text-xs cursor-pointer shadow-md"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      <span>Export Geotech CSV / JSON Bundle</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4 Live Telemetry Metric Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-medium">Total Tunnel Faces</span>
+                    <Layers className="w-4 h-4 text-indigo-400" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-white">
+                    {telemetryStats.totalFaces}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    Ground-truth tunnel mapping snapshots
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-medium">Traced Discontinuity Joints</span>
+                    <Compass className="w-4 h-4 text-cyan-400" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-cyan-300">
+                    {telemetryStats.totalJoints}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    Normalized 3D polylines &amp; orientation vectors
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-medium">Contributing Workstations</span>
+                    <Laptop className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-emerald-400">
+                    {telemetryStats.uniqueDevices}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    Unique hardware IDs synced
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-medium">Rock Mass Classes (RMR89)</span>
+                    <Database className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-900/60 text-blue-200">
+                      I: {telemetryStats.rmrClasses['Class I']}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-900/60 text-emerald-200">
+                      II: {telemetryStats.rmrClasses['Class II']}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-900/60 text-amber-200">
+                      III: {telemetryStats.rmrClasses['Class III']}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-orange-900/60 text-orange-200">
+                      IV: {telemetryStats.rmrClasses['Class IV']}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-rose-900/60 text-rose-200">
+                      V: {telemetryStats.rmrClasses['Class V']}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    Multi-class ground-truth distribution
+                  </div>
+                </div>
+              </div>
+
+              {/* Filter and Search Bar */}
+              <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex-1 min-w-[240px] relative">
+                  <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={telemetrySearch}
+                    onChange={(e) => setTelemetrySearch(e.target.value)}
+                    placeholder="Search by user email, project name, location, chainage, hardware ID..."
+                    className="w-full pl-9 pr-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <Filter className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="text-xs text-slate-400">Mode:</span>
+                    <select
+                      value={telemetryModeFilter}
+                      onChange={(e) => setTelemetryModeFilter(e.target.value as any)}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 font-medium"
+                    >
+                      <option value="ALL">All Modes</option>
+                      <option value="FIELD">Field Mapping</option>
+                      <option value="PHOTOGRAMMETRY">Photogrammetry</option>
+                      <option value="CORE_LOG">Core Log</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-400">Shape:</span>
+                    <select
+                      value={telemetryShapeFilter}
+                      onChange={(e) => setTelemetryShapeFilter(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 font-medium"
+                    >
+                      <option value="ALL">All Shapes</option>
+                      <option value="d_shaped">D-Shaped</option>
+                      <option value="horse_shoe">Horse-Shoe</option>
+                      <option value="circular">Circular</option>
+                      <option value="box">Box / Cavern</option>
+                      <option value="borehole_core">Borehole Core</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-400">Rock Class:</span>
+                    <select
+                      value={telemetryRockClassFilter}
+                      onChange={(e) => setTelemetryRockClassFilter(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 font-medium"
+                    >
+                      <option value="ALL">All Classes</option>
+                      <option value="Class I">Class I (Very Good)</option>
+                      <option value="Class II">Class II (Good)</option>
+                      <option value="Class III">Class III (Fair)</option>
+                      <option value="Class IV">Class IV (Poor)</option>
+                      <option value="Class V">Class V (Very Poor)</option>
+                    </select>
+                  </div>
+
+                  {(telemetrySearch || telemetryModeFilter !== 'ALL' || telemetryShapeFilter !== 'ALL' || telemetryRockClassFilter !== 'ALL') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTelemetrySearch('');
+                        setTelemetryModeFilter('ALL');
+                        setTelemetryShapeFilter('ALL');
+                        setTelemetryRockClassFilter('ALL');
+                      }}
+                      className="px-2.5 py-1.5 rounded text-xs text-indigo-400 hover:text-indigo-300 hover:bg-slate-800 cursor-pointer"
+                    >
+                      Reset Filters
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Telemetry Error Banner */}
+              {telemetryError && (
+                <div className="p-4 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>{telemetryError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadTelemetryData}
+                    className="px-3 py-1 rounded bg-rose-900 hover:bg-rose-800 text-white font-semibold cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {/* Telemetry Snapshots Table */}
+              <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Database className="w-4 h-4 text-indigo-400" />
+                    <span>Global Ground-Truth Telemetry Records ({filteredTelemetry.length})</span>
+                  </h3>
+                  <span className="text-xs text-slate-500">
+                    Displaying verified AI training pairs
+                  </span>
+                </div>
+
+                {isTelemetryLoading && telemetryRecords.length === 0 ? (
+                  <div className="py-12 text-center text-xs text-slate-400 space-y-2">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto text-indigo-400" />
+                    <div>Loading live ground-truth telemetry from Firestore...</div>
+                  </div>
+                ) : filteredTelemetry.length === 0 ? (
+                  <div className="py-12 text-center text-xs text-slate-400 space-y-3">
+                    <div className="text-slate-500">No telemetry records match the current filters.</div>
+                    <button
+                      type="button"
+                      onClick={handleSeedSampleTelemetry}
+                      className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md inline-flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Seed Sample Telemetry Record Now</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-mono text-[11px]">
+                          <th className="py-2.5 px-3">Date / ID</th>
+                          <th className="py-2.5 px-3">User &amp; Device</th>
+                          <th className="py-2.5 px-3">Method &amp; Trigger</th>
+                          <th className="py-2.5 px-3">Project &amp; Chainage</th>
+                          <th className="py-2.5 px-3">Geometry</th>
+                          <th className="py-2.5 px-3 text-center">Joints</th>
+                          <th className="py-2.5 px-3">Geotech Classification</th>
+                          <th className="py-2.5 px-3">Overbreak</th>
+                          <th className="py-2.5 px-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 font-sans">
+                        {filteredTelemetry.map((rec) => {
+                          const jointCount = (rec.structuralJoints || []).length;
+                          const hasPhoto = Boolean(rec.facePhotoData?.photoUrl);
+                          const rmrClass = rec.geotechRatings?.rmr89?.rockClass || '—';
+                          const qScore = rec.geotechRatings?.qSystem?.finalQ !== undefined
+                            ? Number(rec.geotechRatings.qSystem.finalQ).toFixed(2)
+                            : '—';
+
+                          return (
+                            <tr
+                              key={rec.id}
+                              className="hover:bg-slate-800/40 transition-colors"
+                            >
+                              <td className="py-3 px-3">
+                                <div className="font-mono text-white text-[11px]">
+                                  {new Date(rec.timestamp).toLocaleDateString()}
+                                </div>
+                                <div className="text-[10px] font-mono text-slate-500 truncate max-w-[120px]">
+                                  {new Date(rec.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {rec.id.replace('telemetry_', '')}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <div className="font-semibold text-slate-200 truncate max-w-[170px]" title={rec.userEmail}>
+                                  {rec.userEmail}
+                                </div>
+                                <div className="text-[10px] font-mono text-cyan-400 truncate max-w-[170px]">
+                                  {rec.boundPcHardwareId}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                                      rec.mappingMethod === 'FIELD'
+                                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                        : rec.mappingMethod === 'PHOTOGRAMMETRY'
+                                        ? 'bg-cyan-950 text-cyan-300 border border-cyan-800'
+                                        : 'bg-purple-950 text-purple-300 border border-purple-800'
+                                    }`}
+                                  >
+                                    {rec.mappingMethod}
+                                  </span>
+                                  {hasPhoto && (
+                                    <span className="text-[10px] text-amber-400 font-mono" title="Calibrated face photo attached">
+                                      📷
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-500 pt-0.5">
+                                  {rec.metadata?.triggerEvent || 'MANUAL_TRACE'}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <div className="font-medium text-white truncate max-w-[160px]" title={rec.projectName}>
+                                  {rec.projectName || 'Tunnel Project'}
+                                </div>
+                                <div className="text-[11px] font-mono text-slate-400">
+                                  {rec.locationName} · {rec.chainageLabel || `CH ${rec.tunnelGeometry?.chainageM}m`}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3 font-mono text-[11px]">
+                                <div className="text-slate-300 capitalize">
+                                  {(rec.tunnelGeometry?.shape || 'd_shaped').replace('_', ' ')}
+                                </div>
+                                <div className="text-slate-500 text-[10px]">
+                                  {rec.tunnelGeometry?.spanM}m × {rec.tunnelGeometry?.heightM}m · {rec.tunnelGeometry?.driveAzimuthDeg}°
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3 text-center">
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
+                                  jointCount > 0
+                                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                    : 'bg-slate-800 text-slate-500'
+                                }`}>
+                                  {jointCount}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3">
+                                <div className="flex items-center gap-1.5 font-mono text-xs">
+                                  <span className="text-cyan-300 font-bold">Q: {qScore}</span>
+                                  <span className="text-slate-600">|</span>
+                                  <span className="text-emerald-300 font-bold">RMR: {rec.geotechRatings?.rmr89?.totalRmr ?? '—'}</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 truncate max-w-[150px]">
+                                  {rmrClass}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3 font-mono text-[11px]">
+                                {rec.overbreakData?.overbreakVolumeM3PerM !== undefined ? (
+                                  <div>
+                                    <span className="text-amber-300 font-bold">
+                                      {rec.overbreakData.overbreakVolumeM3PerM} m³/m
+                                    </span>
+                                    <div className="text-[10px] text-slate-500 capitalize">
+                                      {rec.overbreakData.dominantCategory?.toLowerCase() || 'Geological'}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-600">—</span>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setInspectingTelemetry(rec)}
+                                    className="p-1.5 rounded bg-indigo-950 hover:bg-indigo-800 text-indigo-300 hover:text-white cursor-pointer border border-indigo-800/80"
+                                    title="Open Visual Inspector (Photo, Traced Joints, Q/RMR &amp; Overbreak)"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteTelemetryItem(rec.id)}
+                                    className="p-1.5 rounded bg-slate-800 hover:bg-rose-900 text-slate-400 hover:text-white cursor-pointer"
+                                    title="Delete Telemetry Record"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
@@ -3380,6 +4058,441 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
                       ? 'Confirm: Send Credentials Email Now'
                       : 'Confirm: Publish Update, Notify in App & Send Emails'}
                   </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Visual Inspector Modal for Telemetry Ground-Truth Records */}
+      {inspectingTelemetry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs p-4">
+          <div className="max-w-6xl w-full max-h-[94dvh] bg-slate-900 border-2 border-indigo-500/80 rounded-2xl p-5 shadow-2xl flex flex-col space-y-4 text-slate-100 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-400 shrink-0">
+                  <Eye className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-bold text-indigo-400">
+                      GROUND-TRUTH TELEMETRY INSPECTOR
+                    </span>
+                    <span className="px-2 py-0.2 rounded text-[10px] font-mono bg-slate-800 text-slate-300">
+                      {inspectingTelemetry.mappingMethod}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      · {new Date(inspectingTelemetry.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>{inspectingTelemetry.projectName}</span>
+                    <span className="text-slate-500">/</span>
+                    <span className="text-cyan-300">{inspectingTelemetry.locationName}</span>
+                    <span className="text-slate-500 font-mono text-xs">
+                      ({inspectingTelemetry.chainageLabel || `CH ${inspectingTelemetry.tunnelGeometry.chainageM}m`})
+                    </span>
+                  </h3>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => exportGeminiFineTuningJsonl([inspectingTelemetry])}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md"
+                  title="Export this record as Gemini Fine-Tuning JSONL"
+                >
+                  <FileJson className="w-3.5 h-3.5" />
+                  <span>Export Gemini JSONL</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setInspectingTelemetry(null)}
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Scrollable Content Grid */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                {/* Left Column: Visual Face & Joint Polylines Overlay */}
+                <div className="lg:col-span-7 space-y-4">
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                        <Layers className="w-4 h-4 text-indigo-400" />
+                        <span>Tunnel Face Canvas &amp; Traced Joint Polylines</span>
+                      </div>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        {(inspectingTelemetry.structuralJoints || []).length} Traced Polyline(s)
+                      </span>
+                    </div>
+
+                    {/* Canvas / Photo Viewer */}
+                    <div className="relative w-full aspect-4/3 rounded-lg overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center">
+                      {inspectingTelemetry.facePhotoData?.photoUrl ? (
+                        <>
+                          <img
+                            src={inspectingTelemetry.facePhotoData.photoUrl}
+                            alt="Tunnel Face Calibration"
+                            className="absolute inset-0 w-full h-full object-contain"
+                          />
+                          <svg
+                            viewBox="0 0 1000 1000"
+                            preserveAspectRatio="none"
+                            className="absolute inset-0 w-full h-full pointer-events-none"
+                          >
+                            {(inspectingTelemetry.structuralJoints || []).map((joint, jIdx) => {
+                              const pts = joint.pointsNorm || [];
+                              if (pts.length < 2) return null;
+                              const pointsStr = pts
+                                .map((p) => `${p.u * 1000},${p.v * 1000}`)
+                                .join(' ');
+                              const colors = [
+                                '#38bdf8', // cyan
+                                '#34d399', // emerald
+                                '#f59e0b', // amber
+                                '#f43f5e', // rose
+                                '#a855f7', // purple
+                                '#3b82f6', // blue
+                              ];
+                              const color = colors[jIdx % colors.length];
+                              const mid = pts[Math.floor(pts.length / 2)];
+
+                              return (
+                                <g key={jIdx}>
+                                  <polyline
+                                    points={pointsStr}
+                                    fill="none"
+                                    stroke="#000"
+                                    strokeWidth="6"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    opacity="0.7"
+                                  />
+                                  <polyline
+                                    points={pointsStr}
+                                    fill="none"
+                                    stroke={color}
+                                    strokeWidth="3.5"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                  {mid && (
+                                    <text
+                                      x={mid.u * 1000 + 10}
+                                      y={mid.v * 1000 - 8}
+                                      fill="#ffffff"
+                                      fontSize="24"
+                                      fontWeight="bold"
+                                      filter="drop-shadow(0px 1px 3px rgba(0,0,0,0.9))"
+                                    >
+                                      {joint.setId} ({joint.strikeDeg ?? 0}°/{joint.dipDeg ?? 0}°)
+                                    </text>
+                                  )}
+                                </g>
+                              );
+                            })}
+                          </svg>
+                        </>
+                      ) : (
+                        <div className="relative w-full h-full p-6 flex flex-col items-center justify-center">
+                          <svg
+                            viewBox="0 0 800 650"
+                            className="w-full h-full max-h-[340px]"
+                          >
+                            {/* Profile Arch Vector Representation */}
+                            <path
+                              d="M 120 540 L 120 320 A 280 280 0 0 1 680 320 L 680 540 Z"
+                              fill="#090d16"
+                              stroke="#6366f1"
+                              strokeWidth="3"
+                              strokeDasharray="4 4"
+                            />
+                            {/* Ground floor line */}
+                            <line
+                              x1="100"
+                              y1="540"
+                              x2="700"
+                              y2="540"
+                              stroke="#475569"
+                              strokeWidth="2"
+                            />
+
+                            {/* Render Polylines inside cross-section */}
+                            {(inspectingTelemetry.structuralJoints || []).map((joint, jIdx) => {
+                              const pts = joint.pointsNorm || [];
+                              if (pts.length < 2) return null;
+                              const pointsStr = pts
+                                .map((p) => `${120 + p.u * 560},${80 + p.v * 460}`)
+                                .join(' ');
+                              const colors = [
+                                '#38bdf8',
+                                '#34d399',
+                                '#f59e0b',
+                                '#f43f5e',
+                                '#a855f7',
+                              ];
+                              const color = colors[jIdx % colors.length];
+                              const mid = pts[Math.floor(pts.length / 2)];
+
+                              return (
+                                <g key={jIdx}>
+                                  <polyline
+                                    points={pointsStr}
+                                    fill="none"
+                                    stroke={color}
+                                    strokeWidth="4"
+                                    strokeLinecap="round"
+                                  />
+                                  {mid && (
+                                    <text
+                                      x={120 + mid.u * 560 + 8}
+                                      y={80 + mid.v * 460 - 6}
+                                      fill="#ffffff"
+                                      fontSize="18"
+                                      fontWeight="bold"
+                                    >
+                                      {joint.setId} ({joint.strikeDeg ?? 0}°/{joint.dipDeg ?? 0}°)
+                                    </text>
+                                  )}
+                                </g>
+                              );
+                            })}
+                          </svg>
+                          <div className="text-[11px] font-mono text-slate-400 pt-1">
+                            Vector Tunnel Arch Representation · {inspectingTelemetry.tunnelGeometry.spanM}m Span × {inspectingTelemetry.tunnelGeometry.heightM}m Height
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Joint Traces List Table */}
+                    <div className="space-y-2 pt-1">
+                      <div className="text-xs font-bold text-slate-300">
+                        Traced Discontinuities &amp; Geotechnical Attributes
+                      </div>
+                      <div className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-900/60">
+                        <table className="w-full text-left text-xs font-mono">
+                          <thead className="bg-slate-950 text-slate-400 text-[10px]">
+                            <tr>
+                              <th className="py-2 px-2.5">Set</th>
+                              <th className="py-2 px-2.5">Strike</th>
+                              <th className="py-2 px-2.5">Dip / Dir</th>
+                              <th className="py-2 px-2.5">Roughness (JRC)</th>
+                              <th className="py-2 px-2.5">Aperture</th>
+                              <th className="py-2 px-2.5">Infill / Water</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800 text-[11px]">
+                            {(inspectingTelemetry.structuralJoints || []).map((j, i) => (
+                              <tr key={i} className="hover:bg-slate-800/40">
+                                <td className="py-2 px-2.5 text-cyan-300 font-bold">{j.setId}</td>
+                                <td className="py-2 px-2.5 text-slate-200">{j.strikeDeg ?? '—'}°</td>
+                                <td className="py-2 px-2.5 text-slate-200">
+                                  {j.dipDeg ?? '—'}° / {j.dipDirectionDeg ?? '—'}°
+                                </td>
+                                <td className="py-2 px-2.5 text-slate-300 truncate max-w-[130px]" title={String(j.roughnessJrc || '')}>
+                                  {j.roughnessJrc || 'Smooth'}
+                                </td>
+                                <td className="py-2 px-2.5 text-slate-300 truncate max-w-[100px]">
+                                  {j.apertureMm || 'Tight'}
+                                </td>
+                                <td className="py-2 px-2.5 text-slate-400 truncate max-w-[130px]">
+                                  {j.infilling || 'Clean'} / {j.waterCondition || 'Dry'}
+                                </td>
+                              </tr>
+                            ))}
+                            {(inspectingTelemetry.structuralJoints || []).length === 0 && (
+                              <tr>
+                                <td colSpan={6} className="py-4 text-center text-slate-500">
+                                  No structural joint traces recorded for this snapshot.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: Parameters, Ratings, Overbreak & Metadata */}
+                <div className="lg:col-span-5 space-y-4">
+                  {/* Tunnel Geometry Card */}
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                    <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <Compass className="w-4 h-4 text-cyan-400" />
+                      <span>Tunnel Geometry &amp; Alignment</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                      <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
+                        <span className="text-[10px] text-slate-500 block">Shape</span>
+                        <span className="text-white font-bold capitalize">
+                          {(inspectingTelemetry.tunnelGeometry.shape || 'd_shaped').replace('_', ' ')}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
+                        <span className="text-[10px] text-slate-500 block">Span × Height</span>
+                        <span className="text-cyan-300 font-bold">
+                          {inspectingTelemetry.tunnelGeometry.spanM}m × {inspectingTelemetry.tunnelGeometry.heightM}m
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
+                        <span className="text-[10px] text-slate-500 block">Chainage</span>
+                        <span className="text-white font-bold">
+                          {inspectingTelemetry.chainageLabel || `CH ${inspectingTelemetry.tunnelGeometry.chainageM}m`}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
+                        <span className="text-[10px] text-slate-500 block">Drive Azimuth</span>
+                        <span className="text-amber-300 font-bold">
+                          {inspectingTelemetry.tunnelGeometry.driveAzimuthDeg}°
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Geotechnical Ratings: Barton Q & Bieniawski RMR89 */}
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <Database className="w-4 h-4 text-emerald-400" />
+                      <span>Geotechnical Classifications (Q &amp; RMR89)</span>
+                    </div>
+
+                    {/* Barton Q-System */}
+                    <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-cyan-300 font-mono">Barton Q-System</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-950 text-cyan-200 border border-cyan-800">
+                          {inspectingTelemetry.geotechRatings.qSystem?.classification || 'Q Classified'}
+                        </span>
+                      </div>
+                      {inspectingTelemetry.geotechRatings.qSystem ? (
+                        <>
+                          <div className="grid grid-cols-6 gap-1 text-center font-mono text-[10px] text-slate-300">
+                            <div className="bg-slate-950 p-1 rounded">RQD: {inspectingTelemetry.geotechRatings.qSystem.rqd}</div>
+                            <div className="bg-slate-950 p-1 rounded">Jn: {inspectingTelemetry.geotechRatings.qSystem.jn}</div>
+                            <div className="bg-slate-950 p-1 rounded">Jr: {inspectingTelemetry.geotechRatings.qSystem.jr}</div>
+                            <div className="bg-slate-950 p-1 rounded">Ja: {inspectingTelemetry.geotechRatings.qSystem.ja}</div>
+                            <div className="bg-slate-950 p-1 rounded">Jw: {inspectingTelemetry.geotechRatings.qSystem.jw}</div>
+                            <div className="bg-slate-950 p-1 rounded">SRF: {inspectingTelemetry.geotechRatings.qSystem.srf}</div>
+                          </div>
+                          <div className="text-xs font-mono text-cyan-400 font-bold pt-1">
+                            Final Barton Q Score: {Number(inspectingTelemetry.geotechRatings.qSystem.finalQ).toFixed(3)}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-[11px] text-slate-500">No Barton Q parameters recorded.</div>
+                      )}
+                    </div>
+
+                    {/* Bieniawski RMR89 */}
+                    <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-emerald-300 font-mono">Bieniawski RMR89</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-200 border border-emerald-800">
+                          {inspectingTelemetry.geotechRatings.rmr89?.rockClass || 'RMR Classified'}
+                        </span>
+                      </div>
+                      {inspectingTelemetry.geotechRatings.rmr89 ? (
+                        <>
+                          <div className="grid grid-cols-3 gap-1.5 text-center font-mono text-[10px] text-slate-300">
+                            <div className="bg-slate-950 p-1 rounded">Strength: {inspectingTelemetry.geotechRatings.rmr89.strengthScore}</div>
+                            <div className="bg-slate-950 p-1 rounded">RQD: {inspectingTelemetry.geotechRatings.rmr89.rqdScore}</div>
+                            <div className="bg-slate-950 p-1 rounded">Spacing: {inspectingTelemetry.geotechRatings.rmr89.spacingScore}</div>
+                            <div className="bg-slate-950 p-1 rounded">Cond: {inspectingTelemetry.geotechRatings.rmr89.conditionScore}</div>
+                            <div className="bg-slate-950 p-1 rounded">Water: {inspectingTelemetry.geotechRatings.rmr89.waterScore}</div>
+                            <div className="bg-slate-950 p-1 rounded">Adj: {inspectingTelemetry.geotechRatings.rmr89.orientationAdjustment}</div>
+                          </div>
+                          <div className="text-xs font-mono text-emerald-400 font-bold pt-1">
+                            Total RMR89 Score: {inspectingTelemetry.geotechRatings.rmr89.totalRmr} / 100
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-[11px] text-slate-500">No RMR89 parameters recorded.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Overbreak & Cavity Analysis */}
+                  {inspectingTelemetry.overbreakData && (
+                    <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                      <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-400" />
+                        <span>Overbreak &amp; Cavity Diagnosis</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                        <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                          <span className="text-[10px] text-slate-500 block">Overbreak Volume</span>
+                          <span className="text-amber-300 font-bold">
+                            {inspectingTelemetry.overbreakData.overbreakVolumeM3PerM} m³/m
+                          </span>
+                        </div>
+                        <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                          <span className="text-[10px] text-slate-500 block">Dominant Category</span>
+                          <span className="text-white font-bold capitalize">
+                            {inspectingTelemetry.overbreakData.dominantCategory}
+                          </span>
+                        </div>
+                      </div>
+                      {inspectingTelemetry.overbreakData.primaryDiagnosis && (
+                        <div className="p-2 rounded bg-slate-900 border border-slate-800 text-[11px] text-slate-300">
+                          <span className="text-slate-500 font-bold">Diagnosis: </span>
+                          {inspectingTelemetry.overbreakData.primaryDiagnosis}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Hardware & Telemetry Provenance */}
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono text-slate-400">
+                    <div className="text-slate-300 font-bold text-[11px] pb-1 border-b border-slate-800">
+                      Workstation Provenance &amp; Verification
+                    </div>
+                    <div>User Email: <span className="text-slate-200">{inspectingTelemetry.userEmail}</span></div>
+                    <div>Bound Hardware ID: <span className="text-cyan-400">{inspectingTelemetry.boundPcHardwareId}</span></div>
+                    <div>Record ID: <span className="text-slate-500">{inspectingTelemetry.id}</span></div>
+                    <div>Trigger Event: <span className="text-indigo-400">{inspectingTelemetry.metadata?.triggerEvent || 'MANUAL_TRACE_SAVED'}</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Bottom Action Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleDeleteTelemetryItem(inspectingTelemetry.id)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-rose-900 text-rose-300 text-xs font-semibold cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Telemetry Record</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => exportGeotechDatasetBundle([inspectingTelemetry])}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Record JSON</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setInspectingTelemetry(null)}
+                  className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md"
+                >
+                  Done
                 </button>
               </div>
             </div>

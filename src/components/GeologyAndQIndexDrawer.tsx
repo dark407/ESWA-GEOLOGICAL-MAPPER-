@@ -20,8 +20,12 @@ import {
   TunnelGeometry,
   TunnelSettings,
 } from '../types/tunnel';
-import { computeRockStrataSupportSpotBoltingAndFailureFos } from '../engine/supportSpotBoltFailureEngine';
-import { exportGeologyAndQIndexToCSV } from '../engine/photoWarpEngine';
+import {
+  computeRockStrataSupportSpotBoltingAndFailureFos,
+} from '../engine/supportSpotBoltFailureEngine';
+import {
+  exportGeologyAndQIndexToCSV,
+} from '../engine/photoWarpEngine';
 import {
   buildLongitudinalChainageLog,
   computeEmpiricalSupportRecommendation,
@@ -72,7 +76,9 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { ThemeToggleButton, useTheme } from '../context/ThemeContext';
+import {
+  useTheme,
+} from '../context/ThemeContext';
 
 interface GeologyAndQIndexDrawerProps {
   activeTab: 'geology_tables' | 'q_index';

@@ -4,15 +4,11 @@ import {
   Check,
   CheckCircle2,
   Download,
-  FileSpreadsheet,
   FileText,
   Image as ImageIcon,
-  Link2,
   Move,
   Palette,
   Plus,
-  Printer,
-  Sparkles,
   Trash2,
   Undo2,
   Upload,
@@ -22,7 +18,6 @@ import {
   buildAutoPopulatedTemplateDictionary,
   computeFieldQValue,
   computeFieldRmrValue,
-  computePanelCanvasGeometry,
   computeTraceOrientationFromTunnelDrive,
   createDefaultSupportSystem,
   exportFieldMappingTwoPagePdfSheet,
@@ -33,7 +28,6 @@ import {
   FieldDiscontinuitySetRecord,
   FieldExcavationRound,
   FieldJointSetId,
-  FieldPanelId,
   FieldPoint2D,
   FieldProjectItem,
   FieldTunnelLocationItem,
@@ -53,7 +47,12 @@ import {
   computeUnfoldedStripBoxes,
   FieldUnfoldedSheetSvgPreview,
 } from './FieldMappingCompassAndPatterns';
-import { FieldSupport2DCrossSectionSvg } from './FieldAdvancedStages';
+import {
+  FieldSupport2DCrossSectionSvg,
+} from './FieldAdvancedStages';
+import {
+  syncFieldMappingRoundForAiTraining,
+} from '../engine/userCloudAndPackageEngine';
 
 type StripAlignItemKind = 'joint' | 'vein' | 'feature';
 type JointPointActionMode = 'add_point' | 'bend' | 'move' | 'extend';
@@ -2559,6 +2558,14 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
       pngDataUrl,
       supportPngUrl
     );
+    if (activeRound) {
+      syncFieldMappingRoundForAiTraining(
+        activeRound,
+        activeProject || undefined,
+        activeLocation || undefined,
+        'EXPORT_GENERATED'
+      );
+    }
   };
 
   const handleExportTwoPagePdfDoc = async () => {
@@ -2580,6 +2587,14 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
       pngDataUrl,
       supportPngUrl
     );
+    if (activeRound) {
+      syncFieldMappingRoundForAiTraining(
+        activeRound,
+        activeProject || undefined,
+        activeLocation || undefined,
+        'EXPORT_GENERATED'
+      );
+    }
   };
 
   return (

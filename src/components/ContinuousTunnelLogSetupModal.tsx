@@ -1,14 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  AlertCircle,
   ArrowRight,
   Check,
-  CheckCircle2,
   Compass,
   Edit3,
-  FileCheck2,
   FileSpreadsheet,
-  Filter,
   Layers,
   MapPin,
   X,
@@ -22,8 +18,10 @@ import {
   saveAllContinuousStripDatasets,
   syncSavedProjectsIntoStripDatasets,
 } from '../engine/continuous3DStripEngine';
-import { parseNumericChainageMeters } from '../engine/projectMemoryEngine';
-import { SavedProjectRecord } from '../types/tunnel';
+
+import {
+  SavedProjectRecord,
+} from '../types/tunnel';
 
 export interface ContinuousTunnelLogSetupModalProps {
   isOpen: boolean;

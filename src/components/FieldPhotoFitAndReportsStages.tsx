@@ -8,20 +8,16 @@ import {
   CheckCircle2,
   Compass,
   Crop,
-  Crosshair,
   Download,
   Eye,
   EyeOff,
-  FileSpreadsheet,
   FlipHorizontal,
   FlipVertical,
   Grid,
   Image as ImageIcon,
   Layers,
   Maximize2,
-  Move,
   Palette,
-  Printer,
   RefreshCw,
   RotateCcw,
   RotateCw,
@@ -29,8 +25,6 @@ import {
   Sparkles,
   Trash2,
   Upload,
-  Video,
-  VideoOff,
   Wand2,
   X,
 } from 'lucide-react';
@@ -42,10 +36,8 @@ import {
   computePanelCanvasGeometry,
   computeTraceInlineLabelPlacements,
   computeTraceScreenDipTickVector,
-  createDefaultSupportSystem,
   exportCanvasesAsPdfDocument,
   FIELD_JOINT_GROUP_COLORS,
-  FIELD_JOINT_SET_IDS,
   FIELD_TUNNEL_SHAPES,
   FieldCollectedPhoto,
   FieldExcavationRound,
@@ -70,9 +62,14 @@ import {
   FieldVeinFoliationBandSvgElement,
   FieldWaterSymbolSvgElement,
 } from './FieldMappingCompassAndPatterns';
-import { FieldSupport2DCrossSectionSvg } from './FieldAdvancedStages';
-import { Field3DTunnelCanvas } from './Field3DTunnelCanvas';
-import { getSurfacePanelLabelMap, MappingDomainType } from '../engine/surfaceMappingEngine';
+
+import {
+  Field3DTunnelCanvas,
+} from './Field3DTunnelCanvas';
+import {
+  getSurfacePanelLabelMap,
+  MappingDomainType,
+} from '../engine/surfaceMappingEngine';
 
 export const PHOTO_MAPPING_PANEL_ORDER: {
   id: FieldPanelId;

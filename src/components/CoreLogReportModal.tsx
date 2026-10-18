@@ -6,7 +6,16 @@ import {
   chunkRunsForReport,
   chunkPhotosForReport,
 } from '../engine/coreLoggingEngine';
-import { Download, FileText, Printer, X, ShieldCheck, ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import {
+  Download,
+  FileText,
+  Printer,
+  X,
+  ShieldCheck,
+} from 'lucide-react';
+import {
+  syncCoreLogForAiTraining,
+} from '../engine/userCloudAndPackageEngine';
 
 interface CoreLogReportModalProps {
   borehole: BoreholeRecord;
@@ -28,11 +37,13 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
   const totalSheets = runSheets.length + photoSheets.length + 1;
 
   const handlePrint = () => {
+    syncCoreLogForAiTraining(borehole, 'EXPORT_GENERATED');
     window.print();
   };
 
   const handleDownloadHtml = () => {
     if (!printContainerRef.current) return;
+    syncCoreLogForAiTraining(borehole, 'EXPORT_GENERATED');
     const content = printContainerRef.current.innerHTML;
     const fullHtml = `<!DOCTYPE html>
 <html lang="en">

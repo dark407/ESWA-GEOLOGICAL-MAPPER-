@@ -99,6 +99,36 @@ export default defineConfig(({command}) => {
         '@': path.resolve(import.meta.dirname || __dirname, '.'),
       },
     },
+    esbuild: {
+      drop: ['console', 'debugger'],
+      legalComments: 'none',
+      minifyIdentifiers: true,
+      minifySyntax: true,
+      minifyWhitespace: true,
+    },
+    build: {
+      sourcemap: false,
+      minify: 'esbuild',
+      rollupOptions: {
+        output: {
+          entryFileNames: 'assets/[hash].js',
+          chunkFileNames: 'assets/[hash].js',
+          assetFileNames: 'assets/[hash].[ext]',
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('three')) return 'v-3d';
+              if (id.includes('firebase')) return 'v-fb';
+              if (id.includes('lucide-react')) return 'v-ic';
+              return 'v-core';
+            }
+            if (id.includes('/src/engine/')) {
+              // Obfuscated non-descriptive internal hash chunk for proprietary math engines
+              return 'e-core';
+            }
+          },
+        },
+      },
+    },
     server: {
       host: '0.0.0.0',
       port: 3000,

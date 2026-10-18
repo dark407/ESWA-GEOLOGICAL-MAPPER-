@@ -6,11 +6,9 @@ import {
   Joint,
   JointSet,
   LithologyRegion,
-  MappingWorkspaceMode,
   OutputSheetMode,
   PhotoSurface,
   PlacedGeologicalSymbol,
-  PlaneSurfaceConfig,
   ProfileType,
   QIndexParameters,
   QSystemParamKey,
@@ -53,8 +51,6 @@ import {
 } from './engine/rockMassClassificationEngine';
 import {
   computeSectionToSectionVolumes,
-  createDefaultPlaneSurfaceConfig,
-  createPlaneSurfaceGeometry,
   deleteProjectRecordFromMemory,
   deleteSavedDesignGeometry,
   loadSavedDesignGeometries,
@@ -109,27 +105,16 @@ import { ContinuousTunnelLogSetupModal } from './components/ContinuousTunnelLogS
 import { A3ContinuousTunnelLogModal } from './components/A3ContinuousTunnelLogModal';
 import {
   EswaAppBackgroundWatermark,
-  EswaGeologicalOrangeMapBackdrop,
   EswaLoadingScreen,
   EswaTunnelLogo,
   playEswaWelcomeChime,
 } from './components/EswaBrandIdentity';
-import {
-  PWAInstallBannerAndModal,
-  PWAInstallButton,
-} from './components/PWAInstallBannerAndModal';
 import {
   SimpleAddonTab,
   SimpleFullPhotoAndAccuracyModal,
 } from './components/SimpleFullPhotoAndAccuracyModal';
 import { ThemeToggleButton, useTheme } from './context/ThemeContext';
 import { subscribeAdminLicensingData } from './engine/softwareLicensingEngine';
-import {
-  downloadMasterAndroidApk,
-  getCachedAndroidApkBlobUrl,
-  isRunningInsideNativeAndroidApk,
-  prepareAndroidApkBlobUrl,
-} from './engine/windowsDesktopEngine';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { FieldMappingModeWorkspace } from './components/FieldMappingModeWorkspace';
 import { CoreLoggingWorkspace } from './components/CoreLoggingWorkspace';
@@ -149,6 +134,7 @@ import {
   signInWithGoogleAccount,
   signOutGoogleAccount,
   subscribeToGoogleUserAccount,
+  syncPhotogrammetryProjectForAiTraining,
   syncUserWorkspaceToCloud,
 } from './engine/userCloudAndPackageEngine';
 import {
@@ -185,10 +171,8 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
-  Trash2,
   Upload,
   User as UserIcon,
-  Wand2,
   X,
 } from 'lucide-react';
 
@@ -574,8 +558,6 @@ export default function App({
     }
     return {};
   });
-  const [newProjectNameDraft, setNewProjectNameDraft] = useState<string>('');
-  const [newLocationNameDraft, setNewLocationNameDraft] = useState<string>('');
   const [showNewProjectInput, setShowNewProjectInput] = useState<boolean>(false);
   const [showNewLocationInput, setShowNewLocationInput] = useState<boolean>(false);
 
@@ -1283,6 +1265,16 @@ export default function App({
     };
     const { records, storageWarning } = saveProjectRecordToMemory(record);
     setSavedProjects(records);
+    syncPhotogrammetryProjectForAiTraining(
+      settings,
+      geometry,
+      clusteredJoints,
+      photos,
+      qIndexParams,
+      rmrParams,
+      overbreakAnalysis,
+      'MANUAL_TRACE_SAVED'
+    );
     setStatusMessage(
       storageWarning ||
         `Saved project "${record.tunnelName} (${record.faceChainage}, ${record.date})" to Project File Memory.`
@@ -1486,6 +1478,17 @@ export default function App({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+
+    syncPhotogrammetryProjectForAiTraining(
+      settings,
+      geometry,
+      clusteredJoints,
+      photos,
+      qIndexParams,
+      rmrParams,
+      overbreakAnalysis,
+      'EXPORT_GENERATED'
+    );
   }, [
     settings,
     geometry,
@@ -1519,6 +1522,7 @@ export default function App({
 
   const lastJointHistoryPushTimeRef = useRef<number>(0);
   const jointRefinementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jointTelemetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateJointsWithHistory = useCallback(
     (nextJoints: Joint[]) => {
@@ -1571,9 +1575,24 @@ export default function App({
             prevQ
           )
         );
+
+        // Automatic non-blocking telemetry sync with offline fallback for AI model fine-tuning
+        if (jointTelemetryTimerRef.current) clearTimeout(jointTelemetryTimerRef.current);
+        jointTelemetryTimerRef.current = setTimeout(() => {
+          syncPhotogrammetryProjectForAiTraining(
+            settings,
+            geometry,
+            refined,
+            photos,
+            qIndexParams,
+            rmrParams,
+            overbreakAnalysis,
+            'MANUAL_TRACE_SAVED'
+          );
+        }, 1500);
       }
     },
-    [joints, geometry, settings]
+    [joints, geometry, settings, photos, qIndexParams, rmrParams, overbreakAnalysis]
   );
 
   const handleUndo = useCallback(() => {

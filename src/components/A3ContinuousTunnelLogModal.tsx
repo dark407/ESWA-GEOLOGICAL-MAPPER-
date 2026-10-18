@@ -1,50 +1,16 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import {
-  AlertCircle,
-  ArrowLeft,
-  ArrowRight,
-  BookOpen,
   Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  Columns,
-  Compass,
-  Download,
   Edit,
-  Edit2,
   Edit3,
-  ExternalLink,
-  Eye,
-  FileCheck2,
   FileCode2,
   FileSpreadsheet,
-  FileText,
-  FileUp,
-  HelpCircle,
-  Layers,
-  Maximize2,
-  Minimize2,
-  Move,
-  Palette,
-  Percent,
   Printer,
-  RefreshCw,
-  RotateCw,
   Save,
   Send,
-  Settings,
-  Share2,
-  ShieldCheck,
   Sliders,
-  Sparkles,
-  Split,
   Table,
-  Upload,
-  UploadCloud,
-  UserCheck,
-  Wrench,
   X,
 } from 'lucide-react';
 import {
@@ -53,16 +19,11 @@ import {
   exportContinuousStripToDXF,
   resolveStripTraceColor,
   runAiTrendAlignmentOnDataset,
-  saveAllContinuousStripDatasets,
 } from '../engine/continuous3DStripEngine';
+
 import {
-  loadUploadedReferenceReport,
-  saveUploadedReferenceReport,
-  clearUploadedReferenceReport,
-  getSampleBenchmarkReport,
-  UploadedReferenceReport,
-} from '../engine/referenceReportStore';
-import { EswaCadContinuousStripModal } from './EswaCadContinuousStripModal';
+  EswaCadContinuousStripModal,
+} from './EswaCadContinuousStripModal';
 
 export interface A3ContinuousTunnelLogModalProps {
   isOpen: boolean;

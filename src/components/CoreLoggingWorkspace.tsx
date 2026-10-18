@@ -18,31 +18,29 @@ import {
   getActiveBoreholeId,
   setActiveBoreholeId,
 } from '../engine/coreLoggingEngine';
-import { GeologistUserProfile } from '../engine/userCloudAndPackageEngine';
-import { CoreLogReportModal } from './CoreLogReportModal';
-import { CoreDataAndStorageModal } from './CoreDataAndStorageModal';
+import {
+  GeologistUserProfile,
+} from '../engine/userCloudAndPackageEngine';
+import {
+  CoreLogReportModal,
+} from './CoreLogReportModal';
+import {
+  CoreDataAndStorageModal,
+} from './CoreDataAndStorageModal';
 import {
   ArrowLeft,
   Plus,
   Trash2,
   Edit2,
-  FileText,
   Camera,
-  Layers,
   ShieldCheck,
   Info,
-  Download,
   Upload,
-  Copy,
-  Check,
   ChevronDown,
-  Sparkles,
   Printer,
   PenTool,
   X,
   Database,
-  Eye,
-  FileSpreadsheet,
 } from 'lucide-react';
 
 interface CoreLoggingWorkspaceProps {

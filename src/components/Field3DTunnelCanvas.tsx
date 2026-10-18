@@ -4,11 +4,9 @@ import {
   Grid,
   Layers,
   Sliders,
-  Sparkles,
   Wand2,
 } from 'lucide-react';
 import {
-  buildDipSurfaceOutlineAndCentroid,
   buildDipSurfacePolygonWithOutlineSnap,
   buildSmoothSvgPath,
   computeFaceTunnelOutlineDetails,

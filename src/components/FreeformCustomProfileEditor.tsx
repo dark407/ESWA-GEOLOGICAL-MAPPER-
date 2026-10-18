@@ -16,7 +16,6 @@ import {
   buildAuthoritativeCustomTunnelGeometry,
   computeBulgeFromArcLength,
   computeBulgeFromMidpointHandle,
-  computeBulgeFromRadius,
   CUSTOM_PROFILE_PRESETS,
   deriveEditableCustomProfileFromGeometry,
   evaluateCustomProfileGeometry,
@@ -25,21 +24,18 @@ import {
 import {
   convertTunnelGeometryToSequentialTopHeading,
   createTunnelGeometry,
-  restoreFullFaceFromTopHeading,
 } from '../engine/geometryEngine';
-import { generateSampleTunnelDXF, parseDXFStringToGeometry } from '../engine/cadParser';
+import {
+  generateSampleTunnelDXF,
+  parseDXFStringToGeometry,
+} from '../engine/cadParser';
 import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
   CircleDot,
   Download,
-  FileCode2,
-  FolderOpen,
-  Layers,
   Move,
-  Plus,
-  RotateCcw,
   Ruler,
   Save,
   Sliders,

@@ -52,7 +52,7 @@ import {
   SavedProjectRecord,
   SurfaceType,
 } from '../types/tunnel';
-import { getOrGeneratePcHardwareId } from './softwareLicensingEngine';
+import { getLocalMasterPcBypass, getOrGeneratePcHardwareId } from './softwareLicensingEngine';
 
 const FIELD_RESUME_STORAGE_KEY = 'eswa_field_mapping_resume_state_v1';
 const PHOTOGRAMMETRY_RESUME_STORAGE_KEY = 'eswa_photogrammetry_resume_state_v1';
@@ -2726,7 +2726,7 @@ export type { User as FirebaseGoogleUser };
 // ============================================================================
 
 export const AI_TELEMETRY_OFFLINE_QUEUE_KEY = 'eswa_ai_telemetry_offline_queue_v1';
-export const MASTER_ADMIN_TARGET_EMAIL = 'dhoniakash407@gmail.com';
+export const MASTER_ADMIN_TARGET_EMAIL = 'akashdhanusheswar@gmail.com';
 
 /**
  * Compresses/downscales data URLs for fast, compact Firestore document synchronization (< 60KB).
@@ -2974,14 +2974,272 @@ export async function flushOfflineAiTelemetryQueue(): Promise<number> {
 }
 
 /**
+ * Syncs a Field Mapping Round snapshot to AI Training Telemetry.
+ */
+export function syncFieldMappingRoundForAiTraining(
+  round: FieldExcavationRound,
+  project?: FieldProjectItem,
+  location?: FieldTunnelLocationItem,
+  triggerEvent: SyncMappingForAiTrainingInput['triggerEvent'] = 'MANUAL_TRACE_SAVED'
+): void {
+  if (!round) return;
+
+  // 1. Structural joints normalization
+  const structuralJoints: AiTrainingJointPolyline[] = (round.jointTraces || []).map((t) => {
+    const rawPts = t.points || [];
+    const pointsNorm = rawPts.map((pt) => ({
+      u: Number(Math.max(0, Math.min(1, pt.x > 1 ? pt.x / 1000 : pt.x)).toFixed(4)),
+      v: Number(Math.max(0, Math.min(1, pt.y > 1 ? pt.y / 1000 : pt.y)).toFixed(4)),
+    }));
+    const setInfo = round.discontinuitySets
+      ? (round.discontinuitySets as any)[t.setId]
+      : undefined;
+    return {
+      setId: t.setId || t.label || 'J1',
+      pointsNorm,
+      strikeDeg: Number(t.strike) || 0,
+      dipDeg: Number(t.dipAmount) || 0,
+      dipDirectionDeg: Number(t.dipDirection) || 0,
+      roughnessJrc: setInfo?.roughness,
+      apertureMm: setInfo?.apertureCustom || setInfo?.aperture,
+      infilling: setInfo?.infilling,
+      waterCondition: setInfo?.groundwater,
+      persistenceM: Number(t.traceLengthM) || undefined,
+    };
+  });
+
+  // 2. Geotechnical classification ratings
+  const qVal = computeFieldQValue(round.qSystem);
+  const rmrVal = computeFieldRmrValue(round.rmrSystem);
+  const qSystem = round.qSystem
+    ? {
+        rqd: Number(round.qSystem.rqd) || 0,
+        jn: Number(round.qSystem.jn) || 0,
+        jr: Number(round.qSystem.jr) || 0,
+        ja: Number(round.qSystem.ja) || 0,
+        jw: Number(round.qSystem.jw) || 0,
+        srf: Number(round.qSystem.srf) || 0,
+        finalQ: Number(qVal.qValue) || 0,
+        classification: qVal.rockClass || 'Normal Rock',
+      }
+    : undefined;
+
+  const rmr89 = round.rmrSystem
+    ? {
+        strengthScore: Number(round.rmrSystem.ucsRating) || 0,
+        rqdScore: Number(round.rmrSystem.rqdRating) || 0,
+        spacingScore: Number(round.rmrSystem.spacingRating) || 0,
+        conditionScore: Number(round.rmrSystem.conditionRating) || 0,
+        waterScore: Number(round.rmrSystem.waterRating) || 0,
+        orientationAdjustment: Number(round.rmrSystem.orientationAdj) || 0,
+        totalRmr: Number(rmrVal.totalRmr) || 0,
+        rockClass: rmrVal.rmrClass || 'Class III',
+      }
+    : undefined;
+
+  const facePhoto = round.collectedPhotos?.find((p) => p.panel === 'face') || round.collectedPhotos?.[0];
+  const spanM = Number(location?.widthM) || 8.4;
+  const heightM = Number(location?.heightM) || 7.2;
+  const chainageM = Number(round.chainageFrom) || 0;
+  const driveAzimuthDeg = Number(round.tunnelDriveDirection) || 0;
+
+  const overbreakData = round.surveyOverbreak
+    ? {
+        overbreakAreaM2: Number(round.surveyOverbreak.overbreakAreaM2) || 0,
+        overbreakVolumeM3PerM: Number(round.surveyOverbreak.overbreakVolumeM3) || 0,
+        maxRadialOverbreakM: Number(round.surveyOverbreak.maxOverbreakDepthM) || 0,
+        dominantCategory:
+          String(round.surveyOverbreak.overbreakCause || '').toLowerCase().includes('mech')
+            ? ('MECHANICAL' as const)
+            : ('GEOLOGICAL' as const),
+        primaryDiagnosis: round.surveyOverbreak.overbreakReason || '',
+      }
+    : undefined;
+
+  syncMappingForAiTraining({
+    mappingMethod: 'FIELD',
+    triggerEvent,
+    projectName: project?.projectName || 'Tunnel Project',
+    locationName: location?.name || 'Tunnel Face',
+    chainageLabel: `CH ${round.chainageFrom || '0'}–${round.chainageTo || '0'}m`,
+    tunnelGeometry: {
+      shape: location?.shape || 'd_shaped',
+      spanM,
+      heightM,
+      chainageM,
+      driveAzimuthDeg,
+    },
+    facePhotoDataUrl: facePhoto?.dataUrl,
+    structuralJoints,
+    geotechRatings: {
+      qSystem,
+      rmr89,
+      gsi: typeof round.gsiValue === 'number' ? round.gsiValue : undefined,
+    },
+    overbreakData,
+  });
+}
+
+/**
+ * Syncs a Photogrammetry Project snapshot to AI Training Telemetry.
+ */
+export function syncPhotogrammetryProjectForAiTraining(
+  settings: any,
+  geometry: any,
+  joints: any[],
+  photos?: any,
+  qSystem?: any,
+  rmr89?: any,
+  overbreakAnalysis?: any,
+  triggerEvent: SyncMappingForAiTrainingInput['triggerEvent'] = 'MANUAL_TRACE_SAVED'
+): void {
+  if (!settings) return;
+
+  const structuralJoints: AiTrainingJointPolyline[] = (joints || []).map((j: any) => {
+    const rawPts = j.points || [];
+    const pointsNorm = rawPts.map((pt: any) => ({
+      u: Number(Math.max(0, Math.min(1, pt.x > 1 ? pt.x / 1000 : (pt.u ?? pt.x))).toFixed(4)),
+      v: Number(Math.max(0, Math.min(1, pt.y > 1 ? pt.y / 1000 : (pt.v ?? pt.y))).toFixed(4)),
+    }));
+    return {
+      setId: j.setId || j.type || 'J1',
+      pointsNorm,
+      strikeDeg: Number(j.strike) || Number(j.strikeDeg) || 0,
+      dipDeg: Number(j.dip) || Number(j.dipDeg) || 0,
+      dipDirectionDeg: Number(j.dipDirection) || Number(j.dipDirectionDeg) || 0,
+      roughnessJrc: j.roughness || j.jrc,
+      apertureMm: j.aperture,
+      infilling: j.infilling,
+      waterCondition: j.waterCondition,
+      persistenceM: Number(j.persistenceM) || undefined,
+    };
+  });
+
+  const facePhotoUrl = photos?.face?.image || photos?.crown?.image;
+
+  syncMappingForAiTraining({
+    mappingMethod: 'PHOTOGRAMMETRY',
+    triggerEvent,
+    projectName: settings.projectName || 'Tunnel Project',
+    locationName: settings.locationName || settings.tunnelName || 'Tunnel Excavation',
+    chainageLabel: settings.faceChainage || settings.chainage || 'CH 0+000',
+    tunnelGeometry: {
+      shape: geometry?.profileType || geometry?.shape || 'd_shaped',
+      spanM: Number(geometry?.width) || 8.4,
+      heightM: Number(geometry?.height) || 7.2,
+      chainageM: parseNumericChainageMeters(settings.faceChainage, settings.chainage),
+      driveAzimuthDeg: Number(settings.tunnelDriveDirection) || 0,
+    },
+    facePhotoDataUrl: typeof facePhotoUrl === 'string' ? facePhotoUrl : undefined,
+    structuralJoints,
+    geotechRatings: {
+      qSystem: qSystem
+        ? {
+            rqd: Number(qSystem.rqd) || 0,
+            jn: Number(qSystem.jn) || 0,
+            jr: Number(qSystem.jr) || 0,
+            ja: Number(qSystem.ja) || 0,
+            jw: Number(qSystem.jw) || 0,
+            srf: Number(qSystem.srf) || 0,
+            finalQ: Number(qSystem.finalQ) || 0,
+            classification: qSystem.classification || 'Normal Rock',
+          }
+        : undefined,
+      rmr89: rmr89
+        ? {
+            strengthScore: Number(rmr89.strengthScore) || 0,
+            rqdScore: Number(rmr89.rqdScore) || 0,
+            spacingScore: Number(rmr89.spacingScore) || 0,
+            conditionScore: Number(rmr89.conditionScore) || 0,
+            waterScore: Number(rmr89.waterScore) || 0,
+            orientationAdjustment: Number(rmr89.orientationAdjustment) || 0,
+            totalRmr: Number(rmr89.totalRmr) || 0,
+            rockClass: rmr89.rockClass || 'Class III',
+          }
+        : undefined,
+    },
+    overbreakData: overbreakAnalysis
+      ? {
+          overbreakAreaM2: Number(overbreakAnalysis.overbreakAreaSqMeters) || 0,
+          overbreakVolumeM3PerM: Number(overbreakAnalysis.overbreakVolumeM3) || 0,
+          maxRadialOverbreakM: Number(overbreakAnalysis.maxRadialOverbreakMeters) || 0,
+          dominantCategory: overbreakAnalysis.dominantCategory || 'GEOLOGICAL',
+          primaryDiagnosis: overbreakAnalysis.primaryDiagnosis || '',
+        }
+      : undefined,
+  });
+}
+
+/**
+ * Syncs a Geotechnical Core Logging snapshot to AI Training Telemetry.
+ */
+export function syncCoreLogForAiTraining(
+  hole: any,
+  triggerEvent: SyncMappingForAiTrainingInput['triggerEvent'] = 'EXPORT_GENERATED'
+): void {
+  if (!hole) return;
+  syncMappingForAiTraining({
+    mappingMethod: 'CORE_LOG',
+    triggerEvent,
+    projectName: hole.projectName || 'Core Drilling Program',
+    locationName: hole.holeId || hole.boreholeNumber || 'BH-01',
+    chainageLabel: hole.depthMeters ? `${hole.depthMeters}m Depth` : undefined,
+    tunnelGeometry: {
+      shape: 'borehole_core',
+      spanM: Number(hole.coreDiameterMm ? hole.coreDiameterMm / 1000 : 0.085),
+      heightM: Number(hole.totalLengthMeters || 10),
+      chainageM: Number(hole.collarElevationM || 0),
+      driveAzimuthDeg: Number(hole.azimuthDeg || 0),
+    },
+    facePhotoDataUrl: hole.photos?.[0]?.dataUrl,
+    structuralJoints: (hole.discontinuities || []).map((d: any) => ({
+      setId: d.type || 'Joint',
+      pointsNorm: [{ u: 0.5, v: Number(d.depthNormalized || 0.5) }],
+      strikeDeg: Number(d.alphaDeg || 0),
+      dipDeg: Number(d.betaDeg || 0),
+      roughnessJrc: d.roughness,
+      apertureMm: d.aperture,
+      infilling: d.infill,
+    })),
+    geotechRatings: {
+      qSystem: hole.qRating
+        ? {
+            rqd: Number(hole.qRating.rqd || 80),
+            jn: 4,
+            jr: 2,
+            ja: 1,
+            jw: 1,
+            srf: 1,
+            finalQ: Number(hole.qRating.finalQ || 10),
+            classification: hole.qRating.classification || 'Good Rock',
+          }
+        : undefined,
+      rmr89: hole.rmrRating
+        ? {
+            strengthScore: 12,
+            rqdScore: 17,
+            spacingScore: 15,
+            conditionScore: 20,
+            waterScore: 10,
+            orientationAdjustment: 0,
+            totalRmr: Number(hole.rmrRating.totalRmr || 65),
+            rockClass: hole.rmrRating.rockClass || 'Class II',
+          }
+        : undefined,
+    },
+  });
+}
+
+/**
  * Fetches all telemetry records from Firestore.
- * RESTRICTED STRICTLY TO MASTER ADMIN (dhoniakash407@gmail.com).
+ * RESTRICTED STRICTLY TO MASTER ADMIN (akashdhanusheswar@gmail.com).
  */
 export async function fetchAiTrainingTelemetryRecords(
   adminEmail: string
 ): Promise<AiTrainingTelemetryRecord[]> {
   const cleanEmail = (adminEmail || '').trim().toLowerCase();
-  if (cleanEmail !== MASTER_ADMIN_TARGET_EMAIL.toLowerCase()) {
+  const isMasterBypass = typeof window !== 'undefined' && getLocalMasterPcBypass();
+  if (cleanEmail !== MASTER_ADMIN_TARGET_EMAIL.toLowerCase() && !isMasterBypass) {
     throw new Error(
       `Access Denied: Only Master Admin (${MASTER_ADMIN_TARGET_EMAIL}) can access AI training telemetry.`
     );
@@ -2999,14 +3257,15 @@ export async function fetchAiTrainingTelemetryRecords(
 
 /**
  * Deletes a telemetry record.
- * RESTRICTED STRICTLY TO MASTER ADMIN (dhoniakash407@gmail.com).
+ * RESTRICTED STRICTLY TO MASTER ADMIN (akashdhanusheswar@gmail.com).
  */
 export async function deleteAiTrainingTelemetryRecord(
   recordId: string,
   adminEmail: string
 ): Promise<boolean> {
   const cleanEmail = (adminEmail || '').trim().toLowerCase();
-  if (cleanEmail !== MASTER_ADMIN_TARGET_EMAIL.toLowerCase()) {
+  const isMasterBypass = typeof window !== 'undefined' && getLocalMasterPcBypass();
+  if (cleanEmail !== MASTER_ADMIN_TARGET_EMAIL.toLowerCase() && !isMasterBypass) {
     throw new Error(
       `Access Denied: Only Master Admin (${MASTER_ADMIN_TARGET_EMAIL}) can delete AI training telemetry.`
     );

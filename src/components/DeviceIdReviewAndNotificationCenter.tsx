@@ -6,26 +6,18 @@ import {
   ClipboardCheck,
   Copy,
   Download,
-  ExternalLink,
   Eye,
-  FileCheck2,
-  FileCode2,
   FileSpreadsheet,
   FileText,
   FolderArchive,
   Inbox,
   KeyRound,
-  Layers,
   Loader2,
-  MailCheck,
   MessageSquareWarning,
   PackageCheck,
   RotateCcw,
   Send,
   ShieldCheck,
-  Sparkles,
-  Upload,
-  UserCheck,
   X,
 } from 'lucide-react';
 import {
@@ -39,7 +31,6 @@ import {
   getLocalUserDeviceId,
   getStoredFaceMasterArchive,
   importTransferPackageToMyWorkspace,
-  lookupDeviceDirectoryEntry,
   markNotificationSeen,
   registerOrUpdateUserDeviceId,
   requestBrowserNotificationPermission,
@@ -53,7 +44,6 @@ import {
   FieldProjectItem,
   FieldTunnelLocationItem,
   exportFieldMappingTwoPagePdfSheet,
-  exportFieldMappingTwoPageWordSheet,
 } from '../engine/fieldMappingEngine';
 
 export interface DeviceIdHeaderWidgetProps {

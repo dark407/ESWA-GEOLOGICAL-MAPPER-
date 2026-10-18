@@ -2,26 +2,20 @@ import React, { useMemo, useState } from 'react';
 import {
   Joint,
   JointSet,
-  LithologyRegion,
   OverbreakUndercutAnalysis,
-  PlacedGeologicalSymbol,
   Point2D,
   QIndexParameters,
   RmrParameters,
   SavedProjectRecord,
-  SurfaceType,
   TunnelGeometry,
   TunnelSettings,
 } from '../types/tunnel';
 import {
-  CheckCircle2,
-  Compass,
   Download,
   FileSpreadsheet,
   Layers,
   Printer,
   ShieldCheck,
-  Sliders,
   Sparkles,
   X,
 } from 'lucide-react';

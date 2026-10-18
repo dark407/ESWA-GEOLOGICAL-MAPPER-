@@ -1477,6 +1477,7 @@ export interface AdvancedOverbreakPredictionResult {
   nextPullPredictedMaxRadialM: number;
   predictedCriticalSectors: string[];
   nextPullCriticalSectors: string;
+  recommendedSupportMitigation?: string;
   zonePredictions: AdvancedOverbreakZonePrediction[];
 }
 

@@ -351,6 +351,26 @@
         "senderNotes", "reviewerRemarks", "reviewerName", "reviewerSign",
         "packageJson", "createdAtIso", "updatedAtIso"
       ]
+    },
+    "AiTrainingTelemetry": {
+      "title": "AiTrainingTelemetry",
+      "description": "Ground-truth underground geological mapping dataset and telemetry for Gemini model fine-tuning and geotechnical analytics.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 160 },
+        "boundPcHardwareId": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "appVersion": { "type": "string", "maxLength": 40 },
+        "mappingMethod": { "type": "string", "enum": ["FIELD", "PHOTOGRAMMETRY", "CORE_LOG"] },
+        "projectName": { "type": "string", "maxLength": 160 },
+        "locationName": { "type": "string", "maxLength": 160 },
+        "chainageLabel": { "type": "string", "maxLength": 80 }
+      },
+      "required": [
+        "id", "userId", "userEmail", "boundPcHardwareId", "timestamp", "appVersion", "mappingMethod", "projectName", "locationName"
+      ]
     }
   },
   "firestore": {
@@ -381,6 +401,10 @@
     "/device_transfers/{transferId}": {
       "schema": { "$ref": "#/entities/DeviceTransferRecord" },
       "description": "Peer review requests and face completion packages routed between geologists via Device ID."
+    },
+    "/ai_training_telemetry/{recordId}": {
+      "schema": { "$ref": "#/entities/AiTrainingTelemetry" },
+      "description": "Underground geological mapping telemetry records for AI training and ground-truth dataset collection. Read/export restricted strictly to Master Admin akashdhanusheswar@gmail.com."
     }
   }
 }
