@@ -6,6 +6,7 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  CircleDot,
   Columns,
   Compass,
   Crosshair,
@@ -18,6 +19,7 @@ import {
   Move,
   Paintbrush,
   Pencil,
+  Pickaxe,
   Plus,
   Redo2,
   RotateCcw,
@@ -29,6 +31,9 @@ import {
   Undo2,
   X,
 } from 'lucide-react';
+import { IndustryMode } from '../types/tunnel';
+import { MiningStopeFaceInspectorModal } from './MiningStopeFaceInspectorModal';
+import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
 import {
   addAndRememberCustomRock,
   autoComputeOrientationFromPlot,
@@ -203,6 +208,8 @@ interface FieldMappingModeWorkspaceProps {
   initialStage?: FieldWorkflowStage;
   initialMappingDomain?: MappingDomainType;
   onChangeMappingDomain?: (domain: MappingDomainType) => void;
+  industryMode?: IndustryMode;
+  onChangeIndustryMode?: (mode: IndustryMode) => void;
 }
 
 export type FieldWorkflowStage =
@@ -241,7 +248,35 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   initialStage,
   initialMappingDomain = 'TUNNEL',
   onChangeMappingDomain,
+  industryMode: propIndustryMode,
+  onChangeIndustryMode,
 }) => {
+  const [currentIndustryMode, setCurrentIndustryMode] = useState<IndustryMode>(() => {
+    if (propIndustryMode) return propIndustryMode;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('eswa_active_industry_mode_v1');
+      if (saved === 'NATM' || saved === 'TBM' || saved === 'MINING') {
+        return saved as IndustryMode;
+      }
+    }
+    return 'NATM';
+  });
+
+  const [isMiningInspectorOpen, setIsMiningInspectorOpen] = useState<boolean>(false);
+  const [isTbmInspectorOpen, setIsTbmInspectorOpen] = useState<boolean>(false);
+
+  const handleModeSwitch = (m: IndustryMode) => {
+    setCurrentIndustryMode(m);
+    try {
+      localStorage.setItem('eswa_active_industry_mode_v1', m);
+    } catch {
+      // Ignore
+    }
+    if (onChangeIndustryMode) {
+      onChangeIndustryMode(m);
+    }
+  };
+
   const savedResume = useMemo(() => loadFieldMappingResumeState(), []);
   const [workflowMode, setWorkflowMode] = useState<'field_mapping' | 'photo_mapping'>(
     initialWorkflowMode
@@ -3733,6 +3768,62 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             <ArrowLeft className="w-3.5 h-3.5 text-orange-500" />
             <span>Menu</span>
           </button>
+
+          {/* Top-Left High-Contrast Segmented 3-Mode Selector (NATM | TBM | MINING) */}
+          <div className="flex items-center p-0.5 rounded-lg bg-slate-950 border border-slate-700/80 shadow-xs shrink-0">
+            {(['NATM', 'TBM', 'MINING'] as IndustryMode[]).map((m) => {
+              const isAct = currentIndustryMode === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => handleModeSwitch(m)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                    isAct
+                      ? m === 'NATM'
+                        ? 'bg-amber-500 text-slate-950 font-black shadow'
+                        : m === 'TBM'
+                        ? 'bg-cyan-500 text-slate-950 font-black shadow'
+                        : 'bg-emerald-500 text-slate-950 font-black shadow'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title={
+                    m === 'NATM'
+                      ? 'NATM: New Austrian Tunnelling Method'
+                      : m === 'TBM'
+                      ? 'TBM: Shield Tunnel Boring Machine'
+                      : 'MINING: Underground Hardrock Mining Stope & Grade Control'
+                  }
+                >
+                  {m}
+                </button>
+              );
+            })}
+          </div>
+
+          {currentIndustryMode === 'MINING' && (
+            <button
+              type="button"
+              onClick={() => setIsMiningInspectorOpen(true)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500/30 transition-all cursor-pointer shadow-sm shrink-0"
+              title="Open Mining Stope, Veins & Mathews Stability Inspector"
+            >
+              <Pickaxe className="w-3 h-3 text-amber-400" />
+              <span>Stope &amp; Veins</span>
+            </button>
+          )}
+
+          {currentIndustryMode === 'TBM' && (
+            <button
+              type="button"
+              onClick={() => setIsTbmInspectorOpen(true)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 hover:bg-cyan-500/30 transition-all cursor-pointer shadow-sm shrink-0"
+              title="Open TBM Shield & Ring Inspector"
+            >
+              <CircleDot className="w-3 h-3 text-cyan-400" />
+              <span>TBM Shield</span>
+            </button>
+          )}
         </div>
 
         {/* Horizontal Field & Photo Mapping Workflow Navigation */}
@@ -11108,6 +11199,75 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         isOpen={isGlobalSettingsOpen}
         onClose={() => setIsGlobalSettingsOpen(false)}
         onActiveProfileChanged={(p) => setActiveGeologist(p)}
+      />
+
+      <MiningStopeFaceInspectorModal
+        isOpen={isMiningInspectorOpen}
+        onClose={() => setIsMiningInspectorOpen(false)}
+        settings={{
+          projectName: activeProject?.name || 'Project',
+          tunnelName: activeLocation?.name || 'Excavation',
+          location: activeLocation?.name || 'Heading',
+          locationName: activeLocation?.name || 'Heading',
+          driveDirectionInput: `${activeLocation?.azimuthDeg ?? 45}°`,
+          driveDirection: activeLocation?.azimuthDeg ?? 45,
+          chainage: activeRound?.chainageDisplay || 'Ch. 0+100',
+          faceChainage: activeRound?.chainageDisplay || 'Ch. 0+100',
+          roundLength: activeRound?.pullLengthM || 3.0,
+          date: activeRound?.date || new Date().toISOString().slice(0, 10),
+          mappedBy: activeRound?.geologist || 'Engineering Geologist',
+          lithology: activeRound?.rockType || 'Quartzite',
+          industryMode: currentIndustryMode,
+        }}
+        geometry={
+          activeLocation?.customGeometry ||
+          createTunnelGeometry(
+            activeLocation?.widthM || 8.5,
+            activeLocation?.heightM || 7.5,
+            4.0,
+            activeLocation?.shape || 'd_shaped'
+          )
+        }
+        joints={activeRound?.joints || []}
+        qIndexParams={{
+          rqd: activeRound?.qParams?.rqd ?? 75,
+          jn: activeRound?.qParams?.jn ?? 6,
+          jr: activeRound?.qParams?.jr ?? 2,
+          ja: activeRound?.qParams?.ja ?? 2,
+          jw: activeRound?.qParams?.jw ?? 1,
+          srf: activeRound?.qParams?.srf ?? 1,
+        }}
+        onUpdateMiningSettings={() => {}}
+      />
+
+      <TbmShieldInspectorModal
+        isOpen={isTbmInspectorOpen}
+        onClose={() => setIsTbmInspectorOpen(false)}
+        settings={{
+          projectName: activeProject?.name || 'Project',
+          tunnelName: activeLocation?.name || 'Excavation',
+          location: activeLocation?.name || 'Heading',
+          locationName: activeLocation?.name || 'Heading',
+          driveDirectionInput: `${activeLocation?.azimuthDeg ?? 45}°`,
+          driveDirection: activeLocation?.azimuthDeg ?? 45,
+          chainage: activeRound?.chainageDisplay || 'Ch. 0+100',
+          faceChainage: activeRound?.chainageDisplay || 'Ch. 0+100',
+          roundLength: activeRound?.pullLengthM || 3.0,
+          date: activeRound?.date || new Date().toISOString().slice(0, 10),
+          mappedBy: activeRound?.geologist || 'Engineering Geologist',
+          lithology: activeRound?.rockType || 'Quartzite',
+          industryMode: currentIndustryMode,
+        }}
+        geometry={
+          activeLocation?.customGeometry ||
+          createTunnelGeometry(
+            activeLocation?.widthM || 8.5,
+            activeLocation?.heightM || 7.5,
+            4.0,
+            activeLocation?.shape || 'd_shaped'
+          )
+        }
+        onUpdateTbmParams={() => {}}
       />
       </div>
     </div>

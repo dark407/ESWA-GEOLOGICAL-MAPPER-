@@ -707,7 +707,7 @@ export const EswaTunnelLogo: React.FC<EswaTunnelLogoProps> = ({
             fontFamily="'Chakra Petch', 'Plus Jakarta Sans', sans-serif"
             letterSpacing="3.2"
           >
-            TUNNEL GEOLOGICAL MAPPER
+            GEOLOGICAL MAPPER
           </text>
         </g>
         </g>

@@ -40,6 +40,35 @@ async function startServer() {
   app.use(express.static('/tmp/akash-release-cache/public'));
 
   /**
+   * Enterprise IP Protection & Anti-Reverse Engineering API Gateway Guard:
+   * Requires every /api/ai/*, /api/geometry/*, and /api/ota/* request to include custom
+   * security headers (X-ESWA-Hardware-ID and X-ESWA-Signature) validated on the server.
+   */
+  const eswaProprietaryGatewayGuard: express.RequestHandler = (req, res, next) => {
+    const hwId = String(
+      req.headers['x-eswa-hardware-id'] || req.headers['X-ESWA-Hardware-ID'] || ''
+    ).trim();
+    const sig = String(
+      req.headers['x-eswa-signature'] || req.headers['X-ESWA-Signature'] || ''
+    ).trim();
+
+    if (!hwId || !sig || !validateEswaGatewaySignature(hwId, sig)) {
+      res.status(403).json({
+        error: 'ESWA_GATEWAY_ACCESS_DENIED',
+        message:
+          'Proprietary API gateway access rejected: Missing or invalid cryptographic hardware signature.',
+        securityLock: true,
+      });
+      return;
+    }
+    next();
+  };
+
+  app.use('/api/ai', eswaProprietaryGatewayGuard);
+  app.use('/api/geometry', eswaProprietaryGatewayGuard);
+  app.use('/api/ota', eswaProprietaryGatewayGuard);
+
+  /**
    * POST /api/ai/trace-joints
    * Hybrid AI + Computer Vision geological discontinuity segmentation & classification endpoint.
    */
@@ -543,17 +572,31 @@ Provide a concise, authoritative engineering analysis covering:
       const distDir = path.join(process.cwd(), 'dist');
       const assetsDir = path.join(distDir, 'assets');
 
+      // Ensure fresh production minified bundle exists
+      if (!fs.existsSync(assetsDir) || !fs.readdirSync(assetsDir).some((f) => f.endsWith('.js'))) {
+        try {
+          execSync('npx vite build', { cwd: process.cwd(), stdio: 'pipe' });
+        } catch {
+          // Fall through if build command is busy
+        }
+      }
+
       let cssContent = '';
       let jsContent = '';
 
       if (fs.existsSync(assetsDir)) {
         const files = fs.readdirSync(assetsDir);
         for (const file of files) {
+          // Strictly exclude any source maps (.map)
+          if (file.endsWith('.map')) continue;
           const fullPath = path.join(assetsDir, file);
           if (file.endsWith('.css')) {
             cssContent += fs.readFileSync(fullPath, 'utf8') + '\n';
           } else if (file.endsWith('.js')) {
-            jsContent += fs.readFileSync(fullPath, 'utf8') + '\n';
+            let content = fs.readFileSync(fullPath, 'utf8');
+            // Aggressively strip any lingering sourceMappingUrls or debugger directives
+            content = content.replace(/\/\/# sourceMappingURL=.*$/gm, '');
+            jsContent += content + '\n';
           }
         }
       }
@@ -566,8 +609,25 @@ Provide a concise, authoritative engineering analysis covering:
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Akash Tunnel Joint Tracer — Desktop Engineering Suite</title>
+    <title>ESWA GEOLOGICAL MAPPER — Desktop Engineering Suite</title>
     <style>${cssContent}</style>
+    <script>
+      // Enterprise IP Protection & Hardware-Lock Pre-Mount Runtime Guard
+      (function() {
+        try {
+          window.__ESWA_OFFLINE_STANDALONE_PC__ = true;
+          window.__ESWA_STANDALONE_PC_EXE__ = true;
+          window.__ESWA_EDITION__ = 'user';
+          // Check tamper lockout state before React components initialize
+          if (typeof window !== 'undefined' && window.localStorage) {
+            var lockoutKey = 'eswa_tamper_lockout_active_v1';
+            if (localStorage.getItem(lockoutKey)) {
+              console.warn('[ESWA ENTERPRISE SHIELD] Machine Tamper Violation Lockout active.');
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
@@ -596,23 +656,23 @@ ${safeJsContent}
       const batLines = [
         '@echo off',
         'setlocal',
-        'title Akash Tunnel Joint Tracer - Offline PC Software Installer',
+        'title ESWA Geological Mapper - Offline PC Software Installer',
         'echo ============================================================================',
-        'echo   AKASH TUNNEL JOINT TRACER - STANDALONE OFFLINE PC SOFTWARE INSTALLER',
+        'echo   ESWA GEOLOGICAL MAPPER - STANDALONE OFFLINE PC SOFTWARE INSTALLER',
         'echo ============================================================================',
         'echo.',
-        'set "INSTALL_DIR=%LOCALAPPDATA%\\AkashTunnelTracer"',
+        'set "INSTALL_DIR=%LOCALAPPDATA%\\EswaGeologicalMapper"',
         'if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"',
         'set "B64_FILE=%INSTALL_DIR%\\app_bundle.b64"',
-        'set "APP_HTML=%INSTALL_DIR%\\AkashTunnelApp.html"',
-        'set "LAUNCHER_CMD=%INSTALL_DIR%\\Launch_Akash_Tunnel_Tracer.vbs"',
+        'set "APP_HTML=%INSTALL_DIR%\\EswaGeologyApp.html"',
+        'set "LAUNCHER_CMD=%INSTALL_DIR%\\Launch_Eswa_Geological_Mapper.vbs"',
         'echo [1/3] Extracting standalone offline software files to %INSTALL_DIR%...',
         'powershell -NoProfile -ExecutionPolicy Bypass -Command "$c = Get-Content -LiteralPath \'%~f0\'; $idx = [Array]::IndexOf($c, \'::===PAYLOAD_START===\'); $b64 = $c[($idx+1)..($c.Length-1)] -join \'\'; [IO.File]::WriteAllBytes(\'%APP_HTML%\', [Convert]::FromBase64String($b64))"',
         'echo [2/3] Creating silent Windows desktop window launcher (no website / 100%% offline)...',
         '(',
         '  echo Set sh = CreateObject("WScript.Shell"^)',
         '  echo Set fso = CreateObject("Scripting.FileSystemObject"^)',
-        '  echo appFile = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\\AkashTunnelTracer\\AkashTunnelApp.html"^)',
+        '  echo appFile = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\\EswaGeologicalMapper\\EswaGeologyApp.html"^)',
         '  echo fileUrl = "file:///" ^& Replace(appFile, "\\", "/"^)',
         '  echo edge1 = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"',
         '  echo edge2 = "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"',
@@ -628,12 +688,12 @@ ${safeJsContent}
         '  echo End If',
         ') > "%LAUNCHER_CMD%"',
         'echo [3/3] Creating Desktop and Start Menu shortcuts...',
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $dt = [Environment]::GetFolderPath(\'Desktop\'); $sm = [Environment]::GetFolderPath(\'Programs\'); foreach ($dir in @($dt, $sm)) { $s = $ws.CreateShortcut((Join-Path $dir \'Akash Tunnel Joint Tracer.lnk\')); $s.TargetPath = \'wscript.exe\'; $s.Arguments = \'\"%LOCALAPPDATA%\\AkashTunnelTracer\\Launch_Akash_Tunnel_Tracer.vbs\"\'; $s.WorkingDirectory = \'%LOCALAPPDATA%\\AkashTunnelTracer\'; $s.IconLocation = \'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe,0\'; $s.Description = \'Akash Tunnel Joint Tracer - Standalone Offline PC Software\'; $s.Save() }"',
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $dt = [Environment]::GetFolderPath(\'Desktop\'); $sm = [Environment]::GetFolderPath(\'Programs\'); foreach ($dir in @($dt, $sm)) { $s = $ws.CreateShortcut((Join-Path $dir \'ESWA Geological Mapper.lnk\')); $s.TargetPath = \'wscript.exe\'; $s.Arguments = \'\"%LOCALAPPDATA%\\EswaGeologicalMapper\\Launch_Eswa_Geological_Mapper.vbs\"\'; $s.WorkingDirectory = \'%LOCALAPPDATA%\\EswaGeologicalMapper\'; $s.IconLocation = \'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe,0\'; $s.Description = \'ESWA Geological Mapper - Standalone Offline PC Software\'; $s.Save() }"',
         'echo.',
         'echo ============================================================================',
         'echo   INSTALLATION COMPLETE! (100%% Local Offline PC Software)',
         'echo   Installed to: %INSTALL_DIR%',
-        'echo   Shortcut created on Desktop: "Akash Tunnel Joint Tracer"',
+        'echo   Shortcut created on Desktop: "ESWA Geological Mapper"',
         'echo   Launching software now...',
         'echo ============================================================================',
         'wscript.exe "%LAUNCHER_CMD%"',
@@ -712,7 +772,7 @@ ${safeJsContent}
       const {
         repoSlug = '',
         githubToken = '',
-        commitMessage = 'Update AKASH TUNNEL MAPPER + Trigger Windows .EXE Build',
+        commitMessage = 'Update ESWA GEOLOGICAL MAPPER + Trigger Windows .EXE Build',
       } = req.body || {};
 
       const cleanRepo = String(repoSlug || '')
@@ -743,7 +803,7 @@ ${safeJsContent}
         Accept: 'application/vnd.github+json',
         'Content-Type': 'application/json',
         'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'AKASH-Tunnel-Mapper-GitHub-Sync',
+        'User-Agent': 'ESWA-Geological-Mapper-GitHub-Sync',
       };
 
       // 1. Get repository info & default branch
@@ -776,9 +836,9 @@ ${safeJsContent}
             method: 'PUT',
             headers: ghHeaders,
             body: JSON.stringify({
-              message: 'Initialize AKASH TUNNEL MAPPER repository',
+              message: 'Initialize ESWA GEOLOGICAL MAPPER repository',
               content: Buffer.from(
-                '# AKASH TUNNEL MAPPER\nOfficial Geological Tunnel Mapping & Structural Engineering Software.\n',
+                '# ESWA GEOLOGICAL MAPPER\nOfficial Geological Mapping & Geotechnical Engineering Suite (NATM, TBM, MINING).\n',
                 'utf8'
               ).toString('base64'),
               branch,
@@ -1017,8 +1077,8 @@ ${safeJsContent}
                 body: JSON.stringify({
                   tag_name: 'latest',
                   target_commitish: branch,
-                  name: 'AKASH TUNNEL MAPPER — Master .EXE, User .EXE & User Android .APK',
-                  body: 'Official release containing Master Edition (.EXE), User Edition (.EXE), and Standalone User Android App (ESWA-TUNNEL-MAPPER-User-Android.apk).',
+                  name: 'ESWA GEOLOGICAL MAPPER — Master .EXE, User .EXE & User Android .APK',
+                  body: 'Official release containing Master Edition (.EXE), User Edition (.EXE), and Standalone User Android App (ESWA-GEOLOGICAL-MAPPER-User-Android.apk).',
                   draft: false,
                   prerelease: false,
                 }),
@@ -1368,7 +1428,7 @@ ${safeJsContent}
         subject,
         textBody,
         htmlBody,
-        fromEmail = 'dhoniakash407@gmail.com',
+        fromEmail = 'akashdhanusheswar@gmail.com',
         smtpAppPassword,
         accessToken,
       } = req.body || {};
@@ -1768,7 +1828,7 @@ ${safeJsContent}
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Akash Tunnel Joint Tracer server listening on http://0.0.0.0:${PORT}`);
+    console.log(`ESWA Geological Mapper server listening on http://0.0.0.0:${PORT}`);
   });
 }
 

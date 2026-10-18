@@ -29,6 +29,7 @@ import {
   generateSampleTunnelDXF,
   parseDXFStringToGeometry,
 } from '../engine/cadParser';
+import { getEswaApiSecurityHeaders } from '../engine/softwareLicensingEngine';
 import {
   ArrowLeft,
   ArrowRight,
@@ -1281,7 +1282,10 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
       const contentBase64 = btoa(binary);
       const res = await fetch('/api/geometry/parse-cad', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getEswaApiSecurityHeaders(),
+        },
         body: JSON.stringify({ fileName: file.name, contentBase64 }),
       });
       if (!res.ok) throw new Error('CAD conversion failed');

@@ -20,6 +20,19 @@ const SHEET_CONFIG_STORAGE_KEY = 'eswa_tunnel_engineering_sheet_config_v20_fresh
 export function createDefaultEngineeringSheetConfig(
   settings?: Partial<TunnelSettings>
 ): EngineeringSheetConfig {
+  const isMining = settings?.industryMode === 'MINING';
+  const isTbm = settings?.industryMode === 'TBM';
+
+  const geologySheetTitle = isMining
+    ? 'ENGINEERING GEOLOGICAL MINING FACE & STOPE MAPPING SHEET'
+    : isTbm
+    ? 'ENGINEERING GEOLOGICAL TBM SHIELD TUNNEL MAPPING SHEET'
+    : 'ENGINEERING GEOLOGICAL NATM TUNNEL MAPPING SHEET';
+
+  const contractorSignTitle = isMining
+    ? 'MINE GEOLOGIST / GEOTECHNICAL ENGINEER'
+    : 'CONTRACTOR GEOLOGIST / SURVEYOR';
+
   return {
     projectName: settings?.projectName || '',
     location: settings?.locationName || settings?.location || '',
@@ -29,7 +42,7 @@ export function createDefaultEngineeringSheetConfig(
     contractNumber: '',
     drawingNumber: '',
     revisionNumber: 'Rev 0',
-    geologySheetTitle: 'ENGINEERING GEOLOGICAL TUNNEL MAPPING SHEET',
+    geologySheetTitle,
     quantitySheetTitle: 'ENGINEERING OVERBREAK, UNDERCUT & EXCAVATION QUANTITY SHEET',
     clientLogoDataUrl: null,
     contractorLogoDataUrl: null,
@@ -57,7 +70,7 @@ export function createDefaultEngineeringSheetConfig(
     fontScaleMultiplier: 1.0,
     manualTableRowHeight: 34,
     manualTableBlockRatio: 0.38,
-    contractorSignTitle: 'CONTRACTOR GEOLOGIST / SURVEYOR',
+    contractorSignTitle,
     contractorSignName: '',
     clientSignTitle: 'CLIENT / AUTHORITY ENGINEER',
     clientSignName: '',

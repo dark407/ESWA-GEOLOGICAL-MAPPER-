@@ -100,20 +100,25 @@ export default defineConfig(({command}) => {
       },
     },
     esbuild: {
-      drop: ['console', 'debugger'],
+      drop: command === 'build' ? ['console', 'debugger'] : [],
       legalComments: 'none',
       minifyIdentifiers: true,
       minifySyntax: true,
       minifyWhitespace: true,
+      treeShaking: true,
     },
     build: {
       sourcemap: false,
       minify: 'esbuild',
+      cssMinify: true,
+      reportCompressedSize: false,
+      chunkSizeWarningLimit: 4500,
       rollupOptions: {
         output: {
           entryFileNames: 'assets/[hash].js',
           chunkFileNames: 'assets/[hash].js',
           assetFileNames: 'assets/[hash].[ext]',
+          compact: true,
           manualChunks(id) {
             if (id.includes('node_modules')) {
               if (id.includes('three')) return 'v-3d';
@@ -122,8 +127,9 @@ export default defineConfig(({command}) => {
               return 'v-core';
             }
             if (id.includes('/src/engine/')) {
-              // Obfuscated non-descriptive internal hash chunk for proprietary math engines
-              return 'e-core';
+              // Proprietary mathematical, kinematic, structural & photogrammetry engines
+              // Obfuscated into non-descriptive internal hash chunk (no readable engine names)
+              return 'z9-core';
             }
           },
         },

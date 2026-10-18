@@ -263,7 +263,7 @@ function renderEngineeringSummaryCanvasPage(payload: PdfWordExportPayload): HTML
   ctx.fillRect(34, 34, W - 68, 86);
   ctx.fillStyle = '#38BDF8';
   ctx.font = 'bold 25px monospace';
-  ctx.fillText('ESWA TUNNEL MAPPER — GEOLOGICAL & ROCK MASS ENGINEERING DATA SHEET', 56, 74);
+  ctx.fillText('ESWA GEOLOGICAL MAPPER — GEOLOGICAL & ROCK MASS ENGINEERING DATA SHEET', 56, 74);
   ctx.fillStyle = '#E2E8F0';
   ctx.font = '15px monospace';
   ctx.fillText(
@@ -625,7 +625,7 @@ xmlns:w="urn:schemas-microsoft-com:office:word"
 xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="utf-8" />
-<title>ESWA Tunnel Mapper — Geological &amp; Rock Mass Engineering Report</title>
+<title>ESWA Geological Mapper — Geological &amp; Rock Mass Engineering Report</title>
 <style>
   @page { size: 29.7cm 21.0cm; margin: 1.5cm; mso-page-orientation: landscape; }
   body { font-family: 'Calibri', 'Arial', sans-serif; color: #0f172a; font-size: 10.5pt; line-height: 1.35; }
@@ -639,7 +639,7 @@ xmlns="http://www.w3.org/TR/REC-html40">
 </style>
 </head>
 <body>
-  <h1>ESWA TUNNEL MAPPER — GEOLOGICAL MAPPING &amp; ROCK MASS CLASSIFICATION REPORT</h1>
+  <h1>ESWA GEOLOGICAL MAPPER — GEOLOGICAL MAPPING &amp; ROCK MASS CLASSIFICATION REPORT</h1>
 
   <table>
     <tr>

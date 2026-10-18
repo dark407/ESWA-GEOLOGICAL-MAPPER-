@@ -13,6 +13,7 @@ import {
   TunnelSettings,
 } from '../types/tunnel';
 import { calibrateAndUndistortPhotograph } from './cameraCalibration';
+import { getEswaApiSecurityHeaders } from './softwareLicensingEngine';
 import {
   clipPolylineToSurface,
   createDefaultSurfaceTransform,
@@ -3342,7 +3343,10 @@ export async function executeHybridJointTracingPipeline(
   try {
     const response = await fetch('/api/ai/trace-joints', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getEswaApiSecurityHeaders(),
+      },
       body: JSON.stringify({
         imageBase64: compressedDataUrl,
         supportingImagesBase64,

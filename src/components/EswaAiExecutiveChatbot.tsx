@@ -40,6 +40,7 @@ import {
 import {
   useTheme,
 } from '../context/ThemeContext';
+import { getEswaApiSecurityHeaders } from '../engine/softwareLicensingEngine';
 
 export type EngineeringExportTemplateId =
   | 'AUTO_BEST_TEMPLATE'
@@ -1131,7 +1132,10 @@ export const EswaAiExecutiveChatbot: React.FC<EswaAiExecutiveChatbotProps> = ({
     try {
       const res = await fetch('/api/ai/eswa-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getEswaApiSecurityHeaders(),
+        },
         body: JSON.stringify({
           message: textToSend,
           history: messages.slice(-6).map((m) => ({ role: m.role, text: m.text })),
@@ -1244,7 +1248,7 @@ export const EswaAiExecutiveChatbot: React.FC<EswaAiExecutiveChatbotProps> = ({
 
     if (format === 'CSV') {
       const csvLines: string[] = [
-        `"ESWA TUNNEL MAPPER & ESWACAD — OFFICIAL ENGINEERING TEMPLATE EXPORT"`,
+        `"ESWA GEOLOGICAL MAPPER — OFFICIAL ENGINEERING TEMPLATE EXPORT"`,
         `"Template Title","${activePkg.title.replace(/"/g, '""')}"`,
         `"Subtitle / Scope","${(activePkg.subtitle || '').replace(/"/g, '""')}"`,
         `"Tunnel / Heading","${settings.tunnelName}","Chainage","${settings.faceChainage || settings.chainage}","Date","${settings.date}"`,
@@ -1921,7 +1925,7 @@ export const EswaAiExecutiveChatbot: React.FC<EswaAiExecutiveChatbotProps> = ({
               <div className="border-2 border-slate-900 p-4 bg-slate-50 flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-widest text-sky-700 font-bold">
-                    ESWA TUNNEL MAPPER &amp; ESWACAD · OFFICIAL AS-BUILT GEOTECHNICAL SHEET
+                    ESWA GEOLOGICAL MAPPER · OFFICIAL AS-BUILT GEOTECHNICAL SHEET
                   </div>
                   <h2 className="text-lg font-black uppercase tracking-wide text-slate-900">
                     {previewSheetPkg.pkg.title}

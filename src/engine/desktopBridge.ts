@@ -15,6 +15,7 @@
  */
 
 import { SavedDesignGeometryRecord, SavedProjectRecord } from '../types/tunnel';
+import { getEswaApiSecurityHeaders } from './softwareLicensingEngine';
 
 export interface LocalStoredFileRecord {
   fileName: string;
@@ -1185,6 +1186,28 @@ export async function initializeDesktopRuntimeBridge(): Promise<void> {
       typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 
     const isOfflineOrStandalone = isStandaloneFileApp || (typeof navigator !== 'undefined' && !navigator.onLine);
+
+    // Enterprise Gateway Security: Inject custom cryptographic headers on proprietary endpoints
+    if (
+      urlStr.includes('/api/ai/') ||
+      urlStr.includes('/api/geometry/') ||
+      urlStr.includes('/api/ota/')
+    ) {
+      const secHeaders = getEswaApiSecurityHeaders();
+      const existingHeaders =
+        init?.headers instanceof Headers
+          ? Object.fromEntries(init.headers.entries())
+          : init?.headers && typeof init.headers === 'object'
+          ? (init.headers as Record<string, string>)
+          : {};
+      init = {
+        ...init,
+        headers: {
+          ...secHeaders,
+          ...existingHeaders,
+        },
+      };
+    }
 
     if (urlStr.includes('/api/geometry/parse-cad')) {
       if (!isOfflineOrStandalone) {

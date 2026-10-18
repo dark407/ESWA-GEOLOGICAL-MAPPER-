@@ -936,6 +936,9 @@ export function getLocalActivatedSession(): ActivatedClientSession | null {
           triggerTamperViolationLockout('Legacy session bound to different PC hardware ID.');
           return null;
         }
+      } else {
+        triggerTamperViolationLockout('Unencrypted, modified, or forged licensing payload detected in storage.');
+        return null;
       }
     }
 
@@ -1003,17 +1006,34 @@ export function isMasterAdminLoggedIn(): boolean {
 export function initEnterpriseSecurityShield(): () => void {
   if (typeof window === 'undefined') return () => {};
 
-  // Bypass if running in dev mode or logged in as Master Admin
-  if (import.meta.env.DEV) {
+  // Bypass ONLY when logged in as Master Admin
+  if (isMasterAdminLoggedIn()) {
     return () => {};
   }
 
+  // 1. Initial Launch Tamper Integrity Verification
+  try {
+    const rawActive = localStorage.getItem(LOCAL_ACTIVE_SESSION_KEY);
+    if (rawActive) {
+      // Validates AES/HMAC envelope and hardware ID binding immediately
+      const verifiedSession = getLocalActivatedSession();
+      if (!verifiedSession && rawActive) {
+        triggerTamperViolationLockout('Initial startup integrity check failed: Invalid or tampered offline token.');
+      }
+    }
+  } catch (err: unknown) {
+    triggerTamperViolationLockout(err instanceof Error ? err.message : 'Startup integrity check failure');
+  }
+
+  // 2. Block right-click context menu (Inspect Element / View Source)
   const handleContextMenu = (e: MouseEvent) => {
     if (isMasterAdminLoggedIn()) return;
     e.preventDefault();
+    e.stopPropagation();
     return false;
   };
 
+  // 3. Block Developer Tools & Source-View Keyboard Shortcuts
   const handleKeyDown = (e: KeyboardEvent) => {
     if (isMasterAdminLoggedIn()) return;
 
@@ -1024,55 +1044,126 @@ export function initEnterpriseSecurityShield(): () => void {
       return false;
     }
 
-    // Ctrl+Shift+I / J / C (DevTools inspector & console)
+    const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
+    // Ctrl+Shift+I / J / C / K (DevTools inspector, console, element picker)
     if (
-      (e.ctrlKey || e.metaKey) &&
+      isCtrlOrMeta &&
       e.shiftKey &&
-      (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')
+      ['I', 'i', 'J', 'j', 'C', 'c', 'K', 'k'].includes(e.key)
     ) {
       e.preventDefault();
       e.stopPropagation();
       return false;
     }
 
-    // Ctrl+U (View Source) & Ctrl+S (Save Page)
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'U' || e.key === 'u' || e.key === 'S' || e.key === 's')) {
+    // Mac Cmd+Option+I / J / C (Safari / Chrome DevTools)
+    if (e.metaKey && e.altKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+
+    // Ctrl+U / Cmd+U (View Source) & Ctrl+S / Cmd+S (Save Page HTML)
+    if (isCtrlOrMeta && ['U', 'u', 'S', 's'].includes(e.key)) {
       e.preventDefault();
       e.stopPropagation();
       return false;
     }
   };
 
+  // 4. Block unauthorized canvas, image, and proprietary SVG dragging / copying
   const handleDragStart = (e: DragEvent) => {
     if (isMasterAdminLoggedIn()) return;
     const target = e.target as HTMLElement | null;
-    if (target && (target.tagName === 'CANVAS' || target.tagName === 'IMG')) {
+    if (
+      target &&
+      (target.tagName === 'CANVAS' ||
+        target.tagName === 'IMG' ||
+        target.tagName === 'svg' ||
+        target.closest('canvas, svg, .tunnel-face-canvas, .photogrammetry-viewport'))
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  };
+
+  const handleSelectStart = (e: Event) => {
+    if (isMasterAdminLoggedIn()) return;
+    const target = e.target as HTMLElement | null;
+    if (
+      target &&
+      (target.tagName === 'CANVAS' ||
+        target.tagName === 'svg' ||
+        target.closest('canvas, svg, .no-select'))
+    ) {
       e.preventDefault();
       return false;
+    }
+  };
+
+  // 5. Real-Time Storage Tamper Detection (detects external modifications to localStorage)
+  const handleStorageEvent = (e: StorageEvent) => {
+    if (isMasterAdminLoggedIn()) return;
+    if (e.key === LOCAL_ACTIVE_SESSION_KEY || e.key === LOCAL_PC_HW_ID_KEY) {
+      const current = getLocalActivatedSession();
+      if (!current && localStorage.getItem(LOCAL_ACTIVE_SESSION_KEY)) {
+        triggerTamperViolationLockout('External tampering detected on offline licensing storage.');
+      }
     }
   };
 
   window.addEventListener('contextmenu', handleContextMenu, true);
   window.addEventListener('keydown', handleKeyDown, true);
   window.addEventListener('dragstart', handleDragStart, true);
+  window.addEventListener('selectstart', handleSelectStart, true);
+  window.addEventListener('storage', handleStorageEvent, true);
 
-  // Periodic cryptographic runtime integrity check
+  // 6. Periodic Cryptographic Runtime Integrity Check (every 5 seconds)
   const integrityTimer = window.setInterval(() => {
     if (isMasterAdminLoggedIn()) return;
     const session = getLocalActivatedSession();
     if (session) {
       const { pcHardwareId } = getOrGeneratePcHardwareId();
       if (session.pcHardwareId && session.pcHardwareId !== pcHardwareId) {
-        triggerTamperViolationLockout('Hardware ID spoofing detected during runtime cycle.');
+        triggerTamperViolationLockout(
+          `Hardware ID spoofing detected during runtime cycle: bound=${session.pcHardwareId} vs machine=${pcHardwareId}`
+        );
       }
     }
-  }, 12000);
+  }, 5000);
+
+  // 7. Anti-Debugger Inspection Trap in Production Builds
+  let antiDebugTimer: number | null = null;
+  if (!import.meta.env.DEV) {
+    antiDebugTimer = window.setInterval(() => {
+      if (isMasterAdminLoggedIn()) return;
+      const t0 = performance.now();
+      // Anti-reversing evaluation trap
+      try {
+        const check = new Function('debugger');
+        check();
+      } catch {
+        // Ignore
+      }
+      const elapsed = performance.now() - t0;
+      if (elapsed > 150) {
+        triggerTamperViolationLockout('Interactive DevTools debugger inspection detected.');
+      }
+    }, 3000);
+  }
 
   return () => {
     window.removeEventListener('contextmenu', handleContextMenu, true);
     window.removeEventListener('keydown', handleKeyDown, true);
     window.removeEventListener('dragstart', handleDragStart, true);
+    window.removeEventListener('selectstart', handleSelectStart, true);
+    window.removeEventListener('storage', handleStorageEvent, true);
     window.clearInterval(integrityTimer);
+    if (antiDebugTimer !== null) {
+      window.clearInterval(antiDebugTimer);
+    }
   };
 }
 
@@ -1202,27 +1293,29 @@ export function buildWelcomeFeaturesEmailContent(params: {
 }): { subject: string; textBody: string; htmlBody: string } {
   const pcUrl = getUserEditionShareUrl();
   const apkUrl = getUserAndroidAppShareUrl();
-  const subject = `Welcome to ESWA Tunnel Mapper — Official App & Software Features (${params.fullName})`;
+  const subject = `Welcome to ESWA Geological Mapper — Official App & Software Features (${params.fullName})`;
 
-  const textBody = `Warm Greetings from ESWA Tunnel Mapper (${MASTER_ADMIN_DEFAULT_EMAIL})!
+  const textBody = `Warm Greetings from ESWA Geological Mapper (${MASTER_ADMIN_DEFAULT_EMAIL})!
 
 Dear ${params.fullName} (${params.organization} · ${params.roleTitle}),
 
-Thank you for installing and logging into ESWA Tunnel Mapper! Your account is now active on your ${params.platformLabel} (${params.deviceId}) with immediate access — no manual activation key required.
+Thank you for installing and logging into ESWA Geological Mapper! Your account is now active on your ${params.platformLabel} (${params.deviceId}) with immediate access — no manual activation key required.
 
-KEY FEATURES OF ESWA TUNNEL MAPPER APP & SOFTWARE:
-1. AI + Computer Vision Geological Joint Tracing:
-   - Automatic multi-point curvilinear fracture & joint segmentation on Tunnel Face, Crown, Left Wall & Right Wall photographs.
-2. 3D Orientation Solver & Stereonet Plotting:
+KEY FEATURES OF ESWA GEOLOGICAL MAPPER APP & SOFTWARE:
+1. Civil NATM, Mechanized TBM & Underground Mining Multi-Mode:
+   - Dedicated workflows for civil tunnel excavation, TBM ring mapping, and underground hard-rock mining grade control.
+2. AI + Computer Vision Geological Joint Tracing:
+   - Automatic multi-point curvilinear fracture & joint segmentation on Face, Crown, Left Wall & Right Wall photographs.
+3. 3D Orientation Solver & Stereonet Plotting:
    - Real-time Strike, Dip & Dip Direction calculation with interactive equal-area / equal-angle Stereonet pole & great-circle analysis.
-3. Rock Mass Classification Suite (Q-System, RMR & GSI):
-   - Automated Barton Q-Index, Bieniawski RMR, and GSI calculation with tunnel support recommendations.
-4. Overbreak / Undercut Survey Profile & Volume Analysis:
-   - Compare design tunnel profiles with surveyed excavation profiles and compute section-to-section rock volumes.
-5. Continuous 3D Tunnel Strip Logger & Engineering CAD Sheet Export:
+4. Rock Mass Classification Suite (Q-System, RMR, GSI, Mathews Q' & Laubscher MRMR):
+   - Automated Barton Q-Index, Bieniawski RMR, GSI, Mathews Stability Number N' and MRMR rock mass ratings.
+5. Overbreak / Undercut Survey Profile & Mining Tonnage Analysis:
+   - Compare design profiles, calculate ore/waste dilution %, weighted face grades, and muck routing verdicts.
+6. Continuous 3D Tunnel Strip Logger & Engineering CAD Sheet Export:
    - Generate publication-ready Final Engineering Geological Mapping Sheets (PDF / PNG / DXF).
-6. 1-Tap In-App Live Auto-Updates:
-   - Whenever we release a new update, you will receive an email and an in-app notification. Simply tap "Install Update Now" inside the app or software to update automatically in seconds without downloading or installing any new package.
+7. 1-Tap In-App Live Auto-Updates:
+   - Live updates with zero data loss.
 
 OFFICIAL ACCESS LINKS:
 - PC Software Link: ${pcUrl}
@@ -1232,14 +1325,14 @@ Registered User ID: ${params.userId}
 Registered Device ID: ${params.deviceId} (${params.platformLabel})
 
 Best Regards,
-ESWA Tunnel Mapper Team
+ESWA Geological Mapper Team
 ${MASTER_ADMIN_DEFAULT_EMAIL}`;
 
   const htmlBody = `<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px; background: #0f172a; color: #f8fafc; border-radius: 14px; border: 1px solid #10b981;">
-    <h2 style="color: #34d399; margin-top: 0;">Warm Greetings from ESWA Tunnel Mapper!</h2>
+    <h2 style="color: #34d399; margin-top: 0;">Warm Greetings from ESWA Geological Mapper!</h2>
     <p style="color: #e2e8f0; font-size: 14px; line-height: 1.6;">
       Dear <strong>${params.fullName}</strong> (${params.organization} · ${params.roleTitle}),<br/>
-      Thank you for installing and logging into <strong>ESWA Tunnel Mapper</strong>! Your account is now active on your <strong>${params.platformLabel}</strong> (<code style="color: #38bdf8;">${params.deviceId}</code>).
+      Thank you for installing and logging into <strong>ESWA Geological Mapper</strong>! Your account is now active on your <strong>${params.platformLabel}</strong> (<code style="color: #38bdf8;">${params.deviceId}</code>).
     </p>
     <div style="background: #020617; border: 1px solid #1e293b; border-radius: 10px; padding: 16px; margin: 16px 0;">
       <div style="color: #38bdf8; font-weight: 700; font-size: 13px; margin-bottom: 10px;">KEY FEATURES IN YOUR APP &amp; SOFTWARE:</div>
@@ -2477,7 +2570,11 @@ export async function performInAppOtaAutoUpdate(
 
   for (const url of candidateUrls) {
     try {
-      const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
+      const resp = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: getEswaApiSecurityHeaders(),
+      });
       if (resp.ok) {
         const data = (await resp.json()) as {
           cssContent?: string;

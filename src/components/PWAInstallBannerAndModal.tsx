@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  downloadOfflineBatchInstaller,
   downloadUserAndroidApk,
   downloadWindowsInstallerBatchScript,
   getConfiguredGithubRepo,
@@ -220,6 +221,14 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                   >
                     <Monitor className="w-4 h-4" />
                     <span>Create Windows Desktop &amp; Start Menu App Shortcut (.BAT)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadOfflineBatchInstaller()}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download 100% Offline Standalone PC Installer (.BAT / HTML)</span>
                   </button>
                 </div>
               )}

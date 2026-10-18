@@ -40,6 +40,8 @@ import {
 import {
   calculateBieniawskiRmr,
   calculateHoekGsi,
+  calculateLaubscherMrmr,
+  calculateMathewsStability,
   CLASSIFICATION_METHODS_REGISTRY,
   computeRmrRqdRating,
   computeRmrSpacingRating,
@@ -565,6 +567,19 @@ const GeologyAndQIndexDrawerComponent: React.FC<GeologyAndQIndexDrawerProps> = (
           : 'RMR=Incomplete';
       const qStr = qResult.isComplete ? `Q=${qResult.qValue.toFixed(2)}` : 'Q=Incomplete';
       return `DUAL: ${rmrStr} | ${qStr}`;
+    }
+    if (selectedMethod === 'LAUBSCHER_MRMR') {
+      const mrmr = calculateLaubscherMrmr({ baseRmr: rmrResult.finalRmr ?? 65 });
+      return `MRMR = ${mrmr.totalMrmr} · ${mrmr.rockClass.replace('_', ' ')}`;
+    }
+    if (selectedMethod === 'MATHEWS_STABILITY') {
+      const mathews = calculateMathewsStability({
+        rqd: qIndexParams.rqd || 75,
+        jn: qIndexParams.jn || 6,
+        jr: qIndexParams.jr || 2,
+        ja: qIndexParams.ja || 2,
+      });
+      return `Mathews N' = ${mathews.modifiedStabilityNumberNPrime} · ${mathews.stabilityZone.replace('_', ' ')}`;
     }
     return gsiResult.isComplete && gsiResult.gsiValue !== null
       ? `GSI = ${gsiResult.gsiValue} (${gsiResult.gsiRangeLabel})`
@@ -3666,6 +3681,71 @@ const GeologyAndQIndexDrawerComponent: React.FC<GeologyAndQIndexDrawerProps> = (
                 {selectedMethod === 'RMR' && renderRmrSection(false)}
                 {selectedMethod === 'Q_SYSTEM' && renderQSystemSection(false)}
                 {selectedMethod === 'GSI' && renderGsiSection()}
+                {selectedMethod === 'LAUBSCHER_MRMR' && (
+                  <div className="space-y-4">
+                    {renderRmrSection(true)}
+                    <div className="p-4 bg-slate-950 border border-amber-500/40 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-mono uppercase font-bold text-amber-400">
+                          LAUBSCHER MINING ROCK MASS RATING (MRMR)
+                        </span>
+                        <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          MRMR = {calculateLaubscherMrmr({ baseRmr: rmrResult.finalRmr ?? 65 }).totalMrmr}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300">
+                        {calculateLaubscherMrmr({ baseRmr: rmrResult.finalRmr ?? 65 }).rockClassDescription}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {selectedMethod === 'MATHEWS_STABILITY' && (
+                  <div className="space-y-4">
+                    {renderQSystemSection(true)}
+                    {(() => {
+                      const mathews = calculateMathewsStability({
+                        rqd: qIndexParams.rqd || 75,
+                        jn: qIndexParams.jn || 6,
+                        jr: qIndexParams.jr || 2,
+                        ja: qIndexParams.ja || 2,
+                      });
+                      return (
+                        <div className="p-4 bg-slate-950 border border-amber-500/40 rounded-xl space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-mono uppercase font-bold text-amber-400">
+                              MATHEWS / POTVIN STABILITY NUMBER (N&apos;)
+                            </span>
+                            <span
+                              className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded border ${
+                                mathews.stabilityZone === 'STABLE'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  : mathews.stabilityZone === 'TRANSITION'
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                              }`}
+                            >
+                              N&apos; = {mathews.modifiedStabilityNumberNPrime} · {mathews.stabilityZone}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                            <div className="p-2 bg-slate-900 rounded border border-slate-800">
+                              <span className="text-slate-400">Q&apos;:</span> {mathews.modifiedQPrime}
+                            </div>
+                            <div className="p-2 bg-slate-900 rounded border border-slate-800">
+                              <span className="text-slate-400">Stress A:</span> {mathews.stressFactorA}
+                            </div>
+                            <div className="p-2 bg-slate-900 rounded border border-slate-800">
+                              <span className="text-slate-400">Joint B:</span> {mathews.jointOrientationFactorB}
+                            </div>
+                            <div className="p-2 bg-slate-900 rounded border border-slate-800">
+                              <span className="text-slate-400">Gravity C:</span> {mathews.gravityFactorC}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
                 {selectedMethod === 'BOTH_RMR_AND_Q' && (
                   <div className="space-y-4">
                     <div className="p-2 bg-slate-900/90 border border-indigo-500/40 rounded flex items-center justify-between text-[11px]">

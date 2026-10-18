@@ -12,6 +12,10 @@ import {
   ProfileType,
   QIndexParameters,
   QSystemParamKey,
+  IndustryMode,
+  MiningStopeSettings,
+  ModeProjectState,
+  TbmMachineParameters,
   RmrParameters,
   RockMassClassificationMethodId,
   RockMassSummaryTable,
@@ -114,7 +118,10 @@ import {
   SimpleFullPhotoAndAccuracyModal,
 } from './components/SimpleFullPhotoAndAccuracyModal';
 import { ThemeToggleButton, useTheme } from './context/ThemeContext';
-import { subscribeAdminLicensingData } from './engine/softwareLicensingEngine';
+import {
+  getEswaApiSecurityHeaders,
+  subscribeAdminLicensingData,
+} from './engine/softwareLicensingEngine';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { FieldMappingModeWorkspace } from './components/FieldMappingModeWorkspace';
 import { CoreLoggingWorkspace } from './components/CoreLoggingWorkspace';
@@ -154,6 +161,7 @@ import {
   ArrowRight,
   Camera,
   CheckCircle2,
+  CircleDot,
   Cloud,
   Compass,
   Database,
@@ -163,6 +171,7 @@ import {
   LogIn,
   LogOut,
   Mountain,
+  Pickaxe,
   Play,
   Plus,
   RefreshCw,
@@ -175,6 +184,8 @@ import {
   User as UserIcon,
   X,
 } from 'lucide-react';
+import { MiningStopeFaceInspectorModal } from './components/MiningStopeFaceInspectorModal';
+import { TbmShieldInspectorModal } from './components/TbmShieldInspectorModal';
 
 type ScreenStep =
   | 'welcome'
@@ -375,6 +386,105 @@ export default function App({
       sheetConfig: loadSavedSheetConfig(),
     };
   });
+
+  // 3-Mode Industry Switcher (NATM | TBM | MINING) with isolated parameter state
+  const [industryMode, setIndustryMode] = useState<IndustryMode>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('eswa_active_industry_mode_v1');
+      if (saved === 'NATM' || saved === 'TBM' || saved === 'MINING') {
+        return saved as IndustryMode;
+      }
+    }
+    return (initialDraft?.settings?.industryMode as IndustryMode) || 'NATM';
+  });
+
+  const [tbmParams, setTbmParams] = useState<TbmMachineParameters | undefined>(
+    () => initialDraft?.settings?.tbmParams
+  );
+  const [miningSettings, setMiningSettings] = useState<MiningStopeSettings | undefined>(
+    () => initialDraft?.settings?.miningSettings
+  );
+
+  const [isMiningInspectorOpen, setIsMiningInspectorOpen] = useState<boolean>(false);
+  const [isTbmInspectorOpen, setIsTbmInspectorOpen] = useState<boolean>(false);
+
+  const handleSwitchIndustryMode = useCallback(
+    (targetMode: IndustryMode) => {
+      if (targetMode === industryMode) return;
+
+      // 1. Save current mode state snapshot to its isolated storage
+      const currentSnapshot: ModeProjectState = {
+        industryMode,
+        settings,
+        tbmParams,
+        miningSettings,
+        joints: [],
+        lithologyRegions: [],
+        qIndexParams: { rqd: 75, jn: 6, jr: 2, ja: 2, jw: 1, srf: 1 },
+      };
+      try {
+        localStorage.setItem(
+          `eswa_industry_workspace_v1_${industryMode}`,
+          JSON.stringify(currentSnapshot)
+        );
+      } catch {
+        // Ignore storage quota
+      }
+
+      // 2. Load target mode state
+      let targetState: ModeProjectState | null = null;
+      try {
+        const raw = localStorage.getItem(`eswa_industry_workspace_v1_${targetMode}`);
+        if (raw) {
+          targetState = JSON.parse(raw);
+        }
+      } catch {
+        // Ignore
+      }
+
+      setIndustryMode(targetMode);
+      try {
+        localStorage.setItem('eswa_active_industry_mode_v1', targetMode);
+      } catch {
+        // Ignore
+      }
+
+      if (targetState) {
+        if (targetState.settings) {
+          setSettings({ ...targetState.settings, industryMode: targetMode });
+        }
+        if (targetState.tbmParams) setTbmParams(targetState.tbmParams);
+        if (targetState.miningSettings) setMiningSettings(targetState.miningSettings);
+      } else {
+        // Mode-specific defaults
+        if (targetMode === 'MINING') {
+          setSettings((prev) => ({
+            ...prev,
+            industryMode: 'MINING',
+            projectName: prev.projectName || 'Underground Gold & Copper Mine',
+            tunnelName: 'Stope 450-East-01',
+            location: 'Level -450m Main Cross-Cut',
+            locationName: 'Level -450m Main Cross-Cut',
+          }));
+        } else if (targetMode === 'TBM') {
+          setSettings((prev) => ({
+            ...prev,
+            industryMode: 'TBM',
+            projectName: prev.projectName || 'Metro Shield Tunnel Project',
+            tunnelName: 'TBM Drive Downline',
+            location: 'Ch. 0+840 Ring #142',
+            locationName: 'Ch. 0+840 Ring #142',
+          }));
+        } else {
+          setSettings((prev) => ({
+            ...prev,
+            industryMode: 'NATM',
+          }));
+        }
+      }
+    },
+    [industryMode, settings, tbmParams, miningSettings]
+  );
 
   // 4 Tunnel Surface Photographs (Restores saved photos if present)
   const [photos, setPhotos] = useState<Record<SurfaceType, PhotoSurface>>(() => {
@@ -1655,7 +1765,10 @@ export default function App({
 
       const res = await fetch('/api/geometry/parse-cad', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getEswaApiSecurityHeaders(),
+        },
         body: JSON.stringify({ fileName: file.name, contentBase64 }),
       });
 
@@ -2522,6 +2635,8 @@ export default function App({
               setSelectedSurfaceSubType(domain as SurfaceMappingSubType);
             }
           }}
+          industryMode={industryMode}
+          onChangeIndustryMode={handleSwitchIndustryMode}
           onOpenDataStorage={() => {
             handleOpenProjectMemoryModal('field_data');
           }}
@@ -2564,6 +2679,64 @@ export default function App({
       >
         {/* Exact Amber-Orange Geological Contour & Folded Rock Strata Map Backdrop */}
         <EswaAppBackgroundWatermark visible showLogoWatermark={false} />
+
+        {/* Top-Left Mode Indicator & Switcher on Welcome Screen */}
+        <div className="absolute top-3 left-3 sm:top-5 sm:left-6 flex items-center gap-2 z-20">
+          <div className="flex items-center p-0.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/20 shadow-md">
+            {(['NATM', 'TBM', 'MINING'] as IndustryMode[]).map((m) => {
+              const isAct = industryMode === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => handleSwitchIndustryMode(m)}
+                  className={`px-3 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                    isAct
+                      ? m === 'NATM'
+                        ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                        : m === 'TBM'
+                        ? 'bg-cyan-400 text-slate-950 font-black shadow-md'
+                        : 'bg-emerald-400 text-slate-950 font-black shadow-md'
+                      : 'text-white/70 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={
+                    m === 'NATM'
+                      ? 'NATM: New Austrian Tunnelling Method / Conventional D&B'
+                      : m === 'TBM'
+                      ? 'TBM: Shield Tunnel Boring Machine'
+                      : 'MINING: Underground Hardrock Mining Stope & Grade Control'
+                  }
+                >
+                  {m}
+                </button>
+              );
+            })}
+          </div>
+
+          {industryMode === 'MINING' && (
+            <button
+              type="button"
+              onClick={() => setIsMiningInspectorOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-mono font-bold bg-black/60 backdrop-blur-md text-amber-300 border border-amber-400/40 hover:bg-black/80 transition-all cursor-pointer shadow-md"
+              title="Open Mining Stope, Veins & Mathews Stability Inspector"
+            >
+              <Pickaxe className="w-3.5 h-3.5 text-amber-400" />
+              <span>Stope &amp; Veins</span>
+            </button>
+          )}
+
+          {industryMode === 'TBM' && (
+            <button
+              type="button"
+              onClick={() => setIsTbmInspectorOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-mono font-bold bg-black/60 backdrop-blur-md text-cyan-300 border border-cyan-400/40 hover:bg-black/80 transition-all cursor-pointer shadow-md"
+              title="Open TBM Shield & Ring Inspector"
+            >
+              <CircleDot className="w-3.5 h-3.5 text-cyan-400" />
+              <span>TBM Shield</span>
+            </button>
+          )}
+        </div>
 
         {/* Top-Right Controls: Google Email Login & Master Software Access Control */}
         {!isContinuous3DLoggerOpen && !isProjectMemoryModalOpen && (
@@ -3012,10 +3185,73 @@ export default function App({
                 <span>Welcome</span>
               </button>
               <EswaTunnelLogo size="sm" animated={false} />
+
+              {/* Top-Left High-Contrast Segmented 3-Mode Selector (NATM | TBM | MINING) */}
+              <div className="flex items-center p-0.5 rounded-lg bg-slate-900 border border-slate-700 shadow-inner">
+                {(['NATM', 'TBM', 'MINING'] as IndustryMode[]).map((m) => {
+                  const isAct = industryMode === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => handleSwitchIndustryMode(m)}
+                      className={`px-2.5 py-1 rounded text-xs font-mono font-bold transition-all cursor-pointer ${
+                        isAct
+                          ? m === 'NATM'
+                            ? 'bg-amber-500 text-slate-950 font-black shadow'
+                            : m === 'TBM'
+                            ? 'bg-cyan-500 text-slate-950 font-black shadow'
+                            : 'bg-emerald-500 text-slate-950 font-black shadow'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                      title={
+                        m === 'NATM'
+                          ? 'NATM: New Austrian Tunnelling Method / Conventional D&B'
+                          : m === 'TBM'
+                          ? 'TBM: Shield Tunnel Boring Machine'
+                          : 'MINING: Underground Hardrock Mining Stope & Grade Control'
+                      }
+                    >
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {industryMode === 'MINING' && (
+                <button
+                  type="button"
+                  onClick={() => setIsMiningInspectorOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500/30 transition-all cursor-pointer shadow-sm"
+                  title="Open Mining Stope, Veins & Mathews Stability Inspector"
+                >
+                  <Pickaxe className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">Stope &amp; Veins</span>
+                </button>
+              )}
+
+              {industryMode === 'TBM' && (
+                <button
+                  type="button"
+                  onClick={() => setIsTbmInspectorOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 hover:bg-cyan-500/30 transition-all cursor-pointer shadow-sm"
+                  title="Open TBM Shield & Ring Inspector"
+                >
+                  <CircleDot className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="hidden sm:inline">TBM Shield</span>
+                </button>
+              )}
+
               <div className="text-left">
                 <h1 className="font-display text-lg sm:text-xl font-bold tracking-wide text-slate-900">
                   {activeMappingDomain === 'TUNNEL'
-                    ? 'ESWA Tunnel Mapper · Practical Field Setup'
+                    ? `ESWA Geological Mapper · ${
+                        industryMode === 'MINING'
+                          ? 'Underground Mining Stope'
+                          : industryMode === 'TBM'
+                          ? 'TBM Shield'
+                          : 'NATM Tunnel'
+                      } Setup`
                     : `ESWA Surface Mapper · ${
                         activeMappingDomain === 'BENCH'
                           ? 'Bench Mapping'
@@ -5476,6 +5712,45 @@ export default function App({
         onGenerateSampleAsBuiltProfile={handleGenerateSampleAsBuiltProfile}
         sectionVolumeRows={sectionVolumeRows}
         initialOutputMode={exportModalInitialMode}
+      />
+
+      <MiningStopeFaceInspectorModal
+        isOpen={isMiningInspectorOpen}
+        onClose={() => setIsMiningInspectorOpen(false)}
+        settings={{
+          ...settings,
+          industryMode,
+        }}
+        geometry={geometry}
+        joints={clusteredJoints}
+        qIndexParams={qIndexParams}
+        rmrParams={rmrParams}
+        miningSettings={miningSettings}
+        onUpdateMiningSettings={(next) => {
+          setMiningSettings(next);
+          setSettings((prev) => ({
+            ...prev,
+            miningSettings: next,
+          }));
+        }}
+      />
+
+      <TbmShieldInspectorModal
+        isOpen={isTbmInspectorOpen}
+        onClose={() => setIsTbmInspectorOpen(false)}
+        settings={{
+          ...settings,
+          industryMode,
+        }}
+        geometry={geometry}
+        tbmParams={tbmParams}
+        onUpdateTbmParams={(next) => {
+          setTbmParams(next);
+          setSettings((prev) => ({
+            ...prev,
+            tbmParams: next,
+          }));
+        }}
       />
 
       {projectMemoryModalNode}

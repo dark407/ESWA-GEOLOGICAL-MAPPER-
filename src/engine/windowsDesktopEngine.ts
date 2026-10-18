@@ -352,24 +352,24 @@ export function getPublicShareOrigin(): string {
 
 /**
  * Returns the direct GitHub Releases download URL for the Normal User Software (.EXE):
- * https://github.com/<owner>/<repo>/releases/download/latest/AKASH-TUNNEL-MAPPER-User-Setup.exe
+ * https://github.com/<owner>/<repo>/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe
  */
 export function getGithubUserExeDownloadUrl(customRepo?: string): string {
   const repo = normalizeGithubRepoSlug(customRepo || '') || getConfiguredGithubRepo();
   if (repo) {
-    return `https://github.com/${repo}/releases/download/latest/AKASH-TUNNEL-MAPPER-User-Setup.exe`;
+    return `https://github.com/${repo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`;
   }
   return `${getPublicShareOrigin()}/?edition=user&download=user-exe`;
 }
 
 /**
  * Returns the direct GitHub Releases download URL for the Master Software (.EXE):
- * https://github.com/<owner>/<repo>/releases/download/latest/AKASH-TUNNEL-MAPPER-Master-Setup.exe
+ * https://github.com/<owner>/<repo>/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
  */
 export function getGithubMasterExeDownloadUrl(customRepo?: string): string {
   const repo = normalizeGithubRepoSlug(customRepo || '') || getConfiguredGithubRepo();
   if (repo) {
-    return `https://github.com/${repo}/releases/download/latest/AKASH-TUNNEL-MAPPER-Master-Setup.exe`;
+    return `https://github.com/${repo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`;
   }
   return getPublicShareOrigin();
 }
@@ -720,8 +720,8 @@ function triggerGithubActionsExeDownload(
     normalizeGithubRepoSlug(customRepo || '') || getConfiguredGithubRepo();
   const exeFileName =
     edition === 'master'
-      ? 'AKASH-TUNNEL-MAPPER-Master-Setup.exe'
-      : 'AKASH-TUNNEL-MAPPER-User-Setup.exe';
+      ? 'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe'
+      : 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe';
 
   if (!repo) {
     window.dispatchEvent(
@@ -794,22 +794,22 @@ export function downloadGithubActionsExeWorkflowYml() {
  * (ESWA-TUNNEL-MAPPER-Master-Android.apk) with built-in Software Access Control.
  */
 export function downloadMasterAndroidApk(customFileName?: string) {
-  const fileName = customFileName || 'ESWA-TUNNEL-MAPPER-Master-Android.apk';
+  const fileName = customFileName || 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk';
   void triggerAuthenticatedApkDownload('master', fileName);
 }
 
 /**
  * Triggers direct download of the standalone signed User Android App (.APK) binary package
- * (ESWA-TUNNEL-MAPPER-User-Android.apk).
+ * (ESWA-GEOLOGICAL-MAPPER-User-Android.apk).
  */
 export function downloadUserAndroidApk(customFileName?: string) {
-  const fileName = customFileName || 'ESWA-TUNNEL-MAPPER-User-Android.apk';
+  const fileName = customFileName || 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk';
   void triggerAuthenticatedApkDownload('user', fileName);
 }
 
 /**
  * Triggers direct download of the GitHub Actions User Windows .EXE file
- * (AKASH-TUNNEL-MAPPER-User-Setup.exe — ~80 MB Electron Windows Executable).
+ * (ESWA-GEOLOGICAL-MAPPER-User-Setup.exe — ~80 MB Electron Windows Executable).
  */
 export function downloadUserEditionDesktopExe(customRepo?: string) {
   triggerGithubActionsExeDownload('user', customRepo);
@@ -817,7 +817,7 @@ export function downloadUserEditionDesktopExe(customRepo?: string) {
 
 /**
  * Triggers direct download of the GitHub Actions Master Windows .EXE file
- * (AKASH-TUNNEL-MAPPER-Master-Setup.exe — ~80 MB Electron Windows Executable for Owner).
+ * (ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe — ~80 MB Electron Windows Executable for Owner).
  */
 export function downloadMasterEditionDesktopExe(customRepo?: string) {
   triggerGithubActionsExeDownload('master', customRepo);
@@ -837,20 +837,20 @@ export function downloadWindowsInstallerBatchScript(appUrl?: string) {
   const targetUrl = appUrl || window.location.origin;
   const batLines = [
     '@echo off',
-    'title Akash Tunnel Joint Tracer - Windows PC Desktop Setup',
+    'title ESWA Geological Mapper - Windows PC Desktop Setup',
     'color 0B',
     'echo ============================================================================',
-    'echo   AKASH TUNNEL JOINT TRACER - WINDOWS PC DESKTOP INSTALLER',
+    'echo   ESWA GEOLOGICAL MAPPER - WINDOWS PC DESKTOP INSTALLER',
     'echo   Underground Geological Mapping, Overbreak/Undercut ^& 3D Orientation Suite',
     'echo ============================================================================',
     'echo.',
     `set "APP_URL=${targetUrl}"`,
-    'set "SHORTCUT_NAME=Akash Tunnel Joint Tracer"',
+    'set "SHORTCUT_NAME=ESWA Geological Mapper"',
     'echo [1/3] Creating Windows Desktop Shortcut...',
-    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath(\'Desktop\') + \'\\Akash Tunnel Joint Tracer.lnk\'); $s.TargetPath = \'msedge.exe\'; $s.Arguments = \'--app=%APP_URL% --start-maximized\'; $s.Description = \'Akash Tunnel Joint Tracer PC Engineering Suite\'; $s.IconLocation = \'msedge.exe,0\'; $s.Save()"',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath(\'Desktop\') + \'\\ESWA Geological Mapper.lnk\'); $s.TargetPath = \'msedge.exe\'; $s.Arguments = \'--app=%APP_URL% --start-maximized\'; $s.Description = \'ESWA Geological Mapper PC Engineering Suite\'; $s.IconLocation = \'msedge.exe,0\'; $s.Save()"',
     'echo [2/3] Creating Windows Start Menu Program Entry...',
-    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath(\'Programs\') + \'\\Akash Tunnel Joint Tracer.lnk\'); $s.TargetPath = \'msedge.exe\'; $s.Arguments = \'--app=%APP_URL% --start-maximized\'; $s.Description = \'Akash Tunnel Joint Tracer PC Engineering Suite\'; $s.IconLocation = \'msedge.exe,0\'; $s.Save()"',
-    'echo [3/3] Launching Akash Tunnel Joint Tracer in Native Windows Desktop Window...',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath(\'Programs\') + \'\\ESWA Geological Mapper.lnk\'); $s.TargetPath = \'msedge.exe\'; $s.Arguments = \'--app=%APP_URL% --start-maximized\'; $s.Description = \'ESWA Geological Mapper PC Engineering Suite\'; $s.IconLocation = \'msedge.exe,0\'; $s.Save()"',
+    'echo [3/3] Launching ESWA Geological Mapper in Native Windows Desktop Window...',
     'start "" msedge.exe --app=%APP_URL% --start-maximized',
     'echo.',
     'echo Installation Complete! A shortcut has been placed on your Windows Desktop.',
@@ -862,9 +862,44 @@ export function downloadWindowsInstallerBatchScript(appUrl?: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'Install_Akash_Tunnel_Mapper_PC.bat';
+  a.download = 'Install_ESWA_Geological_Mapper_PC.bat';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Downloads the 100% self-contained, minified, source-map-free Standalone Offline PC HTML
+ * with embedded pre-mount hardware lock and enterprise anti-reverse engineering shield.
+ */
+export function downloadOfflineStandaloneHtmlInstaller() {
+  if (typeof window === 'undefined') return;
+  const base =
+    window.location.origin.startsWith('http://') ||
+    window.location.origin.startsWith('https://')
+      ? ''
+      : DEV_CLOUD_APP_ORIGIN;
+  triggerBrowserAnchorDownload(
+    `${base}/api/offline-pc-installer?format=html&t=${Date.now()}`,
+    'Akash_Tunnel_Tracer_Offline_PC.html'
+  );
+}
+
+/**
+ * Downloads the self-extracting Standalone Offline Windows PC Installer (.BAT)
+ * embedding the minified source-map-free bundle and native desktop shortcuts.
+ */
+export function downloadOfflineBatchInstaller() {
+  if (typeof window === 'undefined') return;
+  const base =
+    window.location.origin.startsWith('http://') ||
+    window.location.origin.startsWith('https://')
+      ? ''
+      : DEV_CLOUD_APP_ORIGIN;
+  triggerBrowserAnchorDownload(
+    `${base}/api/offline-pc-installer?format=bat&t=${Date.now()}`,
+    'Install_Akash_Tunnel_Software_PC.bat'
+  );
+}
+

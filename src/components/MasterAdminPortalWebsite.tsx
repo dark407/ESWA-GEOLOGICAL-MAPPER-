@@ -268,7 +268,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
   // Publish Software Update Form
   const [relVersion, setRelVersion] = useState<string>('1.1.0');
   const [relTitle, setRelTitle] = useState<string>(
-    'AKASH TUNNEL MAPPER v1.1.0 — Official GitHub Update'
+    'ESWA GEOLOGICAL MAPPER v1.1.0 — Official GitHub Update'
   );
   const [relNotes, setRelNotes] = useState<string>(
     '1. Latest software update pushed from Google AI Studio & GitHub.\n2. Download the updated Normal User Software (.EXE) using the link below.\n3. Automatic 1-PC license preservation (no need to re-enter credentials).'
@@ -570,7 +570,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
         body: JSON.stringify({
           repoSlug: targetRepo,
           githubToken: cleanToken,
-          commitMessage: `Update AKASH TUNNEL MAPPER (${new Date().toISOString().slice(0, 16)}) + Trigger .EXE Build`,
+          commitMessage: `Update ESWA GEOLOGICAL MAPPER (${new Date().toISOString().slice(0, 16)}) + Trigger .EXE Build`,
         }),
       });
       const data = await resp.json();
@@ -614,14 +614,14 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
   }) => {
     const exeLink = getGithubUserExeDownloadUrl(githubRepoSlug);
     const apkLink = getUserAndroidAppShareUrl(githubRepoSlug);
-    return `Warm Greetings from ESWA Tunnel Mapper Software Team (${MASTER_ADMIN_DEFAULT_EMAIL})!
+    return `Warm Greetings from ESWA Geological Mapper Software Team (${MASTER_ADMIN_DEFAULT_EMAIL})!
 
 Dear ${params.fullName} (${params.organization}),
 
-We are pleased to inform you that your software access request for ESWA TUNNEL MAPPER has been APPROVED! Your 1-Device / 1-PC login credentials have been activated and are also notified directly inside your app/software:
+We are pleased to inform you that your software access request for ESWA GEOLOGICAL MAPPER has been APPROVED! Your 1-Device / 1-PC login credentials have been activated and are also notified directly inside your app/software:
 
 ============================================================
-ESWA TUNNEL MAPPER — REQUIRED LOGIN DETAILS
+ESWA GEOLOGICAL MAPPER — REQUIRED LOGIN DETAILS
 ============================================================
 • Assigned User ID      : ${params.userId}
 • Assigned Password     : ${params.password}
@@ -634,12 +634,12 @@ OFFICIAL DOWNLOAD LINKS:
 • Android Mobile App (.APK)  : ${apkLink}
 
 How to Unlock:
-1. Open ESWA Tunnel Mapper on your PC or Android device.
+1. Open ESWA Geological Mapper on your PC or Android device.
 2. Your app automatically receives this approval notification (or open Tab 1: "One-Time Login").
 3. Enter your User ID, Password, and 1-PC Key once to permanently unlock your device.
 
 Best Regards,
-ESWA Tunnel Mapper Administration
+ESWA Geological Mapper Administration
 Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
   };
 
@@ -650,11 +650,11 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
     downloadUrl: string;
   }) => {
     const apkLink = getUserAndroidAppShareUrl(githubRepoSlug);
-    return `Warm Greetings from ESWA Tunnel Mapper Software Team (${MASTER_ADMIN_DEFAULT_EMAIL})!
+    return `Warm Greetings from ESWA Geological Mapper Software Team (${MASTER_ADMIN_DEFAULT_EMAIL})!
 
 Dear Valued Engineer / Geologist,
 
-We are excited to share that a new version of ESWA TUNNEL MAPPER (v${params.version}) is now live! You have also received an instant update notification inside your Android App and PC Software.
+We are excited to share that a new version of ESWA GEOLOGICAL MAPPER (v${params.version}) is now live! You have also received an instant update notification inside your Android App and PC Software.
 
 ============================================================
 NEW UPDATE: ${params.title} (v${params.version})
@@ -662,7 +662,7 @@ NEW UPDATE: ${params.title} (v${params.version})
 ${params.releaseNotes}
 
 HOW TO UPDATE AUTOMATICALLY IN 1 TAP (NO PACKAGE DOWNLOAD NEEDED):
-1. Open your ESWA Tunnel Mapper Android App or PC Software.
+1. Open your ESWA Geological Mapper Android App or PC Software.
 2. Touch the top Update Notification banner and press "Install Update Now (v${params.version})".
 3. Your App / Software will automatically update in-place in 2 seconds while keeping you logged in!
 
@@ -683,10 +683,10 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
         ? bumpPatchVersion(latestPublished)
         : relVersion.trim() || bumpPatchVersion(latestPublished);
     const userGithubExeUrl = getGithubUserExeDownloadUrl(githubRepoSlug);
-    const title = `AKASH TUNNEL MAPPER v${nextVer} — Official GitHub Update`;
+    const title = `ESWA GEOLOGICAL MAPPER v${nextVer} — Official GitHub Update`;
     const notes =
       relNotes.trim() ||
-      `New software update v${nextVer} pushed via GitHub Releases. Click Download to get the latest AKASH-TUNNEL-MAPPER-User-Setup.exe.`;
+      `New software update v${nextVer} pushed via GitHub Releases. Click Download to get the latest ESWA-GEOLOGICAL-MAPPER-User-Setup.exe.`;
 
     const recipientList = licenses
       .filter((l) => l.status === 'ACTIVE' && l.email && l.email.includes('@'))
@@ -1195,14 +1195,14 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
           lockToRequestedPcImmediately: Boolean(emailConfirmModal.lockToPc),
         });
         setApprovingReqId(null);
-        const summaryText = `ESWA TUNNEL MAPPER — 1-PC LICENSE CREDENTIALS\nUser Name: ${lic.fullName}\nUser ID: ${lic.userId}\nPassword: ${lic.password}\n1-PC License Key: ${lic.licenseKey}\nLocked PC ID: ${lic.boundPcHardwareId || 'Locks on First Login'}`;
+        const summaryText = `ESWA GEOLOGICAL MAPPER — 1-PC LICENSE CREDENTIALS\nUser Name: ${lic.fullName}\nUser ID: ${lic.userId}\nPassword: ${lic.password}\n1-PC License Key: ${lic.licenseKey}\nLocked PC ID: ${lic.boundPcHardwareId || 'Locks on First Login'}`;
         navigator.clipboard?.writeText(summaryText).catch(() => {});
         setCopiedBanner(summaryText);
 
         if (req.email && req.email.includes('@')) {
           const htmlBody = formatHtmlEmailWithClickableLinks(
             emailConfirmModal.greetingAndBody,
-            'Warm Greetings from ESWA Tunnel Mapper!',
+            'Warm Greetings from ESWA Geological Mapper!',
             '#0ea5e9',
             '#38bdf8'
           );
@@ -1243,7 +1243,7 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
         if (recipient?.email && recipient.email.includes('@')) {
           const htmlBody = formatHtmlEmailWithClickableLinks(
             emailConfirmModal.greetingAndBody,
-            'Warm Greetings from ESWA Tunnel Mapper!',
+            'Warm Greetings from ESWA Geological Mapper!',
             '#0ea5e9',
             '#38bdf8'
           );
@@ -1292,7 +1292,7 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
 
         const nextFormVer = bumpPatchVersion(p.version);
         setRelVersion(nextFormVer);
-        setRelTitle(`AKASH TUNNEL MAPPER v${nextFormVer} — Official GitHub Update`);
+        setRelTitle(`ESWA GEOLOGICAL MAPPER v${nextFormVer} — Official GitHub Update`);
         navigator.clipboard?.writeText(p.downloadUrl).catch(() => {});
 
         let sentCount = 0;

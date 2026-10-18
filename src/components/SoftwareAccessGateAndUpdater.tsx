@@ -10,6 +10,8 @@ import {
   MASTER_ADMIN_DEFAULT_EMAIL,
   performInAppOtaAutoUpdate,
   registerInstantUserAndLogin,
+  clearTamperViolationLockout,
+  isTamperViolationLockoutActive,
   saveLocalActivatedSession,
   SoftwareLicenseRecord,
   SoftwareReleaseRecord,
@@ -46,6 +48,7 @@ import {
   Mail,
   RefreshCw,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   UserPlus,
@@ -95,6 +98,15 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
   const [licenseKey, setLicenseKey] = useState<string>('');
   const [loginBusy, setLoginBusy] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // Runtime Cryptographic Tamper Lockout State
+  const [tamperLockout, setTamperLockout] = useState<boolean>(() => isTamperViolationLockoutActive());
+
+  useEffect(() => {
+    const handleTamper = () => setTamperLockout(true);
+    window.addEventListener('eswa-security-tamper-detected', handleTamper);
+    return () => window.removeEventListener('eswa-security-tamper-detected', handleTamper);
+  }, []);
 
   // Legacy Request Access Status Support
   const [submittedRequest, setSubmittedRequest] = useState<AccessRequestRecord | null>(
@@ -305,6 +317,34 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
       {/* Main Gate Card */}
       <main className="max-w-xl w-full mx-auto my-auto py-4 sm:py-6">
         <div className="bg-[#0F141C] border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-5">
+          {/* Cryptographic Tamper Violation Lockout Alert */}
+          {tamperLockout && (
+            <div className="p-4 rounded-xl bg-red-950/90 border-2 border-red-500/90 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-bold text-red-300 flex items-center gap-1.5">
+                  <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>TAMPER VIOLATION LOCKOUT — ENTERPRISE IP SHIELD ACTIVE</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearTamperViolationLockout();
+                    setTamperLockout(false);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-red-800 hover:bg-red-700 text-white text-[11px] font-semibold cursor-pointer shrink-0"
+                >
+                  Reset / Recheck
+                </button>
+              </div>
+              <p className="text-xs text-red-200 leading-relaxed">
+                Unauthorized token manipulation or machine hardware ID mismatch was detected on this device. Offline licensing is cryptographically locked to prevent cracking or unauthorized duplication.
+              </p>
+              <div className="text-[11px] text-red-300 font-mono">
+                Hardware ID: <span className="text-white font-bold">{pcInfo.pcHardwareId}</span>
+              </div>
+            </div>
+          )}
+
           {/* Suspended Account Alert (if Master Admin suspended this user) */}
           {suspendedLicense && (
             <div className="p-4 rounded-xl bg-rose-950/90 border-2 border-rose-500/80 space-y-2.5">

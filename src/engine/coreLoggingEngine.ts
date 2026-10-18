@@ -22,6 +22,8 @@ export interface CoreRunRecord {
   weathering: 'W1' | 'W2' | 'W3' | 'W4' | 'W5' | 'W6';
   strengthGrade: 'R0' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5' | 'R6';
   fractureFrequency?: number; // fractures / meter
+  assayGrade?: string; // Mining grade e.g. "3.2 g/t Au" or "1.45% Cu"
+  oreZone?: 'High Grade' | 'Medium Grade' | 'Low Grade' | 'Waste' | 'Dilution';
   coreBoxNumber: string | number;
   discontinuitiesDescription?: string;
   remarks?: string;

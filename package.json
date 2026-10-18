@@ -1,12 +1,12 @@
 {
-  "name": "akash-tunnel-mapper",
-  "productName": "AKASH TUNNEL MAPPER",
-  "description": "Underground Geological & Geotechnical Tunnel Mapping Desktop Engineering Suite",
+  "name": "eswa-geological-mapper",
+  "productName": "ESWA GEOLOGICAL MAPPER",
+  "description": "Geological & Geotechnical Engineering Suite for NATM, TBM & Underground Mining Grade Control",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "main": "electron/main.js",
-  "author": "AKASH TUNNEL MAPPER Engineering",
+  "author": "ESWA GEOLOGICAL MAPPER Engineering",
   "scripts": {
     "dev": "tsx server.ts",
     "start": "node server.ts",
@@ -55,9 +55,9 @@
     "vite-plugin-pwa": "^0.21.1"
   },
   "build": {
-    "appId": "com.akash.tunnelmapper",
-    "productName": "AKASH TUNNEL MAPPER",
-    "copyright": "Copyright © 2026 AKASH TUNNEL MAPPER Engineering Suite",
+    "appId": "com.eswa.geologicalmapper",
+    "productName": "ESWA GEOLOGICAL MAPPER",
+    "copyright": "Copyright © 2026 ESWA GEOLOGICAL MAPPER Engineering Suite",
     "npmRebuild": false,
     "directories": {
       "output": "release",
@@ -73,12 +73,13 @@
     "fileAssociations": [
       {
         "ext": [
+          "eswa",
           "akash",
           "atmp",
           "json"
         ],
-        "name": "AKASH Tunnel Mapping Project",
-        "description": "AKASH TUNNEL MAPPER Geological Project File",
+        "name": "ESWA Geological Mapping Project",
+        "description": "ESWA GEOLOGICAL MAPPER Project File",
         "role": "Editor",
         "icon": "build/icon.ico"
       },
@@ -103,8 +104,8 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "AKASH-TUNNEL-MAPPER-Setup.exe",
-      "executableName": "AKASH TUNNEL MAPPER"
+      "artifactName": "ESWA-GEOLOGICAL-MAPPER-Setup.exe",
+      "executableName": "ESWA GEOLOGICAL MAPPER"
     },
     "nsis": {
       "oneClick": false,
@@ -113,8 +114,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AKASH TUNNEL MAPPER",
-      "uninstallDisplayName": "AKASH TUNNEL MAPPER",
+      "shortcutName": "ESWA GEOLOGICAL MAPPER",
+      "uninstallDisplayName": "ESWA GEOLOGICAL MAPPER",
       "deleteAppDataOnUninstall": false,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",

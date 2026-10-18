@@ -28,7 +28,7 @@ service cloud.firestore {
       return (
         isSignedIn() &&
         (
-          (request.auth.token.email in ['dhoniakash407@gmail.com', 'tvktuticorin@gmail.com', 'akashdhanusheswar@gmail.com'] && request.auth.token.email_verified == true) ||
+          (request.auth.token.email in ['akashdhanusheswar@gmail.com', 'dhoniakash407@gmail.com', 'tvktuticorin@gmail.com'] && request.auth.token.email_verified == true) ||
           exists(/databases/$(database)/documents/admins/$(request.auth.uid))
         )
       );

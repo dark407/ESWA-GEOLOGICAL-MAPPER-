@@ -1,6 +1,6 @@
 {
-  "name": "Akash Tunnel Joint Tracer",
-  "description": "AI-powered underground tunnel geological joint tracing, 3D structural orientation calculation, and engineering mapping sheet software.",
+  "name": "ESWA Geological Mapper",
+  "description": "Geological engineering suite for underground tunneling (NATM, TBM) and underground hard-rock mining grade control, structural orientation, photogrammetry, and core logging.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

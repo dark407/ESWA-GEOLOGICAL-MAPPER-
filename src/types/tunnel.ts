@@ -1,3 +1,133 @@
+export type IndustryMode = 'NATM' | 'TBM' | 'MINING';
+
+export type MiningExcavationType =
+  | 'STOPE'
+  | 'DRIFT'
+  | 'DECLINE'
+  | 'CROSS_CUT'
+  | 'RAISE'
+  | 'SHAFT'
+  | 'DRAWPOINT'
+  | 'SILL_PILLAR'
+  | 'CROWN_PILLAR';
+
+export type MiningMethodType =
+  | 'CUT_AND_FILL'
+  | 'SUBLEVEL_OPEN_STOPING'
+  | 'ROOM_AND_PILLAR'
+  | 'VCR'
+  | 'BLOCK_CAVING'
+  | 'SHRINKAGE'
+  | 'BENCH_STOPING';
+
+export type OreZoneCategory =
+  | 'HIGH_GRADE_ORE'
+  | 'MEDIUM_GRADE_ORE'
+  | 'LOW_GRADE_ORE'
+  | 'WASTE_ROCK'
+  | 'INTERNAL_DILUTION';
+
+export interface MineralizedVeinRecord {
+  id: string;
+  name: string;
+  oreZone: OreZoneCategory;
+  strikeDeg: number;
+  dipDeg: number;
+  dipDirectionDeg: number;
+  trueThicknessMeters: number;
+  apparentThicknessMeters: number;
+  estimatedGrade: string; // e.g. "4.8 g/t Au", "1.75% Cu"
+  mineralogyNotes: string;
+}
+
+export interface FaceChannelSampleRecord {
+  id: string;
+  sampleNumber: string;
+  fromMeter: number;
+  toMeter: number;
+  sampleLengthMeters: number;
+  lithologyOrVein: string;
+  gradeValue: string;
+  sampledBy: string;
+  date: string;
+}
+
+export interface LaubscherMrmrParameters {
+  baseRmr: number; // 0-100 (from Bieniawski RMR89)
+  weatheringFactor: number; // 0.70 to 1.0 (70% to 100%)
+  jointOrientationFactor: number; // 0.70 to 1.0 (70% to 100%)
+  miningInducedStressFactor: number; // 0.60 to 1.20 (60% to 120%)
+  blastingDamageFactor: number; // 0.80 to 1.0 (80% to 100%)
+  totalMrmr: number; // baseRmr * weathering * jointOrientation * stress * blasting
+  rockClass: 'CLASS_1' | 'CLASS_2' | 'CLASS_3' | 'CLASS_4' | 'CLASS_5';
+  rockClassDescription: string;
+}
+
+export interface MathewsStabilityParameters {
+  rqd: number;
+  jn: number;
+  jr: number;
+  ja: number;
+  modifiedQPrime: number; // (RQD / Jn) * (Jr / Ja)
+  sigmaC_MPa: number; // Intact rock UCS (MPa)
+  inducedStress_sigma1_MPa: number; // Major principal induced stress (MPa)
+  stressFactorA: number; // Factor A (0.1 - 1.0)
+  jointOrientationAngleThetaDeg: number; // Angle between critical joint and stope face
+  jointOrientationFactorB: number; // Factor B (0.2 - 1.0)
+  stopeDipAngleDeg: number; // Stope surface dip angle
+  gravityFactorC: number; // Factor C = 8 - 6 * cos(dip) (2.0 - 8.0)
+  modifiedStabilityNumberNPrime: number; // N' = Q' * A * B * C
+  stopeSurfaceAreaSqM: number;
+  stopeSurfacePerimeterMeters: number;
+  hydraulicRadiusMeters: number; // HR = Area / Perimeter
+  stabilityZone: 'STABLE' | 'TRANSITION' | 'CAVED_POTENTIALLY_UNSTABLE';
+}
+
+export interface TbmMachineParameters {
+  ringNumber: number;
+  segmentId: string; // Key, A1, A2, B1, B2, C
+  strokeLengthMm: number;
+  thrustForceKN: number;
+  cutterheadTorqueKNm: number;
+  penetrationRateMmPerRev: number;
+  advanceRateMmPerMin: number;
+  groutPressureBar: number;
+  groutVolumeM3: number;
+  epbPressureBar: number;
+  discCutterWearMm: number;
+  cutterheadInspectionNotes: string;
+}
+
+export interface MiningStopeSettings {
+  mineName: string;
+  mineLevel: string; // e.g. "Level -450m"
+  stopeOrDriftId: string; // e.g. "Stope 450-East-04"
+  excavationType: MiningExcavationType;
+  miningMethod: MiningMethodType;
+  oreBodyName: string;
+  primaryCommodity: string; // e.g. "Gold (Au)", "Copper (Cu)"
+  gradeUnits: string; // "g/t", "%", "ppm", "oz/t"
+  targetCutoffGrade: string;
+  hangingwallDipDeg: number;
+  footwallDipDeg: number;
+  mrmr?: LaubscherMrmrParameters;
+  mathews?: MathewsStabilityParameters;
+  veins: MineralizedVeinRecord[];
+  channelSamples: FaceChannelSampleRecord[];
+}
+
+export interface ModeProjectState {
+  industryMode: IndustryMode;
+  settings: TunnelSettings;
+  tbmParams?: TbmMachineParameters;
+  miningSettings?: MiningStopeSettings;
+  joints: Joint[];
+  lithologyRegions: LithologyRegion[];
+  qIndexParams: QIndexParameters;
+  rmrParams?: RmrParameters;
+  gsiParams?: GsiParameters;
+}
+
 export type SurfaceType = 'face' | 'leftWall' | 'rightWall' | 'crown';
 
 export type ProfileType =
@@ -362,6 +492,9 @@ export interface TunnelSettings {
   geologistName?: string;
   lithology: string;           // e.g. "Quartzite / Phyllite with Shear Seam"
   mappingMethod?: 'field_mapping' | 'photo_mapping';
+  industryMode?: IndustryMode;
+  miningSettings?: MiningStopeSettings;
+  tbmParams?: TbmMachineParameters;
   sheetConfig?: EngineeringSheetConfig;
   strikeDip3DSnapshots?: StrikeDip3DSnapshotAppendix[];
 }
@@ -836,7 +969,9 @@ export type RockMassClassificationMethodId =
   | 'RMR'
   | 'Q_SYSTEM'
   | 'BOTH_RMR_AND_Q'
-  | 'GSI';
+  | 'GSI'
+  | 'LAUBSCHER_MRMR'
+  | 'MATHEWS_STABILITY';
 
 export type RmrMethodologyVersion = 'RMR89' | 'RMR76';
 
@@ -1202,6 +1337,9 @@ export interface SavedProjectRecord {
   savedAt: string;
   mappingMode: MappingWorkspaceMode;
   mappingDomain?: string;
+  industryMode?: IndustryMode;
+  miningSettings?: MiningStopeSettings;
+  tbmParams?: TbmMachineParameters;
   planeSurfaceConfig?: PlaneSurfaceConfig;
   geometry: TunnelGeometry;
   settings: TunnelSettings;

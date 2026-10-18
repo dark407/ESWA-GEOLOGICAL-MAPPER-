@@ -3,6 +3,8 @@ import {
   GsiParameters,
   Joint,
   JointSet,
+  LaubscherMrmrParameters,
+  MathewsStabilityParameters,
   ParameterInputStatus,
   QIndexParameters,
   QSystemParamKey,
@@ -65,6 +67,22 @@ export const CLASSIFICATION_METHODS_REGISTRY: ClassificationMethodDescriptor[] =
     referenceStandard: 'Hoek & Brown (1997, 2019) / Marinos & Hoek (2000)',
     description:
       'Evaluates rock mass structure interlocking and discontinuity surface condition to derive GSI and Generalized Hoek-Brown parameters.',
+  },
+  {
+    id: 'LAUBSCHER_MRMR',
+    shortLabel: 'Laubscher MRMR',
+    fullName: 'Mining Rock Mass Rating (Laubscher MRMR)',
+    referenceStandard: 'Laubscher (1990 / 2000) Underground Mining Classification',
+    description:
+      'Adjusts base RMR for weathering, joint orientation relative to stope, mining-induced stress, and blasting damage.',
+  },
+  {
+    id: 'MATHEWS_STABILITY',
+    shortLabel: "Mathews Potvin N'",
+    fullName: 'Mathews / Potvin Stability Graph Open Stope Method',
+    referenceStandard: 'Mathews (1981) / Potvin (1988) / Nickson (1992)',
+    description:
+      "Calculates Modified Stability Number N' = Q' × A × B × C vs Hydraulic Radius HR for underground stope spans.",
   },
 ];
 
@@ -1268,4 +1286,145 @@ export function saveStationClassificationRecord(
     // Ignore quota errors
   }
   return next;
+}
+
+// ============================================================================
+// LAUBSCHER MRMR (MINING ROCK MASS RATING) CALCULATOR
+// ============================================================================
+
+export function calculateLaubscherMrmr(
+  params?: Partial<LaubscherMrmrParameters>
+): LaubscherMrmrParameters {
+  const baseRmr = Math.max(0, Math.min(100, params?.baseRmr ?? 65));
+  const weatheringFactor = Math.max(0.6, Math.min(1.0, params?.weatheringFactor ?? 0.95));
+  const jointOrientationFactor = Math.max(0.6, Math.min(1.0, params?.jointOrientationFactor ?? 0.90));
+  const miningInducedStressFactor = Math.max(0.5, Math.min(1.3, params?.miningInducedStressFactor ?? 0.85));
+  const blastingDamageFactor = Math.max(0.7, Math.min(1.0, params?.blastingDamageFactor ?? 0.90));
+
+  const totalMrmr = Math.round(
+    baseRmr *
+      weatheringFactor *
+      jointOrientationFactor *
+      miningInducedStressFactor *
+      blastingDamageFactor
+  );
+
+  let rockClass: LaubscherMrmrParameters['rockClass'] = 'CLASS_3';
+  let rockClassDescription = 'Fair Rock (Class 3)';
+
+  if (totalMrmr >= 81) {
+    rockClass = 'CLASS_1';
+    rockClassDescription = 'Very Good Rock (Class 1) — Generally unsupported or spot bolts';
+  } else if (totalMrmr >= 61) {
+    rockClass = 'CLASS_2';
+    rockClassDescription = 'Good Rock (Class 2) — Light pattern bolting (2.0m - 2.5m)';
+  } else if (totalMrmr >= 41) {
+    rockClass = 'CLASS_3';
+    rockClassDescription = 'Fair Rock (Class 3) — Pattern bolting (1.5m - 2.0m) + mesh / shotcrete';
+  } else if (totalMrmr >= 21) {
+    rockClass = 'CLASS_4';
+    rockClassDescription = 'Poor Rock (Class 4) — Heavy pattern bolting (1.0m - 1.2m) + mesh + 50-100mm shotcrete';
+  } else {
+    rockClass = 'CLASS_5';
+    rockClassDescription = 'Very Poor Rock (Class 5) — Heavy spiling/forepoling + steel sets + fiber-reinforced shotcrete';
+  }
+
+  return {
+    baseRmr,
+    weatheringFactor,
+    jointOrientationFactor,
+    miningInducedStressFactor,
+    blastingDamageFactor,
+    totalMrmr,
+    rockClass,
+    rockClassDescription,
+  };
+}
+
+// ============================================================================
+// MATHEWS / POTVIN STABILITY GRAPH CALCULATOR (OPEN STOPE DESIGN)
+// ============================================================================
+
+export function calculateMathewsStability(
+  params?: Partial<MathewsStabilityParameters>
+): MathewsStabilityParameters {
+  const rqd = Math.max(5, Math.min(100, params?.rqd ?? 75));
+  const jn = Math.max(1, Math.min(15, params?.jn ?? 6));
+  const jr = Math.max(0.5, Math.min(4, params?.jr ?? 2));
+  const ja = Math.max(0.5, Math.min(8, params?.ja ?? 2));
+
+  // Modified Barton Q' = (RQD / Jn) * (Jr / Ja)
+  const modifiedQPrime = Number(((rqd / jn) * (jr / ja)).toFixed(2));
+
+  // Factor A: Rock Stress Factor
+  const sigmaC_MPa = Math.max(5, params?.sigmaC_MPa ?? 90);
+  const inducedStress_sigma1_MPa = Math.max(1, params?.inducedStress_sigma1_MPa ?? 30);
+  const stressRatio = sigmaC_MPa / inducedStress_sigma1_MPa;
+
+  let stressFactorA = 1.0;
+  if (stressRatio < 2.0) {
+    stressFactorA = 0.1;
+  } else if (stressRatio <= 10.0) {
+    stressFactorA = Number(Math.max(0.1, Math.min(1.0, 0.1125 * stressRatio - 0.125)).toFixed(2));
+  } else {
+    stressFactorA = 1.0;
+  }
+
+  // Factor B: Joint Orientation Factor
+  const jointOrientationAngleThetaDeg = Math.max(0, Math.min(90, params?.jointOrientationAngleThetaDeg ?? 45));
+  const jointOrientationFactorB = Number(
+    Math.max(0.2, Math.min(1.0, 0.2 + 0.8 * (jointOrientationAngleThetaDeg / 90))).toFixed(2)
+  );
+
+  // Factor C: Gravity Adjustment Factor
+  const stopeDipAngleDeg = Math.max(0, Math.min(90, params?.stopeDipAngleDeg ?? 65));
+  const dipRad = (stopeDipAngleDeg * Math.PI) / 180;
+  const gravityFactorC = Number(Math.max(2.0, Math.min(8.0, 8 - 6 * Math.cos(dipRad))).toFixed(2));
+
+  // Modified Stability Number N' = Q' * A * B * C
+  const modifiedStabilityNumberNPrime = Number(
+    (modifiedQPrime * stressFactorA * jointOrientationFactorB * gravityFactorC).toFixed(2)
+  );
+
+  // Stope Geometry & Hydraulic Radius (HR = Area / Perimeter)
+  const stopeSurfaceAreaSqM = Math.max(1, params?.stopeSurfaceAreaSqM ?? 120);
+  const stopeSurfacePerimeterMeters = Math.max(1, params?.stopeSurfacePerimeterMeters ?? 46);
+  const hydraulicRadiusMeters = Number(
+    (stopeSurfaceAreaSqM / stopeSurfacePerimeterMeters).toFixed(2)
+  );
+
+  // Stability Zone Classification (Potvin 1988 empirical boundaries)
+  // Stable curve: N' >= 0.5 * (HR ^ 1.3)
+  // Caved curve:  N' <= 0.12 * (HR ^ 1.3)
+  const stableThreshold = 0.5 * Math.pow(Math.max(0.5, hydraulicRadiusMeters), 1.3);
+  const cavedThreshold = 0.12 * Math.pow(Math.max(0.5, hydraulicRadiusMeters), 1.3);
+
+  let stabilityZone: MathewsStabilityParameters['stabilityZone'] = 'STABLE';
+  if (modifiedStabilityNumberNPrime >= stableThreshold) {
+    stabilityZone = 'STABLE';
+  } else if (modifiedStabilityNumberNPrime <= cavedThreshold) {
+    stabilityZone = 'CAVED_POTENTIALLY_UNSTABLE';
+  } else {
+    stabilityZone = 'TRANSITION';
+  }
+
+  return {
+    rqd,
+    jn,
+    jr,
+    ja,
+    modifiedQPrime,
+    sigmaC_MPa,
+    inducedStress_sigma1_MPa,
+    stressFactorA,
+    jointOrientationAngleThetaDeg,
+    jointOrientationFactorB,
+    stopeDipAngleDeg,
+    gravityFactorC,
+    modifiedStabilityNumberNPrime,
+    stopeSurfaceAreaSqM,
+    stopeSurfacePerimeterMeters,
+    hydraulicRadiusMeters,
+    stabilityZone,
+  };
 }
