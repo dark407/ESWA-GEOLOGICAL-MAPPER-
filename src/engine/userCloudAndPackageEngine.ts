@@ -34,6 +34,7 @@ import {
   FieldTunnelLocationItem,
   loadFieldMappingStore,
   saveFieldMappingStore,
+  MappingDomainType,
 } from './fieldMappingEngine';
 import {
   loadSavedDesignGeometries,
@@ -213,6 +214,58 @@ export function loadPhotogrammetryResumeState(): PhotogrammetryResumeState | nul
 // 2. FIELD FACE MAPPING & PHOTOGRAMMETRY DATA MANAGEMENT (EDIT, MOVE, DELETE)
 // ============================================================================
 
+export function findRoundStoreAndDomain(roundId: string): {
+  store: FieldMappingStoreState;
+  domain: MappingDomainType;
+} {
+  const domains: MappingDomainType[] = ['TUNNEL', 'BENCH', 'TRENCH', 'SLOPE', 'ROCK_SURFACE'];
+  for (const dom of domains) {
+    const store = loadFieldMappingStore(dom);
+    if (store.rounds.some((r) => r.id === roundId)) {
+      return { store, domain: dom };
+    }
+  }
+  return { store: loadFieldMappingStore('TUNNEL'), domain: 'TUNNEL' };
+}
+
+export function loadCombinedFieldStore(): FieldMappingStoreState {
+  const domains: MappingDomainType[] = ['TUNNEL', 'BENCH', 'TRENCH', 'SLOPE', 'ROCK_SURFACE'];
+  const allProjects: FieldProjectItem[] = [];
+  const allRounds: FieldExcavationRound[] = [];
+  const seenProj = new Set<string>();
+  const seenRnd = new Set<string>();
+
+  for (const dom of domains) {
+    const st = loadFieldMappingStore(dom);
+    if (st && Array.isArray(st.projects)) {
+      for (const p of st.projects) {
+        if (!seenProj.has(p.id)) {
+          seenProj.add(p.id);
+          allProjects.push(p);
+        }
+      }
+    }
+    if (st && Array.isArray(st.rounds)) {
+      for (const r of st.rounds) {
+        if (!seenRnd.has(r.id)) {
+          seenRnd.add(r.id);
+          allRounds.push({ ...r, mappingDomain: r.mappingDomain || dom });
+        }
+      }
+    }
+  }
+
+  const tunnelSt = loadFieldMappingStore('TUNNEL');
+  return {
+    projects: allProjects.length > 0 ? allProjects : tunnelSt.projects,
+    rounds: allRounds.length > 0 ? allRounds : tunnelSt.rounds,
+    activeProjectId: tunnelSt.activeProjectId,
+    activeLocationId: tunnelSt.activeLocationId,
+    activeRoundId: tunnelSt.activeRoundId,
+    rememberedRocks: tunnelSt.rememberedRocks,
+  };
+}
+
 export function editFieldExcavationRoundMetadata(
   roundId: string,
   updates: {
@@ -227,7 +280,7 @@ export function editFieldExcavationRoundMetadata(
     dateAndTimeOfExcavation?: string;
   }
 ): FieldMappingStoreState {
-  const store = loadFieldMappingStore();
+  const { store, domain } = findRoundStoreAndDomain(roundId);
   const targetRound = store.rounds.find((r) => r.id === roundId);
   if (!targetRound) return store;
 
@@ -288,7 +341,7 @@ export function editFieldExcavationRoundMetadata(
     projects: nextProjects,
     rounds: nextRounds,
   };
-  saveFieldMappingStore(nextStore);
+  saveFieldMappingStore(nextStore, domain);
   return nextStore;
 }
 
@@ -299,7 +352,7 @@ export function moveFieldExcavationRound(
   createNewProjectName?: string,
   createNewLocationName?: string
 ): FieldMappingStoreState {
-  const store = loadFieldMappingStore();
+  const { store, domain } = findRoundStoreAndDomain(roundId);
   const round = store.rounds.find((r) => r.id === roundId);
   if (!round) return store;
 
@@ -375,12 +428,12 @@ export function moveFieldExcavationRound(
     activeLocationId: finalLocationId,
     activeRoundId: roundId,
   };
-  saveFieldMappingStore(nextStore);
+  saveFieldMappingStore(nextStore, domain);
   return nextStore;
 }
 
 export function deleteFieldExcavationRound(roundId: string): FieldMappingStoreState {
-  const store = loadFieldMappingStore();
+  const { store, domain } = findRoundStoreAndDomain(roundId);
   const remaining = store.rounds.filter((r) => r.id !== roundId);
   const nextActiveRoundId =
     store.activeRoundId === roundId ? remaining[0]?.id || null : store.activeRoundId;
@@ -389,7 +442,7 @@ export function deleteFieldExcavationRound(roundId: string): FieldMappingStoreSt
     rounds: remaining,
     activeRoundId: nextActiveRoundId,
   };
-  saveFieldMappingStore(nextStore);
+  saveFieldMappingStore(nextStore, domain);
   return nextStore;
 }
 

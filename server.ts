@@ -64,6 +64,15 @@ async function startServer() {
     next();
   };
 
+  app.get('/api/health', (_req, res) => {
+    res.json({
+      status: 'ok',
+      app: 'ESWA GEOLOGICAL MAPPER',
+      timestamp: new Date().toISOString(),
+      owner: 'akashdhanusheswar@gmail.com',
+    });
+  });
+
   app.use('/api/ai', eswaProprietaryGatewayGuard);
   app.use('/api/geometry', eswaProprietaryGatewayGuard);
   app.use('/api/ota', eswaProprietaryGatewayGuard);

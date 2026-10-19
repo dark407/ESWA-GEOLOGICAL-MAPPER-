@@ -78,6 +78,7 @@ import {
   exportSinglePhotogrammetryRecordToFile,
   FirebaseGoogleUser,
   importEswaUniversalPackageFromFile,
+  loadCombinedFieldStore,
   moveFieldExcavationRound,
   movePhotogrammetryProjectRecord,
   saveFieldMappingResumeState,
@@ -1600,7 +1601,7 @@ export const ProjectMemoryModal: React.FC<ProjectMemoryModalProps> = ({
 }) => {
   const [domainFilter, setDomainFilter] = useState<StorageDomainFilter>('ALL');
   const [fieldStore, setFieldStore] = useState<FieldMappingStoreState>(() =>
-    loadFieldMappingStore()
+    loadCombinedFieldStore()
   );
   const [fieldSearchQuery, setFieldSearchQuery] = useState<string>('');
   const [statusBanner, setStatusBanner] = useState<string>('');
@@ -1641,7 +1642,7 @@ export const ProjectMemoryModal: React.FC<ProjectMemoryModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setFieldStore(loadFieldMappingStore());
+      setFieldStore(loadCombinedFieldStore());
     }
   }, [isOpen]);
 
@@ -1653,7 +1654,7 @@ export const ProjectMemoryModal: React.FC<ProjectMemoryModalProps> = ({
   const handleUniversalPackageFileImport = async (file: File) => {
     try {
       const summary = await importEswaUniversalPackageFromFile(file, importMode);
-      const refreshedField = loadFieldMappingStore();
+      const refreshedField = loadCombinedFieldStore();
       setFieldStore(refreshedField);
       try {
         const rawProjs = localStorage.getItem('akash_tunnel_saved_projects_v20_fresh');
@@ -1771,8 +1772,8 @@ export const ProjectMemoryModal: React.FC<ProjectMemoryModalProps> = ({
   };
 
   const saveEditFieldRound = (roundId: string) => {
-    const nextStore = editFieldExcavationRoundMetadata(roundId, fieldEditForm);
-    setFieldStore(nextStore);
+    editFieldExcavationRoundMetadata(roundId, fieldEditForm);
+    setFieldStore(loadCombinedFieldStore());
     setEditingFieldRoundId(null);
     setStatusBanner(
       `Updated mapping file CH ${fieldEditForm.chainageFrom}m → ${fieldEditForm.chainageTo}m.`
@@ -1789,21 +1790,21 @@ export const ProjectMemoryModal: React.FC<ProjectMemoryModalProps> = ({
   };
 
   const confirmMoveFieldRound = (roundId: string) => {
-    const nextStore = moveFieldExcavationRound(
+    moveFieldExcavationRound(
       roundId,
       moveTargetProjectId,
       moveTargetLocationId,
       moveNewProjectName,
       moveNewLocationName
     );
-    setFieldStore(nextStore);
+    setFieldStore(loadCombinedFieldStore());
     setMovingFieldRoundId(null);
     setStatusBanner('Moved mapping file to selected Project & Location.');
   };
 
   const handleDeleteFieldRound = (roundId: string) => {
-    const nextStore = deleteFieldExcavationRound(roundId);
-    setFieldStore(nextStore);
+    deleteFieldExcavationRound(roundId);
+    setFieldStore(loadCombinedFieldStore());
     setStatusBanner('Deleted mapping file from storage.');
   };
 

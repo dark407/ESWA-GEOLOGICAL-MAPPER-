@@ -199,14 +199,53 @@ type ScreenStep =
 const OFFLINE_DRAFT_STORAGE_KEY = 'eswa_tunnel_mapper_field_draft_v20_fresh';
 const OFFLINE_DRAFT_PHOTOS_STORAGE_KEY = 'eswa_tunnel_mapper_field_photos_v20_fresh';
 
-function loadSavedOfflineDraftSync(): Record<string, any> | null {
+export function getPhotogrammetryDraftStorageKey(domain: MappingDomainType = 'TUNNEL'): string {
+  const clean = (domain || 'TUNNEL').toLowerCase();
+  return `eswa_draft_photogrammetry_${clean}_v2`;
+}
+
+export function getPhotogrammetryPhotosStorageKey(domain: MappingDomainType = 'TUNNEL'): string {
+  const clean = (domain || 'TUNNEL').toLowerCase();
+  return `eswa_photos_photogrammetry_${clean}_v2`;
+}
+
+export function createCleanPhotos(): Record<SurfaceType, PhotoSurface> {
+  const makeCleanSurface = (type: SurfaceType): PhotoSurface => ({
+    type,
+    originalImage: null,
+    image: null,
+    warpedImage: null,
+    fileName: '',
+    supportingPhotos: [],
+    transform: createDefaultSurfaceTransform(),
+    scale: 100,
+    opacity: 100,
+    autoFitted: false,
+  });
+  return {
+    face: makeCleanSurface('face'),
+    crown: makeCleanSurface('crown'),
+    leftWall: makeCleanSurface('leftWall'),
+    rightWall: makeCleanSurface('rightWall'),
+  };
+}
+
+function loadSavedOfflineDraftSync(domain: MappingDomainType = 'TUNNEL'): Record<string, any> | null {
   try {
-    const raw = localStorage.getItem(OFFLINE_DRAFT_STORAGE_KEY);
+    const draftKey = getPhotogrammetryDraftStorageKey(domain);
+    let raw = localStorage.getItem(draftKey);
+    if (!raw && domain === 'TUNNEL') {
+      raw = localStorage.getItem(OFFLINE_DRAFT_STORAGE_KEY);
+    }
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
     try {
-      const rawPhotos = localStorage.getItem(OFFLINE_DRAFT_PHOTOS_STORAGE_KEY);
+      const photosKey = getPhotogrammetryPhotosStorageKey(domain);
+      let rawPhotos = localStorage.getItem(photosKey);
+      if (!rawPhotos && domain === 'TUNNEL') {
+        rawPhotos = localStorage.getItem(OFFLINE_DRAFT_PHOTOS_STORAGE_KEY);
+      }
       if (rawPhotos) {
         const parsedPhotos = JSON.parse(rawPhotos);
         if (parsedPhotos && typeof parsedPhotos === 'object') {
@@ -420,7 +459,7 @@ export default function App({
         miningSettings,
         joints: [],
         lithologyRegions: [],
-        qIndexParams: { rqd: 75, jn: 6, jr: 2, ja: 2, jw: 1, srf: 1 },
+        qIndexParams: createDefaultQIndexParameters(),
       };
       try {
         localStorage.setItem(
@@ -655,6 +694,13 @@ export default function App({
     return () => window.removeEventListener('eswa-geologist-profile-changed', handleProfileChange);
   }, []);
 
+  const activeMappingDomainRef = useRef<MappingDomainType>(activeMappingDomain);
+  useEffect(() => {
+    activeMappingDomainRef.current = activeMappingDomain;
+  }, [activeMappingDomain]);
+
+
+
   // Persisted Project -> Locations Directory for Practical Step-1 Workflow
   const [projectDirectory, setProjectDirectory] = useState<Record<string, string[]>>(() => {
     try {
@@ -783,6 +829,207 @@ export default function App({
     }
   }, [sessionMemory]);
 
+  const handleSwitchMappingDomain = useCallback(
+    (nextDomain: MappingDomainType) => {
+      if (nextDomain === activeMappingDomainRef.current) return;
+
+      // 1. Snapshot current active domain state & photos
+      const curDomain = activeMappingDomainRef.current;
+      const currentDraftPayload = {
+        savedAt: new Date().toISOString(),
+        screen,
+        isFirstOpening,
+        activeSurface,
+        manWidth,
+        manHeight,
+        manWallHeight,
+        manCrownRadius,
+        manProfileType,
+        geometry: {
+          ...geometry,
+          hasCrown: true,
+          hasLeftWall: true,
+          hasRightWall: true,
+        },
+        settings,
+        joints,
+        customJointSetOverrides,
+        selectedClassificationMethod,
+        qIndexParams,
+        qParamStatus,
+        rmrParams,
+        gsiParams,
+        rockMassSummary,
+        lithologyRegions,
+        controlPoints,
+        surveyProfile,
+        placedSymbols,
+        sessionMemory,
+        photoSurfaceParams,
+        mappingDomain: curDomain,
+      };
+      try {
+        localStorage.setItem(
+          getPhotogrammetryDraftStorageKey(curDomain),
+          JSON.stringify(currentDraftPayload)
+        );
+        localStorage.setItem(
+          getPhotogrammetryPhotosStorageKey(curDomain),
+          JSON.stringify(photos)
+        );
+        if (curDomain === 'TUNNEL') {
+          localStorage.setItem(OFFLINE_DRAFT_STORAGE_KEY, JSON.stringify(currentDraftPayload));
+          localStorage.setItem(OFFLINE_DRAFT_PHOTOS_STORAGE_KEY, JSON.stringify(photos));
+        }
+      } catch {
+        // Ignore quota errors
+      }
+
+      // 2. Switch domain ref and state
+      activeMappingDomainRef.current = nextDomain;
+      setActiveMappingDomain(nextDomain);
+      if (nextDomain !== 'TUNNEL') {
+        setSelectedSurfaceSubType(nextDomain as SurfaceMappingSubType);
+      }
+
+      // 3. Load target domain snapshot
+      const targetDraft = loadSavedOfflineDraftSync(nextDomain);
+      if (targetDraft) {
+        if (
+          targetDraft.geometry &&
+          typeof targetDraft.geometry.width === 'number' &&
+          Number.isFinite(targetDraft.geometry.width)
+        ) {
+          setGeometry(targetDraft.geometry);
+        }
+        if (targetDraft.manWidth) setManWidth(String(targetDraft.manWidth));
+        if (targetDraft.manHeight) setManHeight(String(targetDraft.manHeight));
+        if (targetDraft.manWallHeight) setManWallHeight(String(targetDraft.manWallHeight));
+        if (targetDraft.manCrownRadius) setManCrownRadius(String(targetDraft.manCrownRadius));
+        if (targetDraft.manProfileType) setManProfileType(targetDraft.manProfileType);
+        if (targetDraft.settings) setSettings(targetDraft.settings);
+        if (targetDraft.photos) {
+          const def = createCleanPhotos();
+          setPhotos({
+            face: { ...def.face, ...(targetDraft.photos.face || {}) },
+            crown: { ...def.crown, ...(targetDraft.photos.crown || {}) },
+            leftWall: { ...def.leftWall, ...(targetDraft.photos.leftWall || {}) },
+            rightWall: { ...def.rightWall, ...(targetDraft.photos.rightWall || {}) },
+          });
+        } else {
+          setPhotos(createCleanPhotos());
+        }
+        setJoints(Array.isArray(targetDraft.joints) ? targetDraft.joints : []);
+        if (targetDraft.customJointSetOverrides) {
+          setCustomJointSetOverrides(targetDraft.customJointSetOverrides);
+        }
+        if (targetDraft.rmrParams) setRmrParams(targetDraft.rmrParams);
+        if (targetDraft.qIndexParams) setQIndexParams(targetDraft.qIndexParams);
+        if (targetDraft.gsiParams) setGsiParams(targetDraft.gsiParams);
+        if (targetDraft.photoSurfaceParams) setPhotoSurfaceParams(targetDraft.photoSurfaceParams);
+        setLithologyRegions(
+          Array.isArray(targetDraft.lithologyRegions) ? targetDraft.lithologyRegions : []
+        );
+        setControlPoints(Array.isArray(targetDraft.controlPoints) ? targetDraft.controlPoints : []);
+        setPlacedSymbols(Array.isArray(targetDraft.placedSymbols) ? targetDraft.placedSymbols : []);
+        if (targetDraft.surveyProfile) setSurveyProfile(targetDraft.surveyProfile);
+        if (targetDraft.activeSurface) setActiveSurface(targetDraft.activeSurface);
+      } else {
+        // Clean isolated defaults for the new domain
+        if (nextDomain === 'TUNNEL') {
+          const defaultTunnelGeom = createTunnelGeometry(8.4, 7.2, 4.2, 'd_shaped', 4.35, 'manual');
+          setGeometry(defaultTunnelGeom);
+          setManWidth('8.40');
+          setManHeight('7.20');
+          setManWallHeight('4.20');
+          setManCrownRadius('4.35');
+          setManProfileType('d_shaped');
+          setPhotos(createCleanPhotos());
+          setJoints([]);
+          setSettings((prev) => ({
+            ...prev,
+            projectName: 'Underground Tunnel Project',
+            tunnelName: 'Main Drive Tunnel',
+            location: 'Face 01',
+            chainage: 'RD 0.00m - 3.50m',
+            faceChainage: 'RD 3.50m',
+            roundLength: 3.5,
+          }));
+          setRmrParams(createDefaultRmrParameters());
+          setQIndexParams(createDefaultQIndexParameters());
+          setGsiParams(createDefaultGsiParameters());
+          setLithologyRegions([]);
+          setControlPoints([]);
+          setPlacedSymbols([]);
+        } else {
+          const sub = nextDomain as SurfaceMappingSubType;
+          const surfParams = loadSavedSurfaceGeometryParameters(sub);
+          const nextP = { ...surfParams, subType: sub };
+          setPhotoSurfaceParams(nextP);
+          const compatGeom = buildCompatibleGeometryFromSurfaceParams(nextP);
+          setGeometry(compatGeom);
+          setManWidth(String(compatGeom.width));
+          setManHeight(String(compatGeom.height));
+          setManWallHeight(String(compatGeom.wallHeight));
+          setManCrownRadius(String(compatGeom.crownRadius));
+          setManProfileType((compatGeom.crownGeometry === 'horseshoe' ? 'horseshoe' : 'd_shaped') as ProfileType);
+          setPhotos(createCleanPhotos());
+          setJoints([]);
+          const domainLabels = getSurfacePanelLabelMap(nextDomain);
+          setSettings((prev) => ({
+            ...prev,
+            projectName: `${domainLabels.domainTitle} Project`,
+            tunnelName: `${domainLabels.domainTitle} Sector`,
+            location:
+              sub === 'BENCH'
+                ? 'Bench BL-1240'
+                : sub === 'TRENCH'
+                ? 'Trench TR-01'
+                : sub === 'SLOPE'
+                ? 'Slope CS-01'
+                : 'Outcrop RS-01',
+            chainage: sub === 'TRENCH' ? 'ST 0.00m - 5.00m' : 'ST 0.00m - 15.00m',
+            faceChainage: sub === 'TRENCH' ? 'ST 5.00m' : 'ST 15.00m',
+            roundLength: sub === 'TRENCH' ? 5.0 : 15.0,
+          }));
+          setRmrParams(createDefaultRmrParameters());
+          setQIndexParams(createDefaultQIndexParameters());
+          setGsiParams(createDefaultGsiParameters());
+          setLithologyRegions([]);
+          setControlPoints([]);
+          setPlacedSymbols([]);
+        }
+      }
+    },
+    [
+      screen,
+      isFirstOpening,
+      activeSurface,
+      manWidth,
+      manHeight,
+      manWallHeight,
+      manCrownRadius,
+      manProfileType,
+      geometry,
+      settings,
+      joints,
+      customJointSetOverrides,
+      selectedClassificationMethod,
+      qIndexParams,
+      qParamStatus,
+      rmrParams,
+      gsiParams,
+      rockMassSummary,
+      lithologyRegions,
+      controlPoints,
+      surveyProfile,
+      placedSymbols,
+      sessionMemory,
+      photoSurfaceParams,
+      photos,
+    ]
+  );
+
   const [isTracingAI, setIsTracingAI] = useState<boolean>(false);
   const [traceFitMode, setTraceFitMode] = useState<TraceFitMode>('smart_fit');
   const [statusMessage, setStatusMessage] = useState<string>(
@@ -900,7 +1147,9 @@ export default function App({
   // plus immediate flush on app hide/close so closing & reopening the app resumes at the exact place.
   const persistLightweightStateNow = useCallback(() => {
     try {
-      const prevRaw = localStorage.getItem(OFFLINE_DRAFT_STORAGE_KEY);
+      const curDom = activeMappingDomainRef.current || 'TUNNEL';
+      const draftKey = getPhotogrammetryDraftStorageKey(curDom);
+      const prevRaw = localStorage.getItem(draftKey);
       const prevParsed = prevRaw ? JSON.parse(prevRaw) : null;
       const effectiveScreen =
         screen !== 'welcome'
@@ -939,8 +1188,13 @@ export default function App({
         surveyProfile,
         placedSymbols,
         sessionMemory,
+        photoSurfaceParams,
+        mappingDomain: curDom,
       };
-      localStorage.setItem(OFFLINE_DRAFT_STORAGE_KEY, JSON.stringify(lightweightPayload));
+      localStorage.setItem(draftKey, JSON.stringify(lightweightPayload));
+      if (curDom === 'TUNNEL') {
+        localStorage.setItem(OFFLINE_DRAFT_STORAGE_KEY, JSON.stringify(lightweightPayload));
+      }
       setHasSavedDraft(true);
 
       if (screen !== 'welcome') {
@@ -982,11 +1236,17 @@ export default function App({
     surveyProfile,
     placedSymbols,
     sessionMemory,
+    photoSurfaceParams,
   ]);
 
   const persistPhotosStateNow = useCallback(() => {
     try {
-      localStorage.setItem(OFFLINE_DRAFT_PHOTOS_STORAGE_KEY, JSON.stringify(photos));
+      const curDom = activeMappingDomainRef.current || 'TUNNEL';
+      const photosKey = getPhotogrammetryPhotosStorageKey(curDom);
+      localStorage.setItem(photosKey, JSON.stringify(photos));
+      if (curDom === 'TUNNEL') {
+        localStorage.setItem(OFFLINE_DRAFT_PHOTOS_STORAGE_KEY, JSON.stringify(photos));
+      }
     } catch {
       // Handled by desktopBridge chunking + IndexedDB
     }
@@ -2630,10 +2890,7 @@ export default function App({
           onChangeWorkflowMode={setActiveFieldWorkflowMode}
           initialMappingDomain={activeMappingDomain}
           onChangeMappingDomain={(domain) => {
-            setActiveMappingDomain(domain);
-            if (domain !== 'TUNNEL') {
-              setSelectedSurfaceSubType(domain as SurfaceMappingSubType);
-            }
+            handleSwitchMappingDomain(domain);
           }}
           industryMode={industryMode}
           onChangeIndustryMode={handleSwitchIndustryMode}
@@ -2959,7 +3216,7 @@ export default function App({
                 type="button"
                 onClick={() => {
                   setIsFirstOpening(false);
-                  setActiveMappingDomain('TUNNEL');
+                  handleSwitchMappingDomain('TUNNEL');
                   setActiveFieldWorkflowMode('field_mapping');
                   setResumeFieldAtLastStage(false);
                   setIsFieldMappingModeOpen(true);
@@ -2977,7 +3234,7 @@ export default function App({
                 type="button"
                 onClick={() => {
                   setIsFirstOpening(false);
-                  setActiveMappingDomain('TUNNEL');
+                  handleSwitchMappingDomain('TUNNEL');
                   setResumeFieldAtLastStage(true);
                   setIsFieldMappingModeOpen(true);
                 }}
@@ -3035,7 +3292,7 @@ export default function App({
                   type="button"
                   onClick={() => {
                     setIsFirstOpening(false);
-                    setActiveMappingDomain(selectedSurfaceSubType);
+                    handleSwitchMappingDomain(selectedSurfaceSubType);
                     setActiveFieldWorkflowMode('field_mapping');
                     setResumeFieldAtLastStage(false);
                     setIsFieldMappingModeOpen(true);
@@ -3058,7 +3315,7 @@ export default function App({
                     setIsFirstOpening(false);
                     const resumeSubType = surfaceResumeMeta?.subType || selectedSurfaceSubType;
                     setSelectedSurfaceSubType(resumeSubType);
-                    setActiveMappingDomain(resumeSubType);
+                    handleSwitchMappingDomain(resumeSubType);
                     setActiveFieldWorkflowMode(
                       surfaceResumeMeta?.workflowMode === 'PHOTOGRAMMETRY'
                         ? 'photo_mapping'
@@ -3095,7 +3352,7 @@ export default function App({
                     onClick={() => {
                       setIsFirstOpening(false);
                       setSelectedSurfaceSubType(sub);
-                      setActiveMappingDomain(sub);
+                      handleSwitchMappingDomain(sub);
                       setActiveFieldWorkflowMode('field_mapping');
                       setResumeFieldAtLastStage(false);
                       setIsFieldMappingModeOpen(true);
@@ -3269,7 +3526,7 @@ export default function App({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {/* Tunnel vs Surface (Bench, Trench, Slope) Photogrammetry Switcher */}
+              {/* Tunnel vs Surface (Bench, Trench, Slope, Outcrop) Photogrammetry Switcher */}
               <div className="flex items-center gap-0.5 p-0.5 rounded-xl bg-orange-100/90 border border-orange-300">
                 {(
                   [
@@ -3277,6 +3534,7 @@ export default function App({
                     { id: 'BENCH', label: 'Bench' },
                     { id: 'TRENCH', label: 'Trench' },
                     { id: 'SLOPE', label: 'Slope' },
+                    { id: 'ROCK_SURFACE', label: 'Outcrop' },
                   ] as { id: MappingDomainType; label: string }[]
                 ).map((m) => {
                   const isAct = activeMappingDomain === m.id;
@@ -3285,28 +3543,7 @@ export default function App({
                       key={m.id}
                       type="button"
                       onClick={() => {
-                        setActiveMappingDomain(m.id);
-                        if (m.id !== 'TUNNEL') {
-                          const sub = m.id as SurfaceMappingSubType;
-                          setSelectedSurfaceSubType(sub);
-                          const surfParams = loadSavedSurfaceGeometryParameters(sub);
-                          setPhotoSurfaceParams({ ...surfParams, subType: sub });
-                          const surfGeom = buildCompatibleGeometryFromSurfaceParams(surfParams);
-                          setGeometry(surfGeom);
-                          setManWidth(String(surfGeom.width));
-                          setManHeight(String(surfGeom.height));
-                          setManWallHeight(String(surfGeom.wallHeight));
-                          setManCrownRadius(String(surfGeom.crownRadius));
-                          saveSurfaceMappingResumeState({
-                            subType: sub,
-                            workflowMode: 'PHOTOGRAMMETRY',
-                            stageOrScreen: screen,
-                            projectName: settings.projectName || 'Surface Project',
-                            locationName: settings.locationName || sub,
-                            stationLabel: settings.faceChainage || 'Station 01',
-                            updatedAt: new Date().toISOString(),
-                          });
-                        }
+                        handleSwitchMappingDomain(m.id);
                       }}
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer ${
                         isAct
@@ -5490,22 +5727,14 @@ export default function App({
                     ['BENCH', 'Bench'],
                     ['TRENCH', 'Trench'],
                     ['SLOPE', 'Slope'],
+                    ['ROCK_SURFACE', 'Outcrop'],
                   ] as [MappingDomainType, string][]
                 ).map(([domId, domLbl]) => (
                   <button
                     key={domId}
                     type="button"
                     onClick={() => {
-                      setActiveMappingDomain(domId);
-                      if (domId !== 'TUNNEL') {
-                        const sub = domId as SurfaceMappingSubType;
-                        setSelectedSurfaceSubType(sub);
-                        const loaded = loadSavedSurfaceGeometryParameters(sub);
-                        const nextP = { ...loaded, subType: sub };
-                        setPhotoSurfaceParams(nextP);
-                        const compatGeom = buildCompatibleGeometryFromSurfaceParams(nextP);
-                        setGeometry(compatGeom);
-                      }
+                      handleSwitchMappingDomain(domId);
                     }}
                     className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
                       activeMappingDomain === domId

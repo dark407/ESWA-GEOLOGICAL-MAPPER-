@@ -162,8 +162,12 @@ import {
   generateSampleTunnelPhotograph,
 } from '../engine/sampleFieldData';
 import {
+  ProfileType,
   TunnelGeometry,
 } from '../types/tunnel';
+import {
+  createDefaultQIndexParameters,
+} from '../engine/photoWarpEngine';
 import {
   EswaAppBackgroundWatermark,
   EswaTunnelLogo,
@@ -11205,38 +11209,30 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         isOpen={isMiningInspectorOpen}
         onClose={() => setIsMiningInspectorOpen(false)}
         settings={{
-          projectName: activeProject?.name || 'Project',
+          projectName: activeProject?.projectName || 'Project',
           tunnelName: activeLocation?.name || 'Excavation',
           location: activeLocation?.name || 'Heading',
           locationName: activeLocation?.name || 'Heading',
-          driveDirectionInput: `${activeLocation?.azimuthDeg ?? 45}°`,
-          driveDirection: activeLocation?.azimuthDeg ?? 45,
-          chainage: activeRound?.chainageDisplay || 'Ch. 0+100',
-          faceChainage: activeRound?.chainageDisplay || 'Ch. 0+100',
-          roundLength: activeRound?.pullLengthM || 3.0,
-          date: activeRound?.date || new Date().toISOString().slice(0, 10),
-          mappedBy: activeRound?.geologist || 'Engineering Geologist',
+          driveDirectionInput: `${activeLocation?.defaultDriveAzimuth ?? 45}°`,
+          driveDirection: activeLocation?.defaultDriveAzimuth ?? 45,
+          chainage: activeRound ? `CH ${activeRound.chainageFrom}m → ${activeRound.chainageTo}m` : 'Ch. 0+100',
+          faceChainage: activeRound ? `CH ${activeRound.chainageTo}m` : 'Ch. 0+100',
+          roundLength: activeRound?.pullLengthMeters || 3.0,
+          date: activeRound?.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
+          mappedBy: activeRound?.geologistName || 'Engineering Geologist',
           lithology: activeRound?.rockType || 'Quartzite',
           industryMode: currentIndustryMode,
         }}
         geometry={
-          activeLocation?.customGeometry ||
           createTunnelGeometry(
             activeLocation?.widthM || 8.5,
             activeLocation?.heightM || 7.5,
-            4.0,
-            activeLocation?.shape || 'd_shaped'
+            activeLocation?.wallHeightM || 4.0,
+            (activeLocation?.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped') as ProfileType
           )
         }
-        joints={activeRound?.joints || []}
-        qIndexParams={{
-          rqd: activeRound?.qParams?.rqd ?? 75,
-          jn: activeRound?.qParams?.jn ?? 6,
-          jr: activeRound?.qParams?.jr ?? 2,
-          ja: activeRound?.qParams?.ja ?? 2,
-          jw: activeRound?.qParams?.jw ?? 1,
-          srf: activeRound?.qParams?.srf ?? 1,
-        }}
+        joints={[]}
+        qIndexParams={createDefaultQIndexParameters()}
         onUpdateMiningSettings={() => {}}
       />
 
@@ -11244,27 +11240,26 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         isOpen={isTbmInspectorOpen}
         onClose={() => setIsTbmInspectorOpen(false)}
         settings={{
-          projectName: activeProject?.name || 'Project',
+          projectName: activeProject?.projectName || 'Project',
           tunnelName: activeLocation?.name || 'Excavation',
           location: activeLocation?.name || 'Heading',
           locationName: activeLocation?.name || 'Heading',
-          driveDirectionInput: `${activeLocation?.azimuthDeg ?? 45}°`,
-          driveDirection: activeLocation?.azimuthDeg ?? 45,
-          chainage: activeRound?.chainageDisplay || 'Ch. 0+100',
-          faceChainage: activeRound?.chainageDisplay || 'Ch. 0+100',
-          roundLength: activeRound?.pullLengthM || 3.0,
-          date: activeRound?.date || new Date().toISOString().slice(0, 10),
-          mappedBy: activeRound?.geologist || 'Engineering Geologist',
+          driveDirectionInput: `${activeLocation?.defaultDriveAzimuth ?? 45}°`,
+          driveDirection: activeLocation?.defaultDriveAzimuth ?? 45,
+          chainage: activeRound ? `CH ${activeRound.chainageFrom}m → ${activeRound.chainageTo}m` : 'Ch. 0+100',
+          faceChainage: activeRound ? `CH ${activeRound.chainageTo}m` : 'Ch. 0+100',
+          roundLength: activeRound?.pullLengthMeters || 3.0,
+          date: activeRound?.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
+          mappedBy: activeRound?.geologistName || 'Engineering Geologist',
           lithology: activeRound?.rockType || 'Quartzite',
           industryMode: currentIndustryMode,
         }}
         geometry={
-          activeLocation?.customGeometry ||
           createTunnelGeometry(
             activeLocation?.widthM || 8.5,
             activeLocation?.heightM || 7.5,
-            4.0,
-            activeLocation?.shape || 'd_shaped'
+            activeLocation?.wallHeightM || 4.0,
+            (activeLocation?.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped') as ProfileType
           )
         }
         onUpdateTbmParams={() => {}}
