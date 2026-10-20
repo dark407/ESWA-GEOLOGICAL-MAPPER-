@@ -23,8 +23,6 @@ import {
   sortControlPointsAroundPerimeter,
 } from '../engine/overbreakEngine';
 import { computeAdvancedOverbreakPrediction } from '../engine/supportSpotBoltFailureEngine';
-import { projectJointToAllSurfacesAndLookAhead, JointLookAheadProjectionResult } from '../engine/orientationEngine';
-import { analyzeMultiRoundTrendAndLookAhead, MultiRoundTrendAndLookAheadReport } from '../engine/kinematicsSupportAndDxfEngine';
 import {
   computeSectionToSectionVolumes,
   exportProjectHierarchyRegisterToCSV,
@@ -55,11 +53,9 @@ import {
   Plus,
   Save,
   Search,
-  Shield,
   Smartphone,
   Sparkles,
   Trash2,
-  TrendingUp,
   Unlink,
   Unlock,
   Upload,
@@ -141,58 +137,9 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
   onClose,
   onStatusMessage,
 }) => {
-  const [subTab, setSubTab] = useState<
-    'profile_points' | 'quantities' | 'reasons' | 'round_trends' | 'look_ahead' | 'ai_predictor'
-  >('quantities');
-  const [lookAheadDist, setLookAheadDist] = useState<3 | 6 | 9>(3);
+  const [subTab, setSubTab] = useState<'profile_points' | 'quantities' | 'reasons' | 'ai_predictor'>('quantities');
   const [customNextPullPredictionNote, setCustomNextPullPredictionNote] = useState<string>('');
   const [customMitigationNote, setCustomMitigationNote] = useState<string>('');
-
-  // 1. Multi-Round Trend Comparison (Previous vs Current Round)
-  const multiRoundReport = useMemo<MultiRoundTrendAndLookAheadReport>(() => {
-    return analyzeMultiRoundTrendAndLookAhead({
-      previousRounds: savedProjects || [],
-      currentRound: {
-        id: settings.tunnelName,
-        settings,
-        geometry,
-        joints: joints || [],
-        qIndexParams,
-        rmrParams,
-        quantitySummary: {
-          overbreakVolumeM3:
-            analysis.overbreakVolumeCubicMeters ??
-            analysis.overbreakAreaSqMeters * (settings.roundLength || 3.5),
-        },
-      },
-      geometry,
-      settings,
-      lookAheadMeters: [3, 6, 9],
-    });
-  }, [
-    savedProjects,
-    settings,
-    geometry,
-    joints,
-    qIndexParams,
-    rmrParams,
-    analysis.overbreakVolumeCubicMeters,
-    analysis.overbreakAreaSqMeters,
-  ]);
-
-  // 2. 3D Forward Look-Ahead Projections across all Face Joints (+3m, +6m, +9m)
-  const jointLookAheads = useMemo<JointLookAheadProjectionResult[]>(() => {
-    const list = joints || [];
-    return list.map((j) =>
-      projectJointToAllSurfacesAndLookAhead(
-        j,
-        geometry.width,
-        geometry.height,
-        settings.driveDirection || 70,
-        [3, 6, 9]
-      )
-    );
-  }, [joints, geometry.width, geometry.height, settings.driveDirection]);
 
   const aiOverbreakPrediction = useMemo(
     () =>
@@ -702,13 +649,13 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
       </div>
 
       {/* Sub-navigation Tabs */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 bg-[#0B0E14] border-b border-slate-800 p-1 gap-1">
+      <div className="grid grid-cols-4 bg-[#0B0E14] border-b border-slate-800 p-1 gap-1">
         <button
           type="button"
           onClick={() => setSubTab('quantities')}
-          className={`py-1.5 px-1 rounded text-[10px] font-semibold transition-colors cursor-pointer text-center ${
+          className={`py-1.5 rounded text-[10px] font-semibold transition-colors ${
             subTab === 'quantities'
-              ? 'bg-cyan-600 text-white shadow'
+              ? 'bg-cyan-600 text-white'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -717,9 +664,9 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
         <button
           type="button"
           onClick={() => setSubTab('profile_points')}
-          className={`py-1.5 px-1 rounded text-[10px] font-semibold transition-colors cursor-pointer text-center ${
+          className={`py-1.5 rounded text-[10px] font-semibold transition-colors ${
             subTab === 'profile_points'
-              ? 'bg-cyan-600 text-white shadow'
+              ? 'bg-cyan-600 text-white'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -728,49 +675,25 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
         <button
           type="button"
           onClick={() => setSubTab('reasons')}
-          className={`py-1.5 px-1 rounded text-[10px] font-semibold transition-colors cursor-pointer text-center ${
+          className={`py-1.5 rounded text-[10px] font-semibold transition-colors ${
             subTab === 'reasons'
-              ? 'bg-cyan-600 text-white shadow'
+              ? 'bg-cyan-600 text-white'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          3. Reasons
-        </button>
-        <button
-          type="button"
-          onClick={() => setSubTab('round_trends')}
-          className={`py-1.5 px-1 rounded text-[10px] font-bold transition-colors cursor-pointer text-center flex items-center justify-center gap-1 ${
-            subTab === 'round_trends'
-              ? 'bg-cyan-600 text-white shadow'
-              : 'text-cyan-400 hover:text-cyan-200 hover:bg-slate-900'
-          }`}
-        >
-          <TrendingUp className="w-3 h-3" />
-          <span>4. Trends (Δ)</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setSubTab('look_ahead')}
-          className={`py-1.5 px-1 rounded text-[10px] font-bold transition-colors cursor-pointer text-center flex items-center justify-center gap-1 ${
-            subTab === 'look_ahead'
-              ? 'bg-amber-600 text-white shadow'
-              : 'text-amber-400 hover:text-amber-200 hover:bg-slate-900'
-          }`}
-        >
-          <Compass className="w-3 h-3" />
-          <span>5. Look-Ahead</span>
+          3. Reasons ({analysis.overbreakRegions.length + analysis.undercutRegions.length})
         </button>
         <button
           type="button"
           onClick={() => setSubTab('ai_predictor')}
-          className={`py-1.5 px-1 rounded text-[10px] font-bold transition-colors cursor-pointer text-center flex items-center justify-center gap-1 ${
+          className={`py-1.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-1 ${
             subTab === 'ai_predictor'
-              ? 'bg-emerald-600 text-white shadow'
+              ? 'bg-emerald-600 text-white'
               : 'text-emerald-400 hover:text-emerald-200 bg-emerald-950/30'
           }`}
         >
           <Sparkles className="w-3 h-3" />
-          <span>6. AI Predict</span>
+          4. AI Predict
         </button>
       </div>
 
@@ -1569,371 +1492,6 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-
-        {/* 4. PREVIOUS-TO-CURRENT ROUND TREND COMPARATOR */}
-        {subTab === 'round_trends' && (
-          <div className="space-y-3">
-            {/* Round Delta Header Banner */}
-            <div className="p-3 bg-slate-900 border border-slate-800 rounded space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-1.5">
-                <span className="font-bold text-cyan-300 text-xs flex items-center gap-1.5">
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  Multi-Round Trend Comparison ({multiRoundReport.chainageInterval})
-                </span>
-                <span className="text-[10px] text-slate-400">
-                  Historical Baseline: <strong>{savedProjects.length} saved round(s)</strong>
-                </span>
-              </div>
-
-              {multiRoundReport.deltas.deteriorationRateWarning ? (
-                <div className="p-2 rounded bg-rose-950/50 border border-rose-600 text-rose-200 text-[10px] flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="text-rose-100 block">RAPID ROCK MASS DEGRADATION WARNING:</strong>
-                    {multiRoundReport.deltas.deteriorationDescription}
-                  </div>
-                </div>
-              ) : (
-                <div className="p-2 rounded bg-emerald-950/30 border border-emerald-600/50 text-emerald-200 text-[10px] flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Ground conditions and overbreak rates are stable or improving relative to the preceding excavation round.</span>
-                </div>
-              )}
-            </div>
-
-            {/* 6 Key Geotechnical & Overbreak Delta KPI Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {/* Q-Index Delta */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Barton Q-Index (ΔQ)</div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-white">
-                    {qIndexParams ? ((qIndexParams.rqd / (qIndexParams.jn || 9)) * ((qIndexParams.jr || 1.5) / (qIndexParams.ja || 1.0)) * ((qIndexParams.jw || 1.0) / (qIndexParams.srf || 1.0))).toFixed(2) : '10.00'}
-                  </span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                      (multiRoundReport.deltas.deltaQ ?? 0) >= 0
-                        ? 'bg-emerald-950 text-emerald-300'
-                        : 'bg-rose-950 text-rose-300'
-                    }`}
-                  >
-                    {(multiRoundReport.deltas.deltaQ ?? 0) >= 0 ? '+' : ''}
-                    {multiRoundReport.deltas.deltaQ !== null ? multiRoundReport.deltas.deltaQ : '0.00'}
-                  </span>
-                </div>
-              </div>
-
-              {/* RMR Delta */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Bieniawski RMR89 (ΔRMR)</div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-emerald-300">
-                    {rmrParams
-                      ? (rmrParams.intactStrengthRating || 7) +
-                        (rmrParams.rqdRating || 13) +
-                        (rmrParams.spacingRating || 10) +
-                        (rmrParams.conditionRating || 20) +
-                        (rmrParams.groundwaterRating || 15)
-                      : 65}{' '}
-                    pts
-                  </span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                      (multiRoundReport.deltas.deltaRMR ?? 0) >= 0
-                        ? 'bg-emerald-950 text-emerald-300'
-                        : 'bg-rose-950 text-rose-300'
-                    }`}
-                  >
-                    {(multiRoundReport.deltas.deltaRMR ?? 0) >= 0 ? '+' : ''}
-                    {multiRoundReport.deltas.deltaRMR !== null ? multiRoundReport.deltas.deltaRMR : '0.0'} pts
-                  </span>
-                </div>
-              </div>
-
-              {/* RQD Delta */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">RQD &amp; Spacing (ΔRQD)</div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-cyan-300">
-                    {qIndexParams?.rqd ?? 80}%
-                  </span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                      (multiRoundReport.deltas.deltaRQD ?? 0) >= 0
-                        ? 'bg-emerald-950 text-emerald-300'
-                        : 'bg-rose-950 text-rose-300'
-                    }`}
-                  >
-                    {(multiRoundReport.deltas.deltaRQD ?? 0) >= 0 ? '+' : ''}
-                    {multiRoundReport.deltas.deltaRQD !== null ? multiRoundReport.deltas.deltaRQD : '0.0'}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Overbreak Rate Delta */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Linear Overbreak Rate</div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-amber-300">
-                    {(
-                      (analysis.overbreakVolumeCubicMeters ??
-                        analysis.overbreakAreaSqMeters * (settings.roundLength || 3.5)) /
-                      Math.max(1, settings.roundLength || 3.5)
-                    ).toFixed(2)}{' '}
-                    m³/m
-                  </span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                      multiRoundReport.deltas.deltaOverbreakM3PerM <= 0
-                        ? 'bg-emerald-950 text-emerald-300'
-                        : 'bg-rose-950 text-rose-300'
-                    }`}
-                  >
-                    {multiRoundReport.deltas.deltaOverbreakM3PerM > 0 ? '+' : ''}
-                    {multiRoundReport.deltas.deltaOverbreakM3PerM} m³/m
-                  </span>
-                </div>
-              </div>
-
-              {/* Max Radial Overbreak */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Max Radial Overbreak</div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-rose-400">
-                    +{(analysis.maxRadialOverbreakMeters * 100).toFixed(1)} cm
-                  </span>
-                  <span className="text-[9px] text-slate-400">
-                    Crown (11:00)
-                  </span>
-                </div>
-              </div>
-
-              {/* Critical Wedge Fallout Weight */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Critical Wedge Fallout</div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-white">
-                    {multiRoundReport.lookAheadPredictions.at3mMeters.crownWedgeWeightTonnes} t
-                  </span>
-                  <span className="text-[9px] text-emerald-300 font-bold">
-                    Water: 0 L/min
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Automated Overbreak Root-Cause Diagnosis (Contractual Proof) */}
-            <div className="p-3 bg-gradient-to-br from-slate-900 to-[#0B1220] border border-cyan-800/60 rounded space-y-2">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                <span className="font-bold text-cyan-300 text-xs flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5" />
-                  Automated Overbreak Root-Cause Diagnosis (Contractual Proof)
-                </span>
-                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-700 text-cyan-200 font-bold text-[9px]">
-                  {multiRoundReport.overbreakDiagnosis.dominantType.replace(/_/g, ' ')}
-                </span>
-              </div>
-
-              <div className="p-2 rounded bg-slate-950 border border-slate-800 text-[10px] space-y-1.5 leading-relaxed">
-                <div>
-                  <strong className="text-slate-300">Geotechnical Analysis: </strong>
-                  <span className="text-slate-200">{multiRoundReport.overbreakDiagnosis.explanation}</span>
-                </div>
-                {multiRoundReport.overbreakDiagnosis.geologicalWedgeSector && (
-                  <div className="text-amber-300 font-bold">
-                    Recurring Keyblock Sector: {multiRoundReport.overbreakDiagnosis.geologicalWedgeSector}
-                  </div>
-                )}
-                <div className="pt-1 border-t border-slate-800 text-slate-400">
-                  <strong className="text-slate-300">Engineering Directive: </strong>
-                  {multiRoundReport.engineeringMemo}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 5. FUTURE ROUND LOOK-AHEAD PREDICTOR (+3m, +6m, +9m) */}
-        {subTab === 'look_ahead' && (
-          <div className="space-y-3">
-            {/* Distance Selector Pills */}
-            <div className="p-2.5 bg-slate-900 border border-slate-800 rounded flex flex-wrap items-center justify-between gap-2">
-              <span className="font-bold text-cyan-300 text-xs flex items-center gap-1.5">
-                <Compass className="w-3.5 h-3.5" />
-                3D Forward Look-Ahead Predictor
-              </span>
-              <div className="flex items-center gap-1.5">
-                {(
-                  [
-                    { dist: 3, label: '+3.0m [Next Round]' },
-                    { dist: 6, label: '+6.0m [2 Rounds Ahead]' },
-                    { dist: 9, label: '+9.0m [3 Rounds Ahead]' },
-                  ] as const
-                ).map((d) => (
-                  <button
-                    key={d.dist}
-                    type="button"
-                    onClick={() => setLookAheadDist(d.dist)}
-                    className={`px-2.5 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer ${
-                      lookAheadDist === d.dist
-                        ? 'bg-amber-600 text-white shadow'
-                        : 'bg-slate-950 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Predicted Face & Crown Cross-Section Diagram */}
-            <div className="p-3 bg-slate-950 border border-slate-800 rounded space-y-2">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1 text-[11px] font-bold text-cyan-300">
-                <span>Predicted Cross-Section at Z = +{lookAheadDist}.0m Ahead of Face</span>
-                <span className="text-[10px] text-amber-300">
-                  Anticipated Crown Fallout: {lookAheadDist === 3 ? multiRoundReport.lookAheadPredictions.at3mMeters.crownWedgeWeightTonnes : lookAheadDist === 6 ? multiRoundReport.lookAheadPredictions.at6mMeters.crownWedgeWeightTonnes : 18.5} t
-                </span>
-              </div>
-
-              <div className="bg-[#070B12] border border-slate-800 rounded p-2 flex flex-col items-center justify-center">
-                <svg viewBox="0 0 320 200" className="w-full max-w-[280px] h-auto">
-                  <rect x="0" y="0" width="320" height="200" fill="#0A0E17" />
-                  {/* Excavation Profile at +Zm */}
-                  <path
-                    d="M 60 180 L 60 100 C 60 45, 100 15, 160 15 C 220 15, 260 45, 260 100 L 260 180 Z"
-                    fill="#0F172A"
-                    stroke="#38BDF8"
-                    strokeWidth="2"
-                    strokeDasharray={lookAheadDist > 3 ? '4,3' : 'none'}
-                  />
-
-                  {/* Crown Zone Arch Reference (10:00 - 02:00) */}
-                  <path
-                    d="M 85 60 C 105 25, 130 18, 160 18 C 190 18, 215 25, 235 60"
-                    fill="none"
-                    stroke="#F59E0B"
-                    strokeWidth="3"
-                    opacity="0.6"
-                  />
-
-                  {/* Projected Joints at +Zm */}
-                  {jointLookAheads.map((jla, idx) => {
-                    const faceMatch = jla.lookAheadFaces.find((f) => f.distanceM === lookAheadDist);
-                    const yElev = faceMatch ? 180 - faceMatch.centerlineElevationM * 18 : 100;
-                    const strokeCol = faceMatch?.intersectsCrown ? '#EF4444' : '#38BDF8';
-                    return (
-                      <g key={jla.jointId || idx}>
-                        <line
-                          x1="70"
-                          y1={Math.max(20, Math.min(175, yElev - 15))}
-                          x2="250"
-                          y2={Math.max(20, Math.min(175, yElev + 15))}
-                          stroke={strokeCol}
-                          strokeWidth="2.5"
-                          strokeDasharray={faceMatch?.intersectsCrown ? '4,2' : 'none'}
-                        />
-                        <text
-                          x="255"
-                          y={Math.max(25, Math.min(175, yElev + 15))}
-                          fontSize="8"
-                          fontWeight="700"
-                          fill={strokeCol}
-                        >
-                          {jla.set}
-                        </text>
-                      </g>
-                    );
-                  })}
-
-                  <text x="160" y="12" textAnchor="middle" fontSize="8" fontWeight="700" fill="#F59E0B">
-                    CROWN ARCH (10:00 - 02:00)
-                  </text>
-                  <text x="160" y="195" textAnchor="middle" fontSize="8" fill="#64748B">
-                    Chainage: {settings.faceChainage || 'CH 00+000'} + {lookAheadDist}m
-                  </text>
-                </svg>
-              </div>
-
-              <div className="text-[10px] text-center text-slate-400">
-                Red dashed lines = Joints migrating upward into the Crown Arch · Yellow arc = Crown Canopy Zone
-              </div>
-            </div>
-
-            {/* Upward Migration Alerts */}
-            {jointLookAheads.some((j) => j.migratingUpwardIntoCrown) && (
-              <div className="p-2.5 rounded bg-rose-950/50 border border-rose-600 text-rose-100 text-[10px] space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-rose-300">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  FORWARD JOINT DAYLIGHTING DETECTED!
-                </div>
-                {jointLookAheads
-                  .filter((j) => j.migratingUpwardIntoCrown)
-                  .map((j) => (
-                    <div key={j.jointId} className="leading-snug">
-                      • {j.warningMessage || `Joint ${j.set} will daylight into CROWN ARCH at ~Z=+${j.crownDaylightDistanceM}m!`}
-                    </div>
-                  ))}
-              </div>
-            )}
-
-            {/* FOREPOLING / SPILING CANOPY PRESCRIPTION CARD */}
-            <div className={`p-3 rounded-lg border space-y-2.5 ${
-              multiRoundReport.forepolingCanopy.recommended
-                ? 'bg-amber-950/40 border-amber-500/80'
-                : 'bg-slate-900 border-slate-800'
-            }`}>
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                <span className="font-bold text-xs flex items-center gap-1.5 text-amber-300">
-                  <Shield className="w-3.5 h-3.5" />
-                  Forepoling / Spiling Canopy Prescription
-                </span>
-                <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                  multiRoundReport.forepolingCanopy.recommended
-                    ? 'bg-amber-600 text-white'
-                    : 'bg-emerald-950 text-emerald-300 border border-emerald-700'
-                }`}>
-                  {multiRoundReport.forepolingCanopy.recommended ? 'CANOPY MANDATORY' : 'NOT REQUIRED'}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px]">
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Forepole Pipe Count:</span>
-                  <strong className="text-white text-xs">{multiRoundReport.forepolingCanopy.pipeCount} Nos</strong>
-                </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Pipe Spec &amp; Length:</span>
-                  <strong className="text-cyan-300 text-xs">
-                    Ø{multiRoundReport.forepolingCanopy.pipeDiameterMm}mm × {multiRoundReport.forepolingCanopy.pipeLengthM}m
-                  </strong>
-                </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Look-Out Angle:</span>
-                  <strong className="text-amber-300 text-xs">{multiRoundReport.forepolingCanopy.lookOutAngleDeg}°</strong>
-                </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Installation Sector:</span>
-                  <strong className="text-white">{multiRoundReport.forepolingCanopy.clockSector}</strong>
-                </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Overlap Between Pulls:</span>
-                  <strong className="text-white">{multiRoundReport.forepolingCanopy.overlapLengthM} m</strong>
-                </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Max Recommended Pull:</span>
-                  <strong className="text-emerald-300 font-bold">
-                    {multiRoundReport.forepolingCanopy.recommended ? '1.50m - 2.00m' : '3.00m - 3.50m'}
-                  </strong>
-                </div>
-              </div>
-
-              <div className="p-2 rounded bg-slate-950 border border-slate-800 text-[10px] text-slate-300 leading-relaxed">
-                <strong>Justification: </strong>
-                {multiRoundReport.forepolingCanopy.triggerReason}
-              </div>
             </div>
           </div>
         )}

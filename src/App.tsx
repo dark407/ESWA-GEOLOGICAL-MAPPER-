@@ -439,13 +439,9 @@ export default function App({
   });
 
   // 3-Mode Industry Switcher (NATM | TBM | MINING) with isolated parameter state
-  // 3-Mode Industry Switcher (NATM | TBM | MINING) with isolated parameter state
   const [industryMode, setIndustryMode] = useState<IndustryMode>(() => {
     if (typeof window !== 'undefined') {
-      const saved =
-        localStorage.getItem('eswa_active_industry_mode') ||
-        localStorage.getItem('eswa_default_industry_mode') ||
-        localStorage.getItem('eswa_active_industry_mode_v1');
+      const saved = localStorage.getItem('eswa_active_industry_mode_v1');
       if (saved === 'NATM' || saved === 'TBM' || saved === 'MINING') {
         return saved as IndustryMode;
       }
@@ -463,13 +459,9 @@ export default function App({
   const [isMiningInspectorOpen, setIsMiningInspectorOpen] = useState<boolean>(false);
   const [isTbmInspectorOpen, setIsTbmInspectorOpen] = useState<boolean>(false);
 
-  // Dedicated Underground Mining Workflow Step (1: Setup, 2: Face Mapping & Grade Control, 3: Geomechanics, 4: Core Logging, 5: Reports & History)
-  const [miningWorkflowStep, setMiningWorkflowStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  // Dedicated Underground Mining Workflow Step (1: Setup, 2: Face Mapping & Grade Control, 3: Geomechanics, 4: Core Logging)
+  const [miningWorkflowStep, setMiningWorkflowStep] = useState<1 | 2 | 3 | 4>(1);
   const [miningMappingMethod, setMiningMappingMethod] = useState<'FIELD_MAPPING' | 'PHOTOGRAMMETRY'>('FIELD_MAPPING');
-
-  // Dedicated TBM Mechanized Workflow Tabs (1: Cutterhead/Rings, 2: Telemetry/KPIs, 3: Muck/Grout, 4: Qtbm/RSR, 5: Shift Reports)
-  const [tbmTab, setTbmTab] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [pendingTargetMode, setPendingTargetMode] = useState<IndustryMode | null>(null);
 
   // Interactive Mining Ore vs Waste Zone Areas
   const [miningOreArea, setMiningOreArea] = useState<number>(14.5);
@@ -650,86 +642,90 @@ export default function App({
   const [tbmGroutPressureBar, setTbmGroutPressureBar] = useState<number>(3.2);
   const [tbmGroutVolumeM3, setTbmGroutVolumeM3] = useState<number>(4.8);
   const [tbmDiscWearMm, setTbmDiscWearMm] = useState<number>(14.2);
-  const [tbmRpm, setTbmRpm] = useState<number>(6.4);
-  const [tbmShieldFrictionKn, setTbmShieldFrictionKn] = useState<number>(2400);
-  const [tbmActiveCuttersNc, setTbmActiveCuttersNc] = useState<number>(42);
-  const [tbmMuckChipType, setTbmMuckChipType] = useState<string>('Slabby / Blocky');
-  const [tbmMuckChipSizeCm, setTbmMuckChipSizeCm] = useState<number>(8.5);
-  const [tbmWaterInflowLMin, setTbmWaterInflowLMin] = useState<number>(45);
-  const [tbmTheoreticalGroutM3, setTbmTheoreticalGroutM3] = useState<number>(8.2);
-  const [tbmOverbreakSector, setTbmOverbreakSector] = useState<string>('11:00–01:00 Crown');
 
-  // Dedicated Per-Mode View State: MAIN_WINDOW vs ACTIVITY
-  const [modeScreenState, setModeScreenState] = useState<Record<IndustryMode, 'MAIN_WINDOW' | 'ACTIVITY'>>(() => ({
-    NATM: 'MAIN_WINDOW',
-    TBM: 'MAIN_WINDOW',
-    MINING: 'MAIN_WINDOW',
-  }));
+  const handleSwitchIndustryMode = useCallback(
+    (targetMode: IndustryMode) => {
+      if (targetMode === industryMode) return;
 
-  // TBM Live Multi-Ring Telemetry Table
-  const [tbmRingsLog, setTbmRingsLog] = useState<
-    Array<{
-      id: string;
-      ringNum: number;
-      thrustKn: number;
-      torqueKnm: number;
-      rpm: number;
-      penetrationMmRev: number;
-      advanceRateMmMin: number;
-      fpi: number;
-      specificEnergyMjM3: number;
-      netCutterForceKn: number;
-      groutOverbreakM3: number;
-      hazardStatus: string;
-      timestamp: string;
-    }>
-  >([
-    {
-      id: 'ring-840',
-      ringNum: 840,
-      thrustKn: 13200,
-      torqueKnm: 2700,
-      rpm: 6.2,
-      penetrationMmRev: 7.2,
-      advanceRateMmMin: 44.6,
-      fpi: 35.8,
-      specificEnergyMjM3: 59.4,
-      netCutterForceKn: 257.1,
-      groutOverbreakM3: 3.2,
-      hazardStatus: 'OPTIMAL BORING',
-      timestamp: '2026-10-18 08:30',
+      // 1. Save current mode state snapshot to its isolated storage
+      const currentSnapshot: ModeProjectState = {
+        industryMode,
+        settings,
+        tbmParams,
+        miningSettings,
+        joints: [],
+        lithologyRegions: [],
+        qIndexParams: createDefaultQIndexParameters(),
+      };
+      try {
+        localStorage.setItem(
+          `eswa_industry_workspace_v1_${industryMode}`,
+          JSON.stringify(currentSnapshot)
+        );
+      } catch {
+        // Ignore storage quota
+      }
+
+      // 2. Load target mode state
+      let targetState: ModeProjectState | null = null;
+      try {
+        const raw = localStorage.getItem(`eswa_industry_workspace_v1_${targetMode}`);
+        if (raw) {
+          targetState = JSON.parse(raw);
+        }
+      } catch {
+        // Ignore
+      }
+
+      setIndustryMode(targetMode);
+      if (targetMode === 'MINING') {
+        setMiningWorkflowStep(1);
+      }
+      if (screen === 'welcome') {
+        setScreen('start');
+      }
+      try {
+        localStorage.setItem('eswa_active_industry_mode_v1', targetMode);
+      } catch {
+        // Ignore
+      }
+
+      if (targetState) {
+        if (targetState.settings) {
+          setSettings({ ...targetState.settings, industryMode: targetMode });
+        }
+        if (targetState.tbmParams) setTbmParams(targetState.tbmParams);
+        if (targetState.miningSettings) setMiningSettings(targetState.miningSettings);
+      } else {
+        // Mode-specific defaults
+        if (targetMode === 'MINING') {
+          setSettings((prev) => ({
+            ...prev,
+            industryMode: 'MINING',
+            projectName: prev.projectName || 'Underground Gold & Copper Mine',
+            tunnelName: 'Stope 450-East-01',
+            location: 'Level -450m Main Cross-Cut',
+            locationName: 'Level -450m Main Cross-Cut',
+          }));
+        } else if (targetMode === 'TBM') {
+          setSettings((prev) => ({
+            ...prev,
+            industryMode: 'TBM',
+            projectName: prev.projectName || 'Metro Shield Tunnel Project',
+            tunnelName: 'TBM Drive Downline',
+            location: 'Ch. 0+840 Ring #142',
+            locationName: 'Ch. 0+840 Ring #142',
+          }));
+        } else {
+          setSettings((prev) => ({
+            ...prev,
+            industryMode: 'NATM',
+          }));
+        }
+      }
     },
-    {
-      id: 'ring-841',
-      ringNum: 841,
-      thrustKn: 13500,
-      torqueKnm: 2780,
-      rpm: 6.3,
-      penetrationMmRev: 7.4,
-      advanceRateMmMin: 46.6,
-      fpi: 36.0,
-      specificEnergyMjM3: 60.5,
-      netCutterForceKn: 264.3,
-      groutOverbreakM3: 3.4,
-      hazardStatus: 'OPTIMAL BORING',
-      timestamp: '2026-10-18 10:15',
-    },
-    {
-      id: 'ring-842',
-      ringNum: 842,
-      thrustKn: 13800,
-      torqueKnm: 2850,
-      rpm: 6.4,
-      penetrationMmRev: 7.5,
-      advanceRateMmMin: 48.0,
-      fpi: 36.2,
-      specificEnergyMjM3: 61.8,
-      netCutterForceKn: 271.4,
-      groutOverbreakM3: 3.6,
-      hazardStatus: 'OPTIMAL BORING',
-      timestamp: '2026-10-18 12:00',
-    },
-  ]);
+    [industryMode, settings, tbmParams, miningSettings]
+  );
 
   // 4 Tunnel Surface Photographs (Restores saved photos if present)
   const [photos, setPhotos] = useState<Record<SurfaceType, PhotoSurface>>(() => {
@@ -891,590 +887,6 @@ export default function App({
   const [activeGeologist, setActiveGeologist] = useState<GeologistUserProfile | null>(() =>
     getActiveGeologistProfile()
   );
-
-  // 100% ISOLATED STORAGE SYSTEM PER INDUSTRY MODE (Strict Vaults)
-  // 1. eswa_strict_vault_NATM
-  // 2. eswa_strict_vault_MINING
-  // 3. eswa_strict_vault_TBM
-  const getStrictVaultKey = (mode: IndustryMode) => `eswa_strict_vault_${mode}`;
-  const getIsolatedDbKey = (mode: IndustryMode) => `eswa_strict_vault_${mode}`;
-
-  // THREE COMPLETELY SEPARATE "LOAD EXAMPLE DATA" GENERATORS
-  // 1. NATM Example Generator
-  const loadNatmExampleData = useCallback((navigateToActivity = true) => {
-    const targetGeom = createTunnelGeometry(8.5, 8.5, 4.8, 'horseshoe', 4.25, 'manual');
-    const fullSample = buildCompleteSampleFieldDataset(targetGeom, 3.5);
-
-    setGeometry(targetGeom);
-    setManWidth('8.50');
-    setManHeight('8.50');
-    setManWallHeight('4.80');
-    setManCrownRadius('4.25');
-    setManProfileType('horseshoe');
-
-    setSettings({
-      ...fullSample.settings,
-      industryMode: 'NATM',
-      projectName: 'Himalayan Hydro Headrace Tunnel',
-      tunnelName: 'Headrace Tunnel (HRT-01)',
-      location: 'Adit-2, Face North',
-      locationName: 'Adit-2, Face North',
-      chainage: 'CH 12+450.50 m',
-      faceChainage: 'CH 12+450.50 m',
-      driveDirectionInput: '042°',
-      roundLength: 3.5,
-    });
-    setPhotos(fullSample.photos);
-    setJoints(fullSample.joints);
-    setHistoryPast([]);
-    setHistoryFuture([]);
-    setLithologyRegions(fullSample.lithologyRegions);
-    setPlacedSymbols(fullSample.placedSymbols);
-    setControlPoints(fullSample.controlPoints);
-    setSurveyProfile(fullSample.surveyProfile);
-    setQIndexParams({
-      ...fullSample.qIndexParams,
-      rqd: 85,
-      jn: 9,
-      jr: 1.5,
-      ja: 1.0,
-      jw: 1.0,
-      srf: 1.0,
-    });
-    setRmrParams(fullSample.rmrParams);
-    setGsiParams(fullSample.gsiParams);
-    setRockMassSummary({
-      ...fullSample.rockMassSummary,
-      rockType: 'Quartzite / Quartzitic Phyllite',
-      geologistRemarks: 'Moderately jointed, blocky quartzite with rough stepped joints.',
-    });
-    setActiveSurface('face');
-    seedSampleContinuousStripDatasets();
-
-    try {
-      localStorage.setItem(
-        getStrictVaultKey('NATM'),
-        JSON.stringify({
-          industryMode: 'NATM',
-          projectName: 'Himalayan Hydro Headrace Tunnel',
-          location: 'Adit-2, Face North',
-          chainage: 'CH 12+450.50 m',
-          geometry: targetGeom,
-          timestamp: new Date().toISOString(),
-        })
-      );
-    } catch {}
-
-    if (navigateToActivity) {
-      setIsFirstOpening(false);
-      setIsFieldMappingModeOpen(false);
-      setActiveMappingDomain('TUNNEL');
-      setModeScreenState((prev) => ({ ...prev, NATM: 'ACTIVITY' }));
-      setScreen('mapping');
-    }
-    setStatusMessage('Loaded NATM Himalayan Hydro Headrace Tunnel example dataset (CH 12+450.50 m, Q=12.5, RMR=68).');
-  }, []);
-
-  // 2. MINING Example Generator
-  const loadMiningExampleData = useCallback((navigateToActivity = true) => {
-    const targetGeom = createTunnelGeometry(5.0, 4.8, 2.8, 'd_shaped', 2.5, 'manual');
-    setGeometry(targetGeom);
-    setManWidth('5.00');
-    setManHeight('4.80');
-    setManWallHeight('2.80');
-    setManCrownRadius('2.50');
-    setManProfileType('d_shaped');
-
-    const mSettings: MiningStopeSettings = {
-      mineName: 'Kolar Deep Underground Gold-Copper Mine',
-      mineLevel: 'Level 620 mRL',
-      stopeOrDriftId: 'HW-DRV-04',
-      excavationType: 'ORE_DRIVE',
-      miningMethod: 'SUBLEVEL_OPEN_STOPING',
-      oreBodyName: 'Champion Quartz-Sulfide Lode',
-      primaryCommodity: 'Gold (Au)',
-      gradeUnits: 'g/t',
-      targetCutoffGrade: '2.50',
-      hangingwallDipDeg: 72,
-      footwallDipDeg: 68,
-      oreSpecificGravity: 3.35,
-      wasteSpecificGravity: 2.72,
-      veins: [],
-      channelSamples: [],
-    };
-    setMiningSettings(mSettings);
-
-    const fullSample = buildCompleteSampleFieldDataset(targetGeom, 3.2);
-    setSettings({
-      ...fullSample.settings,
-      industryMode: 'MINING',
-      projectName: 'Kolar Deep Underground Gold-Copper Mine',
-      tunnelName: 'HW-DRV-04 (Cut #14)',
-      location: 'Level 620 mRL — Stope Drive HW-DRV-04 (Cut #14)',
-      locationName: 'Level 620 mRL — Stope Drive HW-DRV-04 (Cut #14)',
-      chainage: 'Cut #14',
-      faceChainage: 'Cut #14',
-      driveDirectionInput: '090°',
-      roundLength: 3.2,
-      miningSettings: mSettings,
-    });
-
-    setMiningOreArea(14.8);
-    setMiningLowGradeArea(2.4);
-    setMiningWasteArea(7.2);
-    setMiningBlastPull(3.2);
-
-    const demoSamples: FaceChannelSampleRecord[] = [
-      {
-        id: 'ch_01',
-        sampleNumber: 'CH-01',
-        fromMeter: 0.0,
-        toMeter: 1.0,
-        sampleLengthMeters: 1.0,
-        lithologyOrVein: 'Footwall Amphibolite Host Rock',
-        gradeValue: '0.4 g/t',
-        sampledBy: 'Senior Mine Geologist',
-        date: '2026-10-18',
-        specificGravity: 2.72,
-        zoneCategory: 'WASTE',
-        alteration: 'Chloritic (intensity 2)',
-        sulfidePercent: 0.5,
-        assayGrade: 0.4,
-        metalAccumulation: 0.4,
-      },
-      {
-        id: 'ch_02',
-        sampleNumber: 'CH-02',
-        fromMeter: 1.0,
-        toMeter: 2.2,
-        sampleLengthMeters: 1.2,
-        lithologyOrVein: 'Disseminated Sulfide-Quartz Breccia',
-        gradeValue: '4.8 g/t',
-        sampledBy: 'Senior Mine Geologist',
-        date: '2026-10-18',
-        specificGravity: 3.20,
-        zoneCategory: 'ORE',
-        alteration: 'Sericitic (intensity 3)',
-        sulfidePercent: 3.5,
-        assayGrade: 4.8,
-        metalAccumulation: 5.76,
-      },
-      {
-        id: 'ch_03',
-        sampleNumber: 'CH-03',
-        fromMeter: 2.2,
-        toMeter: 3.7,
-        sampleLengthMeters: 1.5,
-        lithologyOrVein: 'Champion Main Quartz-Sulfide Vein',
-        gradeValue: '11.6 g/t',
-        sampledBy: 'Senior Mine Geologist',
-        date: '2026-10-18',
-        specificGravity: 3.45,
-        zoneCategory: 'ORE',
-        alteration: 'Silicified (intensity 5)',
-        sulfidePercent: 8.5,
-        assayGrade: 11.6,
-        metalAccumulation: 17.4,
-      },
-      {
-        id: 'ch_04',
-        sampleNumber: 'CH-04',
-        fromMeter: 3.7,
-        toMeter: 5.0,
-        sampleLengthMeters: 1.3,
-        lithologyOrVein: 'Laminated Quartz-Arsenopyrite Ribbon',
-        gradeValue: '5.2 g/t',
-        sampledBy: 'Senior Mine Geologist',
-        date: '2026-10-18',
-        specificGravity: 3.30,
-        zoneCategory: 'ORE',
-        alteration: 'Silicified (intensity 4)',
-        sulfidePercent: 5.0,
-        assayGrade: 5.2,
-        metalAccumulation: 6.76,
-      },
-      {
-        id: 'ch_05',
-        sampleNumber: 'CH-05',
-        fromMeter: 5.0,
-        toMeter: 6.0,
-        sampleLengthMeters: 1.0,
-        lithologyOrVein: 'Hanging Wall Silicified Metabasalt',
-        gradeValue: '0.3 g/t',
-        sampledBy: 'Senior Mine Geologist',
-        date: '2026-10-18',
-        specificGravity: 2.70,
-        zoneCategory: 'WASTE',
-        alteration: 'Chloritic (intensity 1)',
-        sulfidePercent: 0.2,
-        assayGrade: 0.3,
-        metalAccumulation: 0.3,
-      },
-    ];
-    setMiningChannelSamples(demoSamples);
-
-    setMiningRqd(78);
-    setMiningJn(6);
-    setMiningJr(2.0);
-    setMiningJa(1.0);
-    setMiningStressFactorA(0.85);
-    setMiningJointFactorB(0.65);
-    setMiningGravityFactorC(5.0);
-    setMiningStopeWidth(5.0);
-    setMiningStopeHeight(4.8);
-    setMrmrBaseRmr(68);
-    setMrmrWeatheringPct(95);
-    setMrmrStressPct(90);
-    setMrmrOrientationPct(85);
-    setMrmrBlastingPct(92);
-
-    try {
-      localStorage.setItem(
-        getStrictVaultKey('MINING'),
-        JSON.stringify({
-          industryMode: 'MINING',
-          miningSettings: mSettings,
-          miningChannelSamples: demoSamples,
-          miningOreArea: 14.8,
-          miningLowGradeArea: 2.4,
-          miningWasteArea: 7.2,
-          geometry: targetGeom,
-          timestamp: new Date().toISOString(),
-        })
-      );
-    } catch {}
-
-    if (navigateToActivity) {
-      setModeScreenState((prev) => ({ ...prev, MINING: 'ACTIVITY' }));
-      setMiningWorkflowStep(2);
-    }
-    setStatusMessage("Loaded MINING Kolar Underground Gold-Copper Mine dataset (Level 620 mRL, Cut #14, 5 Channel Assays, Q'=18.4, MRMR=61).");
-  }, []);
-
-  // 3. TBM Example Generator
-  const loadTbmExampleData = useCallback((navigateToActivity = true) => {
-    const targetGeom = createTunnelGeometry(6.6, 6.6, 3.3, 'circular', 3.3, 'manual');
-    setGeometry(targetGeom);
-    setManWidth('6.60');
-    setManHeight('6.60');
-    setManWallHeight('3.30');
-    setManCrownRadius('3.30');
-    setManProfileType('circular');
-
-    const tParams: TbmMachineParameters = {
-      ringNumber: 842,
-      segmentId: 'Key + A1/A2/B1/B2/C (7 Segments)',
-      strokeLengthMm: 1500,
-      thrustForceKN: 13800,
-      cutterheadTorqueKNm: 2850,
-      penetrationRateMmPerRev: 7.5,
-      advanceRateMmPerMin: 48.0,
-      groutPressureBar: 2.8,
-      groutVolumeM3: 11.8,
-      epbPressureBar: 1.4,
-      discCutterWearMm: 4.2,
-      cutterheadInspectionNotes: '42 disc cutters (19") inspected at Ring #0842, normal gauge wear 4.2mm, no abnormal rotation.',
-    };
-    setTbmParams(tParams);
-
-    const fullSample = buildCompleteSampleFieldDataset(targetGeom, 1.5);
-    setSettings({
-      ...fullSample.settings,
-      industryMode: 'TBM',
-      projectName: 'Metro Line-4 Twin Bore TBM Tunnel',
-      tunnelName: 'South Drive (Downline)',
-      location: 'South Drive — Ring #0842 (CH 04+215.00 m)',
-      locationName: 'South Drive — Ring #0842 (CH 04+215.00 m)',
-      chainage: 'CH 04+215.00 m',
-      faceChainage: 'Ring #0842',
-      driveDirectionInput: '185°',
-      roundLength: 1.5,
-      tbmParams: tParams,
-    });
-
-    setTbmRingNum(842);
-    setTbmKeyPosition('Key Pos 4 (145°)');
-    setTbmThrustKn(13800);
-    setTbmTorqueKnm(2850);
-    setTbmPenetrationMmRev(7.5);
-    setTbmAdvanceRateMmMin(48.0);
-    setTbmEpbPressureBar(2.65);
-    setTbmGroutPressureBar(3.60);
-    setTbmGroutVolumeM3(11.8);
-    setTbmDiscWearMm(12.4);
-
-    setTbmRpm(6.4);
-    setTbmShieldFrictionKn(2400);
-    setTbmActiveCuttersNc(42);
-    setTbmMuckChipType('Slabby / Blocky');
-    setTbmMuckChipSizeCm(8.5);
-    setTbmWaterInflowLMin(45);
-    setTbmTheoreticalGroutM3(8.2);
-    setTbmOverbreakSector('11:00–01:00 Crown');
-
-    try {
-      localStorage.setItem(
-        getStrictVaultKey('TBM'),
-        JSON.stringify({
-          industryMode: 'TBM',
-          tbmParams: tParams,
-          tbmRingNum: 842,
-          tbmThrustKn: 13800,
-          tbmTorqueKnm: 2850,
-          tbmPenetrationMmRev: 7.5,
-          tbmAdvanceRateMmMin: 48.0,
-          tbmGroutVolumeM3: 11.8,
-          geometry: targetGeom,
-          timestamp: new Date().toISOString(),
-        })
-      );
-    } catch {}
-
-    if (navigateToActivity) {
-      setModeScreenState((prev) => ({ ...prev, TBM: 'ACTIVITY' }));
-      setTbmTab(2);
-    }
-    setStatusMessage('Loaded TBM Metro Line-4 Twin Bore dataset (Ring #0842, Ø 6.6m Double Shield, 13,800 kN Thrust, FPI 36.2).');
-  }, []);
-
-  const requestSwitchIndustryMode = useCallback(
-    (targetMode: IndustryMode) => {
-      if (targetMode === industryMode) return;
-      setPendingTargetMode(targetMode);
-    },
-    [industryMode]
-  );
-
-  const confirmAndSwitchIndustryMode = useCallback(
-    (targetMode: IndustryMode) => {
-      if (targetMode === industryMode) return;
-
-      // 1. Snapshot current mode state strictly into its isolated vault
-      const currentVaultKey = getStrictVaultKey(industryMode);
-      const currentSnapshot = {
-        industryMode,
-        timestamp: new Date().toISOString(),
-        settings,
-        geometry,
-        photos,
-        joints,
-        customJointSetOverrides,
-        qIndexParams,
-        rmrParams,
-        tbmParams,
-        miningSettings,
-        // Mining parameters
-        miningWorkflowStep,
-        miningMappingMethod,
-        miningChannelSamples,
-        miningOreArea,
-        miningLowGradeArea,
-        miningWasteArea,
-        miningBlastPull,
-        miningRqd,
-        miningJn,
-        miningJr,
-        miningJa,
-        miningStressFactorA,
-        miningJointFactorB,
-        miningGravityFactorC,
-        miningStopeWidth,
-        miningStopeHeight,
-        mrmrBaseRmr,
-        mrmrWeatheringPct,
-        mrmrStressPct,
-        mrmrOrientationPct,
-        mrmrBlastingPct,
-        miningDdhIntervals,
-        // TBM parameters
-        tbmTab,
-        tbmRingNum,
-        tbmKeyPosition,
-        tbmThrustKn,
-        tbmTorqueKnm,
-        tbmPenetrationMmRev,
-        tbmAdvanceRateMmMin,
-        tbmEpbPressureBar,
-        tbmGroutPressureBar,
-        tbmGroutVolumeM3,
-        tbmDiscWearMm,
-        tbmRpm,
-        tbmShieldFrictionKn,
-        tbmActiveCuttersNc,
-        tbmMuckChipType,
-        tbmMuckChipSizeCm,
-        tbmWaterInflowLMin,
-        tbmTheoreticalGroutM3,
-        tbmOverbreakSector,
-        tbmRingsLog,
-      };
-
-      try {
-        localStorage.setItem(currentVaultKey, JSON.stringify(currentSnapshot));
-      } catch {
-        // Ignore storage quota
-      }
-
-      // 2. Set industryMode to targetMode & force MAIN_WINDOW first
-      setIndustryMode(targetMode);
-      setModeScreenState((prev) => ({
-        ...prev,
-        [targetMode]: 'MAIN_WINDOW',
-      }));
-
-      try {
-        localStorage.setItem('eswa_active_industry_mode', targetMode);
-        localStorage.setItem('eswa_active_industry_mode_v1', targetMode);
-      } catch {
-        // Ignore
-      }
-
-      // 3. Ensure overlays and modals are closed so user lands on target Main Window
-      setIsFieldMappingModeOpen(false);
-      setIsCoreLoggingOpen(false);
-      setIsMiningInspectorOpen(false);
-      setIsTbmInspectorOpen(false);
-
-      // 4. Retrieve target mode state from its isolated vault
-      let targetState: any = null;
-      try {
-        const raw = localStorage.getItem(getStrictVaultKey(targetMode));
-        if (raw) {
-          targetState = JSON.parse(raw);
-        }
-      } catch {
-        // Ignore parse error
-      }
-
-      if (targetState) {
-        if (targetState.settings) {
-          setSettings({ ...targetState.settings, industryMode: targetMode });
-        }
-        if (targetState.geometry) setGeometry(targetState.geometry);
-        if (targetState.photos) setPhotos(targetState.photos);
-        if (targetState.joints) setJoints(targetState.joints);
-        else if (targetState.clusteredJoints) setJoints(targetState.clusteredJoints);
-        if (targetState.qIndexParams) setQIndexParams(targetState.qIndexParams);
-        if (targetState.rmrParams) setRmrParams(targetState.rmrParams);
-        if (targetState.tbmParams) setTbmParams(targetState.tbmParams);
-        if (targetState.miningSettings) setMiningSettings(targetState.miningSettings);
-        if (targetMode === 'MINING') {
-          if (targetState.miningWorkflowStep) setMiningWorkflowStep(targetState.miningWorkflowStep);
-          if (targetState.miningMappingMethod) setMiningMappingMethod(targetState.miningMappingMethod);
-          if (targetState.miningChannelSamples) setMiningChannelSamples(targetState.miningChannelSamples);
-          if (targetState.miningOreArea !== undefined) setMiningOreArea(targetState.miningOreArea);
-          if (targetState.miningLowGradeArea !== undefined) setMiningLowGradeArea(targetState.miningLowGradeArea);
-          if (targetState.miningWasteArea !== undefined) setMiningWasteArea(targetState.miningWasteArea);
-          if (targetState.miningBlastPull !== undefined) setMiningBlastPull(targetState.miningBlastPull);
-          if (targetState.miningRqd !== undefined) setMiningRqd(targetState.miningRqd);
-          if (targetState.miningJn !== undefined) setMiningJn(targetState.miningJn);
-          if (targetState.miningJr !== undefined) setMiningJr(targetState.miningJr);
-          if (targetState.miningJa !== undefined) setMiningJa(targetState.miningJa);
-          if (targetState.miningStressFactorA !== undefined) setMiningStressFactorA(targetState.miningStressFactorA);
-          if (targetState.miningJointFactorB !== undefined) setMiningJointFactorB(targetState.miningJointFactorB);
-          if (targetState.miningGravityFactorC !== undefined) setMiningGravityFactorC(targetState.miningGravityFactorC);
-          if (targetState.miningStopeWidth !== undefined) setMiningStopeWidth(targetState.miningStopeWidth);
-          if (targetState.miningStopeHeight !== undefined) setMiningStopeHeight(targetState.miningStopeHeight);
-          if (targetState.mrmrBaseRmr !== undefined) setMrmrBaseRmr(targetState.mrmrBaseRmr);
-          if (targetState.mrmrWeatheringPct !== undefined) setMrmrWeatheringPct(targetState.mrmrWeatheringPct);
-          if (targetState.mrmrStressPct !== undefined) setMrmrStressPct(targetState.mrmrStressPct);
-          if (targetState.mrmrOrientationPct !== undefined) setMrmrOrientationPct(targetState.mrmrOrientationPct);
-          if (targetState.mrmrBlastingPct !== undefined) setMrmrBlastingPct(targetState.mrmrBlastingPct);
-          if (targetState.miningDdhIntervals) setMiningDdhIntervals(targetState.miningDdhIntervals);
-        } else if (targetMode === 'TBM') {
-          if (targetState.tbmTab) setTbmTab(targetState.tbmTab);
-          if (targetState.tbmRingNum !== undefined) setTbmRingNum(targetState.tbmRingNum);
-          if (targetState.tbmKeyPosition) setTbmKeyPosition(targetState.tbmKeyPosition);
-          if (targetState.tbmThrustKn !== undefined) setTbmThrustKn(targetState.tbmThrustKn);
-          if (targetState.tbmTorqueKnm !== undefined) setTbmTorqueKnm(targetState.tbmTorqueKnm);
-          if (targetState.tbmPenetrationMmRev !== undefined) setTbmPenetrationMmRev(targetState.tbmPenetrationMmRev);
-          if (targetState.tbmAdvanceRateMmMin !== undefined) setTbmAdvanceRateMmMin(targetState.tbmAdvanceRateMmMin);
-          if (targetState.tbmEpbPressureBar !== undefined) setTbmEpbPressureBar(targetState.tbmEpbPressureBar);
-          if (targetState.tbmGroutPressureBar !== undefined) setTbmGroutPressureBar(targetState.tbmGroutPressureBar);
-          if (targetState.tbmGroutVolumeM3 !== undefined) setTbmGroutVolumeM3(targetState.tbmGroutVolumeM3);
-          if (targetState.tbmDiscWearMm !== undefined) setTbmDiscWearMm(targetState.tbmDiscWearMm);
-          if (targetState.tbmRpm !== undefined) setTbmRpm(targetState.tbmRpm);
-          if (targetState.tbmShieldFrictionKn !== undefined) setTbmShieldFrictionKn(targetState.tbmShieldFrictionKn);
-          if (targetState.tbmActiveCuttersNc !== undefined) setTbmActiveCuttersNc(targetState.tbmActiveCuttersNc);
-          if (targetState.tbmRingsLog) setTbmRingsLog(targetState.tbmRingsLog);
-        } else {
-          setScreen('welcome');
-        }
-      } else {
-        // Defaults for fresh mode activation
-        if (targetMode === 'MINING') {
-          loadMiningExampleData(false);
-        } else if (targetMode === 'TBM') {
-          loadTbmExampleData(false);
-        } else {
-          loadNatmExampleData(false);
-          setScreen('welcome');
-        }
-      }
-    },
-    [
-      industryMode,
-      settings,
-      geometry,
-      photos,
-      joints,
-      customJointSetOverrides,
-      qIndexParams,
-      rmrParams,
-      tbmParams,
-      miningSettings,
-      miningWorkflowStep,
-      miningMappingMethod,
-      miningChannelSamples,
-      miningOreArea,
-      miningLowGradeArea,
-      miningWasteArea,
-      miningBlastPull,
-      miningRqd,
-      miningJn,
-      miningJr,
-      miningJa,
-      miningStressFactorA,
-      miningJointFactorB,
-      miningGravityFactorC,
-      miningStopeWidth,
-      miningStopeHeight,
-      mrmrBaseRmr,
-      mrmrWeatheringPct,
-      mrmrStressPct,
-      mrmrOrientationPct,
-      mrmrBlastingPct,
-      miningDdhIntervals,
-      tbmTab,
-      tbmRingNum,
-      tbmKeyPosition,
-      tbmThrustKn,
-      tbmTorqueKnm,
-      tbmPenetrationMmRev,
-      tbmAdvanceRateMmMin,
-      tbmEpbPressureBar,
-      tbmGroutPressureBar,
-      tbmGroutVolumeM3,
-      tbmDiscWearMm,
-      tbmRpm,
-      tbmShieldFrictionKn,
-      tbmActiveCuttersNc,
-      tbmMuckChipType,
-      tbmMuckChipSizeCm,
-      tbmWaterInflowLMin,
-      tbmTheoreticalGroutM3,
-      tbmOverbreakSector,
-      tbmRingsLog,
-      loadMiningExampleData,
-      loadTbmExampleData,
-      loadNatmExampleData,
-    ]
-  );
-
-  // Alias for backward compatibility across all buttons
-  const handleSwitchIndustryMode = requestSwitchIndustryMode;
-
-  // State declarations moved above industry mode logic
 
   useEffect(() => {
     const handleProfileChange = () => {
@@ -2425,26 +1837,6 @@ export default function App({
     };
     const { records, storageWarning } = saveProjectRecordToMemory(record);
     setSavedProjects(records);
-
-    // Save into mode-specific isolated database namespace
-    try {
-      const modeKey = `eswa_isolated_db_${industryMode}`;
-      const existingRaw = localStorage.getItem(modeKey);
-      let existingData: any = {};
-      if (existingRaw) {
-        try {
-          existingData = JSON.parse(existingRaw);
-        } catch {
-          // Ignore parse errors
-        }
-      }
-      existingData.lastSavedRecord = record;
-      existingData.timestamp = new Date().toISOString();
-      localStorage.setItem(modeKey, JSON.stringify(existingData));
-    } catch {
-      // Ignore storage errors
-    }
-
     syncPhotogrammetryProjectForAiTraining(
       settings,
       geometry,
@@ -2457,7 +1849,7 @@ export default function App({
     );
     setStatusMessage(
       storageWarning ||
-        `Saved project "${record.tunnelName} (${record.faceChainage}, ${record.date})" to ${industryMode} File Memory.`
+        `Saved project "${record.tunnelName} (${record.faceChainage}, ${record.date})" to Project File Memory.`
     );
   }, [
     settings,
@@ -2604,37 +1996,11 @@ export default function App({
     }
     setPlacedSymbols(record.placedSymbols || []);
     setIsProjectMemoryModalOpen(false);
-
-    const recMode = (record.settings?.industryMode as IndustryMode) || industryMode;
-    if (recMode && (recMode === 'NATM' || recMode === 'TBM' || recMode === 'MINING')) {
-      setIndustryMode(recMode);
-      try {
-        localStorage.setItem('eswa_active_industry_mode', recMode);
-        localStorage.setItem('eswa_active_industry_mode_v1', recMode);
-      } catch {
-        // Ignore
-      }
-    }
-
-    if (record.settings?.miningSettings) {
-      setMiningSettings(record.settings.miningSettings);
-    }
-    if (record.settings?.tbmParams) {
-      setTbmParams(record.settings.tbmParams);
-    }
-
-    if (recMode === 'NATM') {
-      setScreen('mapping');
-    } else if (recMode === 'MINING') {
-      setMiningWorkflowStep(2);
-    } else if (recMode === 'TBM') {
-      setTbmTab(1);
-    }
-
+    setScreen('mapping');
     setStatusMessage(
-      `Loaded ${recMode} project "${record.tunnelName} (${record.faceChainage}, ${record.date})" from File Memory.`
+      `Loaded project "${record.tunnelName} (${record.faceChainage}, ${record.date})" from Project File Memory.`
     );
-  }, [industryMode]);
+  }, []);
 
   const handleExportCurrentProjectFile = useCallback(() => {
     const chMeters = parseNumericChainageMeters(settings.faceChainage, settings.chainage);
@@ -3698,57 +3064,6 @@ export default function App({
     }`,
   };
 
-  const modeSwitchConfirmationModalNode = pendingTargetMode ? (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl text-slate-100 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-            <RefreshCw className="w-5 h-5 animate-spin" />
-          </div>
-          <div>
-            <h3 className="font-display text-base font-bold text-white">
-              Switch Industry Environment to {pendingTargetMode}?
-            </h3>
-            <p className="text-xs font-mono text-slate-400">
-              Isolated Environment &amp; Storage Transition
-            </p>
-          </div>
-        </div>
-
-        <p className="text-xs font-mono text-slate-300 leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-          Your current <span className="text-amber-400 font-bold">{industryMode}</span> workspace and project data are saved in isolated <span className="text-amber-400 font-bold">{industryMode}</span> storage (<code className="text-slate-400">eswa_isolated_db_{industryMode}</code>). Switching to <span className="text-cyan-400 font-bold">{pendingTargetMode}</span> will load the dedicated <span className="text-cyan-400 font-bold">{pendingTargetMode}</span> Main Window and database.
-        </p>
-
-        <div className="flex items-center justify-end gap-2.5 pt-2">
-          <button
-            type="button"
-            onClick={() => setPendingTargetMode(null)}
-            className="px-4 py-2 rounded-xl text-xs font-mono font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer transition-all"
-          >
-            Cancel (Stay in {industryMode})
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const target = pendingTargetMode;
-              setPendingTargetMode(null);
-              confirmAndSwitchIndustryMode(target);
-            }}
-            className={`px-4 py-2 rounded-xl text-xs font-mono font-bold shadow-lg cursor-pointer transition-all ${
-              pendingTargetMode === 'MINING'
-                ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-black'
-                : pendingTargetMode === 'TBM'
-                ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black'
-                : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black'
-            }`}
-          >
-            Confirm &amp; Switch to {pendingTargetMode}
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : null;
-
   // ============================================================================
   // GEOTECHNICAL CORE LOGGING & BOREHOLE STRIP LOG REPORT WORKSPACE
   // ============================================================================
@@ -3756,17 +3071,11 @@ export default function App({
     return (
       <>
         <CoreLoggingWorkspace
-          onBackToMain={() => {
-            setIsCoreLoggingOpen(false);
-            if (industryMode === 'NATM') {
-              setScreen('welcome');
-            }
-          }}
+          onBackToMain={() => setIsCoreLoggingOpen(false)}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
           activeGeologistProfile={activeGeologist}
         />
         {globalSettingsModalNode}
-        {modeSwitchConfirmationModalNode}
       </>
     );
   }
@@ -3797,30 +3106,24 @@ export default function App({
           onBackToWelcome={() => {
             setIsFieldMappingModeOpen(false);
             setResumeFieldAtLastStage(false);
-            if (industryMode === 'NATM') {
-              setScreen('welcome');
-            }
+            setScreen('welcome');
           }}
           onExitToWelcome={() => {
             setIsFieldMappingModeOpen(false);
             setResumeFieldAtLastStage(false);
-            if (industryMode === 'NATM') {
-              setScreen('welcome');
-            }
+            setScreen('welcome');
           }}
         />
         {projectMemoryModalNode}
         {globalSettingsModalNode}
-        {modeSwitchConfirmationModalNode}
       </>
     );
   }
 
   // ============================================================================
-  // SCREEN 0: OFFICIAL ESWA WELCOME WINDOW (Civil/NATM Drill & Blast)
-  // Strictly renders ONLY when industryMode === 'NATM'
+  // SCREEN 0: OFFICIAL ESWA WELCOME WINDOW (Ember-Charcoal & Warm Orange Identity)
   // ============================================================================
-  if (screen === 'welcome' && industryMode === 'NATM') {
+  if (screen === 'welcome') {
     const fieldResumeMeta = loadFieldMappingResumeState();
     const photoResumeMeta = loadPhotogrammetryResumeState();
     const surfaceResumeMeta = loadSurfaceMappingResumeState();
@@ -3868,6 +3171,30 @@ export default function App({
               );
             })}
           </div>
+
+          {industryMode === 'MINING' && (
+            <button
+              type="button"
+              onClick={() => setIsMiningInspectorOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-mono font-bold bg-black/60 backdrop-blur-md text-amber-300 border border-amber-400/40 hover:bg-black/80 transition-all cursor-pointer shadow-md"
+              title="Open Mining Stope, Veins & Mathews Stability Inspector"
+            >
+              <Pickaxe className="w-3.5 h-3.5 text-amber-400" />
+              <span>Stope &amp; Veins</span>
+            </button>
+          )}
+
+          {industryMode === 'TBM' && (
+            <button
+              type="button"
+              onClick={() => setIsTbmInspectorOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-mono font-bold bg-black/60 backdrop-blur-md text-cyan-300 border border-cyan-400/40 hover:bg-black/80 transition-all cursor-pointer shadow-md"
+              title="Open TBM Shield & Ring Inspector"
+            >
+              <CircleDot className="w-3.5 h-3.5 text-cyan-400" />
+              <span>TBM Shield</span>
+            </button>
+          )}
         </div>
 
         {/* Top-Right Controls: Google Email Login & Master Software Access Control */}
@@ -4269,7 +3596,6 @@ export default function App({
         {welcomeAiChatbotNode}
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
-        {modeSwitchConfirmationModalNode}
       </main>
     );
   }
@@ -4396,12 +3722,12 @@ export default function App({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setMiningWorkflowStep(1)}
+                onClick={() => setScreen('welcome')}
                 className={layoutStyles.backButton}
-                title="Return to Step 1 (Mine Heading Setup)"
+                title="Return to Welcome Window"
               >
-                <Pickaxe className="w-4 h-4 text-amber-500" />
-                <span>Mine Dashboard</span>
+                <ArrowLeft className="w-4 h-4" />
+                <span>Welcome</span>
               </button>
               <EswaTunnelLogo size="sm" animated={false} />
 
@@ -4469,21 +3795,20 @@ export default function App({
             </div>
           </div>
 
-          {/* DEDICATED 5-STEP UNDERGROUND MINING WORKFLOW STEP BAR */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 bg-slate-950/80 p-2 rounded-2xl border border-amber-500/30">
+          {/* DEDICATED 4-STEP UNDERGROUND MINING WORKFLOW STEP BAR */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 bg-slate-950/80 p-2 rounded-2xl border border-amber-500/30">
             {[
-              { num: 1, title: 'Step 1: Heading Setup', sub: 'Level, Stope, Cut & SG' },
-              { num: 2, title: 'Step 2: Face & Grade', sub: 'Channels, Ore/Waste & Muck' },
-              { num: 3, title: 'Step 3: Geomechanics', sub: "Q', Mathews N', MRMR" },
-              { num: 4, title: 'Step 4: Diamond Core', sub: 'DDH Intervals, Assays & QA' },
-              { num: 5, title: 'Step 5: Reports & Cuts', sub: 'A3 Grade Sheet & History' },
+              { num: 1, title: 'Step 1: Heading & Lode Setup', sub: 'Level, Stope, Commodity & Cut-Off' },
+              { num: 2, title: 'Step 2: Face Mapping & Grade Control', sub: 'Channel Samples, Tonnage & Dilution' },
+              { num: 3, title: 'Step 3: Mining Geomechanics', sub: "Modified Q', Mathews N', Laubscher MRMR" },
+              { num: 4, title: 'Step 4: Diamond Core Logging', sub: 'DDH Intervals, Assays, QA/QC & Compositing' },
             ].map((s) => {
               const isCurrent = miningWorkflowStep === s.num;
               return (
                 <button
                   key={s.num}
                   type="button"
-                  onClick={() => setMiningWorkflowStep(s.num as 1 | 2 | 3 | 4 | 5)}
+                  onClick={() => setMiningWorkflowStep(s.num as 1 | 2 | 3 | 4)}
                   className={`p-2.5 rounded-xl text-left transition-all cursor-pointer border ${
                     isCurrent
                       ? 'bg-amber-500 text-slate-950 font-bold border-amber-400 shadow-md'
@@ -5627,169 +4952,6 @@ export default function App({
                     <span>Add Drill Hole Interval</span>
                   </button>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setMiningWorkflowStep(1)}
-                      className="text-xs font-mono text-slate-400 hover:text-white cursor-pointer"
-                    >
-                      ← Step 1
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMiningWorkflowStep(5)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-mono cursor-pointer transition-all"
-                    >
-                      <span>Proceed to Step 5: Reports &amp; History</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* MINING STEP 5: Mining Reports & Saved Cuts History */}
-          {miningWorkflowStep === 5 && (
-            <div className="space-y-4">
-              <div className={`${layoutStyles.sectionSurface} space-y-4 bg-slate-950 border-amber-500/30`}>
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                  <span className="text-xs font-mono uppercase font-bold text-amber-400 flex items-center gap-2">
-                    <Database className="w-4 h-4" />
-                    <span>Mining Reports, Production Reconciliation &amp; Saved Cuts History</span>
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleSaveCurrentProjectToMemory()}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs font-mono cursor-pointer transition-all shadow-sm"
-                    >
-                      <Save className="w-3.5 h-3.5" />
-                      <span>Save Cut to Isolated Mine Database</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setExportModalInitialMode('FINAL_ENGINEERING_SHEET');
-                        setIsExportModalOpen(true);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-mono cursor-pointer transition-all shadow-sm"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Export A3 Grade Control Sheet</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Live Cut Summary Card */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
-                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-1">
-                    <span className="text-slate-400 text-[10px] uppercase">Current Mine Cut</span>
-                    <div className="text-sm font-black text-amber-300">{settings.faceChainage || 'Cut #14'}</div>
-                    <span className="text-[10px] text-slate-500">{miningSettings?.mineLevel || 'Level 620 mRL'}</span>
-                  </div>
-                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-1">
-                    <span className="text-slate-400 text-[10px] uppercase">Diluted Muck Grade</span>
-                    <div className="text-sm font-black text-cyan-300">{dilutedMuckGrade.toFixed(2)} {commodityUnits}</div>
-                    <span className="text-[10px] text-slate-500">Cut-off: {cutoffGrade.toFixed(2)} {commodityUnits}</span>
-                  </div>
-                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-1">
-                    <span className="text-slate-400 text-[10px] uppercase">Ore vs Waste Tonnes</span>
-                    <div className="text-sm font-black text-emerald-400">{oreTonnes.toFixed(1)} t Ore</div>
-                    <span className="text-[10px] text-rose-400">{wasteTonnes.toFixed(1)} t Waste ({plannedDilutionPct.toFixed(1)}% Dil)</span>
-                  </div>
-                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-1">
-                    <span className="text-slate-400 text-[10px] uppercase">Routing Verdict</span>
-                    <div className="text-xs font-black text-amber-400 truncate">{muckVerdict.label}</div>
-                    <span className="text-[10px] text-slate-500">{mathewsZone.zone}</span>
-                  </div>
-                </div>
-
-                {/* Saved Mine Cuts Reconciliation List */}
-                <div className="space-y-2">
-                  <span className="text-xs font-mono font-bold text-slate-300">
-                    Saved Heading Cuts &amp; Production Logs in <code className="text-amber-400">eswa_isolated_db_MINING</code>:
-                  </span>
-                  <div className="border border-slate-800 rounded-xl overflow-hidden">
-                    <table className="w-full text-left text-xs font-mono">
-                      <thead className="bg-slate-900 text-slate-400 border-b border-slate-800">
-                        <tr>
-                          <th className="p-2">Cut / Heading</th>
-                          <th className="p-2">Level (mRL)</th>
-                          <th className="p-2">Orebody</th>
-                          <th className="p-2">Grade</th>
-                          <th className="p-2">Tonnage (Ore / Waste)</th>
-                          <th className="p-2">Dispatch Route</th>
-                          <th className="p-2 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800 text-slate-200">
-                        <tr className="hover:bg-slate-900/50">
-                          <td className="p-2 font-bold text-amber-300">{settings.faceChainage || 'Cut #14'} (Active)</td>
-                          <td className="p-2">{miningSettings?.mineLevel || 'Level 620 mRL'}</td>
-                          <td className="p-2 text-slate-300">{miningSettings?.oreBodyName || 'Main Quartz-Sulfide Lode'}</td>
-                          <td className="p-2 font-bold text-cyan-300">{dilutedMuckGrade.toFixed(2)} {commodityUnits}</td>
-                          <td className="p-2">{oreTonnes.toFixed(0)}t / {wasteTonnes.toFixed(0)}t</td>
-                          <td className="p-2">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${muckVerdict.badgeColor}`}>
-                              {muckVerdict.label.split('(')[0].trim()}
-                            </span>
-                          </td>
-                          <td className="p-2 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveCurrentProjectToMemory()}
-                              className="px-2 py-1 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-[11px] cursor-pointer"
-                            >
-                              Save Snapshot
-                            </button>
-                          </td>
-                        </tr>
-                        {savedProjects
-                          .filter((p) => p.settings?.industryMode === 'MINING')
-                          .map((p) => (
-                            <tr key={p.id} className="hover:bg-slate-900/50">
-                              <td className="p-2 font-bold text-amber-300">{p.faceChainage || p.tunnelName}</td>
-                              <td className="p-2">{p.settings?.locationName || 'Level 620 mRL'}</td>
-                              <td className="p-2 text-slate-300">{p.projectName}</td>
-                              <td className="p-2 text-cyan-300 font-bold">{p.settings?.miningSettings?.targetCutoffGrade ? `${p.settings.miningSettings.targetCutoffGrade} g/t` : '4.8 g/t'}</td>
-                              <td className="p-2">320t / 45t</td>
-                              <td className="p-2">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
-                                  ROUTE TO MILL
-                                </span>
-                              </td>
-                              <td className="p-2 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => handleLoadProjectRecord(p)}
-                                  className="px-2 py-1 rounded bg-slate-800 text-slate-300 hover:text-white text-[11px] cursor-pointer"
-                                >
-                                  Load Cut
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const curNum = parseInt((settings.faceChainage || 'Cut #14').replace(/\D/g, '')) || 14;
-                      const nextCut = `Cut #${curNum + 1}`;
-                      setSettings((prev) => ({ ...prev, faceChainage: nextCut }));
-                      setMiningWorkflowStep(1);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-mono cursor-pointer transition-all"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Advance to Next Mine Heading Cut</span>
-                  </button>
-
                   <button
                     type="button"
                     onClick={() => setMiningWorkflowStep(1)}
@@ -5804,7 +4966,6 @@ export default function App({
         </div>
         {projectMemoryModalNode}
         {globalSettingsModalNode}
-        {modeSwitchConfirmationModalNode}
       </main>
     );
   }
@@ -5823,12 +4984,12 @@ export default function App({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setTbmTab(1)}
+                onClick={() => setScreen('welcome')}
                 className={layoutStyles.backButton}
-                title="Return to Tab 1 (Ring Assembly & Cutterhead)"
+                title="Return to Welcome Window"
               >
-                <CircleDot className="w-4 h-4 text-cyan-400" />
-                <span>TBM Dashboard</span>
+                <ArrowLeft className="w-4 h-4" />
+                <span>Welcome</span>
               </button>
               <EswaTunnelLogo size="sm" animated={false} />
 
@@ -5863,7 +5024,7 @@ export default function App({
                   <span>ESWA TBM Mechanized Tunneling Suite · Shield &amp; Ring Assembly</span>
                 </h1>
                 <p className="text-xs font-mono text-cyan-400/90 font-medium">
-                  {settings.projectName || 'Metro Shield Tunnel'} · EPB Shield (Ø 6.40m) · Ring #{tbmRingNum} · {tbmKeyPosition}
+                  EPB / Slurry Shield (Ø 6.40m) · Chainage 0+840 · Ring #{tbmRingNum} · {tbmKeyPosition}
                 </p>
               </div>
             </div>
@@ -5896,397 +5057,171 @@ export default function App({
             </div>
           </div>
 
-          {/* DEDICATED 5-TAB TBM MECHANIZED TUNNELING WORKFLOW NAVIGATION */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 bg-slate-950/80 p-2 rounded-2xl border border-cyan-500/30">
-            {[
-              { id: 1, title: '1. Ring & Cutterhead', sub: 'Ring Key, Discs & Lining' },
-              { id: 2, title: '2. Telemetry & KPIs', sub: 'Thrust, Torque, RPM & FPI' },
-              { id: 3, title: '3. Muck & Grout', sub: 'Theoretical vs Annular Grout' },
-              { id: 4, title: '4. Geomech (Qtbm/RSR)', sub: 'Boreability & CSM Model' },
-              { id: 5, title: '5. Shift Reports', sub: 'Ring Advance Logs & Export' },
-            ].map((t) => {
-              const isCurrent = tbmTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTbmTab(t.id as 1 | 2 | 3 | 4 | 5)}
-                  className={`p-2.5 rounded-xl text-left transition-all cursor-pointer border ${
-                    isCurrent
-                      ? 'bg-cyan-500 text-slate-950 font-bold border-cyan-400 shadow-md'
-                      : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:border-cyan-500/40 hover:bg-slate-800'
-                  }`}
-                >
-                  <div className="text-xs font-mono uppercase font-black tracking-wide flex items-center justify-between">
-                    <span>{t.title}</span>
-                    {isCurrent && <span className="w-2 h-2 rounded-full bg-slate-950 animate-ping" />}
-                  </div>
-                  <div className={`text-[11px] truncate mt-0.5 ${isCurrent ? 'text-slate-900/80' : 'text-slate-400'}`}>
-                    {t.sub}
-                  </div>
-                </button>
-              );
-            })}
+          {/* TBM Status Banner */}
+          <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/30 flex items-center justify-between text-xs font-mono">
+            <span className="text-cyan-300 font-bold flex items-center gap-2">
+              <Gauge className="w-4 h-4 text-cyan-400" />
+              <span>TBM MECHANIZED TUNNELING WORKSPACE ACTIVE</span>
+            </span>
+            <span className="text-slate-400">
+              Isolated TBM Module — Civil NATM steps and panels completely hidden.
+            </span>
           </div>
 
-          {/* TAB 1: TBM Ring & Cutterhead Face / Segment Mapping */}
-          {tbmTab === 1 && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              <div className="lg:col-span-6 bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="text-xs font-mono font-bold text-cyan-400 uppercase">
-                    Precast Concrete Segment Ring Assembly (Universal Ring)
-                  </span>
-                  <span className="text-xs font-mono text-slate-400">
-                    Ring #{tbmRingNum} · Width: 1.5m
-                  </span>
-                </div>
+          {/* Real-Time TBM Machine Telemetry & Dashboard */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs font-mono">
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 text-[10px] uppercase">Thrust Force</span>
+              <div className="text-base font-black text-cyan-300">{tbmThrustKn.toLocaleString()} kN</div>
+              <span className="text-[10px] text-slate-500">Cap: 32,000 kN</span>
+            </div>
 
-                {/* Circular Ring SVG diagram */}
-                <div className="w-full h-64 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-center p-2 relative">
-                  <svg viewBox="0 0 300 300" className="w-full h-full">
-                    <circle cx="150" cy="150" r="120" fill="none" stroke="#334155" strokeWidth="24" />
-                    <circle cx="150" cy="150" r="108" fill="#020617" />
-                    <path d="M 150 30 A 120 120 0 0 1 254 90" fill="none" stroke="#38BDF8" strokeWidth="22" strokeDasharray="100 4" />
-                    <path d="M 254 90 A 120 120 0 0 1 254 210" fill="none" stroke="#818CF8" strokeWidth="22" strokeDasharray="100 4" />
-                    <path d="M 254 210 A 120 120 0 0 1 150 270" fill="none" stroke="#34D399" strokeWidth="22" strokeDasharray="100 4" />
-                    <path d="M 150 270 A 120 120 0 0 1 46 210" fill="none" stroke="#FBBF24" strokeWidth="22" strokeDasharray="100 4" />
-                    <path d="M 46 210 A 120 120 0 0 1 46 90" fill="none" stroke="#F472B6" strokeWidth="22" strokeDasharray="100 4" />
-                    <path d="M 46 90 A 120 120 0 0 1 150 30" fill="none" stroke="#F87171" strokeWidth="24" />
-                    <text x="150" y="145" fill="#38BDF8" fontSize="14" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
-                      RING #{tbmRingNum}
-                    </text>
-                    <text x="150" y="165" fill="#94A3B8" fontSize="10" textAnchor="middle" fontFamily="monospace">
-                      {tbmKeyPosition}
-                    </text>
-                  </svg>
-                </div>
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 text-[10px] uppercase">Cutterhead Torque</span>
+              <div className="text-base font-black text-amber-400">{tbmTorqueKnm.toLocaleString()} kNm</div>
+              <span className="text-[10px] text-slate-500">Cap: 9,000 kNm</span>
+            </div>
 
-                <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-                  <div className="p-2 bg-slate-900 rounded-xl border border-slate-800 text-center">
-                    <span className="text-slate-400 text-[10px]">Segment Thickness</span>
-                    <div className="font-bold text-slate-200">350 mm</div>
-                  </div>
-                  <div className="p-2 bg-slate-900 rounded-xl border border-slate-800 text-center">
-                    <span className="text-slate-400 text-[10px]">Concrete Grade</span>
-                    <div className="font-bold text-cyan-300">C50/60</div>
-                  </div>
-                  <div className="p-2 bg-slate-900 rounded-xl border border-slate-800 text-center">
-                    <span className="text-slate-400 text-[10px]">Gasket System</span>
-                    <div className="font-bold text-emerald-400">EPDM 28 bar</div>
-                  </div>
-                </div>
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 text-[10px] uppercase">EPB Earth Pressure</span>
+              <div className="text-base font-black text-emerald-400">{tbmEpbPressureBar.toFixed(2)} bar</div>
+              <span className="text-[10px] text-slate-500">Chamber Bulkhead</span>
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 text-[10px] uppercase">Penetration Rate</span>
+              <div className="text-base font-black text-white">{tbmPenetrationMmRev.toFixed(1)} mm/rev</div>
+              <span className="text-[10px] text-slate-500">Speed: {tbmAdvanceRateMmMin} mm/min</span>
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 text-[10px] uppercase">Tail Grout Pressure</span>
+              <div className="text-base font-black text-cyan-300">{tbmGroutPressureBar.toFixed(1)} bar</div>
+              <span className="text-[10px] text-slate-500">Vol: {tbmGroutVolumeM3} m³</span>
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 text-[10px] uppercase">Disc Cutter Wear</span>
+              <div className="text-base font-black text-yellow-300">{tbmDiscWearMm.toFixed(1)} mm</div>
+              <span className="text-[10px] text-slate-500">Limit: 25.0 mm</span>
+            </div>
+          </div>
+
+          {/* TBM Segment Ring Visualizer & Parameters */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div className="lg:col-span-6 bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="text-xs font-mono font-bold text-cyan-400 uppercase">
+                  Precast Concrete Segment Ring Assembly (Universal Ring)
+                </span>
+                <span className="text-xs font-mono text-slate-400">
+                  Ring #{tbmRingNum} · Width: 1.5m
+                </span>
               </div>
 
-              <div className="lg:col-span-6 bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="text-xs font-mono font-bold text-cyan-400 uppercase">
-                    Disc Cutter Inspection &amp; Ring Key Selection
-                  </span>
-                  <span className="text-xs font-mono text-emerald-400 font-bold">
-                    Cutterhead: 17&quot; Discs (48 Total)
-                  </span>
-                </div>
+              {/* Circular Ring SVG diagram */}
+              <div className="w-full h-64 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-center p-2 relative">
+                <svg viewBox="0 0 300 300" className="w-full h-full">
+                  <circle cx="150" cy="150" r="120" fill="none" stroke="#334155" strokeWidth="24" />
+                  <circle cx="150" cy="150" r="108" fill="#020617" />
+                  {/* Segments: A1, A2, A3, B1, B2, K */}
+                  <path d="M 150 30 A 120 120 0 0 1 254 90" fill="none" stroke="#38BDF8" strokeWidth="22" strokeDasharray="100 4" />
+                  <path d="M 254 90 A 120 120 0 0 1 254 210" fill="none" stroke="#818CF8" strokeWidth="22" strokeDasharray="100 4" />
+                  <path d="M 254 210 A 120 120 0 0 1 150 270" fill="none" stroke="#34D399" strokeWidth="22" strokeDasharray="100 4" />
+                  <path d="M 150 270 A 120 120 0 0 1 46 210" fill="none" stroke="#FBBF24" strokeWidth="22" strokeDasharray="100 4" />
+                  <path d="M 46 210 A 120 120 0 0 1 46 90" fill="none" stroke="#F472B6" strokeWidth="22" strokeDasharray="100 4" />
+                  {/* Key Segment K */}
+                  <path d="M 46 90 A 120 120 0 0 1 150 30" fill="none" stroke="#F87171" strokeWidth="24" />
 
-                <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                  <label className="space-y-1">
-                    <span className="text-slate-400">Ring # Counter:</span>
-                    <input
-                      type="number"
-                      value={tbmRingNum}
-                      onChange={(e) => setTbmRingNum(parseInt(e.target.value) || 142)}
-                      className={layoutStyles.inputControl}
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-slate-400">Key Position:</span>
-                    <select
-                      value={tbmKeyPosition}
-                      onChange={(e) => setTbmKeyPosition(e.target.value)}
-                      className={layoutStyles.inputControl}
-                    >
-                      <option value="Key Pos 1 (0° Crown)">Key Pos 1 (0° Crown)</option>
-                      <option value="Key Pos 2 (60°)">Key Pos 2 (60°)</option>
-                      <option value="Key Pos 3 (120°)">Key Pos 3 (120°)</option>
-                      <option value="Key Pos 4 (180° Invert)">Key Pos 4 (180° Invert)</option>
-                      <option value="Key Pos 5 (240°)">Key Pos 5 (240°)</option>
-                      <option value="Key Pos 6 (300°)">Key Pos 6 (300°)</option>
-                    </select>
-                  </label>
-                </div>
+                  {/* Ring center labels */}
+                  <text x="150" y="145" fill="#38BDF8" fontSize="14" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
+                    RING #{tbmRingNum}
+                  </text>
+                  <text x="150" y="165" fill="#94A3B8" fontSize="10" textAnchor="middle" fontFamily="monospace">
+                    Key: Pos 3 (120°)
+                  </text>
+                </svg>
+              </div>
 
-                <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-2 text-xs font-mono">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Max Center Disc Wear:</span>
-                    <strong className="text-amber-300 font-bold">{tbmDiscWearMm} mm / 25.0 mm</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Gage Cutters Status:</span>
-                    <strong className="text-emerald-400 font-bold">Acceptable (8.5 mm wear)</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Water Seepage / Annular Inflow:</span>
-                    <strong className="text-slate-200">Dry / Nil (&lt; 0.5 L/min)</strong>
-                  </div>
+              <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                <div className="p-2 bg-slate-900 rounded-xl border border-slate-800 text-center">
+                  <span className="text-slate-400 text-[10px]">Segment Thickness</span>
+                  <div className="font-bold text-slate-200">350 mm</div>
                 </div>
-
-                <div className="flex justify-end pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsTbmInspectorOpen(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs font-mono shadow cursor-pointer transition-all"
-                  >
-                    <CircleDot className="w-4 h-4" />
-                    <span>Open 3D Ring Erector Inspector</span>
-                  </button>
+                <div className="p-2 bg-slate-900 rounded-xl border border-slate-800 text-center">
+                  <span className="text-slate-400 text-[10px]">Concrete Grade</span>
+                  <div className="font-bold text-cyan-300">C50/60</div>
+                </div>
+                <div className="p-2 bg-slate-900 rounded-xl border border-slate-800 text-center">
+                  <span className="text-slate-400 text-[10px]">Gasket System</span>
+                  <div className="font-bold text-emerald-400">EPDM 28 bar</div>
                 </div>
               </div>
             </div>
-          )}
 
-          {/* TAB 2: Real-time Machine Telemetry & Advance KPIs */}
-          {tbmTab === 2 && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs font-mono">
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[10px] uppercase">Thrust Force</span>
-                  <div className="text-base font-black text-cyan-300">{tbmThrustKn.toLocaleString()} kN</div>
-                  <span className="text-[10px] text-slate-500">Cap: 32,000 kN</span>
-                </div>
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[10px] uppercase">Cutterhead Torque</span>
-                  <div className="text-base font-black text-amber-400">{tbmTorqueKnm.toLocaleString()} kNm</div>
-                  <span className="text-[10px] text-slate-500">Cap: 9,000 kNm</span>
-                </div>
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[10px] uppercase">Bulkhead EPB Pressure</span>
-                  <div className="text-base font-black text-emerald-400">{tbmEpbPressureBar.toFixed(2)} bar</div>
-                  <span className="text-[10px] text-slate-500">Chamber Bulkhead</span>
-                </div>
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[10px] uppercase">Penetration Rate</span>
-                  <div className="text-base font-black text-white">{tbmPenetrationMmRev.toFixed(1)} mm/rev</div>
-                  <span className="text-[10px] text-slate-500">Speed: {tbmAdvanceRateMmMin} mm/min</span>
-                </div>
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[10px] uppercase">Field Penetration Index</span>
-                  <div className="text-base font-black text-yellow-300">
-                    {(tbmThrustKn / Math.max(0.5, tbmPenetrationMmRev) / 10).toFixed(1)} kN/mm
-                  </div>
-                  <span className="text-[10px] text-slate-500">FPI Boreability</span>
-                </div>
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[10px] uppercase">Cutterhead RPM</span>
-                  <div className="text-base font-black text-cyan-300">2.8 RPM</div>
-                  <span className="text-[10px] text-slate-500">Drive Motors: 12x</span>
-                </div>
+            <div className="lg:col-span-6 bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="text-xs font-mono font-bold text-cyan-400 uppercase">
+                  TBM Advance Cycle &amp; Excavation Monitoring
+                </span>
+                <span className="text-xs font-mono text-emerald-400 font-bold">
+                  Status: BORING / MINING ACTIVE
+                </span>
               </div>
 
-              <div className={`${layoutStyles.sectionSurface} bg-slate-950 border-cyan-500/30 p-4 space-y-3 text-xs font-mono`}>
-                <span className="text-xs font-mono font-bold text-cyan-400 uppercase">
-                  Advance Stroke &amp; Thrust Hydraulic Cylinders
-                </span>
+              <div className="p-4 bg-slate-900/90 rounded-xl border border-slate-800 space-y-3 text-xs font-mono">
                 <div className="space-y-1">
                   <div className="flex justify-between text-slate-300">
-                    <span>Ring Advance Stroke:</span>
-                    <strong className="text-cyan-300">1,250 mm / 1,500 mm (83% of Ring Complete)</strong>
+                    <span>Ring Stroke Progress:</span>
+                    <strong className="text-cyan-300">1,250 mm / 1,500 mm (83%)</strong>
                   </div>
-                  <div className="w-full h-3 rounded-full bg-slate-800 overflow-hidden">
+                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
                     <div className="h-full bg-cyan-400 rounded-full" style={{ width: '83%' }} />
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* TAB 3: Muck Pile Volume & Tail Void Annular Grouting Control */}
-          {tbmTab === 3 && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs font-mono">
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                <span className="text-xs font-mono font-bold text-amber-400 uppercase">
-                  Muck Balance &amp; Over-Excavation Monitoring
-                </span>
-                <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Theoretical In-Situ Ring Volume:</span>
-                    <strong className="text-white font-bold">48.3 m³</strong>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Tail Void Grout Fill Ratio:</span>
+                    <strong className="text-emerald-400">112% (Adequate Void Encapsulation)</strong>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Actual Muck Hauled (Belt Weigher):</span>
-                    <strong className="text-emerald-400 font-bold">52.8 m³ (109% Bulking)</strong>
+                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: '100%' }} />
                   </div>
-                  <div className="flex justify-between border-t border-slate-800 pt-1.5">
-                    <span className="text-slate-300 font-bold">Overbreak / Cavity Status:</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
-                      NORMAL (NO SETTLEMENT ALERT)
-                    </span>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Face Support Pressure:</span>
+                    <strong className="text-amber-300">Within Safe Limits (2.2 - 2.6 bar)</strong>
                   </div>
+                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div className="h-full bg-amber-400 rounded-full" style={{ width: '75%' }} />
+                  </div>
+                </div>
+
+                <div className="pt-2 text-slate-400 text-[11px] leading-relaxed border-t border-slate-800">
+                  <p>
+                    ✓ Dedicated TBM Mechanized Module container ready. Real-time telemetry, guidance system (SLS), and ring build pipeline are fully isolated from Civil NATM steps.
+                  </p>
                 </div>
               </div>
 
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                <span className="text-xs font-mono font-bold text-cyan-400 uppercase">
-                  Tail Void Bi-Component Grout Injection
-                </span>
-                <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Theoretical Annular Void:</span>
-                    <strong className="text-white font-bold">4.4 m³</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Injected Grout Volume (Comp A+B):</span>
-                    <strong className="text-cyan-300 font-bold">{tbmGroutVolumeM3} m³ (109% Fill Ratio)</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Injection Pressure:</span>
-                    <strong className="text-emerald-400 font-bold">{tbmGroutPressureBar} bar (Adequate)</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: TBM Geotechnical Classification (Qtbm / RSR / CSM) */}
-          {tbmTab === 4 && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs font-mono">
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                <span className="text-xs font-mono font-bold text-cyan-400 uppercase">
-                  Barton Mechanized Qtbm Rock Mass Classification
-                </span>
-                <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Qtbm Index Score:</span>
-                    <strong className="text-cyan-300 font-bold">4.8 / 100</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Boreability Rating:</span>
-                    <strong className="text-emerald-400 font-bold">Good to Moderate Penetration</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Expected Cutter Life:</span>
-                    <strong className="text-white">180 m³ rock / disc</strong>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                <span className="text-xs font-mono font-bold text-amber-400 uppercase">
-                  Colorado School of Mines (CSM) Penetration Model
-                </span>
-                <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Predicted Penetration (at 24.5 MN):</span>
-                    <strong className="text-amber-300 font-bold">12.2 mm/rev</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Actual Measured Penetration:</span>
-                    <strong className="text-cyan-300 font-bold">{tbmPenetrationMmRev.toFixed(1)} mm/rev</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Model Accuracy:</span>
-                    <strong className="text-emerald-400 font-bold">97.5% Calibration</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: TBM Shift Reports & Ring Data Memory */}
-          {tbmTab === 5 && (
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 text-xs font-mono">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="text-xs font-mono font-bold text-cyan-400 uppercase">
-                  TBM Shift Production Log in <code className="text-cyan-300">eswa_isolated_db_TBM</code>
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleSaveCurrentProjectToMemory()}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold cursor-pointer"
-                  >
-                    Save Ring Snapshot
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExportModalInitialMode('FINAL_ENGINEERING_SHEET');
-                      setIsExportModalOpen(true);
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold cursor-pointer"
-                  >
-                    Export TBM Shift Sheet
-                  </button>
-                </div>
-              </div>
-
-              <div className="border border-slate-800 rounded-xl overflow-hidden">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-900 text-slate-400 border-b border-slate-800">
-                    <tr>
-                      <th className="p-2">Ring #</th>
-                      <th className="p-2">Key Pos</th>
-                      <th className="p-2">Thrust kN</th>
-                      <th className="p-2">Torque kNm</th>
-                      <th className="p-2">Penetration</th>
-                      <th className="p-2">Grout Vol</th>
-                      <th className="p-2">Cycle Time</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800 text-slate-200">
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-2 font-bold text-cyan-300">#{tbmRingNum} (Active)</td>
-                      <td className="p-2">{tbmKeyPosition}</td>
-                      <td className="p-2">{tbmThrustKn} kN</td>
-                      <td className="p-2">{tbmTorqueKnm} kNm</td>
-                      <td className="p-2">{tbmPenetrationMmRev} mm/rev</td>
-                      <td className="p-2">{tbmGroutVolumeM3} m³</td>
-                      <td className="p-2 text-emerald-400 font-bold">85 min</td>
-                    </tr>
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-2 font-bold text-slate-400">#{tbmRingNum - 1}</td>
-                      <td className="p-2">Key Pos 2 (60°)</td>
-                      <td className="p-2">24,200 kN</td>
-                      <td className="p-2">6,750 kNm</td>
-                      <td className="p-2">12.1 mm/rev</td>
-                      <td className="p-2">4.7 m³</td>
-                      <td className="p-2 text-slate-400">82 min</td>
-                    </tr>
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-2 font-bold text-slate-400">#{tbmRingNum - 2}</td>
-                      <td className="p-2">Key Pos 1 (0°)</td>
-                      <td className="p-2">23,900 kN</td>
-                      <td className="p-2">6,600 kNm</td>
-                      <td className="p-2">11.8 mm/rev</td>
-                      <td className="p-2">4.6 m³</td>
-                      <td className="p-2 text-slate-400">79 min</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex justify-between items-center pt-2">
+              <div className="flex justify-end pt-2">
                 <button
                   type="button"
-                  onClick={() => setTbmRingNum((prev) => prev + 1)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold cursor-pointer"
+                  onClick={() => setIsTbmInspectorOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs font-mono shadow cursor-pointer transition-all"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Advance to Next TBM Ring (#{tbmRingNum + 1})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTbmTab(1)}
-                  className="text-slate-400 hover:text-white cursor-pointer"
-                >
-                  Return to Tab 1 (Ring Assembly)
+                  <CircleDot className="w-4 h-4" />
+                  <span>Open TBM Shield &amp; Ring Erector Inspector</span>
                 </button>
               </div>
             </div>
-          )}
+          </div>
         </div>
         {projectMemoryModalNode}
         {globalSettingsModalNode}
-        {modeSwitchConfirmationModalNode}
       </main>
     );
   }
@@ -7540,7 +6475,6 @@ export default function App({
         {isBootLoading && <EswaLoadingScreen onComplete={() => setIsBootLoading(false)} />}
         {projectMemoryModalNode}
         {globalSettingsModalNode}
-        {modeSwitchConfirmationModalNode}
       </main>
     );
   }
@@ -8850,7 +7784,6 @@ export default function App({
       {projectMemoryModalNode}
       {continuousLoggingModalsNode}
       {globalSettingsModalNode}
-      {modeSwitchConfirmationModalNode}
     </div>
   );
 }

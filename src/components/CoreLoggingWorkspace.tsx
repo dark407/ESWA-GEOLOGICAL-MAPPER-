@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   BoreholeRecord,
   CoreRunRecord,
@@ -18,7 +18,6 @@ import {
   getActiveBoreholeId,
   setActiveBoreholeId,
 } from '../engine/coreLoggingEngine';
-import { IndustryMode } from '../types/tunnel';
 import {
   GeologistUserProfile,
 } from '../engine/userCloudAndPackageEngine';
@@ -42,612 +41,19 @@ import {
   PenTool,
   X,
   Database,
-  Sparkles,
-  Layers,
-  Activity,
-  FileText,
-  Flame,
-  ShieldAlert,
-  CheckCircle2,
-  Target,
 } from 'lucide-react';
-
-export function createNatmExampleBorehole(): BoreholeRecord {
-  const runs: CoreRunRecord[] = [
-    {
-      id: 'run-natm-1',
-      runNumber: 1,
-      depthFrom: 0.0,
-      depthTo: 3.0,
-      runLength: 3.0,
-      coreRecovered: 2.76,
-      solidCoreRecovered: 2.45,
-      soundPiecesOver10cm: 2.22,
-      tcrPercent: 92.0,
-      scrPercent: 81.7,
-      rqdPercent: 74.0,
-      rqdRating: 'Fair',
-      lithology: 'Granite Gneiss',
-      lithologyColor: '#FB7185',
-      weathering: 'W2',
-      strengthGrade: 'R4',
-      fractureFrequency: 4,
-      coreBoxNumber: 1,
-      discontinuitiesDescription: 'Sub-vertical rough undulating joints, iron stained walls (J1: 045°/75°SE)',
-      remarks: 'Moderate groundwater seepage observed at 2.4m',
-    },
-    {
-      id: 'run-natm-2',
-      runNumber: 2,
-      depthFrom: 3.0,
-      depthTo: 6.0,
-      runLength: 3.0,
-      coreRecovered: 2.85,
-      solidCoreRecovered: 2.64,
-      soundPiecesOver10cm: 2.46,
-      tcrPercent: 95.0,
-      scrPercent: 88.0,
-      rqdPercent: 82.0,
-      rqdRating: 'Good',
-      lithology: 'Quartzitic Phyllite',
-      lithologyColor: '#38BDF8',
-      weathering: 'W1',
-      strengthGrade: 'R4',
-      fractureFrequency: 3,
-      coreBoxNumber: 1,
-      discontinuitiesDescription: 'Rough stepped foliation joints with chlorite coating, aperture < 1mm',
-      remarks: 'Barton Jr=1.5, Ja=1.0',
-    },
-    {
-      id: 'run-natm-3',
-      runNumber: 3,
-      depthFrom: 6.0,
-      depthTo: 9.0,
-      runLength: 3.0,
-      coreRecovered: 2.94,
-      solidCoreRecovered: 2.82,
-      soundPiecesOver10cm: 2.73,
-      tcrPercent: 98.0,
-      scrPercent: 94.0,
-      rqdPercent: 91.0,
-      rqdRating: 'Excellent',
-      lithology: 'Quartzite',
-      lithologyColor: '#F59E0B',
-      weathering: 'W1',
-      strengthGrade: 'R5',
-      fractureFrequency: 2,
-      coreBoxNumber: 2,
-      discontinuitiesDescription: 'Tight planar joints with silica healing, hard strong intact rock',
-      remarks: 'UCS estimated 110 MPa',
-    },
-    {
-      id: 'run-natm-4',
-      runNumber: 4,
-      depthFrom: 9.0,
-      depthTo: 12.0,
-      runLength: 3.0,
-      coreRecovered: 2.64,
-      solidCoreRecovered: 2.10,
-      soundPiecesOver10cm: 1.74,
-      tcrPercent: 88.0,
-      scrPercent: 70.0,
-      rqdPercent: 58.0,
-      rqdRating: 'Fair',
-      lithology: 'Sheared Quartzite',
-      lithologyColor: '#F43F5E',
-      weathering: 'W2',
-      strengthGrade: 'R3',
-      fractureFrequency: 6,
-      coreBoxNumber: 2,
-      discontinuitiesDescription: 'Minor shear seam with clayey gouge 5mm, slickensided surfaces',
-      remarks: 'Overbreak hazard zone in tunnel crown arch',
-    },
-    {
-      id: 'run-natm-5',
-      runNumber: 5,
-      depthFrom: 12.0,
-      depthTo: 15.0,
-      runLength: 3.0,
-      coreRecovered: 2.88,
-      solidCoreRecovered: 2.70,
-      soundPiecesOver10cm: 2.55,
-      tcrPercent: 96.0,
-      scrPercent: 90.0,
-      rqdPercent: 85.0,
-      rqdRating: 'Good',
-      lithology: 'Quartzitic Phyllite',
-      lithologyColor: '#38BDF8',
-      weathering: 'W1',
-      strengthGrade: 'R4',
-      fractureFrequency: 3,
-      coreBoxNumber: 3,
-      discontinuitiesDescription: 'Planar stepped foliation, unweathered walls, no filling',
-      remarks: 'Q-value: 12.5 (Good Rock)',
-    },
-    {
-      id: 'run-natm-6',
-      runNumber: 6,
-      depthFrom: 15.0,
-      depthTo: 18.0,
-      runLength: 3.0,
-      coreRecovered: 3.0,
-      solidCoreRecovered: 2.88,
-      soundPiecesOver10cm: 2.85,
-      tcrPercent: 100.0,
-      scrPercent: 96.0,
-      rqdPercent: 95.0,
-      rqdRating: 'Excellent',
-      lithology: 'Quartzite',
-      lithologyColor: '#F59E0B',
-      weathering: 'W1',
-      strengthGrade: 'R5',
-      fractureFrequency: 1,
-      coreBoxNumber: 3,
-      discontinuitiesDescription: 'Very widely spaced joints (> 1.0m), fresh rock mass',
-      remarks: 'RMR89: 68 (Class II Good Rock)',
-    },
-  ];
-
-  return {
-    id: 'bh-natm-01',
-    boreholeId: 'BH-NATM-01',
-    projectName: 'Himalayan Hydro Headrace Tunnel (HRT-01)',
-    tunnelName: 'Adit-2 Face North (CH 12+450.50 m)',
-    chainageLabel: 'CH 12+450.50 m',
-    collarElevation: 1450.0,
-    coordinates: {
-      northing: '3542100.00',
-      easting: '489200.00',
-      elevation: '1450.00',
-    },
-    inclinationDeg: -90,
-    azimuthDeg: 0,
-    drillingMethod: 'Wireline Diamond Core (Triple Tube HQ3)',
-    coreDiameter: 'HQ3 (61.1 mm)',
-    drillingContractor: 'Himalayan Geo-Drill Corp.',
-    pmcConsultant: 'Geoconsult Hydro Engineers',
-    clientEmployer: 'National Hydroelectric Power Corp.',
-    loggedBy: 'Dr. A. Sharma (Sr. Geotechnical Geologist)',
-    reviewedBy: 'Chief Tunnel Geologist',
-    startDate: new Date().toISOString().split('T')[0],
-    completionDate: new Date().toISOString().split('T')[0],
-    waterTableDepth: 4.5,
-    runs,
-    photos: [],
-    signOff: {
-      contractorName: 'Er. Rajesh Kumar',
-      contractorDesignation: 'Lead Drilling Engineer',
-      contractorDate: new Date().toISOString().split('T')[0],
-      pmcName: 'Dr. A. Sharma',
-      pmcDesignation: 'Sr. Geotechnical Geologist',
-      pmcDate: new Date().toISOString().split('T')[0],
-      clientName: 'Er. P. K. Verma',
-      clientDesignation: 'Executive Engineer (Civil/Tunnel)',
-      clientDate: new Date().toISOString().split('T')[0],
-    },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-export function createMiningExampleBorehole(): BoreholeRecord {
-  const runs: CoreRunRecord[] = [
-    {
-      id: 'run-min-1',
-      runNumber: 1,
-      depthFrom: 0.0,
-      depthTo: 6.0,
-      runLength: 6.0,
-      coreRecovered: 5.76,
-      solidCoreRecovered: 5.2,
-      soundPiecesOver10cm: 5.04,
-      tcrPercent: 96.0,
-      scrPercent: 86.7,
-      rqdPercent: 84.0,
-      rqdRating: 'Good',
-      lithology: 'Amphibolite Schist (HW)',
-      lithologyColor: '#64748B',
-      weathering: 'W2',
-      strengthGrade: 'R4',
-      fractureFrequency: 3,
-      assayGrade: '0.22 g/t Au',
-      oreZone: 'Waste',
-      coreBoxNumber: 'BX-01',
-      discontinuitiesDescription: 'Alpha: 42°, Beta: 115°. Weak chloritic foliation, minor 0.5% py stringers. Sample ID: S-620-01 (Regular).',
-      remarks: 'Hanging Wall waste rock contact',
-    },
-    {
-      id: 'run-min-2',
-      runNumber: 2,
-      depthFrom: 6.0,
-      depthTo: 12.0,
-      runLength: 6.0,
-      coreRecovered: 5.88,
-      solidCoreRecovered: 5.4,
-      soundPiecesOver10cm: 5.28,
-      tcrPercent: 98.0,
-      scrPercent: 90.0,
-      rqdPercent: 88.0,
-      rqdRating: 'Good',
-      lithology: 'Silicified Quartz-Sulfide Lode',
-      lithologyColor: '#F59E0B',
-      weathering: 'W1',
-      strengthGrade: 'R4',
-      fractureFrequency: 2,
-      assayGrade: '4.85 g/t Au',
-      oreZone: 'High Grade',
-      coreBoxNumber: 'BX-02',
-      discontinuitiesDescription: 'Alpha: 68°, Beta: 135°. Moderate Silicification (3/5), 4.5% Pyrite & Chalcopyrite. Sample ID: S-620-02 (Regular).',
-      remarks: 'HW Ore Contact crossed at 6.0m',
-    },
-    {
-      id: 'run-min-3',
-      runNumber: 3,
-      depthFrom: 12.0,
-      depthTo: 18.0,
-      runLength: 6.0,
-      coreRecovered: 6.0,
-      solidCoreRecovered: 5.7,
-      soundPiecesOver10cm: 5.64,
-      tcrPercent: 100.0,
-      scrPercent: 95.0,
-      rqdPercent: 94.0,
-      rqdRating: 'Excellent',
-      lithology: 'Massive Quartz-Sulfide Lode (Champion Core)',
-      lithologyColor: '#EAB308',
-      weathering: 'W1',
-      strengthGrade: 'R5',
-      fractureFrequency: 1,
-      assayGrade: '14.20 g/t Au',
-      oreZone: 'High Grade',
-      coreBoxNumber: 'BX-03',
-      discontinuitiesDescription: 'Alpha: 74°, Beta: 142°. Intense Silicification + Sericite (5/5), 12% Coarse Pyrite, Galena, Sphalerite & Visible Gold specks. Sample ID: S-620-03 (Regular).',
-      remarks: 'Bonanza High-Grade Lode Core intercept',
-    },
-    {
-      id: 'run-min-4',
-      runNumber: 4,
-      depthFrom: 18.0,
-      depthTo: 20.0,
-      runLength: 2.0,
-      coreRecovered: 2.0,
-      solidCoreRecovered: 2.0,
-      soundPiecesOver10cm: 2.0,
-      tcrPercent: 100.0,
-      scrPercent: 100.0,
-      rqdPercent: 100.0,
-      rqdRating: 'Excellent',
-      lithology: 'Certified Reference Material (CRM)',
-      lithologyColor: '#10B981',
-      weathering: 'W1',
-      strengthGrade: 'R5',
-      fractureFrequency: 0,
-      assayGrade: '7.66 g/t Au',
-      oreZone: 'High Grade',
-      coreBoxNumber: 'QAQC',
-      discontinuitiesDescription: 'Standard OREAS 256 CRM insert. Certified Au: 7.66 ± 0.18 g/t. Sample ID: S-620-04 (CRM Standard). Alpha: 0°, Beta: 0°.',
-      remarks: 'QA/QC Standard Reference Insertion',
-    },
-    {
-      id: 'run-min-5',
-      runNumber: 5,
-      depthFrom: 20.0,
-      depthTo: 24.0,
-      runLength: 4.0,
-      coreRecovered: 3.68,
-      solidCoreRecovered: 3.0,
-      soundPiecesOver10cm: 2.72,
-      tcrPercent: 92.0,
-      scrPercent: 75.0,
-      rqdPercent: 68.0,
-      rqdRating: 'Fair',
-      lithology: 'Silicified Shear Zone',
-      lithologyColor: '#F97316',
-      weathering: 'W2',
-      strengthGrade: 'R3',
-      fractureFrequency: 5,
-      assayGrade: '6.40 g/t Au',
-      oreZone: 'High Grade',
-      coreBoxNumber: 'BX-04',
-      discontinuitiesDescription: 'Alpha: 65°, Beta: 130°. Sericitic Alteration (4/5), 6.0% Pyrite stringers. Sample ID: S-620-05 (Regular).',
-      remarks: 'Mineralized footwall shear zone',
-    },
-    {
-      id: 'run-min-6',
-      runNumber: 6,
-      depthFrom: 24.0,
-      depthTo: 30.0,
-      runLength: 6.0,
-      coreRecovered: 5.82,
-      solidCoreRecovered: 5.3,
-      soundPiecesOver10cm: 5.16,
-      tcrPercent: 97.0,
-      scrPercent: 88.3,
-      rqdPercent: 86.0,
-      rqdRating: 'Good',
-      lithology: 'Footwall Altered Basalt',
-      lithologyColor: '#14B8A6',
-      weathering: 'W1',
-      strengthGrade: 'R4',
-      fractureFrequency: 3,
-      assayGrade: '1.15 g/t Au',
-      oreZone: 'Low Grade',
-      coreBoxNumber: 'BX-05',
-      discontinuitiesDescription: 'Alpha: 52°, Beta: 120°. Chloritic Alteration (2/5), 1.8% Disseminated Pyrite. Sample ID: S-620-06 (Regular).',
-      remarks: 'Sub-economic mineralized halo',
-    },
-    {
-      id: 'run-min-7',
-      runNumber: 7,
-      depthFrom: 30.0,
-      depthTo: 36.0,
-      runLength: 6.0,
-      coreRecovered: 5.94,
-      solidCoreRecovered: 5.6,
-      soundPiecesOver10cm: 5.52,
-      tcrPercent: 99.0,
-      scrPercent: 93.3,
-      rqdPercent: 92.0,
-      rqdRating: 'Excellent',
-      lithology: 'Footwall Basalt Host Rock',
-      lithologyColor: '#475569',
-      weathering: 'W1',
-      strengthGrade: 'R5',
-      fractureFrequency: 2,
-      assayGrade: '0.08 g/t Au',
-      oreZone: 'Waste',
-      coreBoxNumber: 'BX-06',
-      discontinuitiesDescription: 'Alpha: 45°, Beta: 110°. Fresh footwall basalt, tight calcite veinlets. Sample ID: S-620-07 (Regular).',
-      remarks: 'Waste Footwall Contact confirmed',
-    },
-  ];
-
-  return {
-    id: 'ddh-min-620-01',
-    boreholeId: 'DDH-MIN-620-01',
-    projectName: 'Kolar Deep Underground Gold-Copper Mine',
-    tunnelName: 'Stope Drive HW-DRV-04 (Cut #14)',
-    chainageLabel: 'Level 620 mRL',
-    collarElevation: 620.0,
-    coordinates: {
-      northing: '28910.15',
-      easting: '14250.40',
-      elevation: '620.00',
-    },
-    inclinationDeg: -55,
-    azimuthDeg: 45,
-    drillingMethod: 'Underground Wireline Diamond Drilling (NQ2 50.5mm)',
-    coreDiameter: 'NQ2 (50.5 mm)',
-    drillingContractor: 'Deep Mine Diamond Drilling Corp.',
-    pmcConsultant: 'SRK Mining Consultants',
-    clientEmployer: 'Kolar Gold Fields Mining Ltd',
-    loggedBy: 'Geologist (Mine Geology Dept.)',
-    reviewedBy: 'Chief Production Geologist',
-    startDate: new Date().toISOString().split('T')[0],
-    completionDate: new Date().toISOString().split('T')[0],
-    waterTableDepth: 12.0,
-    runs,
-    photos: [],
-    signOff: {
-      contractorName: 'Mark Henderson',
-      contractorDesignation: 'Underground Rig Supervisor',
-      contractorDate: new Date().toISOString().split('T')[0],
-      pmcName: 'Geologist (Mine Geology Dept.)',
-      pmcDesignation: 'Mine Resource Geologist',
-      pmcDate: new Date().toISOString().split('T')[0],
-      clientName: 'Chief Production Geologist',
-      clientDesignation: 'Chief Mine Geologist',
-      clientDate: new Date().toISOString().split('T')[0],
-    },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-export function createTbmExampleBorehole(): BoreholeRecord {
-  const runs: CoreRunRecord[] = [
-    {
-      id: 'run-tbm-1',
-      runNumber: 1,
-      depthFrom: 0.0,
-      depthTo: 10.0,
-      runLength: 10.0,
-      coreRecovered: 9.8,
-      solidCoreRecovered: 9.2,
-      soundPiecesOver10cm: 8.8,
-      tcrPercent: 98.0,
-      scrPercent: 92.0,
-      rqdPercent: 88.0,
-      rqdRating: 'Good',
-      lithology: 'Competent Granitic Gneiss',
-      lithologyColor: '#6366F1',
-      weathering: 'W1',
-      strengthGrade: 'R4',
-      fractureFrequency: 2,
-      coreBoxNumber: 'PB-01',
-      discontinuitiesDescription: 'UCS: 125 MPa, CAI: 3.4 (Abrasive), Quartz: 38%. Water Inflow: 0.8 bar (12 L/min). Ahead Hazard: OPTIMAL GROUND.',
-      remarks: 'Ahead of cutterhead Ring #0842',
-    },
-    {
-      id: 'run-tbm-2',
-      runNumber: 2,
-      depthFrom: 10.0,
-      depthTo: 22.0,
-      runLength: 12.0,
-      coreRecovered: 11.52,
-      solidCoreRecovered: 10.8,
-      soundPiecesOver10cm: 10.2,
-      tcrPercent: 96.0,
-      scrPercent: 90.0,
-      rqdPercent: 85.0,
-      rqdRating: 'Good',
-      lithology: 'Massive Granodiorite',
-      lithologyColor: '#8B5CF6',
-      weathering: 'W1',
-      strengthGrade: 'R5',
-      fractureFrequency: 2,
-      coreBoxNumber: 'PB-02',
-      discontinuitiesDescription: 'UCS: 145 MPa, CAI: 4.1 (Very Abrasive), Quartz: 46%. Water Inflow: 1.2 bar (18 L/min). Ahead Hazard: HIGH CUTTER WEAR EXPECTED (CLI=38).',
-      remarks: 'Prepare gauge disc cutter replacement',
-    },
-    {
-      id: 'run-tbm-3',
-      runNumber: 3,
-      depthFrom: 22.0,
-      depthTo: 32.0,
-      runLength: 10.0,
-      coreRecovered: 7.2,
-      solidCoreRecovered: 4.5,
-      soundPiecesOver10cm: 2.8,
-      tcrPercent: 72.0,
-      scrPercent: 45.0,
-      rqdPercent: 28.0,
-      rqdRating: 'Poor',
-      lithology: 'Fault Shear & Mylonite Zone',
-      lithologyColor: '#EF4444',
-      weathering: 'W3',
-      strengthGrade: 'R2',
-      fractureFrequency: 14,
-      coreBoxNumber: 'PB-03',
-      discontinuitiesDescription: 'UCS: 35 MPa (Low Strength), CAI: 1.8, Quartz: 22%. Water Pressure: 4.8 bar (75 L/min Ingress). Ahead Hazard: WATER-BEARING FAULT SHEAR — PRE-EXCAVATION GROUTING RECOMMENDED.',
-      remarks: 'Slow advance, balance EPB pressure and pre-grout',
-    },
-    {
-      id: 'run-tbm-4',
-      runNumber: 4,
-      depthFrom: 32.0,
-      depthTo: 42.0,
-      runLength: 10.0,
-      coreRecovered: 9.2,
-      solidCoreRecovered: 8.4,
-      soundPiecesOver10cm: 7.0,
-      tcrPercent: 92.0,
-      scrPercent: 84.0,
-      rqdPercent: 70.0,
-      rqdRating: 'Fair',
-      lithology: 'Moderately Jointed Gneiss',
-      lithologyColor: '#6366F1',
-      weathering: 'W2',
-      strengthGrade: 'R4',
-      fractureFrequency: 5,
-      coreBoxNumber: 'PB-04',
-      discontinuitiesDescription: 'UCS: 95 MPa, CAI: 3.2, Quartz: 34%. Water Inflow: 2.1 bar (28 L/min). Ahead Hazard: STABLE TRANSITION GROUND.',
-      remarks: 'Transition out of fault zone',
-    },
-    {
-      id: 'run-tbm-5',
-      runNumber: 5,
-      depthFrom: 42.0,
-      depthTo: 50.0,
-      runLength: 8.0,
-      coreRecovered: 7.92,
-      solidCoreRecovered: 7.5,
-      soundPiecesOver10cm: 7.36,
-      tcrPercent: 99.0,
-      scrPercent: 93.8,
-      rqdPercent: 92.0,
-      rqdRating: 'Excellent',
-      lithology: 'Hard Quartzite Band',
-      lithologyColor: '#0EA5E9',
-      weathering: 'W1',
-      strengthGrade: 'R5',
-      fractureFrequency: 1,
-      coreBoxNumber: 'PB-05',
-      discontinuitiesDescription: 'UCS: 160 MPa, CAI: 4.8 (Extremely Abrasive), Quartz: 68%. Water Inflow: 0.5 bar (8 L/min). Ahead Hazard: HIGH THRUST / LOW PENETRATION ZONE.',
-      remarks: 'Increase cutter thrust to 14,500 kN, advance rate ~35 mm/min',
-    },
-  ];
-
-  return {
-    id: 'probe-tbm-r0842',
-    boreholeId: 'PROBE-TBM-R0842',
-    projectName: 'Metro Line-4 Twin Bore TBM Tunnel',
-    tunnelName: 'South Drive (Downline) — Ring #0842',
-    chainageLabel: 'CH 04+215.00 m',
-    collarElevation: 112.5,
-    coordinates: {
-      northing: '210452.80',
-      easting: '89421.30',
-      elevation: '112.50',
-    },
-    inclinationDeg: 2,
-    azimuthDeg: 185,
-    drillingMethod: 'TBM Cutterhead Center-Port Diamond Rotary Probe Drill',
-    coreDiameter: 'BQ (36.5 mm)',
-    drillingContractor: 'Herrenknecht TBM Site Services',
-    pmcConsultant: 'Systra-Egis Metro Joint Venture',
-    clientEmployer: 'Metro Rail Transit Authority',
-    loggedBy: 'TBM Lead Tunnel Geologist',
-    reviewedBy: 'TBM Project Manager',
-    startDate: new Date().toISOString().split('T')[0],
-    completionDate: new Date().toISOString().split('T')[0],
-    waterTableDepth: 6.0,
-    runs,
-    photos: [],
-    signOff: {
-      contractorName: 'Er. Francois Laurent',
-      contractorDesignation: 'TBM Drilling Superintendent',
-      contractorDate: new Date().toISOString().split('T')[0],
-      pmcName: 'TBM Lead Tunnel Geologist',
-      pmcDesignation: 'Lead Geotechnical Geologist',
-      pmcDate: new Date().toISOString().split('T')[0],
-      clientName: 'TBM Project Manager',
-      clientDesignation: 'Chief Resident Engineer',
-      clientDate: new Date().toISOString().split('T')[0],
-    },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-}
 
 interface CoreLoggingWorkspaceProps {
   onBackToMain: () => void;
   onOpenGlobalSettings?: () => void;
   activeGeologistProfile?: GeologistUserProfile | null;
-  industryMode?: IndustryMode;
 }
 
 export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
   onBackToMain,
   onOpenGlobalSettings,
   activeGeologistProfile,
-  industryMode,
 }) => {
-  const activeIndustryMode: IndustryMode =
-    industryMode ||
-    (typeof window !== 'undefined'
-      ? (localStorage.getItem('eswa_active_industry_mode') as IndustryMode) ||
-        (localStorage.getItem('eswa_default_industry_mode') as IndustryMode)
-      : undefined) ||
-    'NATM';
-
-  const getModeStorageKey = (mode: IndustryMode) => `eswa_core_logs_${mode}`;
-  const getModeActiveIdKey = (mode: IndustryMode) => `eswa_active_borehole_id_${mode}`;
-
-  const loadBoreholesForMode = (mode: IndustryMode): BoreholeRecord[] => {
-    try {
-      const raw = localStorage.getItem(getModeStorageKey(mode));
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch {}
-    // If not found in isolated vault, generate authentic mode-specific default
-    const def =
-      mode === 'MINING'
-        ? createMiningExampleBorehole()
-        : mode === 'TBM'
-        ? createTbmExampleBorehole()
-        : createNatmExampleBorehole();
-    try {
-      localStorage.setItem(getModeStorageKey(mode), JSON.stringify([def]));
-      localStorage.setItem(getModeActiveIdKey(mode), def.id);
-    } catch {}
-    return [def];
-  };
-
   const [boreholes, setBoreholes] = useState<BoreholeRecord[]>([]);
   const [activeBoreholeIdState, setActiveBoreholeIdState] = useState<string>('');
   // Show hole detail first when opening Core Logging
@@ -691,125 +97,44 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
   const [isDrawingSig, setIsDrawingSig] = useState(false);
   const [activeSigRole, setActiveSigRole] = useState<'contractor' | 'pmc' | 'client' | null>(null);
 
-  // Load boreholes on mount and when industry mode changes
+  // Load boreholes on mount
   useEffect(() => {
-    const list = loadBoreholesForMode(activeIndustryMode);
+    const list = loadBoreholeRecordsFromStorage();
     setBoreholes(list);
-    const lastActive =
-      typeof window !== 'undefined'
-        ? localStorage.getItem(getModeActiveIdKey(activeIndustryMode))
-        : null;
+    const lastActive = getActiveBoreholeId();
     if (lastActive && list.some((b) => b.id === lastActive)) {
       setActiveBoreholeIdState(lastActive);
     } else if (list.length > 0) {
       setActiveBoreholeIdState(list[0].id);
-      try {
-        localStorage.setItem(getModeActiveIdKey(activeIndustryMode), list[0].id);
-      } catch {}
+      setActiveBoreholeId(list[0].id);
     }
-  }, [activeIndustryMode]);
+  }, []);
 
-  // Sync to mode-specific isolated storage
+  // Sync to storage
   const updateBorehole = (updated: BoreholeRecord) => {
     const nextList = boreholes.map((b) => (b.id === updated.id ? { ...updated, updatedAt: new Date().toISOString() } : b));
     setBoreholes(nextList);
-    try {
-      localStorage.setItem(getModeStorageKey(activeIndustryMode), JSON.stringify(nextList));
-    } catch {}
+    saveBoreholeRecordsToStorage(nextList);
   };
 
-  const currentBorehole = boreholes.find((b) => b.id === activeBoreholeIdState) || boreholes[0] || (
-    activeIndustryMode === 'MINING'
-      ? createMiningExampleBorehole()
-      : activeIndustryMode === 'TBM'
-      ? createTbmExampleBorehole()
-      : createNatmExampleBorehole()
-  );
+  const currentBorehole = boreholes.find((b) => b.id === activeBoreholeIdState) || boreholes[0] || createDefaultBorehole();
   const summary = calculateBoreholeSummary(currentBorehole);
   const rqdBadge = getRqdBadgeColor(summary.overallRqdRating);
 
   // Switch active borehole
   const handleSelectBorehole = (id: string) => {
     setActiveBoreholeIdState(id);
-    try {
-      localStorage.setItem(getModeActiveIdKey(activeIndustryMode), id);
-    } catch {}
+    setActiveBoreholeId(id);
   };
-
-  // Load Authentic Example Borehole for active mode
-  const handleLoadExampleCoreLog = () => {
-    const example =
-      activeIndustryMode === 'MINING'
-        ? createMiningExampleBorehole()
-        : activeIndustryMode === 'TBM'
-        ? createTbmExampleBorehole()
-        : createNatmExampleBorehole();
-    const filtered = boreholes.filter((b) => b.id !== example.id);
-    const nextList = [example, ...filtered];
-    setBoreholes(nextList);
-    setActiveBoreholeIdState(example.id);
-    try {
-      localStorage.setItem(getModeStorageKey(activeIndustryMode), JSON.stringify(nextList));
-      localStorage.setItem(getModeActiveIdKey(activeIndustryMode), example.id);
-    } catch {}
-  };
-
-  // Live length-weighted ore intercept compositor for underground mining
-  const oreComposite = useMemo(() => {
-    if (activeIndustryMode !== 'MINING') return null;
-    const runs = currentBorehole.runs || [];
-    const oreRuns = runs.filter((r) => r.oreZone === 'High Grade' && !r.discontinuitiesDescription?.includes('CRM Standard'));
-    if (oreRuns.length === 0) return null;
-    let totalLen = 0;
-    let totalAcc = 0;
-    let minDepth = Infinity;
-    let maxDepth = -Infinity;
-    for (const r of oreRuns) {
-      const match = r.assayGrade?.match(/([0-9.]+)/);
-      const grade = match ? parseFloat(match[1]) : 0;
-      if (grade > 0) {
-        totalLen += r.runLength;
-        totalAcc += r.runLength * grade;
-        minDepth = Math.min(minDepth, r.depthFrom);
-        maxDepth = Math.max(maxDepth, r.depthTo);
-      }
-    }
-    if (totalLen === 0) return null;
-    const weighted = totalAcc / totalLen;
-    return {
-      from: minDepth,
-      to: maxDepth,
-      length: totalLen,
-      weightedGrade: weighted.toFixed(2),
-      accumulation: totalAcc.toFixed(2),
-      unit: 'g/t Au',
-      cutoff: '2.50 g/t Au',
-      lodeName: 'Champion Quartz-Sulfide Lode',
-    };
-  }, [currentBorehole.runs, activeIndustryMode]);
-
-  // Ahead-of-Face probe summary for TBM
-  const tbmProbeSummary = useMemo(() => {
-    if (activeIndustryMode !== 'TBM') return null;
-    const runs = currentBorehole.runs || [];
-    if (runs.length === 0) return null;
-    const totalAhead = runs.reduce((acc, r) => acc + r.runLength, 0);
-    const avgRqd = runs.reduce((acc, r) => acc + r.rqdPercent, 0) / runs.length;
-    return {
-      totalAhead: totalAhead.toFixed(1),
-      avgRqd: avgRqd.toFixed(1),
-      hazardCount: runs.filter((r) => r.discontinuitiesDescription?.includes('FAULT SHEAR') || r.discontinuitiesDescription?.includes('HIGH CUTTER WEAR')).length,
-    };
-  }, [currentBorehole.runs, activeIndustryMode]);
 
   // Open Create Borehole Modal with smart pre-filled values
   const handleOpenCreateBorehole = () => {
     const nextNum = boreholes.length + 1;
     setNewBoreholeForm({
-      boreholeId: activeIndustryMode === 'MINING' ? `DDH-MIN-${String(nextNum).padStart(2, '0')}` : activeIndustryMode === 'TBM' ? `PROBE-TBM-R${String(nextNum).padStart(4, '0')}` : `BH-NATM-${String(nextNum).padStart(2, '0')}`,
-      projectName: currentBorehole.projectName || (activeIndustryMode === 'MINING' ? 'Underground Mine Exploration' : activeIndustryMode === 'TBM' ? 'TBM Mechanized Tunnel' : 'Civil Tunnel Project'),
-      tunnelName: currentBorehole.tunnelName || (activeIndustryMode === 'MINING' ? 'Level 620 mRL Stope Drive' : activeIndustryMode === 'TBM' ? 'South Drive Ring' : 'Main Headrace Drive'),
-      chainageLabel: currentBorehole.chainageLabel || (activeIndustryMode === 'MINING' ? 'Level 620 mRL' : activeIndustryMode === 'TBM' ? 'CH 04+215.00 m' : `Ch. 0+${String(nextNum * 100).padStart(3, '0')}`),
+      boreholeId: `BH-${String(nextNum).padStart(2, '0')}`,
+      projectName: currentBorehole.projectName || 'Tunnel & Cavern Project',
+      tunnelName: currentBorehole.tunnelName || 'Main Drive',
+      chainageLabel: currentBorehole.chainageLabel || `Ch. 0+${String(nextNum * 100).padStart(3, '0')}`,
       collarElevation: currentBorehole.collarElevation || 1250.0,
       northing: currentBorehole.coordinates?.northing || '',
       easting: currentBorehole.coordinates?.easting || '',
@@ -1135,17 +460,6 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
             <button
               type="button"
-              onClick={handleLoadExampleCoreLog}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-600 hover:bg-cyan-700 text-white shadow-xs transition-all cursor-pointer"
-              title={`Load authentic example borehole dataset for ${activeIndustryMode}`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
-              <span className="hidden sm:inline">Load Example Core Log</span>
-              <span className="sm:hidden">Example</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => setIsStorageCenterOpen(true)}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 shadow-xs transition-all cursor-pointer"
               title="Access already logged boreholes, inspection details, backups, and storage"
@@ -1156,25 +470,6 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                 {boreholes.length}
               </span>
             </button>
-
-            {/* Industry Mode Identifier Badge */}
-            <div
-              className={`hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono font-bold border ${
-                activeIndustryMode === 'MINING'
-                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                  : activeIndustryMode === 'TBM'
-                  ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
-                  : 'bg-sky-500/10 text-sky-400 border-sky-500/30'
-              }`}
-            >
-              <span>
-                {activeIndustryMode === 'MINING'
-                  ? 'MINING DDH'
-                  : activeIndustryMode === 'TBM'
-                  ? 'TBM PROBE'
-                  : 'NATM CIVIL'}
-              </span>
-            </div>
           </div>
 
           <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
@@ -1345,27 +640,13 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>
-                    {activeIndustryMode === 'MINING'
-                      ? 'Underground Exploration Diamond Core Log (DDH)'
-                      : activeIndustryMode === 'TBM'
-                      ? 'TBM Ahead-of-Cutterhead Probe Borehole Log'
-                      : 'Geotechnical Civil Tunnel Core Run Log'}
-                  </span>
+                  <span>Geotechnical Core Run Log</span>
                   <span className="text-xs font-normal text-slate-500">
-                    {activeIndustryMode === 'MINING'
-                      ? '(JORC / NI 43-101 compliant assay, alteration & oriented core schedule)'
-                      : activeIndustryMode === 'TBM'
-                      ? '(DAUB / ITA standard horizontal probe boreability & hazard profiling)'
-                      : '(ISO 22475-1 / ASTM D2113 continuous geotech evaluation)'}
+                    (ISO 22475-1 / ASTM D2113 standard continuous run evaluation)
                   </span>
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {activeIndustryMode === 'MINING'
-                    ? 'Track downhole From–To lithology, alteration intensity (1–5), sulfide mineralogy, assay grades, QA/QC, and oriented core angles.'
-                    : activeIndustryMode === 'TBM'
-                    ? 'Track cutterhead ahead-of-face probe hardness (UCS MPa), Cerchar Abrasivity (CAI), quartz content, water inflow, and hazard shears.'
-                    : 'Enter drilled depth, core recovery, and sound core pieces (≥100mm) for instant TCR & RQD calculation.'}
+                  Enter drilled depth, core recovery, and sound core pieces (≥100mm) for instant TCR &amp; RQD calculation.
                 </p>
               </div>
 
@@ -1381,56 +662,6 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
               </div>
             </div>
 
-            {/* MINING LIVE COMPOSITOR BANNER */}
-            {activeIndustryMode === 'MINING' && oreComposite && (
-              <div className="bg-gradient-to-r from-amber-500/15 via-emerald-500/15 to-amber-500/15 border-2 border-amber-500/40 dark:border-amber-500/30 p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="px-2.5 py-1.5 bg-amber-500 text-slate-950 font-black text-xs rounded-lg uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
-                    <Flame className="w-4 h-4 text-slate-950" />
-                    <span>Ore Intercept Compositor</span>
-                  </div>
-                  <div>
-                    <div className="text-sm font-black text-amber-600 dark:text-amber-400 font-mono">
-                      {oreComposite.length.toFixed(1)}m @ {oreComposite.weightedGrade} {oreComposite.unit} (From {oreComposite.from.toFixed(2)}m to {oreComposite.to.toFixed(2)}m)
-                    </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Primary Lode: <strong className="text-slate-800 dark:text-slate-200">{oreComposite.lodeName}</strong> · Cut-Off: {oreComposite.cutoff} · Accumulation: {oreComposite.accumulation} m·g/t
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-500/40 font-mono font-bold text-xs">
-                    MUCK ROUTE: MILL FEED (HIGH-GRADE)
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* TBM PROBE HAZARD BANNER */}
-            {activeIndustryMode === 'TBM' && tbmProbeSummary && (
-              <div className="bg-gradient-to-r from-indigo-500/15 via-sky-500/15 to-indigo-500/15 border-2 border-indigo-500/40 dark:border-indigo-500/30 p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="px-2.5 py-1.5 bg-indigo-600 text-white font-black text-xs rounded-lg uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
-                    <ShieldAlert className="w-4 h-4 text-white" />
-                    <span>Ahead Probe Hazard Profile</span>
-                  </div>
-                  <div>
-                    <div className="text-sm font-black text-indigo-700 dark:text-indigo-300 font-mono">
-                      {tbmProbeSummary.totalAhead}m Ahead of Cutterhead · Mean RQD: {tbmProbeSummary.avgRqd}% · Alignment Dip: +2.0°
-                    </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Critical Hazard Zone: <strong className="text-rose-600 dark:text-rose-400">Zone 22.0m–32.0m Water-Bearing Fault Shear (4.8 bar water ingress)</strong>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded-md bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-500/40 font-mono font-bold text-xs">
-                    ACTION: PRE-EXCAVATION GROUTING
-                  </span>
-                </div>
-              </div>
-            )}
-
             {/* Table Container */}
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
               <div className="overflow-x-auto">
@@ -1440,40 +671,17 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                       <th className="py-2.5 px-3 text-center w-10">#</th>
                       <th className="py-2.5 px-3 text-center">From (m)</th>
                       <th className="py-2.5 px-3 text-center">To (m)</th>
-                      <th className="py-2.5 px-3 text-center">Len (m)</th>
+                      <th className="py-2.5 px-3 text-center">Length (m)</th>
+                      <th className="py-2.5 px-3 text-center">Recovered (m)</th>
+                      <th className="py-2.5 px-3 text-center">TCR %</th>
+                      <th className="py-2.5 px-3 text-center">≥10cm (m)</th>
+                      <th className="py-2.5 px-3 text-center">RQD %</th>
+                      <th className="py-2.5 px-3 text-center">Rating</th>
                       <th className="py-2.5 px-3 text-center">Lithology</th>
-                      {activeIndustryMode === 'MINING' ? (
-                        <>
-                          <th className="py-2.5 px-3 text-center">Alteration &amp; Sulfide %</th>
-                          <th className="py-2.5 px-3 text-center">Sample ID</th>
-                          <th className="py-2.5 px-3 text-center">QA/QC Type</th>
-                          <th className="py-2.5 px-3 text-center">Assay Grade</th>
-                          <th className="py-2.5 px-3 text-center">Oriented (α / β)</th>
-                          <th className="py-2.5 px-3 text-center">RQD %</th>
-                          <th className="py-2.5 px-3">Geological Observations</th>
-                        </>
-                      ) : activeIndustryMode === 'TBM' ? (
-                        <>
-                          <th className="py-2.5 px-3 text-center">Hardness (UCS)</th>
-                          <th className="py-2.5 px-3 text-center">Cerchar CAI / Qz%</th>
-                          <th className="py-2.5 px-3 text-center">Water Inflow</th>
-                          <th className="py-2.5 px-3 text-center">TCR %</th>
-                          <th className="py-2.5 px-3 text-center">RQD %</th>
-                          <th className="py-2.5 px-3">Ahead Hazard Diagnosis</th>
-                        </>
-                      ) : (
-                        <>
-                          <th className="py-2.5 px-3 text-center">Recovered (m)</th>
-                          <th className="py-2.5 px-3 text-center">TCR %</th>
-                          <th className="py-2.5 px-3 text-center">≥10cm (m)</th>
-                          <th className="py-2.5 px-3 text-center">RQD %</th>
-                          <th className="py-2.5 px-3 text-center">Rating</th>
-                          <th className="py-2.5 px-3 text-center">Wth</th>
-                          <th className="py-2.5 px-3 text-center">Strength</th>
-                          <th className="py-2.5 px-3 text-center">Box</th>
-                          <th className="py-2.5 px-3">Discontinuities / Remarks</th>
-                        </>
-                      )}
+                      <th className="py-2.5 px-3 text-center">Wth</th>
+                      <th className="py-2.5 px-3 text-center">Strength</th>
+                      <th className="py-2.5 px-3 text-center">Box</th>
+                      <th className="py-2.5 px-3">Discontinuities / Remarks</th>
                       <th className="py-2.5 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -1493,6 +701,27 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                           <td className="py-2.5 px-3 text-center font-mono text-slate-500 font-medium">
                             {run.runLength.toFixed(2)}
                           </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
+                            {run.coreRecovered.toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-bold">
+                            <span className={run.tcrPercent >= 90 ? 'text-emerald-600' : run.tcrPercent >= 70 ? 'text-amber-600' : 'text-rose-600'}>
+                              {run.tcrPercent.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-medium">
+                            {run.soundPiecesOver10cm.toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-black text-slate-900 dark:text-white">
+                            {run.rqdPercent.toFixed(1)}%
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold border ${ratingColor.bg} ${ratingColor.text} ${ratingColor.border}`}
+                            >
+                              {run.rqdRating}
+                            </span>
+                          </td>
                           <td className="py-2.5 px-3 text-center">
                             <span
                               className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold"
@@ -1505,108 +734,23 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                               {run.lithology}
                             </span>
                           </td>
-
-                          {activeIndustryMode === 'MINING' ? (
-                            <>
-                              <td className="py-2.5 px-3 text-center font-mono text-[11px]">
-                                {run.discontinuitiesDescription?.includes('Silicification') || run.discontinuitiesDescription?.includes('Chlorit') || run.discontinuitiesDescription?.includes('Sericit')
-                                  ? run.discontinuitiesDescription.split('.')[1] || 'Alteration halo'
-                                  : 'Silicified + Pyrite'}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold text-amber-600 dark:text-amber-400">
-                                {run.discontinuitiesDescription?.match(/Sample ID:\s*([A-Za-z0-9-]+)/)?.[1] || `S-620-${String(run.runNumber).padStart(2, '0')}`}
-                              </td>
-                              <td className="py-2.5 px-3 text-center">
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                  run.discontinuitiesDescription?.includes('CRM Standard')
-                                    ? 'bg-emerald-500/20 text-emerald-600 border border-emerald-500/40'
-                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                                }`}>
-                                  {run.discontinuitiesDescription?.includes('CRM Standard') ? 'CRM Standard' : 'Regular'}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-black text-sm text-amber-500">
-                                {run.assayGrade || '—'}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono text-[11px] text-cyan-600 dark:text-cyan-400">
-                                {run.discontinuitiesDescription?.match(/Alpha:\s*([0-9°]+),\s*Beta:\s*([0-9°]+)/)
-                                  ? `${run.discontinuitiesDescription.match(/Alpha:\s*([0-9°]+)/)?.[1]} / ${run.discontinuitiesDescription.match(/Beta:\s*([0-9°]+)/)?.[1]}`
-                                  : '65° / 130°'}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-900 dark:text-white">
-                                {run.rqdPercent.toFixed(1)}%
-                              </td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300 max-w-[200px] truncate">
-                                {run.remarks || run.discontinuitiesDescription || '—'}
-                              </td>
-                            </>
-                          ) : activeIndustryMode === 'TBM' ? (
-                            <>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                {run.discontinuitiesDescription?.match(/UCS:\s*([0-9\sA-Za-z()]+),/)?.[1] || '125 MPa'}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono text-[11px]">
-                                {run.discontinuitiesDescription?.match(/CAI:\s*([0-9.\sA-Za-z()]+),/)?.[1] || 'CAI 3.4'}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono text-[11px] text-sky-600 dark:text-sky-400">
-                                {run.discontinuitiesDescription?.match(/Water\s*(?:Inflow|Pressure):\s*([^.]+)\./)?.[1] || '1.0 bar'}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold">
-                                <span className={run.tcrPercent >= 90 ? 'text-emerald-600' : run.tcrPercent >= 70 ? 'text-amber-600' : 'text-rose-600'}>
-                                  {run.tcrPercent.toFixed(1)}%
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-900 dark:text-white">
-                                {run.rqdPercent.toFixed(1)}%
-                              </td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300 max-w-[260px] truncate font-medium">
-                                <span className={run.discontinuitiesDescription?.includes('FAULT SHEAR') ? 'text-rose-600 dark:text-rose-400 font-bold' : run.discontinuitiesDescription?.includes('HIGH CUTTER WEAR') ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-emerald-600 dark:text-emerald-400 font-medium'}>
-                                  {run.discontinuitiesDescription?.match(/Ahead Hazard:\s*([^.]+)\./)?.[1] || 'OPTIMAL BORING'}
-                                </span>
-                              </td>
-                            </>
-                          ) : (
-                            <>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
-                                {run.coreRecovered.toFixed(2)}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold">
-                                <span className={run.tcrPercent >= 90 ? 'text-emerald-600' : run.tcrPercent >= 70 ? 'text-amber-600' : 'text-rose-600'}>
-                                  {run.tcrPercent.toFixed(1)}%
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-medium">
-                                {run.soundPiecesOver10cm.toFixed(2)}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-900 dark:text-white">
-                                {run.rqdPercent.toFixed(1)}%
-                              </td>
-                              <td className="py-2.5 px-3 text-center">
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border ${ratingColor.bg} ${ratingColor.text} ${ratingColor.border}`}
-                                >
-                                  {run.rqdRating}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-bold font-mono">
-                                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
-                                  {run.weathering}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-bold font-mono">
-                                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
-                                  {run.strengthGrade}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-600 dark:text-slate-400">
-                                #{run.coreBoxNumber}
-                              </td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300 max-w-[240px] truncate">
-                                <div className="truncate font-medium">{run.discontinuitiesDescription || '—'}</div>
-                                {run.remarks && <div className="text-[10px] text-slate-400 truncate">{run.remarks}</div>}
-                              </td>
-                            </>
-                          )}
+                          <td className="py-2.5 px-3 text-center font-bold font-mono">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                              {run.weathering}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-bold font-mono">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                              {run.strengthGrade}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-600 dark:text-slate-400">
+                            #{run.coreBoxNumber}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300 max-w-[240px] truncate">
+                            <div className="truncate font-medium">{run.discontinuitiesDescription || '—'}</div>
+                            {run.remarks && <div className="text-[10px] text-slate-400 truncate">{run.remarks}</div>}
+                          </td>
                           <td className="py-2.5 px-3 text-right">
                             <div className="flex items-center justify-end gap-1">
                               <button
