@@ -2510,3 +2510,472 @@ export function runQualityControlValidation(
     issues,
   };
 }
+
+// ============================================================================
+// MULTI-SURFACE APPARENT-TO-TRUE DIP SOLVER & FORWARD LOOK-AHEAD PREDICTOR
+// ============================================================================
+
+export interface SolveTrueOrientationParams {
+  surface: 'FACE' | 'LEFT_WALL' | 'CROWN' | 'RIGHT_WALL' | SurfaceType;
+  traceAngle2D: number; // apparent angle of drawn polyline on that surface (-90°..+180°)
+  surfaceTiltAngle?: number; // acute dip angle into the wall/face 0°-90° (or optional compass dip/dipDirection)
+  dip?: number;
+  dipDirection?: number;
+  driveAzimuth: number; // 000°-360°
+}
+
+export interface TrueOrientationSolution {
+  dipAngle: number;
+  dipDirection: number;
+  strike: number;
+  apparentDipOnFace: number;
+  apparentDipOnLeftWall: number;
+  apparentDipOnRightWall: number;
+  crownStrikeTraceAngle: number;
+  tunnelNormal: { nx: number; ny: number; nz: number };
+  globalNormal: { nEast: number; nNorth: number; nUp: number };
+  quadrantStrikeDip: string;
+  rhrFormat: string;
+  confidence: 'HIGH' | 'MEDIUM' | 'ESTIMATED';
+}
+
+export interface TwoSurfaceOrientationSolution {
+  trueDip: number;
+  dipDirection: number;
+  strike: number;
+  rhrFormat: string;
+  apparentDipOnFace: number;
+  apparentDipOnLeftWall: number;
+  apparentDipOnRightWall: number;
+  crownStrikeTraceAngle: number;
+  planeNormal: { nx: number; ny: number; nz: number };
+  collinearWarning: boolean;
+  angleBetweenTracesDeg: number;
+}
+
+export interface JointLookAheadProjectionResult {
+  jointId: string;
+  set: string;
+  planeEquation: { a: number; b: number; c: number; d: number };
+  currentRoundIntersections: {
+    leftWall?: { entryPoint: Point2D; exitPoint: Point2D; lengthM: number };
+    crown?: { entryPoint: Point2D; exitPoint: Point2D; lengthM: number };
+    rightWall?: { entryPoint: Point2D; exitPoint: Point2D; lengthM: number };
+  };
+  lookAheadFaces: Array<{
+    distanceM: number;
+    roundIndex: number;
+    centerlineElevationM: number;
+    intersectsFace: boolean;
+    intersectsCrown: boolean;
+    crownEntryX?: number;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  }>;
+  migratingUpwardIntoCrown: boolean;
+  crownDaylightDistanceM: number | null;
+  warningMessage?: string;
+}
+
+/**
+ * Format quadrant strike & dip notation (e.g. N 045° E / 62° SE)
+ */
+function formatQuadrantNotation(strikeDeg: number, dipDeg: number, dipDirDeg: number): string {
+  const normStrike = ((strikeDeg % 360) + 360) % 360;
+  let strikePart: string;
+  if (normStrike <= 90) {
+    strikePart = `N ${String(Math.round(normStrike)).padStart(3, '0')}° E`;
+  } else if (normStrike <= 180) {
+    strikePart = `S ${String(Math.round(180 - normStrike)).padStart(3, '0')}° E`;
+  } else if (normStrike <= 270) {
+    strikePart = `S ${String(Math.round(normStrike - 180)).padStart(3, '0')}° W`;
+  } else {
+    strikePart = `N ${String(Math.round(360 - normStrike)).padStart(3, '0')}° W`;
+  }
+
+  const normDir = ((dipDirDeg % 360) + 360) % 360;
+  const sectors = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  const dirIdx = Math.round(normDir / 22.5) % 16;
+  const dirPart = sectors[dirIdx] || 'E';
+
+  return `${strikePart} / ${Math.round(dipDeg)}° ${dirPart}`;
+}
+
+/**
+ * 1. MULTI-SURFACE APPARENT-TO-TRUE DIP SOLVER
+ * Eliminates apparent-dip confusion across FACE, LEFT_WALL, CROWN, and RIGHT_WALL
+ * relative to driveAzimuth (000°-360°).
+ */
+export function solveTrueOrientationFromSurfaceTrace(
+  params: SolveTrueOrientationParams
+): TrueOrientationSolution {
+  const s = String(params.surface).toLowerCase();
+  const isFace = s === 'face';
+  const isLeftWall = s === 'leftwall' || s === 'left_wall';
+  const isRightWall = s === 'rightwall' || s === 'right_wall';
+  const isCrown = s === 'crown';
+
+  let nx = 0;
+  let ny = 1;
+  let nz = 0;
+  let confidence: 'HIGH' | 'MEDIUM' | 'ESTIMATED' = 'ESTIMATED';
+
+  if (params.dip !== undefined && params.dipDirection !== undefined) {
+    // Direct 3D compass orientation provided
+    confidence = 'HIGH';
+    const dipRad = (Math.max(0.5, Math.min(89.5, params.dip)) * Math.PI) / 180;
+    const relAzRad = (((params.dipDirection - params.driveAzimuth + 360) % 360) * Math.PI) / 180;
+    const horiz = Math.sin(dipRad);
+    nx = horiz * Math.sin(relAzRad);
+    nz = horiz * Math.cos(relAzRad);
+    ny = Math.cos(dipRad);
+  } else {
+    // 3D vector reconstruction from surface trace + inward surface tilt angle
+    confidence = params.surfaceTiltAngle !== undefined ? 'MEDIUM' : 'ESTIMATED';
+    const tilt = params.surfaceTiltAngle !== undefined ? Math.max(5, Math.min(88, params.surfaceTiltAngle)) : 45;
+    const tiltRad = (tilt * Math.PI) / 180;
+    const traceRad = (params.traceAngle2D * Math.PI) / 180;
+
+    let tVec = { x: 1, y: 0, z: 0 };
+    let vInward = { x: 0, y: 1, z: 0 };
+
+    if (isFace) {
+      // Face: Trace is on XY plane (Z=0). Inward is +Z (along drive)
+      tVec = { x: Math.cos(traceRad), y: Math.sin(traceRad), z: 0 };
+      const uPerp = { x: -Math.sin(traceRad), y: Math.cos(traceRad), z: 0 };
+      vInward = {
+        x: uPerp.x * Math.cos(tiltRad),
+        y: uPerp.y * Math.cos(tiltRad),
+        z: Math.sin(tiltRad),
+      };
+    } else if (isLeftWall) {
+      // Left Wall: Trace on YZ plane (X = -W/2). Inward into rock is -X
+      tVec = { x: 0, y: Math.sin(traceRad), z: Math.cos(traceRad) };
+      const uPerp = { x: 0, y: Math.cos(traceRad), z: -Math.sin(traceRad) };
+      vInward = {
+        x: -Math.sin(tiltRad),
+        y: uPerp.y * Math.cos(tiltRad),
+        z: uPerp.z * Math.cos(tiltRad),
+      };
+    } else if (isRightWall) {
+      // Right Wall: Trace on YZ plane (X = +W/2). Inward into rock is +X
+      tVec = { x: 0, y: Math.sin(traceRad), z: Math.cos(traceRad) };
+      const uPerp = { x: 0, y: Math.cos(traceRad), z: -Math.sin(traceRad) };
+      vInward = {
+        x: Math.sin(tiltRad),
+        y: uPerp.y * Math.cos(tiltRad),
+        z: uPerp.z * Math.cos(tiltRad),
+      };
+    } else if (isCrown) {
+      // Crown: Trace on XZ plane (Y = H). Inward into roof rock is +Y
+      tVec = { x: Math.cos(traceRad), y: 0, z: Math.sin(traceRad) };
+      const uPerp = { x: -Math.sin(traceRad), y: 0, z: Math.cos(traceRad) };
+      vInward = {
+        x: uPerp.x * Math.cos(tiltRad),
+        y: Math.sin(tiltRad),
+        z: uPerp.z * Math.cos(tiltRad),
+      };
+    }
+
+    // Normal = tVec x vInward
+    const crossX = tVec.y * vInward.z - tVec.z * vInward.y;
+    const crossY = tVec.z * vInward.x - tVec.x * vInward.z;
+    const crossZ = tVec.x * vInward.y - tVec.y * vInward.x;
+    const mag = Math.hypot(crossX, crossY, crossZ);
+    if (mag > 1e-6) {
+      nx = crossX / mag;
+      ny = crossY / mag;
+      nz = crossZ / mag;
+    }
+  }
+
+  // Ensure upward upper-hemisphere normal for dip angle computation
+  if (ny < 0) {
+    nx = -nx;
+    ny = -ny;
+    nz = -nz;
+  }
+
+  const horiz = Math.hypot(nx, nz);
+  const dipAngle = Number((Math.atan2(horiz, Math.max(1e-6, ny)) * (180 / Math.PI)).toFixed(1));
+  const relAz = (Math.atan2(nx, nz) * (180 / Math.PI) + 360) % 360;
+  const dipDirection = Number(((relAz + params.driveAzimuth + 360) % 360).toFixed(1));
+  const strike = Number(((dipDirection - 90 + 360) % 360).toFixed(1));
+
+  // Compute expected apparent dips on all 4 tunnel surfaces
+  // Face apparent dip (angle with horizontal on face Z=0): tan(app) = |nx / ny|
+  const apparentDipOnFace = Number((Math.atan2(Math.abs(nx), Math.max(1e-6, ny)) * (180 / Math.PI)).toFixed(1));
+
+  // Sidewall apparent dip (angle with horizontal on left/right walls): tan(app) = |nz / ny|
+  const apparentDipOnLeftWall = Number((Math.atan2(Math.abs(nz), Math.max(1e-6, ny)) * (180 / Math.PI)).toFixed(1));
+  const apparentDipOnRightWall = apparentDipOnLeftWall;
+
+  // Crown strike trace angle (angle relative to tunnel axis Z): tan(crown) = |nx / nz|
+  const crownStrikeTraceAngle = Number((Math.atan2(Math.abs(nx), Math.max(1e-6, Math.abs(nz))) * (180 / Math.PI)).toFixed(1));
+
+  // Global normal in True North East-North-Up coordinate frame
+  const driveRad = (params.driveAzimuth * Math.PI) / 180;
+  const nEast = nx * Math.cos(driveRad) + nz * Math.sin(driveRad);
+  const nNorth = -nx * Math.sin(driveRad) + nz * Math.cos(driveRad);
+  const nUp = ny;
+
+  return {
+    dipAngle,
+    dipDirection,
+    strike,
+    apparentDipOnFace,
+    apparentDipOnLeftWall,
+    apparentDipOnRightWall,
+    crownStrikeTraceAngle,
+    tunnelNormal: {
+      nx: Number(nx.toFixed(4)),
+      ny: Number(ny.toFixed(4)),
+      nz: Number(nz.toFixed(4)),
+    },
+    globalNormal: {
+      nEast: Number(nEast.toFixed(4)),
+      nNorth: Number(nNorth.toFixed(4)),
+      nUp: Number(nUp.toFixed(4)),
+    },
+    quadrantStrikeDip: formatQuadrantNotation(strike, dipAngle, dipDirection),
+    rhrFormat: `${String(Math.round(strike)).padStart(3, '0')}°/${String(Math.round(dipAngle)).padStart(2, '0')}°`,
+    confidence,
+  };
+}
+
+/**
+ * Helper to convert 2D trace vector or angle on a given surface into 3D unit tangent vector
+ */
+function surfaceTraceTo3DTangent(
+  surface: string,
+  trace: Point2D | number
+): { tx: number; ty: number; tz: number } {
+  const angleDeg = typeof trace === 'number' ? trace : (Math.atan2(trace.y, trace.x) * 180) / Math.PI;
+  const rad = (angleDeg * Math.PI) / 180;
+  const s = surface.toLowerCase();
+
+  if (s === 'face') {
+    // Face: X is transverse, Y is vertical, Z is drive
+    return { tx: Math.cos(rad), ty: Math.sin(rad), tz: 0 };
+  } else if (s === 'leftwall' || s === 'left_wall') {
+    // Left Wall: Y is vertical, Z is drive (+Z)
+    return { tx: 0, ty: Math.sin(rad), tz: Math.cos(rad) };
+  } else if (s === 'rightwall' || s === 'right_wall') {
+    // Right Wall: Y is vertical, Z is drive (+Z)
+    return { tx: 0, ty: Math.sin(rad), tz: Math.cos(rad) };
+  } else if (s === 'crown') {
+    // Crown: X across span, Z along drive
+    return { tx: Math.cos(rad), ty: 0, tz: Math.sin(rad) };
+  }
+  return { tx: Math.cos(rad), ty: Math.sin(rad), tz: 0 };
+}
+
+/**
+ * 2. COMPASS-FREE TWO-SURFACE INTERSECTION SOLVER
+ * When a joint is traced across two adjacent surfaces (e.g. FACE + LEFT_WALL, or LEFT_WALL + CROWN),
+ * derives exact 3D orientation from the cross-product of both unit tangent vectors.
+ */
+export function solveTrueOrientationFromTwoSurfaces(
+  surface1: 'FACE' | 'LEFT_WALL' | 'CROWN' | 'RIGHT_WALL' | SurfaceType,
+  traceVector1: Point2D | number,
+  surface2: 'FACE' | 'LEFT_WALL' | 'CROWN' | 'RIGHT_WALL' | SurfaceType,
+  traceVector2: Point2D | number,
+  driveAzimuth: number
+): TwoSurfaceOrientationSolution {
+  const t1 = surfaceTraceTo3DTangent(String(surface1), traceVector1);
+  const t2 = surfaceTraceTo3DTangent(String(surface2), traceVector2);
+
+  // Cross product n = t1 x t2
+  const crossX = t1.ty * t2.tz - t1.tz * t2.ty;
+  const crossY = t1.tz * t2.tx - t1.tx * t2.tz;
+  const crossZ = t1.tx * t2.ty - t1.ty * t2.tx;
+
+  const mag = Math.hypot(crossX, crossY, crossZ);
+  const collinearWarning = mag < 0.08;
+
+  let nx = mag > 1e-5 ? crossX / mag : 0;
+  let ny = mag > 1e-5 ? crossY / mag : 1;
+  let nz = mag > 1e-5 ? crossZ / mag : 0;
+
+  if (ny < 0) {
+    nx = -nx;
+    ny = -ny;
+    nz = -nz;
+  }
+
+  const dot = Math.min(1, Math.max(-1, t1.tx * t2.tx + t1.ty * t2.ty + t1.tz * t2.tz));
+  const angleBetweenTracesDeg = Number((Math.acos(dot) * (180 / Math.PI)).toFixed(1));
+
+  const horiz = Math.hypot(nx, nz);
+  const trueDip = Number((Math.atan2(horiz, Math.max(1e-6, ny)) * (180 / Math.PI)).toFixed(1));
+  const relAz = (Math.atan2(nx, nz) * (180 / Math.PI) + 360) % 360;
+  const dipDirection = Number(((relAz + driveAzimuth + 360) % 360).toFixed(1));
+  const strike = Number(((dipDirection - 90 + 360) % 360).toFixed(1));
+
+  const apparentDipOnFace = Number((Math.atan2(Math.abs(nx), Math.max(1e-6, ny)) * (180 / Math.PI)).toFixed(1));
+  const apparentDipOnLeftWall = Number((Math.atan2(Math.abs(nz), Math.max(1e-6, ny)) * (180 / Math.PI)).toFixed(1));
+  const apparentDipOnRightWall = apparentDipOnLeftWall;
+  const crownStrikeTraceAngle = Number((Math.atan2(Math.abs(nx), Math.max(1e-6, Math.abs(nz))) * (180 / Math.PI)).toFixed(1));
+
+  return {
+    trueDip,
+    dipDirection,
+    strike,
+    rhrFormat: `${String(Math.round(strike)).padStart(3, '0')}°/${String(Math.round(trueDip)).padStart(2, '0')}°`,
+    apparentDipOnFace,
+    apparentDipOnLeftWall,
+    apparentDipOnRightWall,
+    crownStrikeTraceAngle,
+    planeNormal: {
+      nx: Number(nx.toFixed(4)),
+      ny: Number(ny.toFixed(4)),
+      nz: Number(nz.toFixed(4)),
+    },
+    collinearWarning,
+    angleBetweenTracesDeg,
+  };
+}
+
+/**
+ * 3. 3D MULTI-SURFACE PROJECTION & FORWARD LOOK-AHEAD PREDICTOR
+ * Given a mapped joint's 3D plane at the current face (Z = 0), calculates intersections on current
+ * tunnel perimeter and forward look-ahead prediction at Z = +3m, +6m, +9m ahead of the face.
+ */
+export function projectJointToAllSurfacesAndLookAhead(
+  joint: Pick<Joint, 'id' | 'dip' | 'dipDirection' | 'geometry' | 'surface' | 'set'>,
+  tunnelSpan: number,
+  tunnelHeight: number,
+  driveAzimuth: number,
+  lookAheadMeters: number[] = [3, 6, 9]
+): JointLookAheadProjectionResult {
+  const halfW = Math.max(1.0, tunnelSpan / 2);
+  const H = Math.max(2.0, tunnelHeight);
+
+  // Compute tunnel plane normal (nx, ny, nz)
+  const dipRad = (Math.max(1, Math.min(89, joint.dip)) * Math.PI) / 180;
+  const relAzRad = (((joint.dipDirection - driveAzimuth + 360) % 360) * Math.PI) / 180;
+  const horiz = Math.sin(dipRad);
+  const a = horiz * Math.sin(relAzRad);
+  const c = horiz * Math.cos(relAzRad);
+  const b = Math.cos(dipRad);
+
+  // Plane equation: a*(X - X0) + b*(Y - Y0) + c*(Z - Z0) = 0 => a*X + b*Y + c*Z + d = 0
+  const geom = joint.geometry || [];
+  let x0 = 0;
+  let y0 = H * 0.5;
+  let z0 = 0;
+
+  if (geom.length > 0) {
+    x0 = geom.reduce((acc, p) => acc + p.x, 0) / geom.length;
+    y0 = geom.reduce((acc, p) => acc + p.y, 0) / geom.length;
+  }
+  const s = String(joint.surface).toLowerCase();
+  if (s === 'leftwall' || s === 'left_wall') {
+    x0 = -halfW;
+  } else if (s === 'rightwall' || s === 'right_wall') {
+    x0 = halfW;
+  } else if (s === 'crown') {
+    y0 = H;
+  }
+
+  const d = -(a * x0 + b * y0 + c * z0);
+  const safeB = Math.abs(b) < 1e-4 ? (b >= 0 ? 1e-4 : -1e-4) : b;
+  const safeC = Math.abs(c) < 1e-4 ? (c >= 0 ? 1e-4 : -1e-4) : c;
+  const safeA = Math.abs(a) < 1e-4 ? (a >= 0 ? 1e-4 : -1e-4) : a;
+
+  // Intersections on current round surfaces (Z in 0..4m)
+  const currentIntersections: JointLookAheadProjectionResult['currentRoundIntersections'] = {};
+
+  // Left Wall: X = -halfW => Y(Z) = -(d + a*(-halfW) + c*Z) / safeB
+  const yLw0 = -(d + a * -halfW + c * 0) / safeB;
+  const yLw4 = -(d + a * -halfW + c * 4.0) / safeB;
+  currentIntersections.leftWall = {
+    entryPoint: { x: Number((-halfW).toFixed(2)), y: Number(Math.max(0, Math.min(H, yLw0)).toFixed(2)) },
+    exitPoint: { x: Number((-halfW).toFixed(2)), y: Number(Math.max(0, Math.min(H, yLw4)).toFixed(2)) },
+    lengthM: Number(Math.hypot(0, yLw4 - yLw0).toFixed(2)),
+  };
+
+  // Right Wall: X = +halfW => Y(Z) = -(d + a*(+halfW) + c*Z) / safeB
+  const yRw0 = -(d + a * halfW + c * 0) / safeB;
+  const yRw4 = -(d + a * halfW + c * 4.0) / safeB;
+  currentIntersections.rightWall = {
+    entryPoint: { x: Number(halfW.toFixed(2)), y: Number(Math.max(0, Math.min(H, yRw0)).toFixed(2)) },
+    exitPoint: { x: Number(halfW.toFixed(2)), y: Number(Math.max(0, Math.min(H, yRw4)).toFixed(2)) },
+    lengthM: Number(Math.hypot(0, yRw4 - yRw0).toFixed(2)),
+  };
+
+  // Crown: Y = H => Z(X) = -(d + a*X + b*H) / safeC
+  const zCrLeft = -(d + a * -halfW + b * H) / safeC;
+  const zCrRight = -(d + a * halfW + b * H) / safeC;
+  currentIntersections.crown = {
+    entryPoint: { x: Number((-halfW).toFixed(2)), y: Number(zCrLeft.toFixed(2)) },
+    exitPoint: { x: Number(halfW.toFixed(2)), y: Number(zCrRight.toFixed(2)) },
+    lengthM: Number(Math.hypot(tunnelSpan, zCrRight - zCrLeft).toFixed(2)),
+  };
+
+  // Forward Look-Ahead Predictions at Z = +3m, +6m, +9m
+  const lookAheadFaces: JointLookAheadProjectionResult['lookAheadFaces'] = [];
+  const yCurrentCenterline = -(d + c * 0) / safeB;
+
+  for (let idx = 0; idx < lookAheadMeters.length; idx++) {
+    const dist = lookAheadMeters[idx];
+    const yCl = -(d + c * dist) / safeB;
+    const intersectsFace = yCl >= 0 && yCl <= H;
+    const xCrown = -(b * H + c * dist + d) / safeA;
+    const intersectsCrown = Math.abs(xCrown) <= halfW * 1.05;
+
+    let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
+    if (intersectsCrown && (yCl >= H * 0.75 || yCl > H)) {
+      riskLevel = idx === 0 ? 'CRITICAL' : 'HIGH';
+    } else if (intersectsFace && yCl >= H * 0.5) {
+      riskLevel = 'MEDIUM';
+    }
+
+    lookAheadFaces.push({
+      distanceM: dist,
+      roundIndex: idx + 1,
+      centerlineElevationM: Number(yCl.toFixed(2)),
+      intersectsFace,
+      intersectsCrown,
+      crownEntryX: intersectsCrown ? Number(xCrown.toFixed(2)) : undefined,
+      riskLevel,
+    });
+  }
+
+  // Detect upward migration into Crown Arch
+  // Centerline elevation at Z: Y(Z) = -(d + c*Z) / safeB = H => Z_daylight = -(b*H + d) / c
+  let daylightDist: number | null = null;
+  let migratingUpward = false;
+  if (Math.abs(c) > 0.05) {
+    const zDaylight = -(b * H + d) / c;
+    if (zDaylight > 0.1 && zDaylight <= 15.0) {
+      daylightDist = Number(zDaylight.toFixed(2));
+      // If it started below crown at Z=0 and climbs to crown ahead of face
+      if (yCurrentCenterline < H * 0.85) {
+        migratingUpward = true;
+      }
+    }
+  }
+
+  let warningMessage: string | undefined;
+  if (migratingUpward && daylightDist !== null) {
+    const roundEst = daylightDist <= 3.5 ? 'Round 1' : daylightDist <= 7.0 ? 'Round 2' : 'Round 3';
+    warningMessage = `CRITICAL GEOMETRIC WARNING: Joint/shear ${joint.set || joint.id} mapped at lower/mid face (Y=${yCurrentCenterline.toFixed(1)}m) is dipping forward into drive and will migrate upward into CROWN ARCH at ~Z=+${daylightDist}m (${roundEst}). High probability of crown fallout and wedge daylighting!`;
+  }
+
+  return {
+    jointId: joint.id,
+    set: joint.set || 'J1',
+    planeEquation: {
+      a: Number(a.toFixed(4)),
+      b: Number(b.toFixed(4)),
+      c: Number(c.toFixed(4)),
+      d: Number(d.toFixed(4)),
+    },
+    currentRoundIntersections: currentIntersections,
+    lookAheadFaces,
+    migratingUpwardIntoCrown: migratingUpward,
+    crownDaylightDistanceM: daylightDist,
+    warningMessage,
+  };
+}
+

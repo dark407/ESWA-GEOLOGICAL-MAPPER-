@@ -9,7 +9,8 @@ export type MiningExcavationType =
   | 'SHAFT'
   | 'DRAWPOINT'
   | 'SILL_PILLAR'
-  | 'CROWN_PILLAR';
+  | 'CROWN_PILLAR'
+  | 'ORE_DRIVE';
 
 export type MiningMethodType =
   | 'CUT_AND_FILL'
@@ -38,6 +39,11 @@ export interface MineralizedVeinRecord {
   apparentThicknessMeters: number;
   estimatedGrade: string; // e.g. "4.8 g/t Au", "1.75% Cu"
   mineralogyNotes: string;
+  veinStyle?: 'Massive' | 'Sheeted' | 'Stockwork' | 'Breccia' | 'Disseminated';
+  alterationType?: 'Silicified' | 'Sericitic' | 'Chloritic' | 'Potassic' | 'Carbonate';
+  alterationIntensity?: 1 | 2 | 3 | 4 | 5;
+  sulfidePercent?: number;
+  sulfideMinerals?: string[];
 }
 
 export interface FaceChannelSampleRecord {
@@ -50,6 +56,14 @@ export interface FaceChannelSampleRecord {
   gradeValue: string;
   sampledBy: string;
   date: string;
+  specificGravity?: number;
+  zoneCategory?: 'ORE' | 'WASTE' | 'LOW_GRADE';
+  alteration?: string;
+  sulfidePercent?: number;
+  assayGrade?: number;
+  metalAccumulation?: number;
+  startPoint?: { x: number; y: number };
+  endPoint?: { x: number; y: number };
 }
 
 export interface LaubscherMrmrParameters {
@@ -110,10 +124,85 @@ export interface MiningStopeSettings {
   targetCutoffGrade: string;
   hangingwallDipDeg: number;
   footwallDipDeg: number;
+  oreSpecificGravity?: number;
+  wasteSpecificGravity?: number;
   mrmr?: LaubscherMrmrParameters;
   mathews?: MathewsStabilityParameters;
   veins: MineralizedVeinRecord[];
   channelSamples: FaceChannelSampleRecord[];
+}
+
+export function createDefaultMiningStopeSettings(): MiningStopeSettings {
+  return {
+    mineName: 'Deep Underground Mine',
+    mineLevel: 'Level -450m RL',
+    stopeOrDriftId: 'Stope 450-East-01',
+    excavationType: 'ORE_DRIVE',
+    miningMethod: 'SUBLEVEL_OPEN_STOPING',
+    oreBodyName: 'Main Lode North',
+    primaryCommodity: 'Gold (Au)',
+    gradeUnits: 'g/t',
+    targetCutoffGrade: '2.50',
+    hangingwallDipDeg: 72,
+    footwallDipDeg: 68,
+    oreSpecificGravity: 2.85,
+    wasteSpecificGravity: 2.65,
+    veins: [
+      {
+        id: 'vein_01',
+        name: 'V-01 Quartz-Sulfide Lode',
+        oreZone: 'HIGH_GRADE_ORE',
+        strikeDeg: 45,
+        dipDeg: 70,
+        dipDirectionDeg: 135,
+        trueThicknessMeters: 1.2,
+        apparentThicknessMeters: 1.4,
+        estimatedGrade: '6.4 g/t Au',
+        mineralogyNotes: 'Silicified quartz vein with coarse pyrite & chalcopyrite',
+        veinStyle: 'Massive',
+        alterationType: 'Silicified',
+        alterationIntensity: 4,
+        sulfidePercent: 8,
+        sulfideMinerals: ['Pyrite', 'Chalcopyrite', 'Visible Gold'],
+      },
+    ],
+    channelSamples: [
+      {
+        id: 'ch_01',
+        sampleNumber: 'CH-01',
+        fromMeter: 0.0,
+        toMeter: 1.2,
+        sampleLengthMeters: 1.2,
+        lithologyOrVein: 'High-Grade Ore Zone',
+        gradeValue: '6.40',
+        sampledBy: 'Geologist',
+        date: new Date().toISOString().split('T')[0],
+        specificGravity: 2.85,
+        zoneCategory: 'ORE',
+        alteration: 'Silicified',
+        sulfidePercent: 8,
+        assayGrade: 6.4,
+        metalAccumulation: 7.68,
+      },
+      {
+        id: 'ch_02',
+        sampleNumber: 'CH-02',
+        fromMeter: 1.2,
+        toMeter: 2.4,
+        sampleLengthMeters: 1.2,
+        lithologyOrVein: 'Country Waste Rock',
+        gradeValue: '0.35',
+        sampledBy: 'Geologist',
+        date: new Date().toISOString().split('T')[0],
+        specificGravity: 2.65,
+        zoneCategory: 'WASTE',
+        alteration: 'Chloritic',
+        sulfidePercent: 1,
+        assayGrade: 0.35,
+        metalAccumulation: 0.42,
+      },
+    ],
+  };
 }
 
 export interface ModeProjectState {
