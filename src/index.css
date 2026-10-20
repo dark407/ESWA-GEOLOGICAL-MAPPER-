@@ -572,6 +572,73 @@ html .from-amber-600 * {
   color: #FFFFFF !important;
 }
 
+/* ============================================================================
+   DYNAMIC THEME ADAPTATION SYSTEM (NO BUTTONS OR TEXTS STUCK IN OLD ORANGE)
+   Guarantees 100% text visibility & instant color inheritance across all views
+   ============================================================================ */
+html[data-theme-color]:not([data-theme-color="orange"]) .bg-amber-500,
+html[data-theme-color]:not([data-theme-color="orange"]) .bg-amber-600,
+html[data-theme-color]:not([data-theme-color="orange"]) .bg-orange-500,
+html[data-theme-color]:not([data-theme-color="orange"]) .bg-orange-600 {
+  background-color: var(--theme-accent) !important;
+  color: var(--theme-button-text) !important;
+}
+
+html[data-theme-color]:not([data-theme-color="orange"]) .bg-amber-500 *,
+html[data-theme-color]:not([data-theme-color="orange"]) .bg-amber-600 *,
+html[data-theme-color]:not([data-theme-color="orange"]) .bg-orange-500 *,
+html[data-theme-color]:not([data-theme-color="orange"]) .bg-orange-600 * {
+  color: var(--theme-button-text) !important;
+}
+
+html[data-theme-color]:not([data-theme-color="orange"]) .hover\:bg-amber-400:hover,
+html[data-theme-color]:not([data-theme-color="orange"]) .hover\:bg-amber-500:hover,
+html[data-theme-color]:not([data-theme-color="orange"]) .hover\:bg-orange-400:hover,
+html[data-theme-color]:not([data-theme-color="orange"]) .hover\:bg-orange-500:hover {
+  background-color: var(--theme-accent-highlight, var(--theme-accent)) !important;
+  color: var(--theme-button-text) !important;
+}
+
+html[data-theme-color]:not([data-theme-color="orange"]) .text-amber-400,
+html[data-theme-color]:not([data-theme-color="orange"]) .text-amber-500,
+html[data-theme-color]:not([data-theme-color="orange"]) .text-orange-400,
+html[data-theme-color]:not([data-theme-color="orange"]) .text-orange-500 {
+  color: var(--theme-accent-icon, var(--theme-accent)) !important;
+}
+
+html[data-theme-color]:not([data-theme-color="orange"]) .border-amber-400,
+html[data-theme-color]:not([data-theme-color="orange"]) .border-amber-500,
+html[data-theme-color]:not([data-theme-color="orange"]) .border-orange-400,
+html[data-theme-color]:not([data-theme-color="orange"]) .border-orange-500 {
+  border-color: var(--theme-accent) !important;
+}
+
+/* Form Controls with 100% High-Contrast Legibility & Dynamic Theme Accent Focus */
+html input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+html select,
+html textarea {
+  color: #0F172A !important;
+  border-color: var(--theme-input-border, #CBD5E1) !important;
+  background-color: #FFFFFF !important;
+}
+
+html input:focus,
+html select:focus,
+html textarea:focus {
+  border-color: var(--theme-accent, #0284C7) !important;
+  outline: 2px solid var(--theme-accent, #0284C7) !important;
+  outline-offset: 1px !important;
+}
+
+/* Universal high-contrast text guarantee for dark backgrounds */
+html .text-high-contrast {
+  color: var(--theme-high-contrast-text, #FFFFFF) !important;
+}
+html .btn-theme-adaptive {
+  background-color: var(--theme-accent) !important;
+  color: var(--theme-button-text) !important;
+}
+
 /* Borders & Table Dividers in Light Mode */
 html:not([data-theme="dark"]) [class*="border-[#1"],
 html:not([data-theme="dark"]) [class*="border-[#2"],

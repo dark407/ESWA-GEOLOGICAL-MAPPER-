@@ -33,6 +33,7 @@ import {
   prepareAndroidApkBlobUrl,
 } from '../engine/windowsDesktopEngine';
 import { EswaTunnelLogo } from './EswaBrandIdentity';
+import { useTheme, ThemeToggleButton } from '../context/ThemeContext';
 import {
   PWAInstallBannerAndModal,
   PWAInstallButton,
@@ -76,6 +77,7 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
   isOwnerPreview = false,
   onExitOwnerPreview,
 }) => {
+  const { palette } = useTheme();
   const pcInfo = useMemo(() => getOrGeneratePcHardwareId(), []);
   const isMobileApp = useMemo(() => isAndroidOrMobileDevice(), []);
   const [gateMode, setGateMode] = useState<'instant_register' | 'login'>(
@@ -309,6 +311,7 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggleButton compact />
           <PWAInstallButton compact variant="header" />
         </div>
       </header>
@@ -381,11 +384,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
             <button
               type="button"
               onClick={() => setGateMode('instant_register')}
-              className={`flex items-center justify-center gap-2 min-h-[44px] py-2.5 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                gateMode === 'instant_register'
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              className="flex items-center justify-center gap-2 min-h-[44px] py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs"
+              style={{
+                backgroundColor: gateMode === 'instant_register' ? palette.primaryHex : 'transparent',
+                color: gateMode === 'instant_register' ? palette.buttonTextColor : '#94A3B8',
+                border: gateMode === 'instant_register' ? `1px solid ${palette.accentHex}` : '1px solid transparent',
+              }}
             >
               <UserPlus className="w-4 h-4 shrink-0" />
               <span>1. Instant Register &amp; Login</span>
@@ -393,11 +397,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
             <button
               type="button"
               onClick={() => setGateMode('login')}
-              className={`flex items-center justify-center gap-2 min-h-[44px] py-2.5 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                gateMode === 'login'
-                  ? 'bg-cyan-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              className="flex items-center justify-center gap-2 min-h-[44px] py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs"
+              style={{
+                backgroundColor: gateMode === 'login' ? palette.primaryHex : 'transparent',
+                color: gateMode === 'login' ? palette.buttonTextColor : '#94A3B8',
+                border: gateMode === 'login' ? `1px solid ${palette.accentHex}` : '1px solid transparent',
+              }}
             >
               <KeyRound className="w-4 h-4 shrink-0" />
               <span>2. Existing ID / Master Login</span>
@@ -406,21 +411,6 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
 
           {gateMode === 'instant_register' ? (
             <div className="space-y-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-500/60 text-[10px] font-mono text-emerald-300 font-bold">
-                    NO ACTIVATION KEY REQUIRED · INSTANT ACCESS
-                  </span>
-                </div>
-                <h2 className="text-lg font-bold text-white pt-0.5">
-                  Enter Your Details &amp; Start Using ESWA Tunnel Mapper
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Simply enter your details once below to unlock this{' '}
-                  {isMobileApp ? 'Android App' : 'PC Software'} immediately. You will also receive an automatic Welcome Email with all App &amp; Software features.
-                </p>
-              </div>
-
               {registerError && (
                 <div className="p-3 rounded-lg bg-rose-950/80 border border-rose-700/70 text-xs text-rose-200">
                   {registerError}
@@ -437,7 +427,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       placeholder="Your Full Name"
-                      className="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                      className="w-full px-3 py-2.5 rounded-lg border text-xs focus:outline-none"
+                      style={{
+                        backgroundColor: '#0F172A',
+                        borderColor: palette.accentHex + '60',
+                        color: '#FFFFFF',
+                      }}
                     />
                   </label>
                   <label className="space-y-1">
@@ -450,7 +445,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                       value={organization}
                       onChange={(e) => setOrganization(e.target.value)}
                       placeholder="Company or Tunnel Project"
-                      className="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                      className="w-full px-3 py-2.5 rounded-lg border text-xs focus:outline-none"
+                      style={{
+                        backgroundColor: '#0F172A',
+                        borderColor: palette.accentHex + '60',
+                        color: '#FFFFFF',
+                      }}
                     />
                   </label>
                   <label className="space-y-1">
@@ -463,7 +463,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="you@company.com"
-                      className="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                      className="w-full px-3 py-2.5 rounded-lg border text-xs focus:outline-none"
+                      style={{
+                        backgroundColor: '#0F172A',
+                        borderColor: palette.accentHex + '60',
+                        color: '#FFFFFF',
+                      }}
                     />
                   </label>
                   <label className="space-y-1">
@@ -476,7 +481,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="+91 ..."
-                      className="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                      className="w-full px-3 py-2.5 rounded-lg border text-xs focus:outline-none"
+                      style={{
+                        backgroundColor: '#0F172A',
+                        borderColor: palette.accentHex + '60',
+                        color: '#FFFFFF',
+                      }}
                     />
                   </label>
                 </div>
@@ -487,7 +497,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                     type="text"
                     value={roleTitle}
                     onChange={(e) => setRoleTitle(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                    className="w-full px-3 py-2 rounded-lg border text-xs focus:outline-none"
+                    style={{
+                      backgroundColor: '#0F172A',
+                      borderColor: palette.accentHex + '60',
+                      color: '#FFFFFF',
+                    }}
                   />
                 </label>
 
@@ -500,14 +515,23 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                     value={purposeNotes}
                     onChange={(e) => setPurposeNotes(e.target.value)}
                     placeholder="Tunnel project site or chainage..."
-                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                    className="w-full px-3 py-2 rounded-lg border text-xs focus:outline-none"
+                    style={{
+                      backgroundColor: '#0F172A',
+                      borderColor: palette.accentHex + '60',
+                      color: '#FFFFFF',
+                    }}
                   />
                 </label>
 
                 <button
                   type="submit"
                   disabled={submittingReq}
-                  className="w-full min-h-[48px] py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-lg"
+                  className="w-full min-h-[48px] py-3 px-4 rounded-xl disabled:opacity-50 font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-98"
+                  style={{
+                    backgroundColor: palette.primaryHex,
+                    color: palette.buttonTextColor,
+                  }}
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>
@@ -538,7 +562,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
                   placeholder="Enter your User ID or Master Email"
-                  className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-sm font-mono text-white focus:border-cyan-500 focus:outline-none"
+                  className="w-full px-3.5 py-2.5 rounded-lg border text-sm font-mono focus:outline-none"
+                  style={{
+                    backgroundColor: '#0F172A',
+                    borderColor: palette.accentHex + '60',
+                    color: '#FFFFFF',
+                  }}
                 />
               </label>
 
@@ -550,7 +579,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your Password"
-                  className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-sm font-mono text-white focus:border-cyan-500 focus:outline-none"
+                  className="w-full px-3.5 py-2.5 rounded-lg border text-sm font-mono focus:outline-none"
+                  style={{
+                    backgroundColor: '#0F172A',
+                    borderColor: palette.accentHex + '60',
+                    color: '#FFFFFF',
+                  }}
                 />
               </label>
 
@@ -563,14 +597,23 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                   value={licenseKey}
                   onChange={(e) => setLicenseKey(e.target.value)}
                   placeholder="ESWA-1PC-XXXX-XXXX-XXXX"
-                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-sm font-mono text-emerald-300 focus:border-cyan-500 focus:outline-none"
+                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-lg border text-sm font-mono focus:outline-none"
+                  style={{
+                    backgroundColor: '#0F172A',
+                    borderColor: palette.accentHex + '60',
+                    color: '#34D399',
+                  }}
                 />
               </label>
 
               <button
                 type="submit"
                 disabled={loginBusy}
-                className="w-full min-h-[48px] py-3 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                className="w-full min-h-[48px] py-3 px-4 rounded-xl disabled:opacity-50 font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-98"
+                style={{
+                  backgroundColor: palette.primaryHex,
+                  color: palette.buttonTextColor,
+                }}
               >
                 <Lock className="w-4 h-4" />
                 <span>

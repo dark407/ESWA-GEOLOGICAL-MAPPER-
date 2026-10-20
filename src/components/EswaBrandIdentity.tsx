@@ -775,7 +775,7 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
             patternTransform="rotate(-38)"
             patternUnits="userSpaceOnUse"
           >
-            <rect width="18" height="18" fill="rgba(168, 42, 8, 0.12)" />
+            <rect width="18" height="18" fill={palette.bgGlowHex} fillOpacity={0.15} />
             <path
               d="M 0 0 L 0 18 M 0 0 L 18 0 M 9 0 L 9 18 M 0 9 L 18 9"
               stroke={strata[0]}
@@ -877,14 +877,15 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
         </g>
 
         {/* 4. Bottom-Left & Bottom-Right Banded Strata Wedges */}
+        {/* 4. Bottom-Left & Bottom-Right Banded Strata Wedges */}
         <g clipPath="url(#eswaBottomLeftStrataClip)">
-          <rect x="-40" y="720" width="450" height="420" fill="#B45309" />
+          <rect x="-40" y="720" width="450" height="420" fill={strata[3] || primary} />
           {[0, 1, 2, 3, 4, 5, 6].map((i) => (
             <path
               key={`bl-${i}`}
               d={`M -40 ${760 + i * 48} L 410 ${1140 + i * 32}`}
               fill="none"
-              stroke={i % 3 === 0 ? '#3B1403' : i % 3 === 1 ? '#FDE68A' : '#78350F'}
+              stroke={strata[i % strata.length]}
               strokeWidth="22"
               strokeOpacity="0.85"
             />
@@ -892,7 +893,7 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
         </g>
 
         <g clipPath="url(#eswaBottomRightStrataClip)">
-          <rect x="1500" y="800" width="460" height="340" fill="#A34407" />
+          <rect x="1500" y="800" width="460" height="340" fill={strata[5] || primary} />
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <path
               key={`br-${i}`}
@@ -900,7 +901,7 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
                 840 - i * 32
               }`}
               fill="none"
-              stroke={i % 3 === 0 ? '#2D1003' : i % 3 === 1 ? '#FCD34D' : '#78350F'}
+              stroke={strata[(i + 1) % strata.length]}
               strokeWidth="20"
               strokeOpacity="0.88"
             />
@@ -908,7 +909,7 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
         </g>
 
         {/* 5. Concentric Topographic Elevation Contours (Upper-Center-Right Bullseye & Regional Flow) */}
-        <g fill="none" stroke="#8C1D05" strokeLinecap="round" strokeLinejoin="round">
+        <g fill="none" stroke={strata[0] || palette.accentHex} strokeLinecap="round" strokeLinejoin="round">
           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((ring) => {
             const rx = ring * 34;
             const ry = ring * 22;
@@ -962,14 +963,14 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
         <path
           d="M 465 -30 L 645 -30 C 525 155, 370 335, 225 505 C 120 625, 35 715, -30 790 L -30 615 C 65 510, 175 385, 290 235 C 365 135, 420 50, 465 -30 Z"
           fill="url(#eswaFaultCrossHatch)"
-          stroke="#8B1E04"
+          stroke={strata[2] || palette.accentHex}
           strokeWidth="2.4"
         />
 
         <path
           d="M 1085 1100 C 1245 905, 1435 705, 1625 505 C 1745 380, 1850 265, 1950 165 L 1950 325 C 1835 445, 1710 580, 1575 725 C 1435 875, 1315 995, 1225 1100 Z"
           fill="url(#eswaFaultCrossHatch)"
-          stroke="#8B1E04"
+          stroke={strata[2] || palette.accentHex}
           strokeWidth="2.4"
         />
 
@@ -977,7 +978,7 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
         <g
           transform="translate(425, 765) rotate(-36)"
           fill="url(#eswaFaultCrossHatch)"
-          stroke="#7F1D04"
+          stroke={strata[1] || palette.accentHex}
           strokeWidth="2.2"
         >
           <path d="M -42 90 L -42 0 A 42 48 0 0 1 42 0 L 42 90 Z" />
@@ -987,7 +988,7 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
         <g
           transform="translate(995, 955) rotate(-36)"
           fill="url(#eswaFaultCrossHatch)"
-          stroke="#7F1D04"
+          stroke={strata[1] || palette.accentHex}
           strokeWidth="2.2"
         >
           <path d="M -44 65 L -44 0 A 44 48 0 0 1 44 0 L 44 65 A 44 35 0 0 1 -44 65 Z" />
@@ -995,11 +996,11 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
 
         {/* Subtle Geological Map Annotations ('Fold Axis') */}
         <g
-          fill="#6E1803"
+          fill={palette.highContrastText}
           fontFamily="'IBM Plex Mono', monospace"
           fontSize="13"
           fontWeight="600"
-          opacity="0.78"
+          opacity="0.85"
         >
           <text x="1050" y="892">
             Fold Axis
@@ -1007,17 +1008,17 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
           <path
             d="M 1118 888 L 1168 892 L 1216 930"
             fill="none"
-            stroke="#6E1803"
+            stroke={palette.highContrastText}
             strokeWidth="1.3"
           />
-          <circle cx="1216" cy="930" r="3" fill="#6E1803" />
+          <circle cx="1216" cy="930" r="3" fill={palette.highContrastText} />
         </g>
 
         {/* 8. Subtle Survey Coordinate Grid & Diamond Markers */}
         <rect width="1920" height="1080" fill="url(#eswaGeoSurveyGrid)" />
 
         {/* Subtle 4-Point Survey Star Markers (Lower Right) */}
-        <g fill="#FDE68A" opacity="0.65">
+        <g fill={palette.highContrastText} opacity="0.75">
           <path d="M 1645 692 Q 1645 715 1668 715 Q 1645 715 1645 738 Q 1645 715 1622 715 Q 1645 715 1645 692 Z" />
           <path d="M 1752 878 Q 1752 910 1784 910 Q 1752 910 1752 942 Q 1752 910 1720 910 Q 1752 910 1752 878 Z" />
         </g>

@@ -865,7 +865,7 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs font-mono">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 text-xs font-mono">
                   {(Object.keys(THEME_COLOR_PALETTES) as ThemeColor[]).map((cKey) => {
                     const p = THEME_COLOR_PALETTES[cKey];
                     const isSelected = themeColor === cKey;
@@ -904,6 +904,66 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Unlimited Custom Color Picker Section */}
+                <div className="mt-3 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 bg-slate-900/40 p-3 rounded-xl border border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="relative w-9 h-9 rounded-xl overflow-hidden border border-white/30 shrink-0 shadow-inner">
+                      <input
+                        type="color"
+                        value={palette.primaryHex}
+                        onChange={(e) => {
+                          const hex = e.target.value.toUpperCase();
+                          setThemeColor(hex);
+                          setStatusMessage({
+                            text: `Custom theme color set to ${hex}. 100% text contrast applied.`,
+                            type: 'success',
+                          });
+                        }}
+                        className="absolute -inset-2 w-14 h-14 cursor-pointer"
+                        title="Click to pick any custom color"
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                        <span>Pick Any Custom Color (16.7M Colors)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono">
+                          {palette.primaryHex.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        Choose any color from the color wheel. All texts and buttons automatically absorb and stay 100% visible.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      defaultValue={palette.primaryHex}
+                      placeholder="#RRGGBB"
+                      maxLength={7}
+                      id="customHexTextInput"
+                      className="w-24 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono font-bold text-white uppercase focus:border-cyan-400 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const el = document.getElementById('customHexTextInput') as HTMLInputElement | null;
+                        if (el && /^#[0-9A-Fa-f]{6}$/.test(el.value)) {
+                          setThemeColor(el.value.toUpperCase());
+                          setStatusMessage({
+                            text: `Custom theme color set to ${el.value.toUpperCase()}.`,
+                            type: 'success',
+                          });
+                        }
+                      }}
+                      className="px-3 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold font-mono cursor-pointer"
+                    >
+                      Set Hex
+                    </button>
+                  </div>
                 </div>
               </div>
 

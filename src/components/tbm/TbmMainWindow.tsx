@@ -260,27 +260,6 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = ({
           <EswaTunnelLogo size="xl" variant="emblem" animated showBadge={false} />
         </div>
 
-        {/* TBM Suite Title */}
-        <div className="space-y-1">
-          <div
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-mono font-bold"
-            style={{
-              borderColor: palette.primaryHex + '60',
-              color: palette.accentHex,
-              backgroundColor: palette.primaryHex + '18',
-            }}
-          >
-            <CircleDot className="w-3.5 h-3.5 animate-spin-slow" style={{ color: palette.accentHex }} />
-            <span>TBM MECHANIZED TUNNELING SUITE</span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-black text-slate-100 tracking-wide font-display">
-            ESWA Tunnel Geological Mapper
-          </h2>
-          <p className="text-xs text-slate-400 font-mono max-w-md mx-auto">
-            EPB, Slurry &amp; Hard-Rock Gripper Shield Excavation · Chainage-Based Field Logging &amp; Real-Time Rock Mechanics
-          </p>
-        </div>
-
         {/* ONLY TWO MAIN OPTIONS: 1. TBM Data Analysis & 2. Data & Storage */}
         <div className="w-full space-y-2.5 pt-1">
           {/* OPTION 1: TBM Data Analysis & Engineering Workflow */}
@@ -308,9 +287,6 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = ({
                 <div className="text-left font-mono">
                   <div className="font-bold text-slate-100 transition-colors">
                     TBM Data Analysis &amp; Engineering
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-normal">
-                    Project → Location → Config → Collection → Analysis → Monitoring → Reports
                   </div>
                 </div>
               </span>
@@ -352,9 +328,6 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = ({
                 <div className="text-left font-mono">
                   <div className="font-bold text-slate-100">
                     Data &amp; Storage / Import &amp; Export
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-normal">
-                    Isolated TBM Vault · Machine Logs · CSV &amp; PDF Export · .tbm.json Backups
                   </div>
                 </div>
               </span>

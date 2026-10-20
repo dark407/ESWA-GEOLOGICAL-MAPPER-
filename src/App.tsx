@@ -182,7 +182,9 @@ import {
   LogIn,
   LogOut,
   Mountain,
+  Palette,
   Pickaxe,
+  Pipette,
   Play,
   Plus,
   RefreshCw,
@@ -284,7 +286,7 @@ export default function App({
   isMasterSoftware = false,
   onOpenAdminPortal,
 }: AppProps = {}) {
-  const { theme, toggleTheme, palette } = useTheme();
+  const { theme, toggleTheme, palette, themeColor, setThemeColor } = useTheme();
   const isLight = theme === 'light';
   const responsive = useResponsiveLayout();
   const initialDraft = useMemo(() => loadSavedOfflineDraftSync(), []);
@@ -3843,7 +3845,7 @@ export default function App({
         className="min-h-dvh h-dvh w-full flex flex-col items-center justify-center relative overflow-y-auto overflow-x-hidden no-scrollbar mouse-scrollable p-2 sm:p-4 select-none"
         style={{
           backgroundColor: palette.primaryHex,
-          color: '#1C130E',
+          color: palette.onBaseTextColor,
         }}
       >
         {/* Dynamic Theme Color Geological Map Backdrop with minute opacity logo */}
@@ -3860,14 +3862,12 @@ export default function App({
                   type="button"
                   onClick={() => handleSwitchIndustryMode(m)}
                   className={`px-3 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
-                    isAct
-                      ? m === 'NATM'
-                        ? 'bg-amber-500 text-slate-950 font-black shadow-md'
-                        : m === 'TBM'
-                        ? 'bg-cyan-400 text-slate-950 font-black shadow-md'
-                        : 'bg-emerald-400 text-slate-950 font-black shadow-md'
-                      : 'text-white/70 hover:text-white hover:bg-white/10'
+                    isAct ? 'font-black shadow-md' : 'text-white/70 hover:text-white hover:bg-white/10'
                   }`}
+                  style={{
+                    backgroundColor: isAct ? (m === 'NATM' ? palette.primaryHex : m === 'TBM' ? '#06B6D4' : '#10B981') : undefined,
+                    color: isAct ? (m === 'NATM' ? palette.buttonTextColor : '#020617') : undefined,
+                  }}
                   title={
                     m === 'NATM'
                       ? 'NATM: New Austrian Tunnelling Method / Conventional D&B'
@@ -3893,18 +3893,22 @@ export default function App({
                 <button
                   type="button"
                   onClick={() => setIsAccountMenuOpen((prev) => !prev)}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white/95 hover:bg-orange-50 text-stone-900 border-orange-300 shadow-sm transition-all cursor-pointer text-xs font-semibold"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white/95 text-stone-900 shadow-sm transition-all cursor-pointer text-xs font-semibold"
+                  style={{
+                    borderColor: palette.primaryHex + '50',
+                  }}
                   title={`Signed in as ${googleUser.email}. Click to sync or manage your ESWA account & data.`}
                 >
                   {googleUser.photoURL ? (
                     <img
                       src={googleUser.photoURL}
                       alt={googleUser.displayName}
-                      className="w-4 h-4 rounded-full object-cover border border-orange-300"
+                      className="w-4 h-4 rounded-full object-cover border"
+                      style={{ borderColor: palette.primaryHex + '60' }}
                       referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <UserIcon className="w-3.5 h-3.5 text-orange-600" />
+                    <UserIcon className="w-3.5 h-3.5" style={{ color: palette.accentIconColor }} />
                   )}
                   <span className="max-w-[140px] sm:max-w-[190px] truncate">
                     {googleUser.email}
@@ -3928,26 +3932,36 @@ export default function App({
                       setIsGlobalSettingsOpen(true);
                     }
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white/95 hover:bg-orange-50 text-stone-900 border-orange-300 shadow-sm transition-all cursor-pointer text-xs font-semibold whitespace-nowrap active:scale-95"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white/95 text-stone-900 shadow-sm transition-all cursor-pointer text-xs font-semibold whitespace-nowrap active:scale-95"
+                  style={{
+                    borderColor: palette.primaryHex + '50',
+                  }}
                   title="Sign in with your Google Email to access and sync your ESWA Tunnel Mapper app & data"
                 >
-                  <LogIn className={`w-3.5 h-3.5 text-orange-600 ${isAuthBusy ? 'animate-spin' : ''}`} />
+                  <LogIn className={`w-3.5 h-3.5 ${isAuthBusy ? 'animate-spin' : ''}`} style={{ color: palette.accentIconColor }} />
                   <span>{isAuthBusy ? 'Signing in...' : 'Google Login'}</span>
                 </button>
               )}
 
               {googleUser && isAccountMenuOpen && (
-                <div className="absolute right-0 mt-1.5 w-72 rounded-xl border border-orange-200 bg-white shadow-xl p-3 text-left z-30 space-y-2.5">
-                  <div className="flex items-center gap-2.5 pb-2 border-b border-orange-100">
+                <div
+                  className="absolute right-0 mt-1.5 w-72 rounded-xl border bg-white shadow-xl p-3 text-left z-30 space-y-2.5"
+                  style={{ borderColor: palette.primaryHex + '40' }}
+                >
+                  <div className="flex items-center gap-2.5 pb-2 border-b" style={{ borderColor: palette.primaryHex + '25' }}>
                     {googleUser.photoURL ? (
                       <img
                         src={googleUser.photoURL}
                         alt={googleUser.displayName}
-                        className="w-8 h-8 rounded-full object-cover border border-orange-300"
+                        className="w-8 h-8 rounded-full object-cover border"
+                        style={{ borderColor: palette.primaryHex + '60' }}
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-700 font-bold text-xs">
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs"
+                        style={{ backgroundColor: palette.primaryHex + '20', color: palette.accentColorOnLight }}
+                      >
                         {(googleUser.email || 'U').slice(0, 1).toUpperCase()}
                       </div>
                     )}
@@ -3962,7 +3976,14 @@ export default function App({
                   </div>
 
                   {cloudSyncStatus && (
-                    <div className="text-[10px] font-mono px-2 py-1 rounded bg-orange-50 text-orange-800 border border-orange-200">
+                    <div
+                      className="text-[10px] font-mono px-2 py-1 rounded border"
+                      style={{
+                        backgroundColor: palette.primaryHex + '15',
+                        borderColor: palette.primaryHex + '35',
+                        color: palette.isLightBg ? '#0F172A' : '#1E293B',
+                      }}
+                    >
                       {cloudSyncStatus}
                     </div>
                   )}
@@ -3977,7 +3998,11 @@ export default function App({
                         setIsAuthBusy(false);
                         setCloudSyncStatus(res.message);
                       }}
-                      className="px-2.5 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1.5 rounded-lg text-white text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs"
+                      style={{
+                        backgroundColor: palette.primaryHex,
+                        color: palette.buttonTextColor,
+                      }}
                     >
                       <Cloud className="w-3.5 h-3.5" />
                       <span>Save to Cloud</span>
@@ -3997,7 +4022,12 @@ export default function App({
                           setCloudSyncStatus('No cloud backup found yet');
                         }
                       }}
-                      className="px-2.5 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-900 border border-orange-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1.5 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                      style={{
+                        backgroundColor: palette.primaryHex + '15',
+                        borderColor: palette.primaryHex + '40',
+                        color: palette.isLightBg ? '#0F172A' : '#1C130E',
+                      }}
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       <span>Load Cloud</span>
@@ -4034,13 +4064,8 @@ export default function App({
                 <button
                   type="button"
                   onClick={() => setIsGlobalSettingsOpen(true)}
-                  className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                    activeGeologist.role === 'Contractor'
-                      ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
-                      : activeGeologist.role === 'PMC'
-                      ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30 hover:bg-blue-500/20'
-                      : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
-                  }`}
+                  className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer bg-white/95 text-stone-900"
+                  style={{ borderColor: palette.primaryHex + '40' }}
                   title={`Active Geologist: ${activeGeologist.name} (${activeGeologist.role}) - Click to switch profile`}
                 >
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -4052,10 +4077,11 @@ export default function App({
               <button
                 type="button"
                 onClick={() => setIsGlobalSettingsOpen(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white/95 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-orange-500 hover:bg-orange-50 dark:hover:border-orange-500 text-slate-800 dark:text-slate-100 shadow-sm transition-all cursor-pointer active:scale-95"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white/95 border text-slate-800 shadow-sm transition-all cursor-pointer active:scale-95"
+                style={{ borderColor: palette.primaryHex + '45' }}
                 title="Open Global Settings (Google Account, Device ID, Multi-Device Project Sync, Geologist Profiles & Signatures)"
               >
-                <Settings className="w-4 h-4 text-orange-500 hover:rotate-90 transition-transform duration-300" />
+                <Settings className="w-4 h-4 hover:rotate-90 transition-transform duration-300" style={{ color: palette.accentIconColor }} />
                 <span className="hidden sm:inline">Settings</span>
               </button>
             </div>
@@ -4068,13 +4094,17 @@ export default function App({
                   setIsFirstOpening(false);
                   onOpenAdminPortal();
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs font-semibold rounded-lg border bg-white/95 hover:bg-orange-50 text-stone-900 border-orange-300 shadow-sm transition-all cursor-pointer whitespace-nowrap"
+                className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs font-semibold rounded-lg border bg-white/95 text-stone-900 shadow-sm transition-all cursor-pointer whitespace-nowrap"
+                style={{ borderColor: palette.primaryHex + '50' }}
                 title="Open Software Access Control (Master Admin) to manage PC & Mobile App user requests"
               >
-                <ShieldCheck className="w-3.5 h-3.5 text-orange-600" />
+                <ShieldCheck className="w-3.5 h-3.5" style={{ color: palette.accentIconColor }} />
                 <span>Software Access Control</span>
                 {pendingRequestCount > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full bg-orange-600 text-white font-bold text-[10px]">
+                  <span
+                    className="ml-1 px-1.5 py-0.2 rounded-full font-bold text-[10px]"
+                    style={{ backgroundColor: palette.primaryHex, color: palette.buttonTextColor }}
+                  >
                     {pendingRequestCount}
                   </span>
                 )}
@@ -4097,6 +4127,7 @@ export default function App({
             />
           </div>
 
+
           {/* Main Window: Only 3 Options — 1. Underground Face Mapping, 2. Surface Mapping, 3. Data Storage, Import & Export */}
           <div className="w-full space-y-2.5">
             {/* 1. First Option: Underground Face Mapping */}
@@ -4110,13 +4141,16 @@ export default function App({
                   setResumeFieldAtLastStage(false);
                   setIsFieldMappingModeOpen(true);
                 }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white hover:bg-orange-50 text-stone-900 border-2 border-orange-200 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer"
+                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99"
+                style={{
+                  borderColor: palette.primaryHex + '60',
+                }}
               >
                 <span className="flex items-center gap-2">
-                  <Compass className="w-4 h-4 text-orange-600 shrink-0" />
+                  <Compass className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
                   <span>Underground Face Mapping</span>
                 </span>
-                <ArrowRight className="w-4 h-4 shrink-0 text-orange-600" />
+                <ArrowRight className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
               </button>
 
               <button
@@ -4127,14 +4161,19 @@ export default function App({
                   setResumeFieldAtLastStage(true);
                   setIsFieldMappingModeOpen(true);
                 }}
-                className="px-3.5 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-50 text-stone-900 font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.20)] transition-all cursor-pointer border-2 border-white shrink-0"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.16)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                style={{
+                  backgroundColor: palette.primaryHex,
+                  borderColor: palette.accentHex,
+                  color: palette.buttonTextColor,
+                }}
                 title={
                   fieldResumeMeta
                     ? `Resume Underground Face Mapping where you stopped (${fieldResumeMeta.stage})`
                     : 'Resume Underground Face Mapping where you stopped'
                 }
               >
-                <Play className="w-3.5 h-3.5 text-orange-600 fill-orange-600 shrink-0" />
+                <Play className="w-3.5 h-3.5 shrink-0" style={{ color: palette.buttonTextColor, fill: palette.buttonTextColor }} />
                 <span>Resume</span>
               </button>
             </div>
@@ -4146,13 +4185,16 @@ export default function App({
                 onClick={() => {
                   setIsContinuousLogSetupOpen(true);
                 }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white hover:bg-orange-50 text-stone-900 border-2 border-orange-200 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer"
+                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99"
+                style={{
+                  borderColor: palette.primaryHex + '60',
+                }}
               >
                 <span className="flex items-center gap-2">
-                  <FileSpreadsheet className="w-4 h-4 text-orange-600 shrink-0" />
+                  <FileSpreadsheet className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
                   <span>Continuous Tunnel Logging</span>
                 </span>
-                <ArrowRight className="w-4 h-4 shrink-0 text-orange-600" />
+                <ArrowRight className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
               </button>
             </div>
 
@@ -4164,18 +4206,26 @@ export default function App({
                   setIsFirstOpening(false);
                   setIsCoreLoggingOpen(true);
                 }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white hover:bg-orange-50 text-stone-900 border-2 border-orange-200 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer"
+                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99"
+                style={{
+                  borderColor: palette.primaryHex + '60',
+                }}
               >
                 <span className="flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-orange-600 shrink-0" />
+                  <Layers className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
                   <span>Geotechnical Core Logging &amp; Reports</span>
                 </span>
-                <ArrowRight className="w-4 h-4 shrink-0 text-orange-600" />
+                <ArrowRight className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
               </button>
             </div>
 
             {/* 2. Second Option: Surface Mapping (Isolated Subtypes) */}
-            <div className="w-full bg-white/95 rounded-xl border-2 border-orange-200 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] p-2.5 space-y-2">
+            <div
+              className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 space-y-2 transition-colors"
+              style={{
+                borderColor: palette.primaryHex + '60',
+              }}
+            >
               <div className="flex items-stretch gap-2 w-full">
                 <button
                   type="button"
@@ -4186,16 +4236,22 @@ export default function App({
                     setResumeFieldAtLastStage(false);
                     setIsFieldMappingModeOpen(true);
                   }}
-                  className="flex-1 py-1 px-2 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 text-stone-900 hover:text-orange-600 transition-all cursor-pointer"
+                  className="flex-1 py-1 px-2 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 text-stone-900 transition-all cursor-pointer"
                 >
                   <span className="flex items-center gap-2">
-                    <Mountain className="w-4 h-4 text-orange-600 shrink-0" />
+                    <Mountain className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
                     <span>Surface Mapping</span>
-                    <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 font-mono text-[10px] font-bold">
+                    <span
+                      className="px-2 py-0.5 rounded font-mono text-[10px] font-bold"
+                      style={{
+                        backgroundColor: palette.primaryHex + '25',
+                        color: palette.accentColorOnLight,
+                      }}
+                    >
                       {selectedSurfaceSubType}
                     </span>
                   </span>
-                  <ArrowRight className="w-4 h-4 shrink-0 text-orange-600" />
+                  <ArrowRight className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
                 </button>
 
                 <button
@@ -4213,20 +4269,30 @@ export default function App({
                     setResumeFieldAtLastStage(true);
                     setIsFieldMappingModeOpen(true);
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-50 text-stone-900 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer border border-amber-300 shrink-0"
+                  className="px-4 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer border shrink-0 active:scale-95"
+                  style={{
+                    backgroundColor: palette.primaryHex,
+                    borderColor: palette.accentHex,
+                    color: palette.buttonTextColor,
+                  }}
                   title={
                     surfaceResumeMeta
                       ? `Resume Surface Mapping where you stopped (${surfaceResumeMeta.subType})`
                       : 'Resume Surface Mapping where you stopped'
                   }
                 >
-                  <Play className="w-3.5 h-3.5 text-orange-600 fill-orange-600 shrink-0" />
+                  <Play className="w-3.5 h-3.5 shrink-0" style={{ color: palette.buttonTextColor, fill: palette.buttonTextColor }} />
                   <span>Resume</span>
                 </button>
               </div>
 
-              {/* Isolated Subtype Direct Launchers */}
-              <div className="grid grid-cols-4 gap-1.5 pt-1.5 border-t border-orange-100">
+              {/* Isolated Subtype Direct Launchers (Bench, Trench, Slope, Outcrop) */}
+              <div
+                className="grid grid-cols-4 gap-1.5 pt-1.5 border-t"
+                style={{
+                  borderColor: palette.primaryHex + '25',
+                }}
+              >
                 {(
                   [
                     ['BENCH', 'Bench'],
@@ -4234,27 +4300,32 @@ export default function App({
                     ['SLOPE', 'Slope'],
                     ['ROCK_SURFACE', 'Outcrop'],
                   ] as [SurfaceMappingSubType, string][]
-                ).map(([sub, lbl]) => (
-                  <button
-                    key={sub}
-                    type="button"
-                    onClick={() => {
-                      setIsFirstOpening(false);
-                      setSelectedSurfaceSubType(sub);
-                      handleSwitchMappingDomain(sub);
-                      setActiveFieldWorkflowMode('field_mapping');
-                      setResumeFieldAtLastStage(false);
-                      setIsFieldMappingModeOpen(true);
-                    }}
-                    className={`py-1 px-1 rounded-md text-[10px] font-bold text-center transition-all cursor-pointer border ${
-                      selectedSurfaceSubType === sub
-                        ? 'bg-orange-500 text-white border-orange-600 shadow-sm'
-                        : 'bg-orange-50/70 text-stone-700 border-orange-200/80 hover:bg-orange-100 hover:text-stone-900'
-                    }`}
-                  >
-                    {lbl}
-                  </button>
-                ))}
+                ).map(([sub, lbl]) => {
+                  const isSelected = selectedSurfaceSubType === sub;
+                  return (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => {
+                        setIsFirstOpening(false);
+                        setSelectedSurfaceSubType(sub);
+                        handleSwitchMappingDomain(sub);
+                        setActiveFieldWorkflowMode('field_mapping');
+                        setResumeFieldAtLastStage(false);
+                        setIsFieldMappingModeOpen(true);
+                      }}
+                      className="py-1 px-1 rounded-md text-[10px] font-bold text-center transition-all cursor-pointer border"
+                      style={{
+                        backgroundColor: isSelected ? palette.primaryHex : palette.primaryHex + '18',
+                        borderColor: isSelected ? palette.accentHex : palette.primaryHex + '35',
+                        color: isSelected ? palette.buttonTextColor : '#0F172A',
+                        boxShadow: isSelected ? `0 2px 8px ${palette.primaryHex}45` : undefined,
+                      }}
+                    >
+                      {lbl}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -4266,13 +4337,15 @@ export default function App({
                   setIsFirstOpening(false);
                   handleOpenProjectMemoryModal('field_data');
                 }}
-                className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white hover:bg-orange-50 text-stone-900 border-2 border-orange-200 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer"
+                className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99"
+                style={{
+                  borderColor: palette.primaryHex + '60',
+                }}
               >
                 <span className="flex items-center gap-2">
-                  <Database className="w-4 h-4 text-orange-600 shrink-0" />
+                  <Database className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
                   <span>Data Storage, Import &amp; Export</span>
                 </span>
-                <ArrowRight className="w-4 h-4 shrink-0 text-orange-600" />
               </button>
             </div>
           </div>
