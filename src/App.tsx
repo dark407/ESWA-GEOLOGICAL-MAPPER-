@@ -68,6 +68,7 @@ import {
   saveProjectRecordToMemory,
 } from './engine/projectMemoryEngine';
 import { ProjectMemoryModal } from './components/OverbreakAndProjectMemoryPanel';
+import { NatmRockMechanicsAndLookAheadHub } from './components/NatmRockMechanicsAndLookAheadHub';
 import {
   autoEstimateQIndexFromMappedJoints,
   createDefaultQIndexParameters,
@@ -187,6 +188,7 @@ import {
   Ruler,
   Save,
   Settings,
+  Shield,
   ShieldCheck,
   Sliders,
   Sparkles,
@@ -303,6 +305,7 @@ export default function App({
   const [photoSurfaceParams, setPhotoSurfaceParams] = useState<SurfaceGeometryParameters>(() =>
     loadSavedSurfaceGeometryParameters('BENCH')
   );
+  const [isNatmRockMechanicsModalOpen, setIsNatmRockMechanicsModalOpen] = useState<boolean>(false);
 
   // Google Email Login & Cloud Workspace Synchronization State
   const [googleUser, setGoogleUser] = useState<GoogleUserAccountInfo | null>(() =>
@@ -2839,6 +2842,16 @@ export default function App({
     />
   );
 
+  const natmRockMechanicsModalNode = (
+    <NatmRockMechanicsAndLookAheadHub
+      isOpen={isNatmRockMechanicsModalOpen}
+      onClose={() => setIsNatmRockMechanicsModalOpen(false)}
+      isFloatingModal={true}
+      driveAzimuth={Number(settings.driveDirection) || 45}
+      faceChainage={settings.faceChainage || settings.chainage || 'CH 102+45.0'}
+    />
+  );
+
   // AI Icon / Chatbot is strictly shown ONLY on the main Welcome Window
   const welcomeAiChatbotNode = (
     <EswaAiExecutiveChatbot
@@ -3200,6 +3213,18 @@ export default function App({
         {/* Top-Right Controls: Google Email Login & Master Software Access Control */}
         {!isContinuous3DLoggerOpen && !isProjectMemoryModalOpen && (
           <div className="absolute top-3 right-3 sm:top-5 sm:right-6 flex flex-wrap items-center justify-end gap-2 z-20">
+            {/* Quick-Launch Button: Rock Mechanics & +3m/+6m/+9m Predictor */}
+            <button
+              type="button"
+              onClick={() => setIsNatmRockMechanicsModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs font-bold rounded-lg border bg-slate-900/95 hover:bg-slate-800 text-cyan-300 border-cyan-400 shadow-md shadow-cyan-500/20 cursor-pointer transition-all active:scale-95"
+              title="Open 3D Wedge Support Adequacy, 4-Surface Apparent Dip Solver & +3m/+6m/+9m Predictor"
+            >
+              <Shield className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Rock Mechanics &amp; +3m/+6m/+9m Predictor</span>
+              <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-600">v2.6 LIVE</span>
+            </button>
+
             {/* Google Email Login & Cloud Workspace Sync */}
             <div className="relative">
               {googleUser ? (
@@ -3593,6 +3618,7 @@ export default function App({
 
         {isBootLoading && <EswaLoadingScreen onComplete={() => setIsBootLoading(false)} />}
         {projectMemoryModalNode}
+        {natmRockMechanicsModalNode}
         {welcomeAiChatbotNode}
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
@@ -5398,11 +5424,28 @@ export default function App({
                   Resume Draft
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => setIsNatmRockMechanicsModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold bg-slate-900 border border-cyan-400 text-cyan-300 hover:bg-slate-800 shadow-md cursor-pointer transition-all active:scale-95"
+                title="Open 3D Wedge Support Adequacy, 4-Surface Apparent Dip Solver & +3m/+6m/+9m Predictor"
+              >
+                <Shield className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Rock Mechanics &amp; +3m/+6m/+9m Predictor</span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-600">v2.6 LIVE</span>
+              </button>
             </div>
           </div>
 
           {/* Main Step 1 Practical Setup Content */}
           <div className="space-y-4 pr-1 text-left">
+            {/* Prominently Mounted NATM Rock Mechanics & Look-Ahead Hub */}
+            <NatmRockMechanicsAndLookAheadHub
+              isOpen={true}
+              driveAzimuth={Number(settings.driveDirection) || 45}
+              faceChainage={settings.faceChainage || settings.chainage || 'CH 102+45.0'}
+            />
             {/* ROW 1: 1. CHOOSE OR CREATE PROJECT + 2. CHOOSE OR CREATE LOCATION */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* 1. PROJECT */}
@@ -7782,6 +7825,7 @@ export default function App({
       />
 
       {projectMemoryModalNode}
+      {natmRockMechanicsModalNode}
       {continuousLoggingModalsNode}
       {globalSettingsModalNode}
     </div>
