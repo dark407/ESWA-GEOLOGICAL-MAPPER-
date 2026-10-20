@@ -734,6 +734,12 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
   className?: string;
   opacity?: number;
 }> = ({ className = '', opacity = 1 }) => {
+  const { palette } = useTheme();
+  const stops = palette.baseGradientStops;
+  const glow = palette.glowStops;
+  const strata = palette.strataColors;
+  const primary = palette.primaryHex;
+
   return (
     <div
       className={`fixed inset-0 pointer-events-none select-none z-0 overflow-hidden no-print eswa-bg-watermark ${className}`}
@@ -746,19 +752,19 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
         className="w-full h-full"
       >
         <defs>
-          {/* Exact Amber-Orange Geological Map Base Gradient */}
+          {/* Dynamic Theme Color Geological Map Base Gradient */}
           <linearGradient id="eswaGeoOrangeBase" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#EB820E" />
-            <stop offset="35%" stopColor="#F39015" />
-            <stop offset="68%" stopColor="#EE8711" />
-            <stop offset="100%" stopColor="#DC730A" />
+            <stop offset="0%" stopColor={stops[0]} />
+            <stop offset="35%" stopColor={stops[1]} />
+            <stop offset="68%" stopColor={stops[2]} />
+            <stop offset="100%" stopColor={stops[3]} />
           </linearGradient>
 
           {/* Warm Radial Highlight for Topographic Highs */}
           <radialGradient id="eswaGeoWarmGlow" cx="62%" cy="28%" r="55%">
-            <stop offset="0%" stopColor="#FAA026" stopOpacity="0.65" />
-            <stop offset="55%" stopColor="#F08A12" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#C95E06" stopOpacity="0" />
+            <stop offset="0%" stopColor={glow[0]} stopOpacity="0.65" />
+            <stop offset="55%" stopColor={glow[1]} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={glow[2]} stopOpacity="0" />
           </radialGradient>
 
           {/* Rotated Cross-Hatch Mesh Pattern for Fault / Shear Corridors & Tunnel Portals */}
@@ -772,7 +778,7 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
             <rect width="18" height="18" fill="rgba(168, 42, 8, 0.12)" />
             <path
               d="M 0 0 L 0 18 M 0 0 L 18 0 M 9 0 L 9 18 M 0 9 L 18 9"
-              stroke="#8B1E04"
+              stroke={strata[0]}
               strokeWidth="1.25"
               strokeOpacity="0.78"
             />
@@ -788,7 +794,7 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
             <path
               d="M 240 0 L 0 0 0 240"
               fill="none"
-              stroke="#6E1E04"
+              stroke={strata[0]}
               strokeWidth="1"
               strokeOpacity="0.28"
             />
@@ -813,27 +819,19 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
           </clipPath>
         </defs>
 
-        {/* 1. Base Vibrant Amber-Orange Sheet */}
+        {/* 1. Base Vibrant Themed Sheet */}
         <rect width="1920" height="1080" fill="url(#eswaGeoOrangeBase)" />
         <rect width="1920" height="1080" fill="url(#eswaGeoWarmGlow)" />
 
         {/* 2. Top-Left Banded Rock Strata Wedge */}
         <g clipPath="url(#eswaTopLeftStrataClip)">
-          <rect x="-50" y="-50" width="460" height="500" fill="#B85308" />
+          <rect x="-50" y="-50" width="460" height="500" fill={strata[2] || primary} />
           {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
             <path
               key={`tl-${i}`}
               d={`M -60 ${360 - i * 38} C 80 ${260 - i * 36}, 210 ${120 - i * 34}, 370 ${-40 - i * 30}`}
               fill="none"
-              stroke={
-                i % 4 === 0
-                  ? '#3E1604'
-                  : i % 4 === 1
-                  ? '#FDE68A'
-                  : i % 4 === 2
-                  ? '#853208'
-                  : '#F59E0B'
-              }
+              stroke={strata[i % strata.length]}
               strokeWidth={i % 2 === 0 ? 18 : 12}
               strokeOpacity="0.88"
             />
@@ -842,19 +840,10 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
 
         {/* 3. Central-Left Diagonal Folded Sedimentary / Metamorphic Rock Strata Outcrop */}
         <g clipPath="url(#eswaFoldedStrataSwathClip)">
-          <rect x="200" y="-40" width="960" height="1200" fill="#C86209" />
+          <rect x="200" y="-40" width="960" height="1200" fill={strata[6] || primary} />
           {Array.from({ length: 28 }, (_, i) => {
             const yBase = -120 + i * 46;
-            const colors = [
-              '#3B1403',
-              '#FDE68A',
-              '#7C2D08',
-              '#F59E0B',
-              '#290D02',
-              '#FEF3C7',
-              '#9A3B0A',
-              '#D97706',
-            ];
+            const colors = strata;
             const widths = [24, 15, 20, 18, 14, 16, 22, 16];
             return (
               <path
@@ -1041,24 +1030,36 @@ export const EswaGeologicalOrangeMapBackdrop: React.FC<{
  * Official Amber-Orange Geological Background + Center-Blended ESWA Logo Watermark for Active App Workspaces.
  * Strictly unmounted in all Reports & Print views.
  */
-export const EswaAppBackgroundWatermark: React.FC<{
+export interface EswaAppBackgroundWatermarkProps {
   visible?: boolean;
   showLogoWatermark?: boolean;
-}> = ({ visible = true, showLogoWatermark = true }) => {
+  isCanvas?: boolean;
+  isReport?: boolean;
+}
+
+export const EswaAppBackgroundWatermark: React.FC<EswaAppBackgroundWatermarkProps> = ({
+  visible = true,
+  showLogoWatermark = true,
+  isCanvas = false,
+  isReport = false,
+}) => {
+  const { isCanvasActive, isReportActive } = useTheme();
   if (!visible) return null;
+
+  const hideLogo = isCanvas || isReport || isCanvasActive || isReportActive || !showLogoWatermark;
 
   return (
     <div
       className="fixed inset-0 pointer-events-none select-none z-0 flex items-center justify-center overflow-hidden no-print eswa-bg-watermark"
       aria-hidden="true"
     >
-      {/* Full-Bleed Exact Geological Amber-Orange Map Backdrop */}
+      {/* Full-Bleed Geological Map Backdrop dynamically styled by Theme Color */}
       <EswaGeologicalOrangeMapBackdrop />
 
-      {/* Single Center-Blended Official ESWA Logo Watermark (No Overlapped Back Duplicate) */}
-      {showLogoWatermark && (
+      {/* Center-Blended Official ESWA Logo Watermark in Minute Opacity (visible, discreet, never disturbing) */}
+      {!hideLogo && (
         <div
-          className="relative z-10 flex items-center justify-center opacity-[0.14] mix-blend-multiply"
+          className="relative z-10 flex items-center justify-center opacity-[0.038] mix-blend-multiply pointer-events-none"
           style={{
             width: 'min(58vw, 480px)',
           }}
@@ -1082,6 +1083,7 @@ interface EswaLoadingScreenProps {
 export const EswaLoadingScreen: React.FC<EswaLoadingScreenProps> = ({ onComplete }) => {
   const [isExiting, setIsExiting] = useState<boolean>(false);
   const chimePlayedRef = useRef<boolean>(false);
+  const { palette } = useTheme();
 
   useEffect(() => {
     // Play the synthesized Windows-style warm welcome sound immediately on launch
@@ -1125,7 +1127,7 @@ export const EswaLoadingScreen: React.FC<EswaLoadingScreenProps> = ({ onComplete
         isExiting ? 'opacity-0 scale-[1.03]' : 'opacity-100 scale-100'
       }`}
       style={{
-        backgroundColor: '#EE8711',
+        backgroundColor: palette.primaryHex,
       }}
       role="dialog"
       aria-label="ESWA Official Boot Splash Screen"

@@ -66,7 +66,7 @@ import {
   verifyAndSetActiveProfile,
   GeologistUserProfile,
 } from '../engine/userCloudAndPackageEngine';
-import { ThemeToggleButton } from '../context/ThemeContext';
+import { ThemeToggleButton, useTheme, THEME_COLOR_PALETTES, ThemeColor } from '../context/ThemeContext';
 
 export interface GlobalSettingsModalProps {
   isOpen: boolean;
@@ -86,6 +86,7 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
   initialTab = 'account',
 }) => {
   const [activeTab, setActiveTab] = useState<'account' | 'projects' | 'profiles'>(initialTab);
+  const { themeColor, setThemeColor, palette } = useTheme();
 
   // Device Info
   const [deviceInfo, setDeviceInfo] = useState(() =>
@@ -837,6 +838,137 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
                 </div>
                 <div className="font-mono text-[11px] text-slate-500 shrink-0">
                   Storage Engine: IndexedDB + LocalStorage
+                </div>
+              </div>
+
+              {/* Application Theme Color & Background Palette Selection */}
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full shadow" style={{ backgroundColor: palette.primaryHex }} />
+                      <span>Application Theme Color &amp; Background Palette</span>
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Choose your preferred theme accent and background. All views, including NATM, TBM, and Mining, dynamically adapt to this color.
+                    </p>
+                  </div>
+                  <span
+                    className="text-[11px] font-mono font-bold px-2.5 py-1 rounded-lg border self-start sm:self-auto shrink-0"
+                    style={{
+                      borderColor: palette.primaryHex + '50',
+                      color: palette.accentHex,
+                      backgroundColor: palette.primaryHex + '18',
+                    }}
+                  >
+                    Active: {palette.name}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs font-mono">
+                  {(Object.keys(THEME_COLOR_PALETTES) as ThemeColor[]).map((cKey) => {
+                    const p = THEME_COLOR_PALETTES[cKey];
+                    const isSelected = themeColor === cKey;
+                    return (
+                      <button
+                        key={cKey}
+                        type="button"
+                        onClick={() => {
+                          setThemeColor(cKey);
+                          setStatusMessage({
+                            text: `Theme color updated to ${p.name}. Background and accents refreshed across all suites.`,
+                            type: 'success',
+                          });
+                        }}
+                        className={`p-3 rounded-xl border text-left font-bold transition-all cursor-pointer flex flex-col justify-between gap-2.5 ${
+                          isSelected
+                            ? 'bg-slate-900 text-white shadow-lg ring-2'
+                            : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                        }`}
+                        style={{
+                          borderColor: isSelected ? p.primaryHex : undefined,
+                          boxShadow: isSelected ? `0 0 16px ${p.primaryHex}40` : undefined,
+                        }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span
+                            className="w-4 h-4 rounded-full shadow-inner border border-white/30 shrink-0"
+                            style={{ backgroundColor: p.primaryHex }}
+                          />
+                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-200">{p.shortName}</div>
+                          <div className="text-[10px] text-slate-500 font-normal">{p.badge}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Default Application Mode Selection */}
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                      Default Startup Environment (Mode)
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Choose which engineering suite opens first when launching the application.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs font-mono">
+                  {(['NATM', 'TBM', 'MINING'] as const).map((mode) => {
+                    const currentDefault =
+                      (typeof window !== 'undefined' &&
+                        (localStorage.getItem('eswa_default_industry_mode') ||
+                          localStorage.getItem('eswa_active_industry_mode'))) ||
+                      'NATM';
+                    const isDefault = currentDefault === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => {
+                          localStorage.setItem('eswa_default_industry_mode', mode);
+                          localStorage.setItem('eswa_active_industry_mode', mode);
+                          setStatusMessage({
+                            text: `Default startup mode set to ${mode}. The app will open in ${mode} on next launch.`,
+                            type: 'success',
+                          });
+                        }}
+                        className={`p-3 rounded-xl border text-left font-bold transition-all cursor-pointer ${
+                          isDefault
+                            ? mode === 'TBM'
+                              ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                              : mode === 'MINING'
+                              ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                              : 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>
+                            {mode === 'NATM'
+                              ? '1. NATM (Conventional D&B)'
+                              : mode === 'TBM'
+                              ? '2. TBM Mechanized Shield'
+                              : '3. Underground Mining'}
+                          </span>
+                          {isDefault && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-normal mt-1">
+                          {mode === 'NATM'
+                            ? 'Drill & blast face mapping, stereonets, Barton Q support'
+                            : mode === 'TBM'
+                            ? 'Ring-by-ring advance, muck, FPI, tail void grout'
+                            : 'Stope mapping, channel sampling, Mathews N'}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>

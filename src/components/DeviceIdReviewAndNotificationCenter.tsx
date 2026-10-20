@@ -52,6 +52,7 @@ export interface DeviceIdHeaderWidgetProps {
   onWorkspaceDataImported?: () => void;
   onDataImported?: () => void;
   compact?: boolean;
+  industryMode?: 'NATM' | 'TBM' | 'MINING';
 }
 
 export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetProps> = ({
@@ -59,6 +60,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
   onUserChanged,
   onWorkspaceDataImported,
   compact = false,
+  industryMode,
 }) => {
   const [deviceInfo, setDeviceInfo] = useState(() =>
     getLocalUserDeviceId(currentUser?.uid, currentUser?.email)
@@ -109,14 +111,41 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
     return unsubscribe;
   }, [deviceInfo.deviceId, deviceInfo.customAlias, currentUser?.uid]);
 
+  const filteredIncomingTransfers = useMemo(() => {
+    if (!industryMode) return incomingTransfers;
+    return incomingTransfers.filter((t) => {
+      const isTbm = t.mappingDomain === 'TBM' || t.projectTitle?.toLowerCase().includes('tbm') || t.mappingMethod === 'tbm';
+      if (industryMode === 'TBM') return isTbm;
+      return !isTbm;
+    });
+  }, [incomingTransfers, industryMode]);
+
+  const filteredOutgoingTransfers = useMemo(() => {
+    if (!industryMode) return outgoingTransfers;
+    return outgoingTransfers.filter((t) => {
+      const isTbm = t.mappingDomain === 'TBM' || t.projectTitle?.toLowerCase().includes('tbm') || t.mappingMethod === 'tbm';
+      if (industryMode === 'TBM') return isTbm;
+      return !isTbm;
+    });
+  }, [outgoingTransfers, industryMode]);
+
+  const filteredNotifications = useMemo(() => {
+    if (!industryMode) return notifications;
+    return notifications.filter((n) => {
+      const isTbm = n.transfer?.mappingDomain === 'TBM' || n.title?.toLowerCase().includes('tbm') || n.transfer?.projectTitle?.toLowerCase().includes('tbm');
+      if (industryMode === 'TBM') return isTbm;
+      return !isTbm;
+    });
+  }, [notifications, industryMode]);
+
   const unreadCount = useMemo(
-    () => notifications.filter((n) => !n.read).length,
-    [notifications]
+    () => filteredNotifications.filter((n) => !n.read).length,
+    [filteredNotifications]
   );
 
   const pendingReviewCount = useMemo(
-    () => incomingTransfers.filter((t) => t.status === 'PENDING').length,
-    [incomingTransfers]
+    () => filteredIncomingTransfers.filter((t) => t.status === 'PENDING').length,
+    [filteredIncomingTransfers]
   );
 
   const handleCopyDeviceId = (e: React.MouseEvent) => {
@@ -348,7 +377,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                 }`}
               >
                 <Bell className="w-3.5 h-3.5" />
-                <span>Notifications ({notifications.length})</span>
+                <span>Notifications ({filteredNotifications.length})</span>
                 {unreadCount > 0 && (
                   <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 font-mono text-[10px]">
                     {unreadCount} new
@@ -365,7 +394,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                 }`}
               >
                 <Inbox className="w-3.5 h-3.5" />
-                <span>Incoming Reviews & Imports ({incomingTransfers.length})</span>
+                <span>Incoming Reviews & Imports ({filteredIncomingTransfers.length})</span>
                 {pendingReviewCount > 0 && (
                   <span className="px-1.5 py-0.2 rounded-full bg-emerald-400 text-slate-950 font-mono text-[10px]">
                     {pendingReviewCount} pending
@@ -382,7 +411,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                 }`}
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>Sent for Review ({outgoingTransfers.length})</span>
+                <span>Sent for Review ({filteredOutgoingTransfers.length})</span>
               </button>
               <button
                 type="button"
@@ -436,7 +465,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                     )}
                   </div>
 
-                  {notifications.length === 0 ? (
+                  {filteredNotifications.length === 0 ? (
                     <div className="p-8 rounded-xl border border-slate-800 bg-slate-950/50 text-center space-y-2">
                       <Bell className="w-8 h-8 text-slate-600 mx-auto" />
                       <div className="text-sm font-semibold text-slate-300">
@@ -452,7 +481,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {notifications.map((notif) => (
+                      {filteredNotifications.map((notif) => (
                         <div
                           key={notif.id}
                           className={`p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
@@ -531,7 +560,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
                     Packages Sent to Your Device ID ({deviceInfo.deviceId})
                   </h3>
-                  {incomingTransfers.length === 0 ? (
+                  {filteredIncomingTransfers.length === 0 ? (
                     <div className="p-8 rounded-xl border border-slate-800 bg-slate-950/50 text-center space-y-2">
                       <Inbox className="w-8 h-8 text-slate-600 mx-auto" />
                       <div className="text-sm font-semibold text-slate-300">
@@ -547,7 +576,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {incomingTransfers.map((trf) => (
+                      {filteredIncomingTransfers.map((trf) => (
                         <div
                           key={trf.transferId}
                           className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
@@ -611,7 +640,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
                     Faces Sent by You for Review / Export
                   </h3>
-                  {outgoingTransfers.length === 0 ? (
+                  {filteredOutgoingTransfers.length === 0 ? (
                     <div className="p-8 rounded-xl border border-slate-800 bg-slate-950/50 text-center space-y-2">
                       <Send className="w-8 h-8 text-slate-600 mx-auto" />
                       <div className="text-sm font-semibold text-slate-300">
@@ -623,7 +652,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {outgoingTransfers.map((trf) => (
+                      {filteredOutgoingTransfers.map((trf) => (
                         <div
                           key={trf.transferId}
                           className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3"

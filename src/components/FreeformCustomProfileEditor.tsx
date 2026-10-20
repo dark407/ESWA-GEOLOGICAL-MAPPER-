@@ -3909,7 +3909,6 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
                           </div>
                           <select
                             value={m.zoneRole}
-                            onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
                               const nextRole = e.target.value as BoundaryZoneRole;
                               setProfile((prev) => {
