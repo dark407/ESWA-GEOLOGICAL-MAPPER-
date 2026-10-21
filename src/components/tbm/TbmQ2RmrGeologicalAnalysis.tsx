@@ -21,6 +21,7 @@ import {
   MapPin,
   Eye,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   TbmExcavationRecord,
@@ -123,6 +124,47 @@ export const TbmQ2RmrGeologicalAnalysis: React.FC<TbmQ2RmrGeologicalAnalysisProp
   const [showDaylightEnvelope, setShowDaylightEnvelope] = useState<boolean>(true);
   const [showGreatCircles, setShowGreatCircles] = useState<boolean>(true);
   const [showPoles, setShowPoles] = useState<boolean>(true);
+
+  // Ahead-of-Face Forecast state
+  const [forecasts, setForecasts] = useState<TbmGeologicalForecastRecord[]>(() =>
+    loadTbmForecasts(activeProject?.id)
+  );
+  const [showNewForecastModal, setShowNewForecastModal] = useState<boolean>(false);
+  const [selectedForecastForReview, setSelectedForecastForReview] = useState<TbmGeologicalForecastRecord | null>(null);
+  const [reviewModalMatchStatus, setReviewModalMatchStatus] = useState<'CONCORDANT' | 'PARTIAL_MATCH' | 'DISCORDANT' | 'UNVERIFIED'>('CONCORDANT');
+  const [reviewModalDiscrepancyNotes, setReviewModalDiscrepancyNotes] = useState<string>('');
+
+  const [newForecastForm, setNewForecastForm] = useState<{
+    revision: string;
+    startChainageRd: number;
+    endChainageRd: number;
+    predictedLithology: string;
+    predictedFormations: string;
+    expectedQValue: number;
+    expectedRmr: number;
+    predictedFaultsAndShears: string;
+    predictedWaterInflowRisk: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+    supportingEvidence: string;
+    investigationLimitations: string;
+    confidence: 'HIGH' | 'MODERATE' | 'LOW';
+    recommendedActions: string;
+    author: string;
+  }>({
+    revision: 'Rev A',
+    startChainageRd: records[records.length - 1]?.chainageRecord.endChainage || 1432.0,
+    endChainageRd: (records[records.length - 1]?.chainageRecord.endChainage || 1432.0) + 25.0,
+    predictedLithology: 'Amygdaloidal Basalt with Zeolite Veins',
+    predictedFormations: 'Upper Wai Formation',
+    expectedQValue: 8.5,
+    expectedRmr: 62,
+    predictedFaultsAndShears: 'Sub-vertical cooling joints; minor shear at contact',
+    predictedWaterInflowRisk: 'MODERATE',
+    supportingEvidence: 'Probe PB-01 drilling parameters & GBR baseline logs',
+    investigationLimitations: 'Projection based on 25m forward percussive probe',
+    confidence: 'HIGH',
+    recommendedActions: 'Maintain 4.2 RPM, standard EPB foam injection',
+    author: activeProject?.responsibleGeologist || 'Lead TBM Geologist',
+  });
 
   // Calculated Barton Q result
   const qResult = useMemo(() => {
@@ -280,17 +322,17 @@ export const TbmQ2RmrGeologicalAnalysis: React.FC<TbmQ2RmrGeologicalAnalysisProp
         </div>
       </div>
 
-      {/* 5 Prominent Geological Analysis Sub-Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs font-bold">
+      {/* 6 Prominent Geological Analysis Sub-Tabs */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs font-bold">
         {[
           {
             id: 'q_to_rmr' as const,
-            label: '1. Q ↔ RMR Correlation (NATM Depth)',
+            label: '1. Q ↔ RMR Correlation',
             icon: Shield,
           },
           {
             id: 'stereonet' as const,
-            label: '2. 3D Stereonet & Kinematics',
+            label: '2. 3D Stereonet',
             icon: Compass,
           },
           {
@@ -306,6 +348,11 @@ export const TbmQ2RmrGeologicalAnalysis: React.FC<TbmQ2RmrGeologicalAnalysisProp
           {
             id: 'predicted_vs_encountered' as const,
             label: '5. Predicted vs Encountered',
+            icon: CheckCircle2,
+          },
+          {
+            id: 'ahead_forecast' as const,
+            label: '6. Ahead-of-Face Forecast',
             icon: TrendingUp,
           },
         ].map((tab) => {
@@ -316,13 +363,13 @@ export const TbmQ2RmrGeologicalAnalysis: React.FC<TbmQ2RmrGeologicalAnalysisProp
               key={tab.id}
               type="button"
               onClick={() => setSubTab(tab.id)}
-              className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg transition-all cursor-pointer truncate ${
+              className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg transition-all cursor-pointer truncate ${
                 isAct
                   ? 'bg-cyan-500 text-slate-950 shadow-md ring-1 ring-cyan-300'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900'
               }`}
             >
-              <Icon className="w-4 h-4 shrink-0" />
+              <Icon className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate">{tab.label}</span>
             </button>
           );
@@ -1632,6 +1679,540 @@ export const TbmQ2RmrGeologicalAnalysis: React.FC<TbmQ2RmrGeologicalAnalysisProp
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          SUB-TAB 6: AHEAD-OF-FACE GEOLOGICAL FORECASTING & PROBE RECONCILIATION
+          ===================================================================== */}
+      {subTab === 'ahead_forecast' && (
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 font-mono">
+          <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-2">
+            <div>
+              <h3 className="font-bold text-xs text-cyan-300 uppercase flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-cyan-400" />
+                <span>AHEAD-OF-FACE GEOLOGICAL FORECASTING &amp; LOOK-AHEAD VERIFICATION</span>
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Pre-excavation ground model forecasting based on probe drilling, geophysical survey, GBR baseline, and versioned risk control.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const headers = ['ID', 'Revision', 'Date', 'Start_RD', 'End_RD', 'Lithology', 'Formation', 'Exp_Q', 'Exp_RMR', 'Water_Risk', 'Confidence', 'Status'];
+                  const rows = forecasts.map((f) => [
+                    f.id,
+                    f.revision || 'Rev A',
+                    f.forecastDate,
+                    f.startChainageRd,
+                    f.endChainageRd,
+                    `"${f.predictedLithology}"`,
+                    `"${f.predictedFormations}"`,
+                    f.expectedQValue,
+                    f.expectedRmr,
+                    f.predictedWaterInflowRisk,
+                    f.confidence,
+                    f.matchStatus || 'UNVERIFIED',
+                  ]);
+                  const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `TBM_Geological_Forecast_Schedule_${activeProject?.id || 'PRJ'}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs cursor-pointer border border-slate-700 transition-all"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowNewForecastModal(true)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs cursor-pointer shadow transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Forecast Horizon</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Status KPI Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="text-slate-500 text-[10px] font-bold uppercase">Current Face Chainage</span>
+              <div className="text-2xl font-black text-cyan-300">
+                RD {currentRecord?.chainageRecord?.endChainage?.toFixed(2) || '1432.00'}m
+              </div>
+              <p className="text-[10px] text-slate-400">Ring #{currentRecord?.chainageRecord?.ringNumber || 848}</p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="text-slate-500 text-[10px] font-bold uppercase">Total Forecasts Logged</span>
+              <div className="text-2xl font-black text-amber-300">
+                {forecasts.length} <span className="text-xs font-normal text-slate-400">Horizons</span>
+              </div>
+              <p className="text-[10px] text-slate-400">
+                {forecasts.filter((f) => f.isEncounteredVerified).length} verified · {forecasts.filter((f) => !f.isEncounteredVerified).length} ahead of face
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="text-slate-500 text-[10px] font-bold uppercase">Probe Investigation Reach</span>
+              <div className="text-2xl font-black text-emerald-400">
+                {currentRecord?.probeDrilling?.drilledLengthMeters ? `${currentRecord.probeDrilling.drilledLengthMeters.toFixed(0)}m` : '25m'}
+              </div>
+              <p className="text-[10px] text-slate-400">Forward probe {currentRecord?.probeDrilling?.probeHoleId || 'PB-01'}</p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="text-slate-500 text-[10px] font-bold uppercase">Model Concordance Rate</span>
+              <div className="text-2xl font-black text-cyan-400">
+                {(() => {
+                  const verified = forecasts.filter((f) => f.isEncounteredVerified);
+                  if (verified.length === 0) return 'Pending';
+                  const match = verified.filter((f) => f.matchStatus === 'CONCORDANT').length;
+                  return `${Math.round((match / verified.length) * 100)}%`;
+                })()}
+              </div>
+              <p className="text-[10px] text-slate-400">Based on verified intervals</p>
+            </div>
+          </div>
+
+          {/* List of Versioned Ahead-of-Face Geological Forecasts */}
+          <div className="space-y-3">
+            {forecasts.map((fc) => {
+              const currentFaceRd = currentRecord?.chainageRecord?.endChainage || 1432.0;
+              const isPastOrReached = currentFaceRd >= fc.startChainageRd;
+              const isFullyExcavated = currentFaceRd >= fc.endChainageRd;
+
+              return (
+                <div
+                  key={fc.id}
+                  className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3 hover:border-slate-700 transition-all"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[11px] font-bold">
+                        {fc.id} ({fc.revision || 'Rev A'})
+                      </span>
+                      <span className="text-xs font-bold text-slate-200">
+                        RD {fc.startChainageRd.toFixed(2)}m &rarr; RD {fc.endChainageRd.toFixed(2)}m (Length: {(fc.endChainageRd - fc.startChainageRd).toFixed(1)}m)
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        Date: {fc.forecastDate} · By: {fc.author}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {!isPastOrReached ? (
+                        <span className="px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 text-[10px] font-bold">
+                          AHEAD OF FACE (AWAITING EXCAVATION)
+                        </span>
+                      ) : fc.isEncounteredVerified ? (
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          fc.matchStatus === 'CONCORDANT'
+                            ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                            : fc.matchStatus === 'PARTIAL_MATCH'
+                            ? 'bg-amber-950 text-amber-300 border-amber-800'
+                            : 'bg-rose-950 text-rose-300 border-rose-800'
+                        }`}>
+                          {fc.matchStatus || 'VERIFIED'}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[10px] font-bold animate-pulse">
+                          EXCAVATED — PENDING VERIFICATION
+                        </span>
+                      )}
+
+                      {isPastOrReached && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedForecastForReview(fc);
+                            setReviewModalMatchStatus(fc.matchStatus || 'CONCORDANT');
+                            setReviewModalDiscrepancyNotes(fc.discrepancyNotes || fc.encounteredSummary || '');
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/50 text-[11px] font-bold cursor-pointer transition-all"
+                        >
+                          Review &amp; Verify
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Forecast Details Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-[11px]">
+                    <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 space-y-1">
+                      <span className="text-slate-500 font-bold">Predicted Lithology &amp; Strata:</span>
+                      <p className="text-amber-300 font-bold">{fc.predictedLithology}</p>
+                      <p className="text-slate-400 text-[10px]">{fc.predictedFormations}</p>
+                    </div>
+
+                    <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 space-y-1">
+                      <span className="text-slate-500 font-bold">Expected Rock Mass Ratings:</span>
+                      <p className="text-slate-200">
+                        Barton Q: <strong className="text-cyan-300">{fc.expectedQValue.toFixed(1)}</strong>
+                      </p>
+                      <p className="text-slate-200">
+                        Bieniawski RMR89: <strong className="text-emerald-300">{fc.expectedRmr}</strong> / 100
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 space-y-1">
+                      <span className="text-slate-500 font-bold">Structural &amp; Water Inrush Risk:</span>
+                      <p className="text-slate-300 truncate">{fc.predictedFaultsAndShears}</p>
+                      <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                        fc.predictedWaterInflowRisk === 'CRITICAL'
+                          ? 'bg-rose-950 text-rose-300'
+                          : fc.predictedWaterInflowRisk === 'HIGH'
+                          ? 'bg-amber-950 text-amber-300'
+                          : 'bg-blue-950 text-blue-300'
+                      }`}>
+                        Water Risk: {fc.predictedWaterInflowRisk}
+                      </span>
+                    </div>
+
+                    <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 space-y-1">
+                      <span className="text-slate-500 font-bold">Investigation Evidence &amp; Confidence:</span>
+                      <p className="text-slate-300 text-[10px] truncate">{fc.supportingEvidence}</p>
+                      <span className="text-[10px] font-bold text-cyan-400">
+                        Confidence: {fc.confidence}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Geologist Recommendations & Actions */}
+                  <div className="bg-slate-900/40 p-2 rounded-lg border border-slate-800/60 flex flex-wrap items-center justify-between text-[11px] gap-2">
+                    <div className="flex items-center gap-1.5 text-slate-300">
+                      <span className="text-cyan-400 font-bold">Recommended Advance Actions:</span>
+                      <span>{fc.recommendedActions}</span>
+                    </div>
+
+                    {fc.isEncounteredVerified && fc.encounteredSummary && (
+                      <div className="text-[10px] text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/50">
+                        <strong>Encountered Ground:</strong> {fc.encounteredSummary}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          NEW AHEAD-OF-FACE FORECAST MODAL
+          ===================================================================== */}
+      {showNewForecastModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 select-none font-mono">
+          <div className="bg-slate-900 border border-cyan-500 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-100">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-950">
+              <h3 className="font-bold text-sm text-cyan-300 uppercase">
+                Create New Ahead-of-Face Geological Forecast Horizon
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowNewForecastModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const created = createTbmForecast({
+                  projectId: activeProject?.id || 'PRJ-TBM-001',
+                  locationId: activeLocation?.id || 'LOC-TBM-001',
+                  revision: newForecastForm.revision,
+                  forecastDate: new Date().toISOString().slice(0, 10),
+                  author: newForecastForm.author,
+                  startChainageRd: Number(newForecastForm.startChainageRd),
+                  endChainageRd: Number(newForecastForm.endChainageRd),
+                  predictedLithology: newForecastForm.predictedLithology,
+                  predictedFormations: newForecastForm.predictedFormations,
+                  expectedQValue: Number(newForecastForm.expectedQValue),
+                  expectedRmr: Number(newForecastForm.expectedRmr),
+                  predictedFaultsAndShears: newForecastForm.predictedFaultsAndShears,
+                  predictedWaterInflowRisk: newForecastForm.predictedWaterInflowRisk,
+                  supportingEvidence: newForecastForm.supportingEvidence,
+                  investigationLimitations: newForecastForm.investigationLimitations,
+                  confidence: newForecastForm.confidence,
+                  recommendedActions: newForecastForm.recommendedActions,
+                  isEncounteredVerified: false,
+                  matchStatus: 'UNVERIFIED',
+                });
+                setForecasts(loadTbmForecasts(activeProject?.id));
+                setShowNewForecastModal(false);
+              }}
+              className="flex-1 overflow-y-auto p-5 space-y-3.5 text-xs"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">Revision / Version</span>
+                  <input
+                    type="text"
+                    required
+                    value={newForecastForm.revision}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, revision: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">Author / Lead Geologist</span>
+                  <input
+                    type="text"
+                    required
+                    value={newForecastForm.author}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, author: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">Start Chainage (RD m)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={newForecastForm.startChainageRd}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, startChainageRd: parseFloat(e.target.value) || 0 }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">End Chainage (RD m)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={newForecastForm.endChainageRd}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, endChainageRd: parseFloat(e.target.value) || 0 }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">Predicted Lithology</span>
+                  <input
+                    type="text"
+                    required
+                    value={newForecastForm.predictedLithology}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, predictedLithology: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">Formation / Geological Domain</span>
+                  <input
+                    type="text"
+                    required
+                    value={newForecastForm.predictedFormations}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, predictedFormations: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">Expected Barton Q Index</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={newForecastForm.expectedQValue}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, expectedQValue: parseFloat(e.target.value) || 1 }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">Expected Bieniawski RMR89</span>
+                  <input
+                    type="number"
+                    step="1"
+                    required
+                    value={newForecastForm.expectedRmr}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, expectedRmr: parseInt(e.target.value) || 50 }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">Groundwater Inflow Risk</span>
+                  <select
+                    value={newForecastForm.predictedWaterInflowRisk}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, predictedWaterInflowRisk: e.target.value as any }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  >
+                    <option value="LOW">LOW (&lt;10 L/min)</option>
+                    <option value="MODERATE">MODERATE (10–30 L/min)</option>
+                    <option value="HIGH">HIGH (30–80 L/min)</option>
+                    <option value="CRITICAL">CRITICAL INRUSH (&gt;80 L/min)</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-bold">Confidence Level</span>
+                  <select
+                    value={newForecastForm.confidence}
+                    onChange={(e) => setNewForecastForm((f) => ({ ...f, confidence: e.target.value as any }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                  >
+                    <option value="HIGH">HIGH (Well-correlated probe &amp; GBR)</option>
+                    <option value="MODERATE">MODERATE (Extrapolated trends)</option>
+                    <option value="LOW">LOW (Uncertain ground zone)</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="block space-y-1">
+                <span className="text-slate-400 font-bold">Predicted Faults, Shears &amp; Adverse Ground</span>
+                <input
+                  type="text"
+                  value={newForecastForm.predictedFaultsAndShears}
+                  onChange={(e) => setNewForecastForm((f) => ({ ...f, predictedFaultsAndShears: e.target.value }))}
+                  placeholder="e.g. Minor slickensided joint shear zone near RD 1442m"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                />
+              </label>
+
+              <label className="block space-y-1">
+                <span className="text-slate-400 font-bold">Supporting Evidence</span>
+                <input
+                  type="text"
+                  value={newForecastForm.supportingEvidence}
+                  onChange={(e) => setNewForecastForm((f) => ({ ...f, supportingEvidence: e.target.value }))}
+                  placeholder="e.g. Probe PB-01 drilling torque anomalies and GBR BH-10"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                />
+              </label>
+
+              <label className="block space-y-1">
+                <span className="text-slate-400 font-bold">Recommended Advance Actions</span>
+                <input
+                  type="text"
+                  value={newForecastForm.recommendedActions}
+                  onChange={(e) => setNewForecastForm((f) => ({ ...f, recommendedActions: e.target.value }))}
+                  placeholder="e.g. Maintain EPB face pressure at 1.85 bar; inspect muck discharge"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200"
+                />
+              </label>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowNewForecastModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black cursor-pointer shadow"
+                >
+                  Save Forecast Horizon
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          FORECAST REVIEW & VERIFICATION MODAL
+          ===================================================================== */}
+      {selectedForecastForReview && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 select-none font-mono">
+          <div className="bg-slate-900 border border-cyan-500 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden text-slate-100">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-950">
+              <h3 className="font-bold text-sm text-cyan-300 uppercase">
+                Geologist Verification: {selectedForecastForReview.id} ({selectedForecastForReview.revision || 'Rev A'})
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSelectedForecastForReview(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
+                <p className="text-slate-400">
+                  Target Interval: <strong className="text-slate-200">RD {selectedForecastForReview.startChainageRd.toFixed(2)}m &rarr; {selectedForecastForReview.endChainageRd.toFixed(2)}m</strong>
+                </p>
+                <p className="text-slate-400">
+                  Predicted: <strong className="text-amber-300">{selectedForecastForReview.predictedLithology}</strong> · Q={selectedForecastForReview.expectedQValue}
+                </p>
+              </div>
+
+              <label className="block space-y-1">
+                <span className="text-slate-300 font-bold">Verification Match Status:</span>
+                <select
+                  value={reviewModalMatchStatus}
+                  onChange={(e) => setReviewModalMatchStatus(e.target.value as any)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 font-bold"
+                >
+                  <option value="CONCORDANT">CONCORDANT (Ground conditions matched forecast within tolerance)</option>
+                  <option value="PARTIAL_MATCH">PARTIAL MATCH (Lithology matched, minor variance in jointing or water)</option>
+                  <option value="DISCORDANT">DISCORDANT ANOMALY (Unforeseen fault / Differing Site Condition)</option>
+                </select>
+              </label>
+
+              <label className="block space-y-1">
+                <span className="text-slate-300 font-bold">Geological Verification Summary &amp; Discrepancy Notes:</span>
+                <textarea
+                  rows={3}
+                  value={reviewModalDiscrepancyNotes}
+                  onChange={(e) => setReviewModalDiscrepancyNotes(e.target.value)}
+                  placeholder="Summarize actual encountered geology and reasons for any variance..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200"
+                />
+              </label>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setSelectedForecastForReview(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateTbmForecast(selectedForecastForReview.id, {
+                      isEncounteredVerified: true,
+                      matchStatus: reviewModalMatchStatus,
+                      encounteredSummary: reviewModalDiscrepancyNotes,
+                      discrepancyNotes: reviewModalDiscrepancyNotes,
+                      verificationDate: new Date().toISOString().slice(0, 10),
+                      verifiedBy: activeProject?.responsibleGeologist || 'Reviewing Geologist',
+                    });
+                    setForecasts(loadTbmForecasts(activeProject?.id));
+                    setSelectedForecastForReview(null);
+                  }}
+                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black cursor-pointer shadow"
+                >
+                  Sign-Off &amp; Save Verification
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

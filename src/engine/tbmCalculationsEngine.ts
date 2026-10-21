@@ -8,6 +8,7 @@ import {
   ChainageDirection,
   TbmDiscontinuityObservation,
   TbmOperatingTelemetry,
+  TbmExcavationRecord,
 } from '../types/tbm';
 
 export interface ChainageCalculationResult {
@@ -524,5 +525,191 @@ export function generateGreatCircleSvgPath(dipDeg: number, dipDirDeg: number, ce
 
   if (points.length === 0) return '';
   return points.reduce((acc, p, idx) => `${acc} ${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`, '');
+}
+
+// ----------------------------------------------------------------------------
+// AHEAD-OF-FACE PROBE HOLE 3D TRAJECTORY CALCULATION
+// ----------------------------------------------------------------------------
+
+export interface ProbeTrajectoryPoint {
+  distanceAlongHoleM: number;
+  tunnelChainageRd: number;
+  offsetFromCenterlineM: number;
+  relativeElevationM: number;
+}
+
+/**
+ * Calculates 3D borehole trajectory along tunnel alignment
+ * Takes into account borehole azimuth, inclination and tunnel drive azimuth
+ */
+export function calculateProbeTrajectory(params: {
+  collarChainageRd: number;
+  drilledLengthMeters: number;
+  azimuthDeg: number;
+  inclinationDeg: number;
+  tunnelDriveAzimuthDeg?: number;
+  stepMeters?: number;
+}): {
+  endChainageRd: number;
+  endOffsetM: number;
+  endRelativeElevationM: number;
+  trajectoryPoints: ProbeTrajectoryPoint[];
+  forecastReachAheadFaceM: number;
+} {
+  const collarRd = params.collarChainageRd || 0;
+  const length = Math.max(0.5, params.drilledLengthMeters || 25);
+  const azim = params.azimuthDeg || 0;
+  const incl = Math.max(-90, Math.min(90, params.inclinationDeg || 0));
+  const driveAzim = params.tunnelDriveAzimuthDeg || 0;
+  const step = Math.max(1, params.stepMeters || 5);
+
+  const deltaAzimRad = ((azim - driveAzim) * Math.PI) / 180;
+  const inclRad = (incl * Math.PI) / 180;
+
+  const trajectoryPoints: ProbeTrajectoryPoint[] = [];
+
+  for (let s = 0; s <= length; s += step) {
+    const chainageAdvance = s * Math.cos(inclRad) * Math.cos(deltaAzimRad);
+    const lateralOffset = s * Math.cos(inclRad) * Math.sin(deltaAzimRad);
+    const vertElevation = s * Math.sin(inclRad);
+
+    trajectoryPoints.push({
+      distanceAlongHoleM: s,
+      tunnelChainageRd: Number((collarRd + chainageAdvance).toFixed(2)),
+      offsetFromCenterlineM: Number(lateralOffset.toFixed(2)),
+      relativeElevationM: Number(vertElevation.toFixed(2)),
+    });
+  }
+
+  // End point
+  const endAdvance = length * Math.cos(inclRad) * Math.cos(deltaAzimRad);
+  const endOffset = length * Math.cos(inclRad) * Math.sin(deltaAzimRad);
+  const endElevation = length * Math.sin(inclRad);
+
+  return {
+    endChainageRd: Number((collarRd + endAdvance).toFixed(2)),
+    endOffsetM: Number(endOffset.toFixed(2)),
+    endRelativeElevationM: Number(endElevation.toFixed(2)),
+    trajectoryPoints,
+    forecastReachAheadFaceM: Number(Math.max(0, endAdvance).toFixed(2)),
+  };
+}
+
+// ----------------------------------------------------------------------------
+// GEOLOGICAL STRENGTH INDEX (GSI) CALCULATION (Hoek et al.)
+// ----------------------------------------------------------------------------
+
+export function calculateGsiScore(params: {
+  structure: 'INTACT_MASSIVE' | 'BLOCKY' | 'VERY_BLOCKY' | 'DISINTEGRATED';
+  surfaceCondition: 'VERY_GOOD' | 'GOOD' | 'FAIR' | 'POOR' | 'VERY_POOR';
+}): {
+  gsiScore: number;
+  description: string;
+} {
+  const structureBase = {
+    INTACT_MASSIVE: 80,
+    BLOCKY: 60,
+    VERY_BLOCKY: 45,
+    DISINTEGRATED: 25,
+  }[params.structure] || 50;
+
+  const surfaceOffset = {
+    VERY_GOOD: 15,
+    GOOD: 8,
+    FAIR: 0,
+    POOR: -10,
+    VERY_POOR: -20,
+  }[params.surfaceCondition] || 0;
+
+  const score = Math.max(10, Math.min(100, structureBase + surfaceOffset));
+
+  let description = 'Moderate rock mass quality';
+  if (score >= 75) description = 'Massive, unweathered rock with rough, interlocking joint surfaces';
+  else if (score >= 60) description = 'Blocky well-interlocked rock mass with slightly weathered joints';
+  else if (score >= 40) description = 'Very blocky rock mass with multiple intersecting joint sets';
+  else description = 'Heavily broken, sheared, or clay-infilled rock mass';
+
+  return {
+    gsiScore: score,
+    description,
+  };
+}
+
+// ----------------------------------------------------------------------------
+// DATA TRACEABILITY & RECORD INTEGRITY VALIDATION
+// ----------------------------------------------------------------------------
+
+export function validateExcavationRecord(
+  record: TbmExcavationRecord,
+  previousRecord?: TbmExcavationRecord,
+  projectThresholds?: { maxInflowLMin?: number; warningSettlementMm?: number; maxDiscWearMm?: number }
+): {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+} {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  const startRd = record.chainageRecord.startChainage;
+  const endRd = record.chainageRecord.endChainage;
+  const advance = Math.abs(endRd - startRd);
+
+  if (!Number.isFinite(startRd) || !Number.isFinite(endRd)) {
+    errors.push('Start or End chainage is not a valid number.');
+  }
+
+  if (advance <= 0) {
+    errors.push(`Advance length is zero (Start RD ${startRd} = End RD ${endRd}).`);
+  }
+
+  if (advance > 5.0) {
+    warnings.push(`Advance length (${advance.toFixed(2)}m) exceeds typical TBM ring width (1.2–2.0m).`);
+  }
+
+  if (previousRecord) {
+    const prevEnd = previousRecord.chainageRecord.endChainage;
+    const gap = Math.abs(startRd - prevEnd);
+    if (gap > 0.05) {
+      warnings.push(`Chainage gap detected: Previous ring ended at RD ${prevEnd.toFixed(2)}m, but this ring starts at RD ${startRd.toFixed(2)}m (Gap: ${gap.toFixed(2)}m).`);
+    }
+
+    if (record.chainageRecord.ringNumber === previousRecord.chainageRecord.ringNumber) {
+      errors.push(`Duplicate Ring Number #${record.chainageRecord.ringNumber} matches previous record #${previousRecord.chainageRecord.ringNumber}.`);
+    }
+  }
+
+  // Classification inputs check
+  const missingQ: string[] = [];
+  if (!record.classification.jn) missingQ.push('Jn (Joint Set Number)');
+  if (!record.classification.jr) missingQ.push('Jr (Joint Roughness Number)');
+  if (!record.classification.ja) missingQ.push('Ja (Joint Alteration Number)');
+  if (!record.classification.jw) missingQ.push('Jw (Joint Water Reduction)');
+  if (!record.classification.srf) missingQ.push('SRF (Stress Reduction Factor)');
+
+  if (missingQ.length > 0) {
+    warnings.push(`Incomplete Barton Q parameters: missing ${missingQ.join(', ')}.`);
+  }
+
+  // Telemetry anomaly check
+  if (record.telemetry.thrustForceKn > 45000) {
+    warnings.push(`Thrust force (${record.telemetry.thrustForceKn} kN) is abnormally high for standard TBM operations.`);
+  }
+
+  if (record.telemetry.cutterheadTorqueKnm > 12000) {
+    warnings.push(`Cutterhead torque (${record.telemetry.cutterheadTorqueKnm} kNm) exceeds nominal operating thresholds.`);
+  }
+
+  // Water Inflow alert
+  const maxInflow = projectThresholds?.maxInflowLMin || 50;
+  if (record.groundwater.inflowRateLitersPerMin > maxInflow) {
+    warnings.push(`Water Inflow (${record.groundwater.inflowRateLitersPerMin} L/min) exceeds project alert threshold (${maxInflow} L/min).`);
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+  };
 }
 

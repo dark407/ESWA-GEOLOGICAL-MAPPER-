@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Layers,
   ArrowLeft,
@@ -22,6 +22,9 @@ import {
   ShieldCheck,
   Search,
   Filter,
+  Save,
+  Check,
+  Edit2,
 } from 'lucide-react';
 import { EswaAppBackgroundWatermark, EswaTunnelLogo } from '../EswaBrandIdentity';
 import { IndustryMode } from '../../types/tunnel';
@@ -330,7 +333,43 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
     };
   }, [runs, assays, compositeCutoff]);
 
-  // Handlers
+  // Persistence State & Auto-Sync
+  const [saveStatus, setSaveStatus] = useState<'IDLE' | 'SAVED'>('IDLE');
+
+  // Sync state if current drill hole changes
+  useEffect(() => {
+    if (currentHole) {
+      if (currentHole.runs && currentHole.runs.length > 0) {
+        setRuns(currentHole.runs);
+      }
+      if (currentHole.assayIntervals && currentHole.assayIntervals.length > 0) {
+        setAssays(currentHole.assayIntervals);
+      }
+    }
+  }, [currentHole?.id]);
+
+  // Save changes to Mining storage engine
+  const handleSaveHoleData = () => {
+    if (!currentHole) return;
+    const allHoles = loadMiningDrillHoles();
+    const idx = allHoles.findIndex((h) => h.id === currentHole.id);
+    if (idx >= 0) {
+      allHoles[idx] = {
+        ...allHoles[idx],
+        runs,
+        assayIntervals: assays,
+        overallRecoveryPercent: overallStats.recoveryPct,
+        overallRqdPercent: overallStats.rqdPct,
+        significantInterceptsSummary: `${overallStats.oreLen}m @ ${overallStats.avgGrade} g/t Au (from ${overallStats.startDepth}m)`,
+        updatedAt: new Date().toISOString(),
+      };
+      saveMiningDrillHoles(allHoles);
+      setSaveStatus('SAVED');
+      setTimeout(() => setSaveStatus('IDLE'), 2000);
+    }
+  };
+
+  // Handlers for Core Runs
   const handleAddRun = () => {
     const lastRun = runs[runs.length - 1];
     const fromDepth = lastRun ? lastRun.toDepthM : 0;
@@ -354,12 +393,115 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
       structureDipToCoreAxisDeg: 55,
       weatheringGrade: 'FRESH',
     };
-    setRuns([...runs, newRun]);
+    const updated = [...runs, newRun];
+    setRuns(updated);
+
+    // Auto-persist to storage
+    const allHoles = loadMiningDrillHoles();
+    const idx = allHoles.findIndex((h) => h.id === currentHole.id);
+    if (idx >= 0) {
+      allHoles[idx] = { ...allHoles[idx], runs: updated, updatedAt: new Date().toISOString() };
+      saveMiningDrillHoles(allHoles);
+    }
   };
 
   const handleDeleteRun = (runNum: number) => {
     if (runs.length <= 1) return;
-    setRuns(runs.filter((r) => r.runNumber !== runNum));
+    const updated = runs.filter((r) => r.runNumber !== runNum);
+    setRuns(updated);
+
+    const allHoles = loadMiningDrillHoles();
+    const idx = allHoles.findIndex((h) => h.id === currentHole.id);
+    if (idx >= 0) {
+      allHoles[idx] = { ...allHoles[idx], runs: updated, updatedAt: new Date().toISOString() };
+      saveMiningDrillHoles(allHoles);
+    }
+  };
+
+  // Handlers for Assays & QA/QC
+  const handleAddAssayInterval = () => {
+    const normalAssays = assays.filter((a) => a.intervalLengthM > 0);
+    const lastAssay = normalAssays[normalAssays.length - 1];
+    const fromDepth = lastAssay ? lastAssay.toDepthM : 0;
+    const toDepth = fromDepth + 1.5;
+    const nextNum = assays.length + 1041;
+    const newAssay: MiningAssayInterval = {
+      sampleId: `KD-${nextNum}`,
+      fromDepthM: Number(fromDepth.toFixed(1)),
+      toDepthM: Number(toDepth.toFixed(1)),
+      intervalLengthM: 1.5,
+      primaryAssayGrade: 2.50,
+      primaryGradeUnit: 'g/t',
+      secondaryAssayGrade: 0.15,
+      secondaryGradeUnit: '%',
+      specificGravityEstimated: 2.85,
+      qaqcCategory: 'NORMAL_SAMPLE',
+      qaqcPass: true,
+      assayLaboratory: 'ALS Geochemistry Minerals',
+    };
+    const updated = [...assays, newAssay];
+    setAssays(updated);
+
+    const allHoles = loadMiningDrillHoles();
+    const idx = allHoles.findIndex((h) => h.id === currentHole.id);
+    if (idx >= 0) {
+      allHoles[idx] = { ...allHoles[idx], assayIntervals: updated, updatedAt: new Date().toISOString() };
+      saveMiningDrillHoles(allHoles);
+    }
+  };
+
+  const handleInsertQaqcControl = (category: 'CRM_STANDARD' | 'COARSE_BLANK') => {
+    const lastAssay = assays[assays.length - 1];
+    const currentDepth = lastAssay ? lastAssay.toDepthM : 0;
+    const nextNum = assays.length + 1041;
+    const newAssay: MiningAssayInterval = {
+      sampleId: category === 'CRM_STANDARD' ? `KD-${nextNum}-STD` : `KD-${nextNum}-BLK`,
+      fromDepthM: currentDepth,
+      toDepthM: currentDepth,
+      intervalLengthM: 0,
+      primaryAssayGrade: category === 'CRM_STANDARD' ? 5.25 : 0.005,
+      primaryGradeUnit: 'g/t',
+      secondaryAssayGrade: category === 'CRM_STANDARD' ? 0.35 : 0.001,
+      secondaryGradeUnit: '%',
+      specificGravityEstimated: category === 'CRM_STANDARD' ? 3.10 : 2.65,
+      qaqcCategory: category,
+      qaqcPass: true,
+      assayLaboratory: 'ALS Geochemistry Minerals',
+    };
+    const updated = [...assays, newAssay];
+    setAssays(updated);
+
+    const allHoles = loadMiningDrillHoles();
+    const idx = allHoles.findIndex((h) => h.id === currentHole.id);
+    if (idx >= 0) {
+      allHoles[idx] = { ...allHoles[idx], assayIntervals: updated, updatedAt: new Date().toISOString() };
+      saveMiningDrillHoles(allHoles);
+    }
+  };
+
+  const handleDeleteAssay = (sampleId: string) => {
+    if (assays.length <= 1) return;
+    const updated = assays.filter((a) => a.sampleId !== sampleId);
+    setAssays(updated);
+
+    const allHoles = loadMiningDrillHoles();
+    const idx = allHoles.findIndex((h) => h.id === currentHole.id);
+    if (idx >= 0) {
+      allHoles[idx] = { ...allHoles[idx], assayIntervals: updated, updatedAt: new Date().toISOString() };
+      saveMiningDrillHoles(allHoles);
+    }
+  };
+
+  const handleUpdateAssayGrade = (sampleId: string, newGrade: number) => {
+    const updated = assays.map((a) => (a.sampleId === sampleId ? { ...a, primaryAssayGrade: newGrade } : a));
+    setAssays(updated);
+
+    const allHoles = loadMiningDrillHoles();
+    const idx = allHoles.findIndex((h) => h.id === currentHole.id);
+    if (idx >= 0) {
+      allHoles[idx] = { ...allHoles[idx], assayIntervals: updated, updatedAt: new Date().toISOString() };
+      saveMiningDrillHoles(allHoles);
+    }
   };
 
   const handleExportCSV = () => {
@@ -412,9 +554,12 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
-            onClick={onBackToMainWindow}
+            onClick={() => {
+              handleSaveHoleData();
+              onBackToMainWindow();
+            }}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono font-bold cursor-pointer transition-all text-amber-300"
-            title="Return to Mining Main Window"
+            title="Return to Mining Main Window (auto-saves)"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Main Window</span>
@@ -484,6 +629,19 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
               </button>
             ))}
           </div>
+
+          <button
+            type="button"
+            onClick={handleSaveHoleData}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold cursor-pointer transition-all shadow ${
+              saveStatus === 'SAVED'
+                ? 'bg-emerald-500 text-slate-950 shadow-emerald-500/30'
+                : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-500/20'
+            }`}
+          >
+            {saveStatus === 'SAVED' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+            <span>{saveStatus === 'SAVED' ? 'Saved' : 'Save Hole'}</span>
+          </button>
 
           <button
             type="button"
@@ -926,13 +1084,31 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded bg-emerald-950 text-emerald-300 font-bold border border-emerald-800 text-xs">
-                  100% QA/QC PASS
-                </span>
-                <span className="text-slate-400 text-xs">
-                  1 Standard (OREAS-235) · 1 Coarse Blank
-                </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleAddAssayInterval}
+                  className="px-2.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1 cursor-pointer shadow"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Sample</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertQaqcControl('COARSE_BLANK')}
+                  className="px-2.5 py-1.5 rounded-lg bg-blue-900 hover:bg-blue-800 text-blue-200 border border-blue-700 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Blank</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertQaqcControl('CRM_STANDARD')}
+                  className="px-2.5 py-1.5 rounded-lg bg-purple-900 hover:bg-purple-800 text-purple-200 border border-purple-700 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ CRM Std</span>
+                </button>
               </div>
             </div>
 
@@ -949,41 +1125,73 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                     <th className="p-2.5">SG (t/m³)</th>
                     <th className="p-2.5">Sample Type</th>
                     <th className="p-2.5">QA/QC Status</th>
+                    <th className="p-2.5 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {assays.map((a) => (
-                    <tr key={a.sampleId} className="hover:bg-slate-800/40">
-                      <td className="p-2.5 font-bold text-cyan-400">{a.sampleId}</td>
-                      <td className="p-2.5 font-mono">
-                        {a.intervalLengthM > 0 ? `${a.fromDepthM.toFixed(1)}m – ${a.toDepthM.toFixed(1)}m` : 'QA/QC Control'}
-                      </td>
-                      <td className="p-2.5">{a.intervalLengthM > 0 ? `${a.intervalLengthM.toFixed(2)}m` : '—'}</td>
-                      <td className="p-2.5 font-bold text-amber-300 text-sm">
-                        {a.primaryAssayGrade.toFixed(2)} g/t
-                      </td>
-                      <td className="p-2.5 text-cyan-300">
-                        {a.secondaryAssayGrade ? `${a.secondaryAssayGrade.toFixed(2)} %` : '—'}
-                      </td>
-                      <td className="p-2.5">{a.specificGravityEstimated.toFixed(2)}</td>
-                      <td className="p-2.5">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          a.qaqcCategory === 'CRM_STANDARD'
-                            ? 'bg-purple-950 text-purple-300 border border-purple-800'
-                            : a.qaqcCategory === 'COARSE_BLANK'
-                            ? 'bg-blue-950 text-blue-300 border border-blue-800'
-                            : 'bg-slate-800 text-slate-300'
-                        }`}>
-                          {a.qaqcCategory}
-                        </span>
-                      </td>
-                      <td className="p-2.5">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          PASS
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {assays.map((a) => {
+                    const isBlank = a.qaqcCategory === 'COARSE_BLANK';
+                    const isStd = a.qaqcCategory === 'CRM_STANDARD';
+                    const blankPass = isBlank ? a.primaryAssayGrade <= 0.05 : true;
+                    const stdPass = isStd ? Math.abs(a.primaryAssayGrade - 5.25) <= 0.5 : true;
+                    const pass = blankPass && stdPass;
+
+                    return (
+                      <tr key={a.sampleId} className="hover:bg-slate-800/40">
+                        <td className="p-2.5 font-bold text-cyan-400">{a.sampleId}</td>
+                        <td className="p-2.5 font-mono">
+                          {a.intervalLengthM > 0 ? `${a.fromDepthM.toFixed(1)}m – ${a.toDepthM.toFixed(1)}m` : 'QA/QC Control'}
+                        </td>
+                        <td className="p-2.5">{a.intervalLengthM > 0 ? `${a.intervalLengthM.toFixed(2)}m` : '—'}</td>
+                        <td className="p-2.5">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={a.primaryAssayGrade}
+                              onChange={(e) => handleUpdateAssayGrade(a.sampleId, parseFloat(e.target.value) || 0)}
+                              className="w-20 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-amber-300 font-bold font-mono text-xs focus:border-amber-400 focus:outline-none"
+                            />
+                            <span className="text-[10px] text-slate-400">g/t</span>
+                          </div>
+                        </td>
+                        <td className="p-2.5 text-cyan-300">
+                          {a.secondaryAssayGrade ? `${a.secondaryAssayGrade.toFixed(2)} %` : '—'}
+                        </td>
+                        <td className="p-2.5">{a.specificGravityEstimated.toFixed(2)}</td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            isStd
+                              ? 'bg-purple-950 text-purple-300 border border-purple-800'
+                              : isBlank
+                              ? 'bg-blue-950 text-blue-300 border border-blue-800'
+                              : 'bg-slate-800 text-slate-300'
+                          }`}>
+                            {a.qaqcCategory}
+                          </span>
+                        </td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            pass
+                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                              : 'bg-rose-950 text-rose-300 border border-rose-800'
+                          }`}>
+                            {pass ? 'PASS' : 'FAIL'}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAssay(a.sampleId)}
+                            className="p-1 rounded hover:bg-rose-900/50 text-rose-400 cursor-pointer transition-colors"
+                            title="Delete assay interval"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

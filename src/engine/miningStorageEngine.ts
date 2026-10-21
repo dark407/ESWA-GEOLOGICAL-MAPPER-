@@ -716,3 +716,152 @@ export function importMiningVaultFromJson(jsonString: string): { success: boolea
     return { success: false, message: err?.message || 'Error parsing Mining JSON.' };
   }
 }
+
+// ---------------------------------------------------------------------------
+// CORE RUNS VALIDATION & QA/QC
+// ---------------------------------------------------------------------------
+
+export interface CoreRunValidationIssue {
+  runNumber: number;
+  field: string;
+  severity: 'ERROR' | 'WARNING';
+  message: string;
+}
+
+export function validateCoreRuns(runs: MiningCoreRun[]): CoreRunValidationIssue[] {
+  const issues: CoreRunValidationIssue[] = [];
+  for (let i = 0; i < runs.length; i++) {
+    const r = runs[i];
+    if (r.toDepthM <= r.fromDepthM) {
+      issues.push({
+        runNumber: r.runNumber,
+        field: 'depth',
+        severity: 'ERROR',
+        message: `Run #${r.runNumber}: toDepth (${r.toDepthM}m) must be strictly greater than fromDepth (${r.fromDepthM}m).`,
+      });
+    }
+    const drilled = Number((r.toDepthM - r.fromDepthM).toFixed(2));
+    if (r.recoveredLengthM > drilled * 1.05) {
+      issues.push({
+        runNumber: r.runNumber,
+        field: 'recovery',
+        severity: 'WARNING',
+        message: `Run #${r.runNumber}: Recovered core (${r.recoveredLengthM}m) exceeds drilled length (${drilled}m) by >5% (core expansion / block leftover).`,
+      });
+    }
+    if (r.solidCoreLengthRqdM > r.recoveredLengthM + 0.05) {
+      issues.push({
+        runNumber: r.runNumber,
+        field: 'rqd',
+        severity: 'ERROR',
+        message: `Run #${r.runNumber}: Solid RQD stick length (${r.solidCoreLengthRqdM}m) cannot exceed total recovered core (${r.recoveredLengthM}m).`,
+      });
+    }
+    if (i > 0) {
+      const prev = runs[i - 1];
+      if (Math.abs(r.fromDepthM - prev.toDepthM) > 0.05) {
+        if (r.fromDepthM < prev.toDepthM) {
+          issues.push({
+            runNumber: r.runNumber,
+            field: 'depth',
+            severity: 'ERROR',
+            message: `Depth overlap: Run #${r.runNumber} starts at ${r.fromDepthM}m which is before Run #${prev.runNumber} ends at ${prev.toDepthM}m.`,
+          });
+        } else {
+          issues.push({
+            runNumber: r.runNumber,
+            field: 'depth',
+            severity: 'WARNING',
+            message: `Depth gap detected: Run #${prev.runNumber} ends at ${prev.toDepthM}m, but Run #${r.runNumber} starts at ${r.fromDepthM}m (${(r.fromDepthM - prev.toDepthM).toFixed(2)}m unlogged gap).`,
+          });
+        }
+      }
+    }
+  }
+  return issues;
+}
+
+// ---------------------------------------------------------------------------
+// DEMO FIXTURE HELPERS
+// ---------------------------------------------------------------------------
+
+export function isDemoMiningProject(id: string): boolean {
+  return id === 'PRJ-MIN-001';
+}
+
+export function isDemoMiningStope(id: string): boolean {
+  return id === 'STP-620-HW-04';
+}
+
+export function isDemoMiningDrillHole(id: string): boolean {
+  return id === 'DH-KD-042';
+}
+
+export function clearAllMiningDemoData(): void {
+  const blankProject = createMiningProject({
+    id: `PRJ-MIN-USER-${Date.now().toString(36).toUpperCase()}`,
+    projectName: 'New Underground Mine Exploration Project',
+    mineName: 'Mine Site #1',
+    miningCompany: 'Operational Mining Corp.',
+    mineSiteLocation: 'Underground Level 1',
+    primaryCommodity: 'Gold (Au)',
+    gradeUnits: 'g/t',
+    mineCoordinateSystem: 'Local Mine Grid RL',
+    mineDatumLevelMrl: 1000,
+    responsibleGeologist: 'Mine Geologist',
+    activeMiningMethod: 'SUBLEVEL_OPEN_STOPING',
+  });
+  saveMiningProjects([blankProject]);
+  setActiveMiningProjectId(blankProject.id);
+
+  const blankStope = createMiningStope({
+    id: `STP-USER-${Date.now().toString(36).toUpperCase()}`,
+    projectId: blankProject.id,
+    stopeOrDriftId: 'DRV-01',
+    mineLevel: 'Level 100 mRL',
+    levelElevationMrl: 100,
+    excavationType: 'ORE_DRIVE',
+    miningMethod: 'SUBLEVEL_OPEN_STOPING',
+    oreBodyName: 'Main Mineralized Zone',
+    targetCutoffGrade: 2.00,
+    currentHeadingRdChainage: 'Heading 01',
+    blastPullMeters: 3.0,
+    stopeWidthM: 4.5,
+    stopeHeightM: 4.0,
+    hangingwallDipDeg: 70,
+    footwallDipDeg: 65,
+    oreSpecificGravity: 3.0,
+    wasteSpecificGravity: 2.7,
+    veins: [],
+    channelSamples: [],
+    features: [],
+  });
+  saveMiningStopes([blankStope]);
+  setActiveMiningStopeId(blankStope.id);
+
+  const blankHole = createMiningDrillHole({
+    id: `DH-USER-${Date.now().toString(36).toUpperCase()}`,
+    projectId: blankProject.id,
+    holeId: 'DDH-001',
+    holeType: 'DIAMOND_CORE_DDH',
+    collarEasting: 1000.0,
+    collarNorthing: 1000.0,
+    collarElevationMrl: 100.0,
+    collarDipDeg: -60,
+    collarAzimuthDeg: 90,
+    totalDrilledDepthM: 50.0,
+    coreDiameter: 'HQ',
+    drillingContractor: 'Site Drilling',
+    drillingRigModel: 'Underground Diamond Rig',
+    loggedBy: 'Mine Geologist',
+    purpose: 'EXPLORATION',
+    targetOreZone: 'Target 1',
+    runs: [],
+    assayIntervals: [],
+    overallRecoveryPercent: 0,
+    overallRqdPercent: 0,
+    significantInterceptsSummary: 'No runs recorded yet',
+  });
+  saveMiningDrillHoles([blankHole]);
+  setActiveMiningDrillHoleId(blankHole.id);
+}

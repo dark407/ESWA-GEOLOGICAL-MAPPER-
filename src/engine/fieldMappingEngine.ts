@@ -7,6 +7,7 @@ import {
   evaluateCustomProfileGeometry,
   inferSegmentZoneRole,
 } from './customProfileEngine';
+import type { Joint3DInspectionData } from './joint3DInspectorEngine';
 
 export type FieldTunnelShapeType =
   | 'd_shaped'
@@ -148,6 +149,8 @@ export interface FieldJointTrace {
   setId: FieldJointGroupingId;
   editedByCompass?: boolean;
   traceLengthM?: number;
+  /** Comprehensive 3D orientation, plane equation, surface intersections, and persistence inspection */
+  inspection3D?: Joint3DInspectionData;
 }
 
 export interface FieldDipPlaneSurface {

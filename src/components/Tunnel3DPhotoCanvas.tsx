@@ -142,8 +142,15 @@ export const Tunnel3DPhotoCanvas: React.FC<Tunnel3DPhotoCanvasProps> = ({
     // 4. Create Rock Texture from photoUrl or procedural canvas
     const textureLoader = new THREE.TextureLoader();
     let rockTexture: THREE.Texture;
-
-    if (photoUrl && photoUrl.startsWith('data:')) {
+    if (
+      photoUrl &&
+      (photoUrl.startsWith('data:') ||
+        photoUrl.startsWith('blob:') ||
+        photoUrl.startsWith('http:') ||
+        photoUrl.startsWith('https:') ||
+        photoUrl.startsWith('/') ||
+        photoUrl.length > 50)
+    ) {
       rockTexture = textureLoader.load(photoUrl);
     } else {
       // Procedural authentic granite/basalt rock texture
@@ -294,17 +301,44 @@ export const Tunnel3DPhotoCanvas: React.FC<Tunnel3DPhotoCanvasProps> = ({
     }
     updateCameraPosition();
 
-    // 10. Mouse & Touch Controls with Infinite Zoom
+    // 10. Mouse & Touch Controls with Infinite Zoom & Pinch-to-Zoom
+    const activePointers = new Map<number, { x: number; y: number }>();
+    let prevPinchDist: number | null = null;
+
     const onPointerDown = (e: PointerEvent) => {
       container.setPointerCapture(e.pointerId);
-      controlsRef.current.isDragging = e.button === 0;
-      controlsRef.current.isPanning = e.button === 2 || e.button === 1;
-      controlsRef.current.prevX = e.clientX;
-      controlsRef.current.prevY = e.clientY;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointers.size === 2) {
+        const [p1, p2] = Array.from(activePointers.values());
+        prevPinchDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        controlsRef.current.isDragging = false;
+        controlsRef.current.isPanning = false;
+      } else {
+        controlsRef.current.isDragging = e.button === 0;
+        controlsRef.current.isPanning = e.button === 2 || e.button === 1;
+        controlsRef.current.prevX = e.clientX;
+        controlsRef.current.prevY = e.clientY;
+      }
       setIsRotating(false);
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      // Multi-touch pinch zoom
+      if (activePointers.size === 2) {
+        const [p1, p2] = Array.from(activePointers.values());
+        const currentDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        if (prevPinchDist && prevPinchDist > 5 && currentDist > 5) {
+          const factor = prevPinchDist / currentDist;
+          controlsRef.current.radius = Math.max(0.2, Math.min(500, controlsRef.current.radius * factor));
+          updateCameraPosition();
+        }
+        prevPinchDist = currentDist;
+        return;
+      }
+
       const c = controlsRef.current;
       if (!c.isDragging && !c.isPanning) return;
 
@@ -336,6 +370,10 @@ export const Tunnel3DPhotoCanvas: React.FC<Tunnel3DPhotoCanvasProps> = ({
         container.releasePointerCapture(e.pointerId);
       } catch {
         // Ignored
+      }
+      activePointers.delete(e.pointerId);
+      if (activePointers.size < 2) {
+        prevPinchDist = null;
       }
       controlsRef.current.isDragging = false;
       controlsRef.current.isPanning = false;

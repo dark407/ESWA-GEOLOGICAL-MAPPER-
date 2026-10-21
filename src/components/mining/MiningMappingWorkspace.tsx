@@ -37,6 +37,10 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Grid,
+  Undo,
+  Redo,
+  FileCode,
+  FileDown,
 } from 'lucide-react';
 import { EswaAppBackgroundWatermark, EswaTunnelLogo } from '../EswaBrandIdentity';
 import { IndustryMode, MineralizedVeinRecord, FaceChannelSampleRecord } from '../../types/tunnel';
@@ -66,6 +70,57 @@ export interface MiningMappingWorkspaceProps {
 }
 
 export type RightPanelTab = 'LAYERS' | 'CHANNELS' | 'MATHEWS' | 'STEREONET' | 'REPORTS';
+
+// ----------------------------------------------------------------------------
+// REAL AUTOCAD DXF EXPORT GENERATOR FOR UNDERGROUND MINING FACE MAPPING
+// ----------------------------------------------------------------------------
+function generateMiningDxf(
+  stope: MiningStopeItem | undefined,
+  features: MiningGeologicalFeature[],
+  channelSamples: FaceChannelSampleRecord[]
+): string {
+  let dxf = "0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+
+  const w = stope?.stopeWidthM || 4.8;
+  const h = stope?.stopeHeightM || 4.2;
+
+  // Stope Face Arch Outline
+  const archPts = [
+    { x: 0, y: 0 },
+    { x: 0, y: h * 0.55 },
+    { x: w * 0.15, y: h * 0.85 },
+    { x: w * 0.5, y: h },
+    { x: w * 0.85, y: h * 0.85 },
+    { x: w, y: h * 0.55 },
+    { x: w, y: 0 },
+    { x: 0, y: 0 },
+  ];
+  dxf += "0\nLWPOLYLINE\n8\nSTOPE_PERIMETER\n90\n" + archPts.length + "\n70\n1\n";
+  archPts.forEach((p) => {
+    dxf += "10\n" + p.x.toFixed(3) + "\n20\n" + p.y.toFixed(3) + "\n";
+  });
+
+  // Features
+  features.filter((f) => f.visible && f.points.length >= 2).forEach((f) => {
+    const isClosed = f.geometryType === 'POLYGON';
+    dxf += "0\nLWPOLYLINE\n8\n" + f.featureType + "\n90\n" + f.points.length + "\n70\n" + (isClosed ? "1" : "0") + "\n";
+    f.points.forEach((p) => {
+      dxf += "10\n" + p.x.toFixed(3) + "\n20\n" + p.y.toFixed(3) + "\n";
+    });
+  });
+
+  // Channel Sample Lines
+  channelSamples.forEach((cs) => {
+    dxf += "0\nLINE\n8\nCHANNEL_SAMPLES\n";
+    dxf += "10\n" + cs.fromMeter.toFixed(3) + "\n20\n1.500\n30\n0.000\n";
+    dxf += "11\n" + cs.toMeter.toFixed(3) + "\n21\n1.500\n31\n0.000\n";
+    const grade = typeof cs.assayGrade === 'number' ? cs.assayGrade.toFixed(2) : cs.gradeValue || '0.00';
+    dxf += "0\nTEXT\n8\nCHANNEL_LABELS\n10\n" + ((cs.fromMeter + cs.toMeter) / 2).toFixed(3) + "\n20\n1.650\n30\n0.000\n40\n0.15\n1\n" + cs.sampleNumber + " (" + grade + "g/t)\n";
+  });
+
+  dxf += "0\nENDSEC\n0\nEOF\n";
+  return dxf;
+}
 
 export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   onBackToMainWindow,
@@ -115,147 +170,60 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   const [activeGeometryMode, setActiveGeometryMode] = useState<'POLYLINE' | 'POLYGON' | 'POINT'>('POLYLINE');
 
   // Active Drawn Geological Features (Canvas Layers)
-  const [features, setFeatures] = useState<MiningGeologicalFeature[]>(currentStope?.features || [
-    {
-      id: 'FT-01',
-      surfaceType: 'DEVELOPMENT_FACE',
-      featureType: 'ORE_BOUNDARY',
-      geometryType: 'POLYGON',
-      points: [
-        { x: 1.8, y: 0.0 },
-        { x: 2.0, y: 4.2 },
-        { x: 3.2, y: 4.2 },
-        { x: 3.0, y: 0.0 },
-      ],
-      name: 'Champion Quartz-Sulfide Main Ore Lode',
-      colorHex: '#F59E0B',
-      strokeWidth: 3,
-      fillOpacity: 0.35,
-      dipDeg: 74,
-      dipDirectionDeg: 285,
-      strikeDeg: 15,
-      trueThicknessM: 1.45,
-      lithologyCode: 'QZ-SULF',
-      mineralogyNotes: 'Smoky ribbon quartz with coarse visible gold specs, pyrite (4%) & arsenopyrite',
-      visible: true,
-    },
-    {
-      id: 'FT-02',
-      surfaceType: 'DEVELOPMENT_FACE',
-      featureType: 'ALTERATION_HALO',
-      geometryType: 'POLYGON',
-      points: [
-        { x: 1.2, y: 0.0 },
-        { x: 1.4, y: 4.2 },
-        { x: 1.8, y: 4.2 },
-        { x: 1.8, y: 0.0 },
-      ],
-      name: 'Hangingwall Biotite-Sericite Alteration Halo',
-      colorHex: '#38BDF8',
-      strokeWidth: 1.5,
-      fillOpacity: 0.2,
-      dipDeg: 72,
-      dipDirectionDeg: 280,
-      trueThicknessM: 0.60,
-      lithologyCode: 'ALT-HW',
-      mineralogyNotes: 'Intense chlorite-biotite-carbonate alteration in country rock',
-      visible: true,
-    },
-    {
-      id: 'FT-03',
-      surfaceType: 'DEVELOPMENT_FACE',
-      featureType: 'FAULT',
-      geometryType: 'POLYLINE',
-      points: [
-        { x: 0.8, y: 0.0 },
-        { x: 1.1, y: 2.5 },
-        { x: 1.3, y: 4.2 },
-      ],
-      name: 'F-1 Hangingwall Shear Boundary',
-      colorHex: '#EF4444',
-      strokeWidth: 2.5,
-      dipDeg: 76,
-      dipDirectionDeg: 285,
-      strikeDeg: 15,
-      infill: '15mm graphitic clay gouge with slickensides',
-      waterInflow: 'DAMP',
-      visible: true,
-    },
-    {
-      id: 'FT-04',
-      surfaceType: 'DEVELOPMENT_FACE',
-      featureType: 'JOINT',
-      geometryType: 'POLYLINE',
-      points: [
-        { x: 3.5, y: 3.8 },
-        { x: 4.6, y: 1.2 },
-      ],
-      name: 'J2 Cross Joint Fracture',
-      colorHex: '#A855F7',
-      strokeWidth: 1.8,
-      dipDeg: 58,
-      dipDirectionDeg: 110,
-      strikeDeg: 200,
-      roughness: 'Smooth Planar',
-      infill: 'Calcite / chlorite coating',
-      waterInflow: 'DRY',
-      visible: true,
-    },
-  ]);
+  const [features, setFeatures] = useState<MiningGeologicalFeature[]>(currentStope?.features || []);
+  const [channelSamples, setChannelSamples] = useState<FaceChannelSampleRecord[]>(currentStope?.channelSamples || []);
 
-  // Channel Samples (Part C8)
-  const [channelSamples, setChannelSamples] = useState<FaceChannelSampleRecord[]>(currentStope?.channelSamples || [
-    {
-      id: 'CH-01',
-      sampleNumber: 'CH-01-HW',
-      fromMeter: 0.0,
-      toMeter: 1.2,
-      sampleLengthMeters: 1.2,
-      assayGrade: 0.85,
-      gradeValue: '0.85',
-      specificGravity: 2.72,
-      zoneCategory: 'WASTE',
-      lithologyOrVein: 'Hangingwall Amphibolite Country Rock (Waste Dilution)',
-      sampledBy: 'Dr. V. Raghavan',
-      date: '2025-02-18',
-      startPoint: { x: 0.2, y: 1.5 },
-      endPoint: { x: 1.4, y: 1.5 },
-    },
-    {
-      id: 'CH-02',
-      sampleNumber: 'CH-02-ORE-HIGH',
-      fromMeter: 1.2,
-      toMeter: 2.9,
-      sampleLengthMeters: 1.7,
-      assayGrade: 9.62,
-      gradeValue: '9.62',
-      specificGravity: 3.35,
-      zoneCategory: 'ORE',
-      lithologyOrVein: 'Champion Quartz Lode with Coarse Visible Gold & Pyrite',
-      sampledBy: 'Dr. V. Raghavan',
-      date: '2025-02-18',
-      startPoint: { x: 1.4, y: 1.5 },
-      endPoint: { x: 3.1, y: 1.5 },
-    },
-    {
-      id: 'CH-03',
-      sampleNumber: 'CH-03-FW',
-      fromMeter: 2.9,
-      toMeter: 4.8,
-      sampleLengthMeters: 1.9,
-      assayGrade: 2.95,
-      gradeValue: '2.95',
-      specificGravity: 3.10,
-      zoneCategory: 'LOW_GRADE',
-      lithologyOrVein: 'Silicified Footwall Basalt with Disseminated Sulfides',
-      sampledBy: 'Dr. V. Raghavan',
-      date: '2025-02-18',
-      startPoint: { x: 3.1, y: 1.5 },
-      endPoint: { x: 4.8, y: 1.5 },
-    },
-  ]);
+  // Undo / Redo Stacks
+  const [undoStack, setUndoStack] = useState<MiningGeologicalFeature[][]>([]);
+  const [redoStack, setRedoStack] = useState<MiningGeologicalFeature[][]>([]);
 
-  // Photo Calibration (Part C3)
+  const pushUndo = (newFeats: MiningGeologicalFeature[]) => {
+    setUndoStack((prev) => [...prev.slice(-30), features]);
+    setRedoStack([]);
+    setFeatures(newFeats);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const prev = undoStack[undoStack.length - 1];
+    setRedoStack((r) => [...r, features]);
+    setUndoStack((u) => u.slice(0, -1));
+    setFeatures(prev);
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((u) => [...u, features]);
+    setRedoStack((r) => r.slice(0, -1));
+    setFeatures(next);
+  };
+
+  // Re-sync all state whenever active stope changes
+  useEffect(() => {
+    if (currentStope) {
+      setMineLevel(currentStope.mineLevel || 'Level 620 mRL');
+      setDriftId(currentStope.stopeOrDriftId || 'HW-DRV-04');
+      setOreBodyName(currentStope.oreBodyName || 'Champion Lode');
+      setExcavationType(currentStope.excavationType || 'ORE_DRIVE');
+      setMiningMethod(currentStope.miningMethod || 'SUBLEVEL_OPEN_STOPING');
+      setCutoffGrade(currentStope.targetCutoffGrade ?? 2.50);
+      setBlastPull(currentStope.blastPullMeters ?? 3.2);
+      setStopeWidth(currentStope.stopeWidthM ?? 4.8);
+      setStopeHeight(currentStope.stopeHeightM ?? 4.2);
+      setOreSg(currentStope.oreSpecificGravity ?? 3.35);
+      setWasteSg(currentStope.wasteSpecificGravity ?? 2.72);
+      setHangingwallDip(currentStope.hangingwallDipDeg ?? 74);
+      setFootwallDip(currentStope.footwallDipDeg ?? 68);
+      setFeatures(currentStope.features || []);
+      setChannelSamples(currentStope.channelSamples || []);
+      setSelectedFeatureId(currentStope.features?.[0]?.id || null);
+      setUndoStack([]);
+      setRedoStack([]);
+    }
+  }, [currentStope?.id]);
+
+  // Photo Calibration
   const [photoCalibration, setPhotoCalibration] = useState<MiningPhotoCalibration>({
     imageUrl: currentStope?.facePhotoUrl || '',
     scalePixelsPerMeter: 80,
@@ -274,9 +242,17 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>('FT-01');
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [currentDraftPoints, setCurrentDraftPoints] = useState<MiningGeologicalPoint[]>([]);
+
+  // Dragging vertex or feature in SELECT mode
+  const [draggingTarget, setDraggingTarget] = useState<{
+    featureId: string;
+    vertexIdx?: number;
+    startPoint: MiningGeologicalPoint;
+    initialFeaturePoints: MiningGeologicalPoint[];
+  } | null>(null);
 
   // Overlays
   const [showGrid, setShowGrid] = useState<boolean>(true);
@@ -284,7 +260,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   const [showPhoto, setShowPhoto] = useState<boolean>(true);
   const [saveStatus, setSaveStatus] = useState<'IDLE' | 'SAVED'>('IDLE');
 
-  // Mathews Stability & MRMR parameters (Part E)
+  // Mathews Stability & MRMR parameters
   const [miningRqd, setMiningRqd] = useState<number>(85);
   const [miningJn, setMiningJn] = useState<number>(6);
   const [miningJr, setMiningJr] = useState<number>(1.5);
@@ -298,41 +274,97 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   const [mrmrOrientationPct, setMrmrOrientationPct] = useState<number>(80);
   const [mrmrBlastingPct, setMrmrBlastingPct] = useState<number>(90);
 
-  // Dilution and Grade Calculations (Part D)
+  // Measured production reconciliation user-reviewed toggle
+  const [isUserReviewedVerdict, setIsUserReviewedVerdict] = useState<boolean>(false);
+  const [surveyedOverbreakTonnes, setSurveyedOverbreakTonnes] = useState<number>(0);
+
+  // Dilution and Grade Calculations (Documented Two-Component Mass-Weighted Formula)
   const dilutionCalcs = useMemo(() => {
-    let totalMass = 0;
-    let totalGradeWeighted = 0;
+    const validSamples = channelSamples.filter(
+      (s) =>
+        (typeof s.assayGrade === 'number' && !isNaN(s.assayGrade)) ||
+        (s.gradeValue && !isNaN(parseFloat(s.gradeValue)))
+    );
+
+    if (validSamples.length === 0) {
+      return {
+        insufficientData: true,
+        message: 'No valid channel sample assay grades recorded yet. Enter or add channel samples with assay grades to compute dilution & reconciliation.',
+        weightedFaceGrade: 0,
+        faceWasteGrade: 0,
+        oreMassTonnes: 0,
+        wasteMassTonnes: 0,
+        totalMinedMassTonnes: 0,
+        dilutionPercentByMass: 0,
+        dilutionPercentOverOre: 0,
+        combinedMuckGrade: 0,
+        containedOuncesAu: 0,
+        grossRevenue: 0,
+        totalProductionCost: 0,
+        netProfit: 0,
+        truckLoads40t: 0,
+        verdict: {
+          label: 'INSUFFICIENT DATA FOR DISPATCH',
+          badgeColor: 'bg-slate-900 text-slate-400 border-slate-700',
+          destination: 'Pending Geological Channel Assays',
+          desc: 'Cannot compute dilution or grade reconciliation without valid face channel assays.',
+        },
+      };
+    }
+
+    let totalOreMass = 0;
+    let totalOreGradeProduct = 0;
+    let totalWasteMass = 0;
+    let totalWasteGradeProduct = 0;
     let oreLen = 0;
     let wasteLen = 0;
 
-    for (const s of channelSamples) {
-      const l = Math.max(0.01, s.sampleLengthMeters || 1.0);
-      const sg = s.specificGravity || (s.zoneCategory === 'WASTE' ? wasteSg : oreSg);
+    for (const s of validSamples) {
+      const l = Math.max(0.01, s.sampleLengthMeters || (s.toMeter - s.fromMeter) || 1.0);
       const g = typeof s.assayGrade === 'number' ? s.assayGrade : parseFloat(s.gradeValue) || 0;
-      totalMass += l * sg;
-      totalGradeWeighted += l * sg * g;
-      if (s.zoneCategory === 'WASTE') wasteLen += l;
-      else oreLen += l;
+      const isWaste = s.zoneCategory === 'WASTE';
+      const sg = s.specificGravity || (isWaste ? wasteSg : oreSg);
+      const mass = l * sg;
+
+      if (isWaste) {
+        totalWasteMass += mass;
+        totalWasteGradeProduct += mass * g;
+        wasteLen += l;
+      } else {
+        totalOreMass += mass;
+        totalOreGradeProduct += mass * g;
+        oreLen += l;
+      }
     }
 
-    const weightedFaceGrade = totalMass > 0 ? totalGradeWeighted / totalMass : 0;
-    const totalFaceWidth = oreLen + wasteLen || stopeWidth;
-    const oreFraction = oreLen / Math.max(0.1, totalFaceWidth);
-    const wasteFraction = wasteLen / Math.max(0.1, totalFaceWidth);
+    const faceOreGrade = totalOreMass > 0 ? totalOreGradeProduct / totalOreMass : 0;
+    const faceWasteGrade = totalWasteMass > 0 ? totalWasteGradeProduct / totalWasteMass : 0;
+
+    const totalFaceWidth = Math.max(0.1, oreLen + wasteLen);
+    const oreFraction = oreLen / totalFaceWidth;
+    const wasteFraction = wasteLen / totalFaceWidth;
 
     const faceArea = stopeWidth * stopeHeight;
     const oreArea = faceArea * oreFraction;
     const wasteArea = faceArea * wasteFraction;
 
-    const oreMassTonnes = oreArea * blastPull * oreSg;
-    const wasteMassTonnes = wasteArea * blastPull * wasteSg;
+    const baseOreMassTonnes = oreArea * blastPull * oreSg;
+    const baseWasteMassTonnes = wasteArea * blastPull * wasteSg;
+    const oreMassTonnes = baseOreMassTonnes;
+    const wasteMassTonnes = baseWasteMassTonnes + surveyedOverbreakTonnes;
     const totalMinedMassTonnes = oreMassTonnes + wasteMassTonnes;
 
-    // Mass-based unplanned dilution (Part D1)
+    // Mass-based Dilution:
+    // 1. Dilution % of Total Mined Muck = (Waste Mass / Total Mass) * 100
+    // 2. Dilution % over In-situ Ore Mass = (Waste Mass / Ore Mass) * 100
     const dilutionPercentByMass = totalMinedMassTonnes > 0 ? (wasteMassTonnes / totalMinedMassTonnes) * 100 : 0;
+    const dilutionPercentOverOre = oreMassTonnes > 0 ? (wasteMassTonnes / oreMassTonnes) * 100 : 0;
 
-    // Combined grade (Part D2)
-    const combinedMuckGrade = totalMinedMassTonnes > 0 ? (weightedFaceGrade * oreMassTonnes) / totalMinedMassTonnes : 0;
+    // Two-component mass-weighted formula:
+    // Diluted Grade = (Ore Mass * Ore Grade + Dilution Mass * Dilution Grade) / Total Mass
+    const combinedMuckGrade = totalMinedMassTonnes > 0
+      ? (oreMassTonnes * faceOreGrade + wasteMassTonnes * faceWasteGrade) / totalMinedMassTonnes
+      : 0;
 
     // Contained metal & economics
     const containedGramsAu = totalMinedMassTonnes * combinedMuckGrade;
@@ -343,39 +375,43 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     const totalProductionCost = totalMiningCost + totalMillingCost;
     const netProfit = grossRevenue - totalProductionCost;
 
-    let verdict: { label: string; badgeColor: string; destination: string; desc: string } = {
-      label: 'ROUTE TO MILL (HIGH-GRADE ORE)',
-      badgeColor: 'bg-emerald-950 text-emerald-300 border-emerald-600',
-      destination: 'ROM Bin #1 / Primary Gyratory Crusher',
-      desc: 'Diluted muck grade exceeds cut-off grade. Dispatch directly to mill processing.',
-    };
-
-    if (combinedMuckGrade < cutoffGrade * 0.5) {
+    let verdict: { label: string; badgeColor: string; destination: string; desc: string };
+    if (combinedMuckGrade >= cutoffGrade) {
       verdict = {
-        label: 'ROUTE TO WASTE DUMP',
-        badgeColor: 'bg-rose-950 text-rose-300 border-rose-600',
-        destination: 'North Surface Waste Dump / Level 620 Stope Backfill',
-        desc: 'Sub-economic waste / country rock overbreak. Route to waste dump or CRF backfill.',
+        label: 'ROUTE TO MILL (HIGH-GRADE ORE)',
+        badgeColor: 'bg-emerald-950 text-emerald-300 border-emerald-600',
+        destination: 'ROM Bin #1 / Primary Gyratory Crusher',
+        desc: `Diluted muck grade (${combinedMuckGrade.toFixed(2)} g/t) meets or exceeds cutoff grade (${cutoffGrade.toFixed(2)} g/t). Dispatch to mill.`,
       };
-    } else if (combinedMuckGrade < cutoffGrade) {
+    } else if (combinedMuckGrade >= cutoffGrade * 0.5) {
       verdict = {
         label: 'ROUTE TO LOW-GRADE STOCKPILE',
         badgeColor: 'bg-amber-950 text-amber-300 border-amber-600',
         destination: 'ROM Low-Grade Stockpile #2',
-        desc: 'Marginal ore. Dump on Stockpile #2 for batch blending or heap leaching.',
+        desc: `Marginal ore (${combinedMuckGrade.toFixed(2)} g/t) below mill cutoff (${cutoffGrade.toFixed(2)} g/t) but above mineralized waste threshold.`,
+      };
+    } else {
+      verdict = {
+        label: 'ROUTE TO WASTE DUMP / CRF BACKFILL',
+        badgeColor: 'bg-rose-950 text-rose-300 border-rose-600',
+        destination: 'Surface Waste Dump / Stope Void CRF Backfill',
+        desc: `Sub-economic muck (${combinedMuckGrade.toFixed(2)} g/t) below economic cutoff threshold.`,
       };
     }
 
     const truckLoads40t = Math.ceil(totalMinedMassTonnes / 40);
 
     return {
-      weightedFaceGrade,
+      insufficientData: false,
+      weightedFaceGrade: faceOreGrade,
+      faceWasteGrade,
       oreArea,
       wasteArea,
       oreMassTonnes,
       wasteMassTonnes,
       totalMinedMassTonnes,
       dilutionPercentByMass,
+      dilutionPercentOverOre,
       combinedMuckGrade,
       containedOuncesAu,
       grossRevenue,
@@ -384,9 +420,9 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       verdict,
       truckLoads40t,
     };
-  }, [channelSamples, oreSg, wasteSg, blastPull, stopeWidth, stopeHeight, cutoffGrade, metalPriceAuOz, miningCostPerTonne, millingCostPerTonne]);
+  }, [channelSamples, oreSg, wasteSg, blastPull, stopeWidth, stopeHeight, cutoffGrade, metalPriceAuOz, miningCostPerTonne, millingCostPerTonne, surveyedOverbreakTonnes]);
 
-  // Mathews Stability Number N' Calculation (Part E)
+  // Mathews Stability Number N' Calculation
   const mathewsCalcs = useMemo(() => {
     // Q' = (RQD / Jn) * (Jr / Ja)
     const qPrime = (miningRqd / Math.max(0.75, miningJn)) * (miningJr / Math.max(0.75, miningJa));
@@ -415,6 +451,14 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       supportPlan = 'Pattern rock bolting (2.0m x 2.0m grid) + heavy weldmesh in roof and hangingwall.';
     }
 
+    // Dynamic SVG coordinate on Mathews Plot
+    // x: Hydraulic radius (0 - 15m) -> mapped to SVG X: 20 - 230
+    const svgPointX = Math.max(20, Math.min(230, 20 + (hydraulicRadius / 15) * 200));
+    // y: Stability N' (0.1 to 100 on log scale) -> mapped to SVG Y: 130 to 15
+    const logN = Math.log10(Math.max(0.1, Math.min(100, nPrime)));
+    // logN ranges from -1 to 2 (span 3)
+    const svgPointY = Math.max(15, Math.min(130, 130 - ((logN + 1) / 3) * 115));
+
     return {
       qPrime: Number(qPrime.toFixed(2)),
       nPrime: Number(nPrime.toFixed(2)),
@@ -422,10 +466,51 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       zone,
       badgeColor,
       supportPlan,
+      svgPointX,
+      svgPointY,
     };
   }, [miningRqd, miningJn, miningJr, miningJa, stressFactorA, jointFactorB, gravityFactorC, stopeWidth, stopeHeight]);
 
-  // Laubscher MRMR Calculation (Part E)
+  // Real Stereonet Poles & Great Circles from Mapped Discontinuities
+  const mappedStructures = useMemo(() => {
+    return features.filter(
+      (f) => typeof f.dipDeg === 'number' && typeof f.dipDirectionDeg === 'number' && f.dipDeg > 0
+    );
+  }, [features]);
+
+  const stereonetPoles = useMemo(() => {
+    return mappedStructures.map((f) => {
+      const dip = f.dipDeg || 70;
+      const dipDir = f.dipDirectionDeg || 0;
+      // Lower hemisphere equal area projection (Schmidt net)
+      // r = sqrt(2) * sin((90 - dip)/2) * R
+      const r = Math.SQRT2 * Math.sin(((90 - dip) * Math.PI) / 360) * 44;
+      const poleDirRad = (((dipDir + 180) % 360) * Math.PI) / 180;
+      const px = 50 + r * Math.sin(poleDirRad);
+      const py = 50 - r * Math.cos(poleDirRad);
+
+      // Great circle path approximation
+      const strikeRad = (((dipDir - 90 + 360) % 360) * Math.PI) / 180;
+      const pStart = { x: 50 + 44 * Math.sin(strikeRad), y: 50 - 44 * Math.cos(strikeRad) };
+      const pEnd = { x: 50 - 44 * Math.sin(strikeRad), y: 50 + 44 * Math.cos(strikeRad) };
+      const apexDist = Math.tan(((90 - dip) * Math.PI) / 360) * 44;
+      const apex = {
+        x: 50 + apexDist * Math.sin((dipDir * Math.PI) / 180),
+        y: 50 - apexDist * Math.cos((dipDir * Math.PI) / 180),
+      };
+      const gcPath = `M ${pStart.x.toFixed(1)},${pStart.y.toFixed(1)} Q ${apex.x.toFixed(1)},${apex.y.toFixed(1)} ${pEnd.x.toFixed(1)},${pEnd.y.toFixed(1)}`;
+
+      return {
+        feature: f,
+        px: Number(px.toFixed(1)),
+        py: Number(py.toFixed(1)),
+        gcPath,
+        color: f.colorHex || '#F59E0B',
+      };
+    });
+  }, [mappedStructures]);
+
+  // Laubscher MRMR Calculation
   const mrmrCalcs = useMemo(() => {
     const adj = (mrmrWeatheringPct / 100) * (mrmrStressPct / 100) * (mrmrOrientationPct / 100) * (mrmrBlastingPct / 100);
     const totalScore = Math.round(mrmrBaseRmr * adj);
@@ -458,7 +543,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     return { totalScore, rockClass, color, support, adj: Number(adj.toFixed(2)) };
   }, [mrmrBaseRmr, mrmrWeatheringPct, mrmrStressPct, mrmrOrientationPct, mrmrBlastingPct]);
 
-  // Save changes to storage engine (Part B & K)
+  // Save changes to storage engine
   const handleSaveStopeData = () => {
     if (!currentStope) return;
     const updated = updateMiningStope(currentStope.id, {
@@ -477,9 +562,15 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       footwallDipDeg: footwallDip,
       channelSamples,
       features,
-      dilutedGradeCalculated: dilutionCalcs.combinedMuckGrade,
-      dilutionPercentCalculated: dilutionCalcs.dilutionPercentByMass,
-      muckDestinationVerdict: dilutionCalcs.verdict.label.includes('MILL') ? 'MILL' : dilutionCalcs.verdict.label.includes('STOCKPILE') ? 'LOW_GRADE_STOCKPILE' : 'WASTE_DUMP',
+      dilutedGradeCalculated: dilutionCalcs.insufficientData ? 0 : dilutionCalcs.combinedMuckGrade,
+      dilutionPercentCalculated: dilutionCalcs.insufficientData ? 0 : dilutionCalcs.dilutionPercentByMass,
+      muckDestinationVerdict: dilutionCalcs.insufficientData
+        ? undefined
+        : dilutionCalcs.verdict.label.includes('MILL')
+        ? 'MILL'
+        : dilutionCalcs.verdict.label.includes('STOCKPILE')
+        ? 'LOW_GRADE_STOCKPILE'
+        : 'WASTE_DUMP',
       updatedAt: new Date().toISOString(),
     });
     setSaveStatus('SAVED');
@@ -582,9 +673,12 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         <div className="flex items-center gap-2.5 min-w-0">
           <button
             type="button"
-            onClick={onBackToMainWindow}
+            onClick={() => {
+              handleSaveStopeData();
+              onBackToMainWindow();
+            }}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono font-bold cursor-pointer transition-all text-amber-300"
-            title="Return to Mining Main Window"
+            title="Return to Mining Main Window (auto-saves)"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Main Window</span>

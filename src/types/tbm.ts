@@ -39,11 +39,50 @@ export interface TbmProjectItem {
   units: 'METRIC' | 'IMPERIAL';
   geologicalBaselineRef?: string;
   tunnelDiameterM?: number;
+  tunnelProfile?: 'CIRCULAR' | 'HORSESHOE' | 'D_SHAPED' | 'RECTANGULAR';
+  tunnelElevationCrownMrl?: number;
+  tunnelElevationInvertMrl?: number;
   expectedOverburdenM?: { min: number; max: number };
   expectedSupportSystem?: string;
-  monitoringThresholds?: { warningSettlementMm: number; alertSettlementMm: number; maxInflowLMin: number };
+  monitoringThresholds?: {
+    warningSettlementMm: number;
+    alertSettlementMm: number;
+    maxInflowLMin: number;
+    maxDiscWearMm?: number;
+  };
   designChainageStart?: number;
   designChainageEnd?: number;
+  anticipatedFormations?: {
+    name: string;
+    startChainage: number;
+    endChainage: number;
+    lithology: string;
+    expectedQRange?: string;
+  }[];
+  anticipatedFaultsShears?: {
+    name: string;
+    chainage: number;
+    widthM: number;
+    description: string;
+  }[];
+  anticipatedGroundwater?: {
+    waterTableMrl?: number;
+    maxInflowRiskLMin?: number;
+    notes?: string;
+  };
+  baselineRockMass?: {
+    expectedQMin: number;
+    expectedQMax: number;
+    expectedRmrMin: number;
+    expectedRmrMax: number;
+    ucsMinMpa: number;
+    ucsMaxMpa: number;
+  };
+  expectedSupportLining?: {
+    type: string;
+    segmentThicknessMm: number;
+    groutSpec: string;
+  };
   createdAt: string;
   updatedAt: string;
   isArchived?: boolean;
@@ -53,6 +92,7 @@ export interface TbmGeologicalForecastRecord {
   id: string;
   projectId: string;
   locationId: string;
+  revision?: string; // e.g. "Rev A", "Rev 01"
   forecastDate: string;
   author: string;
   startChainageRd: number;
@@ -67,9 +107,16 @@ export interface TbmGeologicalForecastRecord {
   investigationLimitations: string;
   confidence: 'HIGH' | 'MODERATE' | 'LOW';
   recommendedActions: string;
+  uncertaintyNotes?: string;
+  additionalInvestigationRecommended?: string;
   isEncounteredVerified?: boolean;
   encounteredSummary?: string;
   matchStatus?: 'CONCORDANT' | 'PARTIAL_MATCH' | 'DISCORDANT' | 'UNVERIFIED';
+  discrepancyNotes?: string;
+  verificationDate?: string;
+  verifiedBy?: string;
+  positionalVarianceM?: number;
+  qVariance?: number;
 }
 
 export interface TbmInstrumentReading {
@@ -278,9 +325,16 @@ export interface TbmProbeDrillingRecord {
   drilledLengthMeters: number;
   azimuthDeg: number;
   inclinationDeg: number;
+  drillingMethod?: 'PERCUSSIVE_MWD' | 'ROTARY_DIAMOND_CORE' | 'TSP_SEISMIC' | 'GROUND_RADAR';
+  boreholeDiameterMm?: number;
+  equipmentUsed?: string;
   drillingSpeedMMin: number;
   drillingFeedPressureBar: number;
+  rotationRpm?: number;
+  torqueKnm?: number;
+  flushingPressureBar?: number;
   flushingWaterReturn: 'FULL_RETURN' | 'PARTIAL_LOSS' | 'TOTAL_LOSS';
+  cuttingsDescription?: string;
   geologyLoggedAhead: string;
   cavityOrVoidDetected: boolean;
   voidLengthMeters?: number;
@@ -288,6 +342,8 @@ export interface TbmProbeDrillingRecord {
   waterInflowLMin?: number;
   tspReflectionZoneMetersAhead?: number;
   advanceRecommendation: 'PROCEED_NORMAL' | 'PROCEED_CAUTIOUS_LOW_THRUST' | 'PRE_EXCAVATION_GROUT_REQUIRED' | 'STOP_AND_PROBE_AGAIN';
+  dataConfidence?: 'HIGH' | 'MODERATE' | 'LOW';
+  loggedBy?: string;
 }
 
 export interface TbmRockMassClassificationRecord {
@@ -316,6 +372,8 @@ export interface TbmRockMassClassificationRecord {
   fieldPenetrationIndexKnCutterMm?: number; // FPI
   specificEnergyMJM3?: number;             // SE
   epbSoilClass?: 'COHESIVE_CLAY' | 'COHESIONLESS_SAND' | 'GRAVEL_COBBLES' | 'SILT_SAND_MIX';
+  missingParameters?: string[];
+  isClassificationValidated?: boolean;
 }
 
 export interface TbmSupportAndLiningRecord {
@@ -368,11 +426,19 @@ export interface TbmGeologicalHazardRecord {
     | 'HARD_ABRASIVE_BOULDER'
     | 'KARST_VOID';
   severity: GeologicalHazardSeverity;
+  status: 'OPEN' | 'INVESTIGATING' | 'MITIGATED' | 'CLOSED';
   impactOnTbm: string;
   actionTaken: string;
+  responsiblePerson?: string;
   dateReported: string;
   isResolved: boolean;
   photoUrls: string[];
+  approvalHistory?: {
+    status: string;
+    by: string;
+    date: string;
+    notes?: string;
+  }[];
 }
 
 export interface TbmPhotoAttachment {

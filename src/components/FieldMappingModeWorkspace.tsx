@@ -34,6 +34,7 @@ import {
 import { IndustryMode } from '../types/tunnel';
 import { MiningStopeFaceInspectorModal } from './MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
+import { NatmJoint3DInspectorModal } from './NatmJoint3DInspectorModal';
 import {
   addAndRememberCustomRock,
   autoComputeOrientationFromPlot,
@@ -1190,6 +1191,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [selectedDipSurfaceId, setSelectedDipSurfaceId] = useState<string | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
+  const [is3DJointInspectorOpen, setIs3DJointInspectorOpen] = useState<boolean>(false);
+  const [inspectedJointId, setInspectedJointId] = useState<string | null>(null);
   const [showPhotoUnderlay, setShowPhotoUnderlay] = useState<boolean>(true);
 
   // Drawing sub-tool ('pencil' | 'brush' | 'spline' | 'polyline') for ALL features other than Mark Water ('6_water_mark') & Erase ('eraser')
@@ -6612,9 +6615,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               <span className="font-bold">
                                 #{idx + 1} • {tr.setId === 'unassigned' ? 'J' : tr.setId}
                               </span>
-                              <span className="font-mono font-bold text-amber-300">
-                                {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-amber-300">
+                                  {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedTraceId(tr.id);
+                                    setInspectedJointId(tr.id);
+                                    setIs3DJointInspectorOpen(true);
+                                  }}
+                                  className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30 text-[9px] font-bold cursor-pointer transition-all"
+                                  title="Inspect joint in 3D"
+                                >
+                                  3D
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
@@ -7511,7 +7529,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 )}
 
                 {/* Dual Canvas (Photogrammetry Mode: Tunnel Face Rock Photo + Realtime Sync) */}
-                {stage === 'field_canvas' && activePanel === 'face' && (
+                {stage === 'field_canvas' && (
                   <button
                     type="button"
                     onClick={() => {
@@ -7532,6 +7550,53 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   >
                     <Columns className="w-3 h-3" />
                     <span>{isPhotogrammetryDualCanvas ? 'Dual Canvas: ON' : 'Dual Canvas'}</span>
+                  </button>
+                )}
+
+                {/* 3D Joint Inspector (Orientation, Intersections, Persistence Analysis) */}
+                {stage === 'field_canvas' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetId = selectedTraceId || activeRound.jointTraces[0]?.id;
+                      if (targetId) {
+                        setInspectedJointId(targetId);
+                        setIs3DJointInspectorOpen(true);
+                      } else {
+                        // Create a default joint trace on active panel so the inspector is ready immediately
+                        const newTr: FieldJointTrace = {
+                          id: `JT-${Date.now().toString(36).toUpperCase()}`,
+                          panel: activePanel,
+                          points: [
+                            { x: 250, y: 350 },
+                            { x: 500, y: 450 },
+                            { x: 750, y: 550 },
+                          ],
+                          dipDirection: activeRound.tunnelDriveDirection || 135,
+                          dipAmount: 65,
+                          strike: ((activeRound.tunnelDriveDirection || 135) - 90 + 360) % 360,
+                          setId: 'J1',
+                          strokeWidthPx: 3.8,
+                          lineMode: 'smooth',
+                        };
+                        updateActiveRound((r) => ({
+                          ...r,
+                          jointTraces: [newTr],
+                        }));
+                        setSelectedTraceId(newTr.id);
+                        setInspectedJointId(newTr.id);
+                        setIs3DJointInspectorOpen(true);
+                      }
+                    }}
+                    className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
+                      selectedTraceId
+                        ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                        : 'bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800'
+                    }`}
+                    title="Open 3D Joint Inspector: 3D Orientation, Multi-Surface Intersections, Trace Extent & Persistence Analysis"
+                  >
+                    <Box className="w-3 h-3" />
+                    <span>3D Joint Inspector</span>
                   </button>
                 )}
 
@@ -7622,38 +7687,69 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   ref={canvasWrapperRef}
                   className={`flex-1 min-h-0 ${photoCanvasTheme === 'light' ? 'bg-slate-200' : 'bg-slate-950'} overflow-hidden flex flex-col items-stretch justify-center relative touch-none`}
                 >
-                  {/* Top selector bar containing the view label and the "Map Only" / "Split (Map + Photo/3D)" buttons (shown when Dual Canvas button is clicked/active) */}
+                  {/* Top selector bar containing the view label and the "Map Only" / "Split (Map + Photo/3D)" buttons */}
                   {isDualCanvasActive && (
-                    <div className="flex items-center justify-between px-3 py-1 bg-slate-900 border-b border-slate-800 text-[11px] font-semibold text-slate-300 shrink-0 select-none z-10 w-full">
+                    <div
+                      className={`flex items-center justify-between px-3 py-1 ${
+                        photoCanvasTheme === 'light'
+                          ? 'bg-slate-100 border-b border-slate-300 text-slate-700'
+                          : 'bg-slate-900 border-b border-slate-800 text-slate-300'
+                      } text-[11px] font-semibold shrink-0 select-none z-10 w-full`}
+                    >
                       <div className="flex items-center gap-1.5">
-                        <Layers className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                        <span className="font-semibold text-slate-200">
+                        <Layers className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                        <span className={`font-semibold ${photoCanvasTheme === 'light' ? 'text-slate-800' : 'text-slate-200'}`}>
                           {FIELD_PANEL_DISPLAY_LABELS[activePanel] || 'Face'} Canvas
                         </span>
                       </div>
-                      <div className="flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-800">
+                      <div className="flex items-center gap-2">
+                        {/* Theme Toggle in split bar */}
                         <button
                           type="button"
-                          onClick={() => setDualCanvasMobileTab('map')}
-                          className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
-                            dualCanvasMobileTab === 'map'
-                              ? 'bg-cyan-500 text-slate-950 shadow'
-                              : 'text-slate-400 hover:text-white'
+                          onClick={() => setPhotoCanvasTheme((t) => (t === 'light' ? 'dark' : 'light'))}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                            photoCanvasTheme === 'light'
+                              ? 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
+                              : 'bg-slate-800 text-amber-300 border-slate-700 hover:bg-slate-700'
+                          }`}
+                          title="Toggle Light Engineering Mode vs Dark Rock Mode"
+                        >
+                          {photoCanvasTheme === 'light' ? '☀️ Light' : '🌙 Dark'}
+                        </button>
+                        <div
+                          className={`flex items-center rounded-lg p-0.5 border ${
+                            photoCanvasTheme === 'light'
+                              ? 'bg-slate-200 border-slate-300'
+                              : 'bg-slate-950 border-slate-800'
                           }`}
                         >
-                          Map Only
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDualCanvasMobileTab('split')}
-                          className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
-                            dualCanvasMobileTab === 'split'
-                              ? 'bg-cyan-500 text-slate-950 shadow'
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          Split (Map + Photo/3D)
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setDualCanvasMobileTab('map')}
+                            className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                              dualCanvasMobileTab === 'map'
+                                ? 'bg-cyan-500 text-slate-950 shadow'
+                                : photoCanvasTheme === 'light'
+                                ? 'text-slate-600 hover:text-slate-900'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Map Only
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDualCanvasMobileTab('split')}
+                            className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                              dualCanvasMobileTab === 'split'
+                                ? 'bg-cyan-500 text-slate-950 shadow'
+                                : photoCanvasTheme === 'light'
+                                ? 'text-slate-600 hover:text-slate-900'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Split (Map + Photo/3D)
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -7666,7 +7762,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   >
                     {/* 1. GEOLOGICAL MAPPING CANVAS PANE */}
                     <div
-                      className={`flex-1 min-w-0 min-h-0 flex flex-col bg-[#E2E8F0] overflow-hidden relative w-full h-full ${
+                      className={`flex-1 min-w-0 min-h-0 flex flex-col ${
+                        photoCanvasTheme === 'light' ? 'bg-[#F1F5F9]' : 'bg-[#0B0F19]'
+                      } overflow-hidden relative w-full h-full ${
                         isDualCanvasActive && dualCanvasMobileTab === 'photo' ? 'hidden' : 'flex'
                       }`}
                     >
@@ -7680,7 +7778,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         ).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)}`}
                         preserveAspectRatio="xMidYMid meet"
                         style={{
-                          backgroundColor: '#E2E8F0',
+                          backgroundColor: photoCanvasTheme === 'light' ? '#F8FAFC' : '#0B0F19',
                           width: '100%',
                           height: '100%',
                           maxWidth: '100%',
@@ -9461,9 +9559,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   {tr.panel.replace('_', ' ')} #{idx + 1}
                                 </span>
                               </div>
-                              <span className="font-mono font-bold text-amber-300">
-                                {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-amber-300">
+                                  {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedTraceId(tr.id);
+                                    setInspectedJointId(tr.id);
+                                    setIs3DJointInspectorOpen(true);
+                                  }}
+                                  className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30 text-[9px] font-bold cursor-pointer transition-all"
+                                  title="Inspect joint in 3D"
+                                >
+                                  3D
+                                </button>
+                              </div>
                             </div>
                             <div className="flex flex-wrap gap-1">
                               {(
@@ -11264,6 +11377,37 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         }
         onUpdateTbmParams={() => {}}
       />
+
+      {/* NATM 3D Joint Inspector Modal */}
+      {is3DJointInspectorOpen && (
+        <NatmJoint3DInspectorModal
+          isOpen={is3DJointInspectorOpen}
+          onClose={() => setIs3DJointInspectorOpen(false)}
+          activeJoint={
+            (activeRound.jointTraces.find((t) => t.id === inspectedJointId) ||
+              activeRound.jointTraces.find((t) => t.id === selectedTraceId) ||
+              activeRound.jointTraces[0]) as FieldJointTrace
+          }
+          allRoundJoints={activeRound.jointTraces}
+          tunnelGeometry={{
+            widthM: activeLocation?.widthM || 8.5,
+            heightM: activeLocation?.heightM || 7.5,
+            wallHeightM: activeLocation?.wallHeightM || 4.2,
+            pullLengthM: activeRound?.pullLengthMeters || 3.0,
+            driveAzimuthDeg: activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth,
+            currentChainageM: activeRound ? parseFloat(activeRound.chainageTo) || 100 : 100,
+            tunnelShape: activeLocation?.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped',
+          }}
+          onSaveJoint={(updated) => {
+            updateActiveRound((r) => ({
+              ...r,
+              jointTraces: r.jointTraces.map((t) => (t.id === updated.id ? updated : t)),
+            }));
+            setLiveDipDirection(updated.dipDirection);
+            setLiveDipAmount(updated.dipAmount);
+          }}
+        />
+      )}
       </div>
     </div>
   );

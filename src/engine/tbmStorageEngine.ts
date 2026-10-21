@@ -996,6 +996,7 @@ export function seedInitialTbmData(): {
           impactOnTbm: 'High fine paste clogging cutterhead disc housings; increased cutterhead torque by 25%.',
           actionTaken: 'Increased bentonite foam injection to 600 L/min and lowered cutterhead rotation to 2.8 RPM.',
           dateReported: now,
+          status: 'CLOSED',
           isResolved: true,
           photoUrls: [],
         },

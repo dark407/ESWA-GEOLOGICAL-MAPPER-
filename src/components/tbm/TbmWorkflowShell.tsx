@@ -47,6 +47,7 @@ import {
   TbmReportType,
   TbmReportFilter,
   TbmDiscontinuityObservation,
+  TbmInstrumentReading,
 } from '../../types/tbm';
 import {
   loadTbmProjects,
