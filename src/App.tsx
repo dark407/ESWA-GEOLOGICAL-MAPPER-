@@ -4161,7 +4161,7 @@ export default function App({
 
 
           {/* Main Window: Only 3 Options — 1. Underground Face Mapping, 2. Surface Mapping, 3. Data Storage, Import & Export */}
-          <div className="w-full space-y-2.5">
+          <div className="w-full space-y-2.5 p-2 sm:p-2.5 rounded-2xl bg-white/75 backdrop-blur-md border shadow-2xl" style={{ borderColor: palette.primaryHex + '40' }}>
             {/* 1. First Option: Underground Face Mapping */}
             <div className="flex items-stretch gap-2 w-full">
               <button
@@ -4173,16 +4173,27 @@ export default function App({
                   setResumeFieldAtLastStage(false);
                   setIsFieldMappingModeOpen(true);
                 }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99"
+                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
                 style={{
-                  borderColor: palette.primaryHex + '60',
+                  borderColor: palette.primaryHex,
                 }}
               >
-                <span className="flex items-center gap-2">
-                  <Compass className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
-                  <span>Underground Face Mapping</span>
+                <span className="flex items-center gap-2.5">
+                  <span
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                    style={{
+                      backgroundColor: palette.primaryHex + '20',
+                      color: palette.accentIconColor,
+                    }}
+                  >
+                    <Compass className="w-4 h-4 shrink-0" />
+                  </span>
+                  <span className="text-stone-900 font-extrabold">Underground Face Mapping</span>
                 </span>
-                <ArrowRight className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
+                <ArrowRight
+                  className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
+                  style={{ color: palette.accentIconColor }}
+                />
               </button>
 
               <button
@@ -4193,11 +4204,11 @@ export default function App({
                   setResumeFieldAtLastStage(true);
                   setIsFieldMappingModeOpen(true);
                 }}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.16)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                className="px-4 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
                 style={{
-                  backgroundColor: palette.primaryHex,
+                  backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
                   borderColor: palette.accentHex,
-                  color: palette.buttonTextColor,
+                  color: palette.isLightBg ? '#FFFFFF' : '#0F172A',
                 }}
                 title={
                   fieldResumeMeta
@@ -4205,7 +4216,13 @@ export default function App({
                     : 'Resume Underground Face Mapping where you stopped'
                 }
               >
-                <Play className="w-3.5 h-3.5 shrink-0" style={{ color: palette.buttonTextColor, fill: palette.buttonTextColor }} />
+                <Play
+                  className="w-3.5 h-3.5 shrink-0"
+                  style={{
+                    color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                  }}
+                />
                 <span>Resume</span>
               </button>
             </div>
@@ -4217,16 +4234,27 @@ export default function App({
                 onClick={() => {
                   setIsContinuousLogSetupOpen(true);
                 }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99"
+                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
                 style={{
-                  borderColor: palette.primaryHex + '60',
+                  borderColor: palette.primaryHex,
                 }}
               >
-                <span className="flex items-center gap-2">
-                  <FileSpreadsheet className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
-                  <span>Continuous Tunnel Logging</span>
+                <span className="flex items-center gap-2.5">
+                  <span
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                    style={{
+                      backgroundColor: palette.primaryHex + '20',
+                      color: palette.accentIconColor,
+                    }}
+                  >
+                    <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  </span>
+                  <span className="text-stone-900 font-extrabold">Continuous Tunnel Logging</span>
                 </span>
-                <ArrowRight className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
+                <ArrowRight
+                  className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
+                  style={{ color: palette.accentIconColor }}
+                />
               </button>
             </div>
 
@@ -4238,16 +4266,27 @@ export default function App({
                   setIsFirstOpening(false);
                   setIsCoreLoggingOpen(true);
                 }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99"
+                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
                 style={{
-                  borderColor: palette.primaryHex + '60',
+                  borderColor: palette.primaryHex,
                 }}
               >
-                <span className="flex items-center gap-2">
-                  <Layers className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
-                  <span>Geotechnical Core Logging &amp; Reports</span>
+                <span className="flex items-center gap-2.5">
+                  <span
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                    style={{
+                      backgroundColor: palette.primaryHex + '20',
+                      color: palette.accentIconColor,
+                    }}
+                  >
+                    <Layers className="w-4 h-4 shrink-0" />
+                  </span>
+                  <span className="text-stone-900 font-extrabold">Geotechnical Core Logging &amp; Reports</span>
                 </span>
-                <ArrowRight className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
+                <ArrowRight
+                  className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
+                  style={{ color: palette.accentIconColor }}
+                />
               </button>
             </div>
 
@@ -4255,7 +4294,7 @@ export default function App({
             <div
               className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 space-y-2 transition-colors"
               style={{
-                borderColor: palette.primaryHex + '60',
+                borderColor: palette.primaryHex,
               }}
             >
               <div className="flex items-stretch gap-2 w-full">
@@ -4268,11 +4307,19 @@ export default function App({
                     setResumeFieldAtLastStage(false);
                     setIsFieldMappingModeOpen(true);
                   }}
-                  className="flex-1 py-1 px-2 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 text-stone-900 transition-all cursor-pointer"
+                  className="flex-1 py-1 px-2 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 text-stone-900 transition-all cursor-pointer group"
                 >
-                  <span className="flex items-center gap-2">
-                    <Mountain className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
-                    <span>Surface Mapping</span>
+                  <span className="flex items-center gap-2.5">
+                    <span
+                      className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                      style={{
+                        backgroundColor: palette.primaryHex + '20',
+                        color: palette.accentIconColor,
+                      }}
+                    >
+                      <Mountain className="w-3.5 h-3.5 shrink-0" />
+                    </span>
+                    <span className="text-stone-900 font-extrabold">Surface Mapping</span>
                     <span
                       className="px-2 py-0.5 rounded font-mono text-[10px] font-bold"
                       style={{
@@ -4283,7 +4330,10 @@ export default function App({
                       {selectedSurfaceSubType}
                     </span>
                   </span>
-                  <ArrowRight className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
+                  <ArrowRight
+                    className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
+                    style={{ color: palette.accentIconColor }}
+                  />
                 </button>
 
                 <button
@@ -4301,11 +4351,11 @@ export default function App({
                     setResumeFieldAtLastStage(true);
                     setIsFieldMappingModeOpen(true);
                   }}
-                  className="px-4 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer border shrink-0 active:scale-95"
+                  className="px-4 py-2 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_4px_14px_-2px_rgba(0,0,0,0.25)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
                   style={{
-                    backgroundColor: palette.primaryHex,
+                    backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
                     borderColor: palette.accentHex,
-                    color: palette.buttonTextColor,
+                    color: palette.isLightBg ? '#FFFFFF' : '#0F172A',
                   }}
                   title={
                     surfaceResumeMeta
@@ -4313,7 +4363,13 @@ export default function App({
                       : 'Resume Surface Mapping where you stopped'
                   }
                 >
-                  <Play className="w-3.5 h-3.5 shrink-0" style={{ color: palette.buttonTextColor, fill: palette.buttonTextColor }} />
+                  <Play
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                      fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    }}
+                  />
                   <span>Resume</span>
                 </button>
               </div>
@@ -4348,7 +4404,7 @@ export default function App({
                       }}
                       className="py-1 px-1 rounded-md text-[10px] font-bold text-center transition-all cursor-pointer border"
                       style={{
-                        backgroundColor: isSelected ? palette.primaryHex : palette.primaryHex + '18',
+                        backgroundColor: isSelected ? palette.primaryHex : '#F8FAFC',
                         borderColor: isSelected ? palette.accentHex : palette.primaryHex + '35',
                         color: isSelected ? palette.buttonTextColor : '#0F172A',
                         boxShadow: isSelected ? `0 2px 8px ${palette.primaryHex}45` : undefined,
@@ -4369,15 +4425,27 @@ export default function App({
                   setIsFirstOpening(false);
                   handleOpenProjectMemoryModal('field_data');
                 }}
-                className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99"
+                className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
                 style={{
-                  borderColor: palette.primaryHex + '60',
+                  borderColor: palette.primaryHex,
                 }}
               >
-                <span className="flex items-center gap-2">
-                  <Database className="w-4 h-4 shrink-0" style={{ color: palette.accentIconColor }} />
-                  <span>Data Storage, Import &amp; Export</span>
+                <span className="flex items-center gap-2.5">
+                  <span
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                    style={{
+                      backgroundColor: palette.primaryHex + '20',
+                      color: palette.accentIconColor,
+                    }}
+                  >
+                    <Database className="w-4 h-4 shrink-0" />
+                  </span>
+                  <span className="text-stone-900 font-extrabold">Data Storage, Import &amp; Export</span>
                 </span>
+                <ArrowRight
+                  className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
+                  style={{ color: palette.accentIconColor }}
+                />
               </button>
             </div>
           </div>

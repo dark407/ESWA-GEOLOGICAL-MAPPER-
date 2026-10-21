@@ -120,7 +120,7 @@ export function generateThemePalette(rawHex: string, customName?: string): Theme
 
   // Button text on top of primary button:
   const primaryLum = getPerceivedLuminance(hex);
-  const buttonTextColor = primaryLum > 155 ? '#0F172A' : '#FFFFFF';
+  const buttonTextColor = primaryLum > 145 ? '#0F172A' : '#FFFFFF';
 
   const accentHex = adjustHexBrightness(hex, isLight ? -12 : 18);
   const bgGlowHex = adjustHexBrightness(hex, isLight ? -18 : 25);
@@ -587,6 +587,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     root.classList.remove('dark');
 
     // Dynamic CSS Custom Properties for immediate theme coloration and 100% high-contrast text
+    const { r, g, b } = hexToRgb(palette.primaryHex);
+    root.style.setProperty('--theme-accent-rgb', `${r}, ${g}, ${b}`);
     root.style.setProperty('--theme-accent', palette.primaryHex);
     root.style.setProperty('--theme-accent-highlight', palette.accentHex);
     root.style.setProperty('--theme-bg-glow', palette.bgGlowHex);

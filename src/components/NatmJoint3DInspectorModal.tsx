@@ -32,6 +32,7 @@ import {
   Sparkles,
   Navigation,
   Box,
+  Lock,
 } from 'lucide-react';
 import {
   FieldJointTrace,
@@ -74,6 +75,53 @@ export type InspectionViewTab =
   | 'VIEW_RIGHT_WALL'
   | 'VIEW_CROWN'
   | 'VIEW_UNROLLED_COMBINED';
+
+// ----------------------------------------------------------------------------
+// GEOLOGICAL AZIMUTH TO CARDINAL COMPASS DIRECTION HELPER
+// ----------------------------------------------------------------------------
+function getCardinal(deg: number): string {
+  const d = ((deg % 360) + 360) % 360;
+  const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  const idx = Math.round(d / 22.5) % 16;
+  return directions[idx];
+}
+
+// ----------------------------------------------------------------------------
+// THREE.JS 3D BILLBOARD SPRITE TEXT GENERATOR FOR ADVANCE & FACE SIGNAGE
+// ----------------------------------------------------------------------------
+function createBillboardLabel(
+  text: string,
+  bgColor: string,
+  textColor: string,
+  scaleX = 3.6,
+  scaleY = 0.75
+): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = bgColor;
+    ctx.beginPath();
+    ctx.roundRect(8, 8, 496, 112, 16);
+    ctx.fill();
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    ctx.fillStyle = textColor;
+    ctx.font = 'bold 36px monospace, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 256, 64);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(scaleX, scaleY, 1);
+  return sprite;
+}
 
 // ----------------------------------------------------------------------------
 // HIGH-RESPONSIVENESS NUMERIC STEPPER COMPONENT
@@ -232,6 +280,9 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   const [angularUncertainty, setAngularUncertainty] = useState<number>(
     activeJoint.inspection3D?.angularUncertaintyDeg ?? 3.0
   );
+
+  // Toggle for interior plane sheet (default false for clean 3D tunnel void)
+  const [showInteriorPlane, setShowInteriorPlane] = useState<boolean>(false);
 
   // Persistence & Geological Interpretation
   const [persistenceInterpretation, setPersistenceInterpretation] = useState<string>(
@@ -460,105 +511,145 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     const cy = h / 2;
     const cz = pullL / 2;
 
-    // 5. Clean Excavation Invert Floor (No boxy multi-line grid clutter)
+    // 5. Clean Excavation Invert Floor (Smooth, flat invert between x = 0 and x = w)
     const floorGeo = new THREE.PlaneGeometry(w, pullL);
     floorGeo.rotateX(-Math.PI / 2);
-    floorGeo.translate(cx, 0.002, cz);
+    floorGeo.translate(cx, 0.001, cz);
     const floorMat = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
-      roughness: 0.6,
+      roughness: 0.65,
       metalness: 0.02,
       side: THREE.DoubleSide,
     });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
     scene.add(floorMesh);
 
-    // 6. Tunnel Static Geometry Construction (Clean Smooth Tunnel, No Facet Clutter)
+    // 6. Tunnel Static Geometry Construction (Clean Smooth Hollow Tunnel Void, ZERO Triangles on SPL)
     const tunnelGroup = new THREE.Group();
 
     // High-smoothness D-Shaped / Horseshoe profile (48 smooth segments)
+    // Coords strictly in [0, w] (horizontal) and [0, h] (vertical)
     const profilePts: THREE.Vector2[] = [];
     const segments = 48;
-    profilePts.push(new THREE.Vector2(-w / 2, 0));
-    profilePts.push(new THREE.Vector2(w / 2, 0));
-    profilePts.push(new THREE.Vector2(w / 2, hw));
-    for (let i = 0; i <= segments; i++) {
+    // 1. Left Invert footing
+    profilePts.push(new THREE.Vector2(0, 0));
+    // 2. Right Invert footing
+    profilePts.push(new THREE.Vector2(w, 0));
+    // 3. Right Springline (SPL)
+    profilePts.push(new THREE.Vector2(w, hw));
+    // 4. Smooth arch from Right Springline to Left Springline
+    for (let i = 1; i < segments; i++) {
       const theta = (i / segments) * Math.PI;
-      const x = (w / 2) * Math.cos(theta);
+      const x = cx + (w / 2) * Math.cos(theta); // theta=0 -> w; theta=PI -> 0
       const y = hw + archRise * Math.sin(theta);
-      profilePts.push(new THREE.Vector2(-x, y));
+      profilePts.push(new THREE.Vector2(x, y));
     }
-    profilePts.push(new THREE.Vector2(-w / 2, hw));
+    // 5. Left Springline (SPL)
+    profilePts.push(new THREE.Vector2(0, hw));
 
-    const tunnelShape = new THREE.Shape(profilePts);
-    const extrudeSettings = {
-      steps: 1,
-      depth: pullL,
-      bevelEnabled: false,
-    };
-    const tunnelGeo = new THREE.ExtrudeGeometry(tunnelShape, extrudeSettings);
-    tunnelGeo.translate(cx, 0, 0);
+    // A. Clean Hollow 3D Tunnel Shell Mesh (NO caps at portal z=0, NO internal dividing triangles, NO triangle on SPL)
+    const shellPositions: number[] = [];
+    const shellIndices: number[] = [];
+    const numPts = profilePts.length;
+
+    for (let i = 0; i < numPts; i++) {
+      const p = profilePts[i];
+      // Vertex at portal entrance (z = 0)
+      shellPositions.push(p.x, p.y, 0);
+      // Vertex at excavation face (z = pullL)
+      shellPositions.push(p.x, p.y, pullL);
+    }
+
+    for (let i = 0; i < numPts; i++) {
+      const next = (i + 1) % numPts;
+      const v0 = i * 2;        // p[i] at z = 0
+      const v1 = i * 2 + 1;    // p[i] at z = pullL
+      const v2 = next * 2 + 1; // p[next] at z = pullL
+      const v3 = next * 2;     // p[next] at z = 0
+
+      // Quad divided into 2 triangles (outward & inward smooth normal)
+      shellIndices.push(v0, v1, v2);
+      shellIndices.push(v0, v2, v3);
+    }
+
+    const tunnelGeo = new THREE.BufferGeometry();
+    tunnelGeo.setAttribute('position', new THREE.Float32BufferAttribute(shellPositions, 3));
+    tunnelGeo.setIndex(shellIndices);
     tunnelGeo.computeVertexNormals();
 
-    // Clean, smooth, non-boxy translucent shell
     const tunnelMat = new THREE.MeshStandardMaterial({
       color: 0xf1f5f9,
       transparent: true,
       opacity: 0.28,
-      roughness: 0.2,
+      roughness: 0.22,
       metalness: 0.02,
       side: THREE.DoubleSide,
     });
     const tunnelMesh = new THREE.Mesh(tunnelGeo, tunnelMat);
     tunnelGroup.add(tunnelMesh);
 
-    // Clean Excavation Face Contour (z = pullL) in Electric Cyan/Blue (Crisp & Distinct)
+    // B. Excavation Face Rock Cap at z = pullL
+    // Triangulated radially from centroid (cx, hw * 0.6) to all perimeter points.
+    // This strictly eliminates any chord or triangle on SPL!
+    const facePositions: number[] = [];
+    const faceIndices: number[] = [];
+    const faceCentroid = new THREE.Vector2(cx, hw * 0.6);
+    facePositions.push(faceCentroid.x, faceCentroid.y, pullL); // Index 0
+
+    for (let i = 0; i < numPts; i++) {
+      facePositions.push(profilePts[i].x, profilePts[i].y, pullL);
+    }
+
+    for (let i = 0; i < numPts; i++) {
+      const next = (i + 1) % numPts;
+      faceIndices.push(0, i + 1, next + 1);
+    }
+
+    const faceCapGeo = new THREE.BufferGeometry();
+    faceCapGeo.setAttribute('position', new THREE.Float32BufferAttribute(facePositions, 3));
+    faceCapGeo.setIndex(faceIndices);
+    faceCapGeo.computeVertexNormals();
+
+    const faceCapMat = new THREE.MeshStandardMaterial({
+      color: 0xe0f2fe,
+      transparent: true,
+      opacity: 0.22,
+      roughness: 0.3,
+      metalness: 0.05,
+      side: THREE.DoubleSide,
+    });
+    const faceMesh = new THREE.Mesh(faceCapGeo, faceCapMat);
+    tunnelGroup.add(faceMesh);
+
+    // C. Excavation Face Contour (z = pullL) in Electric Cyan/Blue (Crisp & Distinct)
     const faceContourPoints: THREE.Vector3[] = [];
     for (const pt of profilePts) {
-      faceContourPoints.push(new THREE.Vector3(pt.x + cx, pt.y, pullL));
+      faceContourPoints.push(new THREE.Vector3(pt.x, pt.y, pullL));
     }
-    faceContourPoints.push(new THREE.Vector3(profilePts[0].x + cx, profilePts[0].y, pullL));
+    faceContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, pullL));
     const faceContourGeo = new THREE.BufferGeometry().setFromPoints(faceContourPoints);
     const faceContourMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3 });
     const faceContourLine = new THREE.Line(faceContourGeo, faceContourMat);
     tunnelGroup.add(faceContourLine);
 
-    // Excavation Face Subtle Shaded Cap (demarcates the rock face clearly)
-    const faceShapeGeo = new THREE.ShapeGeometry(tunnelShape);
-    faceShapeGeo.translate(cx, 0, 0);
-    const faceShapeMat = new THREE.MeshBasicMaterial({
-      color: 0xe0f2fe,
-      transparent: true,
-      opacity: 0.18,
-      side: THREE.DoubleSide,
-    });
-    const faceMesh = new THREE.Mesh(faceShapeGeo, faceShapeMat);
-    faceMesh.position.set(0, 0, pullL);
-    tunnelGroup.add(faceMesh);
-
-    // Previous Round Outline at Entrance (z = 0) (Soft Slate)
+    // D. Portal Entrance Outline at z = 0 (Open Portal, Soft Slate)
     const prevContourPoints: THREE.Vector3[] = [];
     for (const pt of profilePts) {
-      prevContourPoints.push(new THREE.Vector3(pt.x + cx, pt.y, 0));
+      prevContourPoints.push(new THREE.Vector3(pt.x, pt.y, 0));
     }
-    prevContourPoints.push(new THREE.Vector3(profilePts[0].x + cx, profilePts[0].y, 0));
+    prevContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, 0));
     const prevContourGeo = new THREE.BufferGeometry().setFromPoints(prevContourPoints);
     const prevContourMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, linewidth: 1.5 });
     const prevContourLine = new THREE.Line(prevContourGeo, prevContourMat);
     tunnelGroup.add(prevContourLine);
 
-    // Clean Structural Longitudinal Rails (Only 5 essential lines: 2 Invert corners, 2 Springlines, 1 Crown Apex)
+    // E. 5 Essential Longitudinal Rails (Left Invert, Right Invert, Left SPL, Right SPL, Crown Apex)
     const railPositions: number[] = [
-      // Left Invert footing
-      0, 0.01, 0, 0, 0.01, pullL,
-      // Right Invert footing
-      w, 0.01, 0, w, 0.01, pullL,
-      // Left Springline
-      0, hw, 0, 0, hw, pullL,
-      // Right Springline
-      w, hw, 0, w, hw, pullL,
-      // Crown Apex
-      cx, h, 0, cx, h, pullL,
+      0, 0.01, 0, 0, 0.01, pullL,      // Left Invert footing
+      w, 0.01, 0, w, 0.01, pullL,      // Right Invert footing
+      0, hw, 0, 0, hw, pullL,          // Left Springline (SPL)
+      w, hw, 0, w, hw, pullL,          // Right Springline (SPL)
+      cx, h, 0, cx, h, pullL,          // Crown Apex
     ];
     const railsGeo = new THREE.BufferGeometry();
     railsGeo.setAttribute('position', new THREE.Float32BufferAttribute(railPositions, 3));
@@ -566,21 +657,145 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     const railsLines = new THREE.LineSegments(railsGeo, railsMat);
     tunnelGroup.add(railsLines);
 
-    // Centerline Advance Arrow on Invert (Z-axis drive direction)
-    const advanceDir = new THREE.Vector3(0, 0, 1);
-    const advanceOrigin = new THREE.Vector3(cx, 0.02, 0);
-    const advanceArrow = new THREE.ArrowHelper(advanceDir, advanceOrigin, pullL, 0x0284c7, 0.45, 0.22);
-    tunnelGroup.add(advanceArrow);
+    // -----------------------------------------------------------------------
+    // PROMINENT 3D DRIVE DIRECTION ADVANCE SYSTEM (HIGH-VISIBILITY HUD & TRACK)
+    // -----------------------------------------------------------------------
+    const driveBearing = tunnelGeometry.driveAzimuthDeg ?? 0;
 
-    // Subtle 1-Meter Advance Chainage Markers along Centerline
+    // 1. Centerline Advance Runway on Floor pointing straight to Face (+Z)
+    const trackWidth = 0.7;
+    const trackGeo = new THREE.PlaneGeometry(trackWidth, pullL - 0.3);
+    trackGeo.rotateX(-Math.PI / 2);
+    trackGeo.translate(cx, 0.003, cz);
+    const trackMat = new THREE.MeshBasicMaterial({
+      color: 0x0369a1,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+    });
+    tunnelGroup.add(new THREE.Mesh(trackGeo, trackMat));
+
+    // Runway glowing edge borders
+    const trackBorderPts = [
+      cx - trackWidth / 2, 0.005, 0.15, cx - trackWidth / 2, 0.005, pullL - 0.15,
+      cx + trackWidth / 2, 0.005, 0.15, cx + trackWidth / 2, 0.005, pullL - 0.15,
+    ];
+    const trackBorderGeo = new THREE.BufferGeometry();
+    trackBorderGeo.setAttribute('position', new THREE.Float32BufferAttribute(trackBorderPts, 3));
+    const trackBorderMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
+    tunnelGroup.add(new THREE.LineSegments(trackBorderGeo, trackBorderMat));
+
+    // 2. Luminous Advance Chevrons (>> >> >>) along Floor Centerline toward Face
+    const chevronZOffsets = [0.25 * pullL, 0.5 * pullL, 0.75 * pullL];
+    const chevronPts: number[] = [];
+    chevronZOffsets.forEach((zOff) => {
+      const chW = 0.45;
+      const chL = 0.28;
+      // Wing left to tip
+      chevronPts.push(cx - chW, 0.006, zOff - chL, cx, 0.006, zOff);
+      // Tip to wing right
+      chevronPts.push(cx, 0.006, zOff, cx + chW, 0.006, zOff - chL);
+    });
+    const chevGeo = new THREE.BufferGeometry();
+    chevGeo.setAttribute('position', new THREE.Float32BufferAttribute(chevronPts, 3));
+    const chevMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 3 });
+    tunnelGroup.add(new THREE.LineSegments(chevGeo, chevMat));
+
+    // 3. Illuminated 3D Advance Arrowhead at Face (+Z)
+    const arrowHeadW = 1.35;
+    const arrowHeadL = 0.75;
+    const arrowZEnd = pullL - 0.08;
+    const arrowZBase = arrowZEnd - arrowHeadL;
+
+    const arrowShape = new THREE.Shape();
+    arrowShape.moveTo(0, arrowZEnd);
+    arrowShape.lineTo(arrowHeadW / 2, arrowZBase);
+    arrowShape.lineTo(0.3, arrowZBase + 0.1);
+    arrowShape.lineTo(0.3, arrowZBase - 0.35);
+    arrowShape.lineTo(-0.3, arrowZBase - 0.35);
+    arrowShape.lineTo(-0.3, arrowZBase + 0.1);
+    arrowShape.lineTo(-arrowHeadW / 2, arrowZBase);
+    arrowShape.closePath();
+
+    const arrowGeo = new THREE.ShapeGeometry(arrowShape);
+    arrowGeo.rotateX(-Math.PI / 2);
+    arrowGeo.translate(cx, 0.008, 0);
+    const arrowMat = new THREE.MeshBasicMaterial({
+      color: 0x0284c7,
+      side: THREE.DoubleSide,
+    });
+    tunnelGroup.add(new THREE.Mesh(arrowGeo, arrowMat));
+
+    const arrowEdgeGeo = new THREE.EdgesGeometry(arrowGeo);
+    const arrowEdgeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2.5 });
+    tunnelGroup.add(new THREE.LineSegments(arrowEdgeGeo, arrowEdgeMat));
+
+    // 4. Prominent 3D Billboard Labels in 3D Viewport
+    // A. Excavation Face Drive Sign at z = pullL (High Visibility)
+    const faceLabelSprite = createBillboardLabel(
+      `➔ EXCAVATION FACE (+Z) · DRIVE N ${Math.round(driveBearing)}° E ➔`,
+      '#0284C7',
+      '#FFFFFF',
+      4.2,
+      0.9
+    );
+    faceLabelSprite.position.set(cx, 0.65, pullL + 0.15);
+    tunnelGroup.add(faceLabelSprite);
+
+    // B. Portal / Entrance Marker at z = 0
+    const portalLabelSprite = createBillboardLabel(
+      '◄ PORTAL ENTRANCE (-Z / -CH) ◄',
+      '#1E293B',
+      '#F8FAFC',
+      3.2,
+      0.7
+    );
+    portalLabelSprite.position.set(cx, 0.55, -0.15);
+    tunnelGroup.add(portalLabelSprite);
+
+    // C. Floor Drive Advance Centerline Billboard
+    const floorLabelSprite = createBillboardLabel(
+      `► ADVANCE AXIS (N ${Math.round(driveBearing)}° E) ►`,
+      '#0F172A',
+      '#38BDF8',
+      2.8,
+      0.6
+    );
+    floorLabelSprite.position.set(cx, 0.08, pullL * 0.45);
+    tunnelGroup.add(floorLabelSprite);
+
+    // D. Left & Right Sidewall Orientation Markers
+    const leftWallSprite = createBillboardLabel(
+      `◄ LEFT SIDEWALL (AZ ${(Math.round(driveBearing - 90) + 360) % 360}°)`,
+      '#1E293B',
+      '#FCD34D',
+      2.5,
+      0.55
+    );
+    leftWallSprite.position.set(0.18, hw * 0.65, pullL * 0.5);
+    tunnelGroup.add(leftWallSprite);
+
+    const rightWallSprite = createBillboardLabel(
+      `RIGHT SIDEWALL (AZ ${(Math.round(driveBearing + 90) + 360) % 360}°) ►`,
+      '#1E293B',
+      '#FCD34D',
+      2.5,
+      0.55
+    );
+    rightWallSprite.position.set(w - 0.18, hw * 0.65, pullL * 0.5);
+    tunnelGroup.add(rightWallSprite);
+
+    // 5. Chainage Ticks along Invert
     const tickPositions: number[] = [];
-    for (let mz = 1; mz < pullL; mz += 1) {
-      tickPositions.push(cx - 0.25, 0.02, mz, cx + 0.25, 0.02, mz);
+    for (let mz = 0.5; mz < pullL; mz += 0.5) {
+      const isWhole = Math.abs(mz - Math.round(mz)) < 0.05;
+      const tickW = isWhole ? 0.6 : 0.3;
+      tickPositions.push(cx - tickW, 0.02, mz, cx + tickW, 0.02, mz);
     }
     if (tickPositions.length > 0) {
       const ticksGeo = new THREE.BufferGeometry();
       ticksGeo.setAttribute('position', new THREE.Float32BufferAttribute(tickPositions, 3));
-      const ticksMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, linewidth: 1.5 });
+      const ticksMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 2 });
       tunnelGroup.add(new THREE.LineSegments(ticksGeo, ticksMat));
     }
 
@@ -592,6 +807,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     scene.add(jointGroup);
 
     // 8. Animation & Real-Time 3D Compass Render Loop
+    // The Compass Dial remains FIXED and STABLE (000° North at top, 090° East at right)
+    // The Camera Sight Needle sweeps around the dial indicating the exact view azimuth
     const camDir = new THREE.Vector3();
     const driveAz = tunnelGeometry.driveAzimuthDeg ?? 0;
 
@@ -606,25 +823,20 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
       renderer.render(scene, camera);
 
-      // Real-Time 3D Compass Rotation & Tilt directly to DOM (0 React re-renders, 60fps)
+      // Real-Time 3D Compass Camera Sight Pointer directly to DOM (0 React re-renders, 60fps)
       camera.getWorldDirection(camDir);
-      // Horizontal angle of camera looking towards center:
-      const viewAzRad = Math.atan2(-camDir.x, -camDir.z);
-      const viewAzDeg = (viewAzRad * (180 / Math.PI) + 360) % 360;
+      // In local coordinates: +Z is Tunnel Drive (Azimuth = driveAz), +X is Right Wall (Azimuth = driveAz + 90)
+      const localCamAzRad = Math.atan2(camDir.x, camDir.z);
+      const worldCamTargetAz = Math.round((driveAz + (localCamAzRad * (180 / Math.PI)) + 360) % 360);
       const tiltDeg = Math.round(Math.asin(Math.max(-1, Math.min(1, camDir.y))) * (180 / Math.PI));
 
-      // In local coordinates: +Z is Tunnel Drive (Azimuth = driveAz).
-      // North Needle orientation relative to screen 12 o'clock:
-      const compassNeedleAngle = Math.round((driveAz - viewAzDeg + 360) % 360);
-
+      // 1. Compass dial is FIXED with North at 000° (12 o'clock) — NEVER rotated away!
+      // 2. Camera Sight needle indicates viewing direction on the fixed dial:
       if (compassNeedleRef.current) {
-        compassNeedleRef.current.style.transform = `rotate(${compassNeedleAngle}deg)`;
-      }
-      if (compassDialRef.current) {
-        compassDialRef.current.style.transform = `rotate(${-viewAzDeg}deg)`;
+        compassNeedleRef.current.style.transform = `rotate(${worldCamTargetAz}deg)`;
       }
       if (compassReadoutRef.current) {
-        compassReadoutRef.current.innerText = `CAM AZ: ${Math.round(viewAzDeg)}° · TILT: ${tiltDeg}°`;
+        compassReadoutRef.current.innerText = `VIEW AZ: ${String(worldCamTargetAz).padStart(3, '0')}° · TILT: ${tiltDeg}°`;
       }
 
       animFrameIdRef.current = requestAnimationFrame(render);
@@ -711,49 +923,51 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
     if (clippedVertices.length < 3) return;
 
-    // 1. Build 3D Clipped Polygon Mesh
-    const planeGeo = new THREE.BufferGeometry();
-    const positions: number[] = [];
-    const indices: number[] = [];
+    // 1. Optional Interior 3D Plane Mesh (Only added if user explicitly toggles on; default is OFF for clean 3D tunnel void)
+    if (showInteriorPlane && clippedVertices.length >= 3) {
+      const planeGeo = new THREE.BufferGeometry();
+      const positions: number[] = [];
+      const indices: number[] = [];
 
-    clippedVertices.forEach((v) => {
-      positions.push(v.x, v.y, v.z);
-    });
+      clippedVertices.forEach((v) => {
+        positions.push(v.x, v.y, v.z);
+      });
 
-    for (let i = 1; i < clippedVertices.length - 1; i++) {
-      indices.push(0, i, i + 1);
+      for (let i = 1; i < clippedVertices.length - 1; i++) {
+        indices.push(0, i, i + 1);
+      }
+
+      planeGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      planeGeo.setIndex(indices);
+      planeGeo.computeVertexNormals();
+
+      const grpColor = FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#d97706';
+      const planeMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(grpColor),
+        transparent: true,
+        opacity: 0.68,
+        side: THREE.DoubleSide,
+        roughness: 0.35,
+        metalness: 0.1,
+      });
+
+      const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+      group.add(planeMesh);
+
+      // Perimeter Line
+      const perimeterPositions: number[] = [];
+      for (let i = 0; i < clippedVertices.length; i++) {
+        const curr = clippedVertices[i];
+        const next = clippedVertices[(i + 1) % clippedVertices.length];
+        perimeterPositions.push(curr.x, curr.y, curr.z, next.x, next.y, next.z);
+      }
+      const perimGeo = new THREE.BufferGeometry();
+      perimGeo.setAttribute('position', new THREE.Float32BufferAttribute(perimeterPositions, 3));
+      const perimMat = new THREE.LineBasicMaterial({ color: 0x92400e, linewidth: 2.5 });
+      group.add(new THREE.LineSegments(perimGeo, perimMat));
     }
 
-    planeGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    planeGeo.setIndex(indices);
-    planeGeo.computeVertexNormals();
-
-    const grpColor = FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#d97706';
-    const planeMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(grpColor),
-      transparent: true,
-      opacity: 0.72,
-      side: THREE.DoubleSide,
-      roughness: 0.35,
-      metalness: 0.1,
-    });
-
-    const planeMesh = new THREE.Mesh(planeGeo, planeMat);
-    group.add(planeMesh);
-
-    // 2. High-Contrast Perimeter Line
-    const perimeterPositions: number[] = [];
-    for (let i = 0; i < clippedVertices.length; i++) {
-      const curr = clippedVertices[i];
-      const next = clippedVertices[(i + 1) % clippedVertices.length];
-      perimeterPositions.push(curr.x, curr.y, curr.z, next.x, next.y, next.z);
-    }
-    const perimGeo = new THREE.BufferGeometry();
-    perimGeo.setAttribute('position', new THREE.Float32BufferAttribute(perimeterPositions, 3));
-    const perimMat = new THREE.LineBasicMaterial({ color: 0x92400e, linewidth: 3 });
-    group.add(new THREE.LineSegments(perimGeo, perimMat));
-
-    // 3. Horizontal Strike Vector Line (Sharp Blue)
+    // 2. Horizontal Strike Vector Line at Anchor (Sharp Blue)
     const sLen = 2.4;
     const sPos = [
       anchorPoint.x - plane.strikeVector.x * sLen,
@@ -768,27 +982,31 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     const sMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3.5 });
     group.add(new THREE.LineSegments(sGeo, sMat));
 
-    // 4. Downward Dip Direction Arrow (Vibrant Amber / Gold)
+    // 3. Downward Dip Direction Arrow (Vibrant Amber / Gold)
     const dipArrowDir = new THREE.Vector3(plane.dipVector.x, plane.dipVector.y, plane.dipVector.z).normalize();
     const dipArrowOrigin = new THREE.Vector3(anchorPoint.x, anchorPoint.y, anchorPoint.z);
     const dipArrow = new THREE.ArrowHelper(dipArrowDir, dipArrowOrigin, 2.4, 0xd97706, 0.5, 0.28);
     group.add(dipArrow);
 
-    // 5. Plane Normal Vector Arrow (Forest Green)
+    // 4. Plane Normal Vector Arrow (Forest Green)
     const normalDir = new THREE.Vector3(plane.normal.x, plane.normal.y, plane.normal.z).normalize();
     const normalArrow = new THREE.ArrowHelper(normalDir, dipArrowOrigin, 1.9, 0x15803d, 0.4, 0.22);
     group.add(normalArrow);
 
-    // 6. Anchor Point Sphere (Crimson Red)
+    // 5. Anchor Point Sphere (Crimson Red)
     const anchorGeo = new THREE.SphereGeometry(0.14, 16, 16);
     const anchorMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
     const anchorMesh = new THREE.Mesh(anchorGeo, anchorMat);
     anchorMesh.position.set(anchorPoint.x, anchorPoint.y, anchorPoint.z);
     group.add(anchorMesh);
 
-    // 7. Multi-Surface Intersection Traces in 3D (Face, Left Wall, Right Wall)
+    // 6. Clean Multi-Surface Intersection Traces in 3D (Face, Left Wall, Right Wall, Crown)
     const pullL = tunnelGeometry.pullLengthM || 3.0;
     const w = tunnelGeometry.widthM || 8.5;
+    const hw = tunnelGeometry.wallHeightM || 4.2;
+    const h = tunnelGeometry.heightM || 7.5;
+    const cx = w / 2;
+    const archRise = h - hw;
 
     // Face Intersection Trace (at z = pullL) in Electric Blue
     if (surfaceIntersections.face) {
@@ -798,7 +1016,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         new THREE.Vector3(f1.x, f1.y, pullL),
         new THREE.Vector3(f2.x, f2.y, pullL),
       ]);
-      const faceTraceMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3 });
+      const faceTraceMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3.5 });
       group.add(new THREE.Line(faceTraceGeo, faceTraceMat));
     }
 
@@ -810,7 +1028,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         new THREE.Vector3(0, l1.y, l1.x),
         new THREE.Vector3(0, l2.y, l2.x),
       ]);
-      const leftTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3 });
+      const leftTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3.5 });
       group.add(new THREE.Line(leftTraceGeo, leftTraceMat));
     }
 
@@ -822,10 +1040,27 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         new THREE.Vector3(w, r1.y, r1.x),
         new THREE.Vector3(w, r2.y, r2.x),
       ]);
-      const rightTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3 });
+      const rightTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3.5 });
       group.add(new THREE.Line(rightTraceGeo, rightTraceMat));
     }
-  }, [activeTab, clippedVertices, plane, anchorPoint, jointSetId, surfaceIntersections, tunnelGeometry]);
+
+    // Crown Arch Intersection Trace in Emerald Green
+    if (surfaceIntersections.crown) {
+      const c1 = surfaceIntersections.crown.p1;
+      const c2 = surfaceIntersections.crown.p2;
+      const getCrownY = (xVal: number) => {
+        const dx = (xVal - cx) / (w / 2);
+        const clamped = Math.max(-1, Math.min(1, dx));
+        return hw + archRise * Math.sqrt(Math.max(0, 1 - clamped * clamped));
+      };
+      const crownTraceGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(c1.x, getCrownY(c1.x), c1.y),
+        new THREE.Vector3(c2.x, getCrownY(c2.x), c2.y),
+      ]);
+      const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.5 });
+      group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
+    }
+  }, [activeTab, clippedVertices, plane, anchorPoint, jointSetId, surfaceIntersections, tunnelGeometry, showInteriorPlane]);
 
   // -------------------------------------------------------------------------
   // SAVE HANDLER
@@ -1508,6 +1743,21 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               {/* 3D Camera Controls & Legend Toggle */}
               {activeTab === 'VIEW_3D' && (
                 <div className="flex items-center gap-2 text-[11px] font-mono">
+                  {/* Toggle Interior Plane Mesh (Default: Clean Tunnel Void) */}
+                  <button
+                    type="button"
+                    onClick={() => setShowInteriorPlane(!showInteriorPlane)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                      showInteriorPlane
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                    }`}
+                    title="Toggle 3D Interior Joint Plane sheet (Keep off for clean 3D tunnel void)"
+                  >
+                    <Box className="w-3.5 h-3.5" />
+                    <span>{showInteriorPlane ? 'Hide Plane Mesh' : 'Show Plane Mesh'}</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setShowLegendOverlay(!showLegendOverlay)}
@@ -1550,67 +1800,282 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   {/* Clean Three.js WebGL Canvas Mount */}
                   <div ref={threeMountRef} className="w-full h-full" />
 
-                  {/* REAL-TIME 3D COMPASS GIZMO (TOP-RIGHT CORNER) */}
-                  <div className="absolute top-3 right-3 p-3 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-slate-700/80 shadow-2xl flex flex-col items-center gap-2 pointer-events-auto z-20">
-                    <div className="flex items-center justify-between w-full border-b border-slate-800 pb-1">
+                  {/* HIGH-VISIBILITY TUNNEL ADVANCE & DRIVE DIRECTION HUD BADGE */}
+                  <div className="absolute top-3 left-3 p-2 rounded-xl bg-slate-950/90 backdrop-blur-md border border-cyan-500/40 shadow-xl pointer-events-none z-10 flex flex-col gap-0.5 text-[11px] font-mono">
+                    <div className="flex items-center gap-1.5 text-cyan-300 font-black tracking-wide">
+                      <Navigation className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>DRIVE DIRECTION (+Z):</span>
+                      <span className="bg-cyan-500 text-slate-950 px-1.5 py-0.5 rounded font-black text-[10.5px]">
+                        N {Math.round(tunnelGeometry.driveAzimuthDeg ?? 0)}° E
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-300 flex items-center gap-2">
+                      <span>Section: <strong className="text-white">{tunnelGeometry.widthM}m W × {tunnelGeometry.heightM}m H</strong></span>
+                      <span className="text-slate-600">|</span>
+                      <span>Advance: <strong className="text-amber-400">{tunnelGeometry.pullLengthM || 3.0}m</strong></span>
+                    </div>
+                  </div>
+
+                  {/* -------------------------------------------------------------
+                      FULL 3D GEOLOGICAL COMPASS & CLINOMETER GIZMO
+                      Locked with Tunnel Drive Direction + Live 3D Joint Plane & Dip
+                      ------------------------------------------------------------- */}
+                  <div className="absolute top-3 right-3 p-2.5 rounded-2xl bg-slate-950/95 backdrop-blur-xl border-2 border-slate-700 shadow-2xl flex flex-col items-center gap-1.5 pointer-events-auto z-20 w-52 select-none">
+                    {/* Compass Header with Locked Tunnel Drive Heading */}
+                    <div className="flex items-center justify-between w-full border-b border-slate-800 pb-1.5 px-0.5">
                       <span className="text-[10px] font-black uppercase text-amber-400 font-mono tracking-wider flex items-center gap-1">
-                        <Navigation className="w-3.5 h-3.5" />
+                        <Compass className="w-3.5 h-3.5 text-amber-400" />
                         <span>3D Compass</span>
                       </span>
-                      <span className="text-[9.5px] font-mono text-cyan-400 font-bold">
-                        DRIVE: {Math.round(tunnelGeometry.driveAzimuthDeg ?? 0)}°
+                      <span
+                        className="text-[9.5px] font-mono text-cyan-300 font-extrabold flex items-center gap-1 bg-cyan-950/70 border border-cyan-800/80 px-1.5 py-0.5 rounded"
+                        title="Rigidly locked to tunnel advance heading azimuth"
+                      >
+                        <Lock className="w-2.5 h-2.5 shrink-0 text-cyan-400" />
+                        <span>DRIVE N {Math.round(tunnelGeometry.driveAzimuthDeg ?? 0)}° E</span>
                       </span>
                     </div>
 
-                    {/* Rotating 3D Compass Dial */}
-                    <div className="relative w-24 h-24 flex items-center justify-center select-none">
-                      {/* Outer Degree Dial */}
+                    {/* FIXED 3D COMPASS DIAL (STABLE 360° GEOLOGICAL READINGS) */}
+                    <div className="relative w-40 h-40 flex items-center justify-center">
                       <div
                         ref={compassDialRef}
-                        className="absolute inset-0 rounded-full border-2 border-slate-700 bg-slate-900/90 flex items-center justify-center transition-none shadow-inner"
+                        className="absolute inset-0 rounded-full border-2 border-slate-700 bg-slate-950 flex items-center justify-center shadow-inner overflow-hidden"
                       >
-                        {/* Cardinal Labels */}
-                        <span className="absolute top-1 text-[11px] font-black text-rose-500 font-mono">N</span>
-                        <span className="absolute right-1 text-[10px] font-bold text-slate-300 font-mono">E</span>
-                        <span className="absolute bottom-1 text-[10px] font-bold text-slate-300 font-mono">S</span>
-                        <span className="absolute left-1 text-[10px] font-bold text-slate-300 font-mono">W</span>
-                        {/* Crosshairs */}
-                        <div className="w-full h-px bg-slate-800/80 absolute" />
-                        <div className="h-full w-px bg-slate-800/80 absolute" />
+                        <svg viewBox="0 0 160 160" className="w-full h-full">
+                          <defs>
+                            {/* Realistic 3D Joint Plane Shading Gradient */}
+                            <radialGradient id="compassJoint3DGrad" cx="38%" cy="32%" r="68%">
+                              <stop offset="0%" stopColor="#FDE68A" stopOpacity="0.95" />
+                              <stop offset="35%" stopColor="#F59E0B" stopOpacity="0.88" />
+                              <stop offset="75%" stopColor="#D97706" stopOpacity="0.82" />
+                              <stop offset="100%" stopColor="#78350F" stopOpacity="0.92" />
+                            </radialGradient>
+
+                            {/* Metallic Compass Ring Gradient */}
+                            <radialGradient id="compassDialRing" cx="50%" cy="50%" r="50%">
+                              <stop offset="85%" stopColor="#0B1120" />
+                              <stop offset="98%" stopColor="#1E293B" />
+                              <stop offset="100%" stopColor="#334155" />
+                            </radialGradient>
+                          </defs>
+
+                          {/* Outer Dial Face */}
+                          <circle cx="80" cy="80" r="77" fill="url(#compassDialRing)" stroke="#1E293B" strokeWidth="1.5" />
+                          <circle cx="80" cy="80" r="70" fill="#030712" stroke="#0F172A" strokeWidth="1" />
+
+                          {/* FULL 360° FIXED GRADUATION TICKS & DEGREE LABELS (NEVER ROTATED AWAY) */}
+                          {Array.from({ length: 72 }).map((_, idx) => {
+                            const deg = idx * 5;
+                            const isMajor = deg % 30 === 0;
+                            const isMedium = deg % 10 === 0 && !isMajor;
+                            const rad = ((deg - 90) * Math.PI) / 180;
+                            const rOuter = 70;
+                            const rInner = isMajor ? 60 : isMedium ? 63 : 66;
+                            const x1 = 80 + rOuter * Math.cos(rad);
+                            const y1 = 80 + rOuter * Math.sin(rad);
+                            const x2 = 80 + rInner * Math.cos(rad);
+                            const y2 = 80 + rInner * Math.sin(rad);
+                            const rText = 52;
+                            const tx = 80 + rText * Math.cos(rad);
+                            const ty = 80 + rText * Math.sin(rad);
+                            const isCardinal = deg === 0 || deg === 90 || deg === 180 || deg === 270;
+                            const label =
+                              deg === 0 ? 'N' : deg === 90 ? 'E' : deg === 180 ? 'S' : deg === 270 ? 'W' : String(deg).padStart(3, '0');
+
+                            return (
+                              <g key={deg}>
+                                <line
+                                  x1={x1}
+                                  y1={y1}
+                                  x2={x2}
+                                  y2={y2}
+                                  stroke={isMajor ? '#E2E8F0' : isMedium ? '#94A3B8' : '#334155'}
+                                  strokeWidth={isMajor ? 1.6 : isMedium ? 1.0 : 0.6}
+                                />
+                                {isMajor && (
+                                  <text
+                                    x={tx}
+                                    y={ty}
+                                    textAnchor="middle"
+                                    dominantBaseline="central"
+                                    fontSize={isCardinal ? '10' : '7'}
+                                    fontWeight={isCardinal ? '900' : '700'}
+                                    fill={
+                                      deg === 0
+                                        ? '#EF4444' // North: Red
+                                        : deg === 90 || deg === 270
+                                        ? '#38BDF8' // East & West: Cyan
+                                        : deg === 180
+                                        ? '#F59E0B' // South: Amber
+                                        : '#94A3B8'
+                                    }
+                                    fontFamily="monospace"
+                                  >
+                                    {label}
+                                  </text>
+                                )}
+                              </g>
+                            );
+                          })}
+
+                          {/* Center Fine Crosshairs */}
+                          <line x1="22" y1="80" x2="138" y2="80" stroke="#1E293B" strokeWidth="0.8" strokeDasharray="2 2" />
+                          <line x1="80" y1="22" x2="80" y2="138" stroke="#1E293B" strokeWidth="0.8" strokeDasharray="2 2" />
+
+                          {/* LOCKED TUNNEL DRIVE DIRECTION VECTOR (Rigidly locked to Tunnel Drive Azimuth) */}
+                          {(() => {
+                            const driveDeg = tunnelGeometry.driveAzimuthDeg ?? 0;
+                            const dRad = ((driveDeg - 90) * Math.PI) / 180;
+                            const xStart = 80 + 34 * Math.cos(dRad);
+                            const yStart = 80 + 34 * Math.sin(dRad);
+                            const xEnd = 80 + 70 * Math.cos(dRad);
+                            const yEnd = 80 + 70 * Math.sin(dRad);
+                            const arrowSide1X = xEnd - 7 * Math.cos(dRad - 0.42);
+                            const arrowSide1Y = yEnd - 7 * Math.sin(dRad - 0.42);
+                            const arrowSide2X = xEnd - 7 * Math.cos(dRad + 0.42);
+                            const arrowSide2Y = yEnd - 7 * Math.sin(dRad + 0.42);
+
+                            return (
+                              <g>
+                                {/* Glowing ray */}
+                                <line
+                                  x1={xStart}
+                                  y1={yStart}
+                                  x2={xEnd}
+                                  y2={yEnd}
+                                  stroke="#0284C7"
+                                  strokeWidth="3.5"
+                                  strokeLinecap="round"
+                                />
+                                <line
+                                  x1={xStart}
+                                  y1={yStart}
+                                  x2={xEnd}
+                                  y2={yEnd}
+                                  stroke="#38BDF8"
+                                  strokeWidth="1.8"
+                                  strokeLinecap="round"
+                                />
+                                <polygon
+                                  points={`${xEnd},${yEnd} ${arrowSide1X},${arrowSide1Y} ${arrowSide2X},${arrowSide2Y}`}
+                                  fill="#38BDF8"
+                                  stroke="#0284C7"
+                                  strokeWidth="1"
+                                />
+                              </g>
+                            );
+                          })()}
+
+                          {/* ---------------------------------------------------------
+                              3D GEOLOGICAL JOINT PLANE SHOWN INSIDE THE COMPASS
+                              Rotated by True Dip Direction and foreshortened by True Dip
+                              --------------------------------------------------------- */}
+                          <g transform={`rotate(${dipDirection - 90}, 80, 80)`}>
+                            {/* 3D Tilted Elliptical Joint Plane Disk with Depth Drop Shadow */}
+                            <ellipse
+                              cx="80"
+                              cy="80"
+                              rx="30"
+                              ry={Math.max(3.8, 30 * Math.cos((dipAmount * Math.PI) / 180))}
+                              fill="url(#compassJoint3DGrad)"
+                              stroke="#F59E0B"
+                              strokeWidth="2.2"
+                              filter="drop-shadow(0 2px 4px rgba(0,0,0,0.6))"
+                            />
+
+                            {/* True Strike Line across major axis */}
+                            <line
+                              x1="50"
+                              y1="80"
+                              x2="110"
+                              y2="80"
+                              stroke="#38BDF8"
+                              strokeWidth="2.2"
+                              strokeDasharray="4 2"
+                            />
+                            {/* Perpendicular Strike Ticks at ends */}
+                            <line x1="50" y1="76" x2="50" y2="84" stroke="#38BDF8" strokeWidth="1.8" />
+                            <line x1="110" y1="76" x2="110" y2="84" stroke="#38BDF8" strokeWidth="1.8" />
+
+                            {/* True Dip Vector Arrow pointing down the maximum dip slope */}
+                            {(() => {
+                              const dipLen = Math.max(9, 28 * Math.cos((dipAmount * Math.PI) / 180));
+                              return (
+                                <g>
+                                  <line
+                                    x1="80"
+                                    y1="80"
+                                    x2="80"
+                                    y2={80 + dipLen}
+                                    stroke="#F59E0B"
+                                    strokeWidth="2.8"
+                                    strokeLinecap="round"
+                                  />
+                                  <polygon
+                                    points={`76,${80 + dipLen - 5} 84,${80 + dipLen - 5} 80,${80 + dipLen + 4}`}
+                                    fill="#F59E0B"
+                                    stroke="#78350F"
+                                    strokeWidth="0.8"
+                                  />
+                                </g>
+                              );
+                            })()}
+                          </g>
+
+                          {/* Center Pivot Pin */}
+                          <circle cx="80" cy="80" r="3.5" fill="#FFFFFF" stroke="#0F172A" strokeWidth="1.5" />
+                        </svg>
                       </div>
 
-                      {/* North-South Needle */}
+                      {/* 3D Camera Sight Needle Pointer (Sweeps to Camera Azimuth) */}
                       <div
                         ref={compassNeedleRef}
-                        className="relative w-2.5 h-16 flex flex-col items-center justify-between transition-none z-10"
+                        className="relative w-3 h-32 flex flex-col items-center justify-between transition-none z-10 pointer-events-none"
                       >
-                        {/* North Tip (Vivid Red Triangle) */}
-                        <div
-                          className="w-0 h-0 border-x-[5px] border-x-transparent border-b-[24px] border-b-rose-500 drop-shadow"
-                        />
-                        {/* Center Pin */}
-                        <div className="w-3.5 h-3.5 rounded-full bg-slate-100 border-2 border-slate-900 z-20 shadow" />
-                        {/* South Tip (Silver Triangle) */}
-                        <div
-                          className="w-0 h-0 border-x-[5px] border-x-transparent border-t-[24px] border-t-slate-400 drop-shadow"
-                        />
+                        {/* Camera Viewing Azimuth Arrow Tip (Vivid Cyan Vision Arrow) */}
+                        <div className="w-0 h-0 border-x-[5.5px] border-x-transparent border-b-[26px] border-b-cyan-400 drop-shadow-lg" />
+                        {/* Center Spacer */}
+                        <div className="w-3.5 h-3.5 rounded-full bg-white/90 border-2 border-slate-900 shadow-md" />
+                        {/* Tail */}
+                        <div className="w-0 h-0 border-x-[4px] border-x-transparent border-t-[18px] border-t-slate-500/70" />
+                      </div>
+                    </div>
+
+                    {/* PROMINENT LIVE DIP ANGLE & ORIENTATION DISPLAY */}
+                    <div className="flex flex-col items-center w-full gap-1 pt-0.5">
+                      {/* Big Bold Dip Angle Badge */}
+                      <div className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-xs shadow-md tracking-wider flex items-center justify-between w-full border border-amber-300/40">
+                        <span className="flex items-center gap-1">
+                          <Activity className="w-3.5 h-3.5" />
+                          <span>DIP: {dipAmount}°</span>
+                        </span>
+                        <span className="text-[11px] font-mono font-black text-slate-900">
+                          ➔ {Math.round(dipDirection)}° {getCardinal(dipDirection)}
+                        </span>
+                      </div>
+
+                      {/* Geological Right-Hand-Rule & Strike Reading */}
+                      <div className="text-[9.5px] font-mono font-bold text-slate-300 text-center truncate max-w-full bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800 w-full flex items-center justify-between">
+                        <span className="text-cyan-400">RHR / STR:</span>
+                        <span className="text-white">{String(strikeInfo.strikeRhrDeg).padStart(3, '0')}° / {strikeInfo.dipDeg}°</span>
                       </div>
                     </div>
 
                     {/* Live Camera Azimuth & Tilt Readout */}
                     <span
                       ref={compassReadoutRef}
-                      className="text-[9.5px] font-mono font-bold text-slate-300 text-center tracking-tight"
+                      className="text-[9px] font-mono font-bold text-slate-400 text-center tracking-tight border-t border-slate-800/80 pt-1 w-full"
                     >
-                      CAM AZ: 045° · TILT: 30°
+                      VIEW AZ: 045° · TILT: 30°
                     </span>
 
-                    {/* Quick Face Snaps on Compass */}
-                    <div className="grid grid-cols-3 gap-1 w-full pt-1 border-t border-slate-800/80">
+                    {/* Quick View Snaps */}
+                    <div className="grid grid-cols-3 gap-1 w-full pt-1 border-t border-slate-800/80 text-[9px] font-bold font-mono">
                       <button
                         type="button"
                         onClick={() => setCameraPreset('FACE')}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[9px] text-cyan-300 font-bold cursor-pointer text-center"
+                        className="px-1 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 cursor-pointer text-center border border-slate-700"
                         title="Look at Excavation Face"
                       >
                         Face
@@ -1618,7 +2083,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       <button
                         type="button"
                         onClick={() => setCameraPreset('PLAN')}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[9px] text-amber-300 font-bold cursor-pointer text-center"
+                        className="px-1 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 cursor-pointer text-center border border-slate-700"
                         title="Look from Crown Arch (Plan)"
                       >
                         Crown
@@ -1626,8 +2091,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       <button
                         type="button"
                         onClick={() => setCameraPreset('ISO')}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[9px] text-emerald-300 font-bold cursor-pointer text-center"
-                        title="Isometric Geotechnical View"
+                        className="px-1 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 cursor-pointer text-center border border-slate-700"
+                        title="Isometric 3D Geotechnical View"
                       >
                         3D Iso
                       </button>
