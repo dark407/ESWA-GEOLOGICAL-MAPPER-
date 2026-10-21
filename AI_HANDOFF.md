@@ -89,18 +89,30 @@ Whenever a new user prompt is received:
 - [x] **Milestone 11:** Full TBM Mechanized Geological & Geotechnical Workflow Engine (Barton Q & RMR89 correlations, FPI/SE telemetry, annular grout monitoring, settlement prediction, ahead-of-face probe logging); Firestore SDK assertion resilience with `memoryLocalCache()`; Dual-Canvas enablement across all tunnel panels (Face, Left Wall, Right Wall, Crown); Light/Dark mode synchronization across split canvases; and 3D procedural/photo mesh pinch-to-zoom touch navigation.
 - [x] **Milestone 12:** Full Underground Mining Module Audit & Repair: Connected end-to-end local persistence (`saveMiningStopes`, `saveMiningDrillHoles`) preventing state loss on view switching or reloads; auto-save before navigating back to Main Window; real interactive Assay & QA/QC workbench with editable Au/Cu grades, CRM standards insertion, Coarse Blanks, and pass/fail thresholds; real-time intercept re-compositing; and production CSV exports.
 - [x] **Milestone 13:** NATM 3D Joint Inspector & Multi-Surface Extent Analyzer: Implemented calculation-based 3D plane construction ($Ax + By + Cz + D = 0$), Right-Hand Rule strike ($(\alpha - 90^\circ) \bmod 360^\circ$) & alternate strike conventions, tunnel-local to world ENU transformations with unreferenced-bearing protection; Three.js 3D viewport with orbit controls, camera presets, semi-transparent D-shaped/horseshoe extrusion, and clipped 3D joint planes; exact surface intersection solvers (Face, Left Wall, Right Wall, Crown arch); multi-surface trace length extraction ($L_{\text{face}}, L_{\text{left}}, L_{\text{right}}, L_{\text{crown}}$); two-plane intersection trend & plunge solver; cross-surface observation correlation; persistence interpretation editor with non-fabrication disclaimers; automated geometric test suite; and CSV export.
+- [x] **Milestone 14:** GitHub Actions CI/CD Complete Fix & Hardening:
+  - Fixed `scripts/normalize-ci-package.mjs` which previously hardcoded an outdated dependencies object that stripped `three`, `@types/three`, and `terser` during CI install, causing `vite build` to crash.
+  - Made `scripts/compile-standalone-apk.py` cross-platform on Windows: eliminated Unix `/dev/stdin` syntax in OpenSSL CMS signing (replaced with temporary file), replaced Unix `/tmp` paths with `tempfile.gettempdir()`, and added smart `get_openssl_bin()` resolution checking Git for Windows binaries.
+  - Hardened `scripts/build-android-apk.mjs` with top-level `resolvePythonBin()`, standardized output paths to `release/`, and created clean temp build directories.
+  - Updated `scripts/generate-win-icon.mjs` and `scripts/generate-app-icons.py` to unconditionally write `build/icon.ico` and `public/` assets so Electron Builder and VitePWA never fail due to missing icons.
+  - Synchronized `build-dual-installers.mjs` with automatic fallback APK discovery and release directory generation.
+  - Upgraded `.github/workflows/build-installer.yml` and `scripts/github-action-build-exe.yml` with `defaults: run: shell: bash`, `actions/setup-python@v5`, `if-no-files-found: warn` for combined artifacts, and `fail_on_unmatched_files: false` on GitHub Releases.
 
 ---
 
 ### ACTIVE TASK CHECKPOINT
 <!-- FUTURE AI SESSIONS: Check this section first. If a task is active, resume from the first unchecked [ ] file. -->
 
-- **Current Status:** COMPLETED (Milestones 1 to 13 fully verified)
+- **Current Status:** COMPLETED (Milestones 1 to 14 fully verified)
 - **Active Task:** None
 - **Target Files Checklist:**
-  - [x] `src/engine/joint3DInspectorEngine.ts` (3D plane mathematical equations, coordinate systems, surface intersection solvers, two-plane line trend/plunge, and automated unit tests)
-  - [x] `src/components/NatmJoint3DInspectorModal.tsx` (Interactive 3D Three.js viewport, 6 switchable surface/3D projection views, orientation and strike convention editor, trace extent table, cross-surface linking, and CSV export)
-  - [x] `src/components/FieldMappingModeWorkspace.tsx` (Integrated 3D Inspector button in top toolbar next to Advance/Dual Canvas, added 3D inspect buttons on each mapped trace item and grouping list, and connected modal lifecycle)
+  - [x] `/scripts/normalize-ci-package.mjs` (Preserve three, @types/three, terser and all real dependencies)
+  - [x] `/scripts/compile-standalone-apk.py` (Cross-platform temp paths and robust openssl/key fallback on Windows)
+  - [x] `/scripts/build-android-apk.mjs` (Cross-platform Python binary resolution and ensure release output paths)
+  - [x] `/scripts/generate-win-icon.mjs` (Unconditionally generate build/icon.ico and public/icon.ico)
+  - [x] `/scripts/generate-app-icons.py` (Unconditionally output all icon resolutions to public/ and public/icons/)
+  - [x] `/scripts/build-dual-installers.mjs` (Guarantee release output directory and non-blocking Android APK creation)
+  - [x] `/.github/workflows/build-installer.yml` (Git Bash shell default on windows-latest, robust upload-artifact patterns, and safe release publishing)
+  - [x] `/scripts/github-action-build-exe.yml` (Synchronized with build-installer.yml for web UI push-and-build-exe endpoint)
 - **Notes / Last Known State:**
-  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`npm run build`) succeeded without warnings. Ready for field operations and preview.
+  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`npm run build`) succeeded without warnings. Both Windows setup scripts and Android standalone APK compilation verified operational.
 

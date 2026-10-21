@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { execSync } from 'child_process';
 
@@ -13,15 +14,23 @@ import { execSync } from 'child_process';
  * a full-screen native Android Activity.
  */
 
+function resolvePythonBin() {
+  for (const bin of ['python', 'python3', 'py']) {
+    try {
+      execSync(`${bin} --version`, { stdio: 'pipe' });
+      return bin;
+    } catch {
+      // Try next binary
+    }
+  }
+  return 'python';
+}
+
+const pyBin = resolvePythonBin();
 const rootDir = process.cwd();
 const distDir = path.join(rootDir, 'dist');
-const isCi = process.env.GITHUB_ACTIONS === 'true';
-const androidDir = isCi
-  ? path.join(rootDir, 'android-user-apk')
-  : '/tmp/akash-android-user-apk';
-const releaseDir = isCi
-  ? path.join(rootDir, 'release')
-  : '/tmp/akash-release-cache';
+const androidDir = path.join(rootDir, '.android-build-tmp');
+const releaseDir = path.join(rootDir, 'release');
 const stagedWwwDir = path.join(androidDir, 'app', 'src', 'main', 'assets', 'www');
 
 function copyDirRecursive(src, dest) {
@@ -42,7 +51,7 @@ function copyDirRecursive(src, dest) {
 
 // 0. Ensure high-resolution ESWA Tunnel Mapper launcher icons are generated across all densities
 try {
-  execSync('python3 scripts/generate-app-icons.py', { cwd: rootDir, stdio: 'inherit' });
+  execSync(`${pyBin} scripts/generate-app-icons.py`, { cwd: rootDir, stdio: 'inherit' });
 } catch {
   // Ignore if already generated
 }
@@ -727,20 +736,6 @@ public class MainActivity extends Activity {
 
 const outApkPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-User-Android.apk');
 const outAabPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-User-PlayStore.aab');
-
-function resolvePythonBin() {
-  for (const bin of ['python3', 'python']) {
-    try {
-      execSync(`${bin} --version`, { stdio: 'pipe' });
-      return bin;
-    } catch {
-      // Try next binary
-    }
-  }
-  return 'python3';
-}
-
-const pyBin = resolvePythonBin();
 
 execSync(
   `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outApkPath}" "com.eswa.tunnelmapper.user" "ESWA Tunnel Mapper"`,

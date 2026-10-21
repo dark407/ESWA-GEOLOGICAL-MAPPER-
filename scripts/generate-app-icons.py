@@ -306,8 +306,6 @@ def write_png(path: str, width: int, height: int, rows: list) -> None:
 
 def main():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    is_ci = os.environ.get("GITHUB_ACTIONS") == "true"
-    base_out_dir = repo_root if is_ci else "/tmp/akash-release-cache"
     master_512 = render_master_512()
 
     targets = [
@@ -327,9 +325,16 @@ def main():
     for rel_path, sz in targets:
         if sz not in cache:
             cache[sz] = downsample_rows(master_512, sz)
-        full_path = os.path.join(base_out_dir, rel_path)
+        full_path = os.path.join(repo_root, rel_path)
         write_png(full_path, sz, sz, cache[sz])
         print(f"Generated {full_path} ({sz}x{sz}, {os.path.getsize(full_path)} bytes)")
+
+        # Also write to tmp release cache if accessible
+        try:
+            tmp_path = os.path.join("/tmp/akash-release-cache", rel_path)
+            write_png(tmp_path, sz, sz, cache[sz])
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

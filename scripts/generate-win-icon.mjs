@@ -122,13 +122,28 @@ function createAkashTunnelMapperIcoBuffer() {
   return icoBuffer;
 }
 
-const isCi = process.env.GITHUB_ACTIONS === 'true';
-const buildDir = isCi ? path.join(process.cwd(), 'build') : '/tmp/akash-release-cache/build';
-const publicDir = isCi ? path.join(process.cwd(), 'public') : '/tmp/akash-release-cache/public';
-if (!fs.existsSync(buildDir)) fs.mkdirSync(buildDir, { recursive: true });
-if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
+// Always write to workspace root build/ and public/ so electron-builder and VitePWA always find it
+const rootDir = process.cwd();
+const localBuildDir = path.join(rootDir, 'build');
+const localPublicDir = path.join(rootDir, 'public');
+
+if (!fs.existsSync(localBuildDir)) fs.mkdirSync(localBuildDir, { recursive: true });
+if (!fs.existsSync(localPublicDir)) fs.mkdirSync(localPublicDir, { recursive: true });
 
 const icoBuf = createAkashTunnelMapperIcoBuffer();
-fs.writeFileSync(path.join(buildDir, 'icon.ico'), icoBuf);
-fs.writeFileSync(path.join(publicDir, 'icon.ico'), icoBuf);
-console.log('Generated 256x256 icon.ico (' + icoBuf.length + ' bytes)');
+fs.writeFileSync(path.join(localBuildDir, 'icon.ico'), icoBuf);
+fs.writeFileSync(path.join(localPublicDir, 'icon.ico'), icoBuf);
+
+// Also sync to release cache if accessible
+try {
+  const tmpCacheBuild = path.join('/tmp', 'akash-release-cache', 'build');
+  const tmpCachePublic = path.join('/tmp', 'akash-release-cache', 'public');
+  if (!fs.existsSync(tmpCacheBuild)) fs.mkdirSync(tmpCacheBuild, { recursive: true });
+  if (!fs.existsSync(tmpCachePublic)) fs.mkdirSync(tmpCachePublic, { recursive: true });
+  fs.writeFileSync(path.join(tmpCacheBuild, 'icon.ico'), icoBuf);
+  fs.writeFileSync(path.join(tmpCachePublic, 'icon.ico'), icoBuf);
+} catch {
+  // Ignore tmp cache write error on Windows or constrained environments
+}
+
+console.log('Generated 256x256 icon.ico (' + icoBuf.length + ' bytes) in build/ and public/');

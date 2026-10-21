@@ -15,11 +15,29 @@ Compiles a 100% standalone, offline-capable, signed Android APK
 import base64
 import hashlib
 import os
+import shutil
 import struct
 import subprocess
 import sys
-import zlib
+import tempfile
 import zipfile
+import zlib
+
+
+def get_openssl_bin() -> str:
+    found = shutil.which("openssl")
+    if found:
+        return found
+    windows_paths = [
+        r"C:\Program Files\Git\usr\bin\openssl.exe",
+        r"C:\Program Files (x86)\Git\usr\bin\openssl.exe",
+        r"C:\Program Files\OpenSSL-Win64\bin\openssl.exe",
+        r"C:\OpenSSL-Win64\bin\openssl.exe",
+    ]
+    for wp in windows_paths:
+        if os.path.exists(wp):
+            return wp
+    return "openssl"
 
 
 def uleb128(value: int) -> bytes:
@@ -1780,8 +1798,9 @@ def build_apk_v2_signing_block(
     signed_data = digests_seq + certs_seq + additional_attrs
 
     # Sign signed_data with RSA-SHA256 via openssl dgst -sha256 -sign
+    openssl_bin = get_openssl_bin()
     proc = subprocess.run(
-        ["openssl", "dgst", "-sha256", "-sign", key_pem_path],
+        [openssl_bin, "dgst", "-sha256", "-sign", key_pem_path],
         input=signed_data,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -1791,7 +1810,7 @@ def build_apk_v2_signing_block(
 
     # Public key SubjectPublicKeyInfo DER from certificate
     pub_proc = subprocess.run(
-        ["openssl", "pkey", "-in", key_pem_path, "-pubout", "-outform", "DER"],
+        [openssl_bin, "pkey", "-in", key_pem_path, "-pubout", "-outform", "DER"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
@@ -1856,16 +1875,17 @@ def main():
     app_label_arg = sys.argv[4] if len(sys.argv) > 4 else "ESWA Tunnel Mapper"
     os.makedirs(os.path.dirname(os.path.abspath(out_apk)), exist_ok=True)
 
-    key_dir = "/tmp/akash-release-cache/keystore"
+    key_dir = os.path.join(tempfile.gettempdir(), "akash-release-cache", "keystore")
     os.makedirs(key_dir, exist_ok=True)
     key_pem = os.path.join(key_dir, "eswa-release-key.pem")
     cert_pem = os.path.join(key_dir, "eswa-release-cert.pem")
     cert_der_path = os.path.join(key_dir, "eswa-release-cert.der")
 
+    openssl_bin = get_openssl_bin()
     if not os.path.exists(key_pem) or not os.path.exists(cert_pem):
         subprocess.run(
             [
-                "openssl",
+                openssl_bin,
                 "req",
                 "-x509",
                 "-newkey",
@@ -1885,7 +1905,7 @@ def main():
             stderr=subprocess.DEVNULL,
         )
     subprocess.run(
-        ["openssl", "x509", "-in", cert_pem, "-outform", "DER", "-out", cert_der_path],
+        [openssl_bin, "x509", "-in", cert_pem, "-outform", "DER", "-out", cert_der_path],
         check=True,
     )
     cert_der = open(cert_der_path, "rb").read()
@@ -1913,6 +1933,8 @@ def main():
         ("public/icons/icon-192x192.png", "res/drawable-xxxhdpi/ic_launcher.png"),
     ]:
         icon_full = os.path.join(repo_root, icon_rel)
+        if not os.path.exists(icon_full):
+            icon_full = os.path.join(tempfile.gettempdir(), "akash-release-cache", icon_rel)
         if not os.path.exists(icon_full):
             icon_full = os.path.join("/tmp/akash-release-cache", icon_rel)
         if os.path.exists(icon_full):
@@ -1960,30 +1982,41 @@ def main():
     cert_sf = ("\r\n".join(sf_lines) + "".join(sf_entry_blocks)).encode("utf-8")
 
     # Sign CERT.SF into PKCS#7 DER (META-INF/CERT.RSA)
-    cms_proc = subprocess.run(
-        [
-            "openssl",
-            "cms",
-            "-sign",
-            "-binary",
-            "-noattr",
-            "-in",
-            "/dev/stdin",
-            "-signer",
-            cert_pem,
-            "-inkey",
-            key_pem,
-            "-outform",
-            "DER",
-            "-md",
-            "sha256",
-        ],
-        input=cert_sf,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=True,
-    )
-    cert_rsa = cms_proc.stdout
+    # Use temporary file instead of Unix /dev/stdin to guarantee 100% Windows/macOS/Linux compatibility
+    tmp_sf_path = os.path.join(key_dir, f"tmp_sf_{os.getpid()}.bin")
+    with open(tmp_sf_path, "wb") as f_tmp:
+        f_tmp.write(cert_sf)
+
+    try:
+        cms_proc = subprocess.run(
+            [
+                openssl_bin,
+                "cms",
+                "-sign",
+                "-binary",
+                "-noattr",
+                "-in",
+                tmp_sf_path,
+                "-signer",
+                cert_pem,
+                "-inkey",
+                key_pem,
+                "-outform",
+                "DER",
+                "-md",
+                "sha256",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        cert_rsa = cms_proc.stdout
+    finally:
+        if os.path.exists(tmp_sf_path):
+            try:
+                os.remove(tmp_sf_path)
+            except OSError:
+                pass
 
     # Write ZIP archive with 4-byte alignment (zipalign -p 4) for all ZIP_STORED entries
     with zipfile.ZipFile(out_apk, "w") as zf:

@@ -74,10 +74,28 @@ try {
     console.warn('[Dual Builder] Warning building Android APKs:', apkErr);
   }
 
-  // 4. Write latest-release.json & user-ota-bundle.json in release/ so User PCs, Android Apps & Master Portal can auto-detect and hot-apply updates with zero data deletion
+  // 4. Ensure release/ directory exists
   if (!fs.existsSync(releaseDir)) {
     fs.mkdirSync(releaseDir, { recursive: true });
   }
+
+  // Ensure compiled APKs are copied into release/
+  for (const apkName of [
+    'ESWA-TUNNEL-MAPPER-User-Android.apk',
+    'ESWA-TUNNEL-MAPPER-Master-Android.apk',
+    'ESWA-TUNNEL-MAPPER-release.apk',
+  ]) {
+    const targetApk = path.join(releaseDir, apkName);
+    const tmpApk = path.join('/tmp', 'akash-release-cache', apkName);
+    if (!fs.existsSync(targetApk) && fs.existsSync(tmpApk)) {
+      try {
+        fs.copyFileSync(tmpApk, targetApk);
+      } catch {
+        // Ignore copy error
+      }
+    }
+  }
+
   const userExeUrl = githubRepo
     ? `https://github.com/${githubRepo}/releases/download/latest/AKASH-TUNNEL-MAPPER-User-Setup.exe`
     : 'AKASH-TUNNEL-MAPPER-User-Setup.exe';
