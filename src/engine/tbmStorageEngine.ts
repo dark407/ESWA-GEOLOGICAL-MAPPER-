@@ -9,12 +9,16 @@ import {
   TbmExcavationRecord,
   TbmMachineType,
   TbmGroundType,
+  TbmGeologicalForecastRecord,
+  TbmInstrumentReading,
 } from '../types/tbm';
 import { IndustryMode } from '../types/tunnel';
 
 export const TBM_PROJECTS_KEY = 'eswa_tbm_projects_v2';
 export const TBM_LOCATIONS_KEY = 'eswa_tbm_locations_v2';
 export const TBM_RECORDS_KEY = 'eswa_tbm_excavation_records_v2';
+export const TBM_FORECASTS_KEY = 'eswa_tbm_forecasts_v2';
+export const TBM_INSTRUMENTS_KEY = 'eswa_tbm_instruments_v2';
 export const TBM_ACTIVE_PROJECT_KEY = 'eswa_tbm_active_project_id_v2';
 export const TBM_ACTIVE_LOCATION_KEY = 'eswa_tbm_active_location_id_v2';
 export const TBM_ACTIVE_RECORD_KEY = 'eswa_tbm_active_record_id_v2';
@@ -541,6 +545,176 @@ export function setActiveTbmRecordId(id: string): void {
   } catch {
     // ignore
   }
+}
+
+// ---------------------------------------------------------------------------
+// AHEAD-OF-FACE GEOLOGICAL FORECASTS CRUD
+// ---------------------------------------------------------------------------
+
+export function loadTbmForecasts(projectId?: string): TbmGeologicalForecastRecord[] {
+  try {
+    const raw = localStorage.getItem(TBM_FORECASTS_KEY);
+    if (raw) {
+      const parsed: TbmGeologicalForecastRecord[] = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return projectId ? parsed.filter((f) => f.projectId === projectId) : parsed;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return [
+    {
+      id: 'FC-01',
+      projectId: projectId || 'PRJ-TBM-001',
+      locationId: 'LOC-TBM-01',
+      forecastDate: new Date().toISOString().slice(0, 10),
+      author: 'Dr. K. Sharma (Principal Engineering Geologist)',
+      startChainageRd: 1435.5,
+      endChainageRd: 1450.0,
+      predictedLithology: 'Vesicular Basalt with Zeolite Infilling & Minor Brecciation',
+      predictedFormations: 'Deccan Traps - Upper Wai Subgroup',
+      expectedQValue: 4.5,
+      expectedRmr: 52,
+      predictedFaultsAndShears: 'Minor slickensided joint shear zone expected near RD 1442m',
+      predictedWaterInflowRisk: 'MODERATE',
+      supportingEvidence: 'Probe hole PB-01-848 drilling torque anomalies and regional seismic refraction',
+      investigationLimitations: 'Forward probe hole drilled to 25m with partial water loss at 18m',
+      confidence: 'HIGH',
+      recommendedActions: 'Maintain EPB support pressure at 1.85 bar; inspect muck discharge for clay paste.',
+      isEncounteredVerified: true,
+      encounteredSummary: 'Encountered vesicular basalt with localized damp zones at RD 1438m. Q=4.8.',
+      matchStatus: 'CONCORDANT',
+    },
+    {
+      id: 'FC-02',
+      projectId: projectId || 'PRJ-TBM-001',
+      locationId: 'LOC-TBM-01',
+      forecastDate: new Date().toISOString().slice(0, 10),
+      author: 'Dr. K. Sharma (Principal Engineering Geologist)',
+      startChainageRd: 1450.0,
+      endChainageRd: 1475.0,
+      predictedLithology: 'Competent Dense Porphyritic Basalt',
+      predictedFormations: 'Deccan Traps - Mahabaleshwar Formation',
+      expectedQValue: 12.5,
+      expectedRmr: 68,
+      predictedFaultsAndShears: 'Near horizontal cooling joints; minimal shear risk',
+      predictedWaterInflowRisk: 'LOW',
+      supportingEvidence: 'Deep borehole BH-TBM-10 core logs and RQD=88%',
+      investigationLimitations: 'Projection based on 40m borehole spacing along alignment',
+      confidence: 'HIGH',
+      recommendedActions: 'Standard 4.5 RPM boring cycle; monitor disc cutter ring wear life.',
+      isEncounteredVerified: false,
+      encounteredSummary: 'Awaiting excavation progress past RD 1450.00m',
+      matchStatus: 'UNVERIFIED',
+    },
+  ];
+}
+
+export function saveTbmForecasts(forecasts: TbmGeologicalForecastRecord[]): void {
+  try {
+    localStorage.setItem(TBM_FORECASTS_KEY, JSON.stringify(forecasts));
+  } catch (err) {
+    console.warn('Storage quota warning saving forecasts', err);
+  }
+}
+
+export function createTbmForecast(partial: Partial<TbmGeologicalForecastRecord>): TbmGeologicalForecastRecord {
+  const all = loadTbmForecasts();
+  const id = partial.id?.trim() || `FC-${String(all.length + 1).padStart(2, '0')}`;
+  const newForecast: TbmGeologicalForecastRecord = {
+    id,
+    projectId: partial.projectId || 'PRJ-TBM-001',
+    locationId: partial.locationId || 'LOC-TBM-01',
+    forecastDate: partial.forecastDate || new Date().toISOString().slice(0, 10),
+    author: partial.author?.trim() || 'Lead TBM Geologist',
+    startChainageRd: partial.startChainageRd || 1450.0,
+    endChainageRd: partial.endChainageRd || 1475.0,
+    predictedLithology: partial.predictedLithology?.trim() || 'Basalt (Massive)',
+    predictedFormations: partial.predictedFormations?.trim() || 'Deccan Traps Formation',
+    expectedQValue: partial.expectedQValue || 8.0,
+    expectedRmr: partial.expectedRmr || 62,
+    predictedFaultsAndShears: partial.predictedFaultsAndShears?.trim() || 'None significant predicted',
+    predictedWaterInflowRisk: partial.predictedWaterInflowRisk || 'LOW',
+    supportingEvidence: partial.supportingEvidence?.trim() || 'Alignment investigation boreholes',
+    investigationLimitations: partial.investigationLimitations?.trim() || 'Borehole interval interpolation',
+    confidence: partial.confidence || 'MODERATE',
+    recommendedActions: partial.recommendedActions?.trim() || 'Normal TBM excavation with forward monitoring',
+    isEncounteredVerified: false,
+    matchStatus: 'UNVERIFIED',
+  };
+
+  const updated = [newForecast, ...all];
+  saveTbmForecasts(updated);
+  return newForecast;
+}
+
+export function updateTbmForecast(id: string, updates: Partial<TbmGeologicalForecastRecord>): TbmGeologicalForecastRecord | null {
+  const all = loadTbmForecasts();
+  const idx = all.findIndex((f) => f.id === id);
+  if (idx === -1) return null;
+  const updatedItem = { ...all[idx], ...updates };
+  all[idx] = updatedItem;
+  saveTbmForecasts(all);
+  return updatedItem;
+}
+
+// ---------------------------------------------------------------------------
+// GEOTECHNICAL INSTRUMENT READINGS CRUD
+// ---------------------------------------------------------------------------
+
+export function loadTbmInstrumentReadings(projectId?: string): TbmInstrumentReading[] {
+  try {
+    const raw = localStorage.getItem(TBM_INSTRUMENTS_KEY);
+    if (raw) {
+      const parsed: TbmInstrumentReading[] = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // fallback
+  }
+  const now = new Date().toISOString();
+  return [
+    { id: 'INST-01', instrumentId: 'SP-841', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1423.5, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -3.8, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Directly over tunnel centerline' },
+    { id: 'INST-02', instrumentId: 'SP-842', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1425.0, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -4.2, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Transverse array center' },
+    { id: 'INST-03', instrumentId: 'SP-843', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1426.5, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -4.5, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Maximum settlement location' },
+    { id: 'INST-04', instrumentId: 'SP-844', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1428.0, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -3.9, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Over ring #845' },
+    { id: 'INST-05', instrumentId: 'SP-845', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1429.5, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -2.8, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Active face vicinity' },
+    { id: 'INST-06', instrumentId: 'SP-843-L5', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1426.5, offsetFromCenterlineM: -5.0, baselineValue: 0.0, currentValue: -2.9, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Transverse offset 5m West' },
+    { id: 'INST-07', instrumentId: 'SP-843-R5', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1426.5, offsetFromCenterlineM: 5.0, baselineValue: 0.0, currentValue: -2.7, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Transverse offset 5m East' },
+    { id: 'INST-08', instrumentId: 'CP-01', instrumentType: 'CONVERGENCE_PIN', chainageRd: 1425.0, offsetFromCenterlineM: 3.3, baselineValue: 6650.0, currentValue: 6648.8, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Horizontal diameter convergence: -1.2mm' },
+    { id: 'INST-09', instrumentId: 'PZ-01', instrumentType: 'PIEZOMETER', chainageRd: 1426.5, offsetFromCenterlineM: 8.0, baselineValue: 125.0, currentValue: 118.5, unit: 'kPa', alertLevel: 'NORMAL', timestamp: now, notes: 'Pore water pressure stable' },
+  ];
+}
+
+export function saveTbmInstrumentReadings(readings: TbmInstrumentReading[]): void {
+  try {
+    localStorage.setItem(TBM_INSTRUMENTS_KEY, JSON.stringify(readings));
+  } catch (err) {
+    console.warn('Storage quota warning saving instrument readings', err);
+  }
+}
+
+export function createTbmInstrumentReading(partial: Partial<TbmInstrumentReading>): TbmInstrumentReading {
+  const all = loadTbmInstrumentReadings();
+  const id = partial.id || `INST-${String(all.length + 1).padStart(2, '0')}`;
+  const newReading: TbmInstrumentReading = {
+    id,
+    instrumentId: partial.instrumentId?.trim() || `SP-${all.length + 1}`,
+    instrumentType: partial.instrumentType || 'SURFACE_SETTLEMENT',
+    chainageRd: partial.chainageRd || 1430.0,
+    offsetFromCenterlineM: partial.offsetFromCenterlineM || 0.0,
+    baselineValue: partial.baselineValue || 0.0,
+    currentValue: partial.currentValue || 0.0,
+    unit: partial.unit || 'mm',
+    alertLevel: partial.alertLevel || 'NORMAL',
+    timestamp: partial.timestamp || new Date().toISOString(),
+    notes: partial.notes || '',
+  };
+
+  const updated = [newReading, ...all];
+  saveTbmInstrumentReadings(updated);
+  return newReading;
 }
 
 // ---------------------------------------------------------------------------

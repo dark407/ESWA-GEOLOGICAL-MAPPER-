@@ -30,6 +30,7 @@ import {
   TunnelGeometry,
   TunnelSettings,
 } from '../types/tunnel';
+import { syncPhotogrammetryForAiTraining } from '../engine/userCloudAndPackageEngine';
 import {
   getDisplayedJointGeometry,
 } from '../engine/geometryEngine';
@@ -1944,11 +1945,39 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = ({
 
   // Export PDF via vector print sheet
   const handlePrintPDF = () => {
+    try {
+      syncPhotogrammetryForAiTraining(
+        settings,
+        geometry,
+        joints,
+        photos,
+        qIndex,
+        rmr,
+        overbreakAnalysis,
+        'EXPORT_GENERATED'
+      );
+    } catch {
+      // Non-blocking
+    }
     window.print();
   };
 
   // Export AutoCAD DXF Vector Profile & Traces
   const handleDownloadDXF = () => {
+    try {
+      syncPhotogrammetryForAiTraining(
+        settings,
+        geometry,
+        joints,
+        photos,
+        qIndex,
+        rmr,
+        overbreakAnalysis,
+        'EXPORT_GENERATED'
+      );
+    } catch {
+      // Non-blocking
+    }
     const dxfContent = exportMappedGeologicalSheetToDXF({
       geometry,
       settings,
@@ -1969,6 +1998,20 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = ({
 
   // Export CSV Engineering Tables & Q-Index
   const handleDownloadCSV = () => {
+    try {
+      syncPhotogrammetryForAiTraining(
+        settings,
+        geometry,
+        joints,
+        photos,
+        qIndex,
+        rmr,
+        overbreakAnalysis,
+        'EXPORT_GENERATED'
+      );
+    } catch {
+      // Non-blocking
+    }
     const csvString = exportGeologyAndQIndexToCSV(
       geometry,
       settings,

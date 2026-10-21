@@ -465,9 +465,9 @@ service cloud.firestore {
     }
 
     // 8. AI Training Telemetry & Global Ground-Truth Dataset (/ai_training_telemetry/{recordId})
-    // Restricted strictly to akashdhanusheswar@gmail.com for read/export/delete
+    // Restricted strictly to Master Admin (dhoniakash407@gmail.com) for read/export/delete
     match /ai_training_telemetry/{recordId} {
-      allow get, list, delete: if isSignedIn() && request.auth.token.email == 'akashdhanusheswar@gmail.com';
+      allow get, list, delete: if isSignedIn() && (request.auth.token.email in ['dhoniakash407@gmail.com', 'akashdhanusheswar@gmail.com']);
       allow create, update: if isValidId(recordId);
     }
   }

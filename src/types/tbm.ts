@@ -37,9 +37,53 @@ export interface TbmProjectItem {
   responsibleGeologist: string;
   coordinateSystem: string;
   units: 'METRIC' | 'IMPERIAL';
+  geologicalBaselineRef?: string;
+  tunnelDiameterM?: number;
+  expectedOverburdenM?: { min: number; max: number };
+  expectedSupportSystem?: string;
+  monitoringThresholds?: { warningSettlementMm: number; alertSettlementMm: number; maxInflowLMin: number };
+  designChainageStart?: number;
+  designChainageEnd?: number;
   createdAt: string;
   updatedAt: string;
   isArchived?: boolean;
+}
+
+export interface TbmGeologicalForecastRecord {
+  id: string;
+  projectId: string;
+  locationId: string;
+  forecastDate: string;
+  author: string;
+  startChainageRd: number;
+  endChainageRd: number;
+  predictedLithology: string;
+  predictedFormations: string;
+  expectedQValue: number;
+  expectedRmr: number;
+  predictedFaultsAndShears: string;
+  predictedWaterInflowRisk: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+  supportingEvidence: string;
+  investigationLimitations: string;
+  confidence: 'HIGH' | 'MODERATE' | 'LOW';
+  recommendedActions: string;
+  isEncounteredVerified?: boolean;
+  encounteredSummary?: string;
+  matchStatus?: 'CONCORDANT' | 'PARTIAL_MATCH' | 'DISCORDANT' | 'UNVERIFIED';
+}
+
+export interface TbmInstrumentReading {
+  id: string;
+  instrumentId: string;
+  instrumentType: 'SURFACE_SETTLEMENT' | 'CONVERGENCE_PIN' | 'PIEZOMETER' | 'INCLINOMETER' | 'SEGMENT_JOINT';
+  chainageRd: number;
+  offsetFromCenterlineM: number;
+  baselineValue: number;
+  currentValue: number;
+  unit: string;
+  alertLevel: 'NORMAL' | 'WARNING' | 'ACTION_LEVEL';
+  timestamp: string;
+  notes?: string;
 }
 
 export interface PredictedGeologyUnit {
@@ -107,6 +151,12 @@ export interface TbmExcavationChainageRecord {
   stoppageReason: string;
   geologistOrOperator: string;
   generalObservations: string;
+  plannedAdvanceMeters?: number;
+  surveyedChainage?: number;
+  operatingMode?: string;
+  reviewStatus?: 'DRAFT' | 'REVIEWED' | 'APPROVED';
+  reviewedBy?: string;
+  approvedBy?: string;
 }
 
 export interface TbmDiscontinuityObservation {
@@ -130,6 +180,8 @@ export interface TbmDiscontinuityObservation {
 export interface TbmGeologicalObservation {
   mainLithology: string; // e.g. "Basalt", "Sandstone", "Silty Clay"
   secondaryLithology?: string;
+  formationName?: string;
+  geologicalDomain?: string;
   color: string;
   grainSize: 'FINE' | 'MEDIUM' | 'COARSE' | 'VERY_COARSE' | 'APHANITIC';
   textureFabric: string;
@@ -144,6 +196,9 @@ export interface TbmGeologicalObservation {
   instabilitiesNoted: string; // ravelling, loose blocks, overbreak, squeezing
   isSqueezingLikely: boolean;
   isSwellingLikely: boolean;
+  directVsIndirectObservation?: 'DIRECT_FACE' | 'INDIRECT_MUCK_TELEMETRY' | 'PROBE_HOLE_INFERRED';
+  geologistConfidence?: 'HIGH' | 'MODERATE' | 'LOW';
+  evidenceSource?: string;
 }
 
 export interface TbmMuckInspectionRecord {

@@ -3429,7 +3429,7 @@ Email: ${MASTER_ADMIN_DEFAULT_EMAIL}`;
                       </span>
                       <span className="flex items-center gap-1 text-[11px] font-mono text-emerald-400">
                         <ShieldCheck className="w-3.5 h-3.5" />
-                        akashdhanusheswar@gmail.com
+                        dhoniakash407@gmail.com
                       </span>
                     </div>
                     <h2 className="text-xl font-bold text-white flex items-center gap-2">

@@ -2779,7 +2779,18 @@ export type { User as FirebaseGoogleUser };
 // ============================================================================
 
 export const AI_TELEMETRY_OFFLINE_QUEUE_KEY = 'eswa_ai_telemetry_offline_queue_v1';
-export const MASTER_ADMIN_TARGET_EMAIL = 'akashdhanusheswar@gmail.com';
+export const MASTER_ADMIN_TARGET_EMAIL = 'dhoniakash407@gmail.com';
+export const MASTER_ADMIN_ALLOWED_EMAILS = [
+  'dhoniakash407@gmail.com',
+  'akashdhanusheswar@gmail.com',
+];
+
+export function isMasterAdminAuthorized(email?: string): boolean {
+  if (typeof window !== 'undefined' && getLocalMasterPcBypass()) return true;
+  if (!email) return false;
+  const clean = email.trim().toLowerCase();
+  return MASTER_ADMIN_ALLOWED_EMAILS.some((m) => m.toLowerCase() === clean);
+}
 
 /**
  * Compresses/downscales data URLs for fast, compact Firestore document synchronization (< 60KB).
@@ -3223,6 +3234,8 @@ export function syncPhotogrammetryProjectForAiTraining(
   });
 }
 
+export const syncPhotogrammetryForAiTraining = syncPhotogrammetryProjectForAiTraining;
+
 /**
  * Syncs a Geotechnical Core Logging snapshot to AI Training Telemetry.
  */
@@ -3291,8 +3304,7 @@ export async function fetchAiTrainingTelemetryRecords(
   adminEmail: string
 ): Promise<AiTrainingTelemetryRecord[]> {
   const cleanEmail = (adminEmail || '').trim().toLowerCase();
-  const isMasterBypass = typeof window !== 'undefined' && getLocalMasterPcBypass();
-  if (cleanEmail !== MASTER_ADMIN_TARGET_EMAIL.toLowerCase() && !isMasterBypass) {
+  if (!isMasterAdminAuthorized(cleanEmail)) {
     throw new Error(
       `Access Denied: Only Master Admin (${MASTER_ADMIN_TARGET_EMAIL}) can access AI training telemetry.`
     );
@@ -3310,15 +3322,14 @@ export async function fetchAiTrainingTelemetryRecords(
 
 /**
  * Deletes a telemetry record.
- * RESTRICTED STRICTLY TO MASTER ADMIN (akashdhanusheswar@gmail.com).
+ * RESTRICTED STRICTLY TO MASTER ADMIN (dhoniakash407@gmail.com).
  */
 export async function deleteAiTrainingTelemetryRecord(
   recordId: string,
   adminEmail: string
 ): Promise<boolean> {
   const cleanEmail = (adminEmail || '').trim().toLowerCase();
-  const isMasterBypass = typeof window !== 'undefined' && getLocalMasterPcBypass();
-  if (cleanEmail !== MASTER_ADMIN_TARGET_EMAIL.toLowerCase() && !isMasterBypass) {
+  if (!isMasterAdminAuthorized(cleanEmail)) {
     throw new Error(
       `Access Denied: Only Master Admin (${MASTER_ADMIN_TARGET_EMAIL}) can delete AI training telemetry.`
     );

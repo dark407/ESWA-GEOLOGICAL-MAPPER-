@@ -272,3 +272,257 @@ export function calculateAnnularGroutVolume(params: {
     annulusGapMm: Number(gapMm.toFixed(1)),
   };
 }
+
+// ----------------------------------------------------------------------------
+// Q TO RMR EMPIRICAL CORRELATIONS & DUAL ROCK MASS ENGINE (NATM & TBM)
+// ----------------------------------------------------------------------------
+
+export interface QToRmrCorrelationResult {
+  qValue: number;
+  bieniawski1976: number; // RMR = 9 * ln(Q) + 44
+  rutledgePreston1978: number; // RMR = 5.9 * ln(Q) + 43
+  barton1995: number; // RMR = 15 * log10(Q) + 50
+  abad1983: number; // RMR = 10.5 * ln(Q) + 42
+  cameronClarke1981: number; // RMR = 5 * ln(Q) + 60.8
+  averageRmr: number;
+  minRmr: number;
+  maxRmr: number;
+  rangeDelta: number;
+  confidenceScorePercent: number;
+  recommendedDesignRmr: number;
+  qEquivFromRmrBieniawski: number; // inverted: Q = exp((RMR - 44)/9)
+  qEquivFromRmrBarton: number; // inverted: Q = 10^((RMR - 50)/15)
+}
+
+/**
+ * 5 Internationally Verified Empirical Q-to-RMR Correlation Models
+ */
+export function calculateQToRmrCorrelations(q: number, actualRmr?: number): QToRmrCorrelationResult {
+  const safeQ = Math.max(0.001, Math.min(1000, Number(q) || 1.0));
+  const lnQ = Math.log(safeQ);
+  const log10Q = Math.log10(safeQ);
+
+  const b1976 = Math.max(5, Math.min(100, Math.round(9 * lnQ + 44)));
+  const rp1978 = Math.max(5, Math.min(100, Math.round(5.9 * lnQ + 43)));
+  const b1995 = Math.max(5, Math.min(100, Math.round(15 * log10Q + 50)));
+  const a1983 = Math.max(5, Math.min(100, Math.round(10.5 * lnQ + 42)));
+  const cc1981 = Math.max(5, Math.min(100, Math.round(5 * lnQ + 60.8)));
+
+  const values = [b1976, rp1978, b1995, a1983, cc1981];
+  const avg = Math.round(values.reduce((s, v) => s + v, 0) / values.length);
+  const minVal = Math.min(...values);
+  const maxVal = Math.max(...values);
+  const range = maxVal - minVal;
+
+  const userRmr = actualRmr !== undefined ? actualRmr : avg;
+  const invBieniawski = Number(Math.exp((userRmr - 44) / 9).toFixed(2));
+  const invBarton = Number(Math.pow(10, (userRmr - 50) / 15).toFixed(2));
+
+  // Confidence is high if empirical dispersion is low and consistent with user RMR
+  const deltaFromActual = actualRmr !== undefined ? Math.abs(avg - actualRmr) : 0;
+  const confidence = Math.max(65, Math.min(98, Math.round(100 - range * 0.8 - deltaFromActual * 0.5)));
+
+  return {
+    qValue: safeQ,
+    bieniawski1976: b1976,
+    rutledgePreston1978: rp1978,
+    barton1995: b1995,
+    abad1983: a1983,
+    cameronClarke1981: cc1981,
+    averageRmr: avg,
+    minRmr: minVal,
+    maxRmr: maxVal,
+    rangeDelta: range,
+    confidenceScorePercent: confidence,
+    recommendedDesignRmr: Math.min(avg, b1995), // conservative tunneling envelope
+    qEquivFromRmrBieniawski: invBieniawski,
+    qEquivFromRmrBarton: invBarton,
+  };
+}
+
+/**
+ * Barton Grimstad Support Design Guidelines (1993/2014)
+ */
+export function calculateBartonGrimstadSupport(q: number, spanM: number = 6.4, esr: number = 1.0) {
+  const safeQ = Math.max(0.001, Number(q) || 1.0);
+  const de = spanM / (esr || 1.0);
+  const boltLengthM = Number((Math.max(1.5, 2 + 0.15 * de)).toFixed(1));
+
+  let categoryNum = 1;
+  let categoryName = 'Unsupported (Massive / Good Rock)';
+  let boltSpacingM = 0;
+  let fiberShotcreteThicknessMm = 0;
+  let description = 'Spot bolting only if local block requires it';
+
+  if (safeQ < 0.01) {
+    categoryNum = 9;
+    categoryName = 'Cast Concrete Arch Lining or Squeezing Yield Elements';
+    boltSpacingM = 1.0;
+    fiberShotcreteThicknessMm = 200;
+    description = 'Heavy steel sets + 200mm steel fiber reinforced shotcrete (SFRS) + invert arch';
+  } else if (safeQ < 0.1) {
+    categoryNum = 8;
+    categoryName = 'Heavy Fiber Reinforced Shotcrete & Close Pattern Bolting';
+    boltSpacingM = 1.2;
+    fiberShotcreteThicknessMm = 150;
+    description = 'Pattern bolting @ 1.2m + 150mm SFRS with reinforced invert strut';
+  } else if (safeQ < 1.0) {
+    categoryNum = 6;
+    categoryName = 'Fiber Reinforced Shotcrete (90-120mm) + Systematic Bolting';
+    boltSpacingM = 1.4;
+    fiberShotcreteThicknessMm = 100;
+    description = 'Systematic bolting @ 1.4m spacing + 100mm SFRS';
+  } else if (safeQ < 4.0) {
+    categoryNum = 5;
+    categoryName = 'Fiber Reinforced Shotcrete (50-90mm) + Systematic Bolting';
+    boltSpacingM = 1.7;
+    fiberShotcreteThicknessMm = 65;
+    description = 'Systematic bolting @ 1.7m spacing + 65mm SFRS in crown & upper sidewalls';
+  } else if (safeQ < 10.0) {
+    categoryNum = 4;
+    categoryName = 'Pattern Bolting + Thin Shotcrete Sealing';
+    boltSpacingM = 2.0;
+    fiberShotcreteThicknessMm = 40;
+    description = 'Systematic bolting @ 2.0m spacing + 40mm plain/fiber shotcrete seal';
+  } else if (safeQ < 40.0) {
+    categoryNum = 2;
+    categoryName = 'Spot Bolting / Widely Spaced Systematic Bolting';
+    boltSpacingM = 2.5;
+    fiberShotcreteThicknessMm = 0;
+    description = 'Spot bolting on unstable wedges and joint intersections (sb)';
+  } else {
+    categoryNum = 1;
+    categoryName = 'Unsupported / Exceptionally Good Rock';
+    boltSpacingM = 0;
+    fiberShotcreteThicknessMm = 0;
+    description = 'No systematic support needed. Scale loose rock only.';
+  }
+
+  return {
+    equivalentDimensionDe: Number(de.toFixed(2)),
+    boltLengthM,
+    boltSpacingM,
+    fiberShotcreteThicknessMm,
+    categoryNum,
+    categoryName,
+    description,
+  };
+}
+
+/**
+ * Bieniawski (1989) Geomechanical Rock Mass Properties Derived from RMR
+ */
+export function calculateRmrGeomechanicalProperties(rmr: number) {
+  const safeRmr = Math.max(5, Math.min(100, Math.round(rmr)));
+
+  let cohesionKpa = 100;
+  let frictionAngleDeg = 15;
+  let standUpTime = '30 minutes for 1m span';
+  let maxUnsupportedSpanM = 1.0;
+  let rockClass = 'Class V (Very Poor Rock)';
+
+  if (safeRmr > 80) {
+    cohesionKpa = 420;
+    frictionAngleDeg = 46;
+    standUpTime = '20 years for 15m span';
+    maxUnsupportedSpanM = 15.0;
+    rockClass = 'Class I (Very Good Rock)';
+  } else if (safeRmr > 60) {
+    cohesionKpa = 320;
+    frictionAngleDeg = 38;
+    standUpTime = '1 year for 10m span';
+    maxUnsupportedSpanM = 10.0;
+    rockClass = 'Class II (Good Rock)';
+  } else if (safeRmr > 40) {
+    cohesionKpa = 220;
+    frictionAngleDeg = 28;
+    standUpTime = '1 week for 5m span';
+    maxUnsupportedSpanM = 5.0;
+    rockClass = 'Class III (Fair Rock)';
+  } else if (safeRmr > 20) {
+    cohesionKpa = 140;
+    frictionAngleDeg = 19;
+    standUpTime = '10 hours for 2.5m span';
+    maxUnsupportedSpanM = 2.5;
+    rockClass = 'Class IV (Poor Rock)';
+  }
+
+  // Modulus of Deformation Em (GPa)
+  // Serafim & Pereira (1983): Em = 10^((RMR - 10) / 40) (for RMR <= 50)
+  // Bieniawski (1978): Em = 2 * RMR - 100 (for RMR > 50)
+  let emGpa = 0;
+  if (safeRmr <= 50) {
+    emGpa = Math.pow(10, (safeRmr - 10) / 40);
+  } else {
+    emGpa = 2 * safeRmr - 100;
+  }
+  emGpa = Number(Math.max(0.5, Math.min(85, emGpa)).toFixed(1));
+
+  // Geological Strength Index GSI
+  const gsi = Math.max(10, Math.min(95, safeRmr - 5));
+
+  return {
+    safeRmr,
+    rockClass,
+    cohesionKpa,
+    frictionAngleDeg,
+    standUpTime,
+    maxUnsupportedSpanM,
+    deformationModulusEmGpa: emGpa,
+    gsiScore: gsi,
+  };
+}
+
+/**
+ * Stereonet Schmidt Equal-Area Projection Mathematics
+ * Converts Dip and Dip Direction to 2D normalized circle coordinates (-1 to +1)
+ */
+export function projectPoleToEqualArea(dipDeg: number, dipDirDeg: number): { x: number; y: number; trend: number; plunge: number } {
+  const trendDeg = (dipDirDeg + 180) % 360;
+  const plungeDeg = 90 - dipDeg;
+  const thetaRad = ((trendDeg - 90) * Math.PI) / 180; // 0 deg is North (top)
+  const phiRad = (plungeDeg * Math.PI) / 180;
+  const radius = Math.SQRT2 * Math.sin((Math.PI / 4) - (phiRad / 2));
+
+  return {
+    x: Number((radius * Math.cos(thetaRad)).toFixed(3)),
+    y: Number((radius * Math.sin(thetaRad)).toFixed(3)),
+    trend: trendDeg,
+    plunge: plungeDeg,
+  };
+}
+
+/**
+ * Computes SVG Great Circle Path string for a joint set on an Equal-Area Schmidt net
+ */
+export function generateGreatCircleSvgPath(dipDeg: number, dipDirDeg: number, center: number = 100, radius: number = 80): string {
+  if (dipDeg <= 0) return '';
+  if (dipDeg >= 90) {
+    // Diametral line
+    const strikeRad = ((dipDirDeg + 90) * Math.PI) / 180;
+    const x1 = center + radius * Math.sin(strikeRad);
+    const y1 = center - radius * Math.cos(strikeRad);
+    const x2 = center - radius * Math.sin(strikeRad);
+    const y2 = center + radius * Math.cos(strikeRad);
+    return `M ${x1.toFixed(1)} ${y1.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+  }
+
+  const points: { x: number; y: number }[] = [];
+  const strikeDeg = (dipDirDeg + 90) % 360;
+  const dipRad = (dipDeg * Math.PI) / 180;
+
+  for (let angleDeg = -90; angleDeg <= 90; angleDeg += 5) {
+    const psiRad = (angleDeg * Math.PI) / 180;
+    // Apparent dip in direction psi from strike
+    const appDipRad = Math.atan(Math.tan(dipRad) * Math.cos(psiRad));
+    const r = Math.SQRT2 * Math.sin((Math.PI / 4) - (appDipRad / 2)) * radius;
+    const azRad = ((strikeDeg + angleDeg) * Math.PI) / 180;
+    const x = center + r * Math.sin(azRad);
+    const y = center - r * Math.cos(azRad);
+    points.push({ x, y });
+  }
+
+  if (points.length === 0) return '';
+  return points.reduce((acc, p, idx) => `${acc} ${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`, '');
+}
+

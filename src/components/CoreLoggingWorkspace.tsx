@@ -21,6 +21,7 @@ import {
 import { IndustryMode } from '../types/tunnel';
 import {
   GeologistUserProfile,
+  syncCoreLogForAiTraining,
 } from '../engine/userCloudAndPackageEngine';
 import {
   CoreLogReportModal,
@@ -929,10 +930,16 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
     // Renumber runs sequentially
     nextRuns = nextRuns.map((r, idx) => ({ ...r, runNumber: idx + 1 }));
 
-    updateBorehole({
+    const nextBorehole = {
       ...currentBorehole,
       runs: nextRuns,
-    });
+    };
+    updateBorehole(nextBorehole);
+    try {
+      syncCoreLogForAiTraining(nextBorehole, 'MANUAL_TRACE_SAVED');
+    } catch {
+      // Non-blocking telemetry
+    }
     setIsRunModalOpen(false);
     setEditingRun(null);
   };
@@ -941,10 +948,16 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
     if (!confirm('Are you sure you want to remove this core run?')) return;
     let nextRuns = currentBorehole.runs.filter((r) => r.id !== runId);
     nextRuns = nextRuns.map((r, idx) => ({ ...r, runNumber: idx + 1 }));
-    updateBorehole({
+    const nextBorehole = {
       ...currentBorehole,
       runs: nextRuns,
-    });
+    };
+    updateBorehole(nextBorehole);
+    try {
+      syncCoreLogForAiTraining(nextBorehole, 'MANUAL_TRACE_SAVED');
+    } catch {
+      // Non-blocking telemetry
+    }
   };
 
   // Add / Edit Photo helpers
@@ -977,10 +990,16 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
     } else {
       nextPhotos.push(photo);
     }
-    updateBorehole({
+    const nextBorehole = {
       ...currentBorehole,
       photos: nextPhotos,
-    });
+    };
+    updateBorehole(nextBorehole);
+    try {
+      syncCoreLogForAiTraining(nextBorehole, 'MANUAL_TRACE_SAVED');
+    } catch {
+      // Non-blocking telemetry
+    }
     setIsPhotoModalOpen(false);
     setEditingPhoto(null);
   };

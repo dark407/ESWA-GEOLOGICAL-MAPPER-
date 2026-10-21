@@ -70,6 +70,12 @@ import {
   setActiveTbmLocationId,
   getActiveTbmRecordId,
   setActiveTbmRecordId,
+  loadTbmInstrumentReadings,
+  createTbmInstrumentReading,
+  saveTbmInstrumentReadings,
+  loadTbmForecasts,
+  createTbmForecast,
+  updateTbmForecast,
 } from '../../engine/tbmStorageEngine';
 import {
   calculateChainageAdvance,
@@ -81,6 +87,8 @@ import {
 } from '../../engine/tbmCalculationsEngine';
 import { useTheme } from '../../context/ThemeContext';
 import { EswaAppBackgroundWatermark } from '../EswaBrandIdentity';
+import { TbmQ2RmrGeologicalAnalysis } from './TbmQ2RmrGeologicalAnalysis';
+import { TbmReportsWorkspace } from './TbmReportsWorkspace';
 
 export type TbmWorkflowStage =
   | 'projects'
@@ -130,6 +138,13 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
   const [analysisSubTab, setAnalysisSubTab] = useState<'profile' | 'stereonet' | 'correlation' | 'predicted_vs_encountered' | 'muck_trend'>('profile');
   const [selectedReportType, setSelectedReportType] = useState<TbmReportType>('SHIFT_GEOTECHNICAL_LOG');
   const [notification, setNotification] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Monitoring Stage State
+  const [instruments, setInstruments] = useState<TbmInstrumentReading[]>(() => loadTbmInstrumentReadings());
+  const [showAddInstrumentModal, setShowAddInstrumentModal] = useState(false);
+  const [peckDepthZ0, setPeckDepthZ0] = useState<number>(18.0);
+  const [peckTroughK, setPeckTroughK] = useState<number>(0.45);
+  const [peckGroundLossVs, setPeckGroundLossVs] = useState<number>(1.0);
 
   // Active Items
   const activeProject = useMemo(() => {
@@ -1735,115 +1750,820 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
               </div>
             )}
 
-            {/* Other sections (5, 6, 9, 10, 11) - concise professional fields */}
-            {(collectionSubSection === 5 || collectionSubSection === 6 || collectionSubSection === 9 || collectionSubSection === 10 || collectionSubSection === 11) && (
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-                <h3 className="font-bold text-sm text-cyan-300">
-                  {collectionSubSection === 5 && '4.5 Groundwater & Hydrogeological Ingress'}
-                  {collectionSubSection === 6 && '4.6 Probe Drilling & Ahead-of-Face Investigation'}
-                  {collectionSubSection === 9 && '4.9 Geotechnical Instrumentation & Surface Settlement'}
-                  {collectionSubSection === 10 && '4.10 Geological Hazards & Adverse Ground Register'}
-                  {collectionSubSection === 11 && '4.11 Inspection Photographs & Site Attachments'}
-                </h3>
-                <p className="text-slate-400 text-xs">
-                  Field records recorded for active ring #{collectionBuffer.chainageRecord.ringNumber}. All fields save independently with the excavation interval.
-                </p>
+            {/* 4.5 GROUNDWATER & HYDROGEOLOGY */}
+            {collectionSubSection === 5 && (
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-cyan-300">4.5 Groundwater Ingress &amp; Hydrogeological Monitoring</h3>
+                  <span className={`px-2.5 py-1 rounded text-xs font-bold font-mono border ${
+                    collectionBuffer.groundwater.waterInrushRiskLevel === 'SAFE_DRY'
+                      ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                      : collectionBuffer.groundwater.waterInrushRiskLevel === 'MANAGEABLE_SEEPAGE'
+                      ? 'bg-blue-950 text-blue-300 border-blue-800'
+                      : collectionBuffer.groundwater.waterInrushRiskLevel === 'MODERATE_INFLOW'
+                      ? 'bg-amber-950 text-amber-300 border-amber-800'
+                      : 'bg-rose-950 text-rose-300 border-rose-800 animate-pulse'
+                  }`}>
+                    {collectionBuffer.groundwater.waterInrushRiskLevel}
+                  </span>
+                </div>
 
-                {collectionSubSection === 5 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-slate-400 text-[11px]">Water Inflow Rate (L/min)</span>
-                      <input
-                        type="number"
-                        value={collectionBuffer.groundwater.inflowRateLitersPerMin}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 0;
-                          setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, inflowRateLitersPerMin: val } } : prev);
-                        }}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-slate-400 text-[11px]">Water Pressure (bar)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={collectionBuffer.groundwater.waterPressureBar}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 0;
-                          setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, waterPressureBar: val } } : prev);
-                        }}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-slate-400 text-[11px]">Ingress Location</span>
-                      <select
-                        value={collectionBuffer.groundwater.ingressLocation}
-                        onChange={(e) => {
-                          const val = e.target.value as any;
-                          setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, ingressLocation: val } } : prev);
-                        }}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
-                      >
-                        <option value="TAIL_SKIN_BRUSHES">Tail Skin Brushes</option>
-                        <option value="FACE_CUTTERHEAD">Face / Cutterhead</option>
-                        <option value="SHIELD_BODY">Shield Articulation</option>
-                        <option value="INVERT">Invert Segments</option>
-                      </select>
-                    </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono">
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Water Inflow Rate (L/min)</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={collectionBuffer.groundwater.inflowRateLitersPerMin}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, inflowRateLitersPerMin: val } } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-cyan-300 font-bold"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Water Pressure (bar)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={collectionBuffer.groundwater.waterPressureBar}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, waterPressureBar: val } } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Ingress Location</span>
+                    <select
+                      value={collectionBuffer.groundwater.ingressLocation}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, ingressLocation: val } } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    >
+                      <option value="TAIL_SKIN_BRUSHES">Tail Skin Brushes</option>
+                      <option value="FACE_CUTTERHEAD">Face / Cutterhead</option>
+                      <option value="SHIELD_BODY">Shield Articulation</option>
+                      <option value="INVERT">Invert Segments</option>
+                      <option value="SEGMENT_JOINTS">Segment Radial / Longitudinal Joints</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Water Turbidity &amp; Clarity</span>
+                    <select
+                      value={collectionBuffer.groundwater.turbidity}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, turbidity: val } } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    >
+                      <option value="CLEAR">Clear (No sediment)</option>
+                      <option value="SLIGHTLY_SILTY">Slightly Silty (Minor fines)</option>
+                      <option value="MUDDY">Muddy (Active erosion)</option>
+                      <option value="HEAVILY_SEDIMENTED">Heavily Sedimented (Gouge wash)</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Estimated pH</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={collectionBuffer.groundwater.phEstimated}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 7.0;
+                        setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, phEstimated: val } } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Active Dewatering Pumps</span>
+                    <input
+                      type="number"
+                      value={collectionBuffer.groundwater.dewateringPumpsActive}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 1;
+                        setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, dewateringPumpsActive: val } } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Inrush Risk Level</span>
+                    <select
+                      value={collectionBuffer.groundwater.waterInrushRiskLevel}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, waterInrushRiskLevel: val } } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    >
+                      <option value="SAFE_DRY">Safe &amp; Dry (&lt;10 L/min)</option>
+                      <option value="MANAGEABLE_SEEPAGE">Manageable Seepage (10-30 L/min)</option>
+                      <option value="MODERATE_INFLOW">Moderate Inflow (30-100 L/min)</option>
+                      <option value="HIGH_INRUSH_ALERT">High Inrush Alert (&gt;100 L/min)</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1 lg:col-span-4">
+                    <span className="text-slate-400 text-[11px]">Chemical Grouting &amp; Drainage Mitigation Action</span>
+                    <input
+                      type="text"
+                      value={collectionBuffer.groundwater.preGroutingActionTaken}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCollectionBuffer((prev) => prev ? { ...prev, groundwater: { ...prev.groundwater, preGroutingActionTaken: val } } : prev);
+                      }}
+                      placeholder="e.g. Injected polyurethane hydrophilic grout at 1:00 clock position through segment hole #3"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* 4.6 AHEAD-OF-FACE PROBE DRILLING */}
+            {collectionSubSection === 6 && (
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-cyan-300">4.6 Ahead-of-Face Probe Drilling &amp; Geophysical Look-Ahead</h3>
+                  <span className={`px-2.5 py-1 rounded text-xs font-bold font-mono border ${
+                    collectionBuffer.probeDrilling?.advanceRecommendation === 'PROCEED_NORMAL'
+                      ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                      : collectionBuffer.probeDrilling?.advanceRecommendation === 'PROCEED_CAUTIOUS_LOW_THRUST'
+                      ? 'bg-amber-950 text-amber-300 border-amber-800'
+                      : 'bg-rose-950 text-rose-300 border-rose-800'
+                  }`}>
+                    {collectionBuffer.probeDrilling?.advanceRecommendation || 'PROCEED_NORMAL'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono">
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Probe Borehole ID</span>
+                    <input
+                      type="text"
+                      value={collectionBuffer.probeDrilling?.probeHoleId || `PB-01-${collectionBuffer.chainageRecord.ringNumber}`}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          probeDrilling: {
+                            ...prev.probeDrilling!,
+                            probeHoleId: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-cyan-300 font-bold"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Drilled Length Ahead (m)</span>
+                    <input
+                      type="number"
+                      step="1"
+                      value={collectionBuffer.probeDrilling?.drilledLengthMeters ?? 25.0}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          probeDrilling: {
+                            ...prev.probeDrilling!,
+                            drilledLengthMeters: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-emerald-400 font-bold"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Borehole Azimuth (°)</span>
+                    <input
+                      type="number"
+                      value={collectionBuffer.probeDrilling?.azimuthDeg ?? 45}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          probeDrilling: {
+                            ...prev.probeDrilling!,
+                            azimuthDeg: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Borehole Inclination (°)</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={collectionBuffer.probeDrilling?.inclinationDeg ?? 2.0}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          probeDrilling: {
+                            ...prev.probeDrilling!,
+                            inclinationDeg: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Drilling Speed (m/min)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={collectionBuffer.probeDrilling?.drillingSpeedMMin ?? 1.5}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          probeDrilling: {
+                            ...prev.probeDrilling!,
+                            drillingSpeedMMin: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Drill Feed Pressure (bar)</span>
+                    <input
+                      type="number"
+                      value={collectionBuffer.probeDrilling?.drillingFeedPressureBar ?? 60}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          probeDrilling: {
+                            ...prev.probeDrilling!,
+                            drillingFeedPressureBar: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Flushing Water Return</span>
+                    <select
+                      value={collectionBuffer.probeDrilling?.flushingWaterReturn || 'FULL_RETURN'}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          probeDrilling: {
+                            ...prev.probeDrilling!,
+                            flushingWaterReturn: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    >
+                      <option value="FULL_RETURN">Full Water Return (100%)</option>
+                      <option value="PARTIAL_LOSS">Partial Loss (Open fractures)</option>
+                      <option value="TOTAL_LOSS">Total Water Loss (Cavity / Karst)</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">TBM Advance Recommendation</span>
+                    <select
+                      value={collectionBuffer.probeDrilling?.advanceRecommendation || 'PROCEED_NORMAL'}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          probeDrilling: {
+                            ...prev.probeDrilling!,
+                            advanceRecommendation: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-cyan-300 font-bold"
+                    >
+                      <option value="PROCEED_NORMAL">Proceed Normal Advance</option>
+                      <option value="PROCEED_CAUTIOUS_LOW_THRUST">Proceed Cautious / Lower Thrust</option>
+                      <option value="PRE_EXCAVATION_GROUT_REQUIRED">Pre-Excavation Grouting Required</option>
+                      <option value="STOP_AND_PROBE_AGAIN">Stop TBM &amp; Drill Verification Probe</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1 lg:col-span-4">
+                    <span className="text-slate-400 text-[11px]">Geology Logged Ahead &amp; Cuttings Response</span>
+                    <textarea
+                      rows={2}
+                      value={collectionBuffer.probeDrilling?.geologyLoggedAhead || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          probeDrilling: {
+                            ...prev.probeDrilling!,
+                            geologyLoggedAhead: val,
+                          },
+                        } : prev);
+                      }}
+                      placeholder="e.g. Uniform sound basalt cuttings from 0-18m; increased torque and partial water loss from 18-22m indicating minor shear zone."
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs font-mono text-slate-200 resize-none"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* 4.9 GEOTECHNICAL INSTRUMENTATION & SURFACE SETTLEMENT */}
+            {collectionSubSection === 9 && (
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-cyan-300">4.9 Geotechnical Instrumentation &amp; Ground Movement</h3>
+                  <span className={`px-2.5 py-1 rounded text-xs font-bold font-mono border ${
+                    collectionBuffer.instrumentation?.settlementThresholdExceeded
+                      ? 'bg-rose-950 text-rose-300 border-rose-800'
+                      : 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                  }`}>
+                    {collectionBuffer.instrumentation?.settlementThresholdExceeded ? 'THRESHOLD EXCEEDED' : 'WITHIN TOLERANCE'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono">
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Settlement Monitoring Point ID</span>
+                    <input
+                      type="text"
+                      value={collectionBuffer.instrumentation?.surfaceSettlementMonitoringPointId || `SP-${collectionBuffer.chainageRecord.ringNumber}`}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          instrumentation: {
+                            ...prev.instrumentation!,
+                            surfaceSettlementMonitoringPointId: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-cyan-300 font-bold"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Transverse Offset from Centerline (m)</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={collectionBuffer.instrumentation?.distanceFromTunnelCenterlineM ?? 0.0}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          instrumentation: {
+                            ...prev.instrumentation!,
+                            distanceFromTunnelCenterlineM: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Measured Surface Settlement (mm)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={collectionBuffer.instrumentation?.surfaceSettlementMeasuredMm ?? -4.2}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          instrumentation: {
+                            ...prev.instrumentation!,
+                            surfaceSettlementMeasuredMm: val,
+                            settlementThresholdExceeded: Math.abs(val) > 15.0,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-amber-300 font-bold"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Theoretical Peck S(x) (mm)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={collectionBuffer.instrumentation?.theoreticalPeckSettlementMm ?? -5.1}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          instrumentation: {
+                            ...prev.instrumentation!,
+                            theoreticalPeckSettlementMm: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Tunnel Diameter Convergence (mm)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={collectionBuffer.instrumentation?.tunnelDiameterConvergenceMm ?? 1.2}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          instrumentation: {
+                            ...prev.instrumentation!,
+                            tunnelDiameterConvergenceMm: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Piezometer Pore Pressure (kPa)</span>
+                    <input
+                      type="number"
+                      step="1"
+                      value={collectionBuffer.instrumentation?.piezometerPorePressureKpa ?? 120}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          instrumentation: {
+                            ...prev.instrumentation!,
+                            piezometerPorePressureKpa: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 text-[11px]">Inclinometer Lateral Deflection (mm)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={collectionBuffer.instrumentation?.inclinometerLateralDeflectionMm ?? 0.8}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCollectionBuffer((prev) => prev ? {
+                          ...prev,
+                          instrumentation: {
+                            ...prev.instrumentation!,
+                            inclinometerLateralDeflectionMm: val,
+                          },
+                        } : prev);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* 4.10 GEOLOGICAL HAZARDS & ADVERSE GROUND REGISTER */}
+            {collectionSubSection === 10 && (
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm text-rose-300 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-400" />
+                      <span>4.10 Geological Hazards &amp; Adverse Ground Incidents</span>
+                    </h3>
+                    <p className="text-slate-400 text-xs">
+                      Document cavity overbreak, squeezing ground, water inrush, gas encounters, or cutterhead jamming.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newHaz: any = {
+                        hazardId: `HAZ-${collectionBuffer.chainageRecord.ringNumber}-${Date.now().toString().slice(-4)}`,
+                        chainageRd: collectionBuffer.chainageRecord.startChainage,
+                        hazardCategory: 'CHIMNEY_OVERBREAK_CAVITY',
+                        severity: 'MEDIUM',
+                        impactOnTbm: 'Increased cutterhead torque and loose blocks entering face chamber.',
+                        actionTaken: 'Reduced advance speed; injected bentonite conditioning agent.',
+                        dateReported: new Date().toISOString().slice(0, 10),
+                        isResolved: false,
+                        photoUrls: [],
+                      };
+                      setCollectionBuffer((prev) => prev ? {
+                        ...prev,
+                        hazards: [...(prev.hazards || []), newHaz],
+                      } : prev);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold cursor-pointer transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Geological Hazard</span>
+                  </button>
+                </div>
+
+                {(!collectionBuffer.hazards || collectionBuffer.hazards.length === 0) ? (
+                  <div className="p-6 rounded-xl bg-slate-950 border border-dashed border-slate-800 text-center text-slate-500 font-mono">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-2 opacity-80" />
+                    <p>No active geological hazards or adverse ground incidents logged for Ring #{collectionBuffer.chainageRecord.ringNumber}.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 font-mono">
+                    {collectionBuffer.hazards.map((h, hIdx) => (
+                      <div key={h.hazardId || hIdx} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-rose-300">{h.hazardId}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700">
+                              RD {h.chainageRd?.toFixed(2)}m
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCollectionBuffer((prev) => {
+                                  if (!prev) return prev;
+                                  const updatedHaz = [...prev.hazards];
+                                  updatedHaz[hIdx] = { ...updatedHaz[hIdx], isResolved: !updatedHaz[hIdx].isResolved };
+                                  return { ...prev, hazards: updatedHaz };
+                                });
+                              }}
+                              className={`px-2.5 py-0.5 rounded text-[10px] font-bold cursor-pointer border ${
+                                h.isResolved
+                                  ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                                  : 'bg-amber-950 text-amber-300 border-amber-800'
+                              }`}
+                            >
+                              {h.isResolved ? 'RESOLVED' : 'ACTIVE / OPEN'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCollectionBuffer((prev) => {
+                                  if (!prev) return prev;
+                                  return {
+                                    ...prev,
+                                    hazards: prev.hazards.filter((_, idx) => idx !== hIdx),
+                                  };
+                                });
+                              }}
+                              className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-900 cursor-pointer"
+                              title="Delete hazard record"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                          <label className="space-y-0.5">
+                            <span className="text-slate-400 text-[10px]">Hazard Category</span>
+                            <select
+                              value={h.hazardCategory}
+                              onChange={(e) => {
+                                const val = e.target.value as any;
+                                setCollectionBuffer((prev) => {
+                                  if (!prev) return prev;
+                                  const updatedHaz = [...prev.hazards];
+                                  updatedHaz[hIdx] = { ...updatedHaz[hIdx], hazardCategory: val };
+                                  return { ...prev, hazards: updatedHaz };
+                                });
+                              }}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
+                            >
+                              <option value="CHIMNEY_OVERBREAK_CAVITY">Chimney Overbreak / Cavity</option>
+                              <option value="SQUEEZING_GROUND">Squeezing Ground (High Overburden)</option>
+                              <option value="SWELLING_ROCK">Swelling Rock (Anhydrite/Smectite)</option>
+                              <option value="HIGH_PRESSURE_WATER_INRUSH">High Pressure Water Inrush</option>
+                              <option value="EXPLOSIVE_TOXIC_GAS">Methane / H2S / Toxic Gas</option>
+                              <option value="FACE_COLLAPSE_INSTABILITY">Face Collapse / Ravelling</option>
+                              <option value="CUTTERHEAD_CLOGGING_BALLING">Cutterhead Balling / Clay Clogging</option>
+                              <option value="SHIELD_JAMMING">Shield Jamming Risk</option>
+                              <option value="HARD_ABRASIVE_BOULDER">Hard Abrasive Boulders</option>
+                              <option value="KARST_VOID">Karst Void / Solution Cavity</option>
+                            </select>
+                          </label>
+
+                          <label className="space-y-0.5">
+                            <span className="text-slate-400 text-[10px]">Severity Level</span>
+                            <select
+                              value={h.severity}
+                              onChange={(e) => {
+                                const val = e.target.value as any;
+                                setCollectionBuffer((prev) => {
+                                  if (!prev) return prev;
+                                  const updatedHaz = [...prev.hazards];
+                                  updatedHaz[hIdx] = { ...updatedHaz[hIdx], severity: val };
+                                  return { ...prev, hazards: updatedHaz };
+                                });
+                              }}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
+                            >
+                              <option value="LOW">Low (Monitor during advance)</option>
+                              <option value="MEDIUM">Medium (Adjust machine parameters)</option>
+                              <option value="HIGH">High (Mandatory intervention)</option>
+                              <option value="CRITICAL">Critical (Immediate stoppage &amp; alert)</option>
+                            </select>
+                          </label>
+
+                          <label className="space-y-0.5">
+                            <span className="text-slate-400 text-[10px]">Date Reported</span>
+                            <input
+                              type="date"
+                              value={h.dateReported?.slice(0, 10) || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCollectionBuffer((prev) => {
+                                  if (!prev) return prev;
+                                  const updatedHaz = [...prev.hazards];
+                                  updatedHaz[hIdx] = { ...updatedHaz[hIdx], dateReported: val };
+                                  return { ...prev, hazards: updatedHaz };
+                                });
+                              }}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
+                            />
+                          </label>
+
+                          <label className="space-y-0.5 sm:col-span-2">
+                            <span className="text-slate-400 text-[10px]">Impact on TBM &amp; Ground</span>
+                            <input
+                              type="text"
+                              value={h.impactOnTbm || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCollectionBuffer((prev) => {
+                                  if (!prev) return prev;
+                                  const updatedHaz = [...prev.hazards];
+                                  updatedHaz[hIdx] = { ...updatedHaz[hIdx], impactOnTbm: val };
+                                  return { ...prev, hazards: updatedHaz };
+                                });
+                              }}
+                              placeholder="e.g. Shield friction increased by 40%, potential tail void overbreak"
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
+                            />
+                          </label>
+
+                          <label className="space-y-0.5 sm:col-span-2 lg:col-span-1">
+                            <span className="text-slate-400 text-[10px]">Action Taken</span>
+                            <input
+                              type="text"
+                              value={h.actionTaken || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCollectionBuffer((prev) => {
+                                  if (!prev) return prev;
+                                  const updatedHaz = [...prev.hazards];
+                                  updatedHaz[hIdx] = { ...updatedHaz[hIdx], actionTaken: val };
+                                  return { ...prev, hazards: updatedHaz };
+                                });
+                              }}
+                              placeholder="e.g. Injected bentonite lubrication around shield"
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
+              </div>
+            )}
 
-                {collectionSubSection === 9 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-slate-400 text-[11px]">Settlement Pin ID</span>
-                      <input
-                        type="text"
-                        value={collectionBuffer.instrumentation?.surfaceSettlementMonitoringPointId || `SP-${collectionBuffer.chainageRecord.ringNumber}`}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setCollectionBuffer((prev) => ({
-                            ...prev,
-                            instrumentation: {
-                              ...prev.instrumentation,
-                              surfaceSettlementMonitoringPointId: val,
-                            },
-                          }));
-                        }}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-slate-400 text-[11px]">Measured Settlement (mm)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={collectionBuffer.instrumentation?.surfaceSettlementMeasuredMm ?? -3.5}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 0;
-                          setCollectionBuffer((prev) => ({
-                            ...prev,
-                            instrumentation: {
-                              ...prev.instrumentation,
-                              surfaceSettlementMeasuredMm: val,
-                            },
-                          }));
-                        }}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-cyan-300 font-bold"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-slate-400 text-[11px]">Theoretical Peck S(x) (mm)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        readOnly
-                        value={collectionBuffer.instrumentation?.theoreticalPeckSettlementMm || -4.8}
-                        className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-400 cursor-not-allowed"
-                      />
-                    </label>
+            {/* 4.11 INSPECTION PHOTOGRAPHS & FIELD EVIDENCE */}
+            {collectionSubSection === 11 && (
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm text-cyan-300">4.11 Inspection Photographs &amp; Site Evidence</h3>
+                    <p className="text-slate-400 text-xs">
+                      Attach verified photographs of face exposure, muck conveyor chips, probe drill cores, and segment rings.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newPhoto: any = {
+                        id: `PHOTO-${Date.now().toString().slice(-6)}`,
+                        chainageRd: collectionBuffer.chainageRecord.startChainage,
+                        timestamp: new Date().toISOString(),
+                        category: 'MUCK_CONVEYOR',
+                        title: `Muck sample Ring #${collectionBuffer.chainageRecord.ringNumber}`,
+                        dataUrl: '',
+                        notes: 'Fresh basalt chips with uniform grading',
+                      };
+                      setCollectionBuffer((prev) => prev ? {
+                        ...prev,
+                        photos: [...(prev.photos || []), newPhoto],
+                      } : prev);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold cursor-pointer transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Attach Photo Record</span>
+                  </button>
+                </div>
+
+                {(!collectionBuffer.photos || collectionBuffer.photos.length === 0) ? (
+                  <div className="p-6 rounded-xl bg-slate-950 border border-dashed border-slate-800 text-center text-slate-500 font-mono">
+                    <p>No site inspection photos attached to Ring #{collectionBuffer.chainageRecord.ringNumber}. Click &quot;Attach Photo Record&quot; to link field evidence.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 font-mono">
+                    {collectionBuffer.photos.map((ph, phIdx) => (
+                      <div key={ph.id || phIdx} className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                          <span className="text-xs font-bold text-cyan-300 truncate">{ph.title || 'Photo Record'}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCollectionBuffer((prev) => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  photos: prev.photos.filter((_, idx) => idx !== phIdx),
+                                };
+                              });
+                            }}
+                            className="p-1 rounded text-slate-500 hover:text-rose-400 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <label className="space-y-0.5 block">
+                          <span className="text-slate-400 text-[10px]">Category</span>
+                          <select
+                            value={ph.category}
+                            onChange={(e) => {
+                              const val = e.target.value as any;
+                              setCollectionBuffer((prev) => {
+                                if (!prev) return prev;
+                                const updatedPh = [...prev.photos];
+                                updatedPh[phIdx] = { ...updatedPh[phIdx], category: val };
+                                return { ...prev, photos: updatedPh };
+                              });
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
+                          >
+                            <option value="MUCK_CONVEYOR">Muck Conveyor / Chipped Material</option>
+                            <option value="CUTTERHEAD_FACE">Cutterhead Face Inspection</option>
+                            <option value="PROBE_CORES">Probe Drill Cores / Cuttings</option>
+                            <option value="SEGMENT_DEFECT">Segment Assembly / Lining</option>
+                            <option value="GEOLOGICAL_HAZARD">Geological Hazard / Inflow</option>
+                          </select>
+                        </label>
+
+                        <label className="space-y-0.5 block">
+                          <span className="text-slate-400 text-[10px]">Caption / Notes</span>
+                          <input
+                            type="text"
+                            value={ph.notes || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCollectionBuffer((prev) => {
+                                if (!prev) return prev;
+                                const updatedPh = [...prev.photos];
+                                updatedPh[phIdx] = { ...updatedPh[phIdx], notes: val };
+                                return { ...prev, photos: updatedPh };
+                              });
+                            }}
+                            placeholder="Geological observations from photograph"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
+                          />
+                        </label>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1852,139 +2572,19 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
         )}
 
         {/* -------------------------------------------------------------------
-            STAGE 5: GEOLOGICAL ANALYSIS WORKSPACE
-            Longitudinal profile, Stereonet, FPI vs Q/RMR, Predicted vs Encountered
+            STAGE 5: GEOLOGICAL ANALYSIS WORKSPACE (Deep Q to RMR like NATM)
             ------------------------------------------------------------------- */}
         {currentStage === 'analysis' && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between pb-3 border-b border-slate-800 gap-2">
-              <div>
-                <h2 className="text-base font-bold text-cyan-300 flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-cyan-400" />
-                  <span>STEP 5 — GEOLOGICAL &amp; GEOTECHNICAL ANALYSIS</span>
-                </h2>
-                <p className="text-slate-400 text-xs">
-                  Longitudinal geotechnical profiling, discontinuity stereonet projection, and TBM performance vs rock mass correlation.
-                </p>
-              </div>
-
-              {/* Sub tabs */}
-              <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
-                {[
-                  { id: 'profile' as const, label: 'Longitudinal Profile' },
-                  { id: 'stereonet' as const, label: 'Stereonet & Joints' },
-                  { id: 'correlation' as const, label: 'FPI vs Geology' },
-                  { id: 'predicted_vs_encountered' as const, label: 'Encountered vs Predicted' },
-                ].map((st) => (
-                  <button
-                    key={st.id}
-                    type="button"
-                    onClick={() => setAnalysisSubTab(st.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      analysisSubTab === st.id ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {st.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Profile View */}
-            {analysisSubTab === 'profile' && (
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="font-bold text-xs text-cyan-400 uppercase">
-                    Longitudinal Chainage Profile (RD {activeLocation?.startChainageRd.toFixed(2)}m – {activeLocation?.endChainageRd?.toFixed(2) || '1550'}m)
-                  </span>
-                  <span className="text-xs text-slate-400">
-                    {currentLocationRecords.length} Excavation Rings Plotted
-                  </span>
-                </div>
-
-                {/* SVG Geological Profile Strip */}
-                <div className="w-full h-48 bg-slate-950 rounded-xl border border-slate-800 p-2 overflow-x-auto relative">
-                  <svg viewBox="0 0 800 160" className="w-full h-full">
-                    {/* Grid Lines */}
-                    <line x1="50" y1="20" x2="780" y2="20" stroke="#334155" strokeWidth="0.5" strokeDasharray="3,3" />
-                    <line x1="50" y1="70" x2="780" y2="70" stroke="#334155" strokeWidth="0.5" strokeDasharray="3,3" />
-                    <line x1="50" y1="120" x2="780" y2="120" stroke="#334155" strokeWidth="0.5" strokeDasharray="3,3" />
-
-                    {/* Tunnel Bore Axis */}
-                    <rect x="50" y="55" width="730" height="30" fill="rgba(6,182,212,0.12)" stroke="#06B6D4" strokeWidth="1.5" rx="3" />
-
-                    {/* Ring Blocks */}
-                    {currentLocationRecords.map((r, i) => {
-                      const x = 60 + i * 85;
-                      const qColor = r.classification.calculatedQ < 1 ? '#F43F5E' : r.classification.calculatedQ < 4 ? '#F59E0B' : '#10B981';
-                      return (
-                        <g key={r.id}>
-                          <rect x={x} y="55" width="80" height="30" fill={qColor} fillOpacity="0.4" stroke={qColor} strokeWidth="1" />
-                          <text x={x + 40} y="74" fill="#FFFFFF" fontSize="10" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
-                            R#{r.chainageRecord.ringNumber}
-                          </text>
-                          <text x={x + 40} y="105" fill="#94A3B8" fontSize="8" textAnchor="middle" fontFamily="monospace">
-                            RD {r.chainageRecord.startChainage.toFixed(1)}m
-                          </text>
-                          <text x={x + 40} y="40" fill={qColor} fontSize="9" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
-                            Q={r.classification.calculatedQ.toFixed(1)}
-                          </text>
-                        </g>
-                      );
-                    })}
-                  </svg>
-                </div>
-              </div>
-            )}
-
-            {/* Encountered vs Predicted Table */}
-            {analysisSubTab === 'predicted_vs_encountered' && (
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-                <h3 className="font-bold text-sm text-cyan-300">Encountered vs. Predicted Geological Divergence</h3>
-                <div className="overflow-x-auto rounded-xl border border-slate-800">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-slate-950 text-slate-400 text-[10px] uppercase">
-                      <tr>
-                        <th className="p-2.5">Ring #</th>
-                        <th className="p-2.5">Chainage</th>
-                        <th className="p-2.5">Predicted Geology</th>
-                        <th className="p-2.5">Actual Encountered Geology</th>
-                        <th className="p-2.5">Pred Q / Actual Q</th>
-                        <th className="p-2.5">Divergence Verdict</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800 text-slate-300 text-[11px]">
-                      {currentLocationRecords.map((r) => {
-                        const pred = activeLocation?.predictedGeology?.find(
-                          (p) => r.chainageRecord.startChainage >= p.startChainage && r.chainageRecord.startChainage <= p.endChainage
-                        );
-                        const isMatch = pred ? pred.lithology.toLowerCase().includes(r.geology.mainLithology.toLowerCase().split(' ')[0]) : true;
-
-                        return (
-                          <tr key={r.id} className="hover:bg-slate-800/40">
-                            <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
-                            <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(2)}m</td>
-                            <td className="p-2.5 text-slate-400">{pred?.lithology || 'Basalt'}</td>
-                            <td className="p-2.5 font-bold text-amber-300">{r.geology.mainLithology}</td>
-                            <td className="p-2.5">
-                              {pred?.expectedQValue ?? '12'} → <strong className="text-emerald-400">{r.classification.calculatedQ.toFixed(1)}</strong>
-                            </td>
-                            <td className="p-2.5">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                isMatch ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-rose-950 text-rose-300 border border-rose-800'
-                              }`}>
-                                {isMatch ? 'CONCORDANT' : 'DISCORDANT ANOMALY'}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
+          <TbmQ2RmrGeologicalAnalysis
+            records={currentLocationRecords}
+            activeLocation={activeLocation}
+            activeProject={activeProject}
+            activeRecord={activeRecord}
+            onSelectRecord={(recId) => {
+              setActiveRecordIdState(recId);
+              setActiveTbmRecordId(recId);
+            }}
+          />
         )}
 
         {/* -------------------------------------------------------------------
@@ -1992,43 +2592,439 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
             Advance tracking, Peck settlement trough, groundwater inflows
             ------------------------------------------------------------------- */}
         {currentStage === 'monitoring' && (
-          <div className="space-y-4">
-            <div className="pb-3 border-b border-slate-800">
-              <h2 className="text-base font-bold text-cyan-300 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-cyan-400" />
-                <span>STEP 6 — GEOTECHNICAL &amp; TBM MONITORING WORKSPACE</span>
-              </h2>
-              <p className="text-slate-400 text-xs">
-                Real-time excavation advance tracking, transverse Peck settlement trough analysis, and groundwater ingress monitoring.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
-                <span className="text-slate-500 text-[11px] font-bold uppercase">Cumulative Drive Advance</span>
-                <div className="text-2xl font-black text-cyan-300 font-mono">
-                  {currentLocationRecords.reduce((acc, r) => acc + r.chainageRecord.advanceLengthMeters, 0).toFixed(2)} m
-                </div>
-                <p className="text-[11px] text-slate-400">{currentLocationRecords.length} precast concrete rings erected</p>
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between pb-3 border-b border-slate-800 gap-2">
+              <div>
+                <h2 className="text-base font-bold text-cyan-300 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-cyan-400" />
+                  <span>STEP 6 — GEOTECHNICAL &amp; TBM MONITORING WORKSPACE</span>
+                </h2>
+                <p className="text-slate-400 text-xs">
+                  Real-time surface settlement trough profiling, convergence tracking, piezometer pore pressures, and hydrogeological inflow trending.
+                </p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
-                <span className="text-slate-500 text-[11px] font-bold uppercase">Average Machine FPI</span>
-                <div className="text-2xl font-black text-emerald-400 font-mono">
+              <button
+                type="button"
+                onClick={() => setShowAddInstrumentModal(true)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold cursor-pointer transition-all shadow"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Log Instrument Reading</span>
+              </button>
+            </div>
+
+            {/* KPI Summary Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono">
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+                <span className="text-slate-500 text-[10px] font-bold uppercase">Cumulative Advance</span>
+                <div className="text-xl font-black text-cyan-300">
+                  {currentLocationRecords.reduce((acc, r) => acc + r.chainageRecord.advanceLengthMeters, 0).toFixed(2)} m
+                </div>
+                <p className="text-[10px] text-slate-400">{currentLocationRecords.length} rings erected</p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+                <span className="text-slate-500 text-[10px] font-bold uppercase">Mean Machine FPI</span>
+                <div className="text-xl font-black text-emerald-400">
                   {(
                     currentLocationRecords.reduce((acc, r) => acc + (r.classification.fieldPenetrationIndexKnCutterMm || 25), 0) /
                     Math.max(1, currentLocationRecords.length)
-                  ).toFixed(1)} <span className="text-xs text-slate-400 font-normal">kN/cutter/mm</span>
+                  ).toFixed(1)} <span className="text-[10px] font-normal text-slate-400">kN/cutter/mm</span>
                 </div>
-                <p className="text-[11px] text-slate-400">Normal cutting regime in Deccan Trap basalt</p>
+                <p className="text-[10px] text-slate-400">Normal boring regime</p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
-                <span className="text-slate-500 text-[11px] font-bold uppercase">Peak Surface Settlement</span>
-                <div className="text-2xl font-black text-amber-300 font-mono">-4.5 mm</div>
-                <p className="text-[11px] text-emerald-400">Within urban allowable threshold (-15.0 mm)</p>
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+                <span className="text-slate-500 text-[10px] font-bold uppercase">Max Surface Settlement</span>
+                <div className="text-xl font-black text-amber-300">-4.5 mm</div>
+                <p className="text-[10px] text-emerald-400">Below -15.0 mm urban limit</p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+                <span className="text-slate-500 text-[10px] font-bold uppercase">Current Water Inflow</span>
+                <div className="text-xl font-black text-cyan-400">
+                  {collectionBuffer?.groundwater?.inflowRateLitersPerMin ?? 8.5} <span className="text-[10px] font-normal text-slate-400">L/min</span>
+                </div>
+                <p className="text-[10px] text-slate-400">1 dewatering pump active</p>
               </div>
             </div>
+
+            {/* TRANSVERSE PECK SETTLEMENT TROUGH GRAPH & CONTROLS */}
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 font-mono">
+              <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-2.5 gap-2">
+                <div>
+                  <h3 className="font-bold text-xs text-cyan-300 uppercase flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-cyan-400" />
+                    <span>TRANSVERSE PECK SETTLEMENT TROUGH S(x) VS. DISTANCE FROM CENTERLINE</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Calculated Gaussian profile: S(x) = S_max · exp(-x² / 2i²) with overlaid actual prism array readings.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className="flex items-center gap-1 text-cyan-400">
+                    <span className="w-3 h-0.5 bg-cyan-400" /> Theoretical S(x)
+                  </span>
+                  <span className="flex items-center gap-1 text-amber-400">
+                    <span className="w-2 h-2 rounded-full bg-amber-400" /> Measured Prism
+                  </span>
+                  <span className="flex items-center gap-1 text-rose-400">
+                    <span className="w-3 h-0.5 border-b border-dashed border-rose-500" /> Alert (-15mm)
+                  </span>
+                </div>
+              </div>
+
+              {/* Trough Parameters Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs">
+                <label className="space-y-1">
+                  <span className="text-slate-400 text-[10px]">Tunnel Axis Depth z₀ (m)</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={peckDepthZ0}
+                    onChange={(e) => setPeckDepthZ0(parseFloat(e.target.value) || 18.0)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-cyan-300 font-bold"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-slate-400 text-[10px]">Trough Width Factor K</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={peckTroughK}
+                    onChange={(e) => setPeckTroughK(parseFloat(e.target.value) || 0.45)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-slate-400 text-[10px]">Ground Loss Ratio V_s (%)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={peckGroundLossVs}
+                    onChange={(e) => setPeckGroundLossVs(parseFloat(e.target.value) || 1.0)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200"
+                  />
+                </label>
+                <div className="space-y-1">
+                  <span className="text-slate-400 text-[10px]">Calculated Trough Width i</span>
+                  <div className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs text-emerald-400 font-black">
+                    {(peckTroughK * peckDepthZ0).toFixed(2)} m
+                  </div>
+                </div>
+              </div>
+
+              {/* Settlement Curve SVG */}
+              {(() => {
+                const diam = activeLocation?.cutterheadDiameterM || 6.65;
+                const peckCalc = calculatePeckSettlement({
+                  depthToAxisM: peckDepthZ0,
+                  troughWidthFactorK: peckTroughK,
+                  groundLossRatioVsPercent: peckGroundLossVs,
+                  tunnelDiameterM: diam,
+                  distanceFromCenterlineM: 0,
+                });
+                const sMax = peckCalc.sMaxMm;
+                const iParam = peckCalc.troughWidthIM;
+
+                // Points along curve from x = -25 to +25
+                const curvePts: { x: number; y: number }[] = [];
+                for (let xM = -25; xM <= 25; xM += 0.5) {
+                  const sx = sMax * Math.exp(-(xM * xM) / (2 * iParam * iParam));
+                  // Map x: -25 to +25 -> SVG 60 to 740 (width 680)
+                  const svgX = 60 + ((xM + 25) / 50) * 680;
+                  // Map y: 0 to 20mm settlement -> SVG 30 to 170 (height 140)
+                  const svgY = 30 + (sx / 20) * 130;
+                  curvePts.push({ x: svgX, y: svgY });
+                }
+                const pathD = curvePts.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+
+                // Actual instrument readings on transverse array
+                const prismReadings = instruments.filter((inst) => inst.instrumentType === 'SURFACE_SETTLEMENT');
+
+                return (
+                  <div className="w-full h-64 bg-slate-950 rounded-xl border border-slate-800 p-3 relative">
+                    <svg viewBox="0 0 800 200" className="w-full h-full">
+                      {/* Grid Lines */}
+                      <line x1="60" y1="30" x2="740" y2="30" stroke="#334155" strokeWidth="1" />
+                      <line x1="60" y1="62.5" x2="740" y2="62.5" stroke="#1E293B" strokeWidth="0.5" strokeDasharray="3,3" />
+                      <line x1="60" y1="95" x2="740" y2="95" stroke="#1E293B" strokeWidth="0.5" strokeDasharray="3,3" />
+                      <line x1="60" y1="127.5" x2="740" y2="127.5" stroke="#1E293B" strokeWidth="0.5" strokeDasharray="3,3" />
+                      <line x1="60" y1="160" x2="740" y2="160" stroke="#1E293B" strokeWidth="0.5" strokeDasharray="3,3" />
+
+                      {/* Centerline Axis */}
+                      <line x1="400" y1="20" x2="400" y2="175" stroke="#38BDF8" strokeWidth="1" strokeDasharray="4,4" />
+                      <text x="400" y="15" fill="#38BDF8" fontSize="9" fontWeight="bold" textAnchor="middle">
+                        Tunnel Centerline (x = 0)
+                      </text>
+
+                      {/* Threshold Alert Lines */}
+                      {/* Alert at -15mm -> y = 30 + (15/20)*130 = 127.5 */}
+                      <line x1="60" y1="127.5" x2="740" y2="127.5" stroke="#F43F5E" strokeWidth="1" strokeDasharray="5,3" />
+                      <text x="745" y="130" fill="#F43F5E" fontSize="8" textAnchor="start">Alert -15mm</text>
+
+                      {/* Warning at -10mm -> y = 30 + (10/20)*130 = 95 */}
+                      <line x1="60" y1="95" x2="740" y2="95" stroke="#F59E0B" strokeWidth="1" strokeDasharray="5,3" />
+                      <text x="745" y="98" fill="#F59E0B" fontSize="8" textAnchor="start">Warning -10mm</text>
+
+                      {/* Y-Axis Labels (Settlement mm) */}
+                      <text x="50" y="33" fill="#94A3B8" fontSize="8" textAnchor="end">0 mm</text>
+                      <text x="50" y="65" fill="#94A3B8" fontSize="8" textAnchor="end">-5 mm</text>
+                      <text x="50" y="98" fill="#94A3B8" fontSize="8" textAnchor="end">-10 mm</text>
+                      <text x="50" y="130" fill="#94A3B8" fontSize="8" textAnchor="end">-15 mm</text>
+                      <text x="50" y="163" fill="#94A3B8" fontSize="8" textAnchor="end">-20 mm</text>
+
+                      {/* X-Axis Ticks (Distance from Centerline) */}
+                      <text x="60" y="190" fill="#94A3B8" fontSize="8" textAnchor="middle">-25m</text>
+                      <text x="196" y="190" fill="#94A3B8" fontSize="8" textAnchor="middle">-15m</text>
+                      <text x="332" y="190" fill="#94A3B8" fontSize="8" textAnchor="middle">-5m</text>
+                      <text x="400" y="190" fill="#38BDF8" fontSize="9" fontWeight="bold" textAnchor="middle">0m</text>
+                      <text x="468" y="190" fill="#94A3B8" fontSize="8" textAnchor="middle">+5m</text>
+                      <text x="604" y="190" fill="#94A3B8" fontSize="8" textAnchor="middle">+15m</text>
+                      <text x="740" y="190" fill="#94A3B8" fontSize="8" textAnchor="middle">+25m</text>
+
+                      {/* Peck Trough Curve Path */}
+                      <path d={pathD} fill="none" stroke="#06B6D4" strokeWidth="2.5" />
+
+                      {/* Plotted Actual Measured Prism Points */}
+                      {prismReadings.map((inst) => {
+                        const offsetM = Math.max(-25, Math.min(25, inst.offsetFromCenterlineM));
+                        const svgX = 60 + ((offsetM + 25) / 50) * 680;
+                        const setMm = Math.abs(inst.currentValue);
+                        const svgY = 30 + (setMm / 20) * 130;
+                        return (
+                          <g key={inst.id}>
+                            <circle
+                              cx={svgX}
+                              cy={svgY}
+                              r="5"
+                              fill="#F59E0B"
+                              stroke="#FFFFFF"
+                              strokeWidth="1.5"
+                            />
+                            <text x={svgX} y={svgY - 8} fill="#FCD34D" fontSize="8" fontWeight="bold" textAnchor="middle">
+                              {inst.instrumentId}: {inst.currentValue}mm
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* GEOTECHNICAL INSTRUMENT READINGS REGISTER TABLE */}
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3 font-mono">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="font-bold text-xs text-cyan-300 uppercase">
+                  Active Geotechnical Instrumentation &amp; Sensor Network ({instruments.length} Instruments)
+                </span>
+                <span className="text-xs text-slate-400">Project: {activeProject?.projectName}</span>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-800">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-950 text-slate-400 text-[10px] uppercase">
+                    <tr>
+                      <th className="p-2.5">Instrument ID</th>
+                      <th className="p-2.5">Type</th>
+                      <th className="p-2.5">Chainage RD</th>
+                      <th className="p-2.5">Centerline Offset</th>
+                      <th className="p-2.5">Baseline</th>
+                      <th className="p-2.5">Current Reading</th>
+                      <th className="p-2.5">Net Delta</th>
+                      <th className="p-2.5">Alert Level</th>
+                      <th className="p-2.5">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-slate-300">
+                    {instruments.map((inst) => {
+                      const delta = inst.currentValue - inst.baselineValue;
+                      return (
+                        <tr key={inst.id} className="hover:bg-slate-800/40">
+                          <td className="p-2.5 font-bold text-cyan-400">{inst.instrumentId}</td>
+                          <td className="p-2.5 text-slate-300">{inst.instrumentType.replace('_', ' ')}</td>
+                          <td className="p-2.5">RD {inst.chainageRd.toFixed(2)}m</td>
+                          <td className="p-2.5">{inst.offsetFromCenterlineM > 0 ? `+${inst.offsetFromCenterlineM}m East` : inst.offsetFromCenterlineM < 0 ? `${inst.offsetFromCenterlineM}m West` : 'Centerline (0m)'}</td>
+                          <td className="p-2.5 text-slate-400">{inst.baselineValue.toFixed(1)} {inst.unit}</td>
+                          <td className="p-2.5 font-bold text-amber-300">{inst.currentValue.toFixed(1)} {inst.unit}</td>
+                          <td className="p-2.5 font-bold text-emerald-400">{delta > 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1)} {inst.unit}</td>
+                          <td className="p-2.5">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              inst.alertLevel === 'NORMAL'
+                                ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                                : inst.alertLevel === 'WARNING'
+                                ? 'bg-amber-950 text-amber-300 border-amber-800'
+                                : 'bg-rose-950 text-rose-300 border-rose-800 animate-pulse'
+                            }`}>
+                              {inst.alertLevel}
+                            </span>
+                          </td>
+                          <td className="p-2.5 text-slate-400 text-[11px] truncate max-w-xs">{inst.notes || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* MODAL: ADD INSTRUMENT READING */}
+            {showAddInstrumentModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 font-mono">
+                <div className="w-full max-w-md bg-slate-900 border border-cyan-500/50 rounded-2xl p-5 space-y-4 shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <h3 className="font-bold text-sm text-cyan-300">Log Geotechnical Instrument Reading</h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddInstrumentModal(false)}
+                      className="p-1 rounded text-slate-400 hover:text-white"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.target as any;
+                      const newId = form.instId.value.trim() || `INST-${Date.now().toString().slice(-4)}`;
+                      const newType = form.instType.value;
+                      const chainage = parseFloat(form.chainage.value) || 1430.0;
+                      const offset = parseFloat(form.offset.value) || 0.0;
+                      const baseline = parseFloat(form.baseline.value) || 0.0;
+                      const currentVal = parseFloat(form.currentVal.value) || 0.0;
+                      const unit = form.unit.value;
+                      const notes = form.notes.value.trim();
+
+                      const created = createTbmInstrumentReading({
+                        instrumentId: newId,
+                        instrumentType: newType,
+                        chainageRd: chainage,
+                        offsetFromCenterlineM: offset,
+                        baselineValue: baseline,
+                        currentValue: currentVal,
+                        unit,
+                        alertLevel: Math.abs(currentVal - baseline) > 15 ? 'ACTION_LEVEL' : Math.abs(currentVal - baseline) > 10 ? 'WARNING' : 'NORMAL',
+                        notes,
+                      });
+
+                      setInstruments((prev) => [created, ...prev]);
+                      setShowAddInstrumentModal(false);
+                      showNotification(`Logged reading for ${created.instrumentId}`);
+                    }}
+                    className="space-y-3 text-xs"
+                  >
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="space-y-1">
+                        <span className="text-slate-400 text-[10px]">Instrument ID</span>
+                        <input
+                          name="instId"
+                          required
+                          defaultValue={`SP-${Date.now().toString().slice(-3)}`}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-cyan-300 font-bold"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-slate-400 text-[10px]">Type</span>
+                        <select
+                          name="instType"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                        >
+                          <option value="SURFACE_SETTLEMENT">Surface Settlement Prism</option>
+                          <option value="CONVERGENCE_PIN">Tunnel Convergence Pin</option>
+                          <option value="PIEZOMETER">Vibrating Wire Piezometer</option>
+                          <option value="INCLINOMETER">Borehole Inclinometer</option>
+                          <option value="SEGMENT_JOINT">Segment Joint Meter</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="space-y-1">
+                        <span className="text-slate-400 text-[10px]">Chainage RD (m)</span>
+                        <input
+                          name="chainage"
+                          type="number"
+                          step="0.1"
+                          defaultValue={collectionBuffer?.chainageRecord?.startChainage || 1430.0}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-slate-400 text-[10px]">Offset from Center (m)</span>
+                        <input
+                          name="offset"
+                          type="number"
+                          step="0.5"
+                          defaultValue="0.0"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <label className="space-y-1">
+                        <span className="text-slate-400 text-[10px]">Baseline</span>
+                        <input
+                          name="baseline"
+                          type="number"
+                          step="0.1"
+                          defaultValue="0.0"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-slate-400 text-[10px]">Current Reading</span>
+                        <input
+                          name="currentVal"
+                          type="number"
+                          step="0.1"
+                          defaultValue="-4.2"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-amber-300 font-bold"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-slate-400 text-[10px]">Unit</span>
+                        <input
+                          name="unit"
+                          defaultValue="mm"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                        />
+                      </label>
+                    </div>
+
+                    <label className="space-y-1 block">
+                      <span className="text-slate-400 text-[10px]">Observation Notes</span>
+                      <input
+                        name="notes"
+                        placeholder="e.g. Measured 2 hrs after Ring #846 passage"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                      />
+                    </label>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddInstrumentModal(false)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold"
+                      >
+                        Save Reading
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2036,111 +3032,13 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
             STAGE 7: REPORTS WORKSPACE (16 Professional Tunnel Site Reports)
             ------------------------------------------------------------------- */}
         {currentStage === 'reports' && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between pb-3 border-b border-slate-800 gap-2">
-              <div>
-                <h2 className="text-base font-bold text-cyan-300 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-cyan-400" />
-                  <span>STEP 7 — PROFESSIONAL TBM GEOTECHNICAL REPORTS (16 STANDARDS)</span>
-                </h2>
-                <p className="text-slate-400 text-xs">
-                  Generate, preview, and export high-resolution client/PMC geotechnical logs for TBM mechanized tunneling.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold cursor-pointer shadow-lg"
-              >
-                <Download className="w-4 h-4" />
-                <span>Print / Export PDF</span>
-              </button>
-            </div>
-
-            {/* 16 Reports Selector */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {[
-                { id: 'SHIFT_GEOTECHNICAL_LOG' as TbmReportType, title: '1. Shift Geotechnical Log' },
-                { id: 'DAILY_TBM_GEOLOGICAL_SUMMARY' as TbmReportType, title: '2. Daily TBM Geological Summary' },
-                { id: 'RING_BY_RING_EXCAVATION_RECORD' as TbmReportType, title: '3. Ring Excavation Record' },
-                { id: 'MUCK_INSPECTION_LITHOLOGY_LOG' as TbmReportType, title: '4. Muck & Lithology Log' },
-                { id: 'PROBE_DRILLING_AHEAD_LOG' as TbmReportType, title: '5. Ahead-of-Face Probe Log' },
-                { id: 'LONGITUDINAL_GEOTECHNICAL_PROFILE' as TbmReportType, title: '6. Geotechnical Profile' },
-                { id: 'TBM_PERFORMANCE_VS_GROUND_REPORT' as TbmReportType, title: '7. TBM vs Ground (FPI/SE)' },
-                { id: 'DISCONTINUITY_STRUCTURAL_ANALYSIS' as TbmReportType, title: '8. Structural Geology Analysis' },
-                { id: 'ROCK_MASS_CLASSIFICATION_SUPPORT' as TbmReportType, title: '9. Q & RMR Classification' },
-                { id: 'FACE_CROWN_STABILITY_ASSESSMENT' as TbmReportType, title: '10. Face Stability Report' },
-                { id: 'GROUNDWATER_INFLOW_REGISTER' as TbmReportType, title: '11. Groundwater Inflow Register' },
-                { id: 'SETTLEMENT_GROUND_MOVEMENT_REPORT' as TbmReportType, title: '12. Settlement Monitoring' },
-                { id: 'GEOLOGICAL_HAZARD_INCIDENT_REPORT' as TbmReportType, title: '13. Hazard & Incident Report' },
-                { id: 'PREDICTED_VS_ENCOUNTERED_GEOLOGY' as TbmReportType, title: '14. Predicted vs Encountered' },
-                { id: 'WEEKLY_MONTHLY_EXECUTIVE_SUMMARY' as TbmReportType, title: '15. Executive Geotech Summary' },
-                { id: 'AS_BUILT_GEOLOGICAL_DOCUMENTATION' as TbmReportType, title: '16. As-Built Documentation' },
-              ].map((rep) => {
-                const isCur = selectedReportType === rep.id;
-                return (
-                  <button
-                    key={rep.id}
-                    type="button"
-                    onClick={() => setSelectedReportType(rep.id)}
-                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                      isCur
-                        ? 'bg-cyan-500 text-slate-950 font-bold border-cyan-400 shadow'
-                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-cyan-500/40'
-                    }`}
-                  >
-                    <div className="text-xs truncate">{rep.title}</div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Printable Report Sheet Preview */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div>
-                  <h3 className="font-bold text-sm text-cyan-300">{selectedReportType.replace(/_/g, ' ')}</h3>
-                  <p className="text-slate-400 text-xs">
-                    Project: {activeProject?.projectName} · Heading: {activeLocation?.locationName} · Date: {new Date().toLocaleDateString()}
-                  </p>
-                </div>
-                <span className="text-[10px] px-2.5 py-1 rounded bg-slate-950 text-cyan-400 border border-slate-800 font-bold">
-                  OFFICIAL SITE FORMAT
-                </span>
-              </div>
-
-              {/* Sample Report Table Preview */}
-              <div className="overflow-x-auto rounded-xl border border-slate-800">
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-slate-950 text-slate-400 text-[10px] uppercase">
-                    <tr>
-                      <th className="p-2.5">Ring #</th>
-                      <th className="p-2.5">RD Interval</th>
-                      <th className="p-2.5">Encountered Lithology</th>
-                      <th className="p-2.5">Q / RMR Class</th>
-                      <th className="p-2.5">Thrust / Torque</th>
-                      <th className="p-2.5">Key Pos</th>
-                      <th className="p-2.5">Annular Grout</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800 text-slate-300 text-[11px]">
-                    {currentLocationRecords.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-800/40">
-                        <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
-                        <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(2)}m – {r.chainageRecord.endChainage.toFixed(2)}m</td>
-                        <td className="p-2.5 text-amber-300 font-medium">{r.geology.mainLithology}</td>
-                        <td className="p-2.5">Q {r.classification.calculatedQ.toFixed(1)} · RMR {r.classification.calculatedRmr}</td>
-                        <td className="p-2.5">{r.telemetry.thrustForceKn}kN / {r.telemetry.cutterheadTorqueKnm}kNm</td>
-                        <td className="p-2.5 font-bold text-cyan-300">{r.supportLining.keySegmentPositionClock}</td>
-                        <td className="p-2.5">{r.supportLining.annularGroutVolumeActualM3.toFixed(2)}m³</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <TbmReportsWorkspace
+            records={currentLocationRecords}
+            activeLocation={activeLocation}
+            activeProject={activeProject}
+            activeRecord={activeRecord}
+            initialReportType={selectedReportType}
+          />
         )}
       </main>
 
