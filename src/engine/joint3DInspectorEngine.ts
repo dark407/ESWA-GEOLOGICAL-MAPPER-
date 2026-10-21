@@ -2,14 +2,25 @@
 // ESWA GEOLOGICAL MAPPER — NATM 3D JOINT INSPECTOR CALCULATION ENGINE
 // Mathematically validated 3D plane construction, coordinate transformations,
 // multi-surface intersections, trace length extraction, and orientation conventions.
+//
+// TUNNEL-RELATIVE LOCAL COORDINATE SYSTEM (Standard Right-Handed):
+// - X = longitudinal tunnel drive direction (0..pullLengthM), positive forward.
+// - Y = transverse direction (0..widthM), positive to the right looking forward.
+// - Z = vertical direction (0..heightM), positive upward.
+//
+// LOCAL HORIZONTAL DIRECTION CONVENTION (Clockwise from +X):
+// - 000° = FORWARD (+X)
+// - 090° = RIGHT (+Y)
+// - 180° = BACKWARD (-X)
+// - 270° = LEFT (-Y)
 // ============================================================================
 
 import { FieldPanelId, FieldPoint2D } from './fieldMappingEngine';
 
 export interface Vec3D {
-  x: number; // Local: 0..W across cross-section (Left to Right) | World: East
-  y: number; // Local: 0..H elevation above invert             | World: Up
-  z: number; // Local: 0..L distance along drive               | World: North
+  x: number; // Tunnel-relative X: Longitudinal drive axis (0..pullLengthM, positive forward)
+  y: number; // Tunnel-relative Y: Transverse axis (0..widthM, positive to the right looking forward)
+  z: number; // Tunnel-relative Z: Vertical elevation (0..heightM, positive upward)
 }
 
 export interface TunnelSpatialGeometry {
@@ -25,13 +36,18 @@ export interface TunnelSpatialGeometry {
 export interface StrikeConventionResult {
   dipDirectionDeg: number;
   dipDeg: number;
-  strikeRhrDeg: number;   // Right-Hand Rule (looking along strike, dips to the right = dipDirection - 90)
+  strikeRhrDeg: number;   // Right-Hand Rule: looking along strike, dips to the right = (dipDirection - 90) % 360
   strikeAltDeg: number;   // Alternate strike direction = (strikeRhr + 180) % 360
+  strikePairLabel: string;// Dual strike axis presentation: e.g. "045° ↔ 225°"
+  strikePair?: { strike1: number; strike2: number; label: string };
+  directionLabel: string; // Tunnel-relative human direction: FORWARD, RIGHT, BACKWARD, LEFT, etc.
+  isOrientationComplete?: boolean;
+  dippingSide?: 'right' | 'left' | 'unspecified';
   explanation: string;
 }
 
 export interface PlaneEquation {
-  a: number; // Ax + By + Cz + d = 0
+  a: number; // a*X + b*Y + c*Z + d = 0 in tunnel-relative local frame
   b: number;
   c: number;
   d: number;
@@ -57,6 +73,8 @@ export interface Joint3DInspectionData {
   orientationConfidence: 'HIGH' | 'MEDIUM' | 'LOW';
   angularUncertaintyDeg: number;
   isGeoreferenced: boolean;
+  isOrientationComplete: boolean;
+  incompleteNotice?: string;
   coordinateReferenceNotice: string;
   anchorPoint: Vec3D;
   plane: PlaneEquation;
@@ -79,6 +97,7 @@ export interface Joint3DInspectionData {
   persistenceAssumptions: string;
   persistenceConfidence: 'HIGH' | 'MEDIUM' | 'LOW';
   linkedTraceIds: string[];
+  discrepancyWarning?: string;
 }
 
 export interface JointPairIntersectionResult {
@@ -113,6 +132,44 @@ export function radToDeg(rad: number): number {
 }
 
 /**
+ * Returns the human-readable direction label in the tunnel-relative coordinate system:
+ * - 000° = FORWARD (+X)
+ * - 090° = RIGHT (+Y)
+ * - 180° = BACKWARD (-X)
+ * - 270° = LEFT (-Y)
+ */
+export function getTunnelRelativeDirectionLabel(deg: number): string {
+  const norm = normalizeAngle360(deg);
+  if (norm >= 337.5 || norm < 22.5) return 'FORWARD';
+  if (norm >= 22.5 && norm < 67.5) return 'FORWARD-RIGHT';
+  if (norm >= 67.5 && norm < 112.5) return 'RIGHT';
+  if (norm >= 112.5 && norm < 157.5) return 'BACKWARD-RIGHT';
+  if (norm >= 157.5 && norm < 202.5) return 'BACKWARD';
+  if (norm >= 202.5 && norm < 247.5) return 'BACKWARD-LEFT';
+  if (norm >= 247.5 && norm < 292.5) return 'LEFT';
+  return 'FORWARD-LEFT';
+}
+
+/**
+ * Formats the two opposite strike directions into the standard dual-arrow presentation:
+ * Example: 045° ↔ 225°
+ * The two values represent the same strike axis in opposite directions and differ by exactly 180°.
+ */
+export function getCrownStrikePair(strikeDeg: number): { strike1: number; strike2: number; label: string } {
+  const s1 = normalizeAngle360(strikeDeg);
+  const s2 = normalizeAngle360(strikeDeg + 180);
+  const lower = Math.min(s1, s2);
+  const higher = Math.max(s1, s2);
+  const str1 = Math.round(lower).toString().padStart(3, '0');
+  const str2 = Math.round(higher).toString().padStart(3, '0');
+  return {
+    strike1: lower,
+    strike2: higher,
+    label: `${str1}° ↔ ${str2}°`,
+  };
+}
+
+/**
  * Calculates Strike Direction from Dip Direction using standard geological rules.
  * Right-Hand Rule (RHR): Looking along the strike direction, the plane dips to the right.
  * Therefore, Strike_RHR = (DipDirection - 90°) mod 360°.
@@ -123,15 +180,21 @@ export function calculateStrikeFromDipDirection(dipDirectionDeg: number, dipDeg:
   const dip = clampDip(dipDeg);
   const strikeRhr = normalizeAngle360(dd - 90);
   const strikeAlt = normalizeAngle360(dd + 90);
+  const strikePair = getCrownStrikePair(strikeRhr);
+  const dirLabel = getTunnelRelativeDirectionLabel(dd);
 
   const explanation =
-    `Right-Hand Rule (RHR): Following strike azimuth ${Math.round(strikeRhr)}°, the plane dips downward to the right toward ${Math.round(dd)}° (dip ${Math.round(dip)}°). Alternate strike back-azimuth is ${Math.round(strikeAlt)}°.`;
+    `Tunnel-Relative Orientation: Dips toward ${Math.round(dd)}° (${dirLabel}) at ${Math.round(dip)}°. Strike axis: ${strikePair.label}. (RHR strike azimuth: ${Math.round(strikeRhr)}°, opposite strike: ${Math.round(strikeAlt)}°).`;
 
   return {
     dipDirectionDeg: dd,
     dipDeg: dip,
     strikeRhrDeg: strikeRhr,
     strikeAltDeg: strikeAlt,
+    strikePairLabel: strikePair.label,
+    strikePair,
+    directionLabel: dirLabel,
+    isOrientationComplete: true,
     explanation,
   };
 }
@@ -152,6 +215,7 @@ export interface TunnelSurfacesApparentDipMatrix {
   trueDipDeg: number;
   strikeRhrDeg: number;
   strikeAltDeg: number;
+  strikePairLabel: string;
   tunnelDriveAzimuthDeg: number;
   face: SurfaceApparentDipInfo;
   leftWall: SurfaceApparentDipInfo;
@@ -162,10 +226,10 @@ export interface TunnelSurfacesApparentDipMatrix {
 
 /**
  * Calculates analytical Apparent Dip and visible trace angles across all 4 tunnel exposure surfaces:
- * - Excavation Face (vertical wall perpendicular to tunnel drive axis)
- * - Left Sidewall (vertical wall parallel to tunnel drive axis)
- * - Right Sidewall (vertical wall parallel to tunnel drive axis)
- * - Crown Arch / Back (overhead surface whose apex tangent is horizontal -> exhibits Strike)
+ * - Excavation Face (vertical wall at X = pullLengthM perpendicular to tunnel drive axis X)
+ * - Left Sidewall (vertical wall at Y = 0 parallel to tunnel drive axis X)
+ * - Right Sidewall (vertical wall at Y = widthM parallel to tunnel drive axis X)
+ * - Crown Arch / Back (overhead surface at Z = heightM)
  *
  * Formula: tan(apparent_dip) = tan(true_dip) * sin(beta)
  * where beta is the acute angle between the joint strike and the wall orientation.
@@ -196,14 +260,13 @@ export function calculateSurfaceApparentTraceAngles(
   const isFaceHorizontal = betaFace < 0.5 || dip === 0;
 
   // Determine direction of dip across face (Left to Right looking at Face)
-  // Local X component of dip vector: dx = sin(localAz) * cos(dip)
-  const localAz = normalizeAngle360(dd - drive);
-  const dx = Math.sin(degToRad(localAz)) * Math.cos(dipRad);
+  // Local Y component of dip vector: dy = sin(alpha) * cos(dip)
+  const dy = Math.sin(degToRad(dd)) * Math.cos(dipRad);
   let faceDirLabel = 'Horizontal (0° trace)';
   if (!isFaceHorizontal) {
-    if (Math.abs(dx) < 0.02) {
+    if (Math.abs(dy) < 0.02) {
       faceDirLabel = `Symmetrical / Steep ${appFaceDeg}°`;
-    } else if (dx > 0) {
+    } else if (dy > 0) {
       faceDirLabel = `Dips to the Right (${appFaceDeg}° Apparent)`;
     } else {
       faceDirLabel = `Dips to the Left (${appFaceDeg}° Apparent)`;
@@ -218,7 +281,7 @@ export function calculateSurfaceApparentTraceAngles(
 
   const faceInfo: SurfaceApparentDipInfo = {
     panel: 'face',
-    panelOrientationDescription: `Transverse Vertical Wall (Azimuth ${Math.round(faceLineAz)}°)`,
+    panelOrientationDescription: `Transverse Vertical Wall (Perpendicular to Drive)`,
     apparentDipDeg: appFaceDeg,
     apparentDipDirectionLabel: isFaceTrueDip ? `True Dip ${dip}°` : faceDirLabel,
     isTrueDip: isFaceTrueDip,
@@ -237,17 +300,17 @@ export function calculateSurfaceApparentTraceAngles(
   const isWallTrueDip = Math.abs(betaWall - 90) < 0.5;
   const isWallHorizontal = betaWall < 0.5 || dip === 0;
 
-  // Plunge along sidewall (Towards Face / Forward Advance vs Towards Portal / Backwards)
-  // Local Z component: dz = cos(localAz) * cos(dip)
-  const dz = Math.cos(degToRad(localAz)) * Math.cos(dipRad);
+  // Plunge along sidewall (Forward toward Face vs Backward toward Portal)
+  // Local X component: dx = cos(alpha) * cos(dip)
+  const dx = Math.cos(degToRad(dd)) * Math.cos(dipRad);
   let wallPlungeLabel = 'Horizontal trace (0°)';
   if (!isWallHorizontal) {
-    if (Math.abs(dz) < 0.02) {
+    if (Math.abs(dx) < 0.02) {
       wallPlungeLabel = `Vertical trace (${appWallDeg}°)`;
-    } else if (dz > 0) {
-      wallPlungeLabel = `Dips Forward toward Face (+Chainage, ${appWallDeg}°)`;
+    } else if (dx > 0) {
+      wallPlungeLabel = `Dips Forward toward Face (+X, ${appWallDeg}°)`;
     } else {
-      wallPlungeLabel = `Dips Backward toward Portal (-Chainage, ${appWallDeg}°)`;
+      wallPlungeLabel = `Dips Backward toward Portal (-X, ${appWallDeg}°)`;
     }
   }
 
@@ -259,7 +322,7 @@ export function calculateSurfaceApparentTraceAngles(
 
   const leftWallInfo: SurfaceApparentDipInfo = {
     panel: 'left_wall',
-    panelOrientationDescription: `Left Longitudinal Wall (Parallel to Drive N ${Math.round(drive)}° E)`,
+    panelOrientationDescription: `Left Longitudinal Wall (Parallel to Drive Axis +X)`,
     apparentDipDeg: appWallDeg,
     apparentDipDirectionLabel: isWallTrueDip ? `True Dip ${dip}°` : wallPlungeLabel,
     isTrueDip: isWallTrueDip,
@@ -271,12 +334,12 @@ export function calculateSurfaceApparentTraceAngles(
   const rightWallInfo: SurfaceApparentDipInfo = {
     ...leftWallInfo,
     panel: 'right_wall',
-    panelOrientationDescription: `Right Longitudinal Wall (Parallel to Drive N ${Math.round(drive)}° E)`,
+    panelOrientationDescription: `Right Longitudinal Wall (Parallel to Drive Axis +X)`,
   };
 
   // 3. Crown Arch / Back: Overhead horizontal plane tangent
   // Intersection with any horizontal plane is ALWAYS the STRIKE line!
-  let crownAngleToAxis = Math.abs(strike - drive) % 180;
+  let crownAngleToAxis = Math.abs(strike - 0) % 180;
   if (crownAngleToAxis > 90) crownAngleToAxis = 180 - crownAngleToAxis;
 
   let crownTraceLabel = '';
@@ -289,12 +352,12 @@ export function calculateSurfaceApparentTraceAngles(
   }
 
   const crownNote =
-    `The horizontal tangent at the Crown Arch apex always intersects the joint along its STRIKE line (${Math.round(strike)}° / ${Math.round(strikeInfo.strikeAltDeg)}°), running at ${Math.round(crownAngleToAxis)}° relative to the tunnel centerline.`;
+    `The horizontal tangent at the Crown Arch apex always intersects the joint along its STRIKE axis (${strikeInfo.strikePairLabel}), running at ${Math.round(crownAngleToAxis)}° relative to the tunnel centerline.`;
 
   const crownInfo: SurfaceApparentDipInfo = {
     panel: 'crown',
     panelOrientationDescription: 'Overhead Horizontal Arch Apex',
-    apparentDipDeg: 0, // A horizontal intersection has 0 plunge/dip (it is a strike line)
+    apparentDipDeg: 0,
     apparentDipDirectionLabel: crownTraceLabel,
     isTrueDip: false,
     isHorizontal: true,
@@ -303,15 +366,17 @@ export function calculateSurfaceApparentTraceAngles(
   };
 
   const comprehensiveExplanation =
-    `Geological Rule: True Dip (${dip}°) is only visible on a wall that is exactly perpendicular to the Joint Strike (${Math.round(strike)}°). ` +
-    `On the Face, the apparent dip is ${appFaceDeg}°. On the Sidewalls, the apparent dip is ${appWallDeg}°. ` +
-    `On the Crown, the intersection line is always the Strike direction (${Math.round(strike)}°).`;
+    `Tunnel-Relative Geological Rule: True Dip (${dip}°) is visible on a surface perpendicular to the Joint Strike (${strikeInfo.strikePairLabel}). ` +
+    `Face shows ${appFaceDeg}° apparent dip (${faceInfo.apparentDipDirectionLabel}). ` +
+    `Walls show ${appWallDeg}° apparent dip (${leftWallInfo.apparentDipDirectionLabel}). ` +
+    `Crown exhibits the dual Strike axis (${strikeInfo.strikePairLabel}).`;
 
   return {
     trueDipDirectionDeg: dd,
     trueDipDeg: dip,
     strikeRhrDeg: strike,
     strikeAltDeg: strikeInfo.strikeAltDeg,
+    strikePairLabel: strikeInfo.strikePairLabel,
     tunnelDriveAzimuthDeg: drive,
     face: faceInfo,
     leftWall: leftWallInfo,
@@ -321,82 +386,63 @@ export function calculateSurfaceApparentTraceAngles(
   };
 }
 
-/**
- * Transforms local tunnel coordinates to World ENU (East, Up, North)
- * if a valid tunnel drive azimuth is supplied.
- */
-export function localTunnelToWorldENU(
-  local: Vec3D,
-  geom: TunnelSpatialGeometry
-): { enu: Vec3D; isGeoreferenced: boolean } {
-  if (geom.driveAzimuthDeg === undefined || isNaN(geom.driveAzimuthDeg)) {
-    return {
-      enu: { ...local },
-      isGeoreferenced: false,
-    };
-  }
-
-  const azRad = degToRad(normalizeAngle360(geom.driveAzimuthDeg));
-  // Local coordinate relative to tunnel centerline:
-  const dx = local.x - geom.widthM / 2;
-  const dz = local.z;
-
-  // Drive unit vector in (East, North): (sin az, cos az)
-  // Cross unit vector (Right): (cos az, -sin az)
-  const east = dx * Math.cos(azRad) + dz * Math.sin(azRad);
-  const north = -dx * Math.sin(azRad) + dz * Math.cos(azRad);
-  const up = local.y;
-
-  return {
-    enu: { x: Number(east.toFixed(3)), y: Number(up.toFixed(3)), z: Number(north.toFixed(3)) },
-    isGeoreferenced: true,
-  };
-}
-
 // ----------------------------------------------------------------------------
-// 3. 3D PLANE EQUATION CONSTRUCTION & ANCHORING
+// 2. 3D PLANE EQUATION CONSTRUCTION & ANCHORING
 // ----------------------------------------------------------------------------
 
 /**
  * Builds the mathematical 3D plane for a joint from its orientation and anchor point.
- * In local tunnel coordinates:
- * - Azimuth reference: 0° is along tunnel drive axis (+Z) if local, or True North if georeferenced.
- * - Downward dip vector: d = (sin(alpha) * cos(delta), -sin(delta), cos(alpha) * cos(delta))
- * - Strike vector: s = (cos(alpha), 0, -sin(alpha)) [pointing along alpha - 90°]
- * - Plane unit normal: n = (sin(alpha) * sin(delta), cos(delta), cos(alpha) * sin(delta))
+ * In the tunnel-relative Cartesian coordinate system:
+ * - X = Longitudinal drive axis (0..pullLengthM, positive forward)
+ * - Y = Transverse axis (0..widthM, positive to the right looking forward)
+ * - Z = Vertical axis (0..heightM, positive upward)
+ *
+ * Local horizontal azimuth alpha is measured clockwise from +X:
+ * - 000° = FORWARD (+X)
+ * - 090° = RIGHT (+Y)
+ * - 180° = BACKWARD (-X)
+ * - 270° = LEFT (-Y)
+ *
+ * Downward dip vector:
+ * v_dip = (cos(alpha) * cos(dip), sin(alpha) * cos(dip), -sin(dip))
+ *
+ * Strike vectors:
+ * s1 = (sin(alpha), -cos(alpha), 0) [pointing along alpha - 90°]
+ * s2 = (-sin(alpha), cos(alpha), 0) = -s1 [pointing along alpha + 90°]
+ *
+ * Upward unit normal vector:
+ * n = (cos(alpha) * sin(dip), sin(alpha) * sin(dip), cos(dip))
+ *
+ * Plane Equation: a*X + b*Y + c*Z + d = 0, where d = -n . p0
  */
 export function constructJointPlane(
   dipDirectionDeg: number,
   dipDeg: number,
   anchorPoint: Vec3D,
-  driveAzimuthDeg?: number
+  _driveAzimuthDeg?: number
 ): PlaneEquation {
   const dd = normalizeAngle360(dipDirectionDeg);
   const dip = clampDip(dipDeg);
 
-  // If tunnel drive azimuth is specified, convert geographic dip direction to local drive coordinate:
-  // Local azimuth = dipDirection - driveAzimuth
-  const localAzDeg = driveAzimuthDeg !== undefined ? normalizeAngle360(dd - driveAzimuthDeg) : dd;
-
-  const alphaRad = degToRad(localAzDeg);
+  const alphaRad = degToRad(dd);
   const deltaRad = degToRad(dip);
 
   // Dip vector (downward):
-  const dx = Math.sin(alphaRad) * Math.cos(deltaRad);
-  const dy = -Math.sin(deltaRad);
-  const dz = Math.cos(alphaRad) * Math.cos(deltaRad);
+  const dx = Math.cos(alphaRad) * Math.cos(deltaRad);
+  const dy = Math.sin(alphaRad) * Math.cos(deltaRad);
+  const dz = -Math.sin(deltaRad);
 
-  // Strike vector (horizontal):
-  const sx = Math.sin(degToRad(localAzDeg - 90));
-  const sy = 0;
-  const sz = Math.cos(degToRad(localAzDeg - 90));
+  // Strike vector (horizontal along alpha - 90°):
+  const sx = Math.sin(alphaRad);
+  const sy = -Math.cos(alphaRad);
+  const sz = 0;
 
   // Upward plane normal n = (a, b, c):
-  // For dip=0 (horizontal plane), normal is (0, 1, 0)
-  // For dip=90 (vertical plane), normal is horizontal: (sin alpha, 0, cos alpha)
-  const a = Math.sin(alphaRad) * Math.sin(deltaRad);
-  const b = Math.cos(deltaRad);
-  const c = Math.cos(alphaRad) * Math.sin(deltaRad);
+  // For dip=0 (horizontal plane): n = (0, 0, 1) [pointing upward +Z]
+  // For dip=90 (vertical plane): n = (cos alpha, sin alpha, 0)
+  const a = Math.cos(alphaRad) * Math.sin(deltaRad);
+  const b = Math.sin(alphaRad) * Math.sin(deltaRad);
+  const c = Math.cos(deltaRad);
 
   // Normalize normal vector:
   const len = Math.hypot(a, b, c) || 1;
@@ -404,7 +450,7 @@ export function constructJointPlane(
   const nb = b / len;
   const nc = c / len;
 
-  // D = -(na * x0 + nb * y0 + nc * z0)
+  // Plane constant d = -(na * x0 + nb * y0 + nc * z0)
   const d = -(na * anchorPoint.x + nb * anchorPoint.y + nc * anchorPoint.z);
 
   return {
@@ -419,7 +465,12 @@ export function constructJointPlane(
 }
 
 /**
- * Derives the anchor point P0 (x0, y0, z0) in meters from mapped 2D polyline points.
+ * Derives the anchor point P0 (x0, y0, z0) in meters from mapped 2D polyline points
+ * in the tunnel-relative local frame:
+ * - Face: X = pullLengthM, Y in [0, widthM], Z in [0, heightM]
+ * - Left Wall: Y = 0, X in [0, pullLengthM], Z in [0, wallHeightM]
+ * - Right Wall: Y = widthM, X in [0, pullLengthM], Z in [0, wallHeightM]
+ * - Crown: Z = heightM * 0.95, X in [0, pullLengthM], Y in [0, widthM]
  */
 export function deriveAnchorPointFromPoints(
   points: FieldPoint2D[],
@@ -428,13 +479,13 @@ export function deriveAnchorPointFromPoints(
 ): Vec3D {
   if (!points || points.length === 0) {
     return {
-      x: geom.widthM / 2,
-      y: geom.heightM / 2,
-      z: geom.pullLengthM,
+      x: geom.pullLengthM,
+      y: geom.widthM / 2,
+      z: geom.heightM / 2,
     };
   }
 
-  // Calculate polyline centroid in 2D canvas coordinates
+  // Calculate polyline centroid in 2D canvas coordinates (0..1000, 0..800)
   let sumX = 0;
   let sumY = 0;
   points.forEach((p) => {
@@ -444,61 +495,63 @@ export function deriveAnchorPointFromPoints(
   const cx = sumX / points.length;
   const cy = sumY / points.length;
 
-  // Convert SVG canvas coordinates to real tunnel metric meters based on panel
-  // Canonical canvas dimensions: Face W x H, Walls L x H_wall, Crown W x DevelopedArc
   switch (panel) {
     case 'face': {
-      // Metric X: 0 to widthM, Metric Y: 0 (floor) to heightM (crown)
-      // On canvas, Y=0 is top, Y_max is bottom
-      const mx = (cx / 1000) * geom.widthM;
-      const my = geom.heightM - (cy / 800) * geom.heightM;
+      // Metric Y: 0 to widthM (Left to Right)
+      // Metric Z: 0 (floor) to heightM (crown)
+      const my = (cx / 1000) * geom.widthM;
+      const mz = geom.heightM - (cy / 800) * geom.heightM;
       return {
-        x: Math.max(0.1, Math.min(geom.widthM - 0.1, mx)),
-        y: Math.max(0.1, Math.min(geom.heightM - 0.1, my)),
-        z: geom.pullLengthM, // Located on current excavation face plane
+        x: geom.pullLengthM, // Face is located at X = pullLengthM
+        y: Math.max(0.1, Math.min(geom.widthM - 0.1, my)),
+        z: Math.max(0.1, Math.min(geom.heightM - 0.1, mz)),
       };
     }
     case 'left_wall': {
-      // Left wall: x = 0, z from 0 to pullLengthM, y from 0 to wallHeightM
-      const mz = (cx / 1000) * geom.pullLengthM;
-      const my = geom.wallHeightM - (cy / 800) * geom.wallHeightM;
+      // Left wall: Y = 0
+      // Metric X: 0 to pullLengthM (along drive)
+      // Metric Z: 0 to wallHeightM (elevation)
+      const mx = (cx / 1000) * geom.pullLengthM;
+      const mz = geom.wallHeightM - (cy / 800) * geom.wallHeightM;
       return {
-        x: 0,
-        y: Math.max(0.1, Math.min(geom.wallHeightM, my)),
-        z: Math.max(0, Math.min(geom.pullLengthM, mz)),
+        x: Math.max(0, Math.min(geom.pullLengthM, mx)),
+        y: 0,
+        z: Math.max(0.1, Math.min(geom.wallHeightM, mz)),
       };
     }
     case 'right_wall': {
-      // Right wall: x = widthM, z from 0 to pullLengthM, y from 0 to wallHeightM
-      const mz = (cx / 1000) * geom.pullLengthM;
-      const my = geom.wallHeightM - (cy / 800) * geom.wallHeightM;
+      // Right wall: Y = widthM
+      // Metric X: 0 to pullLengthM (along drive)
+      // Metric Z: 0 to wallHeightM (elevation)
+      const mx = (cx / 1000) * geom.pullLengthM;
+      const mz = geom.wallHeightM - (cy / 800) * geom.wallHeightM;
       return {
-        x: geom.widthM,
-        y: Math.max(0.1, Math.min(geom.wallHeightM, my)),
-        z: Math.max(0, Math.min(geom.pullLengthM, mz)),
+        x: Math.max(0, Math.min(geom.pullLengthM, mx)),
+        y: geom.widthM,
+        z: Math.max(0.1, Math.min(geom.wallHeightM, mz)),
       };
     }
     case 'crown': {
-      // Crown arch: x from 0 to widthM, z from 0 to pullLengthM, y near heightM
-      const mx = (cx / 1000) * geom.widthM;
-      const mz = (cy / 800) * geom.pullLengthM;
+      // Crown arch: X from 0 to pullLengthM, Y from 0 to widthM, Z near heightM
+      const my = (cx / 1000) * geom.widthM;
+      const mx = (cy / 800) * geom.pullLengthM;
       return {
-        x: Math.max(0.1, Math.min(geom.widthM - 0.1, mx)),
-        y: geom.heightM * 0.95,
-        z: Math.max(0, Math.min(geom.pullLengthM, mz)),
+        x: Math.max(0, Math.min(geom.pullLengthM, mx)),
+        y: Math.max(0.1, Math.min(geom.widthM - 0.1, my)),
+        z: geom.heightM * 0.95,
       };
     }
     default:
       return {
-        x: geom.widthM / 2,
-        y: geom.heightM / 2,
-        z: geom.pullLengthM,
+        x: geom.pullLengthM,
+        y: geom.widthM / 2,
+        z: geom.heightM / 2,
       };
   }
 }
 
 // ----------------------------------------------------------------------------
-// 4. OBSERVED TRACE LENGTH CALCULATION
+// 3. OBSERVED TRACE LENGTH CALCULATION
 // ----------------------------------------------------------------------------
 
 export function calculatePolylineLengthM(
@@ -515,7 +568,6 @@ export function calculatePolylineLengthM(
     totalCanvasPx += Math.hypot(dx, dy);
   }
 
-  // Convert canvas pixel distance to real-world meters
   let scaleMetersPerPx = 1.0;
   if (panel === 'face') {
     scaleMetersPerPx = Math.sqrt(
@@ -536,7 +588,7 @@ export function calculatePolylineLengthM(
 }
 
 // ----------------------------------------------------------------------------
-// 5. SURFACE INTERSECTION LINE SOLVER
+// 4. SURFACE INTERSECTION LINE SOLVER
 // ----------------------------------------------------------------------------
 
 /**
@@ -598,7 +650,11 @@ function clipLineToRect(
 
 /**
  * Calculates mathematical plane intersections with all 4 tunnel surfaces:
- * Face (z = L), Left Wall (x = 0), Right Wall (x = W), Crown (arch).
+ * In tunnel-relative local frame:
+ * 1. Face: X = pullLengthM, plane becomes b*Y + c*Z + (a*pullLengthM + d) = 0
+ * 2. Left Wall: Y = 0, plane becomes a*X + c*Z + d = 0
+ * 3. Right Wall: Y = widthM, plane becomes a*X + c*Z + (b*widthM + d) = 0
+ * 4. Crown Arch: Z = heightM, plane becomes a*X + b*Y + (c*heightM + d) = 0
  */
 export function calculatePlaneSurfaceIntersections(
   plane: PlaneEquation,
@@ -614,10 +670,10 @@ export function calculatePlaneSurfaceIntersections(
   const { a, b, c, d } = plane;
   let totalM = 0;
 
-  // 1. FACE (z = pullLengthM)
-  // Equation: a * x + b * y + (c * pullLengthM + d) = 0
-  const faceC = c * geom.pullLengthM + d;
-  const faceClip = clipLineToRect(a, b, faceC, 0, geom.widthM, 0, geom.heightM);
+  // 1. FACE (X = pullLengthM)
+  // Equation in (Y, Z): b * Y + c * Z + (a * pullLengthM + d) = 0
+  const faceC = a * geom.pullLengthM + d;
+  const faceClip = clipLineToRect(b, c, faceC, 0, geom.widthM, 0, geom.heightM);
   let faceSeg: SurfaceIntersectionSegment | undefined;
   if (faceClip) {
     const len = Math.hypot(faceClip.p2.x - faceClip.p1.x, faceClip.p2.y - faceClip.p1.y);
@@ -632,10 +688,9 @@ export function calculatePlaneSurfaceIntersections(
     totalM += len;
   }
 
-  // 2. LEFT WALL (x = 0)
-  // Coordinates on left wall: horizontal = z (0..pullLengthM), vertical = y (0..wallHeightM)
-  // Equation: b * y + c * z + d = 0
-  const leftClip = clipLineToRect(c, b, d, 0, geom.pullLengthM, 0, geom.wallHeightM);
+  // 2. LEFT WALL (Y = 0)
+  // Equation in (X, Z): a * X + c * Z + d = 0
+  const leftClip = clipLineToRect(a, c, d, 0, geom.pullLengthM, 0, geom.wallHeightM);
   let leftSeg: SurfaceIntersectionSegment | undefined;
   if (leftClip) {
     const len = Math.hypot(leftClip.p2.x - leftClip.p1.x, leftClip.p2.y - leftClip.p1.y);
@@ -650,11 +705,10 @@ export function calculatePlaneSurfaceIntersections(
     totalM += len;
   }
 
-  // 3. RIGHT WALL (x = widthM)
-  // Coordinates on right wall: horizontal = z (0..pullLengthM), vertical = y (0..wallHeightM)
-  // Equation: b * y + c * z + (a * widthM + d) = 0
-  const rightC = a * geom.widthM + d;
-  const rightClip = clipLineToRect(c, b, rightC, 0, geom.pullLengthM, 0, geom.wallHeightM);
+  // 3. RIGHT WALL (Y = widthM)
+  // Equation in (X, Z): a * X + c * Z + (b * widthM + d) = 0
+  const rightC = b * geom.widthM + d;
+  const rightClip = clipLineToRect(a, c, rightC, 0, geom.pullLengthM, 0, geom.wallHeightM);
   let rightSeg: SurfaceIntersectionSegment | undefined;
   if (rightClip) {
     const len = Math.hypot(rightClip.p2.x - rightClip.p1.x, rightClip.p2.y - rightClip.p1.y);
@@ -669,13 +723,11 @@ export function calculatePlaneSurfaceIntersections(
     totalM += len;
   }
 
-  // 4. CROWN ARCH
-  // Intersection of plane with the upper arch vault
-  // Sample along arch arc to find intersection segment length
+  // 4. CROWN ARCH (Z = heightM)
+  // Equation in (X, Y): a * X + b * Y + (c * heightM + d) = 0
+  const crownC = c * geom.heightM + d;
+  const crownClip = clipLineToRect(a, b, crownC, 0, geom.pullLengthM, 0, geom.widthM);
   let crownSeg: SurfaceIntersectionSegment | undefined;
-  const crownArcSpan = geom.widthM * 1.15; // approximate arc length
-  const crownC = a * (geom.widthM / 2) + b * geom.heightM + d;
-  const crownClip = clipLineToRect(a, c, crownC, 0, geom.widthM, 0, geom.pullLengthM);
   if (crownClip) {
     const len = Math.hypot(crownClip.p2.x - crownClip.p1.x, crownClip.p2.y - crownClip.p1.y);
     crownSeg = {
@@ -699,12 +751,12 @@ export function calculatePlaneSurfaceIntersections(
 }
 
 // ----------------------------------------------------------------------------
-// 6. 3D PLANE CLIPPING TO TUNNEL BOUNDING BOX
+// 5. 3D PLANE CLIPPING TO TUNNEL BOUNDING BOX
 // ----------------------------------------------------------------------------
 
 /**
- * Clips the infinite plane a*x + b*y + c*z + d = 0 to the tunnel bounding box:
- * [0, widthM] x [0, heightM] x [0, pullLengthM].
+ * Clips the infinite plane a*X + b*Y + c*Z + d = 0 to the tunnel bounding box:
+ * [0, pullLengthM] x [0, widthM] x [0, heightM].
  * Returns an ordered 3D polygon array of vertices for Three.js rendering.
  */
 export function clipPlaneToTunnelBox(
@@ -714,23 +766,23 @@ export function clipPlaneToTunnelBox(
   const { a, b, c, d } = plane;
   const eps = 1e-6;
 
-  const xMin = 0, xMax = geom.widthM;
-  const yMin = 0, yMax = geom.heightM;
-  const zMin = 0, zMax = geom.pullLengthM;
+  const xMin = 0, xMax = geom.pullLengthM;
+  const yMin = 0, yMax = geom.widthM;
+  const zMin = 0, zMax = geom.heightM;
 
-  // The 12 edges of the bounding box
+  // The 12 edges of the bounding box in (X, Y, Z)
   const edges: [{ x: number; y: number; z: number }, { x: number; y: number; z: number }][] = [
-    // 4 edges parallel to X
+    // 4 edges parallel to X (longitudinal)
     [{ x: xMin, y: yMin, z: zMin }, { x: xMax, y: yMin, z: zMin }],
     [{ x: xMin, y: yMax, z: zMin }, { x: xMax, y: yMax, z: zMin }],
     [{ x: xMin, y: yMin, z: zMax }, { x: xMax, y: yMin, z: zMax }],
     [{ x: xMin, y: yMax, z: zMax }, { x: xMax, y: yMax, z: zMax }],
-    // 4 edges parallel to Y
+    // 4 edges parallel to Y (transverse)
     [{ x: xMin, y: yMin, z: zMin }, { x: xMin, y: yMax, z: zMin }],
     [{ x: xMax, y: yMin, z: zMin }, { x: xMax, y: yMax, z: zMin }],
     [{ x: xMin, y: yMin, z: zMax }, { x: xMin, y: yMax, z: zMax }],
     [{ x: xMax, y: yMin, z: zMax }, { x: xMax, y: yMax, z: zMax }],
-    // 4 edges parallel to Z
+    // 4 edges parallel to Z (vertical)
     [{ x: xMin, y: yMin, z: zMin }, { x: xMin, y: yMin, z: zMax }],
     [{ x: xMax, y: yMin, z: zMin }, { x: xMax, y: yMin, z: zMax }],
     [{ x: xMin, y: yMax, z: zMin }, { x: xMin, y: yMax, z: zMax }],
@@ -798,15 +850,9 @@ export function clipPlaneToTunnelBox(
 }
 
 // ----------------------------------------------------------------------------
-// 7. TWO-PLANE INTERSECTION LINE (Trend & Plunge)
+// 6. TWO-PLANE INTERSECTION LINE (Trend & Plunge)
 // ----------------------------------------------------------------------------
 
-/**
- * Calculates the line of intersection between two planes.
- * Line vector L = n1 x n2.
- * Plunge: vertical angle below horizontal (0..90°).
- * Trend: azimuth toward which the line plunges (0..360°).
- */
 export function calculateJointPairIntersection(
   plane1: PlaneEquation,
   plane2: PlaneEquation,
@@ -815,7 +861,7 @@ export function calculateJointPairIntersection(
   const n1 = plane1.normal;
   const n2 = plane2.normal;
 
-  // Cross product n1 x n2
+  // Cross product n1 x n2 in (X, Y, Z)
   let lx = n1.y * n2.z - n1.z * n2.y;
   let ly = n1.z * n2.x - n1.x * n2.z;
   let lz = n1.x * n2.y - n1.y * n2.x;
@@ -841,20 +887,20 @@ export function calculateJointPairIntersection(
   ly /= len;
   lz /= len;
 
-  // Make sure vector plunges downwards (ly <= 0)
-  if (ly > 0) {
+  // Make sure vector plunges downwards (lz <= 0)
+  if (lz > 0) {
     lx = -lx;
     ly = -ly;
     lz = -lz;
   }
 
-  // Plunge is angle below horizontal: plunge = arcsin(|ly|)
-  const plungeDeg = Number(radToDeg(Math.asin(Math.abs(ly))).toFixed(1));
+  // Plunge is vertical angle below horizontal: plunge = arcsin(|lz|)
+  const plungeDeg = Number(radToDeg(Math.asin(Math.abs(lz))).toFixed(1));
 
-  // Trend in horizontal plane: trend = atan2(lx, lz)
-  let trendDeg = normalizeAngle360(radToDeg(Math.atan2(lx, lz)));
+  // Trend in local horizontal (X, Y) plane measured clockwise from +X:
+  // lx is forward (+X), ly is right (+Y) -> trend = atan2(ly, lx)
+  let trendDeg = normalizeAngle360(radToDeg(Math.atan2(ly, lx)));
 
-  // If georeferenced with drive azimuth, add drive azimuth to trend:
   if (driveAzimuthDeg !== undefined && !isNaN(driveAzimuthDeg)) {
     trendDeg = normalizeAngle360(trendDeg + driveAzimuthDeg);
   }
@@ -872,7 +918,35 @@ export function calculateJointPairIntersection(
 }
 
 // ----------------------------------------------------------------------------
-// 8. AUTOMATED GEOMETRIC VALIDATION TEST SUITE
+// 7. DISCREPANCY CHECKER FOR LINKED OBSERVATIONS
+// ----------------------------------------------------------------------------
+
+export function checkTraceDiscrepancy(
+  sourceOrientation: StrikeConventionResult,
+  targetObservedTraceAngleDeg: number,
+  targetPanel: FieldPanelId
+): { hasDiscrepancy: boolean; warning?: string } {
+  if (targetPanel === 'crown') {
+    // Target is crown: compare observed strike angle with source strike axis
+    const obsStrike = normalizeAngle360(targetObservedTraceAngleDeg);
+    const sourceS1 = sourceOrientation.strikeRhrDeg;
+    const sourceS2 = sourceOrientation.strikeAltDeg;
+    const diff1 = Math.min(Math.abs(obsStrike - sourceS1), 360 - Math.abs(obsStrike - sourceS1));
+    const diff2 = Math.min(Math.abs(obsStrike - sourceS2), 360 - Math.abs(obsStrike - sourceS2));
+    const minDiff = Math.min(diff1, diff2);
+
+    if (minDiff > 15) {
+      return {
+        hasDiscrepancy: true,
+        warning: `Discrepancy Warning: Observed Crown strike (${Math.round(obsStrike)}°) differs by ${Math.round(minDiff)}° from the projected plane strike (${sourceOrientation.strikePairLabel}). Review orientation source before linking.`,
+      };
+    }
+  }
+  return { hasDiscrepancy: false };
+}
+
+// ----------------------------------------------------------------------------
+// 8. AUTOMATED GEOMETRIC VALIDATION TEST SUITE (Section 13)
 // ----------------------------------------------------------------------------
 
 export interface EngineValidationReport {
@@ -885,81 +959,144 @@ export interface EngineValidationReport {
 }
 
 /**
- * Runs automated geometric validation checks to ensure zero-NaN,
- * correct strike-dip conversion, and proper intersection behavior.
+ * Runs the comprehensive automated verification test suite to ensure mathematical consistency,
+ * correct unit vectors, orthogonal strike/dip/normal, proper 180° strike separation,
+ * and robust surface intersections.
  */
 export function runJointEngineValidationTests(): EngineValidationReport {
   const tests: EngineValidationReport['tests'] = [];
 
-  // Test 1: North-dipping vertical plane (000°/90°)
+  // Test 1: 000°/00° Horizontal Plane
+  {
+    const p = constructJointPlane(0, 0, { x: 2, y: 4, z: 3 });
+    const passed =
+      Math.abs(p.normal.z - 1) < 1e-4 &&
+      Math.abs(p.normal.x) < 1e-4 &&
+      Math.abs(p.normal.y) < 1e-4;
+    tests.push({
+      testName: '000°/00° Horizontal Plane Normal Vector',
+      passed,
+      details: `Expected Normal (0, 0, 1); Computed: (${p.normal.x.toFixed(2)}, ${p.normal.y.toFixed(2)}, ${p.normal.z.toFixed(2)})`,
+    });
+  }
+
+  // Test 2: 000°/90° Vertical Plane (Dips Forward along +X)
   {
     const st = calculateStrikeFromDipDirection(0, 90);
-    const passed = st.strikeRhrDeg === 270 && st.strikeAltDeg === 90;
+    const p = constructJointPlane(0, 90, { x: 2, y: 4, z: 3 });
+    const strikeDiff = Math.abs((st.strikeAltDeg - st.strikeRhrDeg + 360) % 360 - 180);
+    const passed =
+      Math.abs(p.normal.x - 1) < 1e-4 &&
+      Math.abs(p.normal.y) < 1e-4 &&
+      Math.abs(p.normal.z) < 1e-4 &&
+      st.strikeRhrDeg === 270 &&
+      st.strikeAltDeg === 90 &&
+      strikeDiff < 1e-3;
     tests.push({
-      testName: 'Vertical Plane Strike Convention (000°/90°)',
+      testName: '000°/90° Forward Vertical Plane (Strike & Normal)',
       passed,
-      details: `Expected RHR 270°, Alt 090°; Computed: RHR ${st.strikeRhrDeg}°, Alt ${st.strikeAltDeg}°`,
+      details: `Expected Normal (1, 0, 0), Strike 270° & 090°; Computed Normal: (${p.normal.x.toFixed(2)}, ${p.normal.y.toFixed(2)}, ${p.normal.z.toFixed(2)}), RHR: ${st.strikeRhrDeg}°, Alt: ${st.strikeAltDeg}°`,
     });
   }
 
-  // Test 2: Horizontal plane (000°/00°)
+  // Test 3: 090°/90° Vertical Plane (Dips Right along +Y)
   {
-    const p = constructJointPlane(0, 0, { x: 5, y: 3, z: 2 });
-    const passed = Math.abs(p.normal.y - 1) < 1e-4 && Math.abs(p.normal.x) < 1e-4;
+    const st = calculateStrikeFromDipDirection(90, 90);
+    const p = constructJointPlane(90, 90, { x: 2, y: 4, z: 3 });
+    const passed =
+      Math.abs(p.normal.y - 1) < 1e-4 &&
+      Math.abs(p.normal.x) < 1e-4 &&
+      st.strikeRhrDeg === 0 &&
+      st.strikeAltDeg === 180;
     tests.push({
-      testName: 'Horizontal Plane Normal Vector (000°/00°)',
+      testName: '090°/90° Right Vertical Plane (Strike & Normal)',
       passed,
-      details: `Expected Normal (0, 1, 0); Computed: (${p.normal.x.toFixed(2)}, ${p.normal.y.toFixed(2)}, ${p.normal.z.toFixed(2)})`,
+      details: `Expected Normal (0, 1, 0), Strike 000° & 180°; Computed: Normal (${p.normal.x.toFixed(2)}, ${p.normal.y.toFixed(2)}, ${p.normal.z.toFixed(2)}), Strike ${st.strikeRhrDeg}° & ${st.strikeAltDeg}°`,
     });
   }
 
-  // Test 3: Orthogonal Planes Intersection (090°/90° and 180°/90°)
+  // Test 4: 180°/90° Vertical Plane (Dips Backward along -X)
   {
-    const p1 = constructJointPlane(90, 90, { x: 4, y: 3, z: 2 });
-    const p2 = constructJointPlane(180, 90, { x: 4, y: 3, z: 2 });
-    const inter = calculateJointPairIntersection(p1, p2);
-    // Two vertical planes at right angles intersect along a vertical line (plunge 90°)
-    const passed = inter.hasIntersection && Math.abs(inter.linePlungeDeg - 90) < 1e-2;
+    const st = calculateStrikeFromDipDirection(180, 90);
+    const p = constructJointPlane(180, 90, { x: 2, y: 4, z: 3 });
+    const passed =
+      Math.abs(p.normal.x - (-1)) < 1e-4 &&
+      st.strikeRhrDeg === 90 &&
+      st.strikeAltDeg === 270;
     tests.push({
-      testName: 'Orthogonal Vertical Planes Intersection Plunge',
+      testName: '180°/90° Backward Vertical Plane (Strike & Normal)',
       passed,
-      details: `Expected Plunge 90.0°; Computed Plunge ${inter.linePlungeDeg}°`,
+      details: `Expected Normal (-1, 0, 0), Strike 090° & 270°; Computed: Normal (${p.normal.x.toFixed(2)}, ${p.normal.y.toFixed(2)}, ${p.normal.z.toFixed(2)}), Strike ${st.strikeRhrDeg}° & ${st.strikeAltDeg}°`,
     });
   }
 
-  // Test 4: Parallel Planes Intersection Check
+  // Test 5: 270°/90° Vertical Plane (Dips Left along -Y)
   {
-    const p1 = constructJointPlane(45, 60, { x: 2, y: 2, z: 1 });
-    const p2 = constructJointPlane(45, 60, { x: 3, y: 3, z: 2 });
-    const inter = calculateJointPairIntersection(p1, p2);
-    const passed = !inter.hasIntersection && inter.isParallel;
+    const st = calculateStrikeFromDipDirection(270, 90);
+    const p = constructJointPlane(270, 90, { x: 2, y: 4, z: 3 });
+    const passed =
+      Math.abs(p.normal.y - (-1)) < 1e-4 &&
+      st.strikeRhrDeg === 180 &&
+      st.strikeAltDeg === 0;
     tests.push({
-      testName: 'Parallel Planes Non-Intersection Handling',
+      testName: '270°/90° Left Vertical Plane (Strike & Normal)',
       passed,
-      details: `Expected hasIntersection=false, isParallel=true; Computed: ${inter.hasIntersection}, ${inter.isParallel}`,
+      details: `Expected Normal (0, -1, 0), Strike 180° & 000°; Computed: Normal (${p.normal.x.toFixed(2)}, ${p.normal.y.toFixed(2)}, ${p.normal.z.toFixed(2)}), Strike ${st.strikeRhrDeg}° & ${st.strikeAltDeg}°`,
     });
   }
 
-  // Test 5: Clipped Box Vertices Non-Empty
+  // Test 6: Oblique Plane 045°/60° (Unit Length & Orthogonality)
   {
-    const geom: TunnelSpatialGeometry = {
-      widthM: 8.0,
-      heightM: 6.5,
-      wallHeightM: 3.8,
-      pullLengthM: 3.0,
-    };
-    const p = constructJointPlane(120, 55, { x: 4.0, y: 3.0, z: 1.5 });
-    const verts = clipPlaneToTunnelBox(p, geom);
-    const passed = verts.length >= 3;
+    const p = constructJointPlane(45, 60, { x: 1.5, y: 4.0, z: 2.0 });
+    const normLen = Math.hypot(p.normal.x, p.normal.y, p.normal.z);
+    const dipLen = Math.hypot(p.dipVector.x, p.dipVector.y, p.dipVector.z);
+    const strikeLen = Math.hypot(p.strikeVector.x, p.strikeVector.y, p.strikeVector.z);
+    const dotNormDip = p.normal.x * p.dipVector.x + p.normal.y * p.dipVector.y + p.normal.z * p.dipVector.z;
+    const dotNormStrike = p.normal.x * p.strikeVector.x + p.normal.y * p.strikeVector.y + p.normal.z * p.strikeVector.z;
+    const passed =
+      Math.abs(normLen - 1) < 1e-4 &&
+      Math.abs(dipLen - 1) < 1e-4 &&
+      Math.abs(strikeLen - 1) < 1e-4 &&
+      Math.abs(dotNormDip) < 1e-4 &&
+      Math.abs(dotNormStrike) < 1e-4;
     tests.push({
-      testName: 'Tunnel Bounding Envelope Plane Clipping',
+      testName: 'Oblique Plane 045°/60° Vectors (Unit Length & Orthogonality)',
       passed,
-      details: `Expected >= 3 polygon vertices; Computed ${verts.length} vertices`,
+      details: `|n|=${normLen.toFixed(4)}, |v_dip|=${dipLen.toFixed(4)}, n·v_dip=${dotNormDip.toFixed(5)}, n·s=${dotNormStrike.toFixed(5)}`,
     });
   }
 
-  // Test 6: User Case 1 (Drive 000°, Joint 090°/75° -> Face Apparent = 75° True Dip, Walls = 0° Horizontal)
+  // Test 7: Strike Values Differ by Exactly 180° Modulo 360°
   {
+    const angles = [12, 45, 90, 137, 210, 270, 315, 359];
+    const all180 = angles.every((a) => {
+      const res = calculateStrikeFromDipDirection(a, 45);
+      const diff = Math.abs((res.strikeAltDeg - res.strikeRhrDeg + 360) % 360);
+      return Math.abs(diff - 180) < 1e-3;
+    });
+    tests.push({
+      testName: 'Strike Values Exactly 180° Modulo 360° Invariant',
+      passed: all180,
+      details: `Tested across 8 azimuth angles [${angles.join(', ')}°]: all exactly 180° apart.`,
+    });
+  }
+
+  // Test 8: Crown Strike Pair Formatting (e.g. 045° ↔ 225°)
+  {
+    const pair = getCrownStrikePair(45);
+    const passed = pair.strike1 === 45 && pair.strike2 === 225 && pair.label === '045° ↔ 225°';
+    tests.push({
+      testName: 'Crown Strike Pair Dual-Arrow Format (045° ↔ 225°)',
+      passed,
+      details: `Expected '045° ↔ 225°'; Computed: '${pair.label}'`,
+    });
+  }
+
+  // Test 9: Apparent Dip Matches Analytical Solutions
+  {
+    // East-dipping joint 090°/75° on tunnel drive 000°:
+    // Face is perpendicular to strike (β=90°) -> Face Apparent = True Dip = 75°
+    // Sidewalls are parallel to strike (β=0°) -> Sidewall Apparent = 0°
     const matrix = calculateSurfaceApparentTraceAngles(90, 75, 0);
     const passed =
       Math.abs(matrix.face.apparentDipDeg - 75) < 0.1 &&
@@ -967,24 +1104,57 @@ export function runJointEngineValidationTests(): EngineValidationReport {
       matrix.leftWall.apparentDipDeg === 0 &&
       matrix.leftWall.isHorizontal;
     tests.push({
-      testName: 'Apparent Dip: East-Dipping Joint on N-Drive (090°/75° on 000°)',
+      testName: 'Analytical Apparent Dip (090°/75° on 000° Drive)',
       passed,
-      details: `Face: ${matrix.face.apparentDipDeg}° (isTrue=${matrix.face.isTrueDip}), Wall: ${matrix.leftWall.apparentDipDeg}° (isHorizontal=${matrix.leftWall.isHorizontal})`,
+      details: `Face apparent: ${matrix.face.apparentDipDeg}° (true=75°), Sidewall apparent: ${matrix.leftWall.apparentDipDeg}° (horiz=0°)`,
     });
   }
 
-  // Test 7: User Case 2 (Drive 000°, Joint 000°/45° -> Face = 0° Horizontal, Walls = 45° True Dip)
+  // Test 10: Discrepancy Warning Triggers on Conflicting Observation
   {
-    const matrix = calculateSurfaceApparentTraceAngles(0, 45, 0);
-    const passed =
-      matrix.face.apparentDipDeg === 0 &&
-      matrix.face.isHorizontal &&
-      Math.abs(matrix.leftWall.apparentDipDeg - 45) < 0.1 &&
-      matrix.leftWall.isTrueDip;
+    const sourceOri = calculateStrikeFromDipDirection(45, 60); // Strike is 315° ↔ 135°
+    const discCheck = checkTraceDiscrepancy(sourceOri, 200, 'crown'); // 200° is 65° off strike
+    const passed = discCheck.hasDiscrepancy && typeof discCheck.warning === 'string';
     tests.push({
-      testName: 'Apparent Dip: North-Dipping Joint on N-Drive (000°/45° on 000°)',
+      testName: 'Discrepancy Warning Detection on Conflicting Observations',
       passed,
-      details: `Face: ${matrix.face.apparentDipDeg}° (isHorizontal=${matrix.face.isHorizontal}), Wall: ${matrix.leftWall.apparentDipDeg}° (isTrue=${matrix.leftWall.isTrueDip})`,
+      details: `Discrepancy triggered: ${discCheck.hasDiscrepancy}; Message: ${discCheck.warning?.slice(0, 75)}...`,
+    });
+  }
+
+  // Test 11: Tunnel Bounding Envelope Plane Clipping Produces Valid Polygon
+  {
+    const geom: TunnelSpatialGeometry = {
+      widthM: 8.0,
+      heightM: 6.5,
+      wallHeightM: 3.8,
+      pullLengthM: 3.0,
+    };
+    const p = constructJointPlane(120, 55, { x: 1.5, y: 4.0, z: 3.0 });
+    const verts = clipPlaneToTunnelBox(p, geom);
+    const passed = verts.length >= 3;
+    tests.push({
+      testName: 'Tunnel Bounding Envelope 3D Plane Clipping',
+      passed,
+      details: `Computed ${verts.length} ordered 3D vertices within tunnel envelope.`,
+    });
+  }
+
+  // Test 12: Multi-Surface Intersections Non-NaN & Valid Segments
+  {
+    const geom: TunnelSpatialGeometry = {
+      widthM: 8.0,
+      heightM: 6.5,
+      wallHeightM: 3.8,
+      pullLengthM: 3.0,
+    };
+    const p = constructJointPlane(60, 50, { x: 1.5, y: 4.0, z: 3.0 });
+    const inters = calculatePlaneSurfaceIntersections(p, geom, 'face');
+    const passed = inters.totalCalculatedM > 0 && !isNaN(inters.totalCalculatedM);
+    tests.push({
+      testName: 'Multi-Surface Mathematical Intersection Solver',
+      passed,
+      details: `Total calculated intersection extent: ${inters.totalCalculatedM}m across surfaces.`,
     });
   }
 

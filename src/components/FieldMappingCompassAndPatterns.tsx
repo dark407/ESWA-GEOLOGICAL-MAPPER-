@@ -30,6 +30,10 @@ import {
 import {
   Compass,
 } from 'lucide-react';
+import {
+  getTunnelRelativeDirectionLabel,
+  getCrownStrikePair,
+} from '../engine/joint3DInspectorEngine';
 
 /**
  * Geological SVG Hatch Patterns
@@ -1578,13 +1582,27 @@ export const FieldLiveCompassInclinometer: React.FC<
   const incTipX = incPivotX + incRadius * Math.cos(incRad);
   const incTipY = incPivotY + incRadius * Math.sin(incRad);
 
+  const isCrown = activePanel === 'crown';
+  const crownStrike = ((safeDipDir - 90) % 360 + 360) % 360;
+  const crownStrikePair = getCrownStrikePair(crownStrike);
+  const relDirLabel = getTunnelRelativeDirectionLabel(safeDipDir);
+
+  // Strike vector angle in SVG dial coordinates for Crown
+  const strikeRelativeDeg = (((crownStrike - panelTopAz) % 360) + 360) % 360;
+  const strikeRad1 = ((strikeRelativeDeg - 90) * Math.PI) / 180;
+  const strikeRad2 = strikeRad1 + Math.PI;
+  const sTip1X = 75 + 48 * Math.cos(strikeRad1);
+  const sTip1Y = 75 + 48 * Math.sin(strikeRad1);
+  const sTip2X = 75 + 48 * Math.cos(strikeRad2);
+  const sTip2Y = 75 + 48 * Math.sin(strikeRad2);
+
   return (
     <div className="flex flex-col gap-2 bg-slate-900 text-slate-100 rounded-xl p-2.5 border border-slate-700 select-none">
       <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
         <div className="flex items-center gap-1.5">
           <Compass className="w-4 h-4 text-amber-400" />
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-100">
-            Field Compass &amp; Clinometer
+            {isCrown ? 'Crown Strike & Clinometer' : 'Tunnel-Relative Compass & Clinometer'}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
@@ -1648,34 +1666,40 @@ export const FieldLiveCompassInclinometer: React.FC<
         </div>
       )}
 
-      {/* Side-by-Side Stagnant Tunnel-Drive Compass & Clinometer Dials */}
+      {/* Side-by-Side Compass/Strike & Clinometer Dials */}
       <div className="grid grid-cols-2 gap-2 items-center">
-        {/* 1. STAGNANT TUNNEL-DRIVE COMPASS (Dip Direction 0-360° Real Azimuths) */}
+        {/* 1. TUNNEL-RELATIVE COMPASS (FACE/WALLS) OR DUAL-STRIKE AXIS DIAL (CROWN) */}
         <div className="flex flex-col items-center bg-slate-950/80 rounded-lg p-1.5 border border-slate-800">
-          <div className="text-[10px] font-mono text-slate-400 mb-0.5">
-            Drive:{' '}
-            <strong className="text-cyan-400">
-              {String(normDrive).padStart(3, '0')}°
-            </strong>{' '}
-            · Dip:{' '}
-            <strong className="text-amber-400">
-              {String(safeDipDir).padStart(3, '0')}°
-            </strong>
+          <div className="text-[10px] font-mono text-slate-400 mb-0.5 truncate max-w-[150px]">
+            {isCrown ? (
+              <>
+                Strike: <strong className="text-amber-400">{crownStrikePair.label}</strong>
+              </>
+            ) : (
+              <>
+                Dip: <strong className="text-amber-400">{String(safeDipDir).padStart(3, '0')}° ({relDirLabel})</strong>
+              </>
+            )}
           </div>
           <svg
             ref={compassSvgRef}
             viewBox="0 0 150 150"
-            className="w-20 h-20 sm:w-24 sm:h-24 xl:w-28 xl:h-28 touch-none cursor-grab active:cursor-grabbing"
+            className={`w-20 h-20 sm:w-24 sm:h-24 xl:w-28 xl:h-28 touch-none ${
+              isCrown ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
+            }`}
             onPointerDown={(e) => {
+              if (isCrown) return; // Crown must NOT provide direct dip-direction editing
               e.currentTarget.setPointerCapture(e.pointerId);
               setDraggingCompass(true);
               updateCompassFromPointer(e.clientX, e.clientY);
             }}
             onPointerMove={(e) => {
-              if (!draggingCompass) return;
+              if (isCrown || !draggingCompass) return;
               updateCompassFromPointer(e.clientX, e.clientY);
             }}
-            onPointerUp={() => setDraggingCompass(false)}
+            onPointerUp={() => {
+              if (!isCrown) setDraggingCompass(false);
+            }}
           >
             <circle
               cx="75"
@@ -1697,116 +1721,145 @@ export const FieldLiveCompassInclinometer: React.FC<
             <line x1="75" y1="21" x2="75" y2="129" stroke="#1e293b" strokeWidth="1" />
             <line x1="21" y1="75" x2="129" y2="75" stroke="#1e293b" strokeWidth="1" />
 
-            {/* Tunnel Drive Direction Arrow (Top for Face, Right for Left Wall & Crown, Left for Right Wall) */}
-            {activePanel === 'left_wall' || activePanel === 'crown' ? (
-              <polygon points="146,75 134,69 134,81" fill="#22d3ee" />
-            ) : activePanel === 'right_wall' ? (
-              <polygon points="4,75 16,69 16,81" fill="#22d3ee" />
-            ) : (
-              <polygon points="75,4 69,16 81,16" fill="#22d3ee" />
-            )}
-
+            {/* Tunnel Reference Direction Labels (000° FORWARD, 090° RIGHT, 180° BACKWARD, 270° LEFT) */}
+            <polygon points="75,5 70,15 80,15" fill="#22d3ee" />
             <text
               x="75"
-              y="26"
+              y="25"
               textAnchor="middle"
-              fill={activePanel === 'face' ? '#22d3ee' : '#cbd5e1'}
-              fontSize="9.5"
+              fill="#22d3ee"
+              fontSize="8.5"
               fontWeight="bold"
               fontFamily="monospace"
             >
-              {String(panelTopAz).padStart(3, '0')}°
+              000° FWD
             </text>
             <text
               x="128"
               y="78"
               textAnchor="middle"
-              fill={activePanel === 'left_wall' || activePanel === 'crown' ? '#22d3ee' : '#cbd5e1'}
-              fontSize="8.5"
+              fill="#cbd5e1"
+              fontSize="7.5"
               fontWeight="bold"
               fontFamily="monospace"
             >
-              {String((panelTopAz + 90) % 360).padStart(3, '0')}°
+              090° R
             </text>
             <text
               x="22"
               y="78"
               textAnchor="middle"
-              fill={activePanel === 'right_wall' ? '#22d3ee' : '#cbd5e1'}
-              fontSize="8.5"
+              fill="#cbd5e1"
+              fontSize="7.5"
               fontWeight="bold"
               fontFamily="monospace"
             >
-              {String((panelTopAz + 270) % 360).padStart(3, '0')}°
+              270° L
             </text>
             <text
               x="75"
               y="136"
               textAnchor="middle"
               fill="#94a3b8"
-              fontSize="8.5"
+              fontSize="7.5"
               fontWeight="bold"
               fontFamily="monospace"
             >
-              {String((panelTopAz + 180) % 360).padStart(3, '0')}°
+              180° BACK
             </text>
 
-            {/* Rotatable Inner Dip Direction Compass Needle (Red/Amber North-Dip Pointer + Silver Tail) */}
-            <polygon
-              points={`${tailX},${tailY} ${sideLx},${sideLy} ${sideRx},${sideRy}`}
-              fill="#94a3b8"
-              stroke="#0f172a"
-              strokeWidth="1"
-            />
-            <polygon
-              points={`${tipX},${tipY} ${sideLx},${sideLy} ${sideRx},${sideRy}`}
-              fill="#f59e0b"
-              stroke="#fef3c7"
-              strokeWidth="1.2"
-            />
-            <circle
-              cx={tipX}
-              cy={tipY}
-              r="4.5"
-              fill="#ef4444"
-              stroke="#ffffff"
-              strokeWidth="1.2"
-            />
-            <circle
-              cx="75"
-              cy="75"
-              r="5.5"
-              fill="#f8fafc"
-              stroke="#0f172a"
-              strokeWidth="1.8"
-            />
+            {isCrown ? (
+              /* Crown Mode: Collinear Bidirectional Dual Strike Needles (Differing by exactly 180°) */
+              <g>
+                {/* Collinear strike axis bar */}
+                <line
+                  x1={sTip1X}
+                  y1={sTip1Y}
+                  x2={sTip2X}
+                  y2={sTip2Y}
+                  stroke="#f59e0b"
+                  strokeWidth="3.2"
+                  strokeLinecap="round"
+                />
+                {/* Arrowhead 1 */}
+                <circle cx={sTip1X} cy={sTip1Y} r="5" fill="#38bdf8" stroke="#ffffff" strokeWidth="1.2" />
+                {/* Arrowhead 2 (opposite direction) */}
+                <circle cx={sTip2X} cy={sTip2Y} r="5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.2" />
+                <circle cx="75" cy="75" r="5.5" fill="#f8fafc" stroke="#0f172a" strokeWidth="1.8" />
+              </g>
+            ) : (
+              /* Face/Wall Mode: Rotatable Dip-Direction Pointer */
+              <g>
+                <polygon
+                  points={`${tailX},${tailY} ${sideLx},${sideLy} ${sideRx},${sideRy}`}
+                  fill="#94a3b8"
+                  stroke="#0f172a"
+                  strokeWidth="1"
+                />
+                <polygon
+                  points={`${tipX},${tipY} ${sideLx},${sideLy} ${sideRx},${sideRy}`}
+                  fill="#f59e0b"
+                  stroke="#fef3c7"
+                  strokeWidth="1.2"
+                />
+                <circle
+                  cx={tipX}
+                  cy={tipY}
+                  r="4.5"
+                  fill="#ef4444"
+                  stroke="#ffffff"
+                  strokeWidth="1.2"
+                />
+                <circle
+                  cx="75"
+                  cy="75"
+                  r="5.5"
+                  fill="#f8fafc"
+                  stroke="#0f172a"
+                  strokeWidth="1.8"
+                />
+              </g>
+            )}
           </svg>
 
-          <div className="flex items-center justify-between w-full mt-1 px-1">
-            <button
-              type="button"
-              onClick={() => onChangeDipDirection((safeDipDir - 2 + 360) % 360)}
-              className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[10px] font-mono cursor-pointer"
-              title="Decrease Dip Direction"
-            >
-              ◄
-            </button>
-            <span className="text-xs font-mono font-bold text-amber-400">
-              {String(safeDipDir).padStart(3, '0')}°
-            </span>
-            <button
-              type="button"
-              onClick={() => onChangeDipDirection((safeDipDir + 2) % 360)}
-              className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[10px] font-mono cursor-pointer"
-              title="Increase Dip Direction"
-            >
-              ►
-            </button>
-          </div>
-          <span className="text-[9px] text-slate-400">Dip Direction (000°–360°)</span>
+          {isCrown ? (
+            <div className="flex flex-col items-center w-full mt-1 px-1 text-center">
+              <span className="text-[10px] font-mono font-bold text-amber-400">
+                {crownStrikePair.label}
+              </span>
+              <span className="text-[8px] text-slate-400 italic">
+                Crown Strike Axis (No Dip Edit)
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between w-full mt-1 px-1">
+                <button
+                  type="button"
+                  onClick={() => onChangeDipDirection((safeDipDir - 2 + 360) % 360)}
+                  className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[10px] font-mono cursor-pointer"
+                  title="Decrease Dip Direction"
+                >
+                  ◄
+                </button>
+                <span className="text-xs font-mono font-bold text-amber-400">
+                  {String(safeDipDir).padStart(3, '0')}°
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onChangeDipDirection((safeDipDir + 2) % 360)}
+                  className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[10px] font-mono cursor-pointer"
+                  title="Increase Dip Direction"
+                >
+                  ►
+                </button>
+              </div>
+              <span className="text-[9px] text-slate-400">{relDirLabel} (000°–360°)</span>
+            </>
+          )}
         </div>
 
-        {/* 2. FIELD INCLINOMETER (Dip Amount 0-90°) */}
+        {/* 2. FIELD INCLINOMETER (Dip Amount 0-90° across All Panels) */}
         <div className="flex flex-col items-center bg-slate-950/80 rounded-lg p-1.5 border border-slate-800">
           <div className="text-[10px] font-mono text-slate-400 mb-0.5">
             Inclinometer:{' '}
@@ -1910,27 +1963,34 @@ export const FieldLiveCompassInclinometer: React.FC<
               ►
             </button>
           </div>
-          <span className="text-[9px] text-slate-400">Dip Amount (0–90°)</span>
+          <span className="text-[9px] text-slate-400">Dip Angle (0–90°)</span>
         </div>
       </div>
 
       {/* Direct Numeric Fine Edit Row */}
       <div className="grid grid-cols-2 gap-2 pt-0.5">
-        <label className="flex items-center justify-between bg-slate-800/80 px-2 py-1 rounded text-[10px] font-mono">
-          <span className="text-slate-400">Dip Dir°:</span>
-          <input
-            type="number"
-            min={0}
-            max={360}
-            value={dipDirection}
-            onChange={(e) =>
-              onChangeDipDirection(
-                ((parseInt(e.target.value, 10) || 0) % 360 + 360) % 360
-              )
-            }
-            className="w-12 text-right font-bold text-amber-300 bg-transparent focus:outline-none"
-          />
-        </label>
+        {isCrown ? (
+          <div className="flex items-center justify-between bg-slate-800/80 px-2 py-1 rounded text-[10px] font-mono">
+            <span className="text-slate-400">Strike:</span>
+            <span className="font-bold text-amber-300">{crownStrikePair.label}</span>
+          </div>
+        ) : (
+          <label className="flex items-center justify-between bg-slate-800/80 px-2 py-1 rounded text-[10px] font-mono">
+            <span className="text-slate-400">Dip Dir°:</span>
+            <input
+              type="number"
+              min={0}
+              max={360}
+              value={dipDirection}
+              onChange={(e) =>
+                onChangeDipDirection(
+                  ((parseInt(e.target.value, 10) || 0) % 360 + 360) % 360
+                )
+              }
+              className="w-12 text-right font-bold text-amber-300 bg-transparent focus:outline-none"
+            />
+          </label>
+        )}
         <label className="flex items-center justify-between bg-slate-800/80 px-2 py-1 rounded text-[10px] font-mono">
           <span className="text-slate-400">Dip Amt°:</span>
           <input
@@ -1950,6 +2010,7 @@ export const FieldLiveCompassInclinometer: React.FC<
     </div>
   );
 };
+
 
 /**
  * Renders an ISRM / USGS Structural Feature (Fault, Thrust Fault, Shear Zone, Fold Axis, Contact, Overbreak)

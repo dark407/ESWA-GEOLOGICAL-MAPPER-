@@ -36,6 +36,10 @@ import { MiningStopeFaceInspectorModal } from './MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
 import { NatmJoint3DInspectorModal } from './NatmJoint3DInspectorModal';
 import {
+  getTunnelRelativeDirectionLabel,
+  getCrownStrikePair,
+} from '../engine/joint3DInspectorEngine';
+import {
   addAndRememberCustomRock,
   autoComputeOrientationFromPlot,
   buildDipSurfaceOutlineAndCentroid,
@@ -8357,13 +8361,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               FIELD_JOINT_GROUP_COLORS.unassigned;
                             const isSel = selectedTraceId === tr.id;
                             const baseTrW = Math.max(1.2, Math.min(16, tr.strokeWidthPx ?? 3.6));
+                            const isCrownPanel = panelId === 'crown';
+                            const crownStrikeVal = ((tr.dipDirection - 90) % 360 + 360) % 360;
+                            const crownPair = getCrownStrikePair(crownStrikeVal);
+                            const relDirWord = getTunnelRelativeDirectionLabel(tr.dipDirection);
+                            const prefixLabel = tr.label || (tr.setId && tr.setId !== 'unassigned' ? tr.setId : 'J');
                             const placement = pTraceLabelMap[tr.id];
-                            const prefixLabel =
-                              !tr.setId || tr.setId === 'unassigned' ? 'J' : tr.setId;
-                            const inlineText = `${prefixLabel} ${String(tr.dipDirection).padStart(
-                              3,
-                              '0'
-                            )}°/${tr.dipAmount}°`;
+                            const inlineText = isCrownPanel
+                              ? `${prefixLabel} ${crownPair.label}`
+                              : `${prefixLabel} ${String(tr.dipDirection).padStart(3, '0')}° ${relDirWord} / ${tr.dipAmount}°`;
 
                             const {
                               mid,
@@ -8378,6 +8384,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             const tickLen = isTCanvas ? 12 : 18;
                             const tickX = mid.x + tickUx * tickLen;
                             const tickY = mid.y + tickUy * tickLen;
+
+                            // Bidirectional collinear strike arrows along trace tangent for Crown
+                            const midIdx = Math.floor(mappedPts.length / 2);
+                            const prevPt = mappedPts[Math.max(0, midIdx - 1)];
+                            const nextPt = mappedPts[Math.min(mappedPts.length - 1, midIdx + 1)];
+                            const tDx = nextPt.x - prevPt.x || 1;
+                            const tDy = nextPt.y - prevPt.y || 0;
+                            const tLen = Math.hypot(tDx, tDy) || 1;
+                            const sUx = tDx / tLen;
+                            const sUy = tDy / tLen;
+                            const sArrowLen = isTCanvas ? 14 : 20;
+                            const sHead = isTCanvas ? 3.5 : 5;
 
                             return (
                               <g
@@ -8427,20 +8445,59 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                 />
-                                <line
-                                  x1={mid.x}
-                                  y1={mid.y}
-                                  x2={tickX}
-                                  y2={tickY}
-                                  stroke={grpColor.stroke}
-                                  strokeWidth={isTCanvas ? '2.1' : '2.8'}
-                                />
-                                <circle
-                                  cx={tickX}
-                                  cy={tickY}
-                                  r={isTCanvas ? '1.9' : '2.4'}
-                                  fill={grpColor.stroke}
-                                />
+
+                                {isCrownPanel ? (
+                                  /* Crown: Dual opposite strike arrows along trace */
+                                  <g>
+                                    <line
+                                      x1={mid.x - sUx * sArrowLen}
+                                      y1={mid.y - sUy * sArrowLen}
+                                      x2={mid.x + sUx * sArrowLen}
+                                      y2={mid.y + sUy * sArrowLen}
+                                      stroke={grpColor.stroke}
+                                      strokeWidth={isTCanvas ? '2.4' : '3.2'}
+                                      strokeLinecap="round"
+                                    />
+                                    {/* Forward strike arrow tip */}
+                                    <polygon
+                                      points={`${mid.x + sUx * sArrowLen},${mid.y + sUy * sArrowLen} ${
+                                        mid.x + sUx * (sArrowLen - sHead) - sUy * (sHead * 0.6)
+                                      },${mid.y + sUy * (sArrowLen - sHead) + sUx * (sHead * 0.6)} ${
+                                        mid.x + sUx * (sArrowLen - sHead) + sUy * (sHead * 0.6)
+                                      },${mid.y + sUy * (sArrowLen - sHead) - sUx * (sHead * 0.6)}`}
+                                      fill={grpColor.stroke}
+                                    />
+                                    {/* Opposite strike arrow tip */}
+                                    <polygon
+                                      points={`${mid.x - sUx * sArrowLen},${mid.y - sUy * sArrowLen} ${
+                                        mid.x - sUx * (sArrowLen - sHead) - sUy * (sHead * 0.6)
+                                      },${mid.y - sUy * (sArrowLen - sHead) + sUx * (sHead * 0.6)} ${
+                                        mid.x - sUx * (sArrowLen - sHead) + sUy * (sHead * 0.6)
+                                      },${mid.y - sUy * (sArrowLen - sHead) - sUx * (sHead * 0.6)}`}
+                                      fill={grpColor.stroke}
+                                    />
+                                    <circle cx={mid.x} cy={mid.y} r={isTCanvas ? '2.5' : '3.5'} fill="#ffffff" stroke={grpColor.stroke} strokeWidth="1.5" />
+                                  </g>
+                                ) : (
+                                  /* Face / Sidewalls: Dip-direction arrow */
+                                  <g>
+                                    <line
+                                      x1={mid.x}
+                                      y1={mid.y}
+                                      x2={tickX}
+                                      y2={tickY}
+                                      stroke={grpColor.stroke}
+                                      strokeWidth={isTCanvas ? '2.1' : '2.8'}
+                                    />
+                                    <circle
+                                      cx={tickX}
+                                      cy={tickY}
+                                      r={isTCanvas ? '2.2' : '2.8'}
+                                      fill={grpColor.stroke}
+                                    />
+                                  </g>
+                                )}
+
                                 {placement && (
                                   <text
                                     x={placement.x}
@@ -8449,7 +8506,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     transform={`rotate(${placement.angleDeg.toFixed(
                                       1
                                     )}, ${placement.x.toFixed(1)}, ${placement.y.toFixed(1)})`}
-                                    fontSize={isTCanvas ? '12.5' : '17'}
+                                    fontSize={isTCanvas ? '11.5' : '15'}
                                     fontWeight="900"
                                     fontFamily="Arial, sans-serif"
                                     fill={grpColor.stroke}

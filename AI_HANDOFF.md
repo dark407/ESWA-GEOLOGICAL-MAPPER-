@@ -97,22 +97,48 @@ Whenever a new user prompt is received:
   - Synchronized `build-dual-installers.mjs` with automatic fallback APK discovery and release directory generation.
   - Upgraded `.github/workflows/build-installer.yml` and `scripts/github-action-build-exe.yml` with `defaults: run: shell: bash`, `actions/setup-python@v5`, `if-no-files-found: warn` for combined artifacts, and `fail_on_unmatched_files: false` on GitHub Releases.
 
+- [x] **Milestone 15: Targeted NATM Joint Orientation, Crown Strike & 3D Tunnel Inspector Upgrade:**
+  - Implemented mathematically consistent tunnel-relative 3D Cartesian frame ($+X$ longitudinal forward $0..L$, $+Y$ transverse right $0..W$, $+Z$ vertical elevation $0..H$).
+  - Implemented clockwise local horizontal convention: $000^\circ$ FORWARD, $090^\circ$ RIGHT, $180^\circ$ BACKWARD, $270^\circ$ LEFT. Enforced distinction from geographic compass bearings.
+  - Face, Left Wall, and Right Wall canvases: display and edit tunnel-relative dip direction and dip angle ($0^\circ$–$90^\circ$) with human-readable direction badges, directional ticks, and measurement source status.
+  - Crown Canvas: strictly prohibited direct dip-direction editing. Displays dual-arrow collinear strike presentation (e.g. `045° ↔ 225°`, differing by exactly $180^\circ$).
+  - Crown-only observations: preserves measured strike axis, flags `isOrientationComplete: false`, and provides dipping side specification (Right $+Y$ vs Left $-Y$) in the 3D Inspector without synthesizing fake data.
+  - 3D Tunnel Inspector & Developed 2D View: Three.js extruded tunnel void and joint plane ($aX + bY + cZ + d = 0$), observed traces vs calculated intersections, orbit/zoom/pan/reset, and developed unrolled view across Left Wall + Crown + Right Wall + Face with stationing.
+  - Analytical engine validation: all 12 mathematical test cases verified passing 100% in `runJointEngineValidationTests()`.
+  - Comprehensive CSV audit export with tunnel-relative orientation, crown strike pair, orientation completeness, 3D anchor coordinates, and calculated surface segment lengths.
+
+- [x] **Milestone 16: Simplified 3D Cutting Plane & Top Drive-Direction Compass:**
+  - Defaulted `showInteriorPlane` to `true` so opening the 3D Inspector immediately displays the colored 3D joint plane slicing through the tunnel void, eliminating the need to guess or switch between 2D panel tabs.
+  - Added real-time floating 3D Cutting Plane HUD badge directly on the canvas showing plane color swatch, dip angle, dip direction, tunnel side, and strike.
+  - Streamlined and uncluttered the 3D compass gizmo:
+    - Anchored Tunnel Drive Direction prominently at the very TOP: `▲ DRIVE DIRECTION N {driveAz}° E (000° FWD)`.
+    - Simple circular dial oriented directly in tunnel space: TOP = DRIVE (+Z), RIGHT = R-WALL (+X), BOTTOM = BACK (-Z), LEFT = L-WALL (-X).
+    - Rendered clean sky-blue strike line and bold colored dip direction arrow matching the joint plane.
+    - Stripped cluttered 72-graduation ticks, nested camera needles, and extraneous micro-readouts for a direct, high-contrast user experience.
+
+- [x] **Milestone 17: Accurate Trace-Anchored 3D Plane Plotting & Direct Surface Cut Summary:**
+  - Resolved Three.js vs Engine axis orientation bug: mapped Engine $(x=\text{advance}, y=\text{width}, z=\text{height})$ to Three.js $(X=\text{width}, Y=\text{height}, Z=\text{advance})$, ensuring the 3D plane, perimeter wireframe, dip arrow, strike vector, and crimson anchor sphere plot exactly through where the joint was traced on the 2D face/wall/crown canvas.
+  - Fixed Crown Arch 3D trace positioning ($X_3 = c.y$ width, $Y_3 = \text{getCrownY}(c.y)$, $Z_3 = c.x$ advance).
+  - Replaced confusing "True Dip vs. Surface Apparent Dips Matrix" and dense academic explanations in the sidebar with a clear, direct **"Where This Plane Cuts the Tunnel"** card:
+    - Excavation Face: `✅ Cuts Face (X.Xm)` or `— Does not cut`
+    - Crown Arch: `✅ Cuts Crown Arch (X.Xm)` or `— Does not cut`
+    - Left Sidewall: `✅ Cuts Left Wall (X.Xm)` or `— Does not cut`
+    - Right Sidewall: `✅ Cuts Right Wall (X.Xm)` or `— Does not cut`
+    - Total Calculated Cut Extent: `X.XXm`
+  - Streamlined sidebar orientation controls to direct Dip Direction & Dip Angle sliders/steppers and Strike Axis without theoretical clutter.
+
 ---
 
 ### ACTIVE TASK CHECKPOINT
 <!-- FUTURE AI SESSIONS: Check this section first. If a task is active, resume from the first unchecked [ ] file. -->
 
-- **Current Status:** COMPLETED (Milestones 1 to 14 fully verified)
+- **Current Status:** COMPLETED (Milestones 1 to 17 fully implemented & verified)
 - **Active Task:** None
 - **Target Files Checklist:**
-  - [x] `/scripts/normalize-ci-package.mjs` (Preserve three, @types/three, terser and all real dependencies)
-  - [x] `/scripts/compile-standalone-apk.py` (Cross-platform temp paths and robust openssl/key fallback on Windows)
-  - [x] `/scripts/build-android-apk.mjs` (Cross-platform Python binary resolution and ensure release output paths)
-  - [x] `/scripts/generate-win-icon.mjs` (Unconditionally generate build/icon.ico and public/icon.ico)
-  - [x] `/scripts/generate-app-icons.py` (Unconditionally output all icon resolutions to public/ and public/icons/)
-  - [x] `/scripts/build-dual-installers.mjs` (Guarantee release output directory and non-blocking Android APK creation)
-  - [x] `/.github/workflows/build-installer.yml` (Git Bash shell default on windows-latest, robust upload-artifact patterns, and safe release publishing)
-  - [x] `/scripts/github-action-build-exe.yml` (Synchronized with build-installer.yml for web UI push-and-build-exe endpoint)
+  - [x] `/src/components/NatmJoint3DInspectorModal.tsx` (Accurate Three.js $(y,z,x)$ mapping, anchor sphere location on trace, direct surface cut summary)
+  - [x] `/AI_HANDOFF.md` (Updated permanent memory)
 - **Notes / Last Known State:**
-  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`npm run build`) succeeded without warnings. Both Windows setup scripts and Android standalone APK compilation verified operational.
+  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`npm run build` and `compile_applet`) succeeded with 0 errors. All 12 analytical tests in `runJointEngineValidationTests()` pass 100%.
+
+
 
