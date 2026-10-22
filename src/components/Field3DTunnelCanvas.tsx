@@ -1943,6 +1943,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       ? { ...pendingTraceSession.rawPointsByPanel }
       : {};
     const newlyCreatedIds: string[] = [];
+    let initialOrientationToEmit: { dipDirection: number; dipAmount: number } | null = null;
 
     onUpdateRound((r) => {
       let nextR = { ...r };
@@ -2016,7 +2017,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             activeLocation.widthM,
             activeLocation.heightM
           );
-          if (idx === 0) onSetLiveOrientation(est.dipDirection, est.dipAmount);
+          if (idx === 0) initialOrientationToEmit = { dipDirection: est.dipDirection, dipAmount: est.dipAmount };
 
           const id = prevStroke ? prevStroke.id : `vein-3d-${now}-${idx}`;
           nextTraceIdsByPanel[run.panel] = id;
@@ -2060,7 +2061,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             activeLocation.widthM,
             activeLocation.heightM
           );
-          if (idx === 0) onSetLiveOrientation(est.dipDirection, est.dipAmount);
+          if (idx === 0) initialOrientationToEmit = { dipDirection: est.dipDirection, dipAmount: est.dipAmount };
           const { outlinePolygon } = buildDipSurfacePolygonWithOutlineSnap(
             combinedPts,
             run.panel,
@@ -2105,7 +2106,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             activeLocation.widthM,
             activeLocation.heightM
           );
-          if (idx === 0) onSetLiveOrientation(est.dipDirection, est.dipAmount);
+          if (idx === 0) initialOrientationToEmit = { dipDirection: est.dipDirection, dipAmount: est.dipAmount };
           const id = prevFeat ? prevFeat.id : `sfeat-3d-${now}-${idx}`;
           nextTraceIdsByPanel[run.panel] = id;
           newlyCreatedIds.push(id);
@@ -2156,7 +2157,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             activeLocation.widthM,
             activeLocation.heightM
           );
-          if (idx === 0) onSetLiveOrientation(est.dipDirection, est.dipAmount);
+          if (idx === 0) initialOrientationToEmit = { dipDirection: est.dipDirection, dipAmount: est.dipAmount };
 
           const newId = prevTr ? prevTr.id : `jtr-3d-${now}-${idx}-${run.panel}`;
           nextTraceIdsByPanel[run.panel] = newId;
@@ -2207,6 +2208,11 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       emitField3DPendingJointChange(true);
     }
 
+    if (initialOrientationToEmit) {
+      const { dipDirection, dipAmount } = initialOrientationToEmit;
+      setTimeout(() => onSetLiveOrientation(dipDirection, dipAmount), 0);
+    }
+
     if (lastCreatedTraceId) {
       onSelectTraceId(lastCreatedTraceId, lastCreatedPanel);
     }
@@ -2217,6 +2223,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
   const handleAdjustSelectedJointAngle = (field: 'dipDirection' | 'dipAmount', delta: number) => {
     if (!selectedTraceId) return;
     onPushUndo();
+    let updatedOrientation: { dipDirection: number; dipAmount: number } | null = null;
     onUpdateRound((r) => {
       const tr = r.jointTraces.find((t) => t.id === selectedTraceId);
       if (!tr) return r;
@@ -2229,7 +2236,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
           ? Math.max(5, Math.min(89, tr.dipAmount + delta))
           : tr.dipAmount;
       const newStrike = (newDipDir + 270) % 360;
-      onSetLiveOrientation(newDipDir, newDipAmt);
+      updatedOrientation = { dipDirection: newDipDir, dipAmount: newDipAmt };
       return {
         ...r,
         jointTraces: r.jointTraces.map((t) =>
@@ -2245,6 +2252,10 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
         ),
       };
     });
+    if (updatedOrientation) {
+      const { dipDirection, dipAmount } = updatedOrientation;
+      setTimeout(() => onSetLiveOrientation(dipDirection, dipAmount), 0);
+    }
   };
 
   const handleDeleteSelectedJoint = (id: string) => {

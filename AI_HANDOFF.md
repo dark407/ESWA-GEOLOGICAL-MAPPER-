@@ -127,18 +127,27 @@ Whenever a new user prompt is received:
     - Total Calculated Cut Extent: `X.XXm`
   - Streamlined sidebar orientation controls to direct Dip Direction & Dip Angle sliders/steppers and Strike Axis without theoretical clutter.
 
+- [x] **Milestone 18: Complete Plane Sizing, Crown Cut Point based on Strike Direction & Crown 2D Canvas Strike-Only Text Box:**
+  - Complete 3D Cutting Plane: Rendered complete, continuous planar sheet through the rock mass and tunnel void scaled dynamically to tunnel dimensions ($\approx 1.15\times - 1.25\times$ tunnel span, $\approx 5.5\text{m}$ half-span based on tunnel $W \approx 8.5\text{m}, H \approx 7.5\text{m}$), eliminating abrupt clipping at tunnel edges while preventing oversized 12m planes.
+  - Golden intersection cut outline rendered where the plane slices through the tunnel perimeter.
+  - Crown cut point: plane cut point on the ceiling arch anchored and oriented along the strike direction. Highlighted in 3D with crimson cut point sphere, golden halo, strike line spanning the arch, and dedicated billboard badges.
+  - Crown 2D canvas for joint tracing: joint trace text boxes, inline labels, live drawing previews, and sidebar listings on the Crown panel display **Strike only** (e.g. `J STR 045° ↔ 225°` or `STR 045° ↔ 225°`) with **no dip angle**.
+
 ---
 
 ### ACTIVE TASK CHECKPOINT
 <!-- FUTURE AI SESSIONS: Check this section first. If a task is active, resume from the first unchecked [ ] file. -->
 
-- **Current Status:** COMPLETED (Milestones 1 to 17 fully implemented & verified)
+- **Current Status:** COMPLETED (Milestones 1 to 18 fully implemented & verified)
 - **Active Task:** None
 - **Target Files Checklist:**
-  - [x] `/src/components/NatmJoint3DInspectorModal.tsx` (Accurate Three.js $(y,z,x)$ mapping, anchor sphere location on trace, direct surface cut summary)
+  - [x] `/src/components/NatmJoint3DInspectorModal.tsx` (Dynamic complete plane sizing ~5.5m, crown strike cut point, golden perimeter intersection)
+  - [x] `/src/engine/fieldMappingEngine.ts` (Crown joint trace inline labels show strike only, no angle)
+  - [x] `/src/components/FieldMappingModeWorkspace.tsx` (Crown 2D canvas trace text, live drawing badge, sidebar cards show strike only)
   - [x] `/AI_HANDOFF.md` (Updated permanent memory)
 - **Notes / Last Known State:**
   - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`npm run build` and `compile_applet`) succeeded with 0 errors. All 12 analytical tests in `runJointEngineValidationTests()` pass 100%.
+
 
 
 

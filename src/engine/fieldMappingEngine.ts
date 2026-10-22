@@ -7,7 +7,7 @@ import {
   evaluateCustomProfileGeometry,
   inferSegmentZoneRole,
 } from './customProfileEngine';
-import type { Joint3DInspectionData } from './joint3DInspectorEngine';
+import { getCrownStrikePair, type Joint3DInspectionData } from './joint3DInspectorEngine';
 
 export type FieldTunnelShapeType =
   | 'd_shaped'
@@ -3142,7 +3142,12 @@ export function computeTraceInlineLabelPlacements(
   for (const tr of traces) {
     if (tr.points.length < 2) continue;
     const prefix = tr.setId === 'unassigned' ? 'J' : tr.setId;
-    const text = `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`;
+    const isCrown = tr.panel === 'crown';
+    const strikeVal = ((tr.dipDirection - 90) % 360 + 360) % 360;
+    const crownPair = getCrownStrikePair(strikeVal);
+    const text = isCrown
+      ? `${prefix} STR ${crownPair.label}`
+      : `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`;
 
     // Candidate fractional positions along the trace (0.5, 0.35, 0.65, 0.25, 0.75)
     const candidateFractions = [0.5, 0.36, 0.64, 0.24, 0.76];

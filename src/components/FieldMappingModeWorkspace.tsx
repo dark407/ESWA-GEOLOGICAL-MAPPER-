@@ -6750,9 +6750,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 #{idx + 1} • {tr.setId === 'unassigned' ? 'J' : tr.setId}
                               </span>
                               <div className="flex items-center gap-1.5">
-                                <span className="font-mono font-bold text-amber-300">
-                                  {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
-                                </span>
+                                {tr.panel === 'crown' ? (
+                                  <span className="font-mono font-bold text-amber-300 text-[10px]">
+                                    STR {getCrownStrikePair(((tr.dipDirection - 90) % 360 + 360) % 360).label}
+                                  </span>
+                                ) : (
+                                  <span className="font-mono font-bold text-amber-300">
+                                    {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
+                                  </span>
+                                )}
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -8502,7 +8508,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             const prefixLabel = tr.label || (tr.setId && tr.setId !== 'unassigned' ? tr.setId : 'J');
                             const placement = pTraceLabelMap[tr.id];
                             const inlineText = isCrownPanel
-                              ? `${prefixLabel} ${crownPair.label}`
+                              ? `${prefixLabel} STR ${crownPair.label}`
                               : `${prefixLabel} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`;
 
                             const {
@@ -8823,9 +8829,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     )?.shortCode || 'FLT'
                                   : 'Dip';
 
-                              const liveText = `${prefixTag} ${String(
-                                liveEst.dipDirection
-                              ).padStart(3, '0')}°/${liveEst.dipAmount}°`;
+                              const isCrownDrawing = panelId === 'crown';
+                              const liveCrownPair = getCrownStrikePair(
+                                ((liveEst.dipDirection - 90) % 360 + 360) % 360
+                              );
+                              const liveText = isCrownDrawing
+                                ? `${prefixTag} STR ${liveCrownPair.label}`
+                                : `${prefixTag} ${String(liveEst.dipDirection).padStart(3, '0')}°/${liveEst.dipAmount}°`;
 
                               const lblX = mid.x - tickUx * (halfOffset + (isTCanvas ? 10 : 14));
                               const lblY = mid.y - tickUy * (halfOffset + (isTCanvas ? 10 : 14));

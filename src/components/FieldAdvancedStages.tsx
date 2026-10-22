@@ -44,6 +44,7 @@ import {
   generateProfessionalGeologicalDescription,
   getLocationSurfaceConfig,
 } from '../engine/fieldMappingEngine';
+import { FieldSupport3DInteractiveCanvas } from './FieldSupport3DInteractiveCanvas';
 
 // ============================================================================
 // REUSABLE TEMPLATE EDIT PANEL (HEADER LOGOS, MISSING TICK-BOXES, CUSTOM WORD TEMPLATE)
@@ -3471,6 +3472,7 @@ export const FieldSupportSystemStage: React.FC<{
   const [newSpotAzimuthDeg, setNewSpotAzimuthDeg] = useState<number>(
     activeRound.tunnelDriveDirection || 45
   );
+  const [spot3DViewMode, setSpot3DViewMode] = useState<'3D_WEBGL' | '2D_SVG'>('3D_WEBGL');
 
   const updateSupport = (patch: Partial<FieldSupportSystemConfig>) => {
     onUpdateRound((r) => {
@@ -4272,223 +4274,272 @@ export const FieldSupportSystemStage: React.FC<{
             showLiveDrawing={false}
           />
 
-          {/* 6. Interactive 3D Spot Bolt Locator (Click in 3D Tunnel to Place Spot Bolt + Set Angle, Pull, X, Y) */}
+          {/* 6. Interactive 3D Spot Bolt Locator & Angle Chooser (Also Pipe Roofing Umbrella & Forepoling) */}
           <div className="bg-slate-900 border border-rose-500/40 rounded-xl p-3 space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
               <div>
-                <div className="text-xs font-black uppercase text-rose-400">
-                  6. 3D Spot Bolt Placement (Click 3D Tunnel Area to Place Spot Bolt &amp; Angle)
+                <div className="text-xs font-black uppercase text-rose-400 flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5 text-rose-400" />
+                  <span>6. 3D Tunnel Support, Spot Bolt Angle Chooser &amp; Pipe Roofing Umbrella</span>
                 </div>
                 <p className="text-[10.5px] text-slate-400">
-                  Tap anywhere on the 3D Left Wall, Crown, Right Wall, or Face below to install a Spot Bolt with Pull distance, X, Y coordinates, Length, and Angle.
+                  Select and visually choose spot bolt installation angle in true 3D, configure Pipe Roofing umbrella canopy look-out angle, Forepoling, and Pattern Rockbolts.
                 </p>
               </div>
-              <div className="flex items-center gap-2 text-xs">
-                <div>
-                  <span className="text-[10px] text-slate-400 mr-1">Len (m):</span>
-                  <input
-                    type="number"
-                    step={0.5}
-                    min={1.5}
-                    max={8}
-                    value={newSpotLengthM}
-                    onChange={(e) => setNewSpotLengthM(Number(e.target.value))}
-                    className="w-12 bg-slate-950 border border-slate-700 rounded px-1 py-0.5 font-mono text-rose-300 text-center"
-                  />
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 mr-1">Angle (°):</span>
-                  <input
-                    type="number"
-                    step={5}
-                    min={10}
-                    max={90}
-                    value={newSpotAngleDeg}
-                    onChange={(e) => setNewSpotAngleDeg(Number(e.target.value))}
-                    className="w-12 bg-slate-950 border border-slate-700 rounded px-1 py-0.5 font-mono text-rose-300 text-center"
-                  />
-                </div>
+
+              {/* View Mode Switcher: 3D WebGL (Default) vs 2.5D SVG */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setSpot3DViewMode('3D_WEBGL')}
+                  className={`px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
+                    spot3DViewMode === '3D_WEBGL'
+                      ? 'bg-rose-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Interactive 3D WebGL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSpot3DViewMode('2D_SVG')}
+                  className={`px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
+                    spot3DViewMode === '2D_SVG'
+                      ? 'bg-slate-700 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  2.5D Profile SVG
+                </button>
               </div>
             </div>
 
-            {/* Interactive 3D Tunnel SVG for Spot Bolt Placement (Exact Tunnel Shape & Size) */}
-            <svg
-              ref={spot3DSvgRef}
-              viewBox="0 0 420 270"
-              onClick={handle3DSpotBoltCanvasClick}
-              className="w-full max-h-[210px] bg-slate-950 rounded-lg border border-slate-700 cursor-crosshair block"
-            >
-              {/* Left Wall 3D Polygon (Exact Tunnel Left Wall Profile from 0m to Pull) */}
-              <polygon
-                points={tunnel3DGeom.leftWallPointsStr}
-                fill="#0f172a"
-                stroke="#0f766e"
-                strokeWidth="1.6"
+            {/* RENDER MODE 1: Interactive 3D WebGL Viewport & Angle Chooser */}
+            {spot3DViewMode === '3D_WEBGL' ? (
+              <FieldSupport3DInteractiveCanvas
+                activeLocation={activeLocation}
+                activeRound={activeRound}
+                support={support}
+                onUpdateSupport={updateSupport}
+                newSpotLengthM={newSpotLengthM}
+                setNewSpotLengthM={setNewSpotLengthM}
+                newSpotAngleDeg={newSpotAngleDeg}
+                setNewSpotAngleDeg={setNewSpotAngleDeg}
+                newSpotAzimuthDeg={newSpotAzimuthDeg}
+                setNewSpotAzimuthDeg={setNewSpotAzimuthDeg}
               />
-              {/* Crown 3D Polygon (Exact Tunnel Crown Arch Profile from 0m to Pull) */}
-              <polygon
-                points={tunnel3DGeom.crownPointsStr}
-                fill="#1e293b"
-                stroke="#0284c7"
-                strokeWidth="1.6"
-              />
-              {/* Right Wall 3D Polygon (Exact Tunnel Right Wall Profile from 0m to Pull) */}
-              <polygon
-                points={tunnel3DGeom.rightWallPointsStr}
-                fill="#0f172a"
-                stroke="#4338ca"
-                strokeWidth="1.6"
-              />
-              {/* Inner Excavation Face (Exact Tunnel Cross-Section Shape & Aspect Ratio at Pull) */}
-              <polygon
-                points={tunnel3DGeom.facePointsStr}
-                fill="#020617"
-                stroke="#f59e0b"
-                strokeWidth="2"
-              />
+            ) : (
+              /* RENDER MODE 2: 2.5D SVG Profile */
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[11px] text-slate-400">Click anywhere to place Spot Bolt</span>
+                  <div className="flex items-center gap-2">
+                    <div>
+                      <span className="text-[10px] text-slate-400 mr-1">Len (m):</span>
+                      <input
+                        type="number"
+                        step={0.5}
+                        min={1.5}
+                        max={8}
+                        value={newSpotLengthM}
+                        onChange={(e) => setNewSpotLengthM(Number(e.target.value))}
+                        className="w-12 bg-slate-950 border border-slate-700 rounded px-1 py-0.5 font-mono text-rose-300 text-center"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 mr-1">Angle (°):</span>
+                      <input
+                        type="number"
+                        step={5}
+                        min={10}
+                        max={90}
+                        value={newSpotAngleDeg}
+                        onChange={(e) => setNewSpotAngleDeg(Number(e.target.value))}
+                        className="w-12 bg-slate-950 border border-slate-700 rounded px-1 py-0.5 font-mono text-rose-300 text-center"
+                      />
+                    </div>
+                  </div>
+                </div>
 
-              {/* Intermediate 3D Tunnel Shape Ribs (at 33% & 67% Pull) & Longitudinal SPL / Crown Seams */}
-              {[tunnel3DGeom.ring33, tunnel3DGeom.ring67].map((ring, rIdx) => (
-                <path
-                  key={`ring-3d-${rIdx}`}
-                  d={ring.wallStrokePathD}
-                  fill="none"
-                  stroke="#38bdf8"
-                  strokeOpacity="0.28"
-                  strokeWidth="1"
-                  strokeDasharray="3 2"
-                />
-              ))}
-              {activeLocation.shape !== 'rectangular' && (
-                <g stroke="#38bdf8" strokeOpacity="0.55" strokeWidth="1.1" strokeDasharray="3 2">
-                  <line
-                    x1={tunnel3DGeom.outerOutline.leftSplPt.x}
-                    y1={tunnel3DGeom.outerOutline.leftSplPt.y}
-                    x2={tunnel3DGeom.innerOutline.leftSplPt.x}
-                    y2={tunnel3DGeom.innerOutline.leftSplPt.y}
+                <svg
+                  ref={spot3DSvgRef}
+                  viewBox="0 0 420 270"
+                  onClick={handle3DSpotBoltCanvasClick}
+                  className="w-full max-h-[210px] bg-slate-950 rounded-lg border border-slate-700 cursor-crosshair block"
+                >
+                  {/* Left Wall 3D Polygon */}
+                  <polygon
+                    points={tunnel3DGeom.leftWallPointsStr}
+                    fill="#0f172a"
+                    stroke="#0f766e"
+                    strokeWidth="1.6"
                   />
-                  <line
-                    x1={tunnel3DGeom.outerOutline.rightSplPt.x}
-                    y1={tunnel3DGeom.outerOutline.rightSplPt.y}
-                    x2={tunnel3DGeom.innerOutline.rightSplPt.x}
-                    y2={tunnel3DGeom.innerOutline.rightSplPt.y}
+                  {/* Crown 3D Polygon */}
+                  <polygon
+                    points={tunnel3DGeom.crownPointsStr}
+                    fill="#1e293b"
+                    stroke="#0284c7"
+                    strokeWidth="1.6"
                   />
-                </g>
-              )}
-              <line
-                x1={tunnel3DGeom.outerOutline.crownPeakPt.x}
-                y1={tunnel3DGeom.outerOutline.crownPeakPt.y}
-                x2={tunnel3DGeom.innerOutline.crownPeakPt.x}
-                y2={tunnel3DGeom.innerOutline.crownPeakPt.y}
-                stroke="#38bdf8"
-                strokeOpacity="0.4"
-                strokeWidth="1"
-                strokeDasharray="3 3"
-              />
+                  {/* Right Wall 3D Polygon */}
+                  <polygon
+                    points={tunnel3DGeom.rightWallPointsStr}
+                    fill="#0f172a"
+                    stroke="#4338ca"
+                    strokeWidth="1.6"
+                  />
+                  {/* Inner Excavation Face */}
+                  <polygon
+                    points={tunnel3DGeom.facePointsStr}
+                    fill="#020617"
+                    stroke="#f59e0b"
+                    strokeWidth="2"
+                  />
 
-              {/* 0m -> Pull & Exact Shape/Size Labels */}
-              <text
-                x={Math.max(12, tunnel3DGeom.outerX - 4)}
-                y={Math.min(262, tunnel3DGeom.outerY + tunnel3DGeom.outerH + 12)}
-                fontSize="8.2"
-                fontWeight="800"
-                fill="#2dd4bf"
-              >
-                0m L.Wall ({surf3D.leftWallLengthM}m)
-              </text>
-              <text
-                x="210"
-                y="16"
-                textAnchor="middle"
-                fontSize="8.6"
-                fontWeight="900"
-                fill="#38bdf8"
-              >
-                3D {(activeLocation.shape || 'd_shaped').replace(/_/g, ' ').toUpperCase()} ({W}m W × {H}m H × {pullM}m Pull)
-              </text>
-              <text
-                x={Math.min(408, tunnel3DGeom.outerX + tunnel3DGeom.outerW + 4)}
-                y={Math.min(262, tunnel3DGeom.outerY + tunnel3DGeom.outerH + 12)}
-                textAnchor="end"
-                fontSize="8.2"
-                fontWeight="800"
-                fill="#818cf8"
-              >
-                0m R.Wall ({surf3D.rightWallLengthM}m)
-              </text>
-              <text
-                x="210"
-                y={tunnel3DGeom.innerY + tunnel3DGeom.innerH * 0.56}
-                textAnchor="middle"
-                fontSize="8.5"
-                fontWeight="800"
-                fill="#fbbf24"
-              >
-                FACE ({pullM}m | {W}m×{H}m)
-              </text>
+                  {/* Intermediate 3D Tunnel Shape Ribs */}
+                  {[tunnel3DGeom.ring33, tunnel3DGeom.ring67].map((ring, rIdx) => (
+                    <path
+                      key={`ring-3d-${rIdx}`}
+                      d={ring.wallStrokePathD}
+                      fill="none"
+                      stroke="#38bdf8"
+                      strokeOpacity="0.28"
+                      strokeWidth="1"
+                      strokeDasharray="3 2"
+                    />
+                  ))}
+                  {activeLocation.shape !== 'rectangular' && (
+                    <g stroke="#38bdf8" strokeOpacity="0.55" strokeWidth="1.1" strokeDasharray="3 2">
+                      <line
+                        x1={tunnel3DGeom.outerOutline.leftSplPt.x}
+                        y1={tunnel3DGeom.outerOutline.leftSplPt.y}
+                        x2={tunnel3DGeom.innerOutline.leftSplPt.x}
+                        y2={tunnel3DGeom.innerOutline.leftSplPt.y}
+                      />
+                      <line
+                        x1={tunnel3DGeom.outerOutline.rightSplPt.x}
+                        y1={tunnel3DGeom.outerOutline.rightSplPt.y}
+                        x2={tunnel3DGeom.innerOutline.rightSplPt.x}
+                        y2={tunnel3DGeom.innerOutline.rightSplPt.y}
+                      />
+                    </g>
+                  )}
+                  <line
+                    x1={tunnel3DGeom.outerOutline.crownPeakPt.x}
+                    y1={tunnel3DGeom.outerOutline.crownPeakPt.y}
+                    x2={tunnel3DGeom.innerOutline.crownPeakPt.x}
+                    y2={tunnel3DGeom.innerOutline.crownPeakPt.y}
+                    stroke="#38bdf8"
+                    strokeOpacity="0.4"
+                    strokeWidth="1"
+                    strokeDasharray="3 3"
+                  />
 
-              {/* Render Placed Spot Bolts in 3D on Exact Tunnel Profile */}
-              {(support.spotBolts || []).map((sb) => {
-                const tDepth = Math.max(0, Math.min(1, sb.pullMeter / Math.max(0.5, pullM)));
-                let px = tunnel3DGeom.cx3D;
-                let py = tunnel3DGeom.innerY + tunnel3DGeom.innerH * 0.5;
-                if (sb.panel === 'face') {
-                  px = tunnel3DGeom.innerX + sb.u * tunnel3DGeom.innerW;
-                  py = tunnel3DGeom.innerY + sb.v * tunnel3DGeom.innerH;
-                } else if (sb.panel === 'crown') {
-                  const pOut = samplePointAlongPolyline(tunnel3DGeom.outerCrown, sb.v);
-                  const pIn = samplePointAlongPolyline(tunnel3DGeom.innerCrown, sb.v);
-                  px = pOut.x + (pIn.x - pOut.x) * tDepth;
-                  py = pOut.y + (pIn.y - pOut.y) * tDepth;
-                } else if (sb.panel === 'left_wall') {
-                  const wallRatio = Math.max(0, Math.min(1, 1 - sb.v));
-                  const pOut = samplePointAlongPolyline(tunnel3DGeom.outerLeft, wallRatio);
-                  const pIn = samplePointAlongPolyline(tunnel3DGeom.innerLeft, wallRatio);
-                  px = pOut.x + (pIn.x - pOut.x) * tDepth;
-                  py = pOut.y + (pIn.y - pOut.y) * tDepth;
-                } else {
-                  const wallRatio = Math.max(0, Math.min(1, 1 - sb.v));
-                  const pOut = samplePointAlongPolyline(tunnel3DGeom.outerRight, wallRatio);
-                  const pIn = samplePointAlongPolyline(tunnel3DGeom.innerRight, wallRatio);
-                  px = pOut.x + (pIn.x - pOut.x) * tDepth;
-                  py = pOut.y + (pIn.y - pOut.y) * tDepth;
-                }
-                const rad = ((sb.angleDeg || 60) * Math.PI) / 180;
-                const dirSign = sb.panel === 'left_wall' ? -1 : 1;
-                const ex = px + dirSign * Math.cos(rad) * 20;
-                const ey = py - Math.sin(rad) * 20;
-                return (
-                  <g key={sb.id}>
-                    <line
-                      x1={px}
-                      y1={py}
-                      x2={ex}
-                      y2={ey}
-                      stroke="#f43f5e"
-                      strokeWidth="2.8"
-                    />
-                    <circle
-                      cx={px}
-                      cy={py}
-                      r="4.5"
-                      fill="#f43f5e"
-                      stroke="#ffffff"
-                      strokeWidth="1.4"
-                    />
-                    <text
-                      x={ex + (dirSign >= 0 ? 4 : -4)}
-                      y={ey}
-                      textAnchor={dirSign >= 0 ? 'start' : 'end'}
-                      fontSize="8.5"
-                      fontWeight="900"
-                      fill="#fda4af"
-                    >
-                      {sb.label} ({sb.pullMeter}m, ∠{sb.angleDeg}°)
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
+                  {/* 0m -> Pull Labels */}
+                  <text
+                    x={Math.max(12, tunnel3DGeom.outerX - 4)}
+                    y={Math.min(262, tunnel3DGeom.outerY + tunnel3DGeom.outerH + 12)}
+                    fontSize="8.2"
+                    fontWeight="800"
+                    fill="#2dd4bf"
+                  >
+                    0m L.Wall ({surf3D.leftWallLengthM}m)
+                  </text>
+                  <text
+                    x="210"
+                    y="16"
+                    textAnchor="middle"
+                    fontSize="8.6"
+                    fontWeight="900"
+                    fill="#38bdf8"
+                  >
+                    3D {(activeLocation.shape || 'd_shaped').replace(/_/g, ' ').toUpperCase()} ({W}m W × {H}m H × {pullM}m Pull)
+                  </text>
+                  <text
+                    x={Math.min(408, tunnel3DGeom.outerX + tunnel3DGeom.outerW + 4)}
+                    y={Math.min(262, tunnel3DGeom.outerY + tunnel3DGeom.outerH + 12)}
+                    textAnchor="end"
+                    fontSize="8.2"
+                    fontWeight="800"
+                    fill="#818cf8"
+                  >
+                    0m R.Wall ({surf3D.rightWallLengthM}m)
+                  </text>
+                  <text
+                    x="210"
+                    y={tunnel3DGeom.innerY + tunnel3DGeom.innerH * 0.56}
+                    textAnchor="middle"
+                    fontSize="8.5"
+                    fontWeight="800"
+                    fill="#fbbf24"
+                  >
+                    FACE ({pullM}m | {W}m×{H}m)
+                  </text>
+
+                  {/* Render Placed Spot Bolts in 3D on Tunnel Profile */}
+                  {(support.spotBolts || []).map((sb) => {
+                    const tDepth = Math.max(0, Math.min(1, sb.pullMeter / Math.max(0.5, pullM)));
+                    let px = tunnel3DGeom.cx3D;
+                    let py = tunnel3DGeom.innerY + tunnel3DGeom.innerH * 0.5;
+                    if (sb.panel === 'face') {
+                      px = tunnel3DGeom.innerX + sb.u * tunnel3DGeom.innerW;
+                      py = tunnel3DGeom.innerY + sb.v * tunnel3DGeom.innerH;
+                    } else if (sb.panel === 'crown') {
+                      const pOut = samplePointAlongPolyline(tunnel3DGeom.outerCrown, sb.v);
+                      const pIn = samplePointAlongPolyline(tunnel3DGeom.innerCrown, sb.v);
+                      px = pOut.x + (pIn.x - pOut.x) * tDepth;
+                      py = pOut.y + (pIn.y - pOut.y) * tDepth;
+                    } else if (sb.panel === 'left_wall') {
+                      const wallRatio = Math.max(0, Math.min(1, 1 - sb.v));
+                      const pOut = samplePointAlongPolyline(tunnel3DGeom.outerLeft, wallRatio);
+                      const pIn = samplePointAlongPolyline(tunnel3DGeom.innerLeft, wallRatio);
+                      px = pOut.x + (pIn.x - pOut.x) * tDepth;
+                      py = pOut.y + (pIn.y - pOut.y) * tDepth;
+                    } else {
+                      const wallRatio = Math.max(0, Math.min(1, 1 - sb.v));
+                      const pOut = samplePointAlongPolyline(tunnel3DGeom.outerRight, wallRatio);
+                      const pIn = samplePointAlongPolyline(tunnel3DGeom.innerRight, wallRatio);
+                      px = pOut.x + (pIn.x - pOut.x) * tDepth;
+                      py = pOut.y + (pIn.y - pOut.y) * tDepth;
+                    }
+                    const rad = ((sb.angleDeg || 60) * Math.PI) / 180;
+                    const dirSign = sb.panel === 'left_wall' ? -1 : 1;
+                    const ex = px + dirSign * Math.cos(rad) * 20;
+                    const ey = py - Math.sin(rad) * 20;
+                    return (
+                      <g key={sb.id}>
+                        <line
+                          x1={px}
+                          y1={py}
+                          x2={ex}
+                          y2={ey}
+                          stroke="#f43f5e"
+                          strokeWidth="2.8"
+                        />
+                        <circle
+                          cx={px}
+                          cy={py}
+                          r="4.5"
+                          fill="#f43f5e"
+                          stroke="#ffffff"
+                          strokeWidth="1.4"
+                        />
+                        <text
+                          x={ex + (dirSign >= 0 ? 4 : -4)}
+                          y={ey}
+                          textAnchor={dirSign >= 0 ? 'start' : 'end'}
+                          fontSize="8.5"
+                          fontWeight="900"
+                          fill="#fda4af"
+                        >
+                          {sb.label} ({sb.pullMeter}m, ∠{sb.angleDeg}°)
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+            )}
 
             {/* Spot Bolts Schedule Table (Pull, Length, X, Y, Angle) */}
             {(support.spotBolts || []).length > 0 && (

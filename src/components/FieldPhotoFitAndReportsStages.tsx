@@ -5671,10 +5671,14 @@ export const Field3DTunnelGeologicalReportStage: React.FC<{
             liveCrownSign="+90"
             rememberedRocksList={rememberedRocks}
             selectedTraceId={selectedTraceId}
-            onSelectTraceId={(id) => setSelectedTraceId(id)}
+            onSelectTraceId={(id) => {
+              setTimeout(() => setSelectedTraceId(id), 0);
+            }}
             onSetLiveOrientation={(dDir, dAmt) => {
-              setLiveDipDir(dDir);
-              setLiveDipAmt(dAmt);
+              setTimeout(() => {
+                setLiveDipDir(dDir);
+                setLiveDipAmt(dAmt);
+              }, 0);
             }}
             onPushUndo={() => {}}
             onUpdateRound={onUpdateRound}

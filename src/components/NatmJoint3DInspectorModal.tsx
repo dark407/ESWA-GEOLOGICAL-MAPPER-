@@ -376,9 +376,14 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   // Toggle for interior plane sheet (default true to immediately display the colored cutting plane)
   const [showInteriorPlane, setShowInteriorPlane] = useState<boolean>(true);
 
-  // Plane Display Mode: Complete Extended Plane (Default) vs Clipped to Tunnel Box
+  // Plane Display Mode: Complete Extended Plane (Default) scaled to tunnel dimensions
   const [planeDisplayMode, setPlaneDisplayMode] = useState<'EXTENDED' | 'CLIPPED'>('EXTENDED');
-  const [planeExtensionM, setPlaneExtensionM] = useState<number>(12.0);
+  const defaultCalculatedExt = useMemo(() => {
+    const w = tunnelGeometry.widthM || 8.5;
+    const h = tunnelGeometry.heightM || 7.5;
+    return Math.max(5.0, Math.round(Math.max(w, h) * 0.65 * 10) / 10);
+  }, [tunnelGeometry.widthM, tunnelGeometry.heightM]);
+  const [planeExtensionM, setPlaneExtensionM] = useState<number>(defaultCalculatedExt);
 
   // Persistence & Geological Interpretation
   const [persistenceInterpretation, setPersistenceInterpretation] = useState<string>(
@@ -1091,15 +1096,20 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       const grpColor = FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#d97706';
 
       if (planeDisplayMode === 'EXTENDED') {
-        const extR = planeExtensionM || 12.0;
+        const wTunnel = tunnelGeometry.widthM || 8.5;
+        const hTunnel = tunnelGeometry.heightM || 7.5;
+        // Dynamically sized to tunnel dimensions: just slightly larger than tunnel size (~1.15x - 1.25x), not too large!
+        const autoExtR = Math.max(4.8, Math.round(Math.max(wTunnel, hTunnel) * 0.65 * 10) / 10);
+        const extR = planeExtensionM && planeExtensionM <= 9.0 ? planeExtensionM : autoExtR;
         const R_s = extR;
         const isCrown = currentJoint.panel === 'crown';
 
-        // For crown joints: Anchor is on ceiling arch.
+        // For crown joints: Anchor is the plane cut point on the ceiling arch at elevation ay.
         // Dip vector points downward into excavation (dy = -sin(dip) < 0).
-        // Extend downward past the invert floor (R_down) and upward into overburden (R_up)
-        const R_down = isCrown ? Math.max(12.0, extR * 1.3) : extR;
-        const R_up = isCrown ? Math.max(4.5, extR * 0.4) : extR;
+        // Downward extent to pass completely through the tunnel void to the invert floor + slight margin:
+        const dipSin = Math.max(0.35, Math.sin((dipAmount * Math.PI) / 180));
+        const R_down = isCrown ? Math.min(9.5, Math.max(hTunnel + 1.2, (ay + 1.0) / dipSin)) : extR;
+        const R_up = isCrown ? 1.6 : extR;
 
         const numCols = 12;
         const numRows = 12;
@@ -1156,7 +1166,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         const extPlaneMesh = new THREE.Mesh(extGeo, extPlaneMat);
         group.add(extPlaneMesh);
 
-        // Extended Plane Perimeter Outline (Clear Boundary)
+        // Extended Plane Perimeter Outline (Clear Boundary extending slightly beyond tunnel outline)
         const c00 = [ax - R_s * sx - R_up * dx, ay - R_s * sy - R_up * dy, az - R_s * sz - R_up * dz];
         const c10 = [ax + R_s * sx - R_up * dx, ay + R_s * sy - R_up * dy, az + R_s * sz - R_up * dz];
         const c11 = [ax + R_s * sx + R_down * dx, ay + R_s * sy + R_down * dy, az + R_s * sz + R_down * dz];
@@ -1178,17 +1188,17 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         });
         group.add(new THREE.LineSegments(borderGeo, borderMat));
 
-        // In-Plane Structure Grid Lines (every 2.5m)
+        // In-Plane Structure Grid Lines (every 1.5m)
         const gridPositions: number[] = [];
-        for (let step = -Math.floor(R_up / 2.5) * 2.5; step <= R_down; step += 2.5) {
-          if (Math.abs(step) < 0.2) continue;
+        for (let step = -Math.floor(R_up / 1.5) * 1.5; step <= R_down; step += 1.5) {
+          if (Math.abs(step) < 0.15) continue;
           gridPositions.push(
             ax - R_s * sx + step * dx, ay - R_s * sy + step * dy, az - R_s * sz + step * dz,
             ax + R_s * sx + step * dx, ay + R_s * sy + step * dy, az + R_s * sz + step * dz
           );
         }
-        for (let step = -Math.floor(R_s / 2.5) * 2.5; step <= R_s; step += 2.5) {
-          if (Math.abs(step) < 0.2) continue;
+        for (let step = -Math.floor(R_s / 1.5) * 1.5; step <= R_s; step += 1.5) {
+          if (Math.abs(step) < 0.15) continue;
           gridPositions.push(
             ax + step * sx - R_up * dx, ay + step * sy - R_up * dy, az + step * sz - R_up * dz,
             ax + step * sx + R_down * dx, ay + step * sy + R_down * dy, az + step * sz + R_down * dz
@@ -1261,8 +1271,9 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       }
     }
 
-    // 2. Horizontal Strike Vector Line at Anchor (Sharp Blue, Extended)
-    const sLen = Math.max(3.8, (planeExtensionM || 12.0) * 0.4);
+    // 2. Horizontal Strike Vector Line at Anchor / Crown Cut Point (Sharp Blue, Extended)
+    const currentPlaneExt = planeExtensionM && planeExtensionM <= 9.0 ? planeExtensionM : 5.5;
+    const sLen = Math.max(3.8, currentPlaneExt * 0.95);
     const sPos = [
       ax - sx * sLen,
       ay - sy * sLen,
@@ -1287,22 +1298,36 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     const normalArrow = new THREE.ArrowHelper(normalDir, dipArrowOrigin, 1.9, 0x15803d, 0.4, 0.22);
     group.add(normalArrow);
 
-    // 5. Anchor Point Sphere (Crimson Red) directly on user trace location
-    const anchorGeo = new THREE.SphereGeometry(0.14, 16, 16);
-    const anchorMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
+    // 5. Anchor Point Sphere directly on user trace location / crown strike cut point
+    const isCrownJoint = currentJoint.panel === 'crown';
+    const anchorGeo = new THREE.SphereGeometry(isCrownJoint ? 0.22 : 0.16, 20, 20);
+    const anchorMat = new THREE.MeshBasicMaterial({ color: isCrownJoint ? 0xef4444 : 0xdc2626 });
     const anchorMesh = new THREE.Mesh(anchorGeo, anchorMat);
     anchorMesh.position.set(ax, ay, az);
     group.add(anchorMesh);
 
-    // 5b. Plane Dip & Amount Billboard directly along the plane in 3D
+    if (isCrownJoint) {
+      // Golden Halo ring around crown strike cut point
+      const haloGeo = new THREE.RingGeometry(0.25, 0.35, 24);
+      const haloMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide });
+      const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+      haloMesh.position.set(ax, ay + 0.02, az);
+      haloMesh.rotation.x = Math.PI / 2;
+      group.add(haloMesh);
+    }
+
+    // 5b. Billboard directly at Anchor / Crown Strike Cut Point
+    const billboardLabelText = isCrownJoint
+      ? `CROWN STRIKE: ${strikeInfo.strikePairLabel}`
+      : `DIP: ${dipAmount}° ➔ ${dipDirection}°`;
     const planeDipSprite = createBillboardLabel(
-      `DIP: ${dipAmount}° ➔ ${dipDirection}°`,
+      billboardLabelText,
       '#0F172A',
-      '#FCD34D',
-      2.5,
+      isCrownJoint ? '#38BDF8' : '#FCD34D',
+      isCrownJoint ? 3.6 : 2.5,
       0.65
     );
-    planeDipSprite.position.set(ax, ay + 0.42, az);
+    planeDipSprite.position.set(ax, ay + (isCrownJoint ? 0.55 : 0.42), az);
     group.add(planeDipSprite);
 
     // 6. Clean Multi-Surface Intersection Traces in 3D (Face, Left Wall, Right Wall, Crown)
@@ -2602,13 +2627,17 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       />
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2">
-                          <span className="text-amber-400 font-black">PLANE ORIENTATION:</span>
+                          <span className="text-amber-400 font-black">
+                            {currentJoint.panel === 'crown' ? 'CROWN STRIKE PLANE:' : 'PLANE ORIENTATION:'}
+                          </span>
                           <span className="text-white font-extrabold">
-                            DIP {dipAmount}° ➔ {dipDirection}°
+                            {currentJoint.panel === 'crown'
+                              ? `STRIKE ${strikeInfo.strikePairLabel} (DIP ${dipAmount}° ➔ ${dipDirection}°)`
+                              : `DIP ${dipAmount}° ➔ ${dipDirection}°`}
                           </span>
                         </div>
                         <span className="text-[10px] text-slate-400">
-                          Strike: {strikeInfo.strikePairLabel} · Anchor: X {anchorPoint.x.toFixed(2)}m (Toward Pull), Y {anchorPoint.y.toFixed(2)}m, Z {anchorPoint.z.toFixed(2)}m
+                          {currentJoint.panel === 'crown' ? 'Crown Cut Point' : 'Anchor Point'}: X {anchorPoint.x.toFixed(2)}m (Toward Pull), Y {anchorPoint.y.toFixed(2)}m, Z {anchorPoint.z.toFixed(2)}m
                         </span>
                       </div>
                     </div>
