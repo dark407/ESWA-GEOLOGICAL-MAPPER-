@@ -312,8 +312,15 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   }, [allRoundJoints, currentJointId, activeJoint]);
 
   // Editable Orientation Parameters
+  // Crown roof traces define strike: they must ALWAYS default to vertical 90° dip towards down, never flat 0°!
+  const isCrown = currentJoint.panel === 'crown';
+  const resolvedInitialDip =
+    (currentJoint.dipAmount === 0 || currentJoint.dipAmount == null) && isCrown
+      ? 90
+      : (currentJoint.dipAmount ?? (isCrown ? 90 : 65));
+
   const [dipDirection, setDipDirection] = useState<number>(currentJoint.dipDirection ?? 135);
-  const [dipAmount, setDipAmount] = useState<number>(currentJoint.dipAmount ?? 65);
+  const [dipAmount, setDipAmount] = useState<number>(resolvedInitialDip);
   const [jointSetId, setJointSetId] = useState<FieldJointGroupingId>(currentJoint.setId || 'unassigned');
   const [measurementSource, setMeasurementSource] = useState<'MANUAL_COMPASS' | 'GEOMETRIC_FIT' | 'PHOTOGRAMMETRY_MULTIVIEW'>(
     currentJoint.inspection3D?.measurementSource || (currentJoint.editedByCompass ? 'MANUAL_COMPASS' : 'GEOMETRIC_FIT')
@@ -327,8 +334,13 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
   // When switching currentJointId, load its orientation parameters
   useEffect(() => {
+    const isCr = currentJoint.panel === 'crown';
+    const resolvedDip =
+      (currentJoint.dipAmount === 0 || currentJoint.dipAmount == null) && isCr
+        ? 90
+        : (currentJoint.dipAmount ?? (isCr ? 90 : 65));
     setDipDirection(currentJoint.dipDirection ?? 135);
-    setDipAmount(currentJoint.dipAmount ?? 65);
+    setDipAmount(resolvedDip);
     setJointSetId(currentJoint.setId || 'unassigned');
     setMeasurementSource(
       currentJoint.inspection3D?.measurementSource || (currentJoint.editedByCompass ? 'MANUAL_COMPASS' : 'GEOMETRIC_FIT')
@@ -349,9 +361,14 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
   // Check if current joint has unsaved edits
   const hasUnsavedChanges = useMemo(() => {
+    const isCr = currentJoint.panel === 'crown';
+    const baselineDip =
+      (currentJoint.dipAmount === 0 || currentJoint.dipAmount == null) && isCr
+        ? 90
+        : (currentJoint.dipAmount ?? (isCr ? 90 : 65));
     return (
       dipDirection !== (currentJoint.dipDirection ?? 135) ||
-      dipAmount !== (currentJoint.dipAmount ?? 65) ||
+      dipAmount !== baselineDip ||
       jointSetId !== (currentJoint.setId || 'unassigned')
     );
   }, [dipDirection, dipAmount, jointSetId, currentJoint]);
@@ -1501,48 +1518,86 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   <NumericStepperInput
                     label="Dip Angle (δ)"
                     value={dipAmount}
-                    min={0}
+                    min={currentJoint.panel === 'crown' ? 1 : 0}
                     max={90}
                     step={1}
                     unit="°"
                     isLight={isLight}
-                    onChange={(val) => setDipAmount(val)}
+                    onChange={(val) => {
+                      const clamped = currentJoint.panel === 'crown' ? Math.max(1, Math.min(90, val)) : val;
+                      setDipAmount(clamped);
+                    }}
                   />
                   <input
                     type="range"
-                    min="0"
-                    max="90"
+                    min={currentJoint.panel === 'crown' ? 1 : 0}
+                    max={90}
                     value={dipAmount}
-                    onChange={(e) => setDipAmount(Number(e.target.value))}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      const clamped = currentJoint.panel === 'crown' ? Math.max(1, Math.min(90, val)) : val;
+                      setDipAmount(clamped);
+                    }}
                     className="w-full accent-amber-500 cursor-pointer"
                   />
                   {/* Quick Preset Angles */}
                   <div className="flex items-center justify-between gap-1 pt-0.5">
-                    {[0, 30, 45, 65, 90].map((a) => (
+                    {(currentJoint.panel === 'crown' ? [90, 80, 70, 60, 45, 30] : [90, 75, 60, 45, 30, 0]).map((a) => (
                       <button
                         key={a}
                         type="button"
                         onClick={() => setDipAmount(a)}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[9.5px] text-slate-300 font-mono cursor-pointer"
+                        className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
+                          dipAmount === a
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-sm'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        }`}
                       >
-                        {a}°
+                        {a === 90 ? '90°' : `${a}°`}
                       </button>
                     ))}
                   </div>
                 </div>
               </div>
 
-              {/* Crown-Only Observation Dipping Side Selector (Section 6) */}
-              {activeJoint.panel === 'crown' && (
-                <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-1.5">
+              {/* Crown Joint 3D Orientation & Dip Control (Strike-Derived) */}
+              {currentJoint.panel === 'crown' && (
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-2">
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-amber-300">Crown Strike Axis:</span>
-                    <span className="font-mono font-black text-amber-400">{strikeInfo.strikePairLabel}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-amber-300">Crown Strike Axis:</span>
+                      <span className="font-mono font-black text-amber-400 bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-600/40">
+                        {strikeInfo.strikePairLabel}
+                      </span>
+                    </div>
+                    {dipAmount === 90 ? (
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 text-[9.5px]">
+                        Vertical 90° Dip Downward
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40 text-[9.5px]">
+                        Inclined {dipAmount}° Dip Downward
+                      </span>
+                    )}
                   </div>
+
                   <p className="text-[10px] text-slate-300 leading-snug">
-                    Crown trace preserves measured strike. To complete the 3D plane, specify the dipping side:
+                    Crown trace preserves mapped strike. In 3D, the plane cuts downward into the excavation (default <strong className="text-emerald-300">vertical 90° downward</strong>, not flat). Choose dip amount and dipping side:
                   </p>
-                  <div className="grid grid-cols-2 gap-2 pt-0.5">
+
+                  {/* Dipping Direction Buttons */}
+                  <div className="grid grid-cols-3 gap-1.5 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setDipAmount(90)}
+                      className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                        dipAmount === 90
+                          ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm shadow-emerald-950'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      }`}
+                    >
+                      Vertical (90° Down)
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -1563,6 +1618,30 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     >
                       Dip Left (-Y side)
                     </button>
+                  </div>
+
+                  {/* Crown Dip Amount Choices */}
+                  <div className="space-y-1 pt-1.5 border-t border-amber-500/20">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-slate-400">Choose Dip Amount (cuts downward):</span>
+                      <span className="font-mono font-bold text-amber-300">{dipAmount}°</span>
+                    </div>
+                    <div className="grid grid-cols-6 gap-1">
+                      {[90, 80, 70, 60, 45, 30].map((deg) => (
+                        <button
+                          key={deg}
+                          type="button"
+                          onClick={() => setDipAmount(deg)}
+                          className={`py-1 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
+                            dipAmount === deg
+                              ? 'bg-amber-500 text-slate-950 border-amber-300 font-bold shadow-sm'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {deg === 90 ? '90° (Vert)' : `${deg}°`}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}

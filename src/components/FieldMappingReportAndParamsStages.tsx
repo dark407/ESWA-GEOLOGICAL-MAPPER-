@@ -18,12 +18,15 @@ import {
   buildAutoPopulatedTemplateDictionary,
   computeFieldQValue,
   computeFieldRmrValue,
+  computePhysicalMetricPoints,
   computeTraceOrientationFromTunnelDrive,
+  convertPhysicalMetricPointsToCanvas,
   createDefaultSupportSystem,
   exportFieldMappingTwoPagePdfSheet,
   exportFieldMappingTwoPageWordSheet,
   FIELD_JOINT_GROUP_COLORS,
   FIELD_JOINT_SET_IDS,
+  mapMetricPointToStripSvg,
 } from '../engine/fieldMappingEngine';
 import {
   calculatePlaneSurfaceIntersections,
@@ -317,30 +320,14 @@ export const FieldStripAlignmentStage: React.FC<{
     return { x: rightWallX, w: stripRightWallW, h: stripRightWallH, geom: rightWallGeom };
   };
 
-  // Convert panel coordinates -> strip SVG coordinates (0m at bottom -> PullM at top)
+  // Convert panel coordinates -> strip SVG coordinates (0m at bottom -> PullM at top) using physical metric dimensions
   const panelPointToStripPoint = (
     panel: 'left_wall' | 'crown' | 'right_wall',
     pt: FieldPoint2D
   ): FieldPoint2D => {
-    const { x, w, h, geom } = getPanelStripBox(panel);
-    const u = Math.max(0.003, Math.min(0.997, (pt.x - geom.boxX) / Math.max(1, geom.boxW)));
-    const v = Math.max(0.003, Math.min(0.997, (pt.y - geom.boxY) / Math.max(1, geom.boxH)));
-    if (panel === 'left_wall') {
-      return {
-        x: x + v * w,
-        y: stripY + (1 - u) * h,
-      };
-    }
-    if (panel === 'crown') {
-      return {
-        x: x + v * w,
-        y: stripY + (1 - u) * h,
-      };
-    }
-    return {
-      x: x + v * w,
-      y: stripY + u * h,
-    };
+    const box = getPanelStripBox(panel);
+    const [metricPt] = computePhysicalMetricPoints([pt], panel, activeLocation, activeRound);
+    return mapMetricPointToStripSvg(metricPt, panel, activeLocation, activeRound, box, stripY);
   };
 
   // Convert strip SVG coordinates -> panel coordinates (clamped to panel box, 0m at bottom -> PullM at top)
@@ -350,24 +337,39 @@ export const FieldStripAlignmentStage: React.FC<{
     sy: number
   ): FieldPoint2D => {
     const { x, w, h, geom } = getPanelStripBox(panel);
-    const normX = Math.max(0.003, Math.min(0.997, (sx - x) / Math.max(1, w)));
-    const normY = Math.max(0.003, Math.min(0.997, (sy - stripY) / Math.max(1, h)));
-    let u = normX;
-    let v = normY;
+    const pullM = geom.pullM;
+    const wallHM = geom.leftWallLengthM;
+    const crownArchM = geom.crownLengthM;
+
+    const normX = Math.max(0.001, Math.min(0.999, (sx - x) / Math.max(1, w)));
+    const normY = Math.max(0.001, Math.min(0.999, (sy - stripY) / Math.max(1, h)));
+
+    let metricPt: { x: number; y: number };
     if (panel === 'left_wall') {
-      u = 1 - normY;
-      v = normX;
+      // sx: invert floor (0) -> left springline (1) => y = normX * wallHM
+      // sy: face (0) -> pull start (1) => x = (1 - normY) * pullM
+      metricPt = {
+        x: (1 - normY) * pullM,
+        y: normX * wallHM,
+      };
     } else if (panel === 'crown') {
-      u = 1 - normY;
-      v = normX;
+      // sx: left springline (0) -> right springline (1) => x = normX * crownArchM
+      // sy: face (0) -> pull start (1) => y = (1 - normY) * pullM
+      metricPt = {
+        x: normX * crownArchM,
+        y: (1 - normY) * pullM,
+      };
     } else {
-      u = normY;
-      v = normX;
+      // right_wall:
+      // sx: right springline (0) -> right invert floor (1) => y = (1 - normX) * wallHM
+      // sy: face (0) -> pull start (1) => x = (1 - normY) * pullM
+      metricPt = {
+        x: (1 - normY) * pullM,
+        y: (1 - normX) * wallHM,
+      };
     }
-    return {
-      x: Number((geom.boxX + u * geom.boxW).toFixed(1)),
-      y: Number((geom.boxY + v * geom.boxH).toFixed(1)),
-    };
+    const [canvasPt] = convertPhysicalMetricPointsToCanvas([metricPt], panel, activeLocation, activeRound);
+    return canvasPt;
   };
 
   // Collect all alignable items (Joint Traces, Vein/Foliation Bands, Structural Features) on Left Wall, Crown, Right Wall
@@ -403,14 +405,9 @@ export const FieldStripAlignmentStage: React.FC<{
         const col = FIELD_JOINT_GROUP_COLORS[tr.setId || 'unassigned']?.stroke || '#0f172a';
 
         if (inter.leftWall && inter.leftWall.lengthM > 0.05) {
-          const p1 = {
-            x: leftWallGeom.boxX + (inter.leftWall.p1.x / spatialGeom.pullLengthM) * leftWallGeom.boxW,
-            y: leftWallGeom.boxY + (1 - inter.leftWall.p1.y / spatialGeom.wallHeightM) * leftWallGeom.boxH,
-          };
-          const p2 = {
-            x: leftWallGeom.boxX + (inter.leftWall.p2.x / spatialGeom.pullLengthM) * leftWallGeom.boxW,
-            y: leftWallGeom.boxY + (1 - inter.leftWall.p2.y / spatialGeom.wallHeightM) * leftWallGeom.boxH,
-          };
+          const metricP1 = { x: inter.leftWall.p1.x, y: inter.leftWall.p1.y };
+          const metricP2 = { x: inter.leftWall.p2.x, y: inter.leftWall.p2.y };
+          const [p1, p2] = convertPhysicalMetricPointsToCanvas([metricP1, metricP2], 'left_wall', activeLocation, activeRound);
           alignableItems.push({
             id: `proj-lw-${tr.id}`,
             kind: 'joint',
@@ -422,14 +419,9 @@ export const FieldStripAlignmentStage: React.FC<{
         }
 
         if (inter.crown && inter.crown.lengthM > 0.05) {
-          const p1 = {
-            x: crownGeom.boxX + (inter.crown.p1.y / spatialGeom.widthM) * crownGeom.boxW,
-            y: crownGeom.boxY + (1 - inter.crown.p1.x / spatialGeom.pullLengthM) * crownGeom.boxH,
-          };
-          const p2 = {
-            x: crownGeom.boxX + (inter.crown.p2.y / spatialGeom.widthM) * crownGeom.boxW,
-            y: crownGeom.boxY + (1 - inter.crown.p2.x / spatialGeom.pullLengthM) * crownGeom.boxH,
-          };
+          const metricP1 = { x: inter.crown.p1.y, y: inter.crown.p1.x };
+          const metricP2 = { x: inter.crown.p2.y, y: inter.crown.p2.x };
+          const [p1, p2] = convertPhysicalMetricPointsToCanvas([metricP1, metricP2], 'crown', activeLocation, activeRound);
           alignableItems.push({
             id: `proj-cr-${tr.id}`,
             kind: 'joint',
@@ -441,14 +433,9 @@ export const FieldStripAlignmentStage: React.FC<{
         }
 
         if (inter.rightWall && inter.rightWall.lengthM > 0.05) {
-          const p1 = {
-            x: rightWallGeom.boxX + (inter.rightWall.p1.x / spatialGeom.pullLengthM) * rightWallGeom.boxW,
-            y: rightWallGeom.boxY + (1 - inter.rightWall.p1.y / spatialGeom.wallHeightM) * rightWallGeom.boxH,
-          };
-          const p2 = {
-            x: rightWallGeom.boxX + (inter.rightWall.p2.x / spatialGeom.pullLengthM) * rightWallGeom.boxW,
-            y: rightWallGeom.boxY + (1 - inter.rightWall.p2.y / spatialGeom.wallHeightM) * rightWallGeom.boxH,
-          };
+          const metricP1 = { x: inter.rightWall.p1.x, y: inter.rightWall.p1.y };
+          const metricP2 = { x: inter.rightWall.p2.x, y: inter.rightWall.p2.y };
+          const [p1, p2] = convertPhysicalMetricPointsToCanvas([metricP1, metricP2], 'right_wall', activeLocation, activeRound);
           alignableItems.push({
             id: `proj-rw-${tr.id}`,
             kind: 'joint',
@@ -513,9 +500,16 @@ export const FieldStripAlignmentStage: React.FC<{
             activeLocation.widthM,
             activeLocation.heightM
           );
+          const metricPoints = computePhysicalMetricPoints(
+            nextPoints,
+            tr.panel,
+            activeLocation,
+            r
+          );
           return {
             ...tr,
             points: nextPoints,
+            metricPoints,
             dipDirection: tr.editedByCompass ? tr.dipDirection : ori.dipDirection,
             dipAmount: tr.editedByCompass ? tr.dipAmount : ori.dipAmount,
             strike: tr.editedByCompass ? tr.strike : ori.strike,
@@ -3285,7 +3279,7 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                 <thead>
                   <tr className="bg-white">
                     <th colSpan={4} className="border border-slate-900 bg-white py-1 px-2 text-left font-black">
-                      5. TUNNEL FACE SURVEY &amp; OVERBREAK (OB) ASSESSMENT
+                      5. TUNNEL FACE SURVEY, CONTRACT PAYLINE &amp; REAL OVERBREAK (OB) ASSESSMENT
                     </th>
                   </tr>
                 </thead>
@@ -3301,30 +3295,71 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                           {activeRound.surveyOverbreak.excavatedAreaM2.toFixed(2)} m²
                         </td>
                         <th className="border border-slate-900 bg-white px-2 py-1 text-left w-[22%]">
-                          Overbreak Area &amp; Volume
+                          Contract Payline (+{activeRound.surveyOverbreak.paylineOffsetMm ?? 150}mm)
                         </th>
-                        <td className="border border-slate-900 bg-white px-2 py-1 font-mono font-bold w-[28%]">
-                          {activeRound.surveyOverbreak.overbreakAreaM2.toFixed(2)} m² (
-                          {activeRound.surveyOverbreak.overbreakPercent.toFixed(1)}%) |{' '}
+                        <td className="border border-slate-900 bg-white px-2 py-1 font-mono font-bold w-[28%] text-emerald-800">
                           {(
-                            activeRound.surveyOverbreak.overbreakAreaM2 *
-                            (activeRound.pullLengthMeters || 3)
+                            activeRound.surveyOverbreak.paylineAreaM2 ||
+                            activeRound.surveyOverbreak.designAreaM2 * 1.08
                           ).toFixed(2)}{' '}
-                          m³
+                          m² (Allowance: +
+                          {(
+                            (activeRound.surveyOverbreak.paylineAreaM2 ||
+                              activeRound.surveyOverbreak.designAreaM2 * 1.08) -
+                            activeRound.surveyOverbreak.designAreaM2
+                          ).toFixed(2)}{' '}
+                          m²)
                         </td>
                       </tr>
                       <tr>
                         <th className="border border-slate-900 bg-white px-2 py-1 text-left">
-                          Overbreak Cause Category
+                          Permissible OB (Payable)
                         </th>
-                        <td className="border border-slate-900 bg-white px-2 py-1 font-bold">
-                          {formatOverbreakCauseLabel(activeRound.surveyOverbreak.overbreakCause)}
+                        <td className="border border-slate-900 bg-white px-2 py-1 font-mono font-bold text-emerald-800">
+                          {(activeRound.surveyOverbreak.permissibleOverbreakAreaM2 ?? 0).toFixed(2)} m² (
+                          {(activeRound.surveyOverbreak.permissibleOverbreakVolumeM3 ?? 0).toFixed(2)} m³)
                         </td>
                         <th className="border border-slate-900 bg-white px-2 py-1 text-left">
-                          Overbreak Reason
+                          Real Overbreak (Site Loss)
+                        </th>
+                        <td
+                          className={`border border-slate-900 px-2 py-1 font-mono font-black ${
+                            activeRound.surveyOverbreak.isRealOverbreak &&
+                            (activeRound.surveyOverbreak.realOverbreakAreaM2 || 0) > 0.01
+                              ? 'bg-rose-50 text-rose-700'
+                              : 'bg-emerald-50 text-emerald-700'
+                          }`}
+                        >
+                          {activeRound.surveyOverbreak.isRealOverbreak &&
+                          (activeRound.surveyOverbreak.realOverbreakAreaM2 || 0) > 0.01
+                            ? `${(activeRound.surveyOverbreak.realOverbreakAreaM2 || 0).toFixed(2)} m² (${(activeRound.surveyOverbreak.realOverbreakVolumeM3 || 0).toFixed(2)} m³) — Exceeds Payline Limit`
+                            : `0.00 m² (Within Contract Payline)`}
+                        </td>
+                      </tr>
+                      <tr>
+                        <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                          Total Overbreak Area &amp; Vol
+                        </th>
+                        <td className="border border-slate-900 bg-white px-2 py-1 font-mono">
+                          {activeRound.surveyOverbreak.overbreakAreaM2.toFixed(2)} m² (
+                          {activeRound.surveyOverbreak.overbreakPercent.toFixed(1)}%) |{' '}
+                          {(
+                            activeRound.surveyOverbreak.overbreakVolumeM3 ||
+                            activeRound.surveyOverbreak.overbreakAreaM2 *
+                              (activeRound.pullLengthMeters || 3)
+                          ).toFixed(2)}{' '}
+                          m³
+                        </td>
+                        <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                          Overbreak Cause &amp; Reason
                         </th>
                         <td className="border border-slate-900 bg-white px-2 py-1">
-                          {activeRound.surveyOverbreak.overbreakReason || '—'}
+                          <strong>
+                            {formatOverbreakCauseLabel(activeRound.surveyOverbreak.overbreakCause)}
+                          </strong>
+                          {activeRound.surveyOverbreak.overbreakReason
+                            ? `: ${activeRound.surveyOverbreak.overbreakReason}`
+                            : ''}
                         </td>
                       </tr>
                     </>
@@ -3334,7 +3369,7 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                         Profile Overbreak Status
                       </th>
                       <td colSpan={3} className="border border-slate-900 bg-white px-2 py-1 font-semibold">
-                        No Overbreak Recorded — Excavated Tunnel Face &amp; Perimeter Profile Within Theoretical Design Line ({activeLocation.widthM}m W × {activeLocation.heightM}m H).
+                        No Overbreak Recorded — Excavated Tunnel Face &amp; Perimeter Profile Within Theoretical Design Line ({activeLocation.widthM}m W × {activeLocation.heightM}m H; Contract Payline +{activeRound.surveyOverbreak?.paylineOffsetMm ?? 150}mm).
                       </td>
                     </tr>
                   )}

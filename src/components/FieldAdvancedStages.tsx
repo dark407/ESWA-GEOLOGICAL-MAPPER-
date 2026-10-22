@@ -37,6 +37,7 @@ import {
   ROUGHNESS_OPTIONS,
   SPACING_OPTIONS,
   WEATHERING_OPTIONS,
+  computePaylinePolygon,
   createDefaultSupportSystem,
   createDefaultSurveyOverbreak,
   generateOverbreakSummarySentence,
@@ -4760,6 +4761,30 @@ export const FieldSurveyOverbreakStage: React.FC<{
     [designPolyPts, W, H]
   );
 
+  const paylineOffsetMm = survey.paylineOffsetMm ?? 150;
+  const paylineEnabled = survey.paylineEnabled !== false;
+  const scaleX = boxW / Math.max(0.1, W);
+  const scaleY = boxH / Math.max(0.1, H);
+  const centroid = useMemo(
+    () => ({ x: boxX + boxW / 2, y: boxY + boxH * 0.55 }),
+    [boxX, boxW, boxY, boxH]
+  );
+
+  const paylinePolyPts = useMemo(() => {
+    return computePaylinePolygon(
+      designPolyPts,
+      paylineOffsetMm / 1000,
+      scaleX,
+      scaleY,
+      centroid
+    );
+  }, [designPolyPts, paylineOffsetMm, scaleX, scaleY, centroid]);
+
+  const paylineAreaM2 = useMemo(
+    () => Number(computePolygonAreaM2(paylinePolyPts).toFixed(2)),
+    [paylinePolyPts, boxX, boxW, boxY, boxH, W, H]
+  );
+
   // Automatically sync professional geological & overbreak description when entering stage if default or unpopulated
   useEffect(() => {
     const defaultInitDesc =
@@ -4798,6 +4823,27 @@ export const FieldSurveyOverbreakStage: React.FC<{
     onUpdateRound((r) => {
       const curr = r.surveyOverbreak || createDefaultSurveyOverbreak(activeLocation);
       const status = statusOverride ?? curr.status;
+
+      const effectivePaylineOffsetMm =
+        patch?.paylineOffsetMm ?? curr.paylineOffsetMm ?? 150;
+      const effectivePaylineEnabled =
+        patch?.paylineEnabled ?? (curr.paylineEnabled !== false);
+
+      const dynamicPaylinePoly =
+        effectivePaylineOffsetMm === paylineOffsetMm
+          ? paylinePolyPts
+          : computePaylinePolygon(
+              designPolyPts,
+              effectivePaylineOffsetMm / 1000,
+              scaleX,
+              scaleY,
+              centroid
+            );
+      const effectivePaylineAreaM2 =
+        patch?.paylineAreaM2 ??
+        Number(computePolygonAreaM2(dynamicPaylinePoly).toFixed(2));
+      const allowableOverbreakArea = Math.max(0, effectivePaylineAreaM2 - designAreaM2);
+
       let nextSurvey: FieldSurveyOverbreakData;
 
       if (pts.length < 3) {
@@ -4813,6 +4859,16 @@ export const FieldSurveyOverbreakStage: React.FC<{
           overbreakPercent: 0,
           overbreakVolumeM3: 0,
           maxOverbreakDepthM: 0,
+          paylineEnabled: effectivePaylineEnabled,
+          paylineOffsetMm: effectivePaylineOffsetMm,
+          paylineAreaM2: effectivePaylineAreaM2,
+          permissibleOverbreakAreaM2: 0,
+          permissibleOverbreakVolumeM3: 0,
+          realOverbreakAreaM2: 0,
+          realOverbreakPercent: 0,
+          realOverbreakVolumeM3: 0,
+          isRealOverbreak: false,
+          overbreakContractStatus: 'exact_design',
         };
       } else {
         const closedPts = [...pts, { x: boxX + boxW, y: boxY + boxH }, { x: boxX, y: boxY + boxH }];
@@ -4822,6 +4878,46 @@ export const FieldSurveyOverbreakStage: React.FC<{
         const ubArea = Number(Math.max(0, -diffArea).toFixed(2));
         const obPct = Number(((obArea / Math.max(1, designAreaM2)) * 100).toFixed(1));
         const obVolM3 = Number((obArea * pullM).toFixed(2));
+
+        let permissibleOverbreakAreaM2 = 0;
+        let permissibleOverbreakVolumeM3 = 0;
+        let realOverbreakAreaM2 = 0;
+        let realOverbreakPercent = 0;
+        let realOverbreakVolumeM3 = 0;
+        let isRealOverbreak = false;
+        let overbreakContractStatus: 'within_payline' | 'real_overbreak' | 'exact_design' = 'exact_design';
+
+        if (obArea > 0) {
+          if (effectivePaylineEnabled) {
+            permissibleOverbreakAreaM2 = Number(
+              Math.min(obArea, allowableOverbreakArea).toFixed(2)
+            );
+            permissibleOverbreakVolumeM3 = Number(
+              (permissibleOverbreakAreaM2 * pullM).toFixed(2)
+            );
+            realOverbreakAreaM2 = Number(
+              Math.max(0, excavArea - effectivePaylineAreaM2).toFixed(2)
+            );
+            realOverbreakPercent = Number(
+              ((realOverbreakAreaM2 / Math.max(1, designAreaM2)) * 100).toFixed(1)
+            );
+            realOverbreakVolumeM3 = Number(
+              (realOverbreakAreaM2 * pullM).toFixed(2)
+            );
+            isRealOverbreak = realOverbreakAreaM2 > 0.01;
+            overbreakContractStatus = isRealOverbreak
+              ? 'real_overbreak'
+              : 'within_payline';
+          } else {
+            realOverbreakAreaM2 = obArea;
+            realOverbreakPercent = obPct;
+            realOverbreakVolumeM3 = obVolM3;
+            isRealOverbreak = obArea > 0.01;
+            overbreakContractStatus = isRealOverbreak
+              ? 'real_overbreak'
+              : 'exact_design';
+          }
+        }
 
         // Compute max outward distance from design perimeter in meters
         let maxDepthM = 0;
@@ -4871,6 +4967,16 @@ export const FieldSurveyOverbreakStage: React.FC<{
           overbreakPercent: obPct,
           overbreakVolumeM3: obVolM3,
           maxOverbreakDepthM: Number(maxDepthM.toFixed(2)),
+          paylineEnabled: effectivePaylineEnabled,
+          paylineOffsetMm: effectivePaylineOffsetMm,
+          paylineAreaM2: effectivePaylineAreaM2,
+          permissibleOverbreakAreaM2,
+          permissibleOverbreakVolumeM3,
+          realOverbreakAreaM2,
+          realOverbreakPercent,
+          realOverbreakVolumeM3,
+          isRealOverbreak,
+          overbreakContractStatus,
         };
       }
 
@@ -5194,6 +5300,36 @@ export const FieldSurveyOverbreakStage: React.FC<{
                 );
               })}
 
+              {/* Contractual Payline Boundary Outline (+150mm standard / user-fed) */}
+              {survey.paylineEnabled !== false && paylinePolyPts.length >= 3 && (
+                <g pointerEvents="none">
+                  <polygon
+                    points={paylinePolyPts
+                      .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+                      .join(' ')}
+                    fill="rgba(16, 185, 129, 0.08)"
+                    stroke="#059669"
+                    strokeWidth="2.0"
+                    strokeDasharray="7 3"
+                  />
+                  {paylinePolyPts[Math.floor(paylinePolyPts.length * 0.28)] && (
+                    <text
+                      x={paylinePolyPts[Math.floor(paylinePolyPts.length * 0.28)].x}
+                      y={paylinePolyPts[Math.floor(paylinePolyPts.length * 0.28)].y - 6}
+                      fontSize="9.5"
+                      fontWeight="900"
+                      fontFamily="IBM Plex Mono, monospace"
+                      fill="#059669"
+                      stroke="#ffffff"
+                      strokeWidth="2.5"
+                      paintOrder="stroke"
+                    >
+                      PAYLINE (+{survey.paylineOffsetMm ?? 150}mm)
+                    </text>
+                  )}
+                </g>
+              )}
+
               {/* Shaded Overbreak Area Polygon (Behind Design Profile) */}
               {(survey.surveyPoints || []).length >= 3 && (
                 <polygon
@@ -5204,8 +5340,12 @@ export const FieldSurveyOverbreakStage: React.FC<{
                   ]
                     .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
                     .join(' ')}
-                  fill="rgba(239, 68, 68, 0.22)"
-                  stroke="#dc2626"
+                  fill={
+                    survey.isRealOverbreak
+                      ? 'rgba(239, 68, 68, 0.25)'
+                      : 'rgba(16, 185, 129, 0.22)'
+                  }
+                  stroke={survey.isRealOverbreak ? '#dc2626' : '#059669'}
                   strokeWidth="2.4"
                   strokeDasharray="6 3"
                 />
@@ -5216,7 +5356,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                 points={designPolyPts
                   .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
                   .join(' ')}
-                fill="rgba(255, 255, 255, 0.85)"
+                fill="rgba(255, 255, 255, 0.88)"
                 stroke="#0f172a"
                 strokeWidth="2.6"
               />
@@ -5228,7 +5368,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                     .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
                     .join(' ')}
                   fill="none"
-                  stroke="#dc2626"
+                  stroke={survey.isRealOverbreak ? '#dc2626' : '#059669'}
                   strokeWidth="2.8"
                 />
               )}
@@ -5338,6 +5478,41 @@ export const FieldSurveyOverbreakStage: React.FC<{
               })}
             </svg>
           </div>
+
+          {/* Compact Engineering Legend Strip for Canvas */}
+          <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-[10.5px]">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-4 h-0.5 bg-slate-300"></span>
+                <span className="font-bold text-slate-300">Design Profile</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-4 h-0.5 border-t-2 border-dashed border-emerald-500"></span>
+                <span className="font-bold text-emerald-400">
+                  Payline (+{survey.paylineOffsetMm ?? 150}mm)
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-4 h-0.5 bg-rose-500"></span>
+                <span className="font-bold text-rose-400">Survey Profile</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 font-mono font-bold text-[10px]">
+              <span className="px-1.5 py-0.5 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                Permissible: {survey.permissibleOverbreakAreaM2 ?? 0} m²
+              </span>
+              <span
+                className={`px-1.5 py-0.5 rounded border ${
+                  survey.isRealOverbreak && (survey.realOverbreakAreaM2 || 0) > 0.01
+                    ? 'bg-rose-950/80 border-rose-500 text-rose-300 font-black'
+                    : 'bg-slate-900 border-slate-700 text-slate-400'
+                }`}
+              >
+                Real OB: {survey.realOverbreakAreaM2 ?? 0} m² (
+                {survey.realOverbreakPercent ?? 0}%)
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* Right Columns (4 of 12 in landscape/desktop): Calculated Overbreak Metrics + Mechanical / Geological Cause & Overall Geological Description */}
@@ -5354,44 +5529,230 @@ export const FieldSurveyOverbreakStage: React.FC<{
             </div>
           ) : null}
 
-          {/* Calculated Overbreak Area & Overbreak Amount Cards */}
+          {/* Payline Input & Real Overbreak Contract Calculator */}
+          <div className="bg-slate-950 border border-emerald-500/40 rounded-xl p-2.5 space-y-2">
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Shield className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                  Site Payline &amp; Real Overbreak
+                </span>
+              </div>
+              <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={survey.paylineEnabled !== false}
+                  onChange={(e) =>
+                    recomputeOverbreakMetrics(
+                      survey.surveyPoints || [],
+                      survey.status,
+                      { paylineEnabled: e.target.checked }
+                    )
+                  }
+                  className="rounded text-emerald-500 focus:ring-0 cursor-pointer"
+                />
+                <span>Active</span>
+              </label>
+            </div>
+
+            <p className="text-[11px] text-slate-400 leading-tight">
+              Feed site authorized excavation boundary (Payline). Over-excavation within Payline is contractually <strong>Permissible</strong>; any profile exceeding Payline is <strong>Real Overbreak</strong> (Contractor loss / non-payable).
+            </p>
+
+            {/* Quick Preset Buttons */}
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase mr-0.5">Presets:</span>
+              {[
+                { label: '0mm (Design)', val: 0 },
+                { label: '+50mm', val: 50 },
+                { label: '+100mm', val: 100 },
+                { label: '+150mm (Std)', val: 150 },
+                { label: '+200mm', val: 200 },
+                { label: '+250mm', val: 250 },
+                { label: '+300mm', val: 300 },
+              ].map((preset) => {
+                const isCur = (survey.paylineOffsetMm ?? 150) === preset.val;
+                return (
+                  <button
+                    key={preset.val}
+                    type="button"
+                    onClick={() =>
+                      recomputeOverbreakMetrics(
+                        survey.surveyPoints || [],
+                        survey.status,
+                        {
+                          paylineOffsetMm: preset.val,
+                          paylineEnabled: true,
+                        }
+                      )
+                    }
+                    className={`px-2 py-0.5 rounded text-[10.5px] font-bold border cursor-pointer transition-all ${
+                      isCur
+                        ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-black shadow'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-emerald-500/50'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Custom Offset Entry */}
+            <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400">
+                  Payline Offset (mm)
+                </label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    max={1000}
+                    step={10}
+                    value={survey.paylineOffsetMm ?? 150}
+                    onChange={(e) => {
+                      const off = Math.max(0, Number(e.target.value));
+                      recomputeOverbreakMetrics(
+                        survey.surveyPoints || [],
+                        survey.status,
+                        {
+                          paylineOffsetMm: off,
+                          paylineEnabled: true,
+                        }
+                      );
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-emerald-300 font-bold"
+                  />
+                  <span className="text-[11px] text-slate-400 font-mono">mm</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400">
+                  Payline Area (m²)
+                </label>
+                <div className="bg-slate-900 border border-slate-800 rounded px-2 py-1 font-mono font-bold text-emerald-400">
+                  {survey.paylineAreaM2 ?? paylineAreaM2} m²
+                </div>
+              </div>
+            </div>
+
+            {/* Real Overbreak Verdict Banner */}
+            {survey.status === 'completed' && (
+              <div
+                className={`p-2 rounded-lg border text-xs space-y-0.5 ${
+                  survey.isRealOverbreak && (survey.realOverbreakAreaM2 || 0) > 0.01
+                    ? 'bg-rose-950/80 border-rose-500 text-rose-200 shadow-md'
+                    : (survey.overbreakAreaM2 || 0) > 0
+                    ? 'bg-emerald-950/80 border-emerald-500 text-emerald-200 shadow-md'
+                    : 'bg-slate-900 border-slate-700 text-slate-300'
+                }`}
+              >
+                <div className="font-black uppercase flex items-center gap-1.5 text-[11px]">
+                  {survey.isRealOverbreak && (survey.realOverbreakAreaM2 || 0) > 0.01 ? (
+                    <>
+                      <span className="text-sm">⚠</span>
+                      <span>REAL OVERBREAK DETECTED (Exceeds Payline)</span>
+                    </>
+                  ) : (survey.overbreakAreaM2 || 0) > 0 ? (
+                    <>
+                      <span className="text-sm">✓</span>
+                      <span>WITHIN PAYLINE (Permissible Overbreak)</span>
+                    </>
+                  ) : (
+                    <span>✓ EXACT DESIGN PROFILE (No Overbreak)</span>
+                  )}
+                </div>
+                <div className="text-[10.5px] leading-snug">
+                  {survey.isRealOverbreak && (survey.realOverbreakAreaM2 || 0) > 0.01 ? (
+                    <>
+                      Excavation exceeds the <strong>+{survey.paylineOffsetMm ?? 150}mm Payline</strong> by{' '}
+                      <strong className="text-rose-300">{survey.realOverbreakAreaM2} m²</strong> (
+                      <strong>{survey.realOverbreakVolumeM3} m³</strong> Real Overbreak — Non-Payable). Permissible authorized overbreak is{' '}
+                      <strong>{survey.permissibleOverbreakAreaM2} m²</strong>.
+                    </>
+                  ) : (survey.overbreakAreaM2 || 0) > 0 ? (
+                    <>
+                      Overbreak of <strong>{survey.overbreakAreaM2} m²</strong> ({survey.overbreakVolumeM3} m³) is{' '}
+                      <strong>entirely within</strong> the authorized +{survey.paylineOffsetMm ?? 150}mm Payline limit ({survey.paylineAreaM2 ?? paylineAreaM2} m²). Real Overbreak ={' '}
+                      <strong>0.00 m²</strong> (Permissible as per site contract).
+                    </>
+                  ) : (
+                    <>Survey contour conforms to theoretical design profile.</>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Calculated 6-Metric Breakdown Cards */}
           <div className="grid grid-cols-2 gap-2">
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5">
-              <div className="text-[10px] font-bold uppercase text-slate-400">
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2">
+              <div className="text-[9.5px] font-bold uppercase text-slate-400">
                 Design Face Area
               </div>
-              <div className="text-lg font-black font-mono text-white">
+              <div className="text-base font-black font-mono text-white">
                 {survey.designAreaM2 || designAreaM2} m²
               </div>
             </div>
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5">
-              <div className="text-[10px] font-bold uppercase text-slate-400">
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2">
+              <div className="text-[9.5px] font-bold uppercase text-slate-400">
                 Excavated Survey Area
               </div>
-              <div className="text-lg font-black font-mono text-cyan-300">
+              <div className="text-base font-black font-mono text-cyan-300">
                 {survey.excavatedAreaM2 || designAreaM2} m²
               </div>
             </div>
-            <div className="bg-slate-950 border border-rose-500/40 rounded-xl p-2.5">
-              <div className="text-[10px] font-bold uppercase text-rose-300">
-                Overbreak Area &amp; %
+
+            <div className="bg-slate-950 border border-emerald-500/40 rounded-xl p-2">
+              <div className="text-[9.5px] font-bold uppercase text-emerald-300">
+                Permissible OB (Payable)
               </div>
-              <div className="text-lg font-black font-mono text-rose-400">
+              <div className="text-base font-black font-mono text-emerald-400">
+                {survey.permissibleOverbreakAreaM2 ?? 0} m²
+                <span className="text-[10px] text-emerald-300/80 font-normal ml-1">
+                  ({survey.permissibleOverbreakVolumeM3 ?? 0} m³)
+                </span>
+              </div>
+            </div>
+            <div
+              className={`rounded-xl p-2 border ${
+                survey.isRealOverbreak && (survey.realOverbreakAreaM2 || 0) > 0.01
+                  ? 'bg-rose-950/60 border-rose-500 text-rose-300'
+                  : 'bg-slate-950 border-slate-800 text-slate-400'
+              }`}
+            >
+              <div className="text-[9.5px] font-bold uppercase">
+                Real Overbreak (Site Loss)
+              </div>
+              <div className="text-base font-black font-mono text-rose-400">
+                {survey.realOverbreakAreaM2 ?? 0} m²
+                <span className="text-[10px] text-rose-300/80 font-normal ml-1">
+                  ({survey.realOverbreakPercent ?? 0}% | {survey.realOverbreakVolumeM3 ?? 0} m³)
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2">
+              <div className="text-[9.5px] font-bold uppercase text-slate-400">
+                Total Overbreak
+              </div>
+              <div className="text-sm font-black font-mono text-slate-200">
                 {survey.overbreakAreaM2} m² ({survey.overbreakPercent}%)
               </div>
             </div>
-            <div className="bg-slate-950 border border-amber-500/40 rounded-xl p-2.5">
-              <div className="text-[10px] font-bold uppercase text-amber-300">
-                Overbreak Amount (Pull {pullM}m)
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2">
+              <div className="text-[9.5px] font-bold uppercase text-slate-400">
+                Max Overbreak Depth
               </div>
-              <div className="text-lg font-black font-mono text-amber-400">
-                {survey.overbreakVolumeM3} m³
+              <div className="text-sm font-black font-mono text-amber-300">
+                {survey.maxOverbreakDepthM ?? 0} m
               </div>
             </div>
           </div>
 
           {/* Direct Numeric Override if Survey Team provides exact numbers */}
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 space-y-2">
             <div className="text-xs font-bold uppercase text-slate-300">
               Manual / Total Station Overbreak Entry (Optional)
             </div>
@@ -5413,6 +5774,16 @@ export const FieldSurveyOverbreakStage: React.FC<{
                           : obArea <= 0
                           ? 'no_overbreak'
                           : currSurv.overbreakCause;
+
+                      const allowArea = Math.max(
+                        0,
+                        (currSurv.paylineAreaM2 || paylineAreaM2) - designAreaM2
+                      );
+                      const isPayEnabled = currSurv.paylineEnabled !== false;
+                      const permArea = isPayEnabled ? Number(Math.min(obArea, allowArea).toFixed(2)) : 0;
+                      const realArea = isPayEnabled ? Number(Math.max(0, obArea - allowArea).toFixed(2)) : obArea;
+                      const isReal = realArea > 0.01;
+
                       const nextSurv: FieldSurveyOverbreakData = {
                         ...currSurv,
                         status: 'completed',
@@ -5422,6 +5793,19 @@ export const FieldSurveyOverbreakStage: React.FC<{
                           ((obArea / Math.max(1, designAreaM2)) * 100).toFixed(1)
                         ),
                         overbreakVolumeM3: Number((obArea * pullM).toFixed(2)),
+                        permissibleOverbreakAreaM2: permArea,
+                        permissibleOverbreakVolumeM3: Number((permArea * pullM).toFixed(2)),
+                        realOverbreakAreaM2: realArea,
+                        realOverbreakPercent: Number(
+                          ((realArea / Math.max(1, designAreaM2)) * 100).toFixed(1)
+                        ),
+                        realOverbreakVolumeM3: Number((realArea * pullM).toFixed(2)),
+                        isRealOverbreak: isReal,
+                        overbreakContractStatus: isReal
+                          ? 'real_overbreak'
+                          : obArea > 0
+                          ? 'within_payline'
+                          : 'exact_design',
                       };
                       const tempRound = { ...r, surveyOverbreak: nextSurv };
                       const autoReason = generateOverbreakSummarySentence(

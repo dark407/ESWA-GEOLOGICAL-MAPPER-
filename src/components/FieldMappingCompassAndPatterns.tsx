@@ -6,6 +6,7 @@ import {
   computeFaceTunnelOutlineDetails,
   computePanelCanvasGeometry,
   computePanelOrientationReferenceMeta,
+  computePaylinePolygon,
   computeTraceInlineLabelPlacements,
   computeTraceOrientationFromTunnelDrive,
   computeTraceScreenDipTickVector,
@@ -3019,13 +3020,13 @@ export function computeUnfoldedStripBoxes(
 
   // Give primary visual importance to the Tunnel Face Picture on Page 1 (large & adapted to tunnel shape & W:H ratio)
   const facePxPerMeter = Math.min(
-    720 / Math.max(1, faceGeom.tunnelW),
-    420 / Math.max(1, faceGeom.tunnelH)
+    760 / Math.max(1, faceGeom.tunnelW),
+    340 / Math.max(1, faceGeom.tunnelH)
   );
   const idealFaceW = Number((faceGeom.tunnelW * facePxPerMeter).toFixed(1));
   const idealFaceH = Number((faceGeom.tunnelH * facePxPerMeter).toFixed(1));
-  const faceTopY = 24;
-  const stripY = topStripOnly ? 38 : Math.round(faceTopY + idealFaceH + 110);
+  const stripY = topStripOnly ? 38 : 24;
+  const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 34);
   const stripViewBoxH = topStripOnly ? Math.max(210, Math.round(stripY + stripH + 42)) : 720;
 
   return {
@@ -3044,6 +3045,7 @@ export function computeUnfoldedStripBoxes(
     stripLeftWallW,
     stripRightWallW,
     stripCrownW,
+    totalRenderedW,
     stripWallH,
     stripLeftWallH,
     stripRightWallH,
@@ -3115,8 +3117,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
         Math.min(0.998, (pt.y - panelGeom.boxY) / Math.max(1, panelGeom.boxH))
       );
       if (panel === 'left_wall') {
-        // Horizontal X = Outer/Invert (0m at v=0) -> L-SPL (v=1); Vertical Y = Pull (0m at bottom u=0 -> pullM at top u=1)
-        const sx = v;
+        // Horizontal X = Invert floor (v=1 -> sx=0) to Left Springline (v=0 -> sx=1)
+        // Vertical Y = Face (u=1 -> sy=0 at top) to Start of Pull (u=0 -> sy=1 at bottom)
+        const sx = 1 - v;
         const sy = 1 - u;
         return {
           x: Number((targetBoxX + sx * targetBoxW).toFixed(1)),
@@ -3124,18 +3127,20 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
         };
       }
       if (panel === 'crown') {
-        // Horizontal X = Left SPL (0m at v=0) -> Right SPL (v=1); Vertical Y = Pull (0m at bottom u=0 -> pullM at top u=1)
-        const sx = v;
-        const sy = 1 - u;
+        // Horizontal X = Left Springline (u=0 -> sx=0) to Right Springline (u=1 -> sx=1)
+        // Vertical Y = Face (v=0 -> sy=0 at top) to Start of Pull (v=1 -> sy=1 at bottom)
+        const sx = u;
+        const sy = v;
         return {
           x: Number((targetBoxX + sx * targetBoxW).toFixed(1)),
           y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
         };
       }
       if (panel === 'right_wall') {
-        // Horizontal X = Right SPL (0m at v=0) -> Right Invert (v=1); Vertical Y = Pull (0m at bottom u=1 -> pullM at top u=0)
+        // Horizontal X = Right Springline (v=0 -> sx=0) to Right Invert floor (v=1 -> sx=1)
+        // Vertical Y = Face (u=1 -> sy=0 at top) to Start of Pull (u=0 -> sy=1 at bottom)
         const sx = v;
-        const sy = u;
+        const sy = 1 - u;
         return {
           x: Number((targetBoxX + sx * targetBoxW).toFixed(1)),
           y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
@@ -3179,7 +3184,34 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       .map((f) => (useContinuousCadMapping ? { ...f, points: f.points.map(mapPt) } : f));
     const directTraces = round.jointTraces
       .filter((t) => t.panel === panel)
-      .map((t) => (useContinuousCadMapping ? { ...t, points: t.points.map(mapPt) } : t));
+      .map((t) => {
+        if (!useContinuousCadMapping) return t;
+        if (t.metricPoints && t.metricPoints.length >= 2) {
+          const pullLengthM = round.pullLengthMeters || 3.5;
+          const wallHeightM = location.wallHeightM || location.heightM * 0.58;
+          const widthM = location.widthM;
+          const mappedPoints = t.metricPoints.map((mp) => {
+            let sx = 0;
+            let sy = 0;
+            if (panel === 'left_wall') {
+              sx = Math.max(0, Math.min(1, mp.y / wallHeightM));
+              sy = Math.max(0, Math.min(1, (pullLengthM - mp.x) / pullLengthM));
+            } else if (panel === 'crown') {
+              sx = Math.max(0, Math.min(1, mp.x / widthM));
+              sy = Math.max(0, Math.min(1, (pullLengthM - mp.y) / pullLengthM));
+            } else if (panel === 'right_wall') {
+              sx = Math.max(0, Math.min(1, (wallHeightM - mp.y) / wallHeightM));
+              sy = Math.max(0, Math.min(1, (pullLengthM - mp.x) / pullLengthM));
+            }
+            return {
+              x: Number((targetBoxX + sx * targetBoxW).toFixed(1)),
+              y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
+            };
+          });
+          return { ...t, points: mappedPoints };
+        }
+        return { ...t, points: t.points.map(mapPt) };
+      });
 
     const projectedFaceTraces: FieldJointTrace[] = [];
     if (
@@ -3211,41 +3243,65 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
         let seg:
           | { p1: { x: number; y: number }; p2: { x: number; y: number }; lengthM: number }
           | undefined;
+        let p1Mapped: FieldPoint2D | undefined;
+        let p2Mapped: FieldPoint2D | undefined;
+
         if (panel === 'left_wall' && inter.leftWall && inter.leftWall.lengthM > 0.05) {
           seg = inter.leftWall;
+          // seg.p1.x, seg.p2.x is pull distance [0..pullLengthM]
+          // seg.p1.y, seg.p2.y is height from floor [0..wallHeightM]
+          const sx1 = Math.max(0, Math.min(1, seg.p1.y / spatialGeom.wallHeightM));
+          const sy1 = Math.max(0, Math.min(1, 1 - seg.p1.x / spatialGeom.pullLengthM));
+          const sx2 = Math.max(0, Math.min(1, seg.p2.y / spatialGeom.wallHeightM));
+          const sy2 = Math.max(0, Math.min(1, 1 - seg.p2.x / spatialGeom.pullLengthM));
+          p1Mapped = {
+            x: Number((targetBoxX + sx1 * targetBoxW).toFixed(1)),
+            y: Number((targetBoxY + sy1 * targetBoxH).toFixed(1)),
+          };
+          p2Mapped = {
+            x: Number((targetBoxX + sx2 * targetBoxW).toFixed(1)),
+            y: Number((targetBoxY + sy2 * targetBoxH).toFixed(1)),
+          };
         } else if (panel === 'crown' && inter.crown && inter.crown.lengthM > 0.05) {
           seg = inter.crown;
+          // seg.p1.x, seg.p2.x is pull distance [0..pullLengthM]
+          // seg.p1.y, seg.p2.y is lateral position from Left Springline [0..widthM]
+          const sx1 = Math.max(0, Math.min(1, seg.p1.y / spatialGeom.widthM));
+          const sy1 = Math.max(0, Math.min(1, 1 - seg.p1.x / spatialGeom.pullLengthM));
+          const sx2 = Math.max(0, Math.min(1, seg.p2.y / spatialGeom.widthM));
+          const sy2 = Math.max(0, Math.min(1, 1 - seg.p2.x / spatialGeom.pullLengthM));
+          p1Mapped = {
+            x: Number((targetBoxX + sx1 * targetBoxW).toFixed(1)),
+            y: Number((targetBoxY + sy1 * targetBoxH).toFixed(1)),
+          };
+          p2Mapped = {
+            x: Number((targetBoxX + sx2 * targetBoxW).toFixed(1)),
+            y: Number((targetBoxY + sy2 * targetBoxH).toFixed(1)),
+          };
         } else if (panel === 'right_wall' && inter.rightWall && inter.rightWall.lengthM > 0.05) {
           seg = inter.rightWall;
+          // seg.p1.x, seg.p2.x is pull distance [0..pullLengthM]
+          // seg.p1.y, seg.p2.y is height from floor [0..wallHeightM], 0 at floor -> sx=1; wallHeightM at springline -> sx=0
+          const sx1 = Math.max(0, Math.min(1, 1 - seg.p1.y / spatialGeom.wallHeightM));
+          const sy1 = Math.max(0, Math.min(1, 1 - seg.p1.x / spatialGeom.pullLengthM));
+          const sx2 = Math.max(0, Math.min(1, 1 - seg.p2.y / spatialGeom.wallHeightM));
+          const sy2 = Math.max(0, Math.min(1, 1 - seg.p2.x / spatialGeom.pullLengthM));
+          p1Mapped = {
+            x: Number((targetBoxX + sx1 * targetBoxW).toFixed(1)),
+            y: Number((targetBoxY + sy1 * targetBoxH).toFixed(1)),
+          };
+          p2Mapped = {
+            x: Number((targetBoxX + sx2 * targetBoxW).toFixed(1)),
+            y: Number((targetBoxY + sy2 * targetBoxH).toFixed(1)),
+          };
         }
 
-        if (seg) {
-          let p1Canvas: FieldPoint2D;
-          let p2Canvas: FieldPoint2D;
-          if (panel === 'left_wall' || panel === 'right_wall') {
-            p1Canvas = {
-              x: panelGeom.boxX + (seg.p1.x / spatialGeom.pullLengthM) * panelGeom.boxW,
-              y: panelGeom.boxY + (1 - seg.p1.y / spatialGeom.wallHeightM) * panelGeom.boxH,
-            };
-            p2Canvas = {
-              x: panelGeom.boxX + (seg.p2.x / spatialGeom.pullLengthM) * panelGeom.boxW,
-              y: panelGeom.boxY + (1 - seg.p2.y / spatialGeom.wallHeightM) * panelGeom.boxH,
-            };
-          } else {
-            p1Canvas = {
-              x: panelGeom.boxX + (seg.p1.y / spatialGeom.widthM) * panelGeom.boxW,
-              y: panelGeom.boxY + (1 - seg.p1.x / spatialGeom.pullLengthM) * panelGeom.boxH,
-            };
-            p2Canvas = {
-              x: panelGeom.boxX + (seg.p2.y / spatialGeom.widthM) * panelGeom.boxW,
-              y: panelGeom.boxY + (1 - seg.p2.x / spatialGeom.pullLengthM) * panelGeom.boxH,
-            };
-          }
+        if (seg && p1Mapped && p2Mapped) {
           projectedFaceTraces.push({
             ...ft,
             id: `proj-${panel}-${ft.id}`,
             panel,
-            points: [mapPt(p1Canvas), mapPt(p2Canvas)],
+            points: [p1Mapped, p2Mapped],
           });
         }
       }
@@ -3472,6 +3528,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
     stripLeftWallW,
     stripRightWallW,
     stripCrownW,
+    totalRenderedW: rawTotalRenderedW,
     stripLeftWallH,
     stripRightWallH,
     stripCrownH,
@@ -3485,6 +3542,8 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
     stripH,
     stripViewBoxH,
   } = computeUnfoldedStripBoxes(location, round, topStripOnly);
+
+  const totalRenderedW = rawTotalRenderedW ?? (stripLeftWallW + stripCrownW + stripRightWallW);
 
   const faceDetails = computeFaceTunnelOutlineDetails(
     location,
@@ -3580,10 +3639,10 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
   const legendRows = Math.max(lithRowCount, jointRowCount);
   const legendBoxX = 16;
   const legendBoxW = 888;
-  const legendBoxY = Math.round(faceTargetY + faceTargetH + 28);
-  const legendBoxH = 38 + legendRows * 20;
-  const stripY = topStripOnly ? rawStripY : Math.round(legendBoxY + legendBoxH + 24);
-  const fullReportSvgH = Math.max(560, stripY + stripH + 20);
+  const stripY = rawStripY;
+  const legendBoxY = Math.round(faceTargetY + faceTargetH + 26);
+  const legendBoxH = 34 + legendRows * 20;
+  const fullReportSvgH = Math.max(540, Math.round(legendBoxY + legendBoxH + 16));
 
   return (
     <svg
@@ -3598,7 +3657,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       onPointerUp={onSvgPointerUp}
       onPointerCancel={onSvgPointerUp}
       className={`w-full h-auto select-none touch-none ${
-        topStripOnly ? 'bg-transparent' : 'bg-white border border-slate-900'
+        topStripOnly ? 'bg-transparent' : 'bg-white'
       }`}
     >
       <FieldMonochromeGeologicalPatterns
@@ -3647,21 +3706,22 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       {/* Top Row: Compact Continuous CAD Unfolded Strip [ Left Wall | Crown | Right Wall ] */}
       <g>
         <>
-          {/* CONTINUOUS CAD STRIP: One continuous uniform-height rectangle with zero gap [ Left Wall | Crown | Right Wall ] */}
+          {/* CONTINUOUS CAD STRIP: One unified continuous perimeter outline, zero unwanted internal boxes */}
+          <rect
+            x={leftWallX}
+            y={stripY}
+            width={totalRenderedW}
+            height={stripH}
+            fill="#ffffff"
+            stroke="#0f172a"
+            strokeWidth="1.6"
+          />
+
           {faceGeom.hasLeftWall && (
             <>
-              <rect
-                x={leftWallX}
-                y={stripY}
-                width={stripLeftWallW}
-                height={stripH}
-                fill="#ffffff"
-                stroke="#0f172a"
-                strokeWidth="1.5"
-              />
               <text
                 x={leftWallX + stripLeftWallW / 2}
-                y={stripY - 11}
+                y={stripY - 10}
                 textAnchor="middle"
                 fontSize="8.5"
                 fontWeight="bold"
@@ -3689,18 +3749,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
 
           {faceGeom.hasCrown && (
             <>
-              <rect
-                x={crownX}
-                y={stripY}
-                width={stripCrownW}
-                height={stripH}
-                fill="#ffffff"
-                stroke="#0f172a"
-                strokeWidth="1.5"
-              />
               <text
                 x={crownX + stripCrownW / 2}
-                y={stripY - 11}
+                y={stripY - 10}
                 textAnchor="middle"
                 fontSize="8.5"
                 fontWeight="bold"
@@ -3726,16 +3777,16 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               {/* Vertical Centerline C at Mid-Crown */}
               <line
                 x1={crownX + stripCrownW / 2}
-                y1={stripY - 8}
+                y1={stripY - 7}
                 x2={crownX + stripCrownW / 2}
-                y2={stripY + stripH + 8}
+                y2={stripY + stripH + 7}
                 stroke="#0f172a"
                 strokeWidth="1.3"
                 strokeDasharray="6,3,2,3"
               />
               <text
                 x={crownX + stripCrownW / 2}
-                y={stripY + stripH + 18}
+                y={stripY + stripH + 16}
                 textAnchor="middle"
                 fontSize="8.5"
                 fontWeight="bold"
@@ -3749,18 +3800,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
 
           {faceGeom.hasRightWall && (
             <>
-              <rect
-                x={rightWallX}
-                y={stripY}
-                width={stripRightWallW}
-                height={stripH}
-                fill="#ffffff"
-                stroke="#0f172a"
-                strokeWidth="1.5"
-              />
               <text
                 x={rightWallX + stripRightWallW / 2}
-                y={stripY - 11}
+                y={stripY - 10}
                 textAnchor="middle"
                 fontSize="8.5"
                 fontWeight="bold"
@@ -3989,37 +4031,20 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       {/* Interactive Alignment Overlay (rendered when topStripOnly is active in Stage 5) */}
       {interactiveOverlay}
 
-      {/* PRIMARY HERO SECTION: LARGE TUNNEL FACE PICTURE + BOTTOM LEGEND BOX BELOW FACE */}
+      {/* PRIMARY SECTION: TUNNEL FACE OUTLINE (IN THE MIDDLE BELOW STRIP) */}
       {!topStripOnly && (
         <g>
-          {/* Full-width framing box around the Tunnel Face Picture so Page 1 utilizes the full width */}
-          <rect
-            x={legendBoxX}
-            y={faceTargetY - 22}
-            width={legendBoxW}
-            height={faceTargetH + 46}
-            fill="#ffffff"
-            stroke="#0f172a"
-            strokeWidth="1.5"
-          />
-          <line
-            x1={legendBoxX}
-            y1={faceTargetY - 4}
-            x2={legendBoxX + legendBoxW}
-            y2={faceTargetY - 4}
-            stroke="#0f172a"
-            strokeWidth="1.1"
-          />
+          {/* Clean Title above Face Outline (No unwanted outer framing box) */}
           <text
             x="460"
-            y={faceTargetY - 9}
+            y={faceTargetY - 10}
             textAnchor="middle"
-            fontSize="10.5"
+            fontSize="10"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
           >
-            TUNNEL EXCAVATION FACE PICTURE — {location.shape.replace(/_/g, ' ').toUpperCase()} ({location.widthM}m SPAN × {location.heightM}m HEIGHT | SPL {splHeightM}m)
+            TUNNEL EXCAVATION FACE — {location.shape.replace(/_/g, ' ').toUpperCase()} ({location.widthM}m SPAN × {location.heightM}m HEIGHT | SPL {splHeightM}m)
           </text>
 
           {/* Left & Right Height Rulers + Width Scale Bar around the large Face Picture */}
@@ -4140,6 +4165,55 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             transform={`translate(${faceOffsetX}, ${faceOffsetY}) scale(${faceScaleX}, ${faceScaleY})`}
           >
             <path d={faceStrokePath} fill="none" stroke="#0f172a" strokeWidth="3.6" />
+            {/* Payline Outline on Report Face Sketch */}
+            {(() => {
+              if (
+                round.surveyOverbreak?.status !== 'completed' ||
+                round.surveyOverbreak.paylineEnabled === false
+              ) {
+                return null;
+              }
+              const facePolyPts = [
+                ...(faceDetails.leftWallPoly || []),
+                ...(faceDetails.crownPoly || []),
+                ...(faceDetails.rightWallPoly || []).slice().reverse(),
+                ...(faceDetails.invertPoly || []).slice().reverse(),
+              ];
+              if (facePolyPts.length < 3) return null;
+              const payOffM = (round.surveyOverbreak.paylineOffsetMm ?? 150) / 1000;
+              const scX = faceGeom.boxW / Math.max(0.1, location.widthM);
+              const scY = faceGeom.boxH / Math.max(0.1, location.heightM);
+              const c = {
+                x: faceGeom.boxX + faceGeom.boxW / 2,
+                y: faceGeom.boxY + faceGeom.boxH * 0.55,
+              };
+              const payPts = computePaylinePolygon(facePolyPts, payOffM, scX, scY, c);
+              if (payPts.length < 3) return null;
+              return (
+                <g>
+                  <polygon
+                    points={payPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+                    fill="none"
+                    stroke={colorMode === 'bw' ? '#475569' : '#059669'}
+                    strokeWidth="2.0"
+                    strokeDasharray="6,3"
+                  />
+                  {payPts[Math.floor(payPts.length * 0.28)] && (
+                    <text
+                      x={payPts[Math.floor(payPts.length * 0.28)].x}
+                      y={payPts[Math.floor(payPts.length * 0.28)].y - 5}
+                      fontSize="8"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                      fill={colorMode === 'bw' ? '#475569' : '#059669'}
+                    >
+                      PAYLINE (+{round.surveyOverbreak.paylineOffsetMm ?? 150}mm)
+                    </text>
+                  )}
+                </g>
+              );
+            })()}
+
             {/* Survey Overbreak (OB) Outline on Report Face Sketch — ONLY rendered when Survey status === 'completed', NEVER when skipped */}
             {round.surveyOverbreak?.status === 'completed' &&
               (round.surveyOverbreak.surveyPoints?.length || 0) >= 2 && (
@@ -4149,7 +4223,13 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                       .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
                       .join(' ')} Z`}
                     fill="none"
-                    stroke={colorMode === 'bw' ? '#0f172a' : '#dc2626'}
+                    stroke={
+                      colorMode === 'bw'
+                        ? '#0f172a'
+                        : round.surveyOverbreak.isRealOverbreak
+                        ? '#dc2626'
+                        : '#059669'
+                    }
                     strokeWidth="3.2"
                     strokeDasharray="9,4"
                   />
@@ -4159,7 +4239,13 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                       cx={pt.x}
                       cy={pt.y}
                       r="4"
-                      fill={colorMode === 'bw' ? '#0f172a' : '#dc2626'}
+                      fill={
+                        colorMode === 'bw'
+                          ? '#0f172a'
+                          : round.surveyOverbreak?.isRealOverbreak
+                          ? '#dc2626'
+                          : '#059669'
+                      }
                       stroke="#ffffff"
                       strokeWidth="1.5"
                     />
@@ -4182,7 +4268,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               ))}
           </g>
 
-          {/* Legend Box Positioned Directly BELOW the Tunnel Face inside a Normal Bordered Box */}
+          {/* Legend Box Positioned Directly BELOW BOTH the Strip and Tunnel Face */}
           <rect
             x={legendBoxX}
             y={legendBoxY}
@@ -4190,15 +4276,15 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             height={legendBoxH}
             fill="#ffffff"
             stroke="#0f172a"
-            strokeWidth="1.5"
+            strokeWidth="1.1"
           />
           <line
             x1={legendBoxX}
-            y1={legendBoxY + 20}
+            y1={legendBoxY + 18}
             x2={legendBoxX + legendBoxW}
-            y2={legendBoxY + 20}
+            y2={legendBoxY + 18}
             stroke="#0f172a"
-            strokeWidth="1.2"
+            strokeWidth="1"
           />
           <line
             x1={legendBoxX + legendBoxW / 2}
@@ -4206,13 +4292,13 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             x2={legendBoxX + legendBoxW / 2}
             y2={legendBoxY + legendBoxH}
             stroke="#0f172a"
-            strokeWidth="1.2"
+            strokeWidth="1"
           />
           <text
             x={legendBoxX + legendBoxW * 0.25}
-            y={legendBoxY + 14}
+            y={legendBoxY + 13}
             textAnchor="middle"
-            fontSize="9"
+            fontSize="8.5"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4221,9 +4307,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           </text>
           <text
             x={legendBoxX + legendBoxW * 0.75}
-            y={legendBoxY + 14}
+            y={legendBoxY + 13}
             textAnchor="middle"
-            fontSize="9"
+            fontSize="8.5"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4237,21 +4323,21 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               const colIdx = idx % 2;
               const rowIdx = Math.floor(idx / 2);
               const itemX = legendBoxX + 14 + colIdx * 205;
-              const itemY = legendBoxY + 28 + rowIdx * 22;
+              const itemY = legendBoxY + 23 + rowIdx * 20;
               return (
                 <g key={item.id} transform={`translate(${itemX}, ${itemY})`}>
                   <rect
                     x="0"
                     y="0"
                     width="28"
-                    height="15"
+                    height="14"
                     fill={`url(#sheetpat-${item.patternId})`}
                     stroke="#0f172a"
                     strokeWidth="1"
                   />
                   <text
                     x="34"
-                    y="11"
+                    y="10.5"
                     fontSize="8.5"
                     fontFamily="monospace"
                     fontWeight="bold"
@@ -4265,7 +4351,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           ) : (
             <text
               x={legendBoxX + legendBoxW * 0.25}
-              y={legendBoxY + 42}
+              y={legendBoxY + 36}
               textAnchor="middle"
               fontSize="8.5"
               fontFamily="monospace"
@@ -4281,29 +4367,29 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               const colIdx = idx % 2;
               const rowIdx = Math.floor(idx / 2);
               const itemX = legendBoxX + legendBoxW / 2 + 14 + colIdx * 205;
-              const itemY = legendBoxY + 28 + rowIdx * 22;
+              const itemY = legendBoxY + 23 + rowIdx * 20;
               return (
                 <g key={jItem.key} transform={`translate(${itemX}, ${itemY})`}>
                   <rect
                     x="0"
                     y="0"
                     width="26"
-                    height="15"
+                    height="14"
                     fill="#ffffff"
                     stroke="#0f172a"
                     strokeWidth="1"
                   />
                   <line
                     x1="3"
-                    y1="7.5"
+                    y1="7"
                     x2="23"
-                    y2="7.5"
+                    y2="7"
                     stroke={jItem.stroke}
                     strokeWidth="2.8"
                   />
                   <text
                     x="32"
-                    y="11"
+                    y="10.5"
                     fontSize="8"
                     fontFamily="monospace"
                     fontWeight="bold"
@@ -4317,7 +4403,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           ) : (
             <text
               x={legendBoxX + legendBoxW * 0.75}
-              y={legendBoxY + 42}
+              y={legendBoxY + 36}
               textAnchor="middle"
               fontSize="8.5"
               fontFamily="monospace"

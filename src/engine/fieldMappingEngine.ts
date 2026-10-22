@@ -149,6 +149,13 @@ export interface FieldJointTrace {
   setId: FieldJointGroupingId;
   editedByCompass?: boolean;
   traceLengthM?: number;
+  /** Physical metric coordinates in tunnel coordinates:
+   *  - left_wall: { x: pullM [0..pull], y: heightAboveFloorM [0..wallHeight] }
+   *  - crown: { x: lateralOffsetFromLeftSpringlineM [0..width], y: pullM [0..pull] }
+   *  - right_wall: { x: pullM [0..pull], y: heightAboveFloorM [0..wallHeight] }
+   *  - face: { x: lateralOffsetM [0..width], y: heightAboveFloorM [0..height] }
+   */
+  metricPoints?: { x: number; y: number }[];
   /** Comprehensive 3D orientation, plane equation, surface intersections, and persistence inspection */
   inspection3D?: Joint3DInspectionData;
 }
@@ -465,6 +472,18 @@ export interface FieldSurveyOverbreakData {
     | 'Geological'
     | 'Both';
   overbreakReason: string;
+
+  // Payline (Contractual Authorized Excavation Boundary)
+  paylineEnabled?: boolean;
+  paylineOffsetMm?: number; // e.g. 150 (standard 150mm / 0.15m)
+  paylineAreaM2?: number;
+  permissibleOverbreakAreaM2?: number;
+  permissibleOverbreakVolumeM3?: number;
+  realOverbreakAreaM2?: number;
+  realOverbreakPercent?: number;
+  realOverbreakVolumeM3?: number;
+  isRealOverbreak?: boolean;
+  overbreakContractStatus?: 'within_payline' | 'real_overbreak' | 'exact_design';
 }
 
 export interface FieldProjectChainageRange {
@@ -1926,12 +1945,65 @@ export function createDefaultSupportSystem(): FieldSupportSystemConfig {
   };
 }
 
+export function computePaylinePolygon(
+  designPoints: FieldPoint2D[],
+  offsetM: number,
+  scaleX: number,
+  scaleY: number,
+  centroid?: { x: number; y: number }
+): FieldPoint2D[] {
+  if (!designPoints || designPoints.length < 3) return [];
+  const cx =
+    centroid?.x ??
+    designPoints.reduce((acc, p) => acc + p.x, 0) / designPoints.length;
+  const cy =
+    centroid?.y ??
+    designPoints.reduce((acc, p) => acc + p.y, 0) / designPoints.length;
+
+  const n = designPoints.length;
+  return designPoints.map((p, i) => {
+    const prev = designPoints[(i - 1 + n) % n];
+    const next = designPoints[(i + 1) % n];
+
+    // Tangent vector
+    const tx = next.x - prev.x;
+    const ty = next.y - prev.y;
+    const tLen = Math.hypot(tx, ty) || 1;
+
+    // Normal candidate (rotated 90 degrees)
+    let nx = -ty / tLen;
+    let ny = tx / tLen;
+
+    // Direct outward away from centroid
+    const vx = p.x - cx;
+    const vy = p.y - cy;
+    if (nx * vx + ny * vy < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+
+    const offPxX = nx * offsetM * scaleX;
+    const offPxY = ny * offsetM * scaleY;
+    return {
+      x: Number((p.x + offPxX).toFixed(1)),
+      y: Number((p.y + offPxY).toFixed(1)),
+    };
+  });
+}
+
 export function createDefaultSurveyOverbreak(
   location?: FieldTunnelLocationItem
 ): FieldSurveyOverbreakData {
   const w = location?.widthM || 8.0;
   const h = location?.heightM || 7.0;
   const designArea = Number((w * h * 0.86).toFixed(2));
+  // Default contractual payline allowance: 150mm (0.15m) beyond theoretical perimeter
+  const approxPerimeterM = 2 * (w + h) * 0.85;
+  const defaultPaylineOffsetMm = 150;
+  const paylineArea = Number(
+    (designArea + (approxPerimeterM * defaultPaylineOffsetMm) / 1000).toFixed(2)
+  );
+
   return {
     status: 'skipped',
     surveyPoints: [],
@@ -1944,6 +2016,16 @@ export function createDefaultSurveyOverbreak(
     maxOverbreakDepthM: 0,
     overbreakCause: 'no_overbreak',
     overbreakReason: '',
+    paylineEnabled: true,
+    paylineOffsetMm: defaultPaylineOffsetMm,
+    paylineAreaM2: paylineArea,
+    permissibleOverbreakAreaM2: 0,
+    permissibleOverbreakVolumeM3: 0,
+    realOverbreakAreaM2: 0,
+    realOverbreakPercent: 0,
+    realOverbreakVolumeM3: 0,
+    isRealOverbreak: false,
+    overbreakContractStatus: 'exact_design',
   };
 }
 
@@ -1988,8 +2070,16 @@ export function generateOverbreakSummarySentence(
   );
   const setLabel = activeSetIds.length > 0 ? activeSetIds.join(', ') : 'J1 / J2';
 
+  const paylineOffsetMm = surv.paylineOffsetMm ?? 150;
+  const paylineClause =
+    surv.paylineEnabled !== false && obArea > 0
+      ? surv.isRealOverbreak && (surv.realOverbreakAreaM2 || 0) > 0.01
+        ? ` [Contract Payline (+${paylineOffsetMm}mm): Real Overbreak ${(surv.realOverbreakAreaM2 || 0).toFixed(2)} m² / ${(surv.realOverbreakVolumeM3 || 0).toFixed(2)} m³ beyond authorized limit — Non-Payable]`
+        : ` [Contract Payline (+${paylineOffsetMm}mm): Within Payline — Permissible Overbreak as per site contract]`
+      : '';
+
   if (cause === 'no_overbreak' || cause === 'no overbreak') {
-    return `No overbreak observed along the excavated perimeter (Design Area: ${designArea} m²); the tunnel contour conforms closely to the theoretical design profile with well-controlled perimeter blasting and tight rock mass interlocking.`;
+    return `No overbreak observed along the excavated perimeter (Design Area: ${designArea} m²${surv.paylineEnabled !== false ? `, Payline: +${paylineOffsetMm}mm` : ''}); the tunnel contour conforms closely to the theoretical design profile with well-controlled perimeter blasting and tight rock mass interlocking.`;
   }
 
   const metricsClause =
@@ -1998,12 +2088,12 @@ export function generateOverbreakSummarySentence(
       : '';
 
   if (cause === 'mechanical') {
-    return `Mechanical overbreak${metricsClause} recorded along the excavation perimeter, primarily attributable to contour drill-hole look-out angle and perimeter blasting over-breakage within ${rockLabel}.`;
+    return `Mechanical overbreak${metricsClause}${paylineClause} recorded along the excavation perimeter, primarily attributable to contour drill-hole look-out angle and perimeter blasting over-breakage within ${rockLabel}.`;
   }
   if (cause === 'both') {
-    return `Combined geological and mechanical overbreak${metricsClause} recorded along the excavation perimeter, resulting from perimeter blast-induced loosening interacting with unfavourable discontinuity planes (${setLabel}) in ${rockLabel}.`;
+    return `Combined geological and mechanical overbreak${metricsClause}${paylineClause} recorded along the excavation perimeter, resulting from perimeter blast-induced loosening interacting with unfavourable discontinuity planes (${setLabel}) in ${rockLabel}.`;
   }
-  return `Geological overbreak${metricsClause} recorded along the excavation perimeter, primarily controlled by structurally induced wedge/block release along intersecting discontinuity planes (${setLabel}) within ${rockLabel}.`;
+  return `Geological overbreak${metricsClause}${paylineClause} recorded along the excavation perimeter, primarily controlled by structurally induced wedge/block release along intersecting discontinuity planes (${setLabel}) within ${rockLabel}.`;
 }
 
 export function generateProfessionalGeologicalDescription(
@@ -2900,10 +2990,16 @@ export function computeTraceOrientationFromTunnelDrive(
   const avgScaleM = (widthM + heightM) / 2 / 780;
   const traceLengthM = Number(Math.max(0.2, totalCanvasLen * avgScaleM).toFixed(2));
 
-  // Dip Amount (0° to 90°) is directly the inclination angle of the backend start-to-end straight reference chord from horizontal
+  // For Crown panel: The trace mapped overhead along the tunnel roof represents the STRIKE AXIS of the discontinuity.
+  // In structural geology / tunnel mapping, crown joints cut downward from the roof into the excavation.
+  // They must ALWAYS default to vertical (90° dip towards down) from strike and never be flat (0°).
+  // For other panels (Face, Sidewalls), dip amount is directly the inclination angle from horizontal.
   const dipAngleFromHorizontal =
     (Math.atan2(Math.abs(rawDy), Math.abs(rawDx)) * 180) / Math.PI;
-  const dipAmount = Math.max(0, Math.min(90, Math.round(dipAngleFromHorizontal)));
+  const dipAmount =
+    panel === 'crown'
+      ? 90
+      : Math.max(0, Math.min(90, Math.round(dipAngleFromHorizontal)));
 
   // Clockwise 360° angle of the backend start-to-end straight reference chord from Top (12 o'clock, -Y)
   const traceClockwiseDeg360 =
@@ -2920,10 +3016,25 @@ export function computeTraceOrientationFromTunnelDrive(
       ? (normAz + 90) % 360
       : normAz;
 
-  const dipDirection = Math.round(
+  // For Crown: The drawn trace line on the horizontal roof IS the strike axis.
+  // Strike runs along traceAzimuth, and dipDirection is perpendicular to strike dipping downward into the tunnel excavation.
+  const traceAzimuth = Math.round(
     ((panelBaseAz + traceClockwiseDeg360) % 360 + 360) % 360
   );
-  const strike = Math.round(((dipDirection - 90) % 360 + 360) % 360);
+
+  let dipDirection: number;
+  let strike: number;
+
+  if (panel === 'crown') {
+    strike = traceAzimuth;
+    dipDirection =
+      _crownDipSign === '-90'
+        ? ((strike - 90) % 360 + 360) % 360
+        : ((strike + 90) % 360 + 360) % 360;
+  } else {
+    dipDirection = traceAzimuth;
+    strike = Math.round(((dipDirection - 90) % 360 + 360) % 360);
+  }
 
   return {
     dipDirection,
@@ -3528,6 +3639,142 @@ export function computePanelCanvasGeometry(
     hasCrown,
     hasInvert,
     isClosed,
+  };
+}
+
+/**
+ * Calculates physical metric coordinates for trace points along physical tunnel surfaces:
+ * - left_wall:  x = pull advance [0..pullM], y = height above invert floor [0..wallHeightM]
+ * - crown:      x = lateral distance from left springline [0..crownArchM], y = pull advance [0..pullM]
+ * - right_wall: x = pull advance [0..pullM], y = height above invert floor [0..wallHeightM]
+ * - face:       x = cross-chainage [0..tunnelW], y = height above floor [0..tunnelH]
+ */
+export function computePhysicalMetricPoints(
+  points: FieldPoint2D[],
+  panel: FieldPanelId,
+  location: FieldTunnelLocationItem,
+  round: FieldExcavationRound
+): { x: number; y: number }[] {
+  const geom = computePanelCanvasGeometry(panel, location, round);
+  const pullM = geom.pullM;
+  const wallHM = geom.leftWallLengthM;
+  const crownArchM = geom.crownLengthM;
+
+  return points.map((pt) => {
+    const u = Math.max(0, Math.min(1, (pt.x - geom.boxX) / Math.max(1, geom.boxW)));
+    const v = Math.max(0, Math.min(1, (pt.y - geom.boxY) / Math.max(1, geom.boxH)));
+
+    if (panel === 'left_wall') {
+      // u: 0 = pull start (0m), 1 = face (pullM)
+      // v: 0 = springline (wallHM), 1 = invert floor (0m)
+      return {
+        x: Number((u * pullM).toFixed(3)),
+        y: Number(((1 - v) * wallHM).toFixed(3)),
+      };
+    }
+    if (panel === 'crown') {
+      // u: 0 = left springline (0m), 1 = right springline (crownArchM)
+      // v: 0 = face (pullM), 1 = pull start (0m)
+      return {
+        x: Number((u * crownArchM).toFixed(3)),
+        y: Number(((1 - v) * pullM).toFixed(3)),
+      };
+    }
+    if (panel === 'right_wall') {
+      // u: 0 = pull start (0m), 1 = face (pullM)
+      // v: 0 = springline (wallHM), 1 = invert floor (0m)
+      return {
+        x: Number((u * pullM).toFixed(3)),
+        y: Number(((1 - v) * wallHM).toFixed(3)),
+      };
+    }
+    // face:
+    // u: 0 = left boundary (0m), 1 = right boundary (tunnelW)
+    // v: 0 = crown apex (tunnelH), 1 = invert floor (0m)
+    return {
+      x: Number((u * geom.tunnelW).toFixed(3)),
+      y: Number(((1 - v) * geom.tunnelH).toFixed(3)),
+    };
+  });
+}
+
+/**
+ * Converts physical metric coordinates back to canvas coordinates inside panelGeom box:
+ */
+export function convertPhysicalMetricPointsToCanvas(
+  metricPoints: { x: number; y: number }[],
+  panel: FieldPanelId,
+  location: FieldTunnelLocationItem,
+  round: FieldExcavationRound
+): FieldPoint2D[] {
+  const geom = computePanelCanvasGeometry(panel, location, round);
+  const pullM = geom.pullM;
+  const wallHM = geom.leftWallLengthM;
+  const crownArchM = geom.crownLengthM;
+
+  return metricPoints.map((mp) => {
+    let u = 0;
+    let v = 0;
+    if (panel === 'left_wall') {
+      u = Math.max(0, Math.min(1, mp.x / pullM));
+      v = Math.max(0, Math.min(1, 1 - mp.y / wallHM));
+    } else if (panel === 'crown') {
+      u = Math.max(0, Math.min(1, mp.x / crownArchM));
+      v = Math.max(0, Math.min(1, 1 - mp.y / pullM));
+    } else if (panel === 'right_wall') {
+      u = Math.max(0, Math.min(1, mp.x / pullM));
+      v = Math.max(0, Math.min(1, 1 - mp.y / wallHM));
+    } else {
+      u = Math.max(0, Math.min(1, mp.x / geom.tunnelW));
+      v = Math.max(0, Math.min(1, 1 - mp.y / geom.tunnelH));
+    }
+    return {
+      x: Number((geom.boxX + u * geom.boxW).toFixed(1)),
+      y: Number((geom.boxY + v * geom.boxH).toFixed(1)),
+    };
+  });
+}
+
+/**
+ * Maps physical metric coordinates directly to strip log SVG coordinates (0m pull at bottom, pullM at face top):
+ */
+export function mapMetricPointToStripSvg(
+  metricPt: { x: number; y: number },
+  panel: 'left_wall' | 'crown' | 'right_wall',
+  location: FieldTunnelLocationItem,
+  round: FieldExcavationRound,
+  panelStripBox: { x: number; w: number; h: number },
+  stripY: number
+): FieldPoint2D {
+  const geom = computePanelCanvasGeometry(panel, location, round);
+  const pullM = geom.pullM;
+  const wallHM = geom.leftWallLengthM;
+  const crownArchM = geom.crownLengthM;
+
+  let sx = 0;
+  let sy = 0;
+
+  if (panel === 'left_wall') {
+    // sx: 0 = invert floor, 1 = left springline
+    // sy: 0 = face (pullM), 1 = pull start (0m)
+    sx = Math.max(0, Math.min(1, metricPt.y / wallHM));
+    sy = Math.max(0, Math.min(1, (pullM - metricPt.x) / pullM));
+  } else if (panel === 'crown') {
+    // sx: 0 = left springline, 1 = right springline
+    // sy: 0 = face (pullM), 1 = pull start (0m)
+    sx = Math.max(0, Math.min(1, metricPt.x / crownArchM));
+    sy = Math.max(0, Math.min(1, (pullM - metricPt.y) / pullM));
+  } else {
+    // right_wall:
+    // sx: 0 = right springline, 1 = invert floor
+    // sy: 0 = face (pullM), 1 = pull start (0m)
+    sx = Math.max(0, Math.min(1, (wallHM - metricPt.y) / wallHM));
+    sy = Math.max(0, Math.min(1, (pullM - metricPt.x) / pullM));
+  }
+
+  return {
+    x: Number((panelStripBox.x + sx * panelStripBox.w).toFixed(1)),
+    y: Number((stripY + sy * panelStripBox.h).toFixed(1)),
   };
 }
 
@@ -5621,8 +5868,16 @@ export function buildFieldMappingTwoPageWordHtml(
       <th>Survey Overbreak Analysis</th>
       <td><strong>${
         (surv.overbreakCause || '').toLowerCase() === 'no_overbreak'
-          ? `No Overbreak Observed (Design Profile: ${surv.designAreaM2.toFixed(2)} m²)`
-          : `Overbreak Area: ${surv.overbreakAreaM2.toFixed(2)} m² (${surv.overbreakPercent.toFixed(1)}%) | Volume: ${(surv.overbreakVolumeM3 || surv.overbreakAreaM2 * (round.pullLengthMeters || 3)).toFixed(2)} m³ | Max Depth: ${surv.maxOverbreakDepthM.toFixed(2)} m`
+          ? `No Overbreak Observed (Design Profile: ${surv.designAreaM2.toFixed(2)} m²${surv.paylineEnabled !== false ? ` | Payline +${surv.paylineOffsetMm ?? 150}mm: ${(surv.paylineAreaM2 || 0).toFixed(2)} m²` : ''})`
+          : `Overbreak Area: ${surv.overbreakAreaM2.toFixed(2)} m² (${surv.overbreakPercent.toFixed(1)}%) | Volume: ${(surv.overbreakVolumeM3 || surv.overbreakAreaM2 * (round.pullLengthMeters || 3)).toFixed(2)} m³ | Max Depth: ${surv.maxOverbreakDepthM.toFixed(2)} m${
+              surv.paylineEnabled !== false
+                ? ` | <strong>Payline (+${surv.paylineOffsetMm ?? 150}mm):</strong> ${
+                    surv.isRealOverbreak && (surv.realOverbreakAreaM2 || 0) > 0.01
+                      ? `<span style="color:#b91c1c;">REAL OVERBREAK ${(surv.realOverbreakAreaM2 || 0).toFixed(2)} m² (${(surv.realOverbreakVolumeM3 || 0).toFixed(2)} m³) BEYOND PAYLINE</span> (Permissible: ${(surv.permissibleOverbreakAreaM2 || 0).toFixed(2)} m²)`
+                      : `<span style="color:#15803d;">WITHIN PAYLINE (${(surv.overbreakAreaM2 || 0).toFixed(2)} m² Permissible Overbreak — Authorized as per Site Contract)</span>`
+                  }`
+                : ''
+            }`
       }</strong> — Classification: <strong>${formatOverbreakCauseLabel(surv.overbreakCause)}</strong> ${surv.overbreakReason ? `(${surv.overbreakReason})` : ''}</td>
     </tr>`
         : ''
@@ -6259,9 +6514,15 @@ export async function exportFieldMappingTwoPagePdfSheet(
     42
   );
   if (surv && surv.status === 'completed') {
+    const paylineSummary =
+      surv.paylineEnabled !== false
+        ? surv.isRealOverbreak && (surv.realOverbreakAreaM2 || 0) > 0.01
+          ? ` | Payline +${surv.paylineOffsetMm ?? 150}mm: Real OB ${(surv.realOverbreakAreaM2 || 0).toFixed(2)} m² (Beyond Contract)`
+          : ` | Payline +${surv.paylineOffsetMm ?? 150}mm: Within Payline (Permissible)`
+        : '';
     drawSectionRow(
       'Survey Overbreak Analysis',
-      `Overbreak: ${surv.overbreakAreaM2.toFixed(2)} m² (${surv.overbreakPercent.toFixed(1)}%) — ${formatOverbreakCauseLabel(surv.overbreakCause)}`,
+      `OB: ${surv.overbreakAreaM2.toFixed(2)} m² (${surv.overbreakPercent.toFixed(1)}%)${paylineSummary} — ${formatOverbreakCauseLabel(surv.overbreakCause)}`,
       40
     );
   }

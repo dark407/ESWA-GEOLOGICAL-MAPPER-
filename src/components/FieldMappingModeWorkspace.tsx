@@ -50,6 +50,7 @@ import {
   computeFieldQValue,
   computeFaceTunnelOutlineDetails,
   computePanelCanvasGeometry,
+  computePhysicalMetricPoints,
   computeTCanvasLayout,
   computeTraceInlineLabelPlacements,
   computeTraceScreenDipTickVector,
@@ -564,12 +565,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   useEffect(() => {
     if (!activeRound || !activeLocation) return;
     try {
+      const fromSt = activeRound.chainageFrom || '';
+      const toSt = activeRound.chainageTo || '';
+      const pullLen = activeRound.pullLengthMeters || 3.5;
       const liveInterval = parsePullIntervalFromRecord(
-        activeRound.chainageStation || '',
-        activeRound.faceChainageStation || '',
-        activeRound.roundLengthMeters || 3.5
+        fromSt,
+        toSt,
+        pullLen
       );
-      const projName = (activeProject?.name || 'Tunnel Project').trim();
+      const projName = (activeProject?.projectName || 'Tunnel Project').trim();
       const locName = (activeLocation.name || 'Main Tunnel').trim();
 
       const convertedJoints: Joint[] = activeRound.jointTraces.map((tr) => ({
@@ -598,15 +602,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         orientationStatus: tr.editedByCompass ? 'DIRECTLY_MEASURED' : 'GEOMETRICALLY_CALCULATED',
       }));
 
+      const defQ = createDefaultQIndexParameters();
       const syntheticRecord: SavedProjectRecord = {
         id: `auto-round-${activeRound.id}`,
         projectName: projName,
         tunnelName: locName,
         location: locName,
-        chainage: activeRound.chainageStation || `RD ${liveInterval.fromRd}m - ${liveInterval.toRd}m`,
-        faceChainage: activeRound.faceChainageStation || `RD ${liveInterval.toRd}m`,
+        chainage: fromSt || `RD ${liveInterval.fromRd}m - ${liveInterval.toRd}m`,
+        faceChainage: toSt || `RD ${liveInterval.toRd}m`,
         numericChainageMeters: liveInterval.toRd,
-        date: activeRound.date || new Date().toISOString().slice(0, 10),
+        date: activeRound.createdAt || activeRound.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
         savedAt: new Date().toISOString(),
         mappingMode: 'tunnel_3d',
         geometry: {
@@ -628,16 +633,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           location: locName,
           driveDirectionInput: String(activeRound.tunnelDriveDirection || 0),
           driveDirection: activeRound.tunnelDriveDirection || 0,
-          chainage: activeRound.chainageStation || `RD ${liveInterval.fromRd}m - ${liveInterval.toRd}m`,
-          faceChainage: activeRound.faceChainageStation || `RD ${liveInterval.toRd}m`,
-          roundLength: activeRound.roundLengthMeters || 3.5,
-          date: activeRound.date || new Date().toISOString().slice(0, 10),
+          chainage: fromSt || `RD ${liveInterval.fromRd}m - ${liveInterval.toRd}m`,
+          faceChainage: toSt || `RD ${liveInterval.toRd}m`,
+          roundLength: pullLen,
+          date: activeRound.createdAt || activeRound.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
           mappedBy: activeRound.geologistName || 'Geologist',
-          lithology: activeRound.dominantRockType || 'Rock Mass',
+          lithology: activeRound.lithologyStrokes?.[0]?.rockName || 'Rock Mass',
         },
         joints: convertedJoints,
         customJointSetOverrides: {},
         qIndexParams: {
+          ...defQ,
           rqd: activeRound.qSystem?.rqd ?? 75,
           jn: activeRound.qSystem?.jn ?? 9,
           jr: activeRound.qSystem?.jr ?? 1.5,
@@ -651,10 +657,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           rqdRating: activeRound.rmrSystem?.rqdRating ?? 17,
           spacingRating: activeRound.rmrSystem?.spacingRating ?? 10,
           conditionRating: activeRound.rmrSystem?.conditionRating ?? 20,
-          groundwaterRating: activeRound.rmrSystem?.groundwaterRating ?? 10,
-          orientationAdjustmentRating: activeRound.rmrSystem?.adjustmentRating ?? -5,
-        },
-      };
+          groundwaterRating: activeRound.rmrSystem?.waterRating ?? 10,
+          orientationAdjustmentRating: activeRound.rmrSystem?.orientationAdj ?? -5,
+        } as any,
+      } as any;
 
       const existing = loadAllContinuousStripDatasets();
       const updated = syncSavedProjectsIntoStripDatasets(existing, [syntheticRecord]);
@@ -664,9 +670,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   }, [
     activeRound?.jointTraces,
-    activeRound?.chainageStation,
-    activeRound?.faceChainageStation,
-    activeRound?.roundLengthMeters,
+    activeRound?.chainageFrom,
+    activeRound?.chainageTo,
+    activeRound?.pullLengthMeters,
     activeRound?.tunnelDriveDirection,
     activeLocation,
     activeProject,
@@ -2574,6 +2580,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         setId: 'unassigned',
         editedByCompass: false,
         traceLengthM: est.traceLengthM,
+        metricPoints: computePhysicalMetricPoints(shapedPts, targetPanel, activeLocation, activeRound),
         strokeWidthPx: jointPencilSizePx,
         lineMode: effectiveToolLineMode,
       };
@@ -3035,6 +3042,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         setId: 'unassigned',
         editedByCompass: false,
         traceLengthM: est.traceLengthM,
+        metricPoints: computePhysicalMetricPoints(smoothed, targetPanel, activeLocation, activeRound),
         strokeWidthPx:
           activeDrawSubTool === 'brush'
             ? Math.max(2, Math.min(16, Number((brushRadius / 4).toFixed(1))))
@@ -7800,6 +7808,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 rememberedRocksList={rememberedRocksList}
                 selectedTraceId={selectedTraceId}
                 onSelectTraceId={handleSelectTraceId3D}
+                onOpen3DJointInspector={(jointId) => {
+                  setSelectedTraceId(jointId);
+                  setInspectedJointId(jointId);
+                  setIs3DJointInspectorOpen(true);
+                }}
                 onSetLiveOrientation={handleSetLiveOrientation3D}
                 onPushUndo={pushUndoSnapshot}
                 onUpdateRound={updateActiveRound}

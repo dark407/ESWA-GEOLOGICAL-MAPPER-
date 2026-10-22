@@ -1,9 +1,20 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   Box,
+  Check,
+  Compass,
+  CornerDownRight,
+  Crosshair,
+  Eye,
+  EyeOff,
   Grid,
   Layers,
+  Maximize2,
+  Move,
+  RotateCcw,
   Sliders,
+  Sparkles,
+  Trash2,
   Wand2,
 } from 'lucide-react';
 import {
@@ -239,6 +250,7 @@ interface Field3DTunnelCanvasProps {
   onPushUndo: () => void;
   onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
   onSyncTraceStateChange?: (state: Field3DSyncTraceState) => void;
+  onOpen3DJointInspector?: (id: string) => void;
 }
 
 interface PerimeterSampleNode {
@@ -446,11 +458,16 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
   onPushUndo,
   onUpdateRound,
   onSyncTraceStateChange,
+  onOpen3DJointInspector,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [subMode, setSubMode] = useState<Field3DViewSubMode>('open_heading');
   const [show1mGrid, setShow1mGrid] = useState<boolean>(true);
   const [showTunnelOutline, setShowTunnelOutline] = useState<boolean>(true);
+
+  // 3D Joint Inspection & Cutting Disc Plane:
+  const [show3DSpatialDisc, setShow3DSpatialDisc] = useState<boolean>(true);
+
   const [localPencilLineMode, setLocalPencilLineMode] = useState<'smooth' | 'linear'>('smooth');
   const rawPencilLineMode = onChangePencilLineMode ? pencilLineMode : localPencilLineMode;
   const effectivePencilLineMode: 'smooth' | 'linear' =
@@ -539,21 +556,28 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     emitField3DPendingJointChange(false);
   }, [pendingTraceSession, onUpdateRound]);
 
-  // Allow pressing Enter to click "OK" and finish the current 3D joint trace, or Escape to cancel it
+  // Allow pressing Enter to finish joint, Escape to cancel
   React.useEffect(() => {
-    if (!pendingTraceSession) return;
     const onKeyDown = (ev: KeyboardEvent) => {
       if (ev.key === 'Enter') {
-        ev.preventDefault();
-        confirmAndFinishPendingJoint();
+        if (pendingTraceSession) {
+          ev.preventDefault();
+          confirmAndFinishPendingJoint();
+        }
       } else if (ev.key === 'Escape') {
-        ev.preventDefault();
-        cancelPendingJoint();
+        if (pendingTraceSession) {
+          ev.preventDefault();
+          cancelPendingJoint();
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [pendingTraceSession, confirmAndFinishPendingJoint, cancelPendingJoint]);
+  }, [
+    pendingTraceSession,
+    confirmAndFinishPendingJoint,
+    cancelPendingJoint,
+  ]);
 
   // Subscribe to external "OK" clicks from the Right-Window SYNC box
   React.useEffect(() => {
@@ -930,24 +954,39 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
 
   /**
    * Maps a 2D canonical panel point `pt` on `panel` into its 3D projected SVG coordinates `(x, y)`.
-   * Canonical 2D Pull convention:
-   * - On `left_wall` and `crown`: `u = 0` is `0m` (First Outer Line, `tPull = 1`), `u = 1` is `pullM` (Inner Core Line, `tPull = 0`).
-   * - On `right_wall`: `u = 1` is `0m` (First Outer Line, `tPull = 1`), `u = 0` is `pullM` (Inner Core Line, `tPull = 0`).
+   * Canonical 2D conventions (matching computePhysicalMetricPoints & computePanelOrientationReferenceMeta):
+   * - Crown: u = 0 (Left SPL) -> 1 (Right SPL) across relative arch curve; v = 0 (Face / pullM) -> 1 (0m pull).
+   * - Left Wall: u = 0 (0m pull) -> 1 (Face / pullM); v = 0 (Springline) -> 1 (Invert floor).
+   * - Right Wall: u = 0 (Face / pullM) -> 1 (0m pull); v = 0 (Springline) -> 1 (Invert floor).
+   * - Face: u = 0 (Left edge) -> 1 (Right edge); v = 0 (Apex) -> 1 (Invert floor).
    */
   const panelPointTo3DSvg = (panel: FieldPanelId, pt: FieldPoint2D): FieldPoint2D => {
     const geom = getPanelGeom(panel);
-    const u = Math.max(0.001, Math.min(0.999, (pt.x - geom.boxX) / Math.max(1, geom.boxW)));
-    const v = Math.max(0.001, Math.min(0.999, (pt.y - geom.boxY) / Math.max(1, geom.boxH)));
+    const u = Math.max(0.0001, Math.min(0.9999, (pt.x - geom.boxX) / Math.max(1, geom.boxW)));
+    const v = Math.max(0.0001, Math.min(0.9999, (pt.y - geom.boxY) / Math.max(1, geom.boxH)));
 
     if (panel === 'face') {
       return projectTunnel3DPoint(u - 0.5, v, 0, 'face');
     }
 
-    const { nx, ny } = interpolatePerimeterAtV(panel, v);
-    // pullNorm: 0 at First Outer Line (0m) -> 1 at Inner Core Line (pullM / 3m)
-    const pullNorm = panel === 'right_wall' ? 1 - u : u;
-    const tPull = 1 - pullNorm;
-    return projectTunnel3DPoint(nx, ny, tPull, panel);
+    if (panel === 'crown') {
+      // u across curved arch perimeter, v along pull advance (0 = face, 1 = 0m pull)
+      const { nx, ny } = interpolatePerimeterAtV('crown', u);
+      const tPull = v;
+      return projectTunnel3DPoint(nx, ny, tPull, 'crown');
+    }
+
+    if (panel === 'left_wall') {
+      // u along pull (0 = 0m, 1 = face) -> tPull = 1 - u; v from SPL to Invert -> node v is 1 - v
+      const { nx, ny } = interpolatePerimeterAtV('left_wall', 1 - v);
+      const tPull = 1 - u;
+      return projectTunnel3DPoint(nx, ny, tPull, 'left_wall');
+    }
+
+    // right_wall: u along pull (0 = face, 1 = 0m) -> tPull = u; v from SPL to Invert -> node v is v
+    const { nx, ny } = interpolatePerimeterAtV('right_wall', v);
+    const tPull = u;
+    return projectTunnel3DPoint(nx, ny, tPull, 'right_wall');
   };
 
   // Precompute 3D hit-test polygons & panel node lookup tables once per camera/geometry change (instead of every pointermove!)
@@ -1120,13 +1159,29 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     if (!bestNode) return null;
 
     const geom = getPanelGeom(bestNode.panel);
-    // pullNorm: 0 at First Outer Grid Line (bestTPull=1, 0m) -> 1 at Inner Core Line (bestTPull=0, pullM / 3m)
+    // pullNorm: 0 at 0m pull (bestTPull = 1) -> 1 at face advance / pullM (bestTPull = 0)
     const pullNorm = Math.max(0.0, Math.min(1.0, 1 - bestTPull));
-    const u =
-      bestNode.panel === 'right_wall'
-        ? Math.max(0.002, Math.min(0.998, 1 - pullNorm))
-        : Math.max(0.002, Math.min(0.998, pullNorm));
-    const v = Math.max(0.002, Math.min(0.998, bestNode.v));
+
+    let u = 0.5;
+    let v = 0.5;
+    let perimMeter = bestNode.edgeMeterFromStart;
+
+    if (bestNode.panel === 'crown') {
+      // Crown 2D: u across curved arch perimeter, v along pull advance (0 = face, 1 = 0m pull)
+      u = Math.max(0.002, Math.min(0.998, bestNode.v));
+      v = Math.max(0.002, Math.min(0.998, bestTPull));
+      perimMeter = bestNode.edgeMeterFromStart;
+    } else if (bestNode.panel === 'left_wall') {
+      // Left Wall 2D: u along pull advance (0 = 0m, 1 = face); v from SPL (0) to Invert (1)
+      u = Math.max(0.002, Math.min(0.998, 1 - bestTPull));
+      v = Math.max(0.002, Math.min(0.998, 1 - bestNode.v));
+      perimMeter = Number(((1 - bestNode.v) * geom.leftWallLengthM).toFixed(2));
+    } else if (bestNode.panel === 'right_wall') {
+      // Right Wall 2D: u along pull advance (0 = face, 1 = 0m); v from SPL (0) to Invert (1)
+      u = Math.max(0.002, Math.min(0.998, bestTPull));
+      v = Math.max(0.002, Math.min(0.998, bestNode.v));
+      perimMeter = bestNode.edgeMeterFromStart;
+    }
 
     return {
       panel: bestNode.panel,
@@ -1137,8 +1192,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       u,
       v,
       pullMeter: Number((pullNorm * pullM).toFixed(2)),
-      // On Left Wall, edgeMeterFromStart is 0m at the outer starting edge (invert) and increases to L-SPL
-      perimMeter: bestNode.edgeMeterFromStart,
+      perimMeter: Number(perimMeter.toFixed(2)),
     };
   };
 
@@ -1325,9 +1379,18 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
         const tPull = anchorZ - rhs / nZ;
         if (tPull >= 0.01 && tPull <= 0.99) {
           const geom = getPanelGeom(node.panel);
-          const pullNorm = 1 - tPull; // 0 at First Outer Line -> 1 at Inner Line
-          const u = node.panel === 'right_wall' ? 1 - pullNorm : pullNorm;
-          const v = node.v;
+          let u = 0.5;
+          let v = 0.5;
+          if (node.panel === 'crown') {
+            u = Math.max(0.002, Math.min(0.998, node.v));
+            v = Math.max(0.002, Math.min(0.998, tPull));
+          } else if (node.panel === 'left_wall') {
+            u = Math.max(0.002, Math.min(0.998, 1 - tPull));
+            v = Math.max(0.002, Math.min(0.998, 1 - node.v));
+          } else if (node.panel === 'right_wall') {
+            u = Math.max(0.002, Math.min(0.998, tPull));
+            v = Math.max(0.002, Math.min(0.998, node.v));
+          }
           const panelPt = {
             x: Number((geom.boxX + u * geom.boxW).toFixed(1)),
             y: Number((geom.boxY + v * geom.boxH).toFixed(1)),
@@ -1379,13 +1442,22 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     if (targetTrace.panel === 'face') {
       anchorX = u - 0.5;
       anchorY = v;
-      anchorZ = 0.05;
-    } else {
-      const { nx, ny } = interpolatePerimeterAtV(targetTrace.panel, v);
+      anchorZ = 0.02;
+    } else if (targetTrace.panel === 'crown') {
+      const { nx, ny } = interpolatePerimeterAtV('crown', u);
       anchorX = nx;
       anchorY = ny;
-      const pullNorm = targetTrace.panel === 'right_wall' ? 1 - u : u;
-      anchorZ = 1 - pullNorm;
+      anchorZ = v;
+    } else if (targetTrace.panel === 'left_wall') {
+      const { nx, ny } = interpolatePerimeterAtV('left_wall', 1 - v);
+      anchorX = nx;
+      anchorY = ny;
+      anchorZ = 1 - u;
+    } else if (targetTrace.panel === 'right_wall') {
+      const { nx, ny } = interpolatePerimeterAtV('right_wall', v);
+      anchorX = nx;
+      anchorY = ny;
+      anchorZ = u;
     }
 
     const projected = compute3DPlaneIntersectionForAnchor(
@@ -1751,10 +1823,12 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       ];
     }
 
-    if (effectiveSamples.length < 2) {
-      setLiveStrokeSamples([]);
-      return;
-    }
+    commitEffectiveSamples(effectiveSamples);
+    setLiveStrokeSamples([]);
+  };
+
+  const commitEffectiveSamples = (effectiveSamples: typeof liveStrokeSamples) => {
+    if (effectiveSamples.length < 2) return;
 
     const runs: { panel: FieldPanelId; points: FieldPoint2D[] }[] = [];
     for (let i = 0; i < effectiveSamples.length; i++) {
@@ -1770,25 +1844,34 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             (prevRun.panel === 'left_wall' && sample.panel === 'crown') ||
             (prevRun.panel === 'crown' && sample.panel === 'left_wall')
           ) {
+            // At Left Springline boundary:
+            // left_wall: v = 0 (SPL), u in [0, 1] is pull (0 = 0m, 1 = face)
+            // crown: u = 0 (Left SPL), v in [0, 1] is pull (0 = face, 1 = 0m)
             const prevU = (prevLastPt.x - prevGeom.boxX) / Math.max(1, prevGeom.boxW);
             const currU = (sample.panelPt.x - currGeom.boxX) / Math.max(1, currGeom.boxW);
-            const sharedU = Math.max(0.01, Math.min(0.99, (prevU + currU) / 2));
-            // On left_wall, L-SPL is v = 1 (bottom of canonical panel); on crown, L-SPL is v = 0 (top of canonical panel)
-            const prevTargetV = prevRun.panel === 'left_wall' ? 0.996 : 0.004;
-            const currTargetV = sample.panel === 'left_wall' ? 0.996 : 0.004;
-            prevRun.points.push({
-              x: Number((prevGeom.boxX + sharedU * prevGeom.boxW).toFixed(1)),
-              y: Number((prevGeom.boxY + prevTargetV * prevGeom.boxH).toFixed(1)),
-            });
+            const prevV = (prevLastPt.y - prevGeom.boxY) / Math.max(1, prevGeom.boxH);
+            const currV = (sample.panelPt.y - currGeom.boxY) / Math.max(1, currGeom.boxH);
+
+            let pullFrac = 0.5; // 0 = 0m pull, 1 = face advance
+            if (prevRun.panel === 'left_wall') {
+              pullFrac = Math.max(0.01, Math.min(0.99, (prevU + (1 - currV)) / 2));
+            } else {
+              pullFrac = Math.max(0.01, Math.min(0.99, ((1 - prevV) + currU) / 2));
+            }
+
+            const lwPt = {
+              x: Number((getPanelGeom('left_wall').boxX + pullFrac * getPanelGeom('left_wall').boxW).toFixed(1)),
+              y: Number((getPanelGeom('left_wall').boxY + 0.004 * getPanelGeom('left_wall').boxH).toFixed(1)),
+            };
+            const crPt = {
+              x: Number((getPanelGeom('crown').boxX + 0.004 * getPanelGeom('crown').boxW).toFixed(1)),
+              y: Number((getPanelGeom('crown').boxY + (1 - pullFrac) * getPanelGeom('crown').boxH).toFixed(1)),
+            };
+
+            prevRun.points.push(prevRun.panel === 'left_wall' ? lwPt : crPt);
             runs.push({
               panel: sample.panel,
-              points: [
-                {
-                  x: Number((currGeom.boxX + sharedU * currGeom.boxW).toFixed(1)),
-                  y: Number((currGeom.boxY + currTargetV * currGeom.boxH).toFixed(1)),
-                },
-                sample.panelPt,
-              ],
+              points: [sample.panel === 'crown' ? crPt : lwPt, sample.panelPt],
             });
             continue;
           }
@@ -1797,32 +1880,34 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             (prevRun.panel === 'crown' && sample.panel === 'right_wall') ||
             (prevRun.panel === 'right_wall' && sample.panel === 'crown')
           ) {
+            // At Right Springline boundary:
+            // crown: u = 1 (Right SPL), v in [0, 1] is pull (0 = face, 1 = 0m)
+            // right_wall: v = 0 (SPL), u in [0, 1] is pull (0 = face, 1 = 0m)
+            const prevV = (prevLastPt.y - prevGeom.boxY) / Math.max(1, prevGeom.boxH);
+            const currV = (sample.panelPt.y - currGeom.boxY) / Math.max(1, currGeom.boxH);
             const prevU = (prevLastPt.x - prevGeom.boxX) / Math.max(1, prevGeom.boxW);
             const currU = (sample.panelPt.x - currGeom.boxX) / Math.max(1, currGeom.boxW);
-            const sharedPullNorm =
-              prevRun.panel === 'crown'
-                ? (prevU + (1 - currU)) / 2
-                : (1 - prevU + currU) / 2;
-            const clampedPullNorm = Math.max(0.01, Math.min(0.99, sharedPullNorm));
 
-            const prevTargetU = prevRun.panel === 'crown' ? clampedPullNorm : 1 - clampedPullNorm;
-            const prevTargetV = prevRun.panel === 'crown' ? 0.996 : 0.004;
-            const currTargetU = sample.panel === 'crown' ? clampedPullNorm : 1 - clampedPullNorm;
-            const currTargetV = sample.panel === 'crown' ? 0.996 : 0.004;
+            let pullDownFrac = 0.5; // 0 = face advance, 1 = 0m pull
+            if (prevRun.panel === 'crown') {
+              pullDownFrac = Math.max(0.01, Math.min(0.99, (prevV + currU) / 2));
+            } else {
+              pullDownFrac = Math.max(0.01, Math.min(0.99, (prevU + currV) / 2));
+            }
 
-            prevRun.points.push({
-              x: Number((prevGeom.boxX + prevTargetU * prevGeom.boxW).toFixed(1)),
-              y: Number((prevGeom.boxY + prevTargetV * prevGeom.boxH).toFixed(1)),
-            });
+            const crPt = {
+              x: Number((getPanelGeom('crown').boxX + 0.996 * getPanelGeom('crown').boxW).toFixed(1)),
+              y: Number((getPanelGeom('crown').boxY + pullDownFrac * getPanelGeom('crown').boxH).toFixed(1)),
+            };
+            const rwPt = {
+              x: Number((getPanelGeom('right_wall').boxX + pullDownFrac * getPanelGeom('right_wall').boxW).toFixed(1)),
+              y: Number((getPanelGeom('right_wall').boxY + 0.004 * getPanelGeom('right_wall').boxH).toFixed(1)),
+            };
+
+            prevRun.points.push(prevRun.panel === 'crown' ? crPt : rwPt);
             runs.push({
               panel: sample.panel,
-              points: [
-                {
-                  x: Number((currGeom.boxX + currTargetU * currGeom.boxW).toFixed(1)),
-                  y: Number((currGeom.boxY + currTargetV * currGeom.boxH).toFixed(1)),
-                },
-                sample.panelPt,
-              ],
+              points: [sample.panel === 'right_wall' ? rwPt : crPt, sample.panelPt],
             });
             continue;
           }
@@ -2128,6 +2213,165 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
 
     setLiveStrokeSamples([]);
   };
+
+  const handleAdjustSelectedJointAngle = (field: 'dipDirection' | 'dipAmount', delta: number) => {
+    if (!selectedTraceId) return;
+    onPushUndo();
+    onUpdateRound((r) => {
+      const tr = r.jointTraces.find((t) => t.id === selectedTraceId);
+      if (!tr) return r;
+      const newDipDir =
+        field === 'dipDirection'
+          ? (tr.dipDirection + delta + 360) % 360
+          : tr.dipDirection;
+      const newDipAmt =
+        field === 'dipAmount'
+          ? Math.max(5, Math.min(89, tr.dipAmount + delta))
+          : tr.dipAmount;
+      const newStrike = (newDipDir + 270) % 360;
+      onSetLiveOrientation(newDipDir, newDipAmt);
+      return {
+        ...r,
+        jointTraces: r.jointTraces.map((t) =>
+          t.id === selectedTraceId
+            ? {
+                ...t,
+                dipDirection: newDipDir,
+                dipAmount: newDipAmt,
+                strike: newStrike,
+                editedByCompass: true,
+              }
+            : t
+        ),
+      };
+    });
+  };
+
+  const handleDeleteSelectedJoint = (id: string) => {
+    onPushUndo();
+    onUpdateRound((r) => ({
+      ...r,
+      jointTraces: r.jointTraces.filter((t) => t.id !== id),
+    }));
+    onSelectTraceId(null);
+  };
+
+  // Currently selected joint trace for 3D inspection
+  const selectedJointForInspector = useMemo(() => {
+    if (!selectedTraceId) return null;
+    return activeRound.jointTraces.find((t) => t.id === selectedTraceId) || null;
+  }, [selectedTraceId, activeRound.jointTraces]);
+
+  // 3D Spatial Cutting Disc Plane for currently selected joint
+  const inspectedJoint3DDisc = useMemo(() => {
+    if (!show3DSpatialDisc || !selectedTraceId) return null;
+    const joint = activeRound.jointTraces.find((t) => t.id === selectedTraceId);
+    if (!joint || joint.points.length < 2) return null;
+
+    const midPt = joint.points[Math.floor(joint.points.length / 2)];
+    const geom = getPanelGeom(joint.panel);
+    const u = Math.max(0.01, Math.min(0.99, (midPt.x - geom.boxX) / Math.max(1, geom.boxW)));
+    const v = Math.max(0.01, Math.min(0.99, (midPt.y - geom.boxY) / Math.max(1, geom.boxH)));
+
+    let anchorX = 0;
+    let anchorY = 0.5;
+    let anchorZ = 0.45;
+
+    if (joint.panel === 'face') {
+      anchorX = u - 0.5;
+      anchorY = v;
+      anchorZ = 0.02;
+    } else if (joint.panel === 'crown') {
+      const { nx, ny } = interpolatePerimeterAtV('crown', u);
+      anchorX = nx;
+      anchorY = ny;
+      anchorZ = v;
+    } else if (joint.panel === 'left_wall') {
+      const { nx, ny } = interpolatePerimeterAtV('left_wall', 1 - v);
+      anchorX = nx;
+      anchorY = ny;
+      anchorZ = 1 - u;
+    } else if (joint.panel === 'right_wall') {
+      const { nx, ny } = interpolatePerimeterAtV('right_wall', v);
+      anchorX = nx;
+      anchorY = ny;
+      anchorZ = u;
+    }
+
+    const relAzRad =
+      (((joint.dipDirection - activeRound.tunnelDriveDirection + 360) % 360) * Math.PI) / 180;
+    const isCrown = joint.panel === 'crown';
+    const effectiveDip =
+      (joint.dipAmount === 0 || joint.dipAmount == null) && isCrown
+        ? 90
+        : (joint.dipAmount ?? (isCrown ? 90 : 65));
+    const dipRad = (Math.max(5, Math.min(90, effectiveDip)) * Math.PI) / 180;
+
+    const sinDip = Math.sin(dipRad);
+    const cosDip = Math.cos(dipRad);
+    const nX = sinDip * Math.sin(relAzRad);
+    const nZ = -sinDip * Math.cos(relAzRad);
+    const nY = -cosDip;
+
+    const uX = Math.cos(relAzRad);
+    const uY = 0;
+    const uZ = Math.sin(relAzRad);
+
+    const vX = nY * uZ - nZ * uY;
+    const vY = nZ * uX - nX * uZ;
+    const vZ = nX * uY - nY * uX;
+
+    const radius = 0.32;
+    const discSvgPts: FieldPoint2D[] = [];
+    const steps = 36;
+    for (let i = 0; i < steps; i++) {
+      const theta = (i / steps) * 2 * Math.PI;
+      const cosT = Math.cos(theta);
+      const sinT = Math.sin(theta);
+      const px = anchorX + radius * (cosT * uX + sinT * vX);
+      const py = anchorY + radius * (cosT * uY + sinT * vY);
+      const pz = anchorZ + radius * (cosT * uZ + sinT * vZ);
+      discSvgPts.push(projectTunnel3DPoint(px, py, pz, joint.panel));
+    }
+
+    const centerSvg = projectTunnel3DPoint(anchorX, anchorY, anchorZ, joint.panel);
+    const strikeEnd1 = projectTunnel3DPoint(
+      anchorX - radius * 0.95 * uX,
+      anchorY - radius * 0.95 * uY,
+      anchorZ - radius * 0.95 * uZ,
+      joint.panel
+    );
+    const strikeEnd2 = projectTunnel3DPoint(
+      anchorX + radius * 0.95 * uX,
+      anchorY + radius * 0.95 * uY,
+      anchorZ + radius * 0.95 * uZ,
+      joint.panel
+    );
+    const dipArrowEnd = projectTunnel3DPoint(
+      anchorX + radius * 0.85 * vX,
+      anchorY + radius * 0.85 * vY,
+      anchorZ + radius * 0.85 * vZ,
+      joint.panel
+    );
+
+    return {
+      joint: { ...joint, dipAmount: effectiveDip },
+      effectiveDip,
+      discSvgPts,
+      centerSvg,
+      strikeEnd1,
+      strikeEnd2,
+      dipArrowEnd,
+    };
+  }, [
+    show3DSpatialDisc,
+    selectedTraceId,
+    activeRound.jointTraces,
+    activeRound.tunnelDriveDirection,
+    interpolatePerimeterAtV,
+    projectTunnel3DPoint,
+    getPanelGeom,
+  ]);
 
   // Build 3D surface wireframe, 1m × 1m true grid lines (starting at 0m on First Outer Line -> going inward through pull), & auto-fit viewBox
   const surfaceMeshes = useMemo(() => {
@@ -3559,8 +3803,25 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
                   if (activeTool === 'eraser') return;
                   onSelectTraceId(tr.id, tr.panel);
                 }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  onSelectTraceId(tr.id, tr.panel);
+                  onOpen3DJointInspector?.(tr.id);
+                }}
                 className="cursor-pointer"
               >
+                {/* 3D Selection Glow Halo */}
+                {isSel && (
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth={baseW + 5.5}
+                    opacity="0.55"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
                 <path
                   d={pathD}
                   fill="none"
@@ -3576,17 +3837,78 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
                     textAnchor="middle"
                     fontSize="9.5"
                     fontWeight="900"
-                    fill={grpColor.stroke}
+                    fill={isSel ? '#38bdf8' : grpColor.stroke}
                     stroke="#ffffff"
-                    strokeWidth="2.6"
+                    strokeWidth="2.8"
                     paintOrder="stroke"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectTraceId(tr.id, tr.panel);
+                      onOpen3DJointInspector?.(tr.id);
+                    }}
+                    className="cursor-pointer select-none"
                   >
+                    <title>Click or double-click to inspect 3D joint and cutting plane</title>
                     {tag} {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
                   </text>
                 )}
               </g>
             );
           })}
+
+          {/* 3D Planar Cutting Disc for currently inspected/selected joint */}
+          {inspectedJoint3DDisc && (
+            <g pointerEvents="none" className="select-none">
+              <polygon
+                points={inspectedJoint3DDisc.discSvgPts
+                  .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+                  .join(' ')}
+                fill="rgba(56, 189, 248, 0.22)"
+                stroke="#38bdf8"
+                strokeWidth="2"
+                strokeDasharray="5 3"
+              />
+              <line
+                x1={inspectedJoint3DDisc.strikeEnd1.x}
+                y1={inspectedJoint3DDisc.strikeEnd1.y}
+                x2={inspectedJoint3DDisc.strikeEnd2.x}
+                y2={inspectedJoint3DDisc.strikeEnd2.y}
+                stroke="#facc15"
+                strokeWidth="2.4"
+                strokeDasharray="6 3"
+              />
+              <line
+                x1={inspectedJoint3DDisc.centerSvg.x}
+                y1={inspectedJoint3DDisc.centerSvg.y}
+                x2={inspectedJoint3DDisc.dipArrowEnd.x}
+                y2={inspectedJoint3DDisc.dipArrowEnd.y}
+                stroke="#f43f5e"
+                strokeWidth="2.6"
+              />
+              <circle
+                cx={inspectedJoint3DDisc.centerSvg.x}
+                cy={inspectedJoint3DDisc.centerSvg.y}
+                r={4.5}
+                fill="#38bdf8"
+                stroke="#0f172a"
+                strokeWidth="1.5"
+              />
+              <text
+                x={inspectedJoint3DDisc.centerSvg.x}
+                y={inspectedJoint3DDisc.centerSvg.y - 9}
+                textAnchor="middle"
+                fontSize="9"
+                fontWeight="900"
+                fontFamily="IBM Plex Mono, monospace"
+                fill="#38bdf8"
+                stroke="#0f172a"
+                strokeWidth="2.4"
+                paintOrder="stroke"
+              >
+                3D Cutting Disc • {String(inspectedJoint3DDisc.joint.dipDirection).padStart(3, '0')}°/{inspectedJoint3DDisc.joint.dipAmount}°
+              </text>
+            </g>
+          )}
 
           {/* 4F. Smart 3D Auto-Continuation Ghost Traces across adjacent tunnel surfaces */}
           {smartContinuationPreview &&
@@ -3984,6 +4306,128 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             );
           })()}
         </svg>
+
+        {/* Floating NATM 3D Joint Inspector Card */}
+        {selectedJointForInspector && (
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            className="absolute bottom-3 left-3 z-30 w-72 max-w-[calc(100%-24px)] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl p-3 shadow-2xl text-slate-100"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-3 h-3 rounded-full border border-white/40 shadow-sm"
+                  style={{
+                    backgroundColor:
+                      FIELD_JOINT_GROUP_COLORS[selectedJointForInspector.setId || 'unassigned']?.stroke || '#94a3b8',
+                  }}
+                />
+                <span className="font-bold text-xs text-white">
+                  {selectedJointForInspector.setId && selectedJointForInspector.setId !== 'unassigned'
+                    ? selectedJointForInspector.setId
+                    : 'Joint'}{' '}
+                  • {selectedJointForInspector.panel.replace('_', ' ').toUpperCase()}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setShow3DSpatialDisc((s) => !s)}
+                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer ${
+                    show3DSpatialDisc
+                      ? 'bg-cyan-950 text-cyan-300 border-cyan-500/50'
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}
+                  title="Toggle 3D spatial cutting disc in tunnel"
+                >
+                  3D Disc: {show3DSpatialDisc ? 'ON' : 'OFF'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteSelectedJoint(selectedJointForInspector.id)}
+                  className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-slate-800 cursor-pointer"
+                  title="Delete this joint trace"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectTraceId(null)}
+                  className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer text-xs font-bold leading-none"
+                  title="Close inspector"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Quick 3D Orientation Steppers */}
+            <div className="grid grid-cols-2 gap-2 my-2.5 text-[10.5px] font-mono">
+              <div className="bg-slate-800/80 rounded-lg p-2 border border-slate-700/60">
+                <div className="text-[9.5px] text-slate-400 uppercase tracking-wider mb-1">Dip Direction</div>
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => handleAdjustSelectedJointAngle('dipDirection', -5)}
+                    className="w-5 h-5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold flex items-center justify-center cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <span className="font-black text-cyan-300 text-sm">
+                    {String(selectedJointForInspector.dipDirection).padStart(3, '0')}°
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleAdjustSelectedJointAngle('dipDirection', 5)}
+                    className="w-5 h-5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold flex items-center justify-center cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/80 rounded-lg p-2 border border-slate-700/60">
+                <div className="text-[9.5px] text-slate-400 uppercase tracking-wider mb-1">Dip Angle</div>
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => handleAdjustSelectedJointAngle('dipAmount', -5)}
+                    className="w-5 h-5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold flex items-center justify-center cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <span className="font-black text-emerald-300 text-sm">
+                    {selectedJointForInspector.dipAmount}°
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleAdjustSelectedJointAngle('dipAmount', 5)}
+                    className="w-5 h-5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold flex items-center justify-center cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 pb-2 font-mono">
+              <span>Strike: <b className="text-slate-200">{String(selectedJointForInspector.strike || ((selectedJointForInspector.dipDirection + 270) % 360)).padStart(3, '0')}°</b></span>
+              <span>Length: <b className="text-slate-200">{(selectedJointForInspector.traceLengthM ?? 1.2).toFixed(2)}m</b></span>
+            </div>
+
+            {/* Direct Launch Button into full NATM Joint 3D Inspector Modal */}
+            {onOpen3DJointInspector && (
+              <button
+                type="button"
+                onClick={() => onOpen3DJointInspector(selectedJointForInspector.id)}
+                className="w-full mt-1 py-1.5 px-3 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+              >
+                <Compass className="w-3.5 h-3.5" />
+                Open NATM 3D Inspector Modal
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4124,15 +4568,23 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
       }
       const clampedU = Math.max(0, Math.min(1, u));
       const clampedV = Math.max(0, Math.min(1, v));
-      const pullNorm = panel === 'right_wall' ? 1 - clampedU : clampedU;
+      let pullNorm = 0;
+      let sx = 0;
+      if (panel === 'crown') {
+        // Crown: u is across arch curve (L-SPL -> R-SPL), v is pull advance (0m -> pullM)
+        pullNorm = clampedV;
+        sx = crX0 + clampedU * crW;
+      } else if (panel === 'left_wall') {
+        // Left Wall: u is pull advance (1 - u is tPull); v is wall height from invert to shoulder (0 -> 1)
+        pullNorm = 1 - clampedU;
+        sx = lwX0 + clampedV * lwW;
+      } else if (panel === 'right_wall') {
+        // Right Wall: u is pull advance (0m -> pullM); v is wall height from shoulder to invert (0 -> 1)
+        pullNorm = clampedU;
+        sx = rwX0 + clampedV * rwW;
+      }
       // 0m at bottom (stripY1), 3m / pullM at top (stripY0)
       const sy = stripY1 - pullNorm * stripH;
-      const sx =
-        panel === 'left_wall'
-          ? lwX0 + clampedV * lwW
-          : panel === 'crown'
-          ? crX0 + clampedV * crW
-          : rwX0 + clampedV * rwW;
       return { x: sx, y: sy };
     },
     [faceX0, faceW, faceY0, faceH, stripY1, stripH, lwX0, lwW, crX0, crW, rwX0, rwW]

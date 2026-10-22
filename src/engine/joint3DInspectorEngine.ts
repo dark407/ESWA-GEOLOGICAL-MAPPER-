@@ -495,50 +495,78 @@ export function deriveAnchorPointFromPoints(
   const cx = sumX / points.length;
   const cy = sumY / points.length;
 
+  // Determine true canvas box to convert points into exact physical coordinates
+  let panelW = geom.widthM;
+  let panelH = geom.heightM;
+  if (panel === 'crown') {
+    panelW = geom.widthM;
+    panelH = geom.pullLengthM;
+  } else if (panel === 'left_wall' || panel === 'right_wall') {
+    panelW = geom.pullLengthM;
+    panelH = geom.wallHeightM;
+  }
+  const maxBoxW = 845;
+  const maxBoxH = 810;
+  const pxPerMeter = Math.min(maxBoxW / Math.max(0.5, panelW), maxBoxH / Math.max(0.5, panelH));
+  const boxW = panelW * pxPerMeter;
+  const boxH = panelH * pxPerMeter;
+  const boxX = 500 - boxW / 2;
+  const boxY = 495 - boxH / 2;
+
+  // Normalized coordinate in panel box
+  const uNorm =
+    cx >= boxX - 40 && cx <= boxX + boxW + 40
+      ? Math.max(0, Math.min(1, (cx - boxX) / Math.max(1, boxW)))
+      : Math.max(0, Math.min(1, cx / 1000));
+  const vNorm =
+    cy >= boxY - 40 && cy <= boxY + boxH + 40
+      ? Math.max(0, Math.min(1, (cy - boxY) / Math.max(1, boxH)))
+      : Math.max(0, Math.min(1, cy / 800));
+
   switch (panel) {
     case 'face': {
-      // Metric Y: 0 to widthM (Left to Right)
-      // Metric Z: 0 (floor) to heightM (crown)
-      const my = (cx / 1000) * geom.widthM;
-      const mz = geom.heightM - (cy / 800) * geom.heightM;
+      // Metric Y: 0 to widthM (Left Wall to Right Wall)
+      // Metric Z: 0 (floor) to heightM (crown apex)
+      const my = uNorm * geom.widthM;
+      const mz = (1 - vNorm) * geom.heightM;
       return {
         x: geom.pullLengthM, // Face is located at X = pullLengthM
-        y: Math.max(0.1, Math.min(geom.widthM - 0.1, my)),
-        z: Math.max(0.1, Math.min(geom.heightM - 0.1, mz)),
+        y: Math.max(0.05, Math.min(geom.widthM - 0.05, my)),
+        z: Math.max(0.05, Math.min(geom.heightM - 0.05, mz)),
       };
     }
     case 'left_wall': {
       // Left wall: Y = 0
       // Metric X: 0 to pullLengthM (along drive)
-      // Metric Z: 0 to wallHeightM (elevation)
-      const mx = (cx / 1000) * geom.pullLengthM;
-      const mz = geom.wallHeightM - (cy / 800) * geom.wallHeightM;
+      // Metric Z: 0 to wallHeightM (elevation from floor)
+      const mx = uNorm * geom.pullLengthM;
+      const mz = (1 - vNorm) * geom.wallHeightM;
       return {
         x: Math.max(0, Math.min(geom.pullLengthM, mx)),
         y: 0,
-        z: Math.max(0.1, Math.min(geom.wallHeightM, mz)),
+        z: Math.max(0.05, Math.min(geom.wallHeightM, mz)),
       };
     }
     case 'right_wall': {
       // Right wall: Y = widthM
       // Metric X: 0 to pullLengthM (along drive)
-      // Metric Z: 0 to wallHeightM (elevation)
-      const mx = (cx / 1000) * geom.pullLengthM;
-      const mz = geom.wallHeightM - (cy / 800) * geom.wallHeightM;
+      // Metric Z: 0 to wallHeightM (elevation from floor)
+      const mx = uNorm * geom.pullLengthM;
+      const mz = (1 - vNorm) * geom.wallHeightM;
       return {
         x: Math.max(0, Math.min(geom.pullLengthM, mx)),
         y: geom.widthM,
-        z: Math.max(0.1, Math.min(geom.wallHeightM, mz)),
+        z: Math.max(0.05, Math.min(geom.wallHeightM, mz)),
       };
     }
     case 'crown': {
-      // Crown arch: X from 0 to pullLengthM, Y from 0 to widthM, Z near heightM
-      const my = (cx / 1000) * geom.widthM;
-      const mx = (cy / 800) * geom.pullLengthM;
+      // Crown arch: X from 0 to pullLengthM (top is face), Y from 0 to widthM, Z near heightM
+      const my = uNorm * geom.widthM;
+      const mx = (1 - vNorm) * geom.pullLengthM;
       return {
         x: Math.max(0, Math.min(geom.pullLengthM, mx)),
-        y: Math.max(0.1, Math.min(geom.widthM - 0.1, my)),
-        z: geom.heightM * 0.95,
+        y: Math.max(0.05, Math.min(geom.widthM - 0.05, my)),
+        z: geom.heightM * 0.98,
       };
     }
     default:

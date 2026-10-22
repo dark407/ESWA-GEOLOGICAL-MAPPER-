@@ -2233,10 +2233,10 @@ export function mapUnwrappedSurfacePointTo3DStrip(
   crownArc: number,
   rightWallArc: number,
   totalPerimM: number,
-  jointDipDir?: number,
-  jointDip?: number,
-  driveAzimuth = 0,
-  vertexFrac = 0.5
+  _jointDipDir?: number,
+  _jointDip?: number,
+  _driveAzimuth = 0,
+  _vertexFrac = 0.5
 ): Point2D {
   const pullSpan = Math.max(0.5, interval.toRd - interval.fromRd);
   const safeRound = Math.max(0.5, roundLen || pullSpan);
@@ -2244,59 +2244,85 @@ export function mapUnwrappedSurfacePointTo3DStrip(
   const height = Math.max(1.5, geom?.height || 7.2);
   const wallH = Math.max(0.5, geom?.wallHeight || height * 0.58);
 
+  // Exact canvas box matching computePanelCanvasGeometry (845x810 area centered at 500, 495)
+  let panelW = width;
+  let panelH = height;
+  if (surface === 'crown') {
+    panelW = Math.max(0.5, crownArc || width);
+    panelH = safeRound;
+  } else if (surface === 'leftWall' || surface === 'rightWall') {
+    panelW = safeRound;
+    panelH = Math.max(0.5, surface === 'leftWall' ? leftWallArc : rightWallArc);
+  }
+  const maxBoxW = 845;
+  const maxBoxH = 810;
+  const pxPerMeter = Math.min(maxBoxW / Math.max(0.5, panelW), maxBoxH / Math.max(0.5, panelH));
+  const boxW = panelW * pxPerMeter;
+  const boxH = panelH * pxPerMeter;
+  const boxX = 500 - boxW / 2;
+  const boxY = 495 - boxH / 2;
+
+  // Normalized (u, v) in panel box
+  const u =
+    pt.x >= boxX - 40 && pt.x <= boxX + boxW + 40
+      ? Math.max(0, Math.min(1, (pt.x - boxX) / Math.max(1, boxW)))
+      : pt.x > Math.max(15, safeRound * 1.5)
+      ? Math.max(0, Math.min(1, pt.x / 1000))
+      : Math.max(0, Math.min(1, pt.x / Math.max(0.1, panelW)));
+
+  const v =
+    pt.y >= boxY - 40 && pt.y <= boxY + boxH + 40
+      ? Math.max(0, Math.min(1, (pt.y - boxY) / Math.max(1, boxH)))
+      : pt.y > Math.max(15, panelH * 1.5)
+      ? Math.max(0, Math.min(1, pt.y / 800))
+      : Math.max(0, Math.min(1, pt.y / Math.max(0.1, panelH)));
+
   if (surface === 'leftWall') {
-    // 2D: pt.x is along pull [0..roundLen] (or 0..1000), pt.y is height from floor [0..leftWallArc] (or 0..800)
-    // 3D: rdX is chainage [fromRd..toRd], perimY is from floor [0] to left springline [leftWallArc]
-    const isCanvas = pt.x > Math.max(15, safeRound * 1.5) || pt.y > Math.max(15, leftWallArc * 1.5);
-    const uDrive = isCanvas ? Math.max(0, Math.min(1, pt.x / 1000)) : Math.max(0, Math.min(1, pt.x / safeRound));
-    const normH = isCanvas ? Math.max(0, Math.min(1, (800 - pt.y) / 800)) : Math.max(0, Math.min(1, pt.y / Math.max(0.1, leftWallArc)));
-    const rdX = interval.fromRd + uDrive * pullSpan;
+    // u is fraction along pull (0 = start of pull, 1 = face)
+    // v is fraction from springline (0) down to invert floor (1)
+    const pullX = u * pullSpan;
+    const normH = 1 - v; // 0 at invert floor, 1 at springline
+    const rdX = interval.fromRd + pullX;
     const perimY = normH * leftWallArc;
     return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
   }
 
   if (surface === 'crown') {
-    // 2D: pt.x is arch span [-crownArc/2 .. +crownArc/2] or [0..1000], pt.y is along pull [0..roundLen] or [0..800]
-    // 3D: rdX is chainage, perimY is across crown arch [leftWallArc .. leftWallArc + crownArc]
-    const isCanvas = pt.x > Math.max(15, crownArc * 1.5) || pt.y > Math.max(15, safeRound * 1.5);
-    const uDrive = isCanvas ? Math.max(0, Math.min(1, pt.y / 800)) : Math.max(0, Math.min(1, pt.y / safeRound));
-    const vArch = isCanvas
-      ? Math.max(0, Math.min(1, pt.x / 1000))
-      : Math.max(0, Math.min(1, (pt.x + crownArc * 0.5) / Math.max(0.1, crownArc)));
-    const rdX = interval.fromRd + uDrive * pullSpan;
-    const perimY = leftWallArc + vArch * crownArc;
+    // u is fraction across crown arch (0 = Left Springline, 1 = Right Springline)
+    // v is fraction along pull (0 = face at top, 1 = start of pull at bottom)
+    const pullX = (1 - v) * pullSpan;
+    const rdX = interval.fromRd + pullX;
+    const perimY = leftWallArc + u * crownArc;
     return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
   }
 
   if (surface === 'rightWall') {
-    // 2D: pt.x is along pull [0..roundLen] or [0..1000], pt.y is height from floor [0..rightWallArc] or [0..800]
-    // 3D: rdX is chainage, perimY is from right springline [leftWallArc + crownArc] down to invert [totalPerimM]
-    const isCanvas = pt.x > Math.max(15, safeRound * 1.5) || pt.y > Math.max(15, rightWallArc * 1.5);
-    const uDrive = isCanvas ? Math.max(0, Math.min(1, pt.x / 1000)) : Math.max(0, Math.min(1, pt.x / safeRound));
-    const normH = isCanvas ? Math.max(0, Math.min(1, (800 - pt.y) / 800)) : Math.max(0, Math.min(1, pt.y / Math.max(0.1, rightWallArc)));
-    const rdX = interval.fromRd + uDrive * pullSpan;
-    const perimY = leftWallArc + crownArc + (1 - normH) * rightWallArc;
+    // u is fraction along pull (0 = start of pull, 1 = face)
+    // v is fraction from right springline (0) down to invert floor (1)
+    const pullX = u * pullSpan;
+    const rdX = interval.fromRd + pullX;
+    const perimY = leftWallArc + crownArc + v * rightWallArc;
     return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
   }
 
   // 'face' surface:
-  // Excavation face is located at the round's face boundary: RD = interval.toRd
-  const isCanvas = pt.x > Math.max(15, width * 1.5) || pt.y > Math.max(15, height * 1.5);
-  const faceX = isCanvas ? ((pt.x / 1000) * width - width * 0.5) : (pt.x > width * 0.5 ? pt.x - width * 0.5 : pt.x);
-  const faceZ = isCanvas ? (((800 - pt.y) / 800) * height) : pt.y;
+  // u is fraction across width (0 = Left Wall, 1 = Right Wall)
+  // v is fraction from crown apex (0) down to floor (1)
+  const faceX = u * width;
+  const faceZ = (1 - v) * height;
 
   let perimY = totalPerimM * 0.5;
   if (faceZ >= wallH) {
-    // Point is on the Crown Arch portion of the face
-    const normArch = Math.max(0, Math.min(1, (faceX + width * 0.5) / width));
+    // Point is on Crown Arch portion of the face
+    const normArch = Math.max(0, Math.min(1, u));
     perimY = leftWallArc + normArch * crownArc;
-  } else if (faceX < 0) {
-    // Point is on the Left Wall portion of the face
-    const normWall = Math.max(0.02, Math.min(1, faceZ / wallH));
+  } else if (faceX < width * 0.5) {
+    // Point is on Left Wall portion of the face
+    const normWall = Math.max(0.01, Math.min(1, faceZ / wallH));
     perimY = normWall * leftWallArc;
   } else {
-    // Point is on the Right Wall portion of the face
-    const normWall = Math.max(0.02, Math.min(1, faceZ / wallH));
+    // Point is on Right Wall portion of the face
+    const normWall = Math.max(0.01, Math.min(1, faceZ / wallH));
     perimY = leftWallArc + crownArc + (1 - normWall) * rightWallArc;
   }
 
@@ -2304,8 +2330,8 @@ export function mapUnwrappedSurfacePointTo3DStrip(
   const rdX = interval.toRd;
 
   return {
-    x: Number(rdX.toFixed(2)),
-    y: Number(Math.max(0.1, Math.min(totalPerimM - 0.1, perimY)).toFixed(2)),
+    x: Number(rdX.toFixed(3)),
+    y: Number(Math.max(0.05, Math.min(totalPerimM - 0.05, perimY)).toFixed(3)),
   };
 }
 
