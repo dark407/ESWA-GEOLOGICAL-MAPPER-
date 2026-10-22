@@ -62,6 +62,8 @@ import {
   calculateJointPairIntersection,
   JointPairIntersectionResult,
   runJointEngineValidationTests,
+  calculateSurfaceApparentTraceAngles,
+  TunnelSurfacesApparentDipMatrix,
   normalizeAngle360,
   clampDip,
   Vec3D,
@@ -445,6 +447,15 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   const strikeInfo = useMemo(() => {
     return calculateStrikeFromDipDirection(dipDirection, dipAmount);
   }, [dipDirection, dipAmount]);
+
+  // 1b. True Dip vs. Surface Apparent Dips Matrix (Analytical Geological Calculation)
+  const apparentMatrix = useMemo<TunnelSurfacesApparentDipMatrix>(() => {
+    return calculateSurfaceApparentTraceAngles(
+      dipDirection,
+      dipAmount,
+      tunnelGeometry.driveAzimuthDeg ?? 0
+    );
+  }, [dipDirection, dipAmount, tunnelGeometry.driveAzimuthDeg]);
 
   // 2. Anchor Point Derived from actual mapped 2D polyline vertices or user-selected plot anchor
   // Coordinate frame: X = advance along pull (0..pullLengthM), Y = width (0..widthM), Z = height (0..heightM)
@@ -1937,6 +1948,155 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               </div>
             </div>
 
+            {/* TRUE DIP VS. SURFACE APPARENT DIPS MATRIX (CLARIFIES GEOLOGICAL CONFUSION) */}
+            <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <span className="font-bold text-amber-400 uppercase flex items-center gap-1.5 text-xs">
+                  <Sliders className="w-4 h-4 text-cyan-400" />
+                  <span>True Dip vs. Surface Apparent Dips</span>
+                </span>
+                <span className="text-[10px] text-cyan-300 font-mono font-bold">
+                  Heading N {Math.round(tunnelGeometry.driveAzimuthDeg ?? 0)}° E
+                </span>
+              </div>
+
+              {/* Surface-by-surface Apparent Dip Breakdown */}
+              <div className="space-y-1.5 text-[11px] font-mono">
+                {/* 1. Excavation Face */}
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <strong className="text-cyan-400">Excavation Face</strong>
+                      <span className="text-[9.5px] text-slate-500 font-sans">(Transverse, 90° to Drive)</span>
+                    </div>
+                    <div className="text-[10px] text-slate-300 mt-0.5">
+                      {apparentMatrix.face.apparentDipDirectionLabel}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-black font-mono text-amber-300">
+                      {apparentMatrix.face.apparentDipDeg}°
+                    </span>
+                    <span
+                      className={`block text-[9px] font-bold ${
+                        apparentMatrix.face.isTrueDip
+                          ? 'text-emerald-400'
+                          : apparentMatrix.face.isHorizontal
+                          ? 'text-slate-400'
+                          : 'text-amber-400'
+                      }`}
+                    >
+                      {apparentMatrix.face.isTrueDip
+                        ? 'TRUE DIP'
+                        : apparentMatrix.face.isHorizontal
+                        ? 'HORIZONTAL'
+                        : 'APPARENT DIP'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Left Sidewall */}
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <strong className="text-slate-300">Left Sidewall</strong>
+                      <span className="text-[9.5px] text-slate-500 font-sans">(Longitudinal, 0° to Drive)</span>
+                    </div>
+                    <div className="text-[10px] text-slate-300 mt-0.5">
+                      {apparentMatrix.leftWall.apparentDipDirectionLabel}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-black font-mono text-amber-300">
+                      {apparentMatrix.leftWall.apparentDipDeg}°
+                    </span>
+                    <span
+                      className={`block text-[9px] font-bold ${
+                        apparentMatrix.leftWall.isTrueDip
+                          ? 'text-emerald-400'
+                          : apparentMatrix.leftWall.isHorizontal
+                          ? 'text-slate-400'
+                          : 'text-amber-400'
+                      }`}
+                    >
+                      {apparentMatrix.leftWall.isTrueDip
+                        ? 'TRUE DIP'
+                        : apparentMatrix.leftWall.isHorizontal
+                        ? 'HORIZONTAL'
+                        : 'APPARENT DIP'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Right Sidewall */}
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <strong className="text-slate-300">Right Sidewall</strong>
+                      <span className="text-[9.5px] text-slate-500 font-sans">(Longitudinal, 0° to Drive)</span>
+                    </div>
+                    <div className="text-[10px] text-slate-300 mt-0.5">
+                      {apparentMatrix.rightWall.apparentDipDirectionLabel}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-black font-mono text-amber-300">
+                      {apparentMatrix.rightWall.apparentDipDeg}°
+                    </span>
+                    <span
+                      className={`block text-[9px] font-bold ${
+                        apparentMatrix.rightWall.isTrueDip
+                          ? 'text-emerald-400'
+                          : apparentMatrix.rightWall.isHorizontal
+                          ? 'text-slate-400'
+                          : 'text-amber-400'
+                      }`}
+                    >
+                      {apparentMatrix.rightWall.isTrueDip
+                        ? 'TRUE DIP'
+                        : apparentMatrix.rightWall.isHorizontal
+                        ? 'HORIZONTAL'
+                        : 'APPARENT DIP'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4. Crown Arch */}
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <strong className="text-sky-300">Crown Arch / Back</strong>
+                      <span className="text-[9.5px] text-slate-500 font-sans">(Horizontal Apex Tangent)</span>
+                    </div>
+                    <div className="text-[10px] text-slate-300 mt-0.5">
+                      {apparentMatrix.crown.apparentDipDirectionLabel}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-black font-mono text-sky-400">
+                      {Math.round(apparentMatrix.strikeRhrDeg)}°
+                    </span>
+                    <span className="block text-[9px] font-bold text-sky-400">
+                      STRIKE TRACE
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Explanatory Geotechnical Box */}
+              <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[10.5px] text-amber-200 leading-relaxed font-sans space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                  <Info className="w-3.5 h-3.5 shrink-0" />
+                  <span>Geological Orientation Rule:</span>
+                </div>
+                <p>{apparentMatrix.comprehensiveExplanation}</p>
+                <div className="border-t border-amber-500/20 pt-1 space-y-0.5 text-slate-300 text-[10px]">
+                  <p><strong>Face:</strong> {apparentMatrix.face.geologicalNote}</p>
+                  <p><strong>Sidewalls:</strong> {apparentMatrix.leftWall.geologicalNote}</p>
+                </div>
+              </div>
+            </div>
+
             {/* 2. Surface Trace Lengths & Extent Audit */}
             <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2.5">
               <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
@@ -2846,18 +3006,42 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       </svg>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 text-xs">
+                    {/* Apparent vs True Dip Metrics for Active Surface Tab */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs font-mono">
                       <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                        <span className="text-slate-400 block font-bold">Observed Geological Trace:</span>
-                        <strong className="text-cyan-400">
+                        <span className="text-slate-400 block text-[10px]">Observed Geological Trace:</span>
+                        <strong className="text-cyan-400 text-sm">
                           {activeJoint.panel.toUpperCase() === activeTab.replace('VIEW_', '')
-                            ? `${observedLengths.totalObservedM}m (Direct Field Measurement)`
-                            : 'None recorded directly on this surface'}
+                            ? `${observedLengths.totalObservedM}m (Field)`
+                            : 'None on this panel'}
                         </strong>
                       </div>
+
                       <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                        <span className="text-slate-400 block font-bold">Calculated Intersection:</span>
-                        <strong className="text-amber-400">
+                        <span className="text-slate-400 block text-[10px]">Visible Trace Angle:</span>
+                        <strong className="text-amber-300 text-sm">
+                          {activeTab === 'VIEW_FACE'
+                            ? `${apparentMatrix.face.apparentDipDeg}° ${apparentMatrix.face.isTrueDip ? '(True Dip)' : '(Apparent Dip)'}`
+                            : activeTab === 'VIEW_LEFT_WALL'
+                            ? `${apparentMatrix.leftWall.apparentDipDeg}° ${apparentMatrix.leftWall.isTrueDip ? '(True Dip)' : '(Apparent Dip)'}`
+                            : activeTab === 'VIEW_RIGHT_WALL'
+                            ? `${apparentMatrix.rightWall.apparentDipDeg}° ${apparentMatrix.rightWall.isTrueDip ? '(True Dip)' : '(Apparent Dip)'}`
+                            : `STRIKE ${Math.round(apparentMatrix.strikeRhrDeg)}°`}
+                        </strong>
+                        <span className="block text-[9.5px] text-slate-400">
+                          {activeTab === 'VIEW_FACE'
+                            ? apparentMatrix.face.apparentDipDirectionLabel
+                            : activeTab === 'VIEW_LEFT_WALL'
+                            ? apparentMatrix.leftWall.apparentDipDirectionLabel
+                            : activeTab === 'VIEW_RIGHT_WALL'
+                            ? apparentMatrix.rightWall.apparentDipDirectionLabel
+                            : apparentMatrix.crown.apparentDipDirectionLabel}
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                        <span className="text-slate-400 block text-[10px]">Calculated Cut Length:</span>
+                        <strong className="text-emerald-400 text-sm">
                           {activeTab === 'VIEW_FACE' && surfaceIntersections.face
                             ? `${surfaceIntersections.face.lengthM}m`
                             : activeTab === 'VIEW_LEFT_WALL' && surfaceIntersections.leftWall
@@ -2866,9 +3050,26 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                             ? `${surfaceIntersections.rightWall.lengthM}m`
                             : activeTab === 'VIEW_CROWN' && surfaceIntersections.crown
                             ? `${surfaceIntersections.crown.lengthM}m`
-                            : 'No mathematical intersection in bounding box'}
+                            : 'No plane cut'}
                         </strong>
                       </div>
+                    </div>
+
+                    {/* Geotechnical Apparent vs True Dip Explanation Callout */}
+                    <div className="p-2.5 rounded-lg bg-slate-950 border border-cyan-800/60 text-[10.5px] text-cyan-200 leading-relaxed font-sans">
+                      <div className="font-bold text-cyan-300 flex items-center gap-1.5 mb-1 font-mono text-xs">
+                        <Info className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span>Why this trace appears this way on the {activeTab.replace('VIEW_', '').replace('_', ' ')}:</span>
+                      </div>
+                      <p>
+                        {activeTab === 'VIEW_FACE'
+                          ? apparentMatrix.face.geologicalNote
+                          : activeTab === 'VIEW_LEFT_WALL'
+                          ? apparentMatrix.leftWall.geologicalNote
+                          : activeTab === 'VIEW_RIGHT_WALL'
+                          ? apparentMatrix.rightWall.geologicalNote
+                          : apparentMatrix.crown.geologicalNote}
+                      </p>
                     </div>
                   </div>
                 </div>

@@ -191,6 +191,7 @@ import {
   Upload,
   Wand2,
   Box,
+  Zap,
 } from 'lucide-react';
 import { EswaTunnelLogo } from './EswaBrandIdentity';
 import {
@@ -205,6 +206,7 @@ import {
   MatlabAnalyzerTab,
   MatlabJointAnalyzerModal,
 } from './MatlabJointAnalyzerModal';
+import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
 
 interface MappingWorkspaceProps {
   geometry: TunnelGeometry;
@@ -394,7 +396,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
 
   // Industrial-Grade AutoCAD 2026 Workspace State
   const [cadRibbonTab, setCadRibbonTab] = useState<
-    'HOME' | 'TUNNEL_PHOTO' | 'GEOLOGY_3D' | 'SURVEY_OVERBREAK' | 'CLASSIFICATION_SHEET'
+    'HOME' | 'TUNNEL_PHOTO' | 'GEOLOGY_3D' | 'ADVANCED_ANALYSIS' | 'SURVEY_OVERBREAK' | 'CLASSIFICATION_SHEET'
   >('HOME');
   const [cadRibbonCollapsed, setCadRibbonCollapsed] = useState<boolean>(false);
   const [cadCommandInput, setCadCommandInput] = useState<string>('');
@@ -647,6 +649,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
   const [simpleAccuracyInitialTab, setSimpleAccuracyInitialTab] =
     useState<SimpleAddonTab>('full_photo_1ft_scale');
   const [show3DStrikeDipModal, setShow3DStrikeDipModal] = useState<boolean>(false);
+  const [showAdvancedAnalysisModal, setShowAdvancedAnalysisModal] = useState<boolean>(false);
   const [showMatlabAnalyzerModal, setShowMatlabAnalyzerModal] = useState<boolean>(false);
   const [matlabInitialTab, setMatlabInitialTab] =
     useState<MatlabAnalyzerTab>('FACE_JOIN_AND_BLOCKS');
@@ -3829,6 +3832,8 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
       else if (selectedJoint) handleDeleteSelectedJoint();
     } else if (cmd === 'PROPS' || cmd === 'PR' || cmd === 'PROPERTIES') {
       setShowCadPropertiesAlways((p) => !p);
+    } else if (cmd === 'ANALYSIS' || cmd === 'ADV' || cmd === 'ADVANCED' || cmd === 'WEDGE' || cmd === 'FOS') {
+      setShowAdvancedAnalysisModal(true);
     } else if (cmd === 'SUPPORT' || cmd === 'BOLT' || cmd === 'BOLTS' || cmd === 'SFRS') {
       setShowRockSupportModal(true);
     } else if (cmd === 'SHEETSET' || cmd === 'SSM' || cmd === 'BATCH') {
@@ -3839,7 +3844,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
       setCadDynInputEnabled((prev) => !prev);
     } else {
       onUpdateStatusMessage?.(
-        `Unknown ESWACAD command "${cmd}". Try: JOINT, SPLINE, 1CLICK, AITRACE, PHOTOFIT, LITH, CP, OVERBREAK, SUPPORT, UNFOLD, SHEETSET, 3D, Q, PLOT, OSNAP.`
+        `Unknown ESWACAD command "${cmd}". Try: ANALYSIS, JOINT, SPLINE, 1CLICK, AITRACE, PHOTOFIT, LITH, CP, OVERBREAK, SUPPORT, UNFOLD, SHEETSET, Q, PLOT, OSNAP.`
       );
     }
     setCadCommandInput('');
@@ -3847,9 +3852,13 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
 
   return (
     <div
-      data-has-canvas={cadRibbonTab !== 'CLASSIFICATION_SHEET' ? 'true' : 'false'}
+      data-has-canvas={
+        cadRibbonTab !== 'CLASSIFICATION_SHEET' && cadRibbonTab !== 'ADVANCED_ANALYSIS'
+          ? 'true'
+          : 'false'
+      }
       className={`flex flex-col h-dvh w-full max-w-full max-h-dvh ${
-        cadRibbonTab === 'CLASSIFICATION_SHEET'
+        cadRibbonTab === 'CLASSIFICATION_SHEET' || cadRibbonTab === 'ADVANCED_ANALYSIS'
           ? 'overflow-y-auto overflow-x-hidden touch-pan-y'
           : 'overflow-hidden'
       } select-none ${
@@ -3860,19 +3869,21 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
           LIGHT MODE CAD HEADER & PROMINENT 5-STEP WORKFLOW NAVIGATION BAR
          ==================================================================== */}
       <header className="canvas-chrome relative z-40 flex flex-col bg-white border-b border-slate-200 shrink-0">
-        {/* ROW 1: FULL-WIDTH PROMINENT 5-STEP WORKFLOW BAR (All 5 Steps Always Visible Side-by-Side on Android & Desktop) */}
+        {/* ROW 1: FULL-WIDTH PROMINENT 6-STEP WORKFLOW BAR (Including Advance Analysis directly integrated) */}
         <div className="w-full bg-slate-900 border-b border-slate-800 px-1.5 sm:px-2.5 py-1.5">
-          <div className="grid grid-cols-5 gap-1 sm:gap-1.5 w-full">
+          <div className="grid grid-cols-6 gap-1 sm:gap-1.5 w-full">
             {(
               [
                 { id: 'TUNNEL_PHOTO', step: '1', label: 'Face Fit', fullLabel: '1. Face Fit & Photo' },
                 { id: 'HOME', step: '2', label: 'Core Mapping', fullLabel: '2. Core Mapping' },
                 { id: 'GEOLOGY_3D', step: '3', label: 'Geology', fullLabel: '3. Geology & Rock' },
-                { id: 'SURVEY_OVERBREAK', step: '4', label: 'Survey', fullLabel: '4. Survey & Overbreak' },
-                { id: 'CLASSIFICATION_SHEET', step: '5', label: 'Data Sheets', fullLabel: '5. Data Sheets & Export' },
+                { id: 'ADVANCED_ANALYSIS', step: '4', label: 'Advance Analysis', fullLabel: '4. Advance Analysis' },
+                { id: 'SURVEY_OVERBREAK', step: '5', label: 'Survey', fullLabel: '5. Survey & Overbreak' },
+                { id: 'CLASSIFICATION_SHEET', step: '6', label: 'Data Sheets', fullLabel: '6. Data Sheets & Export' },
               ] as const
             ).map((tab) => {
               const isActiveStep = cadRibbonTab === tab.id && !cadRibbonCollapsed;
+              const isAdvanceAnalysis = tab.id === 'ADVANCED_ANALYSIS';
               return (
                 <button
                   key={tab.id}
@@ -3881,16 +3892,22 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     setCadRibbonTab(tab.id);
                     setCadRibbonCollapsed(false);
                   }}
-                  className={`step-workflow-btn flex items-center justify-center gap-1 sm:gap-2 px-1.5 py-1.5 sm:px-3 sm:py-2 rounded-lg font-mono font-bold transition-all cursor-pointer min-w-0 ${
+                  className={`step-workflow-btn flex items-center justify-center gap-1 sm:gap-2 px-1 py-1.5 sm:px-2.5 sm:py-2 rounded-lg font-mono font-bold transition-all cursor-pointer min-w-0 ${
                     isActiveStep
-                      ? 'bg-sky-500 text-white shadow-md ring-2 ring-sky-300/90'
+                      ? isAdvanceAnalysis
+                        ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md ring-2 ring-amber-300'
+                        : 'bg-sky-500 text-white shadow-md ring-2 ring-sky-300/90'
+                      : isAdvanceAnalysis
+                      ? 'bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-600/50'
                       : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700/80'
                   }`}
                 >
                   <span
                     className={`step-workflow-badge inline-flex items-center justify-center rounded-full font-extrabold shrink-0 ${
                       isActiveStep
-                        ? 'bg-white text-sky-700'
+                        ? isAdvanceAnalysis
+                          ? 'bg-slate-950 text-amber-300'
+                          : 'bg-white text-sky-700'
                         : 'bg-slate-700 text-amber-300'
                     }`}
                   >
@@ -4189,16 +4206,19 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setShowCadPropertiesAlways((p) => !p)}
-                  className={`flex items-center gap-1 px-2 py-1 text-[11px] font-mono rounded-lg border cursor-pointer shrink-0 ${
-                    showCadPropertiesAlways
-                      ? 'bg-sky-50 text-sky-700 border-sky-300 font-semibold'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                  onClick={() => {
+                    setCadRibbonTab((prev) => (prev === 'ADVANCED_ANALYSIS' ? 'HOME' : 'ADVANCED_ANALYSIS'));
+                    setCadRibbonCollapsed(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono rounded-lg border transition-all cursor-pointer shrink-0 ${
+                    cadRibbonTab === 'ADVANCED_ANALYSIS'
+                      ? 'bg-amber-500 text-slate-950 font-extrabold border-amber-400 shadow-xs ring-2 ring-amber-300'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 font-bold'
                   }`}
-                  title="Toggle Property Palette"
+                  title="Advance Analysis: Kinematic Wedge FoS, 4-Surface Apparent Dip, +3m/+6m/+9m Face Prediction, Stand-up Time, Palmström Blocks, Hydro Inflow"
                 >
-                  <Sliders className="w-3.5 h-3.5 text-sky-600" />
-                  <span className="hidden sm:inline">Properties</span>
+                  <Zap className="w-3.5 h-3.5 fill-current text-amber-600" />
+                  <span>Advance Analysis</span>
                 </button>
               </>
             )}
@@ -4919,6 +4939,16 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                   </button>
 
                   <button
+                    type="button"
+                    onClick={() => setShowAdvancedAnalysisModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-mono font-extrabold bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 text-slate-950 rounded-md shadow-md ring-1 ring-amber-300 cursor-pointer"
+                    title="Open Deep Advanced Geological Analysis: Wedge FoS, 4-Surface Apparent Dip Solver, +3m/+6m/+9m Look-Ahead, Stand-up Time, Palmström Blocks, Hydro Inflow"
+                  >
+                    <Zap className="w-3.5 h-3.5 fill-slate-950" />
+                    ⚡ Advanced Analysis
+                  </button>
+
+                  <button
                     onClick={() => setShow3DPhotoTunnelModal(true)}
                     className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md shadow-2xs cursor-pointer"
                     title="Open Interactive 3D Photo-Textured Tunnel Builder (2x Upscaled Photos + 2.5D Rock Relief + Walk-Through + 3D Planes)"
@@ -5103,6 +5133,25 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                 </div>
               )}
 
+              {/* STEP 4: ADVANCE ANALYSIS CONTEXTUAL BAR */}
+              {cadRibbonTab === 'ADVANCED_ANALYSIS' && (
+                <div className="flex items-center gap-2 shrink-0 sm:flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setCadRibbonTab('HOME')}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-md cursor-pointer"
+                    title="Return to Core Mapping Canvas"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5 text-sky-600" />
+                    <span>Back to Canvas</span>
+                  </button>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-md">
+                    <Zap className="w-3.5 h-3.5 fill-current text-amber-600" />
+                    <span>Step 4: Advance Analysis View Active</span>
+                  </div>
+                </div>
+              )}
+
               {/* STEP 5: TABLES & OUTPUT (Strictly Discontinuity Tables, Rock Classification & Final Output Sheet) */}
               {cadRibbonTab === 'CLASSIFICATION_SHEET' && (
                 <div className="flex items-center gap-1.5 shrink-0 sm:flex-wrap">
@@ -5281,10 +5330,11 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                       'TUNNEL_PHOTO',
                       'HOME',
                       'GEOLOGY_3D',
+                      'ADVANCED_ANALYSIS',
                       'SURVEY_OVERBREAK',
                       'CLASSIFICATION_SHEET',
                     ] as const;
-                    const idx = order.indexOf(cadRibbonTab);
+                    const idx = order.indexOf(cadRibbonTab as any);
                     if (idx >= 0 && idx < order.length - 1) {
                       setCadRibbonTab(order[idx + 1]);
                       setCadRibbonCollapsed(false);
@@ -5298,8 +5348,10 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     : cadRibbonTab === 'HOME'
                     ? 'Next: 3. Geology →'
                     : cadRibbonTab === 'GEOLOGY_3D'
-                    ? 'Next: 4. Survey →'
-                    : 'Next: 5. Data Sheets →'}
+                    ? 'Next: 4. Advance Analysis →'
+                    : cadRibbonTab === 'ADVANCED_ANALYSIS'
+                    ? 'Next: 5. Survey →'
+                    : 'Next: 6. Data Sheets →'}
                 </button>
               )}
               <div className="flex items-center gap-0.5 p-0.5 bg-slate-100 border border-slate-200 rounded-lg shrink-0 font-mono text-[10px]">
@@ -5358,9 +5410,24 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
       />
 
       {/* ====================================================================
-          STEP 5: FULL-WINDOW TABLES & OUTPUT (Shown instead of 2D Canvas when in Step 5)
+          STEP 4: FULL-WINDOW ADVANCE GEOLOGICAL ANALYSIS VIEW (Directly Embedded)
          ==================================================================== */}
-      {cadRibbonTab === 'CLASSIFICATION_SHEET' ? (
+      {cadRibbonTab === 'ADVANCED_ANALYSIS' ? (
+        <AdvancedGeologicalAnalysisModal
+          fullPage
+          isOpen={true}
+          onClose={() => setCadRibbonTab('HOME')}
+          geometry={geometry}
+          settings={settings}
+          joints={joints}
+          jointSets={jointSets}
+          qIndexParams={qIndexParams}
+          rmrParams={rmrParams}
+          rockMassSummary={rockMassSummary}
+          overbreakAnalysis={overbreakAnalysis}
+          lithologyRegions={lithologyRegions}
+        />
+      ) : cadRibbonTab === 'CLASSIFICATION_SHEET' ? (
         <GeologyAndQIndexDrawer
           fullPage
           activeTab={geologyDrawerTab}
@@ -6405,7 +6472,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                         x={tk.cx}
                         y={br.cy + 18}
                         textAnchor="middle"
-                        fontSize="8.5"
+                        fontSize="11"
                         fontWeight="700"
                         fill={tk.m === 0 && activeSurface === 'crown' ? accentCenterColor : textColor}
                         stroke={haloColor}
@@ -6438,9 +6505,9 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                       />
                       <text
                         x={tl.cx - 11}
-                        y={tk.cy + 3}
+                        y={tk.cy + 3.5}
                         textAnchor="end"
-                        fontSize="8.5"
+                        fontSize="11"
                         fontWeight="700"
                         fill={textColor}
                         stroke={haloColor}
@@ -6459,7 +6526,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                         x={tl.cx}
                         y={tl.cy - 12}
                         textAnchor="start"
-                        fontSize="9"
+                        fontSize="11.5"
                         fontWeight="800"
                         fill={accentSplColor}
                         stroke={haloColor}
@@ -6472,7 +6539,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                         x={br.cx}
                         y={tl.cy - 12}
                         textAnchor="end"
-                        fontSize="9"
+                        fontSize="11.5"
                         fontWeight="800"
                         fill={accentSplColor}
                         stroke={haloColor}
@@ -6488,7 +6555,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                         x={tl.cx + 6}
                         y={tl.cy - 10}
                         textAnchor="start"
-                        fontSize="9"
+                        fontSize="11.5"
                         fontWeight="800"
                         fill={accentSplColor}
                         stroke={haloColor}
@@ -6501,7 +6568,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                         x={tl.cx + 6}
                         y={br.cy + 30}
                         textAnchor="start"
-                        fontSize="8.5"
+                        fontSize="11"
                         fontWeight="800"
                         fill={tickColor}
                         stroke={haloColor}
@@ -6518,7 +6585,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     x={topCenter.cx}
                     y={tl.cy - 22}
                     textAnchor="middle"
-                    fontSize="9.5"
+                    fontSize="12"
                     fontWeight="800"
                     fill={accentCenterColor}
                     stroke={haloColor}
@@ -6533,7 +6600,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     x={leftMid.cx - 30}
                     y={leftMid.cy}
                     textAnchor="middle"
-                    fontSize="9"
+                    fontSize="11.5"
                     fontWeight="800"
                     fill={tickColor}
                     stroke={haloColor}
@@ -6547,7 +6614,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     x={rightMid.cx + 22}
                     y={rightMid.cy}
                     textAnchor="middle"
-                    fontSize="9"
+                    fontSize="11.5"
                     fontWeight="800"
                     fill={tickColor}
                     stroke={haloColor}
@@ -6563,7 +6630,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     x={botCenter.cx}
                     y={br.cy + 32}
                     textAnchor="middle"
-                    fontSize="9"
+                    fontSize="11.5"
                     fontWeight="800"
                     fill={tickColor}
                     stroke={haloColor}
@@ -12091,6 +12158,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
         }}
         onStatusMessage={onUpdateStatusMessage}
       />
+
     </div>
   );
 };

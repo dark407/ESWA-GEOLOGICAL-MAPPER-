@@ -8424,7 +8424,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   x={centroid.x}
                                   y={centroid.y - 3}
                                   textAnchor="middle"
-                                  fontSize={isTCanvas ? '11.5' : '18'}
+                                  fontSize={isTCanvas ? '13' : '17'}
                                   fontWeight="900"
                                   fill={grp.stroke}
                                   stroke="#ffffff"
@@ -8435,9 +8435,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 </text>
                                 <text
                                   x={centroid.x}
-                                  y={centroid.y + (isTCanvas ? 10 : 16)}
+                                  y={centroid.y + (isTCanvas ? 11 : 16)}
                                   textAnchor="middle"
-                                  fontSize={isTCanvas ? '12.5' : '19'}
+                                  fontSize={isTCanvas ? '14' : '18'}
                                   fontWeight="900"
                                   fill={grp.stroke}
                                   stroke="#ffffff"
@@ -8646,12 +8646,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     transform={`rotate(${placement.angleDeg.toFixed(
                                       1
                                     )}, ${placement.x.toFixed(1)}, ${placement.y.toFixed(1)})`}
-                                    fontSize={isTCanvas ? '11.5' : '15'}
+                                    fontSize={isTCanvas ? '13' : '15.5'}
                                     fontWeight="900"
                                     fontFamily="Arial, sans-serif"
                                     fill={grpColor.stroke}
                                     stroke="#ffffff"
-                                    strokeWidth={isTCanvas ? '2.8' : '3.5'}
+                                    strokeWidth={isTCanvas ? '3.2' : '3.8'}
                                     paintOrder="stroke"
                                   >
                                     {inlineText}
@@ -9748,20 +9748,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 : 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
                             }`}
                           >
-                            <div className="flex items-center justify-between gap-1 mb-1">
+                            <div className="flex items-center justify-between gap-1 mb-1.5">
                               <div className="flex items-center gap-1.5">
                                 <span
-                                  className="px-1.5 py-0.5 rounded font-black text-[9.5px] text-white"
+                                  className="px-2 py-0.5 rounded font-black text-xs text-white"
                                   style={{ backgroundColor: grpMeta.stroke }}
                                 >
                                   {tr.setId === 'unassigned' ? 'J' : tr.setId}
                                 </span>
-                                <span className="font-bold text-slate-200 uppercase text-[10px]">
+                                <span className="font-bold text-slate-200 uppercase text-xs">
                                   {tr.panel.replace('_', ' ')} #{idx + 1}
                                 </span>
                               </div>
                               <div className="flex items-center gap-1.5">
-                                <span className="font-mono font-bold text-amber-300">
+                                <span className="font-mono font-bold text-xs text-amber-300">
                                   {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
                                 </span>
                                 <button
@@ -9772,7 +9772,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     setInspectedJointId(tr.id);
                                     setIs3DJointInspectorOpen(true);
                                   }}
-                                  className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30 text-[9px] font-bold cursor-pointer transition-all"
+                                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30 text-[10px] font-bold cursor-pointer transition-all"
                                   title="Inspect joint in 3D"
                                 >
                                   3D
@@ -9814,7 +9814,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                         ),
                                       }));
                                     }}
-                                    className={`px-1.5 py-0.5 rounded text-[9px] font-black border cursor-pointer ${
+                                    className={`px-2 py-0.5 rounded text-[11px] font-black border cursor-pointer ${
                                       active
                                         ? 'text-white border-white shadow'
                                         : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
@@ -9851,25 +9851,25 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               setLiveDipDirection(ds.dipDirection);
                               setLiveDipAmount(ds.dipAmount);
                             }}
-                            className={`p-1.5 rounded-lg border text-[10.5px] cursor-pointer transition-all ${
+                            className={`p-1.5 rounded-lg border text-xs cursor-pointer transition-all ${
                               isSel
                                 ? 'bg-slate-800 border-amber-400'
                                 : 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
                             }`}
                           >
-                            <div className="flex items-center justify-between gap-1 mb-1">
+                            <div className="flex items-center justify-between gap-1 mb-1.5">
                               <div className="flex items-center gap-1.5">
                                 <span
-                                  className="px-1.5 py-0.5 rounded font-black text-[9.5px] text-white"
+                                  className="px-2 py-0.5 rounded font-black text-xs text-white"
                                   style={{ backgroundColor: grpMeta.stroke }}
                                 >
                                   {ds.setId === 'unassigned' ? 'Dip' : ds.setId}
                                 </span>
-                                <span className="font-bold text-slate-200 uppercase text-[10px]">
+                                <span className="font-bold text-slate-200 uppercase text-xs">
                                   {ds.panel.replace('_', ' ')} Surf #{idx + 1}
                                 </span>
                               </div>
-                              <span className="font-mono font-bold text-cyan-300">
+                              <span className="font-mono font-bold text-xs text-cyan-300">
                                 {String(ds.dipDirection).padStart(3, '0')}°/{ds.dipAmount}°
                               </span>
                             </div>
@@ -9902,7 +9902,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                         ),
                                       }));
                                     }}
-                                    className={`px-1.5 py-0.5 rounded text-[9px] font-black border cursor-pointer ${
+                                    className={`px-2 py-0.5 rounded text-[11px] font-black border cursor-pointer ${
                                       active
                                         ? 'text-white border-white shadow'
                                         : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'

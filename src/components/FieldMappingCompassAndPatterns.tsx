@@ -38,6 +38,7 @@ import {
   calculatePlaneSurfaceIntersections,
   constructJointPlane,
   deriveAnchorPointFromPoints,
+  calculateSurfaceApparentTraceAngles,
   TunnelSpatialGeometry,
 } from '../engine/joint3DInspectorEngine';
 
@@ -2013,6 +2014,54 @@ export const FieldLiveCompassInclinometer: React.FC<
           />
         </label>
       </div>
+
+      {/* Real-time Surface Apparent Dip vs True Dip conversion indicator */}
+      {(() => {
+        const matrix = calculateSurfaceApparentTraceAngles(safeDipDir, safeDipAmt, normDrive);
+        const panelInfo =
+          activePanel === 'face'
+            ? matrix.face
+            : activePanel === 'left_wall'
+            ? matrix.leftWall
+            : activePanel === 'right_wall'
+            ? matrix.rightWall
+            : matrix.crown;
+
+        return (
+          <div className="mt-1 pt-1.5 border-t border-slate-800/80 text-[10px] font-mono flex items-center justify-between">
+            <span className="text-slate-400">
+              {activePanel === 'face'
+                ? 'Face Apparent Trace:'
+                : activePanel === 'crown'
+                ? 'Crown Roof Trace:'
+                : 'Sidewall Trace:'}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <strong className="text-amber-300 font-bold">
+                {activePanel === 'crown'
+                  ? `STRIKE ${Math.round(matrix.strikeRhrDeg)}°`
+                  : `${panelInfo.apparentDipDeg}°`}
+              </strong>
+              <span
+                className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold ${
+                  panelInfo.isTrueDip
+                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                    : panelInfo.isHorizontal
+                    ? 'bg-slate-800 text-slate-300'
+                    : 'bg-amber-950 text-amber-300 border border-amber-800'
+                }`}
+                title={panelInfo.geologicalNote}
+              >
+                {panelInfo.isTrueDip
+                  ? 'True Dip'
+                  : panelInfo.isHorizontal
+                  ? 'Horizontal (0°)'
+                  : 'Apparent Dip'}
+              </span>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
@@ -3721,9 +3770,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             <>
               <text
                 x={leftWallX + stripLeftWallW / 2}
-                y={stripY - 10}
+                y={stripY - 14}
                 textAnchor="middle"
-                fontSize="8.5"
+                fontSize="12.5"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
@@ -3751,9 +3800,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             <>
               <text
                 x={crownX + stripCrownW / 2}
-                y={stripY - 10}
+                y={stripY - 14}
                 textAnchor="middle"
-                fontSize="8.5"
+                fontSize="12.5"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
@@ -3786,9 +3835,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               />
               <text
                 x={crownX + stripCrownW / 2}
-                y={stripY + stripH + 16}
+                y={stripY + stripH + 18}
                 textAnchor="middle"
-                fontSize="8.5"
+                fontSize="11.5"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
@@ -3802,9 +3851,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             <>
               <text
                 x={rightWallX + stripRightWallW / 2}
-                y={stripY - 10}
+                y={stripY - 14}
                 textAnchor="middle"
-                fontSize="8.5"
+                fontSize="12.5"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
@@ -3842,9 +3891,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               />
               <text
                 x={crownX}
-                y={stripY + stripH + 15}
+                y={stripY + stripH + 18}
                 textAnchor="middle"
-                fontSize="8"
+                fontSize="11"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
@@ -3866,9 +3915,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               />
               <text
                 x={rightWallX}
-                y={stripY + stripH + 15}
+                y={stripY + stripH + 18}
                 textAnchor="middle"
-                fontSize="8"
+                fontSize="11"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
@@ -3878,29 +3927,30 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             </>
           )}
 
-          {/* 1m Perimeter Ticks along the Top Horizontal Edge of the Continuous Strip */}
+          {/* 1m Perimeter Ticks along the Top Horizontal Edge of the Continuous Strip (Arranged per user sketch: Left Wall 1..4 | Crown 1..7 | Right Wall 4..1) */}
           {faceGeom.hasLeftWall &&
             Array.from(
-              { length: Math.floor(leftWallLengthM + 1e-4) + 1 },
-              (_, m) => m
+              { length: Math.floor(leftWallLengthM + 1e-4) },
+              (_, idx) => idx + 1
             ).map((m) => {
               const xPos = leftWallX + m * stripPxPerMeter;
               if (xPos > crownX + 1) return null;
+              const isSeam = Math.abs(xPos - crownX) < 2;
               return (
                 <g key={`cad-lw-tk-${m}`}>
                   <line
                     x1={xPos}
-                    y1={stripY - 3.5}
+                    y1={stripY - 5}
                     x2={xPos}
                     y2={stripY}
                     stroke="#0f172a"
-                    strokeWidth="1.1"
+                    strokeWidth="1.2"
                   />
                   <text
-                    x={xPos}
-                    y={stripY - 4.5}
-                    textAnchor="middle"
-                    fontSize="7"
+                    x={isSeam ? xPos - 3 : xPos}
+                    y={stripY - 5}
+                    textAnchor={isSeam ? 'end' : 'middle'}
+                    fontSize="11"
                     fontFamily="monospace"
                     fontWeight="bold"
                     fill="#0f172a"
@@ -3913,74 +3963,88 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
 
           {faceGeom.hasCrown &&
             Array.from(
-              { length: Math.floor(crownLengthM + 1e-4) + 1 },
-              (_, m) => m
+              { length: Math.floor(crownLengthM + 1e-4) },
+              (_, idx) => idx + 1
             ).map((m) => {
               const xPos = crownX + m * stripPxPerMeter;
               if (xPos > rightWallX + 1) return null;
+              const isSeam = Math.abs(xPos - rightWallX) < 2;
               return (
                 <g key={`cad-cr-tk-${m}`}>
                   <line
                     x1={xPos}
-                    y1={stripY - 3.5}
+                    y1={stripY - 5}
                     x2={xPos}
                     y2={stripY}
                     stroke="#0f172a"
-                    strokeWidth="1.1"
+                    strokeWidth="1.2"
                   />
-                  {m > 0 && (
-                    <text
-                      x={xPos}
-                      y={stripY - 4.5}
-                      textAnchor="middle"
-                      fontSize="7"
-                      fontFamily="monospace"
-                      fontWeight="bold"
-                      fill="#0f172a"
-                    >
-                      {m}
-                    </text>
-                  )}
+                  <text
+                    x={isSeam ? xPos - 3 : xPos}
+                    y={stripY - 5}
+                    textAnchor={isSeam ? 'end' : 'middle'}
+                    fontSize="11"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    fill="#0f172a"
+                  >
+                    {m}
+                  </text>
                 </g>
               );
             })}
 
-          {faceGeom.hasRightWall &&
-            Array.from(
-              { length: Math.floor(rightWallLengthM + 1e-4) + 1 },
-              (_, m) => m
-            ).map((m) => {
-              const xPos = rightWallX + m * stripPxPerMeter;
-              if (xPos > rightWallX + stripRightWallW + 1) return null;
-              return (
-                <g key={`cad-rw-tk-${m}`}>
-                  <line
-                    x1={xPos}
-                    y1={stripY - 3.5}
-                    x2={xPos}
-                    y2={stripY}
-                    stroke="#0f172a"
-                    strokeWidth="1.1"
-                  />
-                  {m > 0 && (
-                    <text
-                      x={xPos}
-                      y={stripY - 4.5}
-                      textAnchor="middle"
-                      fontSize="7"
-                      fontFamily="monospace"
-                      fontWeight="bold"
-                      fill="#0f172a"
-                    >
-                      {m}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
+          {faceGeom.hasRightWall && (() => {
+            const rwMax = Math.floor(rightWallLengthM + 1e-4);
+            return (
+              <>
+                {Array.from({ length: rwMax }, (_, k) => {
+                  const mVal = rwMax - k;
+                  const xPos = rightWallX + k * stripPxPerMeter;
+                  if (xPos > rightWallX + stripRightWallW + 1) return null;
+                  const isSeam = k === 0;
+                  return (
+                    <g key={`cad-rw-tk-${mVal}`}>
+                      <line
+                        x1={xPos}
+                        y1={stripY - 5}
+                        x2={xPos}
+                        y2={stripY}
+                        stroke="#0f172a"
+                        strokeWidth="1.2"
+                      />
+                      <text
+                        x={isSeam ? xPos + 3 : xPos}
+                        y={stripY - 5}
+                        textAnchor={isSeam ? 'start' : 'middle'}
+                        fontSize="11"
+                        fontFamily="monospace"
+                        fontWeight="bold"
+                        fill="#0f172a"
+                      >
+                        {mVal}
+                      </text>
+                    </g>
+                  );
+                })}
+                {/* Outer Invert Tick Mark */}
+                <line
+                  x1={rightWallX + stripRightWallW}
+                  y1={stripY - 5}
+                  x2={rightWallX + stripRightWallW}
+                  y2={stripY}
+                  stroke="#0f172a"
+                  strokeWidth="1.2"
+                />
+              </>
+            );
+          })()}
 
-          {/* 1m Pull Ticks along the Left & Right Vertical Edges of the Continuous Strip (0m at bottom -> PullM at top) */}
-          {Array.from({ length: Math.floor(pullM + 1e-4) + 1 }, (_, m) => m).map((m) => {
+          {/* 1m Pull Ticks along BOTH Left & Right Vertical Edges of the Continuous Strip (Bottom is 0 -> Top is 3 / pull depth) */}
+          {Array.from(
+            { length: Math.floor(pullM + 1e-4) + 1 },
+            (_, m) => m
+          ).map((m) => {
             const yPos = stripY + stripH - m * stripPxPerMeter;
             if (yPos < stripY - 1 || yPos > stripY + stripH + 1) return null;
             const startX = faceGeom.hasLeftWall
@@ -3995,33 +4059,47 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               : leftWallX + stripLeftWallW;
             return (
               <g key={`cad-pull-tk-${m}`}>
+                {/* Left vertical edge tick & number (Bottom 0 -> Top 3) */}
                 <line
-                  x1={startX - 4}
+                  x1={startX - 5}
                   y1={yPos}
                   x2={startX}
                   y2={yPos}
                   stroke="#0f172a"
-                  strokeWidth="1.1"
+                  strokeWidth="1.2"
                 />
                 <text
-                  x={startX - 6}
-                  y={yPos + 2.5}
+                  x={startX - 7}
+                  y={yPos + 4}
                   textAnchor="end"
-                  fontSize="7.5"
+                  fontSize="11"
                   fontFamily="monospace"
                   fontWeight="bold"
                   fill="#0f172a"
                 >
-                  {m}m
+                  {m}
                 </text>
+
+                {/* Right vertical edge tick & number (Bottom 0 -> Top 3) */}
                 <line
                   x1={endX}
                   y1={yPos}
-                  x2={endX + 4}
+                  x2={endX + 5}
                   y2={yPos}
                   stroke="#0f172a"
-                  strokeWidth="1.1"
+                  strokeWidth="1.2"
                 />
+                <text
+                  x={endX + 7}
+                  y={yPos + 4}
+                  textAnchor="start"
+                  fontSize="11"
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                  fill="#0f172a"
+                >
+                  {m}
+                </text>
               </g>
             );
           })}
@@ -4037,9 +4115,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           {/* Clean Title above Face Outline (No unwanted outer framing box) */}
           <text
             x="460"
-            y={faceTargetY - 10}
+            y={faceTargetY - 12}
             textAnchor="middle"
-            fontSize="10"
+            fontSize="13"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4076,7 +4154,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             x={faceTargetX - 26}
             y={faceTargetY + faceTargetH / 2}
             textAnchor="middle"
-            fontSize="9.5"
+            fontSize="12"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4095,9 +4173,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           />
           <text
             x={faceTargetX + faceTargetW / 2}
-            y={faceTargetY + faceTargetH + 21}
+            y={faceTargetY + faceTargetH + 24}
             textAnchor="middle"
-            fontSize="9.5"
+            fontSize="12"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4110,7 +4188,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             x={faceTargetX - 8}
             y={faceTargetY + faceTargetH * (1 - splRatio) - 4}
             textAnchor="end"
-            fontSize="8.5"
+            fontSize="11.5"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4121,7 +4199,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             x={faceTargetX + faceTargetW + 8}
             y={faceTargetY + faceTargetH * (1 - splRatio) - 4}
             textAnchor="start"
-            fontSize="8.5"
+            fontSize="11.5"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4201,8 +4279,8 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   {payPts[Math.floor(payPts.length * 0.28)] && (
                     <text
                       x={payPts[Math.floor(payPts.length * 0.28)].x}
-                      y={payPts[Math.floor(payPts.length * 0.28)].y - 5}
-                      fontSize="8"
+                      y={payPts[Math.floor(payPts.length * 0.28)].y - 6}
+                      fontSize="11"
                       fontWeight="bold"
                       fontFamily="monospace"
                       fill={colorMode === 'bw' ? '#475569' : '#059669'}
@@ -4612,7 +4690,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
         {/* Shape-Adaptive 1m Reference Ticks following the actual outline */}
         {faceDetails.ticks.map((tk, idx) => {
-          const faceFontScale = Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 560));
+          const faceFontScale = Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480));
           const isInvert = tk.zone === 'invert';
           const isZeroInvert = isInvert && tk.m === 0;
           const tickLen = isZeroInvert ? 13 : 9;
@@ -4649,7 +4727,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
                 x={lx}
                 y={ly}
                 textAnchor={anchor}
-                fontSize={(10.0 * faceFontScale).toFixed(1)}
+                fontSize={(11.0 * faceFontScale).toFixed(1)}
                 fontWeight="700"
                 fill={isZeroInvert ? accentCenterColor : textColor}
                 stroke={haloColor}
@@ -4683,7 +4761,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
               x={faceDetails.splLeftPt.x - 21}
               y={faceDetails.splLeftPt.y + 3.5}
               textAnchor="end"
-              fontSize={(11.0 * Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 560))).toFixed(1)}
+              fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
               fontWeight="800"
               fill={accentSplColor}
               stroke={haloColor}
@@ -4718,7 +4796,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
               x={faceDetails.splRightPt.x + 21}
               y={faceDetails.splRightPt.y + 3.5}
               textAnchor="start"
-              fontSize={(11.0 * Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 560))).toFixed(1)}
+              fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
               fontWeight="800"
               fill={accentSplColor}
               stroke={haloColor}
@@ -4753,7 +4831,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
               x={cx}
               y={top - 25}
               textAnchor="middle"
-              fontSize={(11.2 * Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 560))).toFixed(1)}
+              fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
               fontWeight="800"
               fill={accentCenterColor}
               stroke={haloColor}
@@ -4773,7 +4851,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             x={left - 32}
             y={leftWallMidY}
             textAnchor="middle"
-            fontSize={(10.6 * Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 560))).toFixed(1)}
+            fontSize={(11.0 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
             fontWeight="800"
             fill={tickColor}
             stroke={haloColor}
@@ -4790,7 +4868,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             x={left - 22}
             y={cy}
             textAnchor="middle"
-            fontSize={(10.2 * Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 560))).toFixed(1)}
+            fontSize={(11.0 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
             fontWeight="800"
             fill="#DC2626"
             stroke={haloColor}
@@ -4808,7 +4886,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             x={right + 32}
             y={rightWallMidY}
             textAnchor="middle"
-            fontSize={(10.6 * Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 560))).toFixed(1)}
+            fontSize={(11.0 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
             fontWeight="800"
             fill={tickColor}
             stroke={haloColor}
@@ -4825,7 +4903,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             x={right + 22}
             y={cy}
             textAnchor="middle"
-            fontSize={(10.2 * Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 560))).toFixed(1)}
+            fontSize={(11.0 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
             fontWeight="800"
             fill="#DC2626"
             stroke={haloColor}
@@ -4842,7 +4920,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           x={cx}
           y={bottom + 42}
           textAnchor="middle"
-          fontSize={(11.0 * Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 560))).toFixed(1)}
+          fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
           fontWeight="800"
           fill={tickColor}
           stroke={haloColor}
@@ -4932,7 +5010,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       ? `▲ ${driveWordTitle} ${driveStr}°`
       : `▼ ${driveWordTitle} ${driveStr}°`;
 
-  const compactScale = Math.max(0.7, Math.min(0.95, Math.min(boxW, boxH) / 280));
+  const compactScale = Math.max(0.85, Math.min(1.15, Math.min(boxW, boxH) / 260));
   if (compact) {
     const xAxisLabel =
       orientMeta.xAxisKind === 'pull'
@@ -4969,7 +5047,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           x={cx}
           y={top - 22}
           textAnchor="middle"
-          fontSize={(11.5 * compactScale).toFixed(1)}
+          fontSize={Math.max(12.5, 14 * compactScale).toFixed(1)}
           fontWeight="900"
           fill={isActivePanel ? '#0284C7' : '#0F172A'}
           stroke={haloColor}
@@ -4995,7 +5073,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
               ? 'end'
               : 'middle'
           }
-          fontSize={(9.8 * compactScale).toFixed(1)}
+          fontSize={Math.max(11, 12.5 * compactScale).toFixed(1)}
           fontWeight="900"
           fill={driveAzColor}
           stroke={haloColor}
@@ -5017,9 +5095,9 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             />
             <text
               x={tk.cx}
-              y={bottom + 15}
+              y={bottom + 16}
               textAnchor="middle"
-              fontSize={(9.2 * compactScale).toFixed(1)}
+              fontSize={Math.max(10.5, 12 * compactScale).toFixed(1)}
               fontWeight="900"
               fill="#0F172A"
               stroke={haloColor}
@@ -5032,9 +5110,9 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
         ))}
         <text
           x={cx}
-          y={bottom + 28}
+          y={bottom + 30}
           textAnchor="middle"
-          fontSize={(9.4 * compactScale).toFixed(1)}
+          fontSize={Math.max(11, 12.5 * compactScale).toFixed(1)}
           fontWeight="800"
           fill="#334155"
           stroke={haloColor}
@@ -5056,9 +5134,9 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             />
             <text
               x={yTicksOnRight ? right + 8 : left - 7}
-              y={tk.cy + 3}
+              y={tk.cy + 3.5}
               textAnchor={yTicksOnRight ? 'start' : 'end'}
-              fontSize={(9.0 * compactScale).toFixed(1)}
+              fontSize={Math.max(10.5, 12 * compactScale).toFixed(1)}
               fontWeight="800"
               fill={activePanel === 'crown' ? accentSplColor : '#0F172A'}
               stroke={haloColor}
@@ -5070,17 +5148,17 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           </g>
         ))}
         <text
-          x={yTicksOnRight ? right + 21 : left - 19}
+          x={yTicksOnRight ? right + 22 : left - 20}
           y={cy}
           textAnchor="middle"
-          fontSize={(9.4 * compactScale).toFixed(1)}
+          fontSize={Math.max(11, 12.5 * compactScale).toFixed(1)}
           fontWeight="800"
           fill={activePanel === 'crown' ? accentSplColor : tickColor}
           stroke={haloColor}
           strokeWidth="2.5"
           paintOrder="stroke"
           transform={`rotate(${yTicksOnRight ? 90 : -90}, ${
-            yTicksOnRight ? right + 21 : left - 19
+            yTicksOnRight ? right + 22 : left - 20
           }, ${cy})`}
         >
           {yAxisLabel}
@@ -5090,10 +5168,10 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
   }
 
   // Full Single-Panel Mode Labels & Ticks
-  const singleFontScale = Math.max(0.68, Math.min(0.94, Math.min(boxW, boxH) / 520));
-  const fTick = (10.2 * singleFontScale).toFixed(1);
-  const fEdge = (10.5 * singleFontScale).toFixed(1);
-  const fTitle = (11.0 * singleFontScale).toFixed(1);
+  const singleFontScale = Math.max(0.85, Math.min(1.15, Math.min(boxW, boxH) / 480));
+  const fTick = (12.0 * singleFontScale).toFixed(1);
+  const fEdge = (12.5 * singleFontScale).toFixed(1);
+  const fTitle = (13.5 * singleFontScale).toFixed(1);
 
   const horizTitle =
     orientMeta.xAxisKind === 'pull'

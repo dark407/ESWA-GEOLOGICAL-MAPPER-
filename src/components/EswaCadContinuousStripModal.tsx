@@ -684,7 +684,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     ctx.setLineDash([]);
 
     // Wall Label Annotations on left margin
-    ctx.font = 'bold 10px monospace';
+    ctx.font = 'bold 12px monospace';
     ctx.fillStyle = isDarkMode ? '#38bdf8' : '#0369a1';
     ctx.textAlign = 'right';
     ctx.fillText('LEFT WALL', startX - 8, topY + (spg1Y - topY) / 2);
@@ -710,9 +710,9 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       if (isMajor) {
         ctx.fillStyle = isDarkMode ? '#f97316' : '#ea580c';
         ctx.textAlign = 'center';
-        ctx.font = 'bold 10px monospace';
+        ctx.font = 'bold 12px monospace';
         ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, topY - 10);
-        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, botY + 16);
+        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, botY + 18);
       }
     }
 
@@ -823,13 +823,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           const ly = worldToScreenY(avgY);
           const lbl = zone.label || rockDef.label;
 
-          ctx.font = 'bold 9.5px sans-serif';
+          ctx.font = 'bold 12px sans-serif';
           const lw = ctx.measureText(lbl).width;
           ctx.fillStyle = isDarkMode ? 'rgba(9, 9, 11, 0.88)' : 'rgba(255, 255, 255, 0.88)';
-          ctx.fillRect(lx - lw / 2 - 4, ly - 7, lw + 8, 14);
+          ctx.fillRect(lx - lw / 2 - 5, ly - 9, lw + 10, 18);
           ctx.strokeStyle = rockDef.color;
-          ctx.lineWidth = 0.8;
-          ctx.strokeRect(lx - lw / 2 - 4, ly - 7, lw + 8, 14);
+          ctx.lineWidth = 1.0;
+          ctx.strokeRect(lx - lw / 2 - 5, ly - 9, lw + 10, 18);
 
           ctx.fillStyle = isDarkMode ? '#ffffff' : '#0f172a';
           ctx.textAlign = 'center';
@@ -857,15 +857,15 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
         const midX = (pullStartX + pullEndX) / 2;
         ctx.fillStyle = isDarkMode ? '#1e293b' : '#f1f5f9';
-        ctx.fillRect(midX - 26, topY + 4, 52, 14);
+        ctx.fillRect(midX - 32, topY + 4, 64, 17);
         ctx.strokeStyle = isDarkMode ? '#475569' : '#cbd5e1';
-        ctx.strokeRect(midX - 26, topY + 4, 52, 14);
+        ctx.strokeRect(midX - 32, topY + 4, 64, 17);
 
         ctx.fillStyle = isDarkMode ? '#fef08a' : '#854d0e';
-        ctx.font = 'bold 9px monospace';
+        ctx.font = 'bold 11.5px monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`PULL #${pull.id.replace('round-', '')}`, midX, topY + 11);
+        ctx.fillText(`PULL #${pull.id.replace('round-', '')}`, midX, topY + 12.5);
       }
     }
 
@@ -942,12 +942,12 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(vx, vy, isVertexActive ? 8 : 6, 0, Math.PI * 2);
+            ctx.arc(vx, vy, isVertexActive ? 9 : 7, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
 
             ctx.fillStyle = '#09090b';
-            ctx.font = 'bold 8px monospace';
+            ctx.font = 'bold 10px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(`${i + 1}`, vx, vy);
@@ -962,12 +962,12 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           ctx.strokeStyle = '#f59e0b';
           ctx.lineWidth = 1.5;
           ctx.beginPath();
-          ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+          ctx.arc(cx, cy, 10, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
 
           ctx.fillStyle = '#fbbf24';
-          ctx.font = 'bold 9px sans-serif';
+          ctx.font = 'bold 11px sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText('✥', cx, cy);
@@ -975,7 +975,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           points.forEach((pt) => {
             ctx.fillStyle = isHovered ? '#38bdf8' : color;
             ctx.beginPath();
-            ctx.arc(worldToScreenX(pt.x), worldToScreenY(pt.y), 2.5, 0, Math.PI * 2);
+            ctx.arc(worldToScreenX(pt.x), worldToScreenY(pt.y), 3, 0, Math.PI * 2);
             ctx.fill();
           });
         }
@@ -996,7 +996,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
           const segAngle = Math.atan2(p2y - p1y, p2x - p1x);
           const tickSide = trace.dipTickSide === 'left' ? -1 : 1;
-          const tickLen = 14;
+          const tickLen = 15;
           const tickAngle = segAngle + (Math.PI / 2) * tickSide;
 
           const tx = mx + Math.cos(tickAngle) * tickLen;
@@ -1004,43 +1004,43 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
           // Draw perpendicular tick
           ctx.strokeStyle = isSelected ? '#fbbf24' : color;
-          ctx.lineWidth = 2.2;
+          ctx.lineWidth = 2.4;
           ctx.beginPath();
           ctx.moveTo(mx, my);
           ctx.lineTo(tx, ty);
           ctx.stroke();
 
           // Dip angle numerical text badge e.g. "65°"
-          const lblX = tx + Math.cos(tickAngle) * 9;
-          const lblY = ty + Math.sin(tickAngle) * 9;
+          const lblX = tx + Math.cos(tickAngle) * 11;
+          const lblY = ty + Math.sin(tickAngle) * 11;
 
-          ctx.font = 'bold 9px monospace';
+          ctx.font = 'bold 12px monospace';
           ctx.fillStyle = isSelected ? '#fbbf24' : (isDarkMode ? '#ffffff' : '#0f172a');
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(`${trace.dipDeg}°`, lblX, lblY);
 
           // Joint Set label badge (e.g. J1)
-          const setBadgeX = mx - Math.cos(tickAngle) * 12;
-          const setBadgeY = my - Math.sin(tickAngle) * 12;
-          ctx.fillStyle = isDarkMode ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-          ctx.fillRect(setBadgeX - 12, setBadgeY - 6, 24, 12);
+          const setBadgeX = mx - Math.cos(tickAngle) * 14;
+          const setBadgeY = my - Math.sin(tickAngle) * 14;
+          ctx.fillStyle = isDarkMode ? 'rgba(15, 23, 42, 0.90)' : 'rgba(255, 255, 255, 0.90)';
+          ctx.fillRect(setBadgeX - 15, setBadgeY - 8, 30, 16);
           ctx.strokeStyle = color;
-          ctx.lineWidth = 0.8;
-          ctx.strokeRect(setBadgeX - 12, setBadgeY - 6, 24, 12);
+          ctx.lineWidth = 1.0;
+          ctx.strokeRect(setBadgeX - 15, setBadgeY - 8, 30, 16);
 
           ctx.fillStyle = color;
-          ctx.font = 'bold 8.5px monospace';
+          ctx.font = 'bold 11px monospace';
           ctx.fillText(trace.setId, setBadgeX, setBadgeY);
 
           // HW / FW markers for faults/shears
           if (trace.showHwFw) {
-            const hwX = mx + Math.cos(tickAngle) * 22;
-            const hwY = my + Math.sin(tickAngle) * 22;
-            const fwX = mx - Math.cos(tickAngle) * 22;
-            const fwY = my - Math.sin(tickAngle) * 22;
+            const hwX = mx + Math.cos(tickAngle) * 24;
+            const hwY = my + Math.sin(tickAngle) * 24;
+            const fwX = mx - Math.cos(tickAngle) * 24;
+            const fwY = my - Math.sin(tickAngle) * 24;
             ctx.fillStyle = '#ef4444';
-            ctx.font = 'bold 8.5px sans-serif';
+            ctx.font = 'bold 11px sans-serif';
             ctx.fillText(trace.flipHwFw ? 'FW' : 'HW', hwX, hwY);
             ctx.fillStyle = '#3b82f6';
             ctx.fillText(trace.flipHwFw ? 'HW' : 'FW', fwX, fwY);
@@ -1058,19 +1058,19 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
         ctx.fillStyle = isSelected ? '#38bdf8' : '#0284c7';
         ctx.beginPath();
-        ctx.arc(scrX, scrY, isSelected ? 7 : 5, 0, Math.PI * 2);
+        ctx.arc(scrX, scrY, isSelected ? 8 : 6, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 7px sans-serif';
+        ctx.font = 'bold 9px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('W', scrX, scrY + 2.5);
+        ctx.fillText('W', scrX, scrY + 3);
 
         if (sym.label) {
           ctx.fillStyle = isDarkMode ? '#38bdf8' : '#0284c7';
-          ctx.font = '8px monospace';
+          ctx.font = '11px monospace';
           ctx.textAlign = 'left';
-          ctx.fillText(sym.label, scrX + 8, scrY + 3);
+          ctx.fillText(sym.label, scrX + 10, scrY + 3.5);
         }
       }
     }
@@ -1121,19 +1121,19 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       const midScrY = (y1 + y2) / 2;
 
       ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-      ctx.fillRect(midScrX - 45, midScrY - 18, 90, 24);
+      ctx.fillRect(midScrX - 52, midScrY - 20, 104, 28);
       ctx.strokeStyle = '#06b6d4';
       ctx.lineWidth = 1;
-      ctx.strokeRect(midScrX - 45, midScrY - 18, 90, 24);
+      ctx.strokeRect(midScrX - 52, midScrY - 20, 104, 28);
 
       ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 9.5px monospace';
+      ctx.font = 'bold 12px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(`${distM.toFixed(2)}m (∠${appDeg}°)`, midScrX, midScrY - 7);
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '8px monospace';
-      ctx.fillText(`ΔX: ${dxM.toFixed(2)}m • ΔY: ${dyM.toFixed(2)}m`, midScrX, midScrY + 4);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText(`ΔX: ${dxM.toFixed(2)}m • ΔY: ${dyM.toFixed(2)}m`, midScrX, midScrY + 5);
     }
 
     // 8. Render Active Drafting Line / Points
