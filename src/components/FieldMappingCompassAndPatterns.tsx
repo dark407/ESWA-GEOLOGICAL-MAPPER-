@@ -17,6 +17,7 @@ import {
   FieldJointGroupingId,
   FieldLithologyStroke,
   FieldPanelId,
+  FieldJointTrace,
   FieldPoint2D,
   FieldRememberedRockItem,
   FieldStructuralFeature,
@@ -33,6 +34,10 @@ import {
 import {
   getTunnelRelativeDirectionLabel,
   getCrownStrikePair,
+  calculatePlaneSurfaceIntersections,
+  constructJointPlane,
+  deriveAnchorPointFromPoints,
+  TunnelSpatialGeometry,
 } from '../engine/joint3DInspectorEngine';
 
 /**
@@ -3172,9 +3177,80 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
     const features = (round.structuralFeatures || [])
       .filter((f) => f.panel === panel)
       .map((f) => (useContinuousCadMapping ? { ...f, points: f.points.map(mapPt) } : f));
-    const traces = round.jointTraces
+    const directTraces = round.jointTraces
       .filter((t) => t.panel === panel)
       .map((t) => (useContinuousCadMapping ? { ...t, points: t.points.map(mapPt) } : t));
+
+    const projectedFaceTraces: FieldJointTrace[] = [];
+    if (
+      useContinuousCadMapping &&
+      (panel === 'left_wall' || panel === 'crown' || panel === 'right_wall') &&
+      panelGeom
+    ) {
+      const faceTraces = round.jointTraces.filter(
+        (t) => t.panel === 'face' && t.points && t.points.length >= 2
+      );
+      const spatialGeom: TunnelSpatialGeometry = {
+        widthM: location.widthM,
+        heightM: location.heightM,
+        wallHeightM: location.wallHeightM || location.heightM * 0.58,
+        pullLengthM: round.pullLengthMeters || 3.5,
+        driveAzimuthDeg: round.tunnelDriveDirection || 0,
+      };
+      for (const ft of faceTraces) {
+        if (typeof ft.dipDirection !== 'number' || typeof ft.dipAmount !== 'number') continue;
+        const anchor = deriveAnchorPointFromPoints(ft.points, 'face', spatialGeom);
+        const plane = constructJointPlane(
+          ft.dipDirection,
+          ft.dipAmount,
+          anchor,
+          spatialGeom.driveAzimuthDeg
+        );
+        const inter = calculatePlaneSurfaceIntersections(plane, spatialGeom, 'face');
+
+        let seg:
+          | { p1: { x: number; y: number }; p2: { x: number; y: number }; lengthM: number }
+          | undefined;
+        if (panel === 'left_wall' && inter.leftWall && inter.leftWall.lengthM > 0.05) {
+          seg = inter.leftWall;
+        } else if (panel === 'crown' && inter.crown && inter.crown.lengthM > 0.05) {
+          seg = inter.crown;
+        } else if (panel === 'right_wall' && inter.rightWall && inter.rightWall.lengthM > 0.05) {
+          seg = inter.rightWall;
+        }
+
+        if (seg) {
+          let p1Canvas: FieldPoint2D;
+          let p2Canvas: FieldPoint2D;
+          if (panel === 'left_wall' || panel === 'right_wall') {
+            p1Canvas = {
+              x: panelGeom.boxX + (seg.p1.x / spatialGeom.pullLengthM) * panelGeom.boxW,
+              y: panelGeom.boxY + (1 - seg.p1.y / spatialGeom.wallHeightM) * panelGeom.boxH,
+            };
+            p2Canvas = {
+              x: panelGeom.boxX + (seg.p2.x / spatialGeom.pullLengthM) * panelGeom.boxW,
+              y: panelGeom.boxY + (1 - seg.p2.y / spatialGeom.wallHeightM) * panelGeom.boxH,
+            };
+          } else {
+            p1Canvas = {
+              x: panelGeom.boxX + (seg.p1.y / spatialGeom.widthM) * panelGeom.boxW,
+              y: panelGeom.boxY + (1 - seg.p1.x / spatialGeom.pullLengthM) * panelGeom.boxH,
+            };
+            p2Canvas = {
+              x: panelGeom.boxX + (seg.p2.y / spatialGeom.widthM) * panelGeom.boxW,
+              y: panelGeom.boxY + (1 - seg.p2.x / spatialGeom.pullLengthM) * panelGeom.boxH,
+            };
+          }
+          projectedFaceTraces.push({
+            ...ft,
+            id: `proj-${panel}-${ft.id}`,
+            panel,
+            points: [mapPt(p1Canvas), mapPt(p2Canvas)],
+          });
+        }
+      }
+    }
+    const traces = [...directTraces, ...projectedFaceTraces];
     const waters = round.waterMarks
       .filter((w) => w.panel === panel)
       .map((w) =>

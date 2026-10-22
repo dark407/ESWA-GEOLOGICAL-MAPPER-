@@ -1,6 +1,6 @@
 {
-  "summary": "Architectural implementation plan for Dual-Canvas Synced Face Mapping Photogrammetry, 3D Photo-Tunnel Generation, Real-Time Duplicate Detection, and Confirmation Workflow in ESWA Tunnel Mapper.",
-  "updatedAt": "2026-10-15T07:00:38.271187947Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Appended NATM 3D Joint Inspector refinements: Real-time dynamic tunnel drive rotation synchronization, light-theme adoption for header and joint set badge, and excavation face advance pull anchoring (3.0m toward tunnel pull).",
+  "updatedAt":  "2026-10-22T00:13:10.378416400Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

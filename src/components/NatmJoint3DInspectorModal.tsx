@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { useTheme } from '../context/ThemeContext';
 import {
   Compass,
   Maximize2,
@@ -33,6 +34,15 @@ import {
   Navigation,
   Box,
   Lock,
+  ZoomIn,
+  ZoomOut,
+  Move,
+  PenTool,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  Crosshair,
 } from 'lucide-react';
 import {
   FieldJointTrace,
@@ -135,6 +145,7 @@ interface NumericStepperInputProps {
   step?: number;
   unit?: string;
   isCircular?: boolean; // 0..360 wrapping
+  isLight?: boolean;
   onChange: (val: number) => void;
 }
 
@@ -146,6 +157,7 @@ const NumericStepperInput: React.FC<NumericStepperInputProps> = ({
   step = 1,
   unit = '°',
   isCircular = false,
+  isLight = false,
   onChange,
 }) => {
   const [localStr, setLocalStr] = useState<string>(String(value));
@@ -201,8 +213,8 @@ const NumericStepperInput: React.FC<NumericStepperInputProps> = ({
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-[11px]">
-        <span className="text-slate-400 font-bold">{label}:</span>
-        <strong className="text-amber-300 font-mono text-sm">
+        <span className={`font-bold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>{label}:</span>
+        <strong className={`font-mono text-sm ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>
           {value}{unit}
         </strong>
       </div>
@@ -210,7 +222,11 @@ const NumericStepperInput: React.FC<NumericStepperInputProps> = ({
         <button
           type="button"
           onClick={() => handleStep(-step)}
-          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded text-slate-300 font-mono font-bold text-xs select-none cursor-pointer"
+          className={`px-2 py-1 rounded font-mono font-bold text-xs select-none cursor-pointer border transition-colors ${
+            isLight
+              ? 'bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 border-slate-300'
+              : 'bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 border-slate-700'
+          }`}
           title={`Decrease ${label}`}
         >
           −
@@ -239,12 +255,20 @@ const NumericStepperInput: React.FC<NumericStepperInputProps> = ({
               handleStep(-step);
             }
           }}
-          className="w-full text-center px-2 py-1 rounded bg-slate-950 border border-slate-700 text-amber-300 font-bold text-xs font-mono focus:border-amber-400 focus:outline-none transition-colors"
+          className={`w-full text-center px-2 py-1 rounded border font-bold text-xs font-mono focus:outline-none transition-colors ${
+            isLight
+              ? 'bg-white border-slate-300 text-amber-800 focus:border-amber-500'
+              : 'bg-slate-950 border-slate-700 text-amber-300 focus:border-amber-400'
+          }`}
         />
         <button
           type="button"
           onClick={() => handleStep(step)}
-          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded text-slate-300 font-mono font-bold text-xs select-none cursor-pointer"
+          className={`px-2 py-1 rounded font-mono font-bold text-xs select-none cursor-pointer border transition-colors ${
+            isLight
+              ? 'bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 border-slate-300'
+              : 'bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 border-slate-700'
+          }`}
           title={`Increase ${label}`}
         >
           +
@@ -263,6 +287,10 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   onSaveJoint,
 }) => {
   if (!isOpen || !activeJoint) return null;
+
+  // Real-Time Theme Integration (supports light & dark themes seamlessly)
+  const { theme, palette } = useTheme();
+  const isLight = theme === 'light' || Boolean(palette?.isLightBg);
 
   // Active View Tab
   const [activeTab, setActiveTab] = useState<InspectionViewTab>('VIEW_3D');
@@ -364,6 +392,25 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   // UI Overlays in Canvas (user can toggle legend if needed, default is clean canvas)
   const [showLegendOverlay, setShowLegendOverlay] = useState<boolean>(false);
 
+  // Interactive 3D Compass & Plot Plane State
+  const [showCompass, setShowCompass] = useState<boolean>(true);
+  const [cameraTheta, setCameraTheta] = useState<number>(Math.PI / 4);
+  const [showPlotPlaneDrawer, setShowPlotPlaneDrawer] = useState<boolean>(false);
+  const [plotPlaneAnchorType, setPlotPlaneAnchorType] = useState<
+    'AUTO' | 'FACE_CENTER' | 'CROWN_APEX' | 'LEFT_WALL' | 'RIGHT_WALL' | 'INVERT'
+  >('AUTO');
+
+  // Advance Position along Tunnel Pull:
+  // Tunnel portal is at X = 0.0m; excavation face canvas is at X = pullLengthM (defaults to 3.0m toward pull)
+  const defaultPull = tunnelGeometry.pullLengthM || 3.0;
+  const [plotPlaneAdvanceM, setPlotPlaneAdvanceM] = useState<number>(defaultPull);
+
+  useEffect(() => {
+    if (tunnelGeometry.pullLengthM && tunnelGeometry.pullLengthM > 0) {
+      setPlotPlaneAdvanceM(tunnelGeometry.pullLengthM);
+    }
+  }, [tunnelGeometry.pullLengthM]);
+
   // -------------------------------------------------------------------------
   // MATHEMATICAL CALCULATIONS (REAL & VALIDATED)
   // -------------------------------------------------------------------------
@@ -373,10 +420,33 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     return calculateStrikeFromDipDirection(dipDirection, dipAmount);
   }, [dipDirection, dipAmount]);
 
-  // 2. Anchor Point Derived from actual mapped 2D polyline vertices
+  // 2. Anchor Point Derived from actual mapped 2D polyline vertices or user-selected plot anchor
+  // Coordinate frame: X = advance along pull (0..pullLengthM), Y = width (0..widthM), Z = height (0..heightM)
+  // Excavation face canvas is located at X = pull (towards tunnel pull, default 3.0m, NOT portal 0.0m)
   const anchorPoint = useMemo(() => {
-    return deriveAnchorPointFromPoints(currentJoint.points, currentJoint.panel, tunnelGeometry);
-  }, [currentJoint.points, currentJoint.panel, tunnelGeometry]);
+    const pull = plotPlaneAdvanceM;
+    if (plotPlaneAnchorType === 'FACE_CENTER') {
+      return { x: pull, y: (tunnelGeometry.widthM || 8.5) / 2, z: (tunnelGeometry.heightM || 7.5) / 2 };
+    }
+    if (plotPlaneAnchorType === 'CROWN_APEX') {
+      return { x: pull, y: (tunnelGeometry.widthM || 8.5) / 2, z: tunnelGeometry.heightM || 7.5 };
+    }
+    if (plotPlaneAnchorType === 'LEFT_WALL') {
+      return { x: pull, y: 0.1, z: (tunnelGeometry.wallHeightM || 3.8) / 2 };
+    }
+    if (plotPlaneAnchorType === 'RIGHT_WALL') {
+      return { x: pull, y: (tunnelGeometry.widthM || 8.5) - 0.1, z: (tunnelGeometry.wallHeightM || 3.8) / 2 };
+    }
+    if (plotPlaneAnchorType === 'INVERT') {
+      return { x: pull, y: (tunnelGeometry.widthM || 8.5) / 2, z: 0.1 };
+    }
+    const derived = deriveAnchorPointFromPoints(currentJoint.points, currentJoint.panel, tunnelGeometry);
+    // Face traces mapped on 2D face canvas are physically located at the excavation advance front (3.0m)
+    if (currentJoint.panel === 'face') {
+      return { ...derived, x: pull };
+    }
+    return derived;
+  }, [plotPlaneAnchorType, plotPlaneAdvanceM, currentJoint.points, currentJoint.panel, tunnelGeometry]);
 
   // 3. Mathematical Plane Equation
   const plane = useMemo(() => {
@@ -487,12 +557,16 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     phi: Math.PI / 3,
   });
 
+  // Panning / Move target offset in Three.js coordinates
+  const targetOffsetRef = useRef<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
+  const lastThetaDegRef = useRef<number>(-999);
+
   const isDraggingRef = useRef<boolean>(false);
   const prevMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-
-  // Set Camera Presets (smoothly updates camSphericalRef)
+  // Set Camera Presets (smoothly updates camSphericalRef and resets pan offset)
   const setCameraPreset = (preset: 'ISO' | 'PLAN' | 'FACE' | 'PROFILE' | 'RIGHT') => {
+    targetOffsetRef.current = { x: 0, y: 0, z: 0 };
     switch (preset) {
       case 'ISO':
         camSphericalRef.current = { radius: 17, theta: Math.PI / 4, phi: Math.PI / 3 };
@@ -510,6 +584,44 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         camSphericalRef.current = { radius: 17, theta: Math.PI / 2, phi: Math.PI / 2 };
         break;
     }
+    setCameraTheta(camSphericalRef.current.theta);
+  };
+
+  // Align camera with True North
+  const snapToNorth = () => {
+    const driveAz = tunnelGeometry.driveAzimuthDeg || 0;
+    camSphericalRef.current.theta = -((driveAz * Math.PI) / 180);
+    setCameraTheta(camSphericalRef.current.theta);
+  };
+
+  // Align camera looking straight down the Tunnel Drive Axis (+Z)
+  const snapToTunnelDrive = () => {
+    camSphericalRef.current.theta = 0;
+    camSphericalRef.current.phi = Math.PI / 2.3;
+    setCameraTheta(0);
+  };
+
+  // Reset Camera Target & Orbit
+  const resetCameraTarget = () => {
+    targetOffsetRef.current = { x: 0, y: 0, z: 0 };
+    camSphericalRef.current = { radius: 17, theta: Math.PI / 4, phi: Math.PI / 3 };
+    setCameraTheta(Math.PI / 4);
+  };
+
+  // On-screen Zoom & Pan buttons
+  const zoomIn = () => {
+    camSphericalRef.current.radius = Math.max(3, camSphericalRef.current.radius - 2.5);
+  };
+  const zoomOut = () => {
+    camSphericalRef.current.radius = Math.min(55, camSphericalRef.current.radius + 2.5);
+  };
+  const panCamera = (dx: number, dy: number) => {
+    const cam = camSphericalRef.current;
+    const rightX = Math.cos(cam.theta);
+    const rightZ = -Math.sin(cam.theta);
+    targetOffsetRef.current.x += rightX * dx;
+    targetOffsetRef.current.z += rightZ * dx;
+    targetOffsetRef.current.y += dy;
   };
 
   // -------------------------------------------------------------------------
@@ -720,46 +832,157 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     jointGroupRef.current = jointGroup;
     scene.add(jointGroup);
 
-    // 8. Animation Render Loop
+    // 8. Animation Render Loop (with target panning and live compass sync)
     const render = () => {
       const cam = camSphericalRef.current;
-      const x = cx + cam.radius * Math.sin(cam.phi) * Math.sin(cam.theta);
-      const y = cy + cam.radius * Math.cos(cam.phi);
-      const z = cz + cam.radius * Math.sin(cam.phi) * Math.cos(cam.theta);
+      const target = targetOffsetRef.current;
+      const targetX = cx + target.x;
+      const targetY = cy + target.y;
+      const targetZ = cz + target.z;
+
+      const x = targetX + cam.radius * Math.sin(cam.phi) * Math.sin(cam.theta);
+      const y = targetY + cam.radius * Math.cos(cam.phi);
+      const z = targetZ + cam.radius * Math.sin(cam.phi) * Math.cos(cam.theta);
 
       camera.position.set(x, y, z);
-      camera.lookAt(cx, cy, cz);
+      camera.lookAt(targetX, targetY, targetZ);
+
+      // Real-time camera theta sync for Compass Rose (sub-degree precision)
+      const thetaDeg = Math.round((cam.theta * 180 / Math.PI) * 10) / 10;
+      if (Math.abs(thetaDeg - lastThetaDegRef.current) >= 0.5) {
+        lastThetaDegRef.current = thetaDeg;
+        setCameraTheta(cam.theta);
+      }
 
       renderer.render(scene, camera);
       animFrameIdRef.current = requestAnimationFrame(render);
     };
     render();
 
-    // 9. High-Performance Mouse Orbit Controls (Direct Ref Manipulation)
+    // 9. HIGH-PERFORMANCE MOUSE & TOUCH CONTROLS (ORBIT, PINCH-ZOOM & PAN MOVE)
+    let isMouseDown = false;
+    let mouseButton = 0;
+    let prevMouse = { x: 0, y: 0 };
+
+    // Pinch & Multi-Touch State
+    let touchMode: 'NONE' | 'ORBIT' | 'PINCH_PAN' = 'NONE';
+    let prevTouch = { x: 0, y: 0 };
+    let initialPinchDist = 0;
+    let initialRadius = 17;
+    let initialMidpoint = { x: 0, y: 0 };
+    let initialTarget = { x: 0, y: 0, z: 0 };
+
     const onMouseDown = (e: MouseEvent) => {
-      isDraggingRef.current = true;
-      prevMouseRef.current = { x: e.clientX, y: e.clientY };
+      isMouseDown = true;
+      mouseButton = e.button;
+      prevMouse = { x: e.clientX, y: e.clientY };
     };
 
     const onMouseMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current) return;
-      const dx = e.clientX - prevMouseRef.current.x;
-      const dy = e.clientY - prevMouseRef.current.y;
-      prevMouseRef.current = { x: e.clientX, y: e.clientY };
+      if (!isMouseDown) return;
+      const dx = e.clientX - prevMouse.x;
+      const dy = e.clientY - prevMouse.y;
+      prevMouse = { x: e.clientX, y: e.clientY };
 
       const cam = camSphericalRef.current;
-      cam.theta -= dx * 0.007;
-      cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
+      const target = targetOffsetRef.current;
+
+      // Right-click (2), Middle-click (1), or Shift+Left-click (0 with shiftKey) -> MOVE / PAN
+      if (mouseButton === 2 || mouseButton === 1 || (mouseButton === 0 && e.shiftKey)) {
+        const panSpeed = cam.radius * 0.0016;
+        const rightX = Math.cos(cam.theta);
+        const rightZ = -Math.sin(cam.theta);
+        target.x -= rightX * dx * panSpeed;
+        target.z -= rightZ * dx * panSpeed;
+        target.y += dy * panSpeed;
+      } else if (mouseButton === 0) {
+        // Left-click -> ORBIT
+        cam.theta -= dx * 0.007;
+        cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
+      }
     };
 
     const onMouseUp = () => {
-      isDraggingRef.current = false;
+      isMouseDown = false;
     };
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const cam = camSphericalRef.current;
-      cam.radius = Math.max(4, Math.min(45, cam.radius + e.deltaY * 0.015));
+      cam.radius = Math.max(3, Math.min(55, cam.radius + e.deltaY * 0.015));
+    };
+
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault(); // allow right-drag pan without opening browser context menu
+    };
+
+    // Touch Event Handlers: 1-finger Orbit, 2-finger Pinch Zoom & Pan Move
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        touchMode = 'ORBIT';
+        prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (e.touches.length >= 2) {
+        touchMode = 'PINCH_PAN';
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        initialPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        initialRadius = camSphericalRef.current.radius;
+        initialMidpoint = {
+          x: (t1.clientX + t2.clientX) / 2,
+          y: (t1.clientY + t2.clientY) / 2,
+        };
+        initialTarget = { ...targetOffsetRef.current };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+      const cam = camSphericalRef.current;
+      const target = targetOffsetRef.current;
+
+      if (e.touches.length === 1 && touchMode === 'ORBIT') {
+        const t = e.touches[0];
+        const dx = t.clientX - prevTouch.x;
+        const dy = t.clientY - prevTouch.y;
+        prevTouch = { x: t.clientX, y: t.clientY };
+
+        cam.theta -= dx * 0.007;
+        cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
+      } else if (e.touches.length >= 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const currentMidpoint = {
+          x: (t1.clientX + t2.clientX) / 2,
+          y: (t1.clientY + t2.clientY) / 2,
+        };
+
+        // 1. Pinch Zoom
+        if (initialPinchDist > 0) {
+          const scale = initialPinchDist / Math.max(10, currentDist);
+          cam.radius = Math.max(3, Math.min(55, initialRadius * scale));
+        }
+
+        // 2. Two-Finger Pan / Move
+        const dMidX = currentMidpoint.x - initialMidpoint.x;
+        const dMidY = currentMidpoint.y - initialMidpoint.y;
+        const panSpeed = cam.radius * 0.0016;
+        const rightX = Math.cos(cam.theta);
+        const rightZ = -Math.sin(cam.theta);
+
+        target.x = initialTarget.x - rightX * dMidX * panSpeed;
+        target.z = initialTarget.z - rightZ * dMidX * panSpeed;
+        target.y = initialTarget.y + dMidY * panSpeed;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        touchMode = 'ORBIT';
+        prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (e.touches.length === 0) {
+        touchMode = 'NONE';
+      }
     };
 
     const handleResize = () => {
@@ -775,6 +998,11 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     container.addEventListener('wheel', onWheel, { passive: false });
+    container.addEventListener('contextmenu', onContextMenu);
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('touchcancel', onTouchEnd);
     window.addEventListener('resize', handleResize);
 
     return () => {
@@ -783,6 +1011,11 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('contextmenu', onContextMenu);
+      container.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
       tunnelGeo.dispose();
@@ -1077,39 +1310,74 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-1 sm:p-2 bg-slate-950/85 backdrop-blur-md select-none">
-      <div className="w-full max-w-[99.2vw] h-[98.5vh] flex flex-col bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden text-slate-100">
+      <div
+        className={`w-full max-w-[99.2vw] h-[98.5vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden transition-colors border ${
+          isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700/80 text-slate-100'
+        }`}
+      >
         {/* ===================================================================
-            HEADER: TITLE, STATUS & ACTION BUTTONS
+            HEADER: TITLE, STATUS & ACTION BUTTONS (FULL LIGHT/DARK THEME ADOPTION)
             =================================================================== */}
-        <header className="flex-none bg-slate-950/90 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800">
+        <header
+          className={`flex-none px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 border-b transition-colors ${
+            isLight
+              ? 'bg-white/95 text-slate-900 border-slate-200 shadow-xs'
+              : 'bg-slate-950/90 text-slate-100 border-slate-800'
+          }`}
+        >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-black">
+            <div
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center font-black transition-colors ${
+                isLight
+                  ? 'bg-amber-100 border-amber-400 text-amber-700'
+                  : 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+              }`}
+            >
               <Compass className="w-5 h-5 animate-pulse" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="font-mono font-black text-sm sm:text-base text-white tracking-wide">
+                <h2
+                  className={`font-mono font-black text-sm sm:text-base tracking-wide transition-colors ${
+                    isLight ? 'text-slate-900' : 'text-white'
+                  }`}
+                >
                   NATM 3D JOINT INSPECTOR &amp; MULTI-SURFACE PERSISTENCE
                 </h2>
+                {/* CSS Selector 1 Target Span: Clean Light/Dark Theme Adoption */}
                 <span
-                  className="px-2 py-0.5 rounded text-[11px] font-mono font-bold uppercase"
+                  className={`px-2.5 py-0.5 rounded-md text-[11px] font-mono uppercase tracking-wide transition-all shadow-xs border ${
+                    isLight
+                      ? 'border-slate-900/25 ring-1 ring-slate-950/10 text-slate-950 font-black'
+                      : 'border-white/20 ring-1 ring-white/10 text-slate-950 font-bold'
+                  }`}
                   style={{
                     backgroundColor: FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#f59e0b',
-                    color: '#020617',
+                    color: '#09090b',
                   }}
                 >
                   Joint {currentJoint.id} ({jointSetId})
                 </span>
-                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300 font-mono text-[10px]">
+                <span
+                  className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border transition-colors ${
+                    isLight
+                      ? 'bg-cyan-50 border-cyan-300 text-cyan-900'
+                      : 'bg-cyan-950 border-cyan-800 text-cyan-300'
+                  }`}
+                >
                   Observed on {currentJoint.panel.toUpperCase().replace('_', ' ')}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+              <p
+                className={`text-[11px] font-mono flex items-center gap-2 mt-0.5 transition-colors ${
+                  isLight ? 'text-slate-600' : 'text-slate-400'
+                }`}
+              >
                 <span>
-                  Tunnel Section: {tunnelGeometry.widthM}m W × {tunnelGeometry.heightM}m H × {tunnelGeometry.pullLengthM}m Pull
+                  Tunnel Section: {tunnelGeometry.widthM}m W × {tunnelGeometry.heightM}m H × {tunnelGeometry.pullLengthM || 3.0}m Pull
                 </span>
                 <span>·</span>
-                <span className="text-amber-300">
+                <span className={isLight ? 'text-amber-700 font-bold' : 'text-amber-300 font-bold'}>
                   Heading: {tunnelGeometry.driveAzimuthDeg !== undefined ? `N ${Math.round(tunnelGeometry.driveAzimuthDeg)}° E` : 'Local Grid'}
                 </span>
               </p>
@@ -1120,10 +1388,14 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
             <button
               type="button"
               onClick={handleExportCsv}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-mono font-bold cursor-pointer transition-colors"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-bold cursor-pointer transition-colors border ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+              }`}
               title="Export complete 3D joint audit and coordinate tables to CSV"
             >
-              <Download className="w-4 h-4 text-cyan-400" />
+              <Download className={`w-4 h-4 ${isLight ? 'text-cyan-700' : 'text-cyan-400'}`} />
               <span>Export CSV</span>
             </button>
 
@@ -1143,7 +1415,11 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 cursor-pointer transition-colors"
+              className={`p-1.5 rounded-xl border cursor-pointer transition-colors ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 border-slate-300'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border-slate-700'
+              }`}
               title="Close 3D Joint Inspector"
             >
               <X className="w-5 h-5" />
@@ -1158,7 +1434,11 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
           {/* ---------------------------------------------------------------
               LEFT PANEL: HIGH-RESPONSIVENESS INPUTS & GEOLOGICAL AUDIT
               --------------------------------------------------------------- */}
-          <aside className="w-full lg:w-[450px] flex-none border-r border-slate-800 bg-slate-950/70 p-3 sm:p-4 overflow-y-auto space-y-3.5 font-mono text-xs">
+          <aside
+            className={`w-full lg:w-[450px] flex-none border-r p-3 sm:p-4 overflow-y-auto space-y-3.5 font-mono text-xs transition-colors ${
+              isLight ? 'bg-slate-100/95 border-slate-300 text-slate-900' : 'border-slate-800 bg-slate-950/70 text-slate-100'
+            }`}
+          >
             {/* 1. Orientation & Angle Conventions */}
             <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
@@ -1182,6 +1462,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     step={1}
                     unit="°"
                     isCircular={true}
+                    isLight={isLight}
                     onChange={(val) => setDipDirection(val)}
                   />
                   <input
@@ -1224,6 +1505,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     max={90}
                     step={1}
                     unit="°"
+                    isLight={isLight}
                     onChange={(val) => setDipAmount(val)}
                   />
                   <input
@@ -1563,10 +1845,22 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
           {/* ---------------------------------------------------------------
               RIGHT PANEL: PURE WHITE 3D CAD VIEWPORT & REAL-TIME COMPASS
               --------------------------------------------------------------- */}
-          <main className="flex-1 flex flex-col bg-slate-900 overflow-hidden relative">
+          <main
+            className={`flex-1 flex flex-col overflow-hidden relative transition-colors ${
+              isLight ? 'bg-slate-100' : 'bg-slate-900'
+            }`}
+          >
             {/* View Switcher Bar */}
-            <div className="flex-none bg-slate-950 px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 z-10">
-              <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 font-mono text-xs font-bold">
+            <div
+              className={`flex-none px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b z-10 transition-colors ${
+                isLight ? 'bg-white/95 border-slate-200' : 'bg-slate-950 border-slate-800'
+              }`}
+            >
+              <div
+                className={`flex items-center gap-1 p-1 rounded-xl font-mono text-xs font-bold border transition-colors ${
+                  isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-slate-800'
+                }`}
+              >
                 {[
                   { id: 'VIEW_3D' as InspectionViewTab, label: '1. 3D Tunnel View' },
                   { id: 'VIEW_UNROLLED_COMBINED' as InspectionViewTab, label: '2. Unrolled 2D Developed View' },
@@ -1580,6 +1874,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
                         isAct
                           ? 'bg-amber-500 text-slate-950 font-black shadow'
+                          : isLight
+                          ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
                           : 'text-slate-400 hover:text-white hover:bg-slate-800'
                       }`}
                     >
@@ -1589,9 +1885,43 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 })}
               </div>
 
-              {/* 3D Camera Controls & Legend Toggle */}
+              {/* 3D Camera Controls, Compass Toggle, Plot Plane Toggle & Legend */}
               {activeTab === 'VIEW_3D' && (
-                <div className="flex items-center gap-2 text-[11px] font-mono">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                  {/* COMPASS OPTION LOGO BUTTON */}
+                  <button
+                    type="button"
+                    onClick={() => setShowCompass(!showCompass)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                      showCompass
+                        ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow font-black'
+                        : isLight
+                        ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                    }`}
+                    title="Toggle Real-Time 3D Geological Compass synced with Tunnel Heading"
+                  >
+                    <Compass className={`w-3.5 h-3.5 ${showCompass ? 'animate-spin-slow' : ''}`} />
+                    <span>{showCompass ? 'Compass: ON' : 'Compass: OFF'}</span>
+                  </button>
+
+                  {/* PLOT PLANE DRAWER TOGGLE BUTTON */}
+                  <button
+                    type="button"
+                    onClick={() => setShowPlotPlaneDrawer(!showPlotPlaneDrawer)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                      showPlotPlaneDrawer
+                        ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow font-black'
+                        : isLight
+                        ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                    }`}
+                    title="Open Plot Plane tool to input custom strike & dip planes"
+                  >
+                    <PenTool className="w-3.5 h-3.5" />
+                    <span>Plot Plane</span>
+                  </button>
+
                   {/* Toggle Interior Plane Mesh (Default: ON for vivid colored cut) */}
                   <button
                     type="button"
@@ -1599,6 +1929,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                       showInteriorPlane
                         ? 'bg-amber-500 text-slate-950 border-amber-400 shadow font-black'
+                        : isLight
+                        ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                         : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                     }`}
                     title="Toggle 3D Colored Joint Plane cut"
@@ -1610,10 +1942,14 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   <button
                     type="button"
                     onClick={() => setShowLegendOverlay(!showLegendOverlay)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer font-bold"
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border cursor-pointer font-bold transition-colors ${
+                      isLight
+                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                    }`}
                     title="Toggle vector legend overlay"
                   >
-                    {showLegendOverlay ? <EyeOff className="w-3.5 h-3.5 text-amber-400" /> : <Eye className="w-3.5 h-3.5 text-cyan-400" />}
+                    {showLegendOverlay ? <EyeOff className="w-3.5 h-3.5 text-amber-500" /> : <Eye className="w-3.5 h-3.5 text-cyan-500" />}
                     <span>{showLegendOverlay ? 'Hide Legend' : 'Show Legend'}</span>
                   </button>
 
@@ -1623,16 +1959,24 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                         key={pr}
                         type="button"
                         onClick={() => setCameraPreset(pr)}
-                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold cursor-pointer transition-colors"
+                        className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors border ${
+                          isLight
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                        }`}
                       >
                         {pr}
                       </button>
                     ))}
                     <button
                       type="button"
-                      onClick={() => setCameraPreset('ISO')}
-                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 cursor-pointer ml-0.5"
-                      title="Reset 3D camera"
+                      onClick={resetCameraTarget}
+                      className={`p-1 rounded ml-0.5 cursor-pointer transition-colors border ${
+                        isLight
+                          ? 'bg-slate-100 hover:bg-slate-200 text-amber-700 border-slate-300'
+                          : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
+                      }`}
+                      title="Reset 3D camera and target"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                     </button>
@@ -1645,27 +1989,387 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
             <div className="flex-1 overflow-hidden relative bg-white">
               {/* TAB 1: THREE.JS 3D VIEWPORT WITH PURE WHITE BACKGROUND */}
               {activeTab === 'VIEW_3D' && (
-                <div className="w-full h-full relative cursor-grab active:cursor-grabbing">
+                <div className="w-full h-full relative cursor-grab active:cursor-grabbing select-none touch-none">
                   {/* Clean Three.js WebGL Canvas Mount */}
-                  <div ref={threeMountRef} className="w-full h-full" />
+                  <div ref={threeMountRef} className="w-full h-full touch-none" />
 
-                  {/* PROMINENT TOP-CENTER TUNNEL DRIVE DIRECTION BANNER WITH ARROW */}
-                  <div className="absolute top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-slate-950/90 backdrop-blur-md border border-cyan-500/50 shadow-xl pointer-events-none z-10 flex items-center gap-2 font-mono text-xs font-bold text-white">
-                    <Navigation className="w-4 h-4 text-cyan-400 rotate-0" />
-                    <span className="text-cyan-400 font-black">▲ TUNNEL DRIVE DIRECTION (+Z):</span>
-                    <span className="bg-cyan-500/20 text-cyan-200 border border-cyan-400/30 px-2.5 py-0.5 rounded-full font-black">
-                      N {Math.round(tunnelGeometry.driveAzimuthDeg ?? 0)}° E (000° TUNNEL AXIS)
-                    </span>
-                  </div>
+                  {/* PROMINENT TOP-CENTER TUNNEL DRIVE DIRECTION BANNER (ALWAYS VISIBLE & ROTATING IN REAL-TIME WITH TUNNEL) */}
+                  {(() => {
+                    const thetaDeg = (cameraTheta * 180) / Math.PI;
+                    const driveAngleDeg = ((-thetaDeg) % 360 + 360) % 360;
+                    const driveAz = tunnelGeometry.driveAzimuthDeg || 0;
+
+                    return (
+                      <div
+                        onClick={snapToTunnelDrive}
+                        className={`absolute top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full backdrop-blur-md shadow-2xl pointer-events-auto cursor-pointer z-30 flex items-center gap-2.5 font-mono text-xs font-bold transition-all hover:scale-105 active:scale-95 border-2 select-none ${
+                          isLight
+                            ? 'bg-white/95 border-cyan-600 text-slate-900 shadow-cyan-950/10'
+                            : 'bg-slate-950/95 border-cyan-400 text-white shadow-cyan-500/20'
+                        }`}
+                        title="Click to synchronize 3D camera with Tunnel Drive Axis (+Z / 000° Heading)"
+                      >
+                        {/* Real-time Rotating Compass Vector Arrow synced with tunnel/camera orbit */}
+                        <div
+                          className={`w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 shadow-inner ${
+                            isLight
+                              ? 'bg-cyan-100 border-cyan-600 text-cyan-900'
+                              : 'bg-cyan-950/90 border-cyan-400 text-cyan-300'
+                          }`}
+                        >
+                          <div
+                            className="w-full h-full flex items-center justify-center transition-transform duration-75 will-change-transform"
+                            style={{ transform: `rotate(${driveAngleDeg}deg)` }}
+                          >
+                            <Navigation className="w-4 h-4 text-cyan-500 fill-cyan-500/40" />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-black tracking-wide ${isLight ? 'text-cyan-800' : 'text-cyan-400'}`}>
+                            ▲ TUNNEL DRIVE (+Z):
+                          </span>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full font-black border text-xs ${
+                              isLight
+                                ? 'bg-cyan-100 border-cyan-400 text-cyan-950'
+                                : 'bg-cyan-500/25 border-cyan-400/50 text-cyan-100'
+                            }`}
+                          >
+                            N {Math.round(driveAz)}° E (000° TUNNEL AXIS)
+                          </span>
+                        </div>
+
+                        {/* Real-time view angle readout and Click to Sync button */}
+                        <span
+                          className={`text-[10.5px] px-2 py-0.5 rounded-full font-bold transition-colors ${
+                            isLight
+                              ? 'bg-slate-200 text-slate-800 hover:bg-cyan-600 hover:text-white'
+                              : 'bg-slate-800 text-cyan-300 hover:bg-cyan-500 hover:text-slate-950'
+                          }`}
+                        >
+                          Sync View ({Math.round(driveAngleDeg)}°)
+                        </span>
+                      </div>
+                    );
+                  })()}
 
                   {/* TOP-LEFT: TUNNEL GEOMETRY & ADVANCE BADGE */}
-                  <div className="absolute top-3 left-3 px-3 py-1.5 rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-700/80 shadow-xl pointer-events-none z-10 flex items-center gap-2 text-[11px] font-mono">
-                    <span className="text-slate-400">Section:</span>
-                    <strong className="text-white">{tunnelGeometry.widthM}m W × {tunnelGeometry.heightM}m H</strong>
-                    <span className="text-slate-600">|</span>
-                    <span className="text-slate-400">Advance:</span>
-                    <strong className="text-amber-400">{tunnelGeometry.pullLengthM || 3.0}m</strong>
+                  <div
+                    className={`absolute top-3 left-3 px-3 py-1.5 rounded-xl backdrop-blur-md shadow-xl pointer-events-none z-20 flex items-center gap-2 text-[11px] font-mono border transition-colors ${
+                      isLight
+                        ? 'bg-white/95 border-slate-300 text-slate-800'
+                        : 'bg-slate-950/90 border-slate-700/80 text-white'
+                    }`}
+                  >
+                    <span className={isLight ? 'text-slate-600' : 'text-slate-400'}>Section:</span>
+                    <strong className={isLight ? 'text-slate-900' : 'text-white'}>
+                      {tunnelGeometry.widthM}m W × {tunnelGeometry.heightM}m H
+                    </strong>
+                    <span className={isLight ? 'text-slate-400' : 'text-slate-600'}>|</span>
+                    <span className={isLight ? 'text-slate-600' : 'text-slate-400'}>Advance:</span>
+                    <strong className="text-amber-500 font-bold">{tunnelGeometry.pullLengthM || 3.0}m (Pull)</strong>
                   </div>
+
+                  {/* =========================================================
+                      REAL-TIME SYNCHRONIZED 3D GEOLOGICAL COMPASS ROSE (DIAL)
+                      ========================================================= */}
+                  {showCompass && (() => {
+                    const driveAz = tunnelGeometry.driveAzimuthDeg || 0;
+                    const thetaDeg = (cameraTheta * 180) / Math.PI;
+                    // North rotation on screen plane
+                    const northAngleDeg = (-driveAz - thetaDeg) % 360;
+                    // Tunnel drive axis rotation on screen plane
+                    const driveAngleDeg = (-thetaDeg) % 360;
+
+                    return (
+                      <div className="absolute top-14 right-3 z-20 font-mono select-none">
+                        <div className="p-3 rounded-2xl bg-slate-950/92 backdrop-blur-md border border-cyan-500/40 shadow-2xl space-y-2 w-48 text-center text-xs">
+                          <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                            <span className="font-bold text-[10px] text-cyan-300 uppercase flex items-center gap-1">
+                              <Compass className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>Geological Compass</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setShowCompass(false)}
+                              className="p-0.5 rounded text-slate-500 hover:text-white cursor-pointer"
+                              title="Hide Compass"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {/* Rotating 3D Compass Rose SVG */}
+                          <div className="relative w-28 h-28 mx-auto my-1 flex items-center justify-center">
+                            <svg viewBox="0 0 120 120" className="w-full h-full">
+                              {/* Outer Fixed Bezel */}
+                              <circle cx="60" cy="60" r="54" fill="#0f172a" stroke="#334155" strokeWidth="2" />
+                              <circle cx="60" cy="60" r="48" fill="#020617" stroke="#1e293b" strokeWidth="1" />
+
+                              {/* Rotating Dial Group (synced with camera & north) */}
+                              <g transform={`rotate(${northAngleDeg} 60 60)`}>
+                                {/* Azimuth Graduation Ticks (every 30 deg) */}
+                                {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((deg) => (
+                                  <line
+                                    key={deg}
+                                    x1="60"
+                                    y1="14"
+                                    x2="60"
+                                    y2={deg % 90 === 0 ? "20" : "17"}
+                                    stroke={deg === 0 ? "#f43f5e" : "#64748b"}
+                                    strokeWidth={deg % 90 === 0 ? "2" : "1"}
+                                    transform={`rotate(${deg} 60 60)`}
+                                  />
+                                ))}
+
+                                {/* Cardinal Direction Labels */}
+                                <text x="60" y="27" fill="#f43f5e" fontSize="9" fontWeight="black" textAnchor="middle">N</text>
+                                <text x="96" y="63" fill="#cbd5e1" fontSize="8" fontWeight="bold" textAnchor="middle">E</text>
+                                <text x="60" y="100" fill="#cbd5e1" fontSize="8" fontWeight="bold" textAnchor="middle">S</text>
+                                <text x="24" y="63" fill="#cbd5e1" fontSize="8" fontWeight="bold" textAnchor="middle">W</text>
+
+                                {/* True North Needle (Red Arrow) */}
+                                <polygon points="60,18 64,55 56,55" fill="#f43f5e" />
+                                {/* South Needle (Silver) */}
+                                <polygon points="60,102 64,65 56,65" fill="#94a3b8" />
+                              </g>
+
+                              {/* Tunnel Drive Heading Indicator (Cyan Line & Arrow) */}
+                              <g transform={`rotate(${driveAngleDeg} 60 60)`}>
+                                <line x1="60" y1="60" x2="60" y2="22" stroke="#06b6d4" strokeWidth="2.5" strokeDasharray="3,2" />
+                                <polygon points="60,16 64,26 56,26" fill="#06b6d4" />
+                              </g>
+
+                              {/* Center Pivot Pivot Pin */}
+                              <circle cx="60" cy="60" r="4.5" fill="#020617" stroke="#38bdf8" strokeWidth="2" />
+                            </svg>
+                          </div>
+
+                          {/* Real-Time Synced Readouts */}
+                          <div className="space-y-0.5 text-[9.5px] border-t border-slate-800 pt-1.5">
+                            <div className="flex items-center justify-between text-slate-400">
+                              <span>Tunnel Drive:</span>
+                              <strong className="text-cyan-300">N {Math.round(driveAz)}° E</strong>
+                            </div>
+                            <div className="flex items-center justify-between text-slate-400">
+                              <span>Camera Bearing:</span>
+                              <strong className="text-amber-300">{Math.round((360 - (thetaDeg % 360)) % 360)}°</strong>
+                            </div>
+                          </div>
+
+                          {/* Quick Snap View Buttons */}
+                          <div className="grid grid-cols-2 gap-1 pt-1">
+                            <button
+                              type="button"
+                              onClick={snapToNorth}
+                              className="px-1.5 py-1 rounded bg-slate-900 hover:bg-rose-500 hover:text-slate-950 text-rose-300 border border-rose-900/40 text-[9px] font-bold cursor-pointer transition-colors"
+                              title="Align 3D View to True North"
+                            >
+                              Snap North
+                            </button>
+                            <button
+                              type="button"
+                              onClick={snapToTunnelDrive}
+                              className="px-1.5 py-1 rounded bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-300 border border-cyan-900/40 text-[9px] font-bold cursor-pointer transition-colors"
+                              title="Align 3D View along Tunnel Drive Axis"
+                            >
+                              Snap Drive
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* =========================================================
+                      FLOATING "PLOT PLANE" CONTROLLER DRAWER
+                      ========================================================= */}
+                  {showPlotPlaneDrawer && (
+                    <div className="absolute top-14 left-3 z-30 font-mono w-80 select-none">
+                      <div className="p-3.5 rounded-2xl bg-slate-950/95 backdrop-blur-md border border-emerald-500/50 shadow-2xl space-y-3 text-xs">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                          <span className="font-bold text-xs text-emerald-300 flex items-center gap-1.5">
+                            <PenTool className="w-4 h-4 text-emerald-400" />
+                            <span>Plot Geological Plane</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowPlotPlaneDrawer(false)}
+                            className="p-1 rounded text-slate-500 hover:text-white cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Dip Direction Stepper & Quick Presets */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400 text-[10px]">Dip Direction (&alpha;)</span>
+                            <span className="text-emerald-400 font-bold">{dipDirection}° ({getTunnelRelativeDirectionLabel(dipDirection)})</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="359"
+                            value={dipDirection}
+                            onChange={(e) => setDipDirection(Number(e.target.value))}
+                            className="w-full accent-emerald-500 cursor-pointer"
+                          />
+                          <div className="grid grid-cols-4 gap-1">
+                            {[
+                              { d: 0, l: 'FWD (0°)' },
+                              { d: 90, l: 'R (90°)' },
+                              { d: 180, l: 'BACK (180°)' },
+                              { d: 270, l: 'L (270°)' },
+                            ].map((p) => (
+                              <button
+                                key={p.d}
+                                type="button"
+                                onClick={() => setDipDirection(p.d)}
+                                className={`px-1 py-0.5 rounded text-[9px] font-bold cursor-pointer border ${
+                                  dipDirection === p.d
+                                    ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                                }`}
+                              >
+                                {p.l}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Dip Angle Stepper & Quick Presets */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400 text-[10px]">Dip Angle (&delta;)</span>
+                            <span className="text-amber-400 font-bold">{dipAmount}°</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="90"
+                            value={dipAmount}
+                            onChange={(e) => setDipAmount(Number(e.target.value))}
+                            className="w-full accent-amber-500 cursor-pointer"
+                          />
+                          <div className="grid grid-cols-4 gap-1">
+                            {[
+                              { a: 15, l: 'Bedding 15°' },
+                              { a: 45, l: 'Shear 45°' },
+                              { a: 70, l: 'Steep 70°' },
+                              { a: 90, l: 'Vertical 90°' },
+                            ].map((p) => (
+                              <button
+                                key={p.a}
+                                type="button"
+                                onClick={() => setDipAmount(p.a)}
+                                className={`px-1 py-0.5 rounded text-[9px] font-bold cursor-pointer border ${
+                                  dipAmount === p.a
+                                    ? 'bg-amber-500 text-slate-950 border-amber-400'
+                                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                                }`}
+                              >
+                                {p.l}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Anchor Point Location */}
+                        <div className="space-y-1">
+                          <span className="text-slate-400 text-[10px] block">Anchor Position (P0 Cut Origin):</span>
+                          <div className="grid grid-cols-3 gap-1 text-[9.5px]">
+                            {[
+                              { id: 'AUTO', l: 'Auto Trace' },
+                              { id: 'FACE_CENTER', l: 'Face Center' },
+                              { id: 'CROWN_APEX', l: 'Crown Apex' },
+                              { id: 'LEFT_WALL', l: 'Left Wall' },
+                              { id: 'RIGHT_WALL', l: 'Right Wall' },
+                              { id: 'INVERT', l: 'Invert' },
+                            ].map((a) => (
+                              <button
+                                key={a.id}
+                                type="button"
+                                onClick={() => setPlotPlaneAnchorType(a.id as any)}
+                                className={`px-1.5 py-1 rounded font-bold cursor-pointer border ${
+                                  plotPlaneAnchorType === a.id
+                                    ? 'bg-cyan-500 text-slate-950 border-cyan-400'
+                                    : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
+                                }`}
+                              >
+                                {a.l}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Advance Position (X Toward Tunnel Pull: defaults to 3.0m) */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400 text-[10px]">Advance Position X (Toward Pull):</span>
+                            <span className="text-cyan-400 font-bold font-mono text-[11px]">
+                              {plotPlaneAdvanceM.toFixed(2)}m
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max={Math.max(1, tunnelGeometry.pullLengthM || 3.0)}
+                            step="0.1"
+                            value={plotPlaneAdvanceM}
+                            onChange={(e) => setPlotPlaneAdvanceM(Number(e.target.value))}
+                            className="w-full accent-cyan-500 cursor-pointer"
+                          />
+                          <div className="grid grid-cols-3 gap-1 text-[9px]">
+                            {[
+                              { x: 0, l: 'Portal 0.0m' },
+                              {
+                                x: Number(((tunnelGeometry.pullLengthM || 3.0) / 2).toFixed(1)),
+                                l: `Mid ${((tunnelGeometry.pullLengthM || 3.0) / 2).toFixed(1)}m`,
+                              },
+                              {
+                                x: tunnelGeometry.pullLengthM || 3.0,
+                                l: `Pull ${tunnelGeometry.pullLengthM || 3.0}m`,
+                              },
+                            ].map((p) => (
+                              <button
+                                key={p.l}
+                                type="button"
+                                onClick={() => setPlotPlaneAdvanceM(p.x)}
+                                className={`px-1 py-0.5 rounded font-bold cursor-pointer border transition-colors ${
+                                  Math.abs(plotPlaneAdvanceM - p.x) < 0.08
+                                    ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-black'
+                                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                                }`}
+                              >
+                                {p.l}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Strike Info */}
+                        <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-[10px] flex items-center justify-between">
+                          <span className="text-slate-400">Strike Axis:</span>
+                          <strong className="text-amber-400">{strikeInfo.strikePairLabel}</strong>
+                        </div>
+
+                        {/* Action: Apply Plane */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowInteriorPlane(true);
+                            handleSaveInspection();
+                          }}
+                          className="w-full py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer shadow transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Apply &amp; Plot Plane</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* HIGH-VISIBILITY 3D CUTTING PLANE HUD BADGE ALIGNED WITH THE PLANE */}
                   {showInteriorPlane && (
@@ -1678,11 +2382,11 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                         <div className="flex items-center gap-2">
                           <span className="text-amber-400 font-black">PLANE ORIENTATION:</span>
                           <span className="text-white font-extrabold">
-                            DIP {dipAmount}° ➔ {dipDirection}° ({getTunnelRelativeDirectionLabel(dipDirection)})
+                            DIP {dipAmount}° ➔ {dipDirection}°
                           </span>
                         </div>
                         <span className="text-[10px] text-slate-400">
-                          Strike: {strikeInfo.strikePairLabel} · Anchor: X {anchorPoint.x.toFixed(2)}m, Y {anchorPoint.y.toFixed(2)}m, Z {anchorPoint.z.toFixed(2)}m
+                          Strike: {strikeInfo.strikePairLabel} · Anchor: X {anchorPoint.x.toFixed(2)}m (Toward Pull), Y {anchorPoint.y.toFixed(2)}m, Z {anchorPoint.z.toFixed(2)}m
                         </span>
                       </div>
                     </div>
@@ -1721,9 +2425,83 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     </div>
                   )}
 
-                  {/* Mouse Navigation Hint (Bottom-Right) */}
-                  <div className="absolute bottom-3 right-3 px-2.5 py-1.5 rounded-lg bg-slate-950/75 border border-slate-800 text-[9.5px] text-slate-400 font-mono pointer-events-none z-10">
-                    Orbit: Drag Left-Click · Zoom: Wheel Scroll · Pan: Right-Click
+                  {/* =========================================================
+                      ON-SCREEN NAVIGATION CONTROLS (PINCH ZOOM & MOVE OVERLAY)
+                      ========================================================= */}
+                  <div className="absolute bottom-3 right-3 z-20 flex flex-col items-end gap-1.5 font-mono select-none">
+                    {/* Navigation D-Pad & Zoom Controls */}
+                    <div className="p-2 rounded-2xl bg-slate-950/92 backdrop-blur-md border border-slate-800 shadow-2xl flex items-center gap-1.5">
+                      {/* Zoom Controls */}
+                      <button
+                        type="button"
+                        onClick={zoomIn}
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
+                        title="Zoom In (Pinch Out)"
+                      >
+                        <ZoomIn className="w-4 h-4 text-cyan-400" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={zoomOut}
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
+                        title="Zoom Out (Pinch In)"
+                      >
+                        <ZoomOut className="w-4 h-4 text-cyan-400" />
+                      </button>
+
+                      <div className="w-px h-5 bg-slate-800 mx-0.5" />
+
+                      {/* Pan / Move Controls */}
+                      <button
+                        type="button"
+                        onClick={() => panCamera(-0.8, 0)}
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
+                        title="Pan Left (2-finger drag left)"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => panCamera(0, 0.8)}
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
+                        title="Pan Up (2-finger drag up)"
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => panCamera(0, -0.8)}
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
+                        title="Pan Down (2-finger drag down)"
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => panCamera(0.8, 0)}
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
+                        title="Pan Right (2-finger drag right)"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+
+                      <div className="w-px h-5 bg-slate-800 mx-0.5" />
+
+                      {/* Center Target Reset */}
+                      <button
+                        type="button"
+                        onClick={resetCameraTarget}
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 cursor-pointer transition-colors"
+                        title="Center Tunnel / Reset Pan Offset"
+                      >
+                        <Crosshair className="w-4 h-4 text-amber-400" />
+                      </button>
+                    </div>
+
+                    {/* Touch & Mouse Gesture Hint */}
+                    <div className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-[9px] text-slate-400 font-mono pointer-events-none">
+                      Touch: 1-finger orbit · 2-finger pinch zoom &amp; move · Mouse: Wheel / Right-drag
+                    </div>
                   </div>
                 </div>
               )}

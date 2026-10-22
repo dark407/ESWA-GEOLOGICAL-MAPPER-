@@ -24,6 +24,14 @@ import {
   exportFieldMappingTwoPageWordSheet,
   FIELD_JOINT_GROUP_COLORS,
   FIELD_JOINT_SET_IDS,
+} from '../engine/fieldMappingEngine';
+import {
+  calculatePlaneSurfaceIntersections,
+  constructJointPlane,
+  deriveAnchorPointFromPoints,
+  TunnelSpatialGeometry,
+} from '../engine/joint3DInspectorEngine';
+import {
   FieldCustomTickBoxGroup,
   FieldDiscontinuitySetRecord,
   FieldExcavationRound,
@@ -378,6 +386,79 @@ export const FieldStripAlignmentStage: React.FC<{
         color: col,
         points: tr.points,
       });
+    }
+
+    if (tr.panel === 'face' && tr.points.length >= 2) {
+      const spatialGeom: TunnelSpatialGeometry = {
+        widthM: activeLocation.widthM,
+        heightM: activeLocation.heightM,
+        wallHeightM: activeLocation.wallHeightM || activeLocation.heightM * 0.58,
+        pullLengthM: activeRound.pullLengthMeters || 3.5,
+        driveAzimuthDeg: activeRound.tunnelDriveDirection || 0,
+      };
+      if (typeof tr.dipDirection === 'number' && typeof tr.dipAmount === 'number') {
+        const anchor = deriveAnchorPointFromPoints(tr.points, 'face', spatialGeom);
+        const plane = constructJointPlane(tr.dipDirection, tr.dipAmount, anchor, spatialGeom.driveAzimuthDeg);
+        const inter = calculatePlaneSurfaceIntersections(plane, spatialGeom, 'face');
+        const col = FIELD_JOINT_GROUP_COLORS[tr.setId || 'unassigned']?.stroke || '#0f172a';
+
+        if (inter.leftWall && inter.leftWall.lengthM > 0.05) {
+          const p1 = {
+            x: leftWallGeom.boxX + (inter.leftWall.p1.x / spatialGeom.pullLengthM) * leftWallGeom.boxW,
+            y: leftWallGeom.boxY + (1 - inter.leftWall.p1.y / spatialGeom.wallHeightM) * leftWallGeom.boxH,
+          };
+          const p2 = {
+            x: leftWallGeom.boxX + (inter.leftWall.p2.x / spatialGeom.pullLengthM) * leftWallGeom.boxW,
+            y: leftWallGeom.boxY + (1 - inter.leftWall.p2.y / spatialGeom.wallHeightM) * leftWallGeom.boxH,
+          };
+          alignableItems.push({
+            id: `proj-lw-${tr.id}`,
+            kind: 'joint',
+            panel: 'left_wall',
+            label: tr.setId === 'unassigned' ? 'J' : tr.setId,
+            color: col,
+            points: [p1, p2],
+          });
+        }
+
+        if (inter.crown && inter.crown.lengthM > 0.05) {
+          const p1 = {
+            x: crownGeom.boxX + (inter.crown.p1.y / spatialGeom.widthM) * crownGeom.boxW,
+            y: crownGeom.boxY + (1 - inter.crown.p1.x / spatialGeom.pullLengthM) * crownGeom.boxH,
+          };
+          const p2 = {
+            x: crownGeom.boxX + (inter.crown.p2.y / spatialGeom.widthM) * crownGeom.boxW,
+            y: crownGeom.boxY + (1 - inter.crown.p2.x / spatialGeom.pullLengthM) * crownGeom.boxH,
+          };
+          alignableItems.push({
+            id: `proj-cr-${tr.id}`,
+            kind: 'joint',
+            panel: 'crown',
+            label: tr.setId === 'unassigned' ? 'J' : tr.setId,
+            color: col,
+            points: [p1, p2],
+          });
+        }
+
+        if (inter.rightWall && inter.rightWall.lengthM > 0.05) {
+          const p1 = {
+            x: rightWallGeom.boxX + (inter.rightWall.p1.x / spatialGeom.pullLengthM) * rightWallGeom.boxW,
+            y: rightWallGeom.boxY + (1 - inter.rightWall.p1.y / spatialGeom.wallHeightM) * rightWallGeom.boxH,
+          };
+          const p2 = {
+            x: rightWallGeom.boxX + (inter.rightWall.p2.x / spatialGeom.pullLengthM) * rightWallGeom.boxW,
+            y: rightWallGeom.boxY + (1 - inter.rightWall.p2.y / spatialGeom.wallHeightM) * rightWallGeom.boxH,
+          };
+          alignableItems.push({
+            id: `proj-rw-${tr.id}`,
+            kind: 'joint',
+            panel: 'right_wall',
+            label: tr.setId === 'unassigned' ? 'J' : tr.setId,
+            color: col,
+            points: [p1, p2],
+          });
+        }
+      }
     }
   });
   activeRound.lithologyStrokes.forEach((st) => {

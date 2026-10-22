@@ -237,3 +237,25 @@ function checkTraceOverlap(
    - Open 3D tunnel: verify geometry matches tunnel profile and length, with mapped photo textures and 3D joint planes.
 7. **Regression Safety**:
    - Verify Field Mapping Mode (`FieldMappingModeWorkspace.tsx`) is completely untouched and functioning normally.
+
+
+---
+
+## 6. NATM 3D Joint Inspector Refinements (Completed)
+
+### Scope of Changes:
+1. **Canvas Top Tunnel Drive Direction Indicator (CSS Selector 2)**:
+   - Permanently positioned high-visibility CAD HUD banner atop the 3D canvas.
+   - Synchronized dynamically in real time with tunnel and camera orbit rotation angle:
+     $$\text{driveAngleDeg} = ((-\theta_{\text{camera}} \cdot 180 / \pi) \pmod{360} + 360) \pmod{360}$$
+   - Features a rotating compass vector needle inside a luminous cyan dial, live relative view bearing angle readout, heading azimuth ($N \text{ heading}^\circ E$), and one-click camera realignment (`snapToTunnelDrive`).
+
+2. **Light Theme Adoption for Header Span (CSS Selector 1)**:
+   - Updated `NatmJoint3DInspectorModal.tsx` to integrate with `ThemeContext` via `useTheme()`.
+   - Updated `span:nth-of-type(1)` (`Joint {id} ({jointSetId})`) to render with high-contrast text, clean borders (`border-slate-900/25 ring-1 ring-slate-950/10`), and crisp shadow in light theme, while maintaining vivid styling in dark theme.
+   - Adapted modal container, header, subtitle, and action buttons for seamless light/dark theme transitions.
+
+3. **Excavation Face Advance Pull Anchor (3.0m toward Tunnel Pull)**:
+   - Replaced default $X=0.0\text{m}$ (portal) anchor point with $X = \text{pullLengthM}$ ($3.0\text{m}$ toward tunnel pull front).
+   - Added an interactive Advance Position ($X$) slider and quick preset buttons (`Portal 0.0m`, `Mid 1.5m`, `Pull 3.0m` [Active]) in the Plot Plane drawer.
+   - Face traces and `FACE_CENTER` cutting planes now mathematically anchor directly at $X = 3.0\text{m}$ at the excavation face.

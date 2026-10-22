@@ -17,6 +17,12 @@ import {
 } from '../types/tunnel';
 import { calculateBartonQSystem } from './photoWarpEngine';
 import { calculateBieniawskiRmr } from './rockMassClassificationEngine';
+import {
+  calculatePlaneSurfaceIntersections,
+  constructJointPlane,
+  deriveAnchorPointFromPoints,
+  TunnelSpatialGeometry,
+} from './joint3DInspectorEngine';
 
 export type { Point2D };
 
@@ -96,10 +102,18 @@ export interface ContinuousStripTrace {
   rawPoints?: Point2D[];
   /** AI trend-aligned smooth points across pull boundaries */
   aiAlignedPoints?: Point2D[];
-  /** Source unwrapped surface ('leftWall' | 'crown' | 'rightWall') */
-  sourceSurface?: 'leftWall' | 'crown' | 'rightWall';
+  /** Source unwrapped surface ('leftWall' | 'crown' | 'rightWall' | 'face') */
+  sourceSurface?: 'leftWall' | 'crown' | 'rightWall' | 'face';
   /** Exact normalized (0..1, 0..1) image UV coordinates from the 2D unwrapped surface */
   uvPoints?: Point2D[];
+  /** Metric (x, y) coordinates remembered by pull, height, and width */
+  metricCoordinates?: {
+    pullLengthM: number;
+    wallHeightM: number;
+    widthM: number;
+    crownArcM: number;
+    localPoints: { x: number; y: number }[];
+  };
   colorHex?: string;
   roughness?: string;
   infilling?: string;
@@ -2231,70 +2245,67 @@ export function mapUnwrappedSurfacePointTo3DStrip(
   const wallH = Math.max(0.5, geom?.wallHeight || height * 0.58);
 
   if (surface === 'leftWall') {
-    // 2D: pt.x is along drive [0..roundLen], pt.y is height from invert [0..leftWallArc]
-    // 3D: rdX is chainage, perimY is from floor [0] to left springline [leftWallArc]
-    const uDrive = Math.max(0, Math.min(1, pt.x / safeRound));
-    const vPerim = Math.max(0, Math.min(1, pt.y / Math.max(0.1, leftWallArc)));
+    // 2D: pt.x is along pull [0..roundLen] (or 0..1000), pt.y is height from floor [0..leftWallArc] (or 0..800)
+    // 3D: rdX is chainage [fromRd..toRd], perimY is from floor [0] to left springline [leftWallArc]
+    const isCanvas = pt.x > Math.max(15, safeRound * 1.5) || pt.y > Math.max(15, leftWallArc * 1.5);
+    const uDrive = isCanvas ? Math.max(0, Math.min(1, pt.x / 1000)) : Math.max(0, Math.min(1, pt.x / safeRound));
+    const normH = isCanvas ? Math.max(0, Math.min(1, (800 - pt.y) / 800)) : Math.max(0, Math.min(1, pt.y / Math.max(0.1, leftWallArc)));
     const rdX = interval.fromRd + uDrive * pullSpan;
-    const perimY = vPerim * leftWallArc;
+    const perimY = normH * leftWallArc;
     return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
   }
 
   if (surface === 'crown') {
-    // 2D: pt.x is arch span [-crownArc/2 .. +crownArc/2], pt.y is along drive [0..roundLen]
+    // 2D: pt.x is arch span [-crownArc/2 .. +crownArc/2] or [0..1000], pt.y is along pull [0..roundLen] or [0..800]
     // 3D: rdX is chainage, perimY is across crown arch [leftWallArc .. leftWallArc + crownArc]
-    const uDrive = Math.max(0, Math.min(1, pt.y / safeRound));
-    const vArch = Math.max(0, Math.min(1, (pt.x + crownArc * 0.5) / Math.max(0.1, crownArc)));
+    const isCanvas = pt.x > Math.max(15, crownArc * 1.5) || pt.y > Math.max(15, safeRound * 1.5);
+    const uDrive = isCanvas ? Math.max(0, Math.min(1, pt.y / 800)) : Math.max(0, Math.min(1, pt.y / safeRound));
+    const vArch = isCanvas
+      ? Math.max(0, Math.min(1, pt.x / 1000))
+      : Math.max(0, Math.min(1, (pt.x + crownArc * 0.5) / Math.max(0.1, crownArc)));
     const rdX = interval.fromRd + uDrive * pullSpan;
     const perimY = leftWallArc + vArch * crownArc;
     return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
   }
 
   if (surface === 'rightWall') {
-    // 2D: pt.x is along drive [0..roundLen], pt.y is height from invert [0..rightWallArc]
+    // 2D: pt.x is along pull [0..roundLen] or [0..1000], pt.y is height from floor [0..rightWallArc] or [0..800]
     // 3D: rdX is chainage, perimY is from right springline [leftWallArc + crownArc] down to invert [totalPerimM]
-    const uDrive = Math.max(0, Math.min(1, pt.x / safeRound));
-    const normHeight = Math.max(0, Math.min(1, pt.y / Math.max(0.1, rightWallArc)));
+    const isCanvas = pt.x > Math.max(15, safeRound * 1.5) || pt.y > Math.max(15, rightWallArc * 1.5);
+    const uDrive = isCanvas ? Math.max(0, Math.min(1, pt.x / 1000)) : Math.max(0, Math.min(1, pt.x / safeRound));
+    const normH = isCanvas ? Math.max(0, Math.min(1, (800 - pt.y) / 800)) : Math.max(0, Math.min(1, pt.y / Math.max(0.1, rightWallArc)));
     const rdX = interval.fromRd + uDrive * pullSpan;
-    const perimY = leftWallArc + crownArc + (1 - normHeight) * rightWallArc;
+    const perimY = leftWallArc + crownArc + (1 - normH) * rightWallArc;
     return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
   }
 
-  // 'face' surface: x in [-width/2, +width/2], y in [0, height]
+  // 'face' surface:
+  // Excavation face is located at the round's face boundary: RD = interval.toRd
+  const isCanvas = pt.x > Math.max(15, width * 1.5) || pt.y > Math.max(15, height * 1.5);
+  const faceX = isCanvas ? ((pt.x / 1000) * width - width * 0.5) : (pt.x > width * 0.5 ? pt.x - width * 0.5 : pt.x);
+  const faceZ = isCanvas ? (((800 - pt.y) / 800) * height) : pt.y;
+
   let perimY = totalPerimM * 0.5;
-  if (pt.y >= wallH) {
-    // Point is on the Crown Arch of the face
-    const normArch = Math.max(0, Math.min(1, (pt.x + width * 0.5) / width));
+  if (faceZ >= wallH) {
+    // Point is on the Crown Arch portion of the face
+    const normArch = Math.max(0, Math.min(1, (faceX + width * 0.5) / width));
     perimY = leftWallArc + normArch * crownArc;
-  } else if (pt.x < 0) {
-    // Point is on the Left Wall half of the face
-    const normWall = Math.max(0.05, Math.min(1, pt.y / wallH));
+  } else if (faceX < 0) {
+    // Point is on the Left Wall portion of the face
+    const normWall = Math.max(0.02, Math.min(1, faceZ / wallH));
     perimY = normWall * leftWallArc;
   } else {
-    // Point is on the Right Wall half of the face
-    const normWall = Math.max(0.05, Math.min(1, pt.y / wallH));
+    // Point is on the Right Wall portion of the face
+    const normWall = Math.max(0.02, Math.min(1, faceZ / wallH));
     perimY = leftWallArc + crownArc + (1 - normWall) * rightWallArc;
   }
 
-  // Project face trace along the pull interval [fromRd, toRd] using 3D dip direction & dip relative to drive
-  let rdX = interval.fromRd + vertexFrac * pullSpan;
-  if (typeof jointDipDir === 'number' && typeof jointDip === 'number') {
-    const relRad = (((jointDipDir - driveAzimuth) * Math.PI) / 180);
-    const dipRad = (Math.max(12, Math.min(88, jointDip)) * Math.PI) / 180;
-    const apparentSlope = Math.cos(relRad) / Math.max(0.25, Math.tan(dipRad));
-    const centerShift = ((pt.x / (width * 0.5)) * 0.35 + apparentSlope * 0.25) * pullSpan;
-    rdX = Math.max(
-      interval.fromRd + 0.05,
-      Math.min(
-        interval.toRd - 0.05,
-        interval.fromRd + (0.15 + vertexFrac * 0.7) * pullSpan + centerShift * (vertexFrac - 0.5)
-      )
-    );
-  }
+  // The face trace is at the actual excavation face chainage (interval.toRd)
+  const rdX = interval.toRd;
 
   return {
     x: Number(rdX.toFixed(2)),
-    y: Number(Math.max(0.2, Math.min(totalPerimM - 0.2, perimY)).toFixed(2)),
+    y: Number(Math.max(0.1, Math.min(totalPerimM - 0.1, perimY)).toFixed(2)),
   };
 }
 
@@ -2307,10 +2318,7 @@ function derivePullReportDetailsFromRecord(
   const qParams = rec.qIndexParams;
   const gsiParams = rec.gsiParams;
   const summary = rec.rockMassSummary;
-  // 3D mapping is strictly based on Wall & Crown (leftWall, crown, rightWall) — never Face traces
-  const joints = (rec.joints || []).filter(
-    (j) => j.surface === 'leftWall' || j.surface === 'crown' || j.surface === 'rightWall'
-  );
+  const joints = rec.joints || [];
 
   // 1. Calculate RMR Value & Rock Class
   let rmrValue: number | undefined;
@@ -2597,16 +2605,10 @@ export function syncSavedProjectsIntoStripDatasets(
 
   const effSettings = liveSessionExtra?.settings || activeSettings;
   const effGeometry = liveSessionExtra?.geometry || activeGeometry;
-  // 3D mapping is strictly based on Wall & Crown (leftWall, crown, rightWall) — exclude Face ('face')
-  const effJoints = (liveSessionExtra?.joints || activeJoints || []).filter(
-    (j) => j.surface === 'leftWall' || j.surface === 'crown' || j.surface === 'rightWall'
-  );
-  const effLithology = (liveSessionExtra?.lithologyRegions || activeLithology || []).filter(
-    (lr) => lr.surface === 'leftWall' || lr.surface === 'crown' || lr.surface === 'rightWall'
-  );
-  const effSymbols = (liveSessionExtra?.placedSymbols || activeSymbols || []).filter(
-    (sym) => sym.surface === 'leftWall' || sym.surface === 'crown' || sym.surface === 'rightWall'
-  );
+  // Include all mapped discontinuities across Face, Crown, and Walls
+  const effJoints = (liveSessionExtra?.joints || activeJoints || []);
+  const effLithology = (liveSessionExtra?.lithologyRegions || activeLithology || []);
+  const effSymbols = (liveSessionExtra?.placedSymbols || activeSymbols || []);
   const effRmr = liveSessionExtra?.rmrParams;
   const effQ = liveSessionExtra?.qIndexParams;
   const effGsi = liveSessionExtra?.gsiParams;
@@ -2967,54 +2969,10 @@ export function syncSavedProjectsIntoStripDatasets(
         joint: 'JS2 - Main Joint',
       };
 
-      const wallCrownJoints = (rec.joints || []).filter(
-        (j) => j.surface === 'leftWall' || j.surface === 'crown' || j.surface === 'rightWall'
-      );
+      const allJoints = rec.joints || [];
 
-      for (const j of wallCrownJoints) {
+      for (const j of allJoints) {
         if (!j.geometry || j.geometry.length < 2) continue;
-        const traceId = `${recPrefix}tr-${j.id}`;
-        const safeRound = Math.max(0.5, roundLen);
-        const uvPts: Point2D[] = j.geometry.map((pt) => {
-          if (j.surface === 'leftWall') {
-            const u2d = Math.max(0, Math.min(1, pt.x / safeRound));
-            const v2d = Math.max(0, Math.min(1, 1 - pt.y / Math.max(0.5, recLeftWallArc)));
-            const { u3d, v3d } = rotateUnwrapped2DTo3DClockwise90(u2d, v2d);
-            return { x: u3d, y: v3d };
-          }
-          if (j.surface === 'crown') {
-            const u2d = Math.max(
-              0,
-              Math.min(1, (pt.x + recCrownArc * 0.5) / Math.max(0.5, recCrownArc))
-            );
-            const v2d = Math.max(0, Math.min(1, 1 - pt.y / safeRound));
-            const { u3d, v3d } = rotateUnwrapped2DTo3DClockwise90(u2d, v2d);
-            return { x: u3d, y: v3d };
-          }
-          const u2d = Math.max(0, Math.min(1, pt.x / safeRound));
-          const v2d = Math.max(0, Math.min(1, 1 - pt.y / Math.max(0.5, recRightWallArc)));
-          const { u3d, v3d } = rotateUnwrapped2DTo3DClockwise90(u2d, v2d);
-          return { x: u3d, y: v3d };
-        });
-        const exactMappedPts: Point2D[] = j.geometry.map((pt, idx) => {
-          const vFrac = idx / Math.max(1, j.geometry.length - 1);
-          return mapUnwrappedSurfacePointTo3DStrip(
-            pt,
-            j.surface,
-            interval,
-            roundLen,
-            recGeom,
-            recLeftWallArc,
-            recCrownArc,
-            recRightWallArc,
-            recTotalPerim,
-            j.dipDirection,
-            j.dip,
-            driveAz,
-            vFrac
-          );
-        });
-
         const setLabel = j.set || 'J1';
         let structureType: StripStructureTypeId =
           structMap[j.featureType || 'joint'] || 'JS2 - Main Joint';
@@ -3025,44 +2983,268 @@ export function syncSavedProjectsIntoStripDatasets(
           else structureType = 'Secondary Joint';
         }
 
-        const rawTraceObj: ContinuousStripTrace = {
-          id: traceId,
-          structureType,
-          setId: setLabel,
-          orientationLabel: `${String(Math.round(j.dipDirection)).padStart(3, '0')}/${String(
-            Math.round(j.dip)
-          ).padStart(2, '0')}`,
-          dipDirectionDeg: Math.round(j.dipDirection),
-          dipDeg: Math.round(j.dip),
-          fillingThickness: mapInfillingToFillingThickness(j.infilling, j.apertureMm),
-          sourceSurface: j.surface as 'leftWall' | 'crown' | 'rightWall',
-          uvPoints: uvPts,
-          rawPoints: exactMappedPts,
-          points: exactMappedPts,
+        const safeRound = Math.max(0.5, roundLen);
+        const spatialGeom: TunnelSpatialGeometry = {
+          widthM: recGeom?.width || 8.4,
+          heightM: recGeom?.height || 7.2,
+          wallHeightM: recGeom?.wallHeight || 4.2,
+          pullLengthM: safeRound,
+          driveAzimuthDeg: driveAz,
         };
 
-        dataset.traces.push(rawTraceObj);
+        if (j.surface === 'face') {
+          // 1. Add Face trace at the Excavation Face chainage (RD = interval.toRd) using metric (x, y) profile coordinates
+          const exactFaceMappedPts: Point2D[] = j.geometry.map((pt, idx) => {
+            const vFrac = idx / Math.max(1, j.geometry.length - 1);
+            return mapUnwrappedSurfacePointTo3DStrip(
+              pt,
+              'face',
+              interval,
+              roundLen,
+              recGeom,
+              recLeftWallArc,
+              recCrownArc,
+              recRightWallArc,
+              recTotalPerim,
+              j.dipDirection,
+              j.dip,
+              driveAz,
+              vFrac
+            );
+          });
 
-        // If joint has wet/dripping/flowing groundwater condition, also place a water symbol at its midpoint
-        if (
-          j.waterCondition &&
-          j.waterCondition !== 'Dry'
-        ) {
-          const midPt = exactMappedPts[Math.floor(exactMappedPts.length / 2)];
-          if (midPt) {
-            const condMap: Record<string, StripGroundwaterId> = {
-              Damp: 'Moist/Damp',
-              Moist: 'Moist/Damp',
-              Wet: 'Wet',
-              Dripping: 'Dripping',
-              Flowing: 'Flowing',
-            };
-            dataset.waterSymbols.push({
-              id: `${recPrefix}jw-${j.id}`,
-              condition: condMap[j.waterCondition] || 'Wet',
-              position: { x: midPt.x, y: midPt.y },
-              label: j.waterCondition,
-            });
+          const faceTraceId = `${recPrefix}tr-face-${j.id}`;
+          const faceTraceObj: ContinuousStripTrace = {
+            id: faceTraceId,
+            structureType,
+            setId: setLabel,
+            orientationLabel: `${String(Math.round(j.dipDirection)).padStart(3, '0')}/${String(
+              Math.round(j.dip)
+            ).padStart(2, '0')}`,
+            dipDirectionDeg: Math.round(j.dipDirection),
+            dipDeg: Math.round(j.dip),
+            fillingThickness: mapInfillingToFillingThickness(j.infilling, j.apertureMm),
+            sourceSurface: 'face',
+            rawPoints: exactFaceMappedPts,
+            points: exactFaceMappedPts,
+            metricCoordinates: {
+              pullLengthM: roundLen,
+              wallHeightM: spatialGeom.wallHeightM,
+              widthM: spatialGeom.widthM,
+              crownArcM: recCrownArc,
+              localPoints: j.geometry.map((p) => ({ x: p.x, y: p.y })),
+            },
+          };
+          dataset.traces.push(faceTraceObj);
+
+          // 2. Compute 3D Planar Intersections with Left Wall, Crown, and Right Wall within the pull [0, roundLen]
+          // so the face trace accurately intersects and continues across the strip log without any arbitrary guessing!
+          if (typeof j.dipDirection === 'number' && typeof j.dip === 'number') {
+            const anchor = deriveAnchorPointFromPoints(j.geometry, 'face', spatialGeom);
+            const plane = constructJointPlane(j.dipDirection, j.dip, anchor, driveAz);
+            const inter = calculatePlaneSurfaceIntersections(plane, spatialGeom, 'face');
+
+            // Left Wall Projected Continuation:
+            if (inter.leftWall && inter.leftWall.lengthM > 0.05) {
+              const p1 = inter.leftWall.p1;
+              const p2 = inter.leftWall.p2;
+              const pts: Point2D[] = [
+                {
+                  x: Number((interval.fromRd + (p1.x / safeRound) * pullSpan).toFixed(2)),
+                  y: Number(((p1.y / spatialGeom.wallHeightM) * recLeftWallArc).toFixed(2)),
+                },
+                {
+                  x: Number((interval.fromRd + (p2.x / safeRound) * pullSpan).toFixed(2)),
+                  y: Number(((p2.y / spatialGeom.wallHeightM) * recLeftWallArc).toFixed(2)),
+                },
+              ];
+              dataset.traces.push({
+                id: `${recPrefix}tr-proj-lw-${j.id}`,
+                structureType,
+                setId: setLabel,
+                orientationLabel: `${String(Math.round(j.dipDirection)).padStart(3, '0')}/${String(
+                  Math.round(j.dip)
+                ).padStart(2, '0')}`,
+                dipDirectionDeg: Math.round(j.dipDirection),
+                dipDeg: Math.round(j.dip),
+                fillingThickness: mapInfillingToFillingThickness(j.infilling, j.apertureMm),
+                sourceSurface: 'leftWall',
+                rawPoints: pts,
+                points: pts,
+                metricCoordinates: {
+                  pullLengthM: roundLen,
+                  wallHeightM: spatialGeom.wallHeightM,
+                  widthM: spatialGeom.widthM,
+                  crownArcM: recCrownArc,
+                  localPoints: [p1, p2],
+                },
+              });
+            }
+
+            // Crown Projected Continuation:
+            if (inter.crown && inter.crown.lengthM > 0.05) {
+              const p1 = inter.crown.p1;
+              const p2 = inter.crown.p2;
+              const pts: Point2D[] = [
+                {
+                  x: Number((interval.fromRd + (p1.x / safeRound) * pullSpan).toFixed(2)),
+                  y: Number((recLeftWallArc + (p1.y / spatialGeom.widthM) * recCrownArc).toFixed(2)),
+                },
+                {
+                  x: Number((interval.fromRd + (p2.x / safeRound) * pullSpan).toFixed(2)),
+                  y: Number((recLeftWallArc + (p2.y / spatialGeom.widthM) * recCrownArc).toFixed(2)),
+                },
+              ];
+              dataset.traces.push({
+                id: `${recPrefix}tr-proj-cr-${j.id}`,
+                structureType,
+                setId: setLabel,
+                orientationLabel: `${String(Math.round(j.dipDirection)).padStart(3, '0')}/${String(
+                  Math.round(j.dip)
+                ).padStart(2, '0')}`,
+                dipDirectionDeg: Math.round(j.dipDirection),
+                dipDeg: Math.round(j.dip),
+                fillingThickness: mapInfillingToFillingThickness(j.infilling, j.apertureMm),
+                sourceSurface: 'crown',
+                rawPoints: pts,
+                points: pts,
+                metricCoordinates: {
+                  pullLengthM: roundLen,
+                  wallHeightM: spatialGeom.wallHeightM,
+                  widthM: spatialGeom.widthM,
+                  crownArcM: recCrownArc,
+                  localPoints: [p1, p2],
+                },
+              });
+            }
+
+            // Right Wall Projected Continuation:
+            if (inter.rightWall && inter.rightWall.lengthM > 0.05) {
+              const p1 = inter.rightWall.p1;
+              const p2 = inter.rightWall.p2;
+              const pts: Point2D[] = [
+                {
+                  x: Number((interval.fromRd + (p1.x / safeRound) * pullSpan).toFixed(2)),
+                  y: Number((recLeftWallArc + recCrownArc + (1 - p1.y / spatialGeom.wallHeightM) * recRightWallArc).toFixed(2)),
+                },
+                {
+                  x: Number((interval.fromRd + (p2.x / safeRound) * pullSpan).toFixed(2)),
+                  y: Number((recLeftWallArc + recCrownArc + (1 - p2.y / spatialGeom.wallHeightM) * recRightWallArc).toFixed(2)),
+                },
+              ];
+              dataset.traces.push({
+                id: `${recPrefix}tr-proj-rw-${j.id}`,
+                structureType,
+                setId: setLabel,
+                orientationLabel: `${String(Math.round(j.dipDirection)).padStart(3, '0')}/${String(
+                  Math.round(j.dip)
+                ).padStart(2, '0')}`,
+                dipDirectionDeg: Math.round(j.dipDirection),
+                dipDeg: Math.round(j.dip),
+                fillingThickness: mapInfillingToFillingThickness(j.infilling, j.apertureMm),
+                sourceSurface: 'rightWall',
+                rawPoints: pts,
+                points: pts,
+                metricCoordinates: {
+                  pullLengthM: roundLen,
+                  wallHeightM: spatialGeom.wallHeightM,
+                  widthM: spatialGeom.widthM,
+                  crownArcM: recCrownArc,
+                  localPoints: [p1, p2],
+                },
+              });
+            }
+          }
+        } else {
+          // Left Wall, Crown, or Right Wall:
+          // Remembered by exact (x, y) coordinates using pull, height, and length
+          const traceId = `${recPrefix}tr-${j.id}`;
+          const uvPts: Point2D[] = j.geometry.map((pt) => {
+            if (j.surface === 'leftWall') {
+              const u2d = Math.max(0, Math.min(1, pt.x / safeRound));
+              const v2d = Math.max(0, Math.min(1, 1 - pt.y / Math.max(0.5, recLeftWallArc)));
+              const { u3d, v3d } = rotateUnwrapped2DTo3DClockwise90(u2d, v2d);
+              return { x: u3d, y: v3d };
+            }
+            if (j.surface === 'crown') {
+              const u2d = Math.max(
+                0,
+                Math.min(1, (pt.x + recCrownArc * 0.5) / Math.max(0.5, recCrownArc))
+              );
+              const v2d = Math.max(0, Math.min(1, 1 - pt.y / safeRound));
+              const { u3d, v3d } = rotateUnwrapped2DTo3DClockwise90(u2d, v2d);
+              return { x: u3d, y: v3d };
+            }
+            const u2d = Math.max(0, Math.min(1, pt.x / safeRound));
+            const v2d = Math.max(0, Math.min(1, 1 - pt.y / Math.max(0.5, recRightWallArc)));
+            const { u3d, v3d } = rotateUnwrapped2DTo3DClockwise90(u2d, v2d);
+            return { x: u3d, y: v3d };
+          });
+          const exactMappedPts: Point2D[] = j.geometry.map((pt, idx) => {
+            const vFrac = idx / Math.max(1, j.geometry.length - 1);
+            return mapUnwrappedSurfacePointTo3DStrip(
+              pt,
+              j.surface,
+              interval,
+              roundLen,
+              recGeom,
+              recLeftWallArc,
+              recCrownArc,
+              recRightWallArc,
+              recTotalPerim,
+              j.dipDirection,
+              j.dip,
+              driveAz,
+              vFrac
+            );
+          });
+
+          const rawTraceObj: ContinuousStripTrace = {
+            id: traceId,
+            structureType,
+            setId: setLabel,
+            orientationLabel: `${String(Math.round(j.dipDirection)).padStart(3, '0')}/${String(
+              Math.round(j.dip)
+            ).padStart(2, '0')}`,
+            dipDirectionDeg: Math.round(j.dipDirection),
+            dipDeg: Math.round(j.dip),
+            fillingThickness: mapInfillingToFillingThickness(j.infilling, j.apertureMm),
+            sourceSurface: j.surface as 'leftWall' | 'crown' | 'rightWall',
+            uvPoints: uvPts,
+            rawPoints: exactMappedPts,
+            points: exactMappedPts,
+            metricCoordinates: {
+              pullLengthM: roundLen,
+              wallHeightM: spatialGeom.wallHeightM,
+              widthM: spatialGeom.widthM,
+              crownArcM: recCrownArc,
+              localPoints: j.geometry.map((p) => ({ x: p.x, y: p.y })),
+            },
+          };
+
+          dataset.traces.push(rawTraceObj);
+
+          // If joint has wet/dripping/flowing groundwater condition, also place a water symbol at its midpoint
+          if (
+            j.waterCondition &&
+            j.waterCondition !== 'Dry'
+          ) {
+            const midPt = exactMappedPts[Math.floor(exactMappedPts.length / 2)];
+            if (midPt) {
+              const condMap: Record<string, StripGroundwaterId> = {
+                Damp: 'Moist/Damp',
+                Moist: 'Moist/Damp',
+                Wet: 'Wet',
+                Dripping: 'Dripping',
+                Flowing: 'Flowing',
+              };
+              dataset.waterSymbols.push({
+                id: `${recPrefix}jw-${j.id}`,
+                condition: condMap[j.waterCondition] || 'Wet',
+                position: { x: midPt.x, y: midPt.y },
+                label: j.waterCondition,
+              });
+            }
           }
         }
       }

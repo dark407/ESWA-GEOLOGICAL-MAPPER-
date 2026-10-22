@@ -36,7 +36,6 @@ import { MiningStopeFaceInspectorModal } from './MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
 import { NatmJoint3DInspectorModal } from './NatmJoint3DInspectorModal';
 import {
-  getTunnelRelativeDirectionLabel,
   getCrownStrikePair,
 } from '../engine/joint3DInspectorEngine';
 import {
@@ -48,6 +47,7 @@ import {
   clampPointToFieldPanelOutline,
   clipSegmentToFieldPanelOutline,
   computeDisplayPanelGeometry,
+  computeFieldQValue,
   computeFaceTunnelOutlineDetails,
   computePanelCanvasGeometry,
   computeTCanvasLayout,
@@ -169,7 +169,15 @@ import {
 import {
   ProfileType,
   TunnelGeometry,
+  SavedProjectRecord,
+  Joint,
 } from '../types/tunnel';
+import {
+  loadAllContinuousStripDatasets,
+  parsePullIntervalFromRecord,
+  saveAllContinuousStripDatasets,
+  syncSavedProjectsIntoStripDatasets,
+} from '../engine/continuous3DStripEngine';
 import {
   createDefaultQIndexParameters,
 } from '../engine/photoWarpEngine';
@@ -549,6 +557,120 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       );
     }
   }, [stage, activeRound?.id, activeProject, activeLocation]);
+
+  // Continuous background synchronization:
+  // Whenever traces or parameters update on Face, Left Wall, Crown, or Right Wall,
+  // automatically synchronize with continuous 3D strip datasets in the background!
+  useEffect(() => {
+    if (!activeRound || !activeLocation) return;
+    try {
+      const liveInterval = parsePullIntervalFromRecord(
+        activeRound.chainageStation || '',
+        activeRound.faceChainageStation || '',
+        activeRound.roundLengthMeters || 3.5
+      );
+      const projName = (activeProject?.name || 'Tunnel Project').trim();
+      const locName = (activeLocation.name || 'Main Tunnel').trim();
+
+      const convertedJoints: Joint[] = activeRound.jointTraces.map((tr) => ({
+        id: tr.id,
+        surface:
+          tr.panel === 'left_wall'
+            ? 'leftWall'
+            : tr.panel === 'right_wall'
+            ? 'rightWall'
+            : tr.panel === 'crown'
+            ? 'crown'
+            : 'face',
+        geometry: tr.points,
+        traceAngle: tr.strike || 0,
+        strike: tr.strike || 0,
+        dip: tr.dipAmount || 45,
+        dipDirection: tr.dipDirection || 90,
+        set: tr.setId || 'J1',
+        featureType: 'joint',
+        confidence: 'High',
+        confidenceScore: 0.9,
+        confidenceBreakdown: { detection: 90, trace: 90, geometric: 90, orientation: 90 },
+        source: 'MANUAL',
+        accepted: true,
+        persistenceMeters: tr.traceLengthM || 1.5,
+        orientationStatus: tr.editedByCompass ? 'DIRECTLY_MEASURED' : 'GEOMETRICALLY_CALCULATED',
+      }));
+
+      const syntheticRecord: SavedProjectRecord = {
+        id: `auto-round-${activeRound.id}`,
+        projectName: projName,
+        tunnelName: locName,
+        location: locName,
+        chainage: activeRound.chainageStation || `RD ${liveInterval.fromRd}m - ${liveInterval.toRd}m`,
+        faceChainage: activeRound.faceChainageStation || `RD ${liveInterval.toRd}m`,
+        numericChainageMeters: liveInterval.toRd,
+        date: activeRound.date || new Date().toISOString().slice(0, 10),
+        savedAt: new Date().toISOString(),
+        mappingMode: 'tunnel_3d',
+        geometry: {
+          width: activeLocation.widthM,
+          height: activeLocation.heightM,
+          wallHeight: activeLocation.wallHeightM || activeLocation.heightM * 0.58,
+          leftWallArcLength: activeLocation.wallHeightM || 4.2,
+          rightWallArcLength: activeLocation.wallHeightM || 4.2,
+          crownArcLength: activeLocation.widthM * 1.25,
+          crownGeometry: 'horseshoe',
+          crownRadius: activeLocation.widthM * 0.5,
+          crossSectionPoints: [],
+          units: 'm',
+          source: 'manual',
+        },
+        settings: {
+          projectName: projName,
+          tunnelName: locName,
+          location: locName,
+          driveDirectionInput: String(activeRound.tunnelDriveDirection || 0),
+          driveDirection: activeRound.tunnelDriveDirection || 0,
+          chainage: activeRound.chainageStation || `RD ${liveInterval.fromRd}m - ${liveInterval.toRd}m`,
+          faceChainage: activeRound.faceChainageStation || `RD ${liveInterval.toRd}m`,
+          roundLength: activeRound.roundLengthMeters || 3.5,
+          date: activeRound.date || new Date().toISOString().slice(0, 10),
+          mappedBy: activeRound.geologistName || 'Geologist',
+          lithology: activeRound.dominantRockType || 'Rock Mass',
+        },
+        joints: convertedJoints,
+        customJointSetOverrides: {},
+        qIndexParams: {
+          rqd: activeRound.qSystem?.rqd ?? 75,
+          jn: activeRound.qSystem?.jn ?? 9,
+          jr: activeRound.qSystem?.jr ?? 1.5,
+          ja: activeRound.qSystem?.ja ?? 2,
+          jw: activeRound.qSystem?.jw ?? 1,
+          srf: activeRound.qSystem?.srf ?? 2.5,
+          qValue: computeFieldQValue(activeRound.qSystem).qValue,
+        },
+        rmrParams: {
+          intactStrengthRating: activeRound.rmrSystem?.ucsRating ?? 12,
+          rqdRating: activeRound.rmrSystem?.rqdRating ?? 17,
+          spacingRating: activeRound.rmrSystem?.spacingRating ?? 10,
+          conditionRating: activeRound.rmrSystem?.conditionRating ?? 20,
+          groundwaterRating: activeRound.rmrSystem?.groundwaterRating ?? 10,
+          orientationAdjustmentRating: activeRound.rmrSystem?.adjustmentRating ?? -5,
+        },
+      };
+
+      const existing = loadAllContinuousStripDatasets();
+      const updated = syncSavedProjectsIntoStripDatasets(existing, [syntheticRecord]);
+      saveAllContinuousStripDatasets(updated);
+    } catch {
+      // Non-blocking background sync
+    }
+  }, [
+    activeRound?.jointTraces,
+    activeRound?.chainageStation,
+    activeRound?.faceChainageStation,
+    activeRound?.roundLengthMeters,
+    activeRound?.tunnelDriveDirection,
+    activeLocation,
+    activeProject,
+  ]);
 
   // Automatically stamp active geologist name & PNG signature into active round based on role
   useEffect(() => {
@@ -8364,12 +8486,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             const isCrownPanel = panelId === 'crown';
                             const crownStrikeVal = ((tr.dipDirection - 90) % 360 + 360) % 360;
                             const crownPair = getCrownStrikePair(crownStrikeVal);
-                            const relDirWord = getTunnelRelativeDirectionLabel(tr.dipDirection);
                             const prefixLabel = tr.label || (tr.setId && tr.setId !== 'unassigned' ? tr.setId : 'J');
                             const placement = pTraceLabelMap[tr.id];
                             const inlineText = isCrownPanel
                               ? `${prefixLabel} ${crownPair.label}`
-                              : `${prefixLabel} ${String(tr.dipDirection).padStart(3, '0')}° ${relDirWord} / ${tr.dipAmount}°`;
+                              : `${prefixLabel} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`;
 
                             const {
                               mid,
