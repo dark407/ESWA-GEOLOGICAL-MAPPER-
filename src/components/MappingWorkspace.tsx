@@ -192,6 +192,7 @@ import {
   Wand2,
   Box,
   Zap,
+  GitFork,
 } from 'lucide-react';
 import { EswaTunnelLogo } from './EswaBrandIdentity';
 import {
@@ -207,6 +208,10 @@ import {
   MatlabJointAnalyzerModal,
 } from './MatlabJointAnalyzerModal';
 import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
+import {
+  TunnelJunctionFactorModal,
+  JunctionFactorResult,
+} from './TunnelJunctionFactorModal';
 
 interface MappingWorkspaceProps {
   geometry: TunnelGeometry;
@@ -649,10 +654,11 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
   const [simpleAccuracyInitialTab, setSimpleAccuracyInitialTab] =
     useState<SimpleAddonTab>('full_photo_1ft_scale');
   const [show3DStrikeDipModal, setShow3DStrikeDipModal] = useState<boolean>(false);
-  const [showAdvancedAnalysisModal, setShowAdvancedAnalysisModal] = useState<boolean>(false);
   const [showMatlabAnalyzerModal, setShowMatlabAnalyzerModal] = useState<boolean>(false);
   const [matlabInitialTab, setMatlabInitialTab] =
     useState<MatlabAnalyzerTab>('FACE_JOIN_AND_BLOCKS');
+  const [showJunctionFactorModal, setShowJunctionFactorModal] = useState<boolean>(false);
+  const [junctionFactorData, setJunctionFactorData] = useState<JunctionFactorResult | null>(null);
 
   // Live cursor coordinates in real-world meters & canvas pixels
   const [cursorMeters, setCursorMeters] = useState<Point2D | null>(null);
@@ -3833,7 +3839,8 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
     } else if (cmd === 'PROPS' || cmd === 'PR' || cmd === 'PROPERTIES') {
       setShowCadPropertiesAlways((p) => !p);
     } else if (cmd === 'ANALYSIS' || cmd === 'ADV' || cmd === 'ADVANCED' || cmd === 'WEDGE' || cmd === 'FOS') {
-      setShowAdvancedAnalysisModal(true);
+      setCadRibbonTab('ADVANCED_ANALYSIS');
+      setCadRibbonCollapsed(false);
     } else if (cmd === 'SUPPORT' || cmd === 'BOLT' || cmd === 'BOLTS' || cmd === 'SFRS') {
       setShowRockSupportModal(true);
     } else if (cmd === 'SHEETSET' || cmd === 'SSM' || cmd === 'BATCH') {
@@ -3877,7 +3884,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                 { id: 'TUNNEL_PHOTO', step: '1', label: 'Face Fit', fullLabel: '1. Face Fit & Photo' },
                 { id: 'HOME', step: '2', label: 'Core Mapping', fullLabel: '2. Core Mapping' },
                 { id: 'GEOLOGY_3D', step: '3', label: 'Geology', fullLabel: '3. Geology & Rock' },
-                { id: 'ADVANCED_ANALYSIS', step: '4', label: 'Advance Analysis', fullLabel: '4. Advance Analysis' },
+                { id: 'ADVANCED_ANALYSIS', step: '4', label: 'Geol Analytics', fullLabel: '4. Advance Geological Analytics' },
                 { id: 'SURVEY_OVERBREAK', step: '5', label: 'Survey', fullLabel: '5. Survey & Overbreak' },
                 { id: 'CLASSIFICATION_SHEET', step: '6', label: 'Data Sheets', fullLabel: '6. Data Sheets & Export' },
               ] as const
@@ -4207,18 +4214,61 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setCadRibbonTab((prev) => (prev === 'ADVANCED_ANALYSIS' ? 'HOME' : 'ADVANCED_ANALYSIS'));
+                    setCadRibbonTab('ADVANCED_ANALYSIS');
                     setCadRibbonCollapsed(false);
                   }}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono rounded-lg border transition-all cursor-pointer shrink-0 ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded-lg border transition-all cursor-pointer shrink-0 select-none ${
                     cadRibbonTab === 'ADVANCED_ANALYSIS'
-                      ? 'bg-amber-500 text-slate-950 font-extrabold border-amber-400 shadow-xs ring-2 ring-amber-300'
-                      : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 font-bold'
+                      ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black border-amber-300 shadow-md ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-100'
+                      : 'bg-gradient-to-r from-amber-50 to-amber-100/95 hover:from-amber-100 hover:to-amber-200 text-amber-950 border-amber-300 font-extrabold shadow-2xs hover:shadow-xs hover:border-amber-400'
                   }`}
-                  title="Advance Analysis: Kinematic Wedge FoS, 4-Surface Apparent Dip, +3m/+6m/+9m Face Prediction, Stand-up Time, Palmström Blocks, Hydro Inflow"
+                  title="Advance Geological Analytics: 3D Kinematic Wedge FoS, 4-Surface Apparent Dip, +3m/+6m/+9m Look-Ahead Extrapolation, Stand-up Time, Palmström Blocks, Hydro Inflow"
                 >
-                  <Zap className="w-3.5 h-3.5 fill-current text-amber-600" />
-                  <span>Advance Analysis</span>
+                  <Zap
+                    className={`w-3.5 h-3.5 shrink-0 ${
+                      cadRibbonTab === 'ADVANCED_ANALYSIS'
+                        ? 'fill-slate-950 text-slate-950'
+                        : 'fill-amber-500 text-amber-700'
+                    }`}
+                  />
+                  <span className="hidden sm:inline">Advance Geological Analytics</span>
+                  <span className="sm:hidden">Adv Geological Analytics</span>
+                  {cadRibbonTab === 'ADVANCED_ANALYSIS' ? (
+                    <span className="w-2 h-2 rounded-full bg-slate-950 animate-pulse shrink-0 ml-0.5" />
+                  ) : (
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-200/90 text-amber-900 font-bold shrink-0">
+                      Step 4
+                    </span>
+                  )}
+                </button>
+
+                {/* DEDICATED TUNNEL JUNCTION FACTOR (Kj) CALCULATOR BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => setShowJunctionFactorModal(true)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono rounded-lg border transition-all cursor-pointer shrink-0 select-none ${
+                    junctionFactorData
+                      ? 'bg-gradient-to-r from-violet-600 via-violet-500 to-indigo-600 text-white font-extrabold border-violet-400 shadow-md ring-2 ring-violet-400/50'
+                      : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 font-bold hover:border-slate-400 shadow-2xs'
+                  }`}
+                  title="Tunnel Junction Factor (Kj) Calculator: Intersections, T-Junctions, Adits & Bifurcations"
+                >
+                  <GitFork
+                    className={`w-3.5 h-3.5 shrink-0 ${
+                      junctionFactorData ? 'text-violet-200' : 'text-violet-600'
+                    }`}
+                  />
+                  <span className="hidden sm:inline">Junction Factor</span>
+                  <span className="sm:hidden">Junction</span>
+                  {junctionFactorData ? (
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-violet-900/80 text-violet-200 font-bold border border-violet-400/40 shrink-0">
+                      Kj={junctionFactorData.junctionFactorKj}×
+                    </span>
+                  ) : (
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-violet-100 text-violet-800 font-bold shrink-0">
+                      Calc
+                    </span>
+                  )}
                 </button>
               </>
             )}
@@ -4940,12 +4990,15 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setShowAdvancedAnalysisModal(true)}
+                    onClick={() => {
+                      setCadRibbonTab('ADVANCED_ANALYSIS');
+                      setCadRibbonCollapsed(false);
+                    }}
                     className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-mono font-extrabold bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 text-slate-950 rounded-md shadow-md ring-1 ring-amber-300 cursor-pointer"
-                    title="Open Deep Advanced Geological Analysis: Wedge FoS, 4-Surface Apparent Dip Solver, +3m/+6m/+9m Look-Ahead, Stand-up Time, Palmström Blocks, Hydro Inflow"
+                    title="Open Deep Advance Geological Analysis: Wedge FoS, 4-Surface Apparent Dip Solver, +3m/+6m/+9m Look-Ahead, Stand-up Time, Palmström Blocks, Hydro Inflow"
                   >
                     <Zap className="w-3.5 h-3.5 fill-slate-950" />
-                    ⚡ Advanced Analysis
+                    ⚡ Advance Geological Analytics
                   </button>
 
                   <button
@@ -5147,8 +5200,26 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                   </button>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-md">
                     <Zap className="w-3.5 h-3.5 fill-current text-amber-600" />
-                    <span>Step 4: Advance Analysis View Active</span>
+                    <span>Step 4: Advance Geological Analytics Active</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowJunctionFactorModal(true)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold rounded-md border transition-all cursor-pointer ${
+                      junctionFactorData
+                        ? 'bg-violet-700 text-white border-violet-500 shadow-xs'
+                        : 'bg-violet-50 hover:bg-violet-100 text-violet-900 border-violet-300'
+                    }`}
+                    title="Calculate Tunnel Junction Factor (Kj), Diagonal Span & Extended Support"
+                  >
+                    <GitFork className="w-3.5 h-3.5 text-violet-500" />
+                    <span>Junction Factor Calculator</span>
+                    {junctionFactorData && (
+                      <span className="text-[9px] px-1 bg-violet-900 text-violet-200 rounded font-mono">
+                        Kj = {junctionFactorData.junctionFactorKj}×
+                      </span>
+                    )}
+                  </button>
                 </div>
               )}
 
@@ -5348,7 +5419,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     : cadRibbonTab === 'HOME'
                     ? 'Next: 3. Geology →'
                     : cadRibbonTab === 'GEOLOGY_3D'
-                    ? 'Next: 4. Advance Analysis →'
+                    ? 'Next: 4. Advance Geological Analytics →'
                     : cadRibbonTab === 'ADVANCED_ANALYSIS'
                     ? 'Next: 5. Survey →'
                     : 'Next: 6. Data Sheets →'}
@@ -5426,6 +5497,9 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
           rockMassSummary={rockMassSummary}
           overbreakAnalysis={overbreakAnalysis}
           lithologyRegions={lithologyRegions}
+          junctionFactorData={junctionFactorData}
+          onOpenJunctionCalculator={() => setShowJunctionFactorModal(true)}
+          onClearJunctionFactor={() => setJunctionFactorData(null)}
         />
       ) : cadRibbonTab === 'CLASSIFICATION_SHEET' ? (
         <GeologyAndQIndexDrawer
@@ -12157,6 +12231,21 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
           );
         }}
         onStatusMessage={onUpdateStatusMessage}
+      />
+
+      <TunnelJunctionFactorModal
+        isOpen={showJunctionFactorModal}
+        onClose={() => setShowJunctionFactorModal(false)}
+        defaultMainSpanM={geometry.width || 8.5}
+        defaultBranchSpanM={geometry.width ? Number((geometry.width * 0.85).toFixed(1)) : 7.0}
+        currentQVal={qIndexParams ? evaluateQSystemWithValidation(qIndexParams, geometry.width, qParamStatus).qValue : 6.5}
+        currentRmrVal={calculateBieniawskiRmr(rmrParams)?.finalRmr ?? 60}
+        onApplyJunctionFactor={(res) => {
+          setJunctionFactorData(res);
+          onUpdateStatusMessage?.(
+            `Applied Junction Factor Kj = ${res.junctionFactorKj}× (${res.junctionType.replace('_', ' ')}): Diagonal Span = ${res.diagonalSpanM}m, Roof Pressure = ${res.junctionRoofPressureKpa} kPa.`
+          );
+        }}
       />
 
     </div>

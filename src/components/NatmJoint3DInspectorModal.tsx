@@ -43,6 +43,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Crosshair,
+  Zap,
 } from 'lucide-react';
 import {
   FieldJointTrace,
@@ -70,6 +71,9 @@ import {
   getTunnelRelativeDirectionLabel,
   getCrownStrikePair,
 } from '../engine/joint3DInspectorEngine';
+import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
+import { createTunnelGeometry } from '../engine/geometryEngine';
+import { Joint, JointSet, SurfaceType } from '../types/tunnel';
 
 export interface NatmJoint3DInspectorModalProps {
   isOpen: boolean;
@@ -420,8 +424,9 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   // UI Overlays in Canvas (user can toggle legend if needed, default is clean canvas)
   const [showLegendOverlay, setShowLegendOverlay] = useState<boolean>(false);
 
-  // Interactive 3D Compass & Plot Plane State
-  const [showCompass, setShowCompass] = useState<boolean>(true);
+  // Interactive 3D Compass & Plot Plane State (Compass hidden by default for clean canvas view)
+  const [showCompass, setShowCompass] = useState<boolean>(false);
+  const [showAdvanceAnalysis, setShowAdvanceAnalysis] = useState<boolean>(false);
   const [cameraTheta, setCameraTheta] = useState<number>(Math.PI / 4);
   const [showPlotPlaneDrawer, setShowPlotPlaneDrawer] = useState<boolean>(false);
   const [plotPlaneAnchorType, setPlotPlaneAnchorType] = useState<
@@ -574,6 +579,44 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
   // 8. Automated Engine Validation Test Report
   const validationReport = useMemo(() => runJointEngineValidationTests(), []);
+
+  // Format joints for Advance Geological Analysis modal integration
+  const convertedJoints = useMemo(() => {
+    return (allRoundJoints || []).map((t) => ({
+      id: t.id,
+      surface: (t.panel === 'left_wall' ? 'leftWall' : t.panel === 'right_wall' ? 'rightWall' : t.panel) as SurfaceType,
+      points: t.points.map((p) => ({ x: p.x, y: p.y })),
+      dipDirection: t.dipDirection ?? 135,
+      dip: t.dipAmount ?? 65,
+      strike: t.strike ?? 45,
+      set: t.setId || 'J1',
+      persistenceMeters: (t as any).lengthMeters || 3.0,
+      spacingMeters: 0.8,
+      roughness: 'ROUGH_PLANAR' as const,
+      apertureMm: 1.5,
+      weathering: 'SLIGHTLY_WEATHERED' as const,
+      infilling: 'NONE' as const,
+      seepageCondition: 'DRY' as const,
+      visible: true,
+    })) as unknown as Joint[];
+  }, [allRoundJoints]);
+
+  const convertedJointSets = useMemo(() => {
+    const sets = ['J1', 'J2', 'J3'];
+    return sets.map((s, idx) => ({
+      id: s,
+      name: `Joint Set ${s}`,
+      color: idx === 0 ? '#ef4444' : idx === 1 ? '#3b82f6' : '#10b981',
+      meanDipDirection: idx === 0 ? 135 : idx === 1 ? 225 : 315,
+      meanDip: idx === 0 ? 70 : idx === 1 ? 65 : 45,
+      spacing: '0.45m',
+      persistence: '3.2m',
+      jrc: 8,
+      jcs: 85,
+      roughness: 'Rough planar',
+      traceCount: 4,
+    })) as unknown as JointSet[];
+  }, []);
 
   // -------------------------------------------------------------------------
   // THREE.JS HIGH-PERFORMANCE 3D CANVAS RENDERING (PURE WHITE BACKGROUND)
@@ -1505,10 +1548,10 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-1 sm:p-2 bg-slate-950/85 backdrop-blur-md select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 bg-slate-950 select-none">
       <div
-        className={`w-full max-w-[99.2vw] h-[98.5vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden transition-colors border ${
-          isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700/80 text-slate-100'
+        className={`w-full max-w-full h-full h-[100dvh] flex flex-col rounded-none shadow-none overflow-hidden transition-colors border-0 ${
+          isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-slate-100'
         }`}
       >
         {/* ===================================================================
@@ -1583,6 +1626,16 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setShowAdvanceAnalysis(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-black bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400 hover:brightness-110 cursor-pointer transition-all shrink-0"
+              title="Open Advance Geological Analytics: 3D Kinematic Wedge FoS, 4-Surface Apparent Dip, +3m/+6m/+9m Extrapolation, Stand-Up Time, Palmström Blocks, Hydro Inflow"
+            >
+              <Zap className="w-4 h-4 fill-slate-950 text-slate-950" />
+              <span>Advance Geological Analytics</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleExportCsv}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-bold cursor-pointer transition-colors border ${
                 isLight
@@ -1635,6 +1688,103 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               isLight ? 'bg-slate-100/95 border-slate-300 text-slate-900' : 'border-slate-800 bg-slate-950/70 text-slate-100'
             }`}
           >
+            {/* TOP CARD: OTHER TRACED JOINTS IN ROUND (Instant Switching & Editing) */}
+            <div className="p-3.5 rounded-xl bg-slate-900 border border-amber-400/60 shadow-lg space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <span className="font-bold text-amber-300 uppercase flex items-center gap-1.5 text-xs">
+                  <Layers className="w-4 h-4 text-amber-400" />
+                  <span>Traced Joints in Round ({allRoundJoints.length})</span>
+                </span>
+                <span className="text-[10px] text-cyan-300 font-bold">Click to Switch &amp; Edit</span>
+              </div>
+
+              {allRoundJoints.length === 0 ? (
+                <p className="text-[11px] text-slate-500 italic">No joints traced in this round.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                  {allRoundJoints.map((j) => {
+                    const isCurrent = j.id === currentJointId;
+                    const jColor = FIELD_JOINT_GROUP_COLORS[j.setId || 'unassigned']?.stroke || '#f59e0b';
+                    return (
+                      <div
+                        key={j.id}
+                        onClick={() => handleRequestSwitchJoint(j.id)}
+                        className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                          isCurrent
+                            ? 'bg-amber-500/20 border-amber-400 shadow-md ring-2 ring-amber-400/50'
+                            : 'bg-slate-950/80 hover:bg-slate-800/80 border-slate-800 hover:border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-3 h-3 rounded-full shrink-0 border border-white/50"
+                            style={{ backgroundColor: jColor }}
+                          />
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`font-bold font-mono text-xs ${isCurrent ? 'text-amber-300 font-black' : 'text-white'}`}>
+                                Joint {j.id}
+                              </span>
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 uppercase font-mono">
+                                {j.panel.replace('_', ' ')}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              Set: {j.setId || 'Unassigned'} · Length: {calculatePolylineLengthM(j.points, j.panel, tunnelGeometry).toFixed(2)}m
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 font-mono text-right">
+                          <div className="flex flex-col items-end">
+                            <span className="font-bold text-amber-300 text-xs">
+                              {j.dipAmount ?? 65}°
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              ➔ {String(j.dipDirection ?? 135).padStart(3, '0')}°
+                            </span>
+                          </div>
+                          {isCurrent ? (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[9.5px]">
+                              ACTIVE
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[9.5px] hover:text-white">
+                              Inspect
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Instant Save & Reflect on Face Canvas Button inside Card */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={handleSaveInspection}
+                  className={`w-full py-2 px-3 rounded-xl font-mono text-xs font-black cursor-pointer transition-all flex items-center justify-center gap-2 shadow-md ${
+                    saveStatus === 'SAVED'
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                  }`}
+                >
+                  {saveStatus === 'SAVED' ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Reflected on Face Canvas!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Save &amp; Reflect on Face Canvas</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
             {/* 1. Orientation & Angle Conventions */}
             <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
@@ -2149,104 +2299,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 </div>
               </div>
             </div>
-
-            {/* 3. ALL TRACED JOINTS IN THIS ROUND (SWITCHABLE & EDITABLE) */}
-            <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                <span className="font-bold text-amber-300 uppercase flex items-center gap-1.5 text-xs">
-                  <Layers className="w-4 h-4 text-amber-400" />
-                  <span>All Traced Joints in Round ({allRoundJoints.length})</span>
-                </span>
-                <span className="text-[10px] text-slate-400">Click to Inspect &amp; Edit</span>
-              </div>
-
-              {allRoundJoints.length === 0 ? (
-                <p className="text-[11px] text-slate-500 italic">No joints traced in this round.</p>
-              ) : (
-                <div className="space-y-1.5 max-h-60 overflow-y-auto pr-0.5">
-                  {allRoundJoints.map((j) => {
-                    const isCurrent = j.id === currentJointId;
-                    const jColor = FIELD_JOINT_GROUP_COLORS[j.setId || 'unassigned']?.stroke || '#f59e0b';
-                    return (
-                      <div
-                        key={j.id}
-                        onClick={() => handleRequestSwitchJoint(j.id)}
-                        className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                          isCurrent
-                            ? 'bg-amber-500/15 border-amber-400/80 shadow-md ring-1 ring-amber-400/40'
-                            : 'bg-slate-950/80 hover:bg-slate-800/80 border-slate-800 hover:border-slate-700 text-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-3 h-3 rounded-full shrink-0 border border-white/50"
-                            style={{ backgroundColor: jColor }}
-                          />
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-1.5">
-                              <span className={`font-bold font-mono text-xs ${isCurrent ? 'text-amber-300 font-black' : 'text-white'}`}>
-                                Joint {j.id}
-                              </span>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 uppercase font-mono">
-                                {j.panel.replace('_', ' ')}
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              Set: {j.setId || 'Unassigned'} · Length: {calculatePolylineLengthM(j.points, j.panel, tunnelGeometry).toFixed(2)}m
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 font-mono text-right">
-                          <div className="flex flex-col items-end">
-                            <span className="font-bold text-amber-300 text-xs">
-                              {j.dipAmount ?? 65}°
-                            </span>
-                            <span className="text-[10px] text-slate-400">
-                              ➔ {String(j.dipDirection ?? 135).padStart(3, '0')}°
-                            </span>
-                          </div>
-                          {isCurrent ? (
-                            <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[9.5px]">
-                              ACTIVE
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[9.5px] hover:text-white">
-                              Inspect
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Instant Save & Reflect on Face Canvas Button inside Card */}
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={handleSaveInspection}
-                  className={`w-full py-2 px-3 rounded-xl font-mono text-xs font-black cursor-pointer transition-all flex items-center justify-center gap-2 shadow-md ${
-                    saveStatus === 'SAVED'
-                      ? 'bg-emerald-500 text-slate-950'
-                      : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                  }`}
-                >
-                  {saveStatus === 'SAVED' ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Reflected on Face Canvas!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" />
-                      <span>Save &amp; Reflect on Face Canvas</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
           </aside>
 
           {/* ---------------------------------------------------------------
@@ -2588,6 +2640,30 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       </div>
                     );
                   })()}
+
+                  {/* PROMINENT PLANE DIP & AMOUNT ON CANVAS ALIGNED WITH PLANE */}
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-2xl bg-slate-950/95 border-2 border-amber-400 text-white shadow-2xl backdrop-blur-md flex items-center gap-3 font-mono text-xs z-30 select-none pointer-events-auto">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-amber-400 font-black uppercase text-[11px]">Plane Dip:</span>
+                      <span className="px-2.5 py-0.5 rounded-lg bg-amber-500 text-slate-950 font-black text-sm shadow">
+                        {dipAmount}°
+                      </span>
+                    </div>
+                    <span className="text-slate-600">|</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-cyan-400 font-bold uppercase text-[11px]">Direction:</span>
+                      <span className="px-2 py-0.5 rounded-lg bg-cyan-950 border border-cyan-500/50 text-cyan-300 font-black">
+                        ∠ {String(dipDirection).padStart(3, '0')}° ({getTunnelRelativeDirectionLabel(dipDirection)})
+                      </span>
+                    </div>
+                    <span className="text-slate-600">|</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400 text-[11px]">Strike:</span>
+                      <strong className="text-amber-300 font-mono">
+                        {strikeInfo.strikePairLabel}
+                      </strong>
+                    </div>
+                  </div>
 
                   {/* =========================================================
                       FLOATING "PLOT PLANE" CONTROLLER DRAWER
@@ -3321,6 +3397,80 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
           </main>
         </div>
       </div>
+
+      {/* JOINT SWITCHING WITH UNSAVED EDITS CONFIRMATION MODAL */}
+      {showSwitchConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="max-w-md w-full p-4 rounded-2xl bg-slate-900 border border-amber-400 shadow-2xl font-mono text-xs text-slate-100 space-y-3">
+            <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <span>Confirm Joint Edit &amp; Reflect to Canvas</span>
+            </div>
+            <p className="text-slate-300">
+              Do you want to save current changes for <strong>Joint {currentJoint.id}</strong> (Dip {dipAmount}° ∠ {dipDirection}°) and reflect them onto the Face Canvas before switching to Joint {pendingSwitchJointId}?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSwitchConfirm(false);
+                  setPendingSwitchJointId(null);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmSwitch(false)}
+                className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white cursor-pointer"
+              >
+                Switch Without Saving
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmSwitch(true)}
+                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-md cursor-pointer"
+              >
+                Save &amp; Reflect on Canvas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EMBEDDED ADVANCE GEOLOGICAL ANALYTICS VIEW */}
+      {showAdvanceAnalysis && (
+        <div className="fixed inset-0 z-[70] bg-slate-950">
+          <AdvancedGeologicalAnalysisModal
+            fullPage
+            isOpen={true}
+            onClose={() => setShowAdvanceAnalysis(false)}
+            geometry={createTunnelGeometry(
+              tunnelGeometry.widthM || 8.5,
+              tunnelGeometry.heightM || 7.5,
+              tunnelGeometry.wallHeightM || 4.2,
+              tunnelGeometry.tunnelShape === 'horseshoe' ? 'horseshoe' : 'd_shaped'
+            )}
+            settings={{
+              projectName: 'NATM Field Mapping',
+              tunnelName: 'NATM Tunnel Heading',
+              location: '',
+              locationName: 'Active Face',
+              driveDirectionInput: `N ${Math.round(tunnelGeometry.driveAzimuthDeg || 0)}° E`,
+              driveDirection: tunnelGeometry.driveAzimuthDeg || 0,
+              chainage: `RD ${tunnelGeometry.currentChainageM || 100}m`,
+              faceChainage: `RD ${tunnelGeometry.currentChainageM || 100}m`,
+              roundLength: tunnelGeometry.pullLengthM || 3.0,
+              date: new Date().toISOString().slice(0, 10),
+              mappedBy: 'Geotechnical Engineer',
+              lithology: 'Granite / Schist',
+            }}
+            joints={convertedJoints}
+            jointSets={convertedJointSets}
+          />
+        </div>
+      )}
     </div>
   );
 };
