@@ -560,13 +560,23 @@ export function deriveAnchorPointFromPoints(
       };
     }
     case 'crown': {
-      // Crown arch: X from 0 to pullLengthM (top is face), Y from 0 to widthM, Z near heightM
-      const my = uNorm * geom.widthM;
-      const mx = (1 - vNorm) * geom.pullLengthM;
+      // Crown arch: X from 0 to pullLengthM, Y from 0 to widthM (Left to Right)
+      // The mapped trace on the crown ceiling defines the Strike cut point on the actual arch surface
+      const my = Math.max(0.05, Math.min(geom.widthM - 0.05, uNorm * geom.widthM));
+      const mx = Math.max(0, Math.min(geom.pullLengthM, (1 - vNorm) * geom.pullLengthM));
+
+      // Calculate true arched roof elevation at transverse position Y (my):
+      const cx = geom.widthM / 2;
+      const hw = geom.wallHeightM || (geom.heightM * 0.55);
+      const archRise = Math.max(0.5, geom.heightM - hw);
+      const dy = (my - cx) / Math.max(0.1, geom.widthM / 2);
+      const clampedDy = Math.max(-1, Math.min(1, dy));
+      const trueArchZ = hw + archRise * Math.sqrt(Math.max(0, 1 - clampedDy * clampedDy));
+
       return {
-        x: Math.max(0, Math.min(geom.pullLengthM, mx)),
-        y: Math.max(0.05, Math.min(geom.widthM - 0.05, my)),
-        z: geom.heightM * 0.98,
+        x: Number(mx.toFixed(3)),
+        y: Number(my.toFixed(3)),
+        z: Number(trueArchZ.toFixed(3)),
       };
     }
     default:

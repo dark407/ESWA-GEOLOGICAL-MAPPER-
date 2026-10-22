@@ -376,6 +376,10 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   // Toggle for interior plane sheet (default true to immediately display the colored cutting plane)
   const [showInteriorPlane, setShowInteriorPlane] = useState<boolean>(true);
 
+  // Plane Display Mode: Complete Extended Plane (Default) vs Clipped to Tunnel Box
+  const [planeDisplayMode, setPlaneDisplayMode] = useState<'EXTENDED' | 'CLIPPED'>('EXTENDED');
+  const [planeExtensionM, setPlaneExtensionM] = useState<number>(12.0);
+
   // Persistence & Geological Interpretation
   const [persistenceInterpretation, setPersistenceInterpretation] = useState<string>(
     currentJoint.inspection3D?.persistenceInterpretation ||
@@ -1063,63 +1067,202 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       group.remove(child);
     }
 
-    if (clippedVertices.length < 3) return;
-
-    // 1. Optional Interior 3D Plane Mesh (Only added if user explicitly toggles on; default is OFF for clean 3D tunnel void)
-    if (showInteriorPlane && clippedVertices.length >= 3) {
-      const planeGeo = new THREE.BufferGeometry();
-      const positions: number[] = [];
-      const indices: number[] = [];
-
-      clippedVertices.forEach((v) => {
-        // Map Engine coordinates (x=advance, y=width, z=height) to Three.js (X=width, Y=height, Z=advance)
-        positions.push(v.y, v.z, v.x);
-      });
-
-      for (let i = 1; i < clippedVertices.length - 1; i++) {
-        indices.push(0, i, i + 1);
-      }
-
-      planeGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      planeGeo.setIndex(indices);
-      planeGeo.computeVertexNormals();
-
-      const grpColor = FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#d97706';
-      const planeMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(grpColor),
-        transparent: true,
-        opacity: 0.68,
-        side: THREE.DoubleSide,
-        roughness: 0.35,
-        metalness: 0.1,
-      });
-
-      const planeMesh = new THREE.Mesh(planeGeo, planeMat);
-      group.add(planeMesh);
-
-      // Perimeter Line
-      const perimeterPositions: number[] = [];
-      for (let i = 0; i < clippedVertices.length; i++) {
-        const curr = clippedVertices[i];
-        const next = clippedVertices[(i + 1) % clippedVertices.length];
-        perimeterPositions.push(curr.y, curr.z, curr.x, next.y, next.z, next.x);
-      }
-      const perimGeo = new THREE.BufferGeometry();
-      perimGeo.setAttribute('position', new THREE.Float32BufferAttribute(perimeterPositions, 3));
-      const perimMat = new THREE.LineBasicMaterial({ color: 0x92400e, linewidth: 2.5 });
-      group.add(new THREE.LineSegments(perimGeo, perimMat));
-    }
-
-    // 2. Horizontal Strike Vector Line at Anchor (Sharp Blue)
-    // Three.js anchor: X=width(anchorPoint.y), Y=height(anchorPoint.z), Z=advance(anchorPoint.x)
+    // Three.js anchor & orientation vectors:
+    // ax = width (anchorPoint.y), ay = elevation (anchorPoint.z), az = advance (anchorPoint.x)
     const ax = anchorPoint.y;
     const ay = anchorPoint.z;
     const az = anchorPoint.x;
+
     const sx = plane.strikeVector.y;
     const sy = plane.strikeVector.z;
     const sz = plane.strikeVector.x;
-    const sLen = 2.4;
 
+    const dx = plane.dipVector.y;
+    const dy = plane.dipVector.z;
+    const dz = plane.dipVector.x;
+
+    const nx = plane.normal.y;
+    const ny = plane.normal.z;
+    const nz = plane.normal.x;
+
+    // 1. 3D Joint Cutting Plane Mesh
+    // By default, renders the COMPLETE EXTENDED PLANE extending freely from our mapped line through the rock mass and tunnel void!
+    if (showInteriorPlane) {
+      const grpColor = FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#d97706';
+
+      if (planeDisplayMode === 'EXTENDED') {
+        const extR = planeExtensionM || 12.0;
+        const R_s = extR;
+        const isCrown = currentJoint.panel === 'crown';
+
+        // For crown joints: Anchor is on ceiling arch.
+        // Dip vector points downward into excavation (dy = -sin(dip) < 0).
+        // Extend downward past the invert floor (R_down) and upward into overburden (R_up)
+        const R_down = isCrown ? Math.max(12.0, extR * 1.3) : extR;
+        const R_up = isCrown ? Math.max(4.5, extR * 0.4) : extR;
+
+        const numCols = 12;
+        const numRows = 12;
+        const extPositions: number[] = [];
+        const extNormals: number[] = [];
+        const extUvs: number[] = [];
+        const extIndices: number[] = [];
+
+        for (let r = 0; r <= numRows; r++) {
+          const vFrac = r / numRows;
+          const vDist = -R_up + vFrac * (R_up + R_down); // along dip direction
+          for (let c = 0; c <= numCols; c++) {
+            const uFrac = c / numCols;
+            const uDist = -R_s + uFrac * (2 * R_s); // along strike axis
+
+            const px = ax + uDist * sx + vDist * dx;
+            const py = ay + uDist * sy + vDist * dy;
+            const pz = az + uDist * sz + vDist * dz;
+
+            extPositions.push(px, py, pz);
+            extNormals.push(nx, ny, nz);
+            extUvs.push(uFrac, vFrac);
+          }
+        }
+
+        for (let r = 0; r < numRows; r++) {
+          for (let c = 0; c < numCols; c++) {
+            const i0 = r * (numCols + 1) + c;
+            const i1 = i0 + 1;
+            const i2 = (r + 1) * (numCols + 1) + c;
+            const i3 = i2 + 1;
+
+            extIndices.push(i0, i2, i1);
+            extIndices.push(i1, i2, i3);
+          }
+        }
+
+        const extGeo = new THREE.BufferGeometry();
+        extGeo.setAttribute('position', new THREE.Float32BufferAttribute(extPositions, 3));
+        extGeo.setAttribute('normal', new THREE.Float32BufferAttribute(extNormals, 3));
+        extGeo.setAttribute('uv', new THREE.Float32BufferAttribute(extUvs, 2));
+        extGeo.setIndex(extIndices);
+
+        const extPlaneMat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(grpColor),
+          transparent: true,
+          opacity: 0.54,
+          side: THREE.DoubleSide,
+          roughness: 0.35,
+          metalness: 0.05,
+          depthWrite: false,
+        });
+
+        const extPlaneMesh = new THREE.Mesh(extGeo, extPlaneMat);
+        group.add(extPlaneMesh);
+
+        // Extended Plane Perimeter Outline (Clear Boundary)
+        const c00 = [ax - R_s * sx - R_up * dx, ay - R_s * sy - R_up * dy, az - R_s * sz - R_up * dz];
+        const c10 = [ax + R_s * sx - R_up * dx, ay + R_s * sy - R_up * dy, az + R_s * sz - R_up * dz];
+        const c11 = [ax + R_s * sx + R_down * dx, ay + R_s * sy + R_down * dy, az + R_s * sz + R_down * dz];
+        const c01 = [ax - R_s * sx + R_down * dx, ay - R_s * sy + R_down * dy, az - R_s * sz + R_down * dz];
+
+        const borderPos = [
+          ...c00, ...c10,
+          ...c10, ...c11,
+          ...c11, ...c01,
+          ...c01, ...c00,
+        ];
+        const borderGeo = new THREE.BufferGeometry();
+        borderGeo.setAttribute('position', new THREE.Float32BufferAttribute(borderPos, 3));
+        const borderMat = new THREE.LineBasicMaterial({
+          color: new THREE.Color(grpColor).offsetHSL(0, 0, -0.15).getHex(),
+          linewidth: 2.2,
+          transparent: true,
+          opacity: 0.85,
+        });
+        group.add(new THREE.LineSegments(borderGeo, borderMat));
+
+        // In-Plane Structure Grid Lines (every 2.5m)
+        const gridPositions: number[] = [];
+        for (let step = -Math.floor(R_up / 2.5) * 2.5; step <= R_down; step += 2.5) {
+          if (Math.abs(step) < 0.2) continue;
+          gridPositions.push(
+            ax - R_s * sx + step * dx, ay - R_s * sy + step * dy, az - R_s * sz + step * dz,
+            ax + R_s * sx + step * dx, ay + R_s * sy + step * dy, az + R_s * sz + step * dz
+          );
+        }
+        for (let step = -Math.floor(R_s / 2.5) * 2.5; step <= R_s; step += 2.5) {
+          if (Math.abs(step) < 0.2) continue;
+          gridPositions.push(
+            ax + step * sx - R_up * dx, ay + step * sy - R_up * dy, az + step * sz - R_up * dz,
+            ax + step * sx + R_down * dx, ay + step * sy + R_down * dy, az + step * sz + R_down * dz
+          );
+        }
+        if (gridPositions.length > 0) {
+          const gridGeo = new THREE.BufferGeometry();
+          gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
+          const gridMat = new THREE.LineBasicMaterial({
+            color: new THREE.Color(grpColor).getHex(),
+            transparent: true,
+            opacity: 0.28,
+          });
+          group.add(new THREE.LineSegments(gridGeo, gridMat));
+        }
+
+        // Highlight Tunnel Intersection Cut Outline if plane intersects tunnel box
+        if (clippedVertices.length >= 3) {
+          const cutPerim: number[] = [];
+          for (let i = 0; i < clippedVertices.length; i++) {
+            const curr = clippedVertices[i];
+            const next = clippedVertices[(i + 1) % clippedVertices.length];
+            cutPerim.push(curr.y, curr.z, curr.x, next.y, next.z, next.x);
+          }
+          const cutGeo = new THREE.BufferGeometry();
+          cutGeo.setAttribute('position', new THREE.Float32BufferAttribute(cutPerim, 3));
+          const cutMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, linewidth: 3.5 });
+          group.add(new THREE.LineSegments(cutGeo, cutMat));
+        }
+      } else if (clippedVertices.length >= 3) {
+        // Fallback: Clipped to tunnel bounding box
+        const planeGeo = new THREE.BufferGeometry();
+        const positions: number[] = [];
+        const indices: number[] = [];
+
+        clippedVertices.forEach((v) => {
+          positions.push(v.y, v.z, v.x);
+        });
+
+        for (let i = 1; i < clippedVertices.length - 1; i++) {
+          indices.push(0, i, i + 1);
+        }
+
+        planeGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        planeGeo.setIndex(indices);
+        planeGeo.computeVertexNormals();
+
+        const planeMat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(grpColor),
+          transparent: true,
+          opacity: 0.68,
+          side: THREE.DoubleSide,
+          roughness: 0.35,
+          metalness: 0.1,
+        });
+
+        const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+        group.add(planeMesh);
+
+        const perimeterPositions: number[] = [];
+        for (let i = 0; i < clippedVertices.length; i++) {
+          const curr = clippedVertices[i];
+          const next = clippedVertices[(i + 1) % clippedVertices.length];
+          perimeterPositions.push(curr.y, curr.z, curr.x, next.y, next.z, next.x);
+        }
+        const perimGeo = new THREE.BufferGeometry();
+        perimGeo.setAttribute('position', new THREE.Float32BufferAttribute(perimeterPositions, 3));
+        const perimMat = new THREE.LineBasicMaterial({ color: 0x92400e, linewidth: 2.5 });
+        group.add(new THREE.LineSegments(perimGeo, perimMat));
+      }
+    }
+
+    // 2. Horizontal Strike Vector Line at Anchor (Sharp Blue, Extended)
+    const sLen = Math.max(3.8, (planeExtensionM || 12.0) * 0.4);
     const sPos = [
       ax - sx * sLen,
       ay - sy * sLen,
