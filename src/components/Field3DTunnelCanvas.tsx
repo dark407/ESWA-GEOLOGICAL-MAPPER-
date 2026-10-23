@@ -49,6 +49,7 @@ import {
   smoothFieldTracePoints,
 } from '../engine/fieldMappingEngine';
 import {
+  computeUnfoldedStripBoxes,
   FieldMonochromeGeologicalPatterns,
   FieldStructuralFeatureSvgRenderer,
   FieldVeinFoliationBandSvgElement,
@@ -4510,6 +4511,11 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
     if (syncState) setLiveDrawState(syncState);
   }, [syncState]);
 
+  const stripMetrics = useMemo(
+    () => computeUnfoldedStripBoxes(activeLocation, activeRound, true),
+    [activeLocation, activeRound]
+  );
+
   const pullM = Math.max(
     0.5,
     Number(
@@ -4546,36 +4552,52 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
     return faceGeom;
   };
 
-  // Strip geometry inside SVG (340 x 192):
-  // Top strip (y = 14 .. 106, height = 92):
-  //   Left Wall:  x = 16 .. 88  (w = 72) — Left outer starting edge (x=16) is 0m!
-  //   Crown:      x = 88 .. 252 (w = 164)
-  //   Right Wall: x = 252 .. 324 (w = 72)
-  //   Bottom Strip Line (y = 106, stripY1) = 0m!
-  //   Going upward from bottom to top = 0m (bottom) -> 1m -> 2m -> 3m / pullM (y = 14, stripY0, top)!
-  // Bottom Face Canvas Outline (y = 112 .. 186)
-  const stripY0 = 14;
-  const stripH = 92;
-  const stripY1 = stripY0 + stripH; // 106 (0m at bottom!)
-  const lwX0 = 16;
-  const lwW = 72;
-  const crX0 = lwX0 + lwW; // 88
-  const crW = 164;
-  const rwX0 = crX0 + crW; // 252
-  const rwW = 72;
-  const stripX1 = rwX0 + rwW; // 324
+  // Strip geometry inside SVG (340 x 192) — EXACT PROPORTIONAL CAD ALIGNMENT MATCHING STRIP LOG:
+  // Dynamically computed from physical perimeter development: [ Left Wall | Crown Arch | Right Wall ]
+  const leftWallM = Math.max(0.5, stripMetrics.leftWallLengthM || 4.0);
+  const crownM = Math.max(0.5, stripMetrics.crownLengthM || 8.5);
+  const rightWallM = Math.max(0.5, stripMetrics.rightWallLengthM || 4.0);
+  const totalStripMetersW = leftWallM + crownM + rightWallM;
 
-  const faceY0 = stripY1 + 6; // 112
-  const faceH = 74;
-  const faceX0 = crX0 + 18;
-  const faceW = crW - 36;
+  const marginX = 14;
+  const totalAvailW = 340 - marginX * 2; // 312px total strip span
+  const lwW = Number(((leftWallM / totalStripMetersW) * totalAvailW).toFixed(1));
+  const rwW = Number(((rightWallM / totalStripMetersW) * totalAvailW).toFixed(1));
+  const crW = Number((totalAvailW - lwW - rwW).toFixed(1));
+
+  const lwX0 = marginX;
+  const crX0 = lwX0 + lwW;
+  const rwX0 = crX0 + crW;
+  const stripX1 = rwX0 + rwW;
+
+  const stripY0 = 15;
+  const stripH = 88;
+  const stripY1 = stripY0 + stripH; // 103 (0m collar at bottom, pullM at top)
+
+  const crownCenterlineX = Number((crX0 + crW / 2).toFixed(1));
+
+  // Tunnel Face Canvas Outline positioned symmetrically below Crown Centerline (CL)
+  const faceY0 = stripY1 + 12;
+  const tunnelW = Math.max(1, activeLocation.widthM || 8.5);
+  const tunnelH = Math.max(1, activeLocation.heightM || 7.5);
+  const tunnelAspect = tunnelH / tunnelW;
+  const maxFaceH = 192 - faceY0 - 4; // 73px max
+  const faceH = Number(Math.min(maxFaceH, Math.max(46, 64 * Math.min(1.05, tunnelAspect))).toFixed(1));
+  const faceW = Number(Math.min(crW * 1.05, Math.max(50, faceH / tunnelAspect)).toFixed(1));
+  const faceX0 = Number((crownCenterlineX - faceW / 2).toFixed(1));
 
   // Map a canonical panel (u, v) to the 2D Unfolded Sync Box SVG:
-  // `pullNorm` is 0 at 0m -> 1 at 3m (pullM):
-  //   pullNorm = panel === 'right_wall' ? 1 - u : u
+  // In the canonical 2D panel coordinate system:
+  // - Crown: u across curve (0 = L-SPL, 1 = R-SPL); v along pull (0 = Face / 3m, 1 = 0m collar)
+  // - Left Wall: u along pull (0 = 0m collar, 1 = Face / 3m); v from SPL (0) to Invert (1)
+  // - Right Wall: u along pull (0 = Face / 3m, 1 = 0m collar); v from SPL (0) to Invert (1)
+  // - Face: u across width (0 = left, 1 = right); v down height (0 = apex, 1 = floor)
   // In the Sync Box top strip:
-  //   0m (pullNorm = 0) is at the BOTTOM (stripY1 = 106)
-  //   3m / pullM (pullNorm = 1) is at the TOP (stripY0 = 14)
+  //   Bottom Strip Line (stripY1) = 0m collar (pullNorm = 0)
+  //   Top Strip Line (stripY0) = pullM / Face (pullNorm = 1)
+  //   Left Wall: x = lwX0 (Floor / L-INV) -> crX0 (L-SPL)
+  //   Crown: x = crX0 (L-SPL) -> rwX0 (R-SPL)
+  //   Right Wall: x = rwX0 (R-SPL) -> stripX1 (Floor / R-INV)
   const mapUvToSyncSvg = React.useCallback(
     (panel: FieldPanelId, u: number, v: number): { x: number; y: number } => {
       if (panel === 'face') {
@@ -4589,19 +4611,19 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
       let pullNorm = 0;
       let sx = 0;
       if (panel === 'crown') {
-        // Crown: u is across arch curve (L-SPL -> R-SPL), v is pull advance (0m -> pullM)
-        pullNorm = clampedV;
+        // Crown: u = L-SPL (0) -> R-SPL (1); v = 0 (Face / 3m) -> 1 (0m collar)
+        pullNorm = 1 - clampedV;
         sx = crX0 + clampedU * crW;
       } else if (panel === 'left_wall') {
-        // Left Wall: u is pull advance (1 - u is tPull); v is wall height from invert to shoulder (0 -> 1)
-        pullNorm = 1 - clampedU;
-        sx = lwX0 + clampedV * lwW;
-      } else if (panel === 'right_wall') {
-        // Right Wall: u is pull advance (0m -> pullM); v is wall height from shoulder to invert (0 -> 1)
+        // Left Wall: u = 0 (0m collar) -> 1 (Face / 3m); v = 0 (L-SPL) -> 1 (Floor)
         pullNorm = clampedU;
+        sx = lwX0 + (1 - clampedV) * lwW;
+      } else if (panel === 'right_wall') {
+        // Right Wall: u = 0 (Face / 3m) -> 1 (0m collar); v = 0 (R-SPL) -> 1 (Floor)
+        pullNorm = 1 - clampedU;
         sx = rwX0 + clampedV * rwW;
       }
-      // 0m at bottom (stripY1), 3m / pullM at top (stripY0)
+      // 0m at bottom (stripY1), pullM at top (stripY0)
       const sy = stripY1 - pullNorm * stripH;
       return { x: sx, y: sy };
     },
@@ -4668,11 +4690,28 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
     meterTicks.push(m);
   }
 
+  // 1m Perimeter Ticks along top edge matching strip log
+  const perimeter1mTicks = useMemo(() => {
+    const ticks: { x: number }[] = [];
+    for (let m = 1; m < Math.floor(leftWallM); m++) {
+      ticks.push({ x: Number((lwX0 + (m / leftWallM) * lwW).toFixed(1)) });
+    }
+    for (let m = 1; m < Math.floor(crownM); m++) {
+      ticks.push({ x: Number((crX0 + (m / crownM) * crW).toFixed(1)) });
+    }
+    for (let m = 1; m < Math.floor(rightWallM); m++) {
+      ticks.push({ x: Number((rwX0 + (m / rightWallM) * rwW).toFixed(1)) });
+    }
+    return ticks;
+  }, [leftWallM, crownM, rightWallM, lwX0, crX0, rwX0, lwW, crW, rwW]);
+
+  const faceSplY = faceY0 + (1 - (stripMetrics.splRatio || 0.58)) * faceH;
+
   return (
     <div className="bg-slate-900 border-2 border-cyan-500/70 rounded-xl p-1 shadow-lg shrink-0 select-none">
       <div className="flex items-center justify-between gap-1 mb-0.5 px-1">
         <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300 font-mono">
-          SYNC
+          SYNC • UNROLLED CAD STRIP
         </span>
         {isJointPendingOk && (
           <button
@@ -4690,7 +4729,7 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
         viewBox="0 0 340 192"
         className="w-full h-[182px] bg-white rounded-lg border border-slate-700 block"
       >
-        {/* 1. Unfolded Strip Canvas Panels (Left Wall | Crown | Right Wall) */}
+        {/* 1. Unfolded Strip Canvas Panels (Left Wall | Crown | Right Wall) - Arranged exact like strip log */}
         <rect
           x={lwX0}
           y={stripY0}
@@ -4719,7 +4758,31 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           strokeWidth="1.5"
         />
 
-        {/* Pull Reference Grid Lines: 0m at Bottom Line (stripY1) -> going upward (1m, 2m...) to pullM (3m) at Top Line (stripY0) */}
+        {/* Unified Continuous CAD Strip Perimeter Border */}
+        <rect
+          x={lwX0}
+          y={stripY0}
+          width={totalAvailW}
+          height={stripH}
+          fill="none"
+          stroke="#0f172a"
+          strokeWidth="1.8"
+        />
+
+        {/* 1m Perimeter Ticks along top edge of strip */}
+        {perimeter1mTicks.map((tk, idx) => (
+          <line
+            key={`perim-tk-${idx}`}
+            x1={tk.x}
+            y1={stripY0}
+            x2={tk.x}
+            y2={stripY0 + 3.5}
+            stroke="#0f172a"
+            strokeWidth="1"
+          />
+        ))}
+
+        {/* Pull Reference Grid Lines: 0m at Bottom Line (stripY1) -> going upward to pullM at Top Line (stripY0) */}
         {meterTicks.map((m) => {
           const frac = m / pullM;
           const y = stripY1 - frac * stripH;
@@ -4749,37 +4812,36 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           );
         })}
 
-        {/* Longitudinal Reference Lines: L-SPL, Crown CL, R-SPL */}
+        {/* Longitudinal Seam Lines matching Strip Log: L-SPL, Crown CL, R-SPL */}
         <line
           x1={crX0}
           y1={stripY0}
           x2={crX0}
           y2={stripY1}
-          stroke="#0284c7"
-          strokeWidth="1.8"
-          strokeDasharray="4 2"
+          stroke="#0f172a"
+          strokeWidth="1.6"
+          strokeDasharray="4 3"
         />
         <line
-          x1={crX0 + crW / 2}
+          x1={crownCenterlineX}
           y1={stripY0}
-          x2={crX0 + crW / 2}
+          x2={crownCenterlineX}
           y2={stripY1}
-          stroke="#0369a1"
-          strokeWidth="1.1"
-          strokeDasharray="3 3"
-          opacity="0.75"
+          stroke="#0284c7"
+          strokeWidth="1.3"
+          strokeDasharray="6 3 2 3"
         />
         <line
           x1={rwX0}
           y1={stripY0}
           x2={rwX0}
           y2={stripY1}
-          stroke="#0284c7"
-          strokeWidth="1.8"
-          strokeDasharray="4 2"
+          stroke="#0f172a"
+          strokeWidth="1.6"
+          strokeDasharray="4 3"
         />
 
-        {/* Top Pull Reference Line (pullM / 3m) & Bottom 0m Reference Line */}
+        {/* Top Face Reference Line (pullM) & Bottom 0m Collar Reference Line */}
         <line
           x1={lwX0}
           y1={stripY0}
@@ -4797,10 +4859,10 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           strokeWidth="2.2"
         />
 
-        {/* Top = pullM (3m) & Bottom = 0m Ruler Labels */}
+        {/* Top = pullM (Face) & Bottom = 0m (Collar) Ruler Labels */}
         <text
           x={lwX0 - 2}
-          y={stripY0 + 5}
+          y={stripY0 + 4}
           textAnchor="end"
           fontSize="7"
           fontWeight="900"
@@ -4822,7 +4884,7 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
         </text>
         <text
           x={stripX1 + 2}
-          y={stripY0 + 5}
+          y={stripY0 + 4}
           textAnchor="start"
           fontSize="7"
           fontWeight="900"
@@ -4843,82 +4905,106 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           0m
         </text>
 
-        {/* Panel & Reference Line Headers */}
-        <text
-          x={lwX0 + 2}
-          y={stripY0 - 3}
-          textAnchor="start"
-          fontSize="6.8"
-          fontWeight="900"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#0f766e"
-        >
-          0m
-        </text>
+        {/* Top Panel Headers matching Strip Log Standard */}
         <text
           x={lwX0 + lwW / 2}
-          y={stripY0 - 3}
-          textAnchor="middle"
-          fontSize="7.2"
-          fontWeight="900"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#0f766e"
-        >
-          L.WALL
-        </text>
-        <text
-          x={crX0}
-          y={stripY0 - 3}
+          y={stripY0 - 3.5}
           textAnchor="middle"
           fontSize="7"
           fontWeight="900"
           fontFamily="IBM Plex Mono, monospace"
-          fill="#0284c7"
+          fill="#0f766e"
         >
-          L-SPL
+          L.WALL ({leftWallM.toFixed(1)}m)
         </text>
         <text
-          x={crX0 + crW / 2}
-          y={stripY0 - 3}
+          x={crownCenterlineX}
+          y={stripY0 - 3.5}
           textAnchor="middle"
           fontSize="7.5"
           fontWeight="900"
           fontFamily="IBM Plex Mono, monospace"
           fill="#0369a1"
         >
-          CROWN (CL)
+          CROWN ARCH ({crownM.toFixed(1)}m)
         </text>
         <text
-          x={rwX0}
-          y={stripY0 - 3}
+          x={rwX0 + rwW / 2}
+          y={stripY0 - 3.5}
           textAnchor="middle"
           fontSize="7"
           fontWeight="900"
           fontFamily="IBM Plex Mono, monospace"
-          fill="#0284c7"
-        >
-          R-SPL
-        </text>
-        <text
-          x={rwX0 + rwW / 2}
-          y={stripY0 - 3}
-          textAnchor="middle"
-          fontSize="7.2"
-          fontWeight="900"
-          fontFamily="IBM Plex Mono, monospace"
           fill="#4338ca"
         >
-          R.WALL
+          R.WALL ({rightWallM.toFixed(1)}m)
         </text>
 
-        {/* 2. Face Canvas Outline & Reference Lines below Crown */}
+        {/* Bottom Seam Labels matching Strip Log */}
+        <text
+          x={lwX0}
+          y={stripY1 + 8}
+          textAnchor="middle"
+          fontSize="6.5"
+          fontWeight="800"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#64748b"
+        >
+          L-INV
+        </text>
+        <text
+          x={crX0}
+          y={stripY1 + 8}
+          textAnchor="middle"
+          fontSize="6.8"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0284c7"
+        >
+          SPL
+        </text>
+        <text
+          x={crownCenterlineX}
+          y={stripY1 + 8}
+          textAnchor="middle"
+          fontSize="7"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0369a1"
+        >
+          CL
+        </text>
+        <text
+          x={rwX0}
+          y={stripY1 + 8}
+          textAnchor="middle"
+          fontSize="6.8"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0284c7"
+        >
+          SPL
+        </text>
+        <text
+          x={stripX1}
+          y={stripY1 + 8}
+          textAnchor="middle"
+          fontSize="6.5"
+          fontWeight="800"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#64748b"
+        >
+          R-INV
+        </text>
+
+        {/* 2. Face Canvas Outline & Centerline Aligned with Crown CL below Strip */}
         <rect
           x={faceX0}
           y={faceY0}
           width={faceW}
           height={faceH}
           fill="#f8fafc"
-          stroke="#94a3b8"
+          stroke="#cbd5e1"
           strokeWidth="1"
           strokeDasharray="2 2"
         />
@@ -4928,32 +5014,33 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           stroke="#0f172a"
           strokeWidth="1.6"
         />
-        {/* Face Centerline & Mid-Height Reference Lines */}
+        {/* Face Vertical Centerline connecting with Crown CL */}
         <line
-          x1={faceX0 + faceW / 2}
-          y1={faceY0 + 2}
-          x2={faceX0 + faceW / 2}
+          x1={crownCenterlineX}
+          y1={faceY0}
+          x2={crownCenterlineX}
           y2={faceY0 + faceH}
           stroke="#0284c7"
-          strokeWidth="1"
+          strokeWidth="1.2"
           strokeDasharray="3 2"
-          opacity="0.75"
+          opacity="0.8"
         />
+        {/* Face Horizontal Springline Reference */}
         <line
-          x1={faceX0 + 4}
-          y1={faceY0 + faceH * 0.5}
-          x2={faceX0 + faceW - 4}
-          y2={faceY0 + faceH * 0.5}
+          x1={faceX0 + 2}
+          y1={faceSplY}
+          x2={faceX0 + faceW - 2}
+          y2={faceSplY}
           stroke="#94a3b8"
           strokeWidth="0.9"
           strokeDasharray="3 2"
-          opacity="0.7"
+          opacity="0.75"
         />
         <text
           x={faceX0 - 4}
-          y={faceY0 + faceH / 2 + 3}
+          y={faceY0 + faceH / 2 + 2.5}
           textAnchor="end"
-          fontSize="7.5"
+          fontSize="7"
           fontWeight="900"
           fontFamily="IBM Plex Mono, monospace"
           fill="#0f172a"
@@ -4961,7 +5048,7 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           FACE
         </text>
 
-        {/* 3. Render All Preserved Drawn Joint Traces + Highlight Newest Joint Trace Only */}
+        {/* 3A. Render All Preserved Drawn Joint Traces + Highlight Newest Joint Trace */}
         {allJoints.map((tr) => {
           if (tr.points.length < 2) return null;
           const mappedPts = tr.points.map((pt) => mapPanelPtToSyncSvg(tr.panel, pt));
@@ -4992,13 +5079,95 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           );
         })}
 
-        {/* 4. Render Live Active New Joint Trace being drawn in real time */}
+        {/* 3B. Render Lithology / Vein Bands & Foliation in Sync Box */}
+        {(activeRound.lithologyStrokes || []).map((st) => {
+          if (
+            st.points.length < 2 ||
+            (st.mode !== 'vein_band' && st.mode !== 'foliation_plane')
+          ) {
+            return null;
+          }
+          const mappedPts = st.points.map((pt) => mapPanelPtToSyncSvg(st.panel, pt));
+          const pathD = buildSmoothSvgPath(mappedPts);
+          const col = st.mode === 'vein_band' ? '#d97706' : '#64748b';
+          return (
+            <path
+              key={`sync-vein-${st.id}`}
+              d={pathD}
+              fill="none"
+              stroke={col}
+              strokeWidth="2.2"
+              strokeDasharray={st.mode === 'foliation_plane' ? '3 2' : undefined}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity={0.88}
+            />
+          );
+        })}
+
+        {/* 3C. Render Structural Features (Faults, Shear Zones, Bedding, Dykes) in Sync Box */}
+        {(activeRound.structuralFeatures || []).map((ft) => {
+          if (ft.points.length < 2) return null;
+          const mappedPts = ft.points.map((pt) => mapPanelPtToSyncSvg(ft.panel, pt));
+          const pathD = buildSmoothSvgPath(mappedPts);
+          const col =
+            ft.featureType === 'fault' || ft.featureType === 'thrust_fault'
+              ? '#dc2626'
+              : ft.featureType === 'shear_zone'
+              ? '#ea580c'
+              : ft.featureType === 'fold_axis'
+              ? '#7c3aed'
+              : '#2563eb';
+          return (
+            <path
+              key={`sync-ft-${ft.id}`}
+              d={pathD}
+              fill="none"
+              stroke={col}
+              strokeWidth="2.4"
+              strokeDasharray={ft.featureType === 'shear_zone' ? '4 2' : undefined}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          );
+        })}
+
+        {/* 3D. Render Dip Plane Surfaces in Sync Box */}
+        {(activeRound.dipPlaneSurfaces || []).map((ds) => {
+          if (ds.points.length < 2) return null;
+          const mappedPts = ds.points.map((pt) => mapPanelPtToSyncSvg(ds.panel, pt));
+          const grp =
+            FIELD_JOINT_GROUP_COLORS[ds.setId || 'unassigned'] ||
+            FIELD_JOINT_GROUP_COLORS.unassigned;
+          return (
+            <polygon
+              key={`sync-dip-${ds.id}`}
+              points={mappedPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+              fill={grp.stroke}
+              fillOpacity="0.28"
+              stroke={grp.stroke}
+              strokeWidth="1.2"
+            />
+          );
+        })}
+
+        {/* 4. Render Live Active New Joint Trace being drawn in real time (Continuous Across Unfolded Panels) */}
         {isDrawing &&
           liveSamples.map((s, idx) => {
             const p = mapUvToSyncSvg(s.panel, s.u, s.v);
             const prev = idx > 0 ? liveSamples[idx - 1] : null;
-            const prevP =
-              prev && prev.panel === s.panel ? mapUvToSyncSvg(prev.panel, prev.u, prev.v) : null;
+            let prevP: { x: number; y: number } | null = null;
+            if (prev) {
+              if (prev.panel === s.panel) {
+                prevP = mapUvToSyncSvg(prev.panel, prev.u, prev.v);
+              } else if (prev.panel !== 'face' && s.panel !== 'face') {
+                // Crossing Left Wall <-> Crown or Crown <-> Right Wall on the unfolded strip
+                const testP = mapUvToSyncSvg(prev.panel, prev.u, prev.v);
+                if (Math.hypot(p.x - testP.x, p.y - testP.y) < 36) {
+                  prevP = testP;
+                }
+              }
+            }
             return (
               <g key={`sync-live-seg-${idx}`}>
                 {prevP && (

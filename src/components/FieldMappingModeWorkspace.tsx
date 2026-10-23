@@ -13,6 +13,7 @@ import {
   Droplets,
   Eraser,
   Eye,
+  FileSpreadsheet,
   FolderPlus,
   Layers,
   MapPin,
@@ -4026,6 +4027,30 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="font-bold">[{activeGeologist.role}]</span>
               <span className="truncate max-w-[110px]">{activeGeologist.name}</span>
+            </button>
+          )}
+
+          {onOpenContinuousTunnelLog && (
+            <button
+              type="button"
+              onClick={onOpenContinuousTunnelLog}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 hover:text-cyan-200 border border-cyan-500/40 shadow-xs transition-all cursor-pointer"
+              title="Launch Continuous 3D Tunnel Strip Log & Multi-Pull CAD"
+            >
+              <Layers className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden xl:inline">Continuous 3D Log</span>
+            </button>
+          )}
+
+          {onOpenCoreLogging && (
+            <button
+              type="button"
+              onClick={onOpenCoreLogging}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 shadow-xs transition-all cursor-pointer"
+              title="Open Diamond Drill Core Logging & RQD/Box Photography"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden xl:inline">Core Logging</span>
             </button>
           )}
 
