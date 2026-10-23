@@ -149,6 +149,7 @@ import {
   Field3DTunnelGeologicalReportStage,
   FieldCanvasAdvanceMatlabPanel,
   FieldFourPhotoUploadStage,
+  FieldInBuiltCameraStage,
   FieldPhotoFitStage,
   FieldSvgMatlabFilterDefs,
   FieldTwoPagePhotoReportStage,
@@ -222,6 +223,7 @@ interface FieldMappingModeWorkspaceProps {
   onExitToWelcome?: () => void;
   onOpenDataStorage?: () => void;
   onOpenCoreLogging?: () => void;
+  onOpenContinuousTunnelLog?: () => void;
   initialWorkflowMode?: 'photo_mapping' | 'field_mapping';
   onChangeWorkflowMode?: (mode: 'photo_mapping' | 'field_mapping') => void;
   resumeAtLastStage?: boolean;
@@ -288,6 +290,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   onExitToWelcome,
   onOpenDataStorage,
   onOpenCoreLogging,
+  onOpenContinuousTunnelLog,
   initialWorkflowMode = 'field_mapping',
   resumeAtLastStage = false,
   initialStage,
@@ -834,172 +837,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     };
   }, []);
 
-  // Stage 3: In-Built Auto-Upscale & Shadow-Remove Clean Camera state
-  const [inAppCameraOpen, setInAppCameraOpen] = useState(false);
-  const [cameraTargetPanel, setCameraTargetPanel] = useState<FieldPanelId>('left_wall');
-  const [liveCameraActive, setLiveCameraActive] = useState(false);
-  const [cameraAutoUpscale, setCameraAutoUpscale] = useState(true);
-  const [cameraShadowRemove, setCameraShadowRemove] = useState(true);
-  const [cameraShapeGuide, setCameraShapeGuide] = useState(true);
-  const [cameraShutterFlash, setCameraShutterFlash] = useState(false);
-  const [photoFilterPanel, setPhotoFilterPanel] = useState<'all' | FieldPanelId>('all');
-  const [previewPhotoItem, setPreviewPhotoItem] = useState<FieldCollectedPhoto | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
 
-  // Stop live camera stream on unmount or stage change
-  const stopLiveCameraStream = () => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-    }
-    setLiveCameraActive(false);
-  };
-
-  useEffect(() => {
-    if (stage !== 'camera_prompt') {
-      stopLiveCameraStream();
-      setInAppCameraOpen(false);
-    }
-    return () => {
-      stopLiveCameraStream();
-    };
-  }, [stage]);
-
-  const startLiveCameraStream = async () => {
-    setInAppCameraOpen(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
-      mediaStreamRef.current = stream;
-      setLiveCameraActive(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      }, 60);
-    } catch {
-      // Keep In-Built Clean Camera open using high-detail optical viewfinder synthesis
-      setLiveCameraActive(false);
-    }
-  };
-
-  // Snap a photo inside the In-Built Auto-Upscale & Shadow-Remove Clean Camera (stays in camera!)
-  const handleSnapCleanCameraPhoto = () => {
-    if (!activeRound || !activeProject || !activeLocation) return;
-    setCameraShutterFlash(true);
-    setTimeout(() => setCameraShutterFlash(false), 160);
-
-    const panelShotsCount =
-      activeRound.collectedPhotos.filter((p) => p.panel === cameraTargetPanel).length + 1;
-    const shapeLabel =
-      FIELD_TUNNEL_SHAPES.find((s) => s.id === activeLocation.shape)?.label ||
-      activeLocation.shape.replace(/_/g, ' ');
-
-    const processed = processCleanFieldCameraFrame({
-      source: liveCameraActive && videoRef.current ? videoRef.current : null,
-      panel: cameraTargetPanel,
-      projectName: activeProject.projectName,
-      locationName: activeLocation.name,
-      tunnelShapeLabel: shapeLabel,
-      widthM: activeLocation.widthM,
-      heightM: activeLocation.heightM,
-      chainageFrom: activeRound.chainageFrom,
-      chainageTo: activeRound.chainageTo,
-      shotNumber: panelShotsCount,
-      enableAutoUpscale: cameraAutoUpscale,
-      enableShadowRemove: cameraShadowRemove,
-    });
-
-    const photoItem: FieldCollectedPhoto = {
-      id: `fphoto-${Date.now()}-${panelShotsCount}`,
-      panel: cameraTargetPanel,
-      dataUrl: processed.dataUrl,
-      label: `${processed.panelLabel} #${panelShotsCount} (${processed.rdChainage})`,
-      capturedAt: processed.dateTimeFormatted,
-      projectName: activeProject.projectName,
-      locationName: activeLocation.name,
-      rdChainage: processed.rdChainage,
-      panelLabel: processed.panelLabel,
-      tunnelShapeLabel: `${shapeLabel} (${activeLocation.widthM}m×${activeLocation.heightM}m)`,
-      dateTimeFormatted: processed.dateTimeFormatted,
-      autoUpscaled: cameraAutoUpscale,
-      shadowRemoved: cameraShadowRemove,
-      resolutionLabel: processed.resolutionLabel,
-    };
-
-    updateActiveRound((r) => ({
-      ...r,
-      photoPromptHandled: true,
-      collectedPhotos: [photoItem, ...r.collectedPhotos],
-    }));
-  };
-
-  // Multi-file / device photo import processed through the exact same Auto-Upscale & Shadow-Remove Clean Camera pipeline
-  const handleFileCameraCapture = (files: FileList | null) => {
-    if (!files || files.length === 0 || !activeRound || !activeProject || !activeLocation) return;
-    const shapeLabel =
-      FIELD_TUNNEL_SHAPES.find((s) => s.id === activeLocation.shape)?.label ||
-      activeLocation.shape.replace(/_/g, ' ');
-
-    Array.from(files).forEach((file, idx) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const rawUrl = String(reader.result || '');
-        const img = new Image();
-        img.onload = () => {
-          updateActiveRound((r) => {
-            const panelShotsCount =
-              r.collectedPhotos.filter((p) => p.panel === cameraTargetPanel).length + 1 + idx;
-            const processed = processCleanFieldCameraFrame({
-              source: img,
-              panel: cameraTargetPanel,
-              projectName: activeProject.projectName,
-              locationName: activeLocation.name,
-              tunnelShapeLabel: shapeLabel,
-              widthM: activeLocation.widthM,
-              heightM: activeLocation.heightM,
-              chainageFrom: r.chainageFrom,
-              chainageTo: r.chainageTo,
-              shotNumber: panelShotsCount,
-              enableAutoUpscale: cameraAutoUpscale,
-              enableShadowRemove: cameraShadowRemove,
-            });
-            const photoItem: FieldCollectedPhoto = {
-              id: `fphoto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-              panel: cameraTargetPanel,
-              dataUrl: processed.dataUrl,
-              label: `${processed.panelLabel} #${panelShotsCount} (${processed.rdChainage})`,
-              capturedAt: processed.dateTimeFormatted,
-              projectName: activeProject.projectName,
-              locationName: activeLocation.name,
-              rdChainage: processed.rdChainage,
-              panelLabel: processed.panelLabel,
-              tunnelShapeLabel: `${shapeLabel} (${activeLocation.widthM}m×${activeLocation.heightM}m)`,
-              dateTimeFormatted: processed.dateTimeFormatted,
-              autoUpscaled: cameraAutoUpscale,
-              shadowRemoved: cameraShadowRemove,
-              resolutionLabel: processed.resolutionLabel,
-            };
-            return {
-              ...r,
-              photoPromptHandled: true,
-              collectedPhotos: [photoItem, ...r.collectedPhotos],
-            };
-          });
-        };
-        img.src = rawUrl;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
 
   // Stage 4: Field Mapping Canvas State (Single Panel in Stage 4; Full 4-Panel in Stage 5 Group Joints; or 3D Tunnel Mode)
   const [activePanel, setActivePanel] = useState<FieldPanelId>(() =>
@@ -4088,7 +3926,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   ],
                   ['word_template_export', '10. Clean Report'],
                   ['photo_2d_report', '11. 2D Photo Report'],
-                  ['geology_3d_report', '12. 3D Geology Report'],
                 ]
               : [
                   ['project_setup', '1. Project & Data'],
@@ -4126,7 +3963,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   ],
                   ['word_template_export', '12. Clean Report'],
                   ['photo_2d_report', '13. 2D Photo Report'],
-                  ['geology_3d_report', '14. 3D Geology Report'],
                 ]) as [FieldWorkflowStage, string][]
           ).map(([stKey, label]) => (
             <button
@@ -6182,7 +6018,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         </div>
       )}
 
-      {/* ==================== STAGE 3: UPLOAD PHOTOS (PHOTOGRAMMETRY ONLY) ==================== */}
+      {/* ==================== STAGE 3: FIELD CAMERA & PHOTO UPLOAD ==================== */}
       {stage === 'camera_prompt' &&
         activeRound &&
         activeProject &&
@@ -6198,11 +6034,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             onProceedToPhotoFit={() => setStage('photo_fit')}
           />
         ) : (
-          (() => {
-            // Field mapping mode completely bypasses photo upload stage
-            setStage('field_canvas');
-            return null;
-          })()
+          <FieldInBuiltCameraStage
+            activeProject={activeProject}
+            activeLocation={activeLocation}
+            activeRound={activeRound}
+            mappingDomain={mappingDomain}
+            onUpdateRound={updateActiveRound}
+            onBackToRoundDetails={() => setStage('excavation_round')}
+            onSkipOrProceedToCanvas={() => setStage('field_canvas')}
+          />
         ))}
 
       {/* ==================== STAGE 4: INTERACTIVE PHOTO FIT TO SHAPE & SIZE (PHOTOGRAMMETRY ONLY) ==================== */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Compass,
   Crop,
+  Crosshair,
   Download,
   Eye,
   EyeOff,
@@ -15,6 +16,7 @@ import {
   FlipVertical,
   Grid,
   Image as ImageIcon,
+  Info,
   Layers,
   Maximize2,
   Palette,
@@ -23,6 +25,7 @@ import {
   RotateCw,
   Sliders,
   Sparkles,
+  Target,
   Trash2,
   Upload,
   Wand2,
@@ -461,54 +464,70 @@ export const FieldInBuiltCameraStage: React.FC<{
     : FIELD_TUNNEL_SHAPES.find((s) => s.id === activeLocation.shape)?.label ||
       activeLocation.shape.replace(/_/g, ' ').toUpperCase();
 
-  const allPortions: {
+  // Top portion options: Face, Crown, LW, RW (as requested: "face, crown, lw, rw")
+  const allPortions = useMemo<{
     id: FieldPanelId;
     title: string;
     shortLabel: string;
+    portionCode: string;
     dimLabel: string;
     available: boolean;
-  }[] = [
+  }[]>(() => [
     {
       id: 'face',
       title: isSurface ? surfMap.face.fullLabel : 'Face',
       shortLabel: isSurface ? surfMap.face.shortLabel : 'Face',
+      portionCode: 'FACE',
       dimLabel: `${locWidthM.toFixed(1)}m × ${locHeightM.toFixed(1)}m`,
       available: true,
-    },
-    {
-      id: 'left_wall',
-      title: isSurface ? surfMap.leftWall.fullLabel : 'Left Wall',
-      shortLabel: isSurface ? surfMap.leftWall.shortLabel : 'Left Wall',
-      dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
-      available: surfCfg.hasLeftWall,
-    },
-    {
-      id: 'right_wall',
-      title: isSurface ? surfMap.rightWall.fullLabel : 'Right Wall',
-      shortLabel: isSurface ? surfMap.rightWall.shortLabel : 'Right Wall',
-      dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
-      available: surfCfg.hasRightWall,
     },
     {
       id: 'crown',
       title: isSurface ? surfMap.crown.fullLabel : 'Crown',
       shortLabel: isSurface ? surfMap.crown.shortLabel : 'Crown',
+      portionCode: 'CROWN',
       dimLabel: `${(Number(surfCfg.crownLengthM) || locWidthM).toFixed(1)}m × ${pullM.toFixed(1)}m`,
-      available: surfCfg.hasCrown,
+      available: isSurface ? surfCfg.hasCrown : true,
     },
-  ];
+    {
+      id: 'left_wall',
+      title: isSurface ? surfMap.leftWall.fullLabel : 'Left Wall',
+      shortLabel: isSurface ? surfMap.leftWall.shortLabel : 'LW',
+      portionCode: 'LW',
+      dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
+      available: isSurface ? surfCfg.hasLeftWall : true,
+    },
+    {
+      id: 'right_wall',
+      title: isSurface ? surfMap.rightWall.fullLabel : 'Right Wall',
+      shortLabel: isSurface ? surfMap.rightWall.shortLabel : 'RW',
+      portionCode: 'RW',
+      dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
+      available: isSurface ? surfCfg.hasRightWall : true,
+    },
+  ], [isSurface, surfMap, surfCfg, locWidthM, locHeightM, pullM, splH]);
 
-  // Available portions based on predefined tunnel/surface shape and size
-  const availablePortions = (
-    Boolean((activeLocation as any).singlePanelOnly)
-      ? allPortions.filter((p) => p.id === 'face')
-      : allPortions
-  ).filter((p) => p.available);
+  const availablePortions = useMemo(() => {
+    return (
+      Boolean((activeLocation as any).singlePanelOnly)
+        ? allPortions.filter((p) => p.id === 'face')
+        : allPortions
+    ).filter((p) => p.available);
+  }, [allPortions, activeLocation]);
 
-  const [isCameraModuleOpen, setIsCameraModuleOpen] = useState(false);
+  // 'camera' = Live In-Built Camera Viewfinder
+  // 'inspect' = Photo Inspection & Georeference Reference Marking (SPL, Center Line)
+  const [viewMode, setViewMode] = useState<'camera' | 'inspect'>('camera');
   const [targetPanel, setTargetPanel] = useState<FieldPanelId>('face');
   const [liveCameraActive, setLiveCameraActive] = useState(false);
   const [shutterFlash, setShutterFlash] = useState(false);
+  const [lastNotification, setLastNotification] = useState<string | null>(null);
+
+  // Photo Inspection state
+  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
+  const [activeMarkTool, setActiveMarkTool] = useState<
+    'none' | 'center_line' | 'spl_left' | 'spl_right' | 'crown_apex'
+  >('none');
   const [previewPhoto, setPreviewPhoto] = useState<FieldCollectedPhoto | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -520,7 +539,7 @@ export const FieldInBuiltCameraStage: React.FC<{
     if (!exists && availablePortions.length > 0) {
       setTargetPanel(availablePortions[0].id);
     }
-  }, [activeLocation.shape, targetPanel, availablePortions.length]);
+  }, [availablePortions, targetPanel]);
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -553,21 +572,17 @@ export const FieldInBuiltCameraStage: React.FC<{
     }
   };
 
+  // Launch camera immediately when in camera mode; stop when leaving
   useEffect(() => {
+    if (viewMode === 'camera') {
+      startCamera();
+    } else {
+      stopCamera();
+    }
     return () => {
       stopCamera();
     };
-  }, []);
-
-  const handleOpenCameraModule = () => {
-    setIsCameraModuleOpen(true);
-    startCamera();
-  };
-
-  const handleEndCameraModule = () => {
-    stopCamera();
-    setIsCameraModuleOpen(false);
-  };
+  }, [viewMode]);
 
   const activePortionInfo =
     availablePortions.find((p) => p.id === targetPanel) || availablePortions[0] || allPortions[0];
@@ -578,14 +593,42 @@ export const FieldInBuiltCameraStage: React.FC<{
   const chToFormatted = Number.isFinite(Number(activeRound.chainageTo))
     ? Number(activeRound.chainageTo).toFixed(1)
     : String(activeRound.chainageTo || '0.0');
-  const rdChainageStr = `${isSurface ? 'ST' : 'RD'} ${chFromFormatted}m–${chToFormatted}m`;
+  const rdTag = isSurface ? 'ST' : 'RD';
+  const rdChainageStr = `${rdTag} ${chFromFormatted}m–${chToFormatted}m`;
 
+  // Helper to generate clean, professional file name and metadata
+  const buildPhotoMetadata = (panelId: FieldPanelId, shotNum: number) => {
+    const cleanProject = (activeProject.projectName || 'TunnelProject').replace(/[^\w-]/g, '_');
+    const cleanLocation = (activeLocation.name || 'Location').replace(/[^\w-]/g, '_');
+    const portionCode =
+      panelId === 'face'
+        ? 'FACE'
+        : panelId === 'crown'
+        ? 'CROWN'
+        : panelId === 'left_wall'
+        ? 'LW'
+        : panelId === 'right_wall'
+        ? 'RW'
+        : String(panelId).toUpperCase();
+
+    const d = new Date();
+    const yyyymmdd = d.toISOString().slice(0, 10).replace(/-/g, '');
+    const hhmmss = d.toTimeString().slice(0, 8).replace(/:/g, '');
+    const timestampStr = `${yyyymmdd}_${hhmmss}`;
+
+    const fileName = `${cleanProject}_${cleanLocation}_${rdTag}${chFromFormatted}-${chToFormatted}_${portionCode}_Shot${shotNum}_${timestampStr}.jpg`;
+    return { fileName, portionCode };
+  };
+
+  // Snap photo with auto-upscale, underground shadow lift, and automated renaming
   const handleSnapFieldPhoto = () => {
     setShutterFlash(true);
-    setTimeout(() => setShutterFlash(false), 180);
+    setTimeout(() => setShutterFlash(false), 200);
 
     onUpdateRound((prev) => {
       const shotNum = prev.collectedPhotos.filter((p) => p.panel === targetPanel).length + 1;
+      const { fileName, portionCode } = buildPhotoMetadata(targetPanel, shotNum);
+
       const processed = processCleanFieldCameraFrame({
         source: liveCameraActive && videoRef.current ? videoRef.current : null,
         panel: targetPanel,
@@ -601,24 +644,29 @@ export const FieldInBuiltCameraStage: React.FC<{
         enableShadowRemove: true,
       });
 
-      const properPhotoName = `${activePortionInfo.shortLabel}_${shotNum}_${activeLocation.name.replace(/\s+/g, '_')}_${rdChainageStr.replace(/\s+/g, '_')}`;
-
+      const newPhotoId = `fcam-${targetPanel}-${Date.now()}-${shotNum}`;
       const newPhoto: FieldCollectedPhoto = {
-        id: `fcam-${targetPanel}-${Date.now()}-${shotNum}`,
+        id: newPhotoId,
         panel: targetPanel,
         dataUrl: processed.dataUrl,
-        label: properPhotoName,
+        label: fileName,
+        fileName: fileName,
         capturedAt: processed.dateTimeFormatted,
         projectName: activeProject.projectName,
         locationName: activeLocation.name,
         rdChainage: rdChainageStr,
-        panelLabel: activePortionInfo.shortLabel,
+        panelLabel: portionCode,
         tunnelShapeLabel: `${shapeLabel} (${locWidthM}m × ${locHeightM}m)`,
         dateTimeFormatted: processed.dateTimeFormatted,
         autoUpscaled: true,
         shadowRemoved: true,
-        resolutionLabel: processed.resolutionLabel,
+        resolutionLabel: '1600×1000 HD (Upscaled & Shadow Lifted)',
+        referenceMarks: {},
       };
+
+      setSelectedPhotoId(newPhotoId);
+      setLastNotification(`✓ Saved & Enhanced: ${fileName}`);
+      setTimeout(() => setLastNotification(null), 3500);
 
       return {
         ...prev,
@@ -628,6 +676,7 @@ export const FieldInBuiltCameraStage: React.FC<{
     });
   };
 
+  // Device file upload
   const handleMultiFileCameraCapture = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     Array.from(files).forEach((file, idx) => {
@@ -638,6 +687,8 @@ export const FieldInBuiltCameraStage: React.FC<{
           onUpdateRound((prev) => {
             const shotNum =
               prev.collectedPhotos.filter((p) => p.panel === targetPanel).length + 1 + idx;
+            const { fileName, portionCode } = buildPhotoMetadata(targetPanel, shotNum);
+
             const processed = processCleanFieldCameraFrame({
               source: img,
               panel: targetPanel,
@@ -652,23 +703,31 @@ export const FieldInBuiltCameraStage: React.FC<{
               enableAutoUpscale: true,
               enableShadowRemove: true,
             });
-            const properPhotoName = `${activePortionInfo.shortLabel}_${shotNum}_${activeLocation.name.replace(/\s+/g, '_')}_${rdChainageStr.replace(/\s+/g, '_')}`;
+
+            const newPhotoId = `fcam-file-${targetPanel}-${Date.now()}-${idx}`;
             const newPhoto: FieldCollectedPhoto = {
-              id: `fcam-file-${targetPanel}-${Date.now()}-${idx}`,
+              id: newPhotoId,
               panel: targetPanel,
               dataUrl: processed.dataUrl,
-              label: properPhotoName,
+              label: fileName,
+              fileName: fileName,
               capturedAt: processed.dateTimeFormatted,
               projectName: activeProject.projectName,
               locationName: activeLocation.name,
               rdChainage: rdChainageStr,
-              panelLabel: activePortionInfo.shortLabel,
+              panelLabel: portionCode,
               tunnelShapeLabel: `${shapeLabel} (${locWidthM}m × ${locHeightM}m)`,
               dateTimeFormatted: processed.dateTimeFormatted,
               autoUpscaled: true,
               shadowRemoved: true,
-              resolutionLabel: processed.resolutionLabel,
+              resolutionLabel: '1600×1000 HD (Upscaled & Shadow Lifted)',
+              referenceMarks: {},
             };
+
+            setSelectedPhotoId(newPhotoId);
+            setLastNotification(`✓ Uploaded & Enhanced: ${fileName}`);
+            setTimeout(() => setLastNotification(null), 3500);
+
             return {
               ...prev,
               photoPromptHandled: true,
@@ -682,44 +741,145 @@ export const FieldInBuiltCameraStage: React.FC<{
     });
   };
 
+  // User ends the camera module -> goes to photo inspection & marking view
+  const handleEndCamera = () => {
+    stopCamera();
+    setViewMode('inspect');
+  };
+
+  // Currently inspected photo in inspect mode
+  const currentPhoto =
+    activeRound.collectedPhotos.find((p) => p.id === selectedPhotoId) ||
+    activeRound.collectedPhotos[0] ||
+    null;
+
+  // Add / update reference mark on the active photo
+  const handlePhotoClickForMark = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!currentPhoto || activeMarkTool === 'none') return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+    const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+
+    onUpdateRound((prev) => {
+      const updatedPhotos = prev.collectedPhotos.map((p) => {
+        if (p.id !== currentPhoto.id) return p;
+        const marks = { ...(p.referenceMarks || {}) };
+
+        if (activeMarkTool === 'center_line') {
+          marks.centerLine = { xPct, yPct };
+        } else if (activeMarkTool === 'spl_left') {
+          marks.springLineLeft = { xPct, yPct };
+        } else if (activeMarkTool === 'spl_right') {
+          marks.springLineRight = { xPct, yPct };
+        } else if (activeMarkTool === 'crown_apex') {
+          marks.crownApex = { xPct, yPct };
+        }
+
+        return {
+          ...p,
+          referenceMarks: marks,
+        };
+      });
+      return {
+        ...prev,
+        collectedPhotos: updatedPhotos,
+      };
+    });
+  };
+
+  // Clear marks on the current photo
+  const handleClearMarks = () => {
+    if (!currentPhoto) return;
+    onUpdateRound((prev) => ({
+      ...prev,
+      collectedPhotos: prev.collectedPhotos.map((p) =>
+        p.id === currentPhoto.id ? { ...p, referenceMarks: {} } : p
+      ),
+    }));
+  };
+
+  // One-click default centering for standard tunnel profile
+  const handleApplyDefaultMarks = () => {
+    if (!currentPhoto) return;
+    onUpdateRound((prev) => ({
+      ...prev,
+      collectedPhotos: prev.collectedPhotos.map((p) =>
+        p.id === currentPhoto.id
+          ? {
+              ...p,
+              referenceMarks: {
+                centerLine: { xPct: 50.0, yPct: 45.0 },
+                springLineLeft: { xPct: 15.0, yPct: 55.0 },
+                springLineRight: { xPct: 85.0, yPct: 55.0 },
+                crownApex: { xPct: 50.0, yPct: 18.0 },
+              },
+            }
+          : p
+      ),
+    }));
+  };
+
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 bg-slate-950 flex flex-col">
-      {isCameraModuleOpen ? (
+    <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-4 bg-slate-950 flex flex-col">
+      {viewMode === 'camera' ? (
         /* ==================== CAMERA MODULE VIEW ==================== */
         <div className="max-w-5xl w-full mx-auto flex-1 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-          {/* Top Bar: Available Portions based on Tunnel Shape & Size */}
-          <div className="bg-slate-950 border-b border-slate-800 px-3 py-2.5 flex flex-wrap items-center justify-center gap-2">
-            {availablePortions.map((portion) => {
-              const count = activeRound.collectedPhotos.filter((p) => p.panel === portion.id).length;
-              const isSelected = targetPanel === portion.id;
-              return (
-                <button
-                  key={portion.id}
-                  type="button"
-                  onClick={() => setTargetPanel(portion.id)}
-                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 border ${
-                    isSelected
-                      ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md'
-                      : 'bg-slate-900 text-slate-200 border-slate-800 hover:border-slate-700'
-                  }`}
-                >
-                  <span>{portion.shortLabel}</span>
-                  {count > 0 && (
-                    <span
-                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                        isSelected ? 'bg-slate-950 text-amber-300' : 'bg-emerald-500 text-slate-950'
+          {/* Top Bar: Portion Options (Face, Crown, LW, RW) */}
+          <div className="bg-slate-950 border-b border-slate-800 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                Portion:
+              </span>
+              <div className="flex items-center gap-1.5">
+                {availablePortions.map((portion) => {
+                  const count = activeRound.collectedPhotos.filter((p) => p.panel === portion.id).length;
+                  const isSelected = targetPanel === portion.id;
+                  return (
+                    <button
+                      key={portion.id}
+                      type="button"
+                      onClick={() => setTargetPanel(portion.id)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 border ${
+                        isSelected
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md ring-2 ring-amber-500/20'
+                          : 'bg-slate-900 text-slate-200 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+                      <span>{portion.shortLabel}</span>
+                      {count > 0 && (
+                        <span
+                          className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                            isSelected ? 'bg-slate-950 text-amber-300' : 'bg-emerald-500 text-slate-950'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="hidden sm:inline-block text-[11px] font-mono text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-1 rounded-lg border border-emerald-800/60">
+                {rdChainageStr}
+              </span>
+              <button
+                type="button"
+                onClick={onSkipOrProceedToCanvas}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                title="Skip camera directly to face canvas"
+              >
+                Skip Camera →
+              </button>
+            </div>
           </div>
 
           {/* Center Viewfinder */}
-          <div className="relative flex-1 min-h-[360px] bg-black flex items-center justify-center overflow-hidden">
+          <div className="relative flex-1 min-h-[380px] bg-black flex items-center justify-center overflow-hidden">
             <video
               ref={videoRef}
               autoPlay
@@ -730,17 +890,21 @@ export const FieldInBuiltCameraStage: React.FC<{
 
             {!liveCameraActive && (
               <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-black flex flex-col items-center justify-center p-4 text-center">
-                <Camera className="w-12 h-12 text-amber-400/80 mb-2" />
-                <div className="text-sm font-bold text-white">
-                  {activePortionInfo.shortLabel} Camera
+                <Camera className="w-14 h-14 text-amber-400/80 mb-2 animate-pulse" />
+                <div className="text-base font-black text-white uppercase tracking-wider">
+                  {activePortionInfo.title} Camera
                 </div>
-                <div className="text-xs font-mono text-slate-400 mt-0.5">
-                  {activePortionInfo.dimLabel} • {rdChainageStr}
+                <div className="text-xs font-mono text-slate-400 mt-1">
+                  {activeLocation.name} • {rdChainageStr} • {activePortionInfo.dimLabel}
+                </div>
+                <div className="mt-3 flex items-center gap-2 text-[11px] text-amber-300 bg-amber-950/60 border border-amber-800/80 px-3 py-1 rounded-full font-mono">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Auto-Upscale & Shadow Removal Ready
                 </div>
               </div>
             )}
 
-            {/* Shape Outline Guide */}
+            {/* Shape Outline Guide HUD */}
             <svg
               viewBox="0 0 1000 600"
               className="absolute inset-0 w-full h-full pointer-events-none"
@@ -771,13 +935,39 @@ export const FieldInBuiltCameraStage: React.FC<{
               )}
             </svg>
 
+            {/* Camera Overlay HUD (Enhancements & Metadata) */}
+            <div className="absolute top-3 left-3 flex flex-col gap-1 pointer-events-none">
+              <div className="px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-sm border border-slate-700 text-white text-[11px] font-mono flex items-center gap-1.5 shadow-md">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span className="font-bold text-amber-400">{activePortionInfo.portionCode}</span>
+                <span className="text-slate-400">|</span>
+                <span>{rdChainageStr}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/50 text-[10px] font-bold text-emerald-300">
+                  ✨ 1600×1000 HD Upscale
+                </span>
+                <span className="px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/50 text-[10px] font-bold text-cyan-300">
+                  🌓 Shadow Lift
+                </span>
+              </div>
+            </div>
+
+            {/* Notification Toast */}
+            {lastNotification && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-amber-400/80 text-amber-300 px-4 py-2 rounded-xl text-xs font-mono font-bold shadow-2xl flex items-center gap-2 pointer-events-none z-20">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>{lastNotification}</span>
+              </div>
+            )}
+
             {shutterFlash && (
-              <div className="absolute inset-0 bg-white/80 pointer-events-none transition-opacity" />
+              <div className="absolute inset-0 bg-white/85 pointer-events-none transition-opacity" />
             )}
           </div>
 
-          {/* Bottom Bar: Click Option in Bottom Center + End Camera Option in Bottom Right */}
-          <div className="bg-slate-950 border-t border-slate-800 px-4 py-3 flex items-center justify-between gap-3">
+          {/* Bottom Bar: Device upload, Click Photo, and End Camera */}
+          <div className="bg-slate-950 border-t border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <div>
               <input
                 ref={multiFileInputRef}
@@ -795,138 +985,534 @@ export const FieldInBuiltCameraStage: React.FC<{
                 type="button"
                 onClick={() => multiFileInputRef.current?.click()}
                 className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                title="Upload from device gallery or camera"
               >
                 <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                Device Photo
+                <span>Device Photo</span>
               </button>
             </div>
 
-            {/* Bottom Center: Click Option */}
+            {/* Bottom Center: Click Photo for selected portion */}
             <button
               type="button"
               onClick={handleSnapFieldPhoto}
-              className="px-8 py-3 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow-xl cursor-pointer transition-transform"
+              className="px-8 py-3 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow-xl cursor-pointer transition-transform ring-4 ring-amber-500/20"
             >
               <Camera className="w-5 h-5" />
               <span>Click ({activePortionInfo.shortLabel})</span>
             </button>
 
-            {/* Bottom Right: End Camera Option */}
+            {/* Bottom Right: End Camera Module -> Goes to Photo Inspection */}
             <button
               type="button"
-              onClick={handleEndCameraModule}
-              className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer"
+              onClick={handleEndCamera}
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer"
             >
               <span>End Camera</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-slate-950/70 text-emerald-300 text-[10px] font-mono font-bold">
+                {activeRound.collectedPhotos.length}
+              </span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       ) : (
-        /* ==================== FIELD CAMERA WINDOW ==================== */
-        <div className="max-w-4xl w-full mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-5 my-auto">
-          {/* Primary Two Options: Open Field Camera & Skip Field Camera */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <button
-              type="button"
-              onClick={handleOpenCameraModule}
-              className="p-6 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-base uppercase tracking-wider flex flex-col items-center justify-center gap-2.5 shadow-xl cursor-pointer transition-all"
-            >
-              <Camera className="w-8 h-8" />
-              <span>Open Field Camera</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onSkipOrProceedToCanvas}
-              className="p-6 rounded-2xl bg-slate-800 hover:bg-slate-700 border-2 border-emerald-500/50 text-emerald-300 font-black text-base uppercase tracking-wider flex flex-col items-center justify-center gap-2.5 shadow-xl cursor-pointer transition-all"
-            >
-              <ArrowRight className="w-8 h-8" />
-              <span>
-                {activeRound.collectedPhotos.length > 0
-                  ? `Continue to Canvas (${activeRound.collectedPhotos.length} Photos)`
-                  : 'Skip Field Camera'}
-              </span>
-            </button>
-          </div>
-
-          {/* Taken Pictures List with Proper Name */}
-          {activeRound.collectedPhotos.length > 0 && (
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="text-xs font-black uppercase tracking-wider text-amber-400">
-                  Taken Pictures ({activeRound.collectedPhotos.length})
-                </span>
-                <span className="text-xs font-mono text-slate-400">
-                  {activeLocation.name} • {rdChainageStr}
+        /* ==================== PHOTO INSPECTION & REFERENCE MARKING VIEW ==================== */
+        <div className="max-w-6xl w-full mx-auto flex-1 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl space-y-0">
+          {/* Header */}
+          <div className="bg-slate-950 border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm sm:text-base font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                  <Target className="w-4 h-4" />
+                  Inspect Taken Photos & Georeference Marks
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-800 border border-slate-700 text-slate-300">
+                  {activeRound.collectedPhotos.length} Photos Collected
                 </span>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[340px] overflow-y-auto pr-1">
-                {activeRound.collectedPhotos.map((photo) => (
-                  <div
-                    key={photo.id}
-                    className="rounded-xl bg-slate-900 border border-slate-800 p-2.5 flex items-center gap-3"
-                  >
-                    <img
-                      src={photo.dataUrl}
-                      alt={photo.label}
-                      onClick={() => setPreviewPhoto(photo)}
-                      className="w-20 h-16 rounded-lg object-cover border border-slate-700 shrink-0 cursor-pointer hover:opacity-90"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-black text-amber-300 truncate" title={photo.label}>
-                        {photo.label}
-                      </div>
-                      <div className="text-[11px] font-mono text-emerald-300 truncate mt-0.5">
-                        {photo.panelLabel || photo.panel.replace('_', ' ').toUpperCase()} • {photo.rdChainage || rdChainageStr}
-                      </div>
-                      <div className="text-[10px] font-mono text-slate-400 truncate">
-                        {photo.dateTimeFormatted || photo.capturedAt}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateRound((prev) => ({
-                          ...prev,
-                          collectedPhotos: prev.collectedPhotos.filter(
-                            (item) => item.id !== photo.id
-                          ),
-                        }))
-                      }
-                      className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 cursor-pointer shrink-0"
-                      title="Delete Photo"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Review captured photos. You can click on the photo to mark <strong>Center Line (CL)</strong> and <strong>Springline (SPL)</strong> to aid alignment. Adding marks is optional.
+              </p>
             </div>
-          )}
 
-          {/* Bottom Back Link */}
-          <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={onBackToRoundDetails}
-              className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </button>
-
-            {activeRound.collectedPhotos.length > 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setViewMode('camera')}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Camera className="w-3.5 h-3.5 text-amber-400" />
+                <span>Re-open Camera</span>
+              </button>
               <button
                 type="button"
                 onClick={onSkipOrProceedToCanvas}
-                className="px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer"
               >
-                <span>Next: {surfMap.face.shortLabel} Canvas</span>
+                <span>Proceed to Next Step → Face Canvas</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-            )}
+            </div>
           </div>
+
+          {activeRound.collectedPhotos.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-950/60">
+              <Camera className="w-12 h-12 text-slate-600 mb-3" />
+              <div className="text-base font-bold text-slate-300">No photos collected yet</div>
+              <p className="text-xs text-slate-500 max-w-md mt-1 mb-4">
+                You ended the camera without snapping any photos. You can re-open the camera or skip directly to the face canvas.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('camera')}
+                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider cursor-pointer"
+                >
+                  📸 Open Camera to Take Photos
+                </button>
+                <button
+                  type="button"
+                  onClick={onSkipOrProceedToCanvas}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs cursor-pointer border border-emerald-500/40"
+                >
+                  Skip to Face Canvas →
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col min-h-0 bg-slate-950/40">
+              {/* Photo Thumbnails Strip */}
+              <div className="bg-slate-950 border-b border-slate-800 px-3 py-2 flex items-center gap-2 overflow-x-auto">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 shrink-0">
+                  Photos:
+                </span>
+                {activeRound.collectedPhotos.map((photo, idx) => {
+                  const isSelected = (currentPhoto?.id === photo.id);
+                  const hasMarks = Boolean(
+                    photo.referenceMarks?.centerLine ||
+                    photo.referenceMarks?.springLineLeft ||
+                    photo.referenceMarks?.springLineRight
+                  );
+                  return (
+                    <div
+                      key={photo.id}
+                      onClick={() => setSelectedPhotoId(photo.id)}
+                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border cursor-pointer shrink-0 transition-all ${
+                        isSelected
+                          ? 'bg-slate-900 border-amber-400 ring-2 ring-amber-500/20'
+                          : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <img
+                        src={photo.dataUrl}
+                        alt={photo.label}
+                        className="w-10 h-8 rounded object-cover border border-slate-700"
+                      />
+                      <div className="text-left">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-black uppercase px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                            {photo.panelLabel || photo.panel.toUpperCase()}
+                          </span>
+                          <span className="text-[11px] font-bold text-slate-200">
+                            #{idx + 1}
+                          </span>
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-400 truncate max-w-[140px]">
+                          {hasMarks ? (
+                            <span className="text-emerald-400 font-semibold">Marks Added ✓</span>
+                          ) : (
+                            <span>No marks</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Main Photo Inspection & Marking Canvas */}
+              {currentPhoto && (
+                <div className="flex-1 min-h-0 flex flex-col p-3 space-y-2.5 overflow-y-auto">
+                  {/* Photo Title & Mark Tools Bar */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black uppercase px-2 py-0.5 rounded bg-amber-500 text-slate-950">
+                          {currentPhoto.panelLabel || currentPhoto.panel.toUpperCase()}
+                        </span>
+                        <span className="text-xs font-mono font-bold text-slate-200 truncate" title={currentPhoto.fileName || currentPhoto.label}>
+                          {currentPhoto.fileName || currentPhoto.label}
+                        </span>
+                      </div>
+                      <div className="text-[11px] font-mono text-slate-400 flex flex-wrap items-center gap-2 mt-0.5">
+                        <span className="text-emerald-400 font-bold">{currentPhoto.rdChainage || rdChainageStr}</span>
+                        <span>•</span>
+                        <span>{currentPhoto.resolutionLabel || '1600×1000 HD'}</span>
+                        <span>•</span>
+                        <span>{currentPhoto.dateTimeFormatted || currentPhoto.capturedAt}</span>
+                      </div>
+                    </div>
+
+                    {/* Marking Tools */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setActiveMarkTool('none')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 border cursor-pointer ${
+                          activeMarkTool === 'none'
+                            ? 'bg-slate-700 text-white border-slate-500'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                        }`}
+                        title="View photo without placing marks"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveMarkTool('center_line')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1 border cursor-pointer ${
+                          activeMarkTool === 'center_line'
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
+                            : 'bg-slate-950 text-amber-400 border-amber-500/40 hover:bg-amber-950/40'
+                        }`}
+                        title="Click on photo to place Center Line (CL)"
+                      >
+                        <Crosshair className="w-3.5 h-3.5" />
+                        <span>Center Line (CL)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveMarkTool('spl_left')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1 border cursor-pointer ${
+                          activeMarkTool === 'spl_left'
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow'
+                            : 'bg-slate-950 text-cyan-400 border-cyan-500/40 hover:bg-cyan-950/40'
+                        }`}
+                        title="Click on photo to mark Left Springline (SPL-L)"
+                      >
+                        <Crosshair className="w-3.5 h-3.5" />
+                        <span>SPL-Left</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveMarkTool('spl_right')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1 border cursor-pointer ${
+                          activeMarkTool === 'spl_right'
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow'
+                            : 'bg-slate-950 text-cyan-400 border-cyan-500/40 hover:bg-cyan-950/40'
+                        }`}
+                        title="Click on photo to mark Right Springline (SPL-R)"
+                      >
+                        <Crosshair className="w-3.5 h-3.5" />
+                        <span>SPL-Right</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleApplyDefaultMarks}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-950 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-950/40 cursor-pointer"
+                        title="One-click default tunnel alignment (CL at 50%, SPL at 55%)"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 inline mr-1" />
+                        Auto-Marks
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleClearMarks}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-950 text-rose-400 border border-rose-500/40 hover:bg-rose-950/40 cursor-pointer"
+                        title="Clear marks on this photo"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 inline mr-1" />
+                        Clear Marks
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Marking Instruction Callout */}
+                  <div className="px-3 py-1.5 rounded-xl bg-amber-950/30 border border-amber-800/50 flex items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-amber-300">
+                      <Info className="w-4 h-4 shrink-0 text-amber-400" />
+                      <span>
+                        {activeMarkTool === 'center_line'
+                          ? 'Click anywhere on the photo where the vertical Center Line (CL) of the tunnel is.'
+                          : activeMarkTool === 'spl_left'
+                          ? 'Click on the left springline level (SPL-L) of the tunnel.'
+                          : activeMarkTool === 'spl_right'
+                          ? 'Click on the right springline level (SPL-R) of the tunnel.'
+                          : 'Select a mark tool above and click on the photo to mark CL or SPL. Marking is completely optional.'}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-mono text-slate-400 shrink-0">
+                      Optional: We can also choose not to add marks.
+                    </span>
+                  </div>
+
+                  {/* Interactive Photo Canvas with Overlay */}
+                  <div className="relative flex-1 min-h-[420px] bg-black rounded-xl border border-slate-800 flex items-center justify-center overflow-hidden select-none">
+                    <div
+                      className={`relative max-w-full max-h-[65vh] inline-block ${
+                        activeMarkTool !== 'none' ? 'cursor-crosshair' : 'cursor-default'
+                      }`}
+                      onClick={handlePhotoClickForMark}
+                    >
+                      <img
+                        src={currentPhoto.dataUrl}
+                        alt={currentPhoto.fileName || currentPhoto.label}
+                        className="max-h-[65vh] w-auto object-contain rounded-lg block shadow-2xl"
+                      />
+
+                      {/* SVG Overlay for SPL and Center Line Marks */}
+                      <svg
+                        className="absolute inset-0 w-full h-full pointer-events-none"
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="none"
+                      >
+                        {/* Center Line (CL) Mark */}
+                        {currentPhoto.referenceMarks?.centerLine && (
+                          <g>
+                            {/* Vertical Line */}
+                            <line
+                              x1={currentPhoto.referenceMarks.centerLine.xPct}
+                              y1="0"
+                              x2={currentPhoto.referenceMarks.centerLine.xPct}
+                              y2="100"
+                              stroke="#F59E0B"
+                              strokeWidth="0.8"
+                              strokeDasharray="2 1.5"
+                            />
+                            {/* Center Target Point */}
+                            <circle
+                              cx={currentPhoto.referenceMarks.centerLine.xPct}
+                              cy={currentPhoto.referenceMarks.centerLine.yPct}
+                              r="1.8"
+                              fill="#F59E0B"
+                              stroke="#000"
+                              strokeWidth="0.4"
+                            />
+                            {/* Top Badge */}
+                            <rect
+                              x={Math.max(1, Math.min(84, currentPhoto.referenceMarks.centerLine.xPct - 7))}
+                              y="2"
+                              width="14"
+                              height="4.5"
+                              rx="1"
+                              fill="#0F172A"
+                              stroke="#F59E0B"
+                              strokeWidth="0.4"
+                            />
+                            <text
+                              x={Math.max(8, Math.min(91, currentPhoto.referenceMarks.centerLine.xPct))}
+                              y="5.3"
+                              fill="#FDE047"
+                              fontSize="3"
+                              fontWeight="bold"
+                              textAnchor="middle"
+                            >
+                              CL
+                            </text>
+                          </g>
+                        )}
+
+                        {/* Springline (SPL) Marks */}
+                        {(currentPhoto.referenceMarks?.springLineLeft ||
+                          currentPhoto.referenceMarks?.springLineRight) && (
+                          <g>
+                            {/* Horizontal Line through Springline height */}
+                            {(() => {
+                              const leftY = currentPhoto.referenceMarks?.springLineLeft?.yPct;
+                              const rightY = currentPhoto.referenceMarks?.springLineRight?.yPct;
+                              const avgY =
+                                leftY !== undefined && rightY !== undefined
+                                  ? (leftY + rightY) / 2
+                                  : leftY !== undefined
+                                  ? leftY
+                                  : rightY || 55;
+                              return (
+                                <line
+                                  x1="0"
+                                  y1={avgY}
+                                  x2="100"
+                                  y2={avgY}
+                                  stroke="#06B6D4"
+                                  strokeWidth="0.8"
+                                  strokeDasharray="2 1.5"
+                                />
+                              );
+                            })()}
+
+                            {/* SPL Left Target */}
+                            {currentPhoto.referenceMarks?.springLineLeft && (
+                              <g>
+                                <circle
+                                  cx={currentPhoto.referenceMarks.springLineLeft.xPct}
+                                  cy={currentPhoto.referenceMarks.springLineLeft.yPct}
+                                  r="1.8"
+                                  fill="#06B6D4"
+                                  stroke="#000"
+                                  strokeWidth="0.4"
+                                />
+                                <rect
+                                  x={Math.max(1, currentPhoto.referenceMarks.springLineLeft.xPct - 1)}
+                                  y={Math.max(2, currentPhoto.referenceMarks.springLineLeft.yPct - 6)}
+                                  width="14"
+                                  height="4.5"
+                                  rx="1"
+                                  fill="#0F172A"
+                                  stroke="#06B6D4"
+                                  strokeWidth="0.4"
+                                />
+                                <text
+                                  x={Math.max(8, currentPhoto.referenceMarks.springLineLeft.xPct + 6)}
+                                  y={Math.max(5.3, currentPhoto.referenceMarks.springLineLeft.yPct - 2.8)}
+                                  fill="#67E8F9"
+                                  fontSize="2.8"
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                >
+                                  SPL-L
+                                </text>
+                              </g>
+                            )}
+
+                            {/* SPL Right Target */}
+                            {currentPhoto.referenceMarks?.springLineRight && (
+                              <g>
+                                <circle
+                                  cx={currentPhoto.referenceMarks.springLineRight.xPct}
+                                  cy={currentPhoto.referenceMarks.springLineRight.yPct}
+                                  r="1.8"
+                                  fill="#06B6D4"
+                                  stroke="#000"
+                                  strokeWidth="0.4"
+                                />
+                                <rect
+                                  x={Math.min(85, currentPhoto.referenceMarks.springLineRight.xPct - 13)}
+                                  y={Math.max(2, currentPhoto.referenceMarks.springLineRight.yPct - 6)}
+                                  width="14"
+                                  height="4.5"
+                                  rx="1"
+                                  fill="#0F172A"
+                                  stroke="#06B6D4"
+                                  strokeWidth="0.4"
+                                />
+                                <text
+                                  x={Math.min(92, currentPhoto.referenceMarks.springLineRight.xPct - 6)}
+                                  y={Math.max(5.3, currentPhoto.referenceMarks.springLineRight.yPct - 2.8)}
+                                  fill="#67E8F9"
+                                  fontSize="2.8"
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                >
+                                  SPL-R
+                                </text>
+                              </g>
+                            )}
+                          </g>
+                        )}
+
+                        {/* Crown Apex Mark */}
+                        {currentPhoto.referenceMarks?.crownApex && (
+                          <g>
+                            <polygon
+                              points={`${currentPhoto.referenceMarks.crownApex.xPct},${currentPhoto.referenceMarks.crownApex.yPct - 2.5} ${currentPhoto.referenceMarks.crownApex.xPct - 1.8},${currentPhoto.referenceMarks.crownApex.yPct + 1.2} ${currentPhoto.referenceMarks.crownApex.xPct + 1.8},${currentPhoto.referenceMarks.crownApex.yPct + 1.2}`}
+                              fill="#10B981"
+                              stroke="#000"
+                              strokeWidth="0.4"
+                            />
+                            <rect
+                              x={Math.max(1, Math.min(84, currentPhoto.referenceMarks.crownApex.xPct - 8))}
+                              y={Math.max(1, currentPhoto.referenceMarks.crownApex.yPct - 6.5)}
+                              width="16"
+                              height="4.5"
+                              rx="1"
+                              fill="#0F172A"
+                              stroke="#10B981"
+                              strokeWidth="0.4"
+                            />
+                            <text
+                              x={Math.max(9, Math.min(92, currentPhoto.referenceMarks.crownApex.xPct))}
+                              y={Math.max(4.2, currentPhoto.referenceMarks.crownApex.yPct - 3.2)}
+                              fill="#6EE7B7"
+                              fontSize="2.8"
+                              fontWeight="bold"
+                              textAnchor="middle"
+                            >
+                              APEX
+                            </text>
+                          </g>
+                        )}
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* Bottom Controls inside Photo Inspection */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewPhoto(currentPhoto)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5" />
+                        <span>Fullscreen</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const link = document.createElement('a');
+                          link.download = currentPhoto.fileName || `${currentPhoto.label}.jpg`;
+                          link.href = currentPhoto.dataUrl;
+                          link.click();
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateRound((prev) => ({
+                            ...prev,
+                            collectedPhotos: prev.collectedPhotos.filter((p) => p.id !== currentPhoto.id),
+                          }));
+                          setSelectedPhotoId(null);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Photo</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={onSkipOrProceedToCanvas}
+                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                      >
+                        Skip / Continue without Marks
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onSkipOrProceedToCanvas}
+                        className="px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer"
+                      >
+                        <span>Proceed to Next Step → Face Canvas</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -938,13 +1524,13 @@ export const FieldInBuiltCameraStage: React.FC<{
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="max-w-4xl w-full bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl"
+            className="max-w-5xl w-full bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl"
           >
             <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
               <div>
-                <div className="text-sm font-black text-amber-300">{previewPhoto.label}</div>
+                <div className="text-sm font-black text-amber-300">{previewPhoto.fileName || previewPhoto.label}</div>
                 <div className="text-xs font-mono text-slate-400">
-                  {previewPhoto.projectName} • {previewPhoto.locationName} • {previewPhoto.rdChainage} • {previewPhoto.dateTimeFormatted}
+                  {previewPhoto.projectName} • {previewPhoto.locationName} • {previewPhoto.rdChainage} • {previewPhoto.resolutionLabel}
                 </div>
               </div>
               <button
@@ -958,7 +1544,7 @@ export const FieldInBuiltCameraStage: React.FC<{
             <div className="p-3 bg-slate-950 flex items-center justify-center max-h-[75vh]">
               <img
                 src={previewPhoto.dataUrl}
-                alt={previewPhoto.label}
+                alt={previewPhoto.fileName || previewPhoto.label}
                 className="max-h-[70vh] w-auto object-contain rounded-lg"
               />
             </div>

@@ -1444,7 +1444,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.5 });
       group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
     }
-  }, [activeTab, clippedVertices, plane, anchorPoint, jointSetId, surfaceIntersections, tunnelGeometry, showInteriorPlane]);
+  }, [activeTab, clippedVertices, plane, anchorPoint, jointSetId, surfaceIntersections, tunnelGeometry, showInteriorPlane, planeDisplayMode, planeExtensionM, currentJoint]);
 
   // -------------------------------------------------------------------------
   // SAVE HANDLER
@@ -1974,6 +1974,70 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
                 </div>
               )}
+
+              {/* 3D Plane Extent & Rockmass Extension Controls */}
+              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                    <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>3D Plane Extent:</span>
+                  </span>
+                  <span className="font-mono font-bold text-cyan-400 text-[10px]">
+                    {planeDisplayMode === 'EXTENDED' ? `Extended (${planeExtensionM}m)` : 'Clipped to Tunnel'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPlaneDisplayMode('EXTENDED')}
+                    className={`py-1 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                      planeDisplayMode === 'EXTENDED'
+                        ? 'bg-cyan-600 text-white border-cyan-400 shadow-sm shadow-cyan-950'
+                        : 'bg-slate-900 hover:bg-slate-850 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    Complete Extended (Default)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPlaneDisplayMode('CLIPPED')}
+                    className={`py-1 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                      planeDisplayMode === 'CLIPPED'
+                        ? 'bg-amber-600 text-white border-amber-400 shadow-sm shadow-amber-950'
+                        : 'bg-slate-900 hover:bg-slate-850 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    Clipped to Tunnel Box
+                  </button>
+                </div>
+                {planeDisplayMode === 'EXTENDED' && (
+                  <div className="space-y-1 pt-1 border-t border-slate-800/80">
+                    <div className="flex items-center justify-between text-[9.5px] text-slate-400">
+                      <span>Extension Radius from Cut Line:</span>
+                      <span className="font-mono text-cyan-300 font-bold">{planeExtensionM}m</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1">
+                      {[8, 12, 16, 20].map((dist) => (
+                        <button
+                          key={dist}
+                          type="button"
+                          onClick={() => setPlaneExtensionM(dist)}
+                          className={`py-0.5 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
+                            planeExtensionM === dist
+                              ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold shadow-sm'
+                              : 'bg-slate-900 hover:bg-slate-850 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          {dist}m
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[9.5px] text-slate-400 leading-snug">
+                  Complete plane extends outward through the excavation and surrounding rock mass from the mapped cut line without being truncated by the tunnel outline.
+                </p>
+              </div>
 
               {/* Strike Axis */}
               <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between text-[11px]">

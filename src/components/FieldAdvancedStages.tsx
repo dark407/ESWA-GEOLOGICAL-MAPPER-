@@ -2786,6 +2786,102 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
     );
   };
 
+  const givenSupportsList = useMemo(() => {
+    const list: { label: string; text: string; fill: string }[] = [];
+
+    if (support.rockBoltsEnabled) {
+      list.push({
+        label: 'Rock Bolts',
+        text: `${support.rockBoltType || '25mm SN Dowel'}, L=${support.rockBoltLengthM || 4.0}m @ ${support.rockBoltInPlaneSpacingM || 1.5}m × ${support.rockBoltLongitudinalSpacingM || 1.5}m (${
+          support.rockBoltScope === 'crown_and_wall' ? 'Crown+Wall' : 'Crown Only'
+        })`,
+        fill: '#1d4ed8',
+      });
+    }
+
+    if (support.shotcreteEnabled) {
+      list.push({
+        label: 'Shotcrete',
+        text: `${support.shotcreteType || 'SFRS'} — Crown: ${support.shotcreteCrownThicknessMm || 100}mm${
+          support.shotcreteScope === 'crown_and_wall'
+            ? `, Wall: ${support.shotcreteWallThicknessMm || 75}mm`
+            : ' (Crown Only)'
+        }`,
+        fill: '#0f172a',
+      });
+    }
+
+    if (support.wireMeshEnabled) {
+      list.push({
+        label: 'Wire Mesh',
+        text: `${support.wireMeshType || 'Welded Wire Mesh'} (${
+          support.wireMeshScope === 'crown_and_wall' ? 'Crown+Wall' : 'Crown Only'
+        })`,
+        fill: '#0f766e',
+      });
+    }
+
+    if (support.latticeGirderEnabled) {
+      list.push({
+        label: 'Lattice Girder',
+        text: `${support.latticeGirderSpec || '3-Bar LG'} @ ${support.latticeGirderSpacingM || 1.2}m c/c`,
+        fill: '#7c3aed',
+      });
+    }
+
+    if (support.ismbEnabled) {
+      list.push({
+        label: 'ISMB Steel Rib',
+        text: `${support.ismbSpec || 'ISMB 150'} @ ${support.ismbSpacingM || 1.0}m c/c with invert baseplates`,
+        fill: '#b45309',
+      });
+    }
+
+    if (support.spotBoltsEnabled && (support.spotBolts || []).length > 0) {
+      list.push({
+        label: 'Spot Bolts',
+        text: `${support.spotBolts.length} nos (${support.spotBolts
+          .map(
+            (s) =>
+              `${s.label}: Pull ${s.pullMeter}m, X=${s.xMeters}m, Y=${s.yMeters}m, L=${s.lengthM}m, ∠${s.angleDeg}°`
+          )
+          .join('; ')})`,
+        fill: '#dc2626',
+      });
+    }
+
+    if (support.protectionSupportEnabled) {
+      const protParts: string[] = [];
+      if (support.forepolingEnabled) {
+        protParts.push(
+          `Forepoling Ø${support.forepolingDiameterMm ?? 25}mm L=${support.forepolingLengthM ?? 4}m @ ${support.forepolingSpacingCm ?? 30}cm (∠${support.forepolingAngleDeg ?? 10}°)`
+        );
+      }
+      if (support.pipeRoofingEnabled) {
+        protParts.push(
+          `Pipe Roof Ø${support.pipeRoofingDiameterMm ?? 114}mm L=${support.pipeRoofingLengthM ?? 12}m @ ${support.pipeRoofingSpacingCm ?? 40}cm`
+        );
+      }
+      if (support.groutingEnabled) {
+        protParts.push(
+          `Grouting ${support.groutingHoleCount ?? 8}H × L=${support.groutingHoleLengthM ?? 6}m @ ${support.groutingPressureBar ?? 10}bar`
+        );
+      }
+      if ((support.cavityWidthM || 0) > 0 && (support.cavityDepthM || 0) > 0) {
+        protParts.push(`Cavity Backfill (${support.cavityWidthM}m W × ${support.cavityDepthM}m D)`);
+      }
+      if (protParts.length > 0) {
+        list.push({
+          label: support.protectionSupportMode || 'Protection Pre-Support',
+          text: protParts.join(' | '),
+          fill: '#be123c',
+        });
+      }
+    }
+
+    return list;
+  }, [support]);
+
   const shapeLabel = (location.shape || 'd_shaped').replace(/_/g, ' ').toUpperCase();
 
   return (
@@ -3333,7 +3429,7 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
           );
         })}
 
-      {/* Bottom Legend & Support Summary Schedule inside 2D Drawing */}
+      {/* Bottom Legend & Support Summary Schedule inside 2D Drawing — ONLY GIVEN SUPPORTS */}
       <rect
         x="8"
         y="340"
@@ -3343,93 +3439,33 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
         stroke="#0f172a"
         strokeWidth="1.2"
       />
-      <text
-        x="16"
-        y="354"
-        fontSize="8.8"
-        fontWeight="900"
-        fontFamily="IBM Plex Mono, monospace"
-        fill="#0f172a"
-      >
-        • Rock Bolts:{' '}
-        {support.rockBoltsEnabled
-          ? `${support.rockBoltType}, L=${support.rockBoltLengthM}m @ ${support.rockBoltInPlaneSpacingM}m × ${support.rockBoltLongitudinalSpacingM}m (${
-              support.rockBoltScope === 'crown_and_wall' ? 'Crown+Wall' : 'Crown Only'
-            })`
-          : 'None'}{' '}
-        | • Wire Mesh:{' '}
-        {support.wireMeshEnabled
-          ? `${support.wireMeshType} (${
-              support.wireMeshScope === 'crown_and_wall' ? 'Crown+Wall' : 'Crown'
-            })`
-          : 'None'}
-      </text>
-      <text
-        x="16"
-        y="369"
-        fontSize="8.8"
-        fontWeight="900"
-        fontFamily="IBM Plex Mono, monospace"
-        fill="#0f172a"
-      >
-        • Shotcrete:{' '}
-        {support.shotcreteEnabled
-          ? `${support.shotcreteType} — Crown: ${support.shotcreteCrownThicknessMm}mm${
-              support.shotcreteScope === 'crown_and_wall'
-                ? `, Wall: ${support.shotcreteWallThicknessMm}mm`
-                : ' (Crown Only)'
-            }`
-          : 'None'}{' '}
-        | • Lattice Girder:{' '}
-        {support.latticeGirderEnabled
-          ? `${support.latticeGirderSpec} @ ${support.latticeGirderSpacingM}m`
-          : 'None'}
-      </text>
-      <text
-        x="16"
-        y="384"
-        fontSize="8.8"
-        fontWeight="900"
-        fontFamily="IBM Plex Mono, monospace"
-        fill="#0f172a"
-      >
-        • ISMB Steel Rib:{' '}
-        {support.ismbEnabled ? `${support.ismbSpec} @ ${support.ismbSpacingM}m c/c` : 'None'} | •
-        Spot Bolts:{' '}
-        {support.spotBoltsEnabled && (support.spotBolts || []).length > 0
-          ? `${support.spotBolts.length} nos (${support.spotBolts
-              .map(
-                (s) =>
-                  `${s.label}: Pull ${s.pullMeter}m, X=${s.xMeters}m, Y=${s.yMeters}m, L=${s.lengthM}m, ∠${s.angleDeg}°`
-              )
-              .join('; ')})`
-          : 'None'}
-      </text>
-      <text
-        x="16"
-        y="401"
-        fontSize="8.6"
-        fontWeight="900"
-        fontFamily="IBM Plex Mono, monospace"
-        fill={support.protectionSupportEnabled ? '#be123c' : '#64748b'}
-      >
-        • {support.protectionSupportMode || 'Protection / Cavity Support'}:{' '}
-        {support.protectionSupportEnabled
-          ? [
-              support.forepolingEnabled
-                ? `Forepoling Ø${support.forepolingDiameterMm ?? 25}mm L=${support.forepolingLengthM ?? 4}m@${support.forepolingSpacingCm ?? 30}cm`
-                : null,
-              support.pipeRoofingEnabled
-                ? `Pipe Roof Ø${support.pipeRoofingDiameterMm ?? 114}mm L=${support.pipeRoofingLengthM ?? 12}m@${support.pipeRoofingSpacingCm ?? 40}cm`
-                : null,
-              support.groutingEnabled
-                ? `Grouting (${support.groutingHoleCount ?? 8}H×${support.groutingHoleLengthM ?? 6}m @ ${support.groutingPressureBar ?? 10}bar)`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(' + ') || 'Enabled'
-          : 'None'}
-      </text>
+      {givenSupportsList.length === 0 ? (
+        <text
+          x="280"
+          y="380"
+          textAnchor="middle"
+          fontSize="9.5"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#64748b"
+        >
+          • GIVEN SUPPORTS: NONE (Unsupported / Self-supporting rock mass)
+        </text>
+      ) : (
+        givenSupportsList.slice(0, 5).map((item, idx) => (
+          <text
+            key={item.label}
+            x="16"
+            y={355 + idx * 14}
+            fontSize={givenSupportsList.length > 4 ? '7.9' : '8.6'}
+            fontWeight="900"
+            fontFamily="IBM Plex Mono, monospace"
+            fill={item.fill}
+          >
+            • {item.label}: {item.text}
+          </text>
+        ))
+      )}
     </svg>
   );
 };
@@ -4476,73 +4512,74 @@ export const FieldSupportSystemStage: React.FC<{
                     FACE ({pullM}m | {W}m×{H}m)
                   </text>
 
-                  {/* Render Placed Spot Bolts in 3D on Tunnel Profile */}
-                  {(support.spotBolts || []).map((sb) => {
-                    const tDepth = Math.max(0, Math.min(1, sb.pullMeter / Math.max(0.5, pullM)));
-                    let px = tunnel3DGeom.cx3D;
-                    let py = tunnel3DGeom.innerY + tunnel3DGeom.innerH * 0.5;
-                    if (sb.panel === 'face') {
-                      px = tunnel3DGeom.innerX + sb.u * tunnel3DGeom.innerW;
-                      py = tunnel3DGeom.innerY + sb.v * tunnel3DGeom.innerH;
-                    } else if (sb.panel === 'crown') {
-                      const pOut = samplePointAlongPolyline(tunnel3DGeom.outerCrown, sb.v);
-                      const pIn = samplePointAlongPolyline(tunnel3DGeom.innerCrown, sb.v);
-                      px = pOut.x + (pIn.x - pOut.x) * tDepth;
-                      py = pOut.y + (pIn.y - pOut.y) * tDepth;
-                    } else if (sb.panel === 'left_wall') {
-                      const wallRatio = Math.max(0, Math.min(1, 1 - sb.v));
-                      const pOut = samplePointAlongPolyline(tunnel3DGeom.outerLeft, wallRatio);
-                      const pIn = samplePointAlongPolyline(tunnel3DGeom.innerLeft, wallRatio);
-                      px = pOut.x + (pIn.x - pOut.x) * tDepth;
-                      py = pOut.y + (pIn.y - pOut.y) * tDepth;
-                    } else {
-                      const wallRatio = Math.max(0, Math.min(1, 1 - sb.v));
-                      const pOut = samplePointAlongPolyline(tunnel3DGeom.outerRight, wallRatio);
-                      const pIn = samplePointAlongPolyline(tunnel3DGeom.innerRight, wallRatio);
-                      px = pOut.x + (pIn.x - pOut.x) * tDepth;
-                      py = pOut.y + (pIn.y - pOut.y) * tDepth;
-                    }
-                    const rad = ((sb.angleDeg || 60) * Math.PI) / 180;
-                    const dirSign = sb.panel === 'left_wall' ? -1 : 1;
-                    const ex = px + dirSign * Math.cos(rad) * 20;
-                    const ey = py - Math.sin(rad) * 20;
-                    return (
-                      <g key={sb.id}>
-                        <line
-                          x1={px}
-                          y1={py}
-                          x2={ex}
-                          y2={ey}
-                          stroke="#f43f5e"
-                          strokeWidth="2.8"
-                        />
-                        <circle
-                          cx={px}
-                          cy={py}
-                          r="4.5"
-                          fill="#f43f5e"
-                          stroke="#ffffff"
-                          strokeWidth="1.4"
-                        />
-                        <text
-                          x={ex + (dirSign >= 0 ? 4 : -4)}
-                          y={ey}
-                          textAnchor={dirSign >= 0 ? 'start' : 'end'}
-                          fontSize="8.5"
-                          fontWeight="900"
-                          fill="#fda4af"
-                        >
-                          {sb.label} ({sb.pullMeter}m, ∠{sb.angleDeg}°)
-                        </text>
-                      </g>
-                    );
-                  })}
+                  {/* Render Placed Spot Bolts in 3D on Tunnel Profile (ONLY IF ENABLED) */}
+                  {Boolean(support.spotBoltsEnabled) &&
+                    (support.spotBolts || []).map((sb) => {
+                      const tDepth = Math.max(0, Math.min(1, sb.pullMeter / Math.max(0.5, pullM)));
+                      let px = tunnel3DGeom.cx3D;
+                      let py = tunnel3DGeom.innerY + tunnel3DGeom.innerH * 0.5;
+                      if (sb.panel === 'face') {
+                        px = tunnel3DGeom.innerX + sb.u * tunnel3DGeom.innerW;
+                        py = tunnel3DGeom.innerY + sb.v * tunnel3DGeom.innerH;
+                      } else if (sb.panel === 'crown') {
+                        const pOut = samplePointAlongPolyline(tunnel3DGeom.outerCrown, sb.v);
+                        const pIn = samplePointAlongPolyline(tunnel3DGeom.innerCrown, sb.v);
+                        px = pOut.x + (pIn.x - pOut.x) * tDepth;
+                        py = pOut.y + (pIn.y - pOut.y) * tDepth;
+                      } else if (sb.panel === 'left_wall') {
+                        const wallRatio = Math.max(0, Math.min(1, 1 - sb.v));
+                        const pOut = samplePointAlongPolyline(tunnel3DGeom.outerLeft, wallRatio);
+                        const pIn = samplePointAlongPolyline(tunnel3DGeom.innerLeft, wallRatio);
+                        px = pOut.x + (pIn.x - pOut.x) * tDepth;
+                        py = pOut.y + (pIn.y - pOut.y) * tDepth;
+                      } else {
+                        const wallRatio = Math.max(0, Math.min(1, 1 - sb.v));
+                        const pOut = samplePointAlongPolyline(tunnel3DGeom.outerRight, wallRatio);
+                        const pIn = samplePointAlongPolyline(tunnel3DGeom.innerRight, wallRatio);
+                        px = pOut.x + (pIn.x - pOut.x) * tDepth;
+                        py = pOut.y + (pIn.y - pOut.y) * tDepth;
+                      }
+                      const rad = ((sb.angleDeg || 60) * Math.PI) / 180;
+                      const dirSign = sb.panel === 'left_wall' ? -1 : 1;
+                      const ex = px + dirSign * Math.cos(rad) * 20;
+                      const ey = py - Math.sin(rad) * 20;
+                      return (
+                        <g key={sb.id}>
+                          <line
+                            x1={px}
+                            y1={py}
+                            x2={ex}
+                            y2={ey}
+                            stroke="#f43f5e"
+                            strokeWidth="2.8"
+                          />
+                          <circle
+                            cx={px}
+                            cy={py}
+                            r="4.5"
+                            fill="#f43f5e"
+                            stroke="#ffffff"
+                            strokeWidth="1.4"
+                          />
+                          <text
+                            x={ex + (dirSign >= 0 ? 4 : -4)}
+                            y={ey}
+                            textAnchor={dirSign >= 0 ? 'start' : 'end'}
+                            fontSize="8.5"
+                            fontWeight="900"
+                            fill="#fda4af"
+                          >
+                            {sb.label} ({sb.pullMeter}m, ∠{sb.angleDeg}°)
+                          </text>
+                        </g>
+                      );
+                    })}
                 </svg>
               </div>
             )}
 
-            {/* Spot Bolts Schedule Table (Pull, Length, X, Y, Angle) */}
-            {(support.spotBolts || []).length > 0 && (
+            {/* Spot Bolts Schedule Table (ONLY IF ENABLED AND HAS BOLTS) */}
+            {Boolean(support.spotBoltsEnabled) && (support.spotBolts || []).length > 0 && (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse border border-slate-800 text-[11px]">
                   <thead>

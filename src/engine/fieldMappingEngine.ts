@@ -242,6 +242,13 @@ export interface FieldDiscontinuitySetRecord {
   remarks: string;
 }
 
+export interface FieldPhotoReferenceMarks {
+  centerLine?: { xPct: number; yPct: number };
+  springLineLeft?: { xPct: number; yPct: number };
+  springLineRight?: { xPct: number; yPct: number };
+  crownApex?: { xPct: number; yPct: number };
+}
+
 export interface FieldCollectedPhoto {
   id: string;
   panel: FieldPanelId;
@@ -257,6 +264,8 @@ export interface FieldCollectedPhoto {
   autoUpscaled?: boolean;
   shadowRemoved?: boolean;
   resolutionLabel?: string;
+  fileName?: string;
+  referenceMarks?: FieldPhotoReferenceMarks;
 }
 
 export interface FieldCustomTickBoxGroup {
@@ -1921,7 +1930,7 @@ export function createDefaultSupportSystem(): FieldSupportSystemConfig {
     spotBolts: [],
     protectionSupportEnabled: false,
     protectionSupportMode: 'Protection & Cavity Support',
-    forepolingEnabled: true,
+    forepolingEnabled: false,
     forepolingType: 'Grouted Rebar Spiles (25–32mm)',
     forepolingDiameterMm: 25,
     forepolingLengthM: 4.0,
@@ -1937,7 +1946,7 @@ export function createDefaultSupportSystem(): FieldSupportSystemConfig {
     pipeRoofingSpacingCm: 40,
     pipeRoofingAngleDeg: 7,
     pipeRoofingSector: 'Crown Arch (120°)',
-    groutingEnabled: true,
+    groutingEnabled: false,
     groutingType: 'Consolidation & Cavity Backfill Grouting',
     groutingMaterial: 'OPC Cement Grout (W:C 0.6) / PU Foam',
     groutingHoleLengthM: 6.0,

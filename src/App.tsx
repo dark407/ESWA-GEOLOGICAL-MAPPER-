@@ -4203,10 +4203,7 @@ export default function App({
                   >
                     <Compass className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="flex flex-col">
-                    <span className="text-stone-900 font-extrabold">Underground Face Mapping</span>
-                    <span className="text-[10px] sm:text-[10.5px] font-medium text-stone-500">Vector Cross-Section • Joint Traces • Q / RMR / GSI</span>
-                  </span>
+                  <span className="text-stone-900 font-extrabold">Underground Face Mapping</span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
@@ -4268,10 +4265,7 @@ export default function App({
                   >
                     <Layers className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="flex flex-col">
-                    <span className="text-stone-900 font-extrabold">Continuous 3D Tunnel Mapping</span>
-                    <span className="text-[10px] sm:text-[10.5px] font-medium text-stone-500">Multi-Pull 3D Strip • Unrolled CAD Advance • A3 Engineering Log</span>
-                  </span>
+                  <span className="text-stone-900 font-extrabold">Continuous 3D Tunnel Mapping</span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
@@ -4330,10 +4324,7 @@ export default function App({
                   >
                     <FileSpreadsheet className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="flex flex-col">
-                    <span className="text-stone-900 font-extrabold">Geological &amp; Geotechnical Core Logging</span>
-                    <span className="text-[10px] sm:text-[10.5px] font-medium text-stone-500">Diamond Drill Core • RQD &amp; Recovery • Barton Q &amp; RMR • Core Box Photos</span>
-                  </span>
+                  <span className="text-stone-900 font-extrabold">Geological &amp; Geotechnical Core Logging</span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
@@ -4492,10 +4483,7 @@ export default function App({
                   >
                     <Database className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="flex flex-col">
-                    <span className="text-stone-900 font-extrabold">Data Storage, Import &amp; Export</span>
-                    <span className="text-[10px] sm:text-[10.5px] font-medium text-stone-500">Boreholes, Mapped Faces, Perimeters &amp; Offline Cloud Backup</span>
-                  </span>
+                  <span className="text-stone-900 font-extrabold">Data Storage, Import &amp; Export</span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"

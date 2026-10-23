@@ -1459,16 +1459,6 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
             3. Import DWG / DXF
           </button>
         </div>
-
-        <button
-          type="button"
-          onClick={handleConfirmAndGoToPhotos}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold shadow-md cursor-pointer"
-        >
-          <CheckCircle2 className="w-4 h-4" />
-          Save Shape &amp; Go to Add Pictures
-          <ArrowRight className="w-4 h-4" />
-        </button>
       </header>
 
       {/* ====================================================================

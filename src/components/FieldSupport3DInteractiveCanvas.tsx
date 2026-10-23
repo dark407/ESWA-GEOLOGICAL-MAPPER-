@@ -384,7 +384,103 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
     const portalOutlineLine = new THREE.Line(portalOutlineGeom, portalOutlineMat);
     scene.add(portalOutlineLine);
 
-    // Steel Ribs / Lattice Girders (if enabled)
+    // Shotcrete Lining Shell (if enabled)
+    if (support.shotcreteEnabled) {
+      const scCrownOffM = Math.max(0.04, Math.min(0.25, (support.shotcreteCrownThicknessMm || 100) / 1000));
+      const scWallOffM =
+        support.shotcreteScope === 'crown_and_wall'
+          ? Math.max(0.03, Math.min(0.2, (support.shotcreteWallThicknessMm || 75) / 1000))
+          : 0;
+
+      const scPerimeter = perimeterPts.filter((p) =>
+        support.shotcreteScope === 'crown_and_wall' ? true : p.panel === 'crown'
+      );
+
+      if (scPerimeter.length >= 2) {
+        const scGeom = new THREE.BufferGeometry();
+        const scVerts: number[] = [];
+        const scNorms: number[] = [];
+        const scIndices: number[] = [];
+        const numScPts = scPerimeter.length;
+
+        for (let iz = 0; iz <= zSegments; iz++) {
+          const z = iz * zStep;
+          for (let ip = 0; ip < numScPts; ip++) {
+            const pt = scPerimeter[ip];
+            const off = pt.panel === 'crown' ? scCrownOffM : scWallOffM;
+            // Slightly inward from rock wall
+            scVerts.push(pt.x - pt.normal.x * off, Math.max(0, pt.y - pt.normal.y * off), z);
+            scNorms.push(-pt.normal.x, -pt.normal.y, 0);
+          }
+        }
+
+        for (let iz = 0; iz < zSegments; iz++) {
+          for (let ip = 0; ip < numScPts - 1; ip++) {
+            const i0 = iz * numScPts + ip;
+            const i1 = i0 + 1;
+            const i2 = (iz + 1) * numScPts + ip;
+            const i3 = i2 + 1;
+            scIndices.push(i0, i2, i1);
+            scIndices.push(i1, i2, i3);
+          }
+        }
+
+        scGeom.setAttribute('position', new THREE.Float32BufferAttribute(scVerts, 3));
+        scGeom.setAttribute('normal', new THREE.Float32BufferAttribute(scNorms, 3));
+        scGeom.setIndex(scIndices);
+
+        const scMat = new THREE.MeshStandardMaterial({
+          color: isLightMode ? 0x94a3b8 : 0x475569,
+          roughness: 0.9,
+          metalness: 0.1,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.85,
+        });
+        const scMesh = new THREE.Mesh(scGeom, scMat);
+        scene.add(scMesh);
+      }
+    }
+
+    // Wire Mesh Grid Overlay (if enabled)
+    if (support.wireMeshEnabled) {
+      const meshPerimeter = perimeterPts.filter((p) =>
+        support.wireMeshScope === 'crown_and_wall' ? true : p.panel === 'crown'
+      );
+      if (meshPerimeter.length >= 2) {
+        const meshLinePts: THREE.Vector3[] = [];
+        // Longitudinal wire strands
+        for (let ip = 0; ip < meshPerimeter.length; ip += 2) {
+          const pt = meshPerimeter[ip];
+          const mx = pt.x - pt.normal.x * 0.035;
+          const my = Math.max(0, pt.y - pt.normal.y * 0.035);
+          meshLinePts.push(new THREE.Vector3(mx, my, 0), new THREE.Vector3(mx, my, pullM));
+        }
+        // Circumferential rings
+        const numRings = Math.max(2, Math.round(pullM / 0.4));
+        for (let ir = 0; ir <= numRings; ir++) {
+          const rz = ir * (pullM / numRings);
+          for (let ip = 0; ip < meshPerimeter.length - 1; ip++) {
+            const p0 = meshPerimeter[ip];
+            const p1 = meshPerimeter[ip + 1];
+            meshLinePts.push(
+              new THREE.Vector3(p0.x - p0.normal.x * 0.035, Math.max(0, p0.y - p0.normal.y * 0.035), rz),
+              new THREE.Vector3(p1.x - p1.normal.x * 0.035, Math.max(0, p1.y - p1.normal.y * 0.035), rz)
+            );
+          }
+        }
+        const meshGeom = new THREE.BufferGeometry().setFromPoints(meshLinePts);
+        const meshMat = new THREE.LineBasicMaterial({
+          color: 0x0d9488,
+          transparent: true,
+          opacity: 0.65,
+        });
+        const meshLines = new THREE.LineSegments(meshGeom, meshMat);
+        scene.add(meshLines);
+      }
+    }
+
+    // Steel Ribs / Lattice Girders (ONLY if enabled)
     if (
       (activeLayerFilter === 'ALL' || activeLayerFilter === 'STEEL_RIBS') &&
       (support.latticeGirderEnabled || support.ismbEnabled)
@@ -405,7 +501,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       }
     }
 
-    // Pattern Rockbolts (Systematic Bolting) if enabled
+    // Pattern Rockbolts (Systematic Bolting) ONLY if enabled
     if (
       (activeLayerFilter === 'ALL' || activeLayerFilter === 'PATTERN_BOLTS') &&
       support.rockBoltsEnabled
@@ -454,9 +550,10 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       });
     }
 
-    // Pipe Roofing (Forepoling Umbrella Canopy) if enabled
+    // Pipe Roofing (Forepoling Umbrella Canopy) ONLY if protection support enabled AND pipe roofing enabled
     if (
       (activeLayerFilter === 'ALL' || activeLayerFilter === 'PIPE_ROOFING') &&
+      support.protectionSupportEnabled &&
       support.pipeRoofingEnabled
     ) {
       const pipeLen = support.pipeRoofingLengthM || 12.0;
@@ -507,9 +604,10 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       }
     }
 
-    // Forepoling Rebar Spiles (if enabled)
+    // Forepoling Rebar Spiles ONLY if protection support enabled AND forepoling enabled
     if (
       (activeLayerFilter === 'ALL' || activeLayerFilter === 'FOREPOLING') &&
+      support.protectionSupportEnabled &&
       support.forepolingEnabled
     ) {
       const spileLen = support.forepolingLengthM || 4.0;
@@ -536,8 +634,12 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       }
     }
 
-    // Spot Bolts (Individual targeted rockbolts in 3D)
-    if (activeLayerFilter === 'ALL' || activeLayerFilter === 'SPOT_BOLTS') {
+    // Spot Bolts (Individual targeted rockbolts in 3D) - ONLY if spotBoltsEnabled AND at least 1 spot bolt given
+    if (
+      (activeLayerFilter === 'ALL' || activeLayerFilter === 'SPOT_BOLTS') &&
+      support.spotBoltsEnabled &&
+      (support.spotBolts || []).length > 0
+    ) {
       const spotBoltsList = support.spotBolts || [];
 
       spotBoltsList.forEach((sb) => {
@@ -917,16 +1019,27 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
           </div>
         </div>
 
-        {/* Layer Filters */}
+        {/* Layer Filters (Only show filters for currently given/enabled supports) */}
         <div className="flex items-center gap-1 text-[11px] bg-slate-950 p-1 rounded-lg border border-slate-800">
           {(
             [
-              { id: 'ALL', label: 'All 3D' },
-              { id: 'SPOT_BOLTS', label: 'Spot Bolts' },
-              { id: 'PIPE_ROOFING', label: 'Pipe Roofing' },
-              { id: 'FOREPOLING', label: 'Forepoling' },
-              { id: 'PATTERN_BOLTS', label: 'Pattern Bolts' },
-            ] as const
+              { id: 'ALL' as const, label: 'All 3D' },
+              ...(support.spotBoltsEnabled && (support.spotBolts || []).length > 0
+                ? [{ id: 'SPOT_BOLTS' as const, label: 'Spot Bolts' }]
+                : []),
+              ...(support.protectionSupportEnabled && support.pipeRoofingEnabled
+                ? [{ id: 'PIPE_ROOFING' as const, label: 'Pipe Roofing' }]
+                : []),
+              ...(support.protectionSupportEnabled && support.forepolingEnabled
+                ? [{ id: 'FOREPOLING' as const, label: 'Forepoling' }]
+                : []),
+              ...(support.rockBoltsEnabled
+                ? [{ id: 'PATTERN_BOLTS' as const, label: 'Pattern Bolts' }]
+                : []),
+              ...(support.latticeGirderEnabled || support.ismbEnabled
+                ? [{ id: 'STEEL_RIBS' as const, label: 'Steel Sets' }]
+                : []),
+            ]
           ).map((filter) => (
             <button
               key={filter.id}
@@ -1033,18 +1146,30 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
           </button>
         </div>
 
-        {/* Bottom Floating Legend / Indicator */}
+        {/* Bottom Floating Legend / Indicator — Only displays given supports */}
         <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center justify-between gap-2 pointer-events-none text-[10.5px]">
-          <div className="flex items-center gap-2 bg-slate-950/85 backdrop-blur px-2.5 py-1 rounded-md border border-slate-800 text-slate-300">
-            <span className="flex items-center gap-1 text-rose-400">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" /> Spot Bolt ({support.spotBolts?.length || 0})
-            </span>
-            {support.pipeRoofingEnabled && (
+          <div className="flex flex-wrap items-center gap-2 bg-slate-950/85 backdrop-blur px-2.5 py-1 rounded-md border border-slate-800 text-slate-300">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-0.5">Given Supports:</span>
+            {!support.rockBoltsEnabled &&
+              !support.shotcreteEnabled &&
+              !support.wireMeshEnabled &&
+              !support.latticeGirderEnabled &&
+              !support.ismbEnabled &&
+              !(support.spotBoltsEnabled && (support.spotBolts?.length || 0) > 0) &&
+              !(support.protectionSupportEnabled && (support.forepolingEnabled || support.pipeRoofingEnabled || support.groutingEnabled)) && (
+                <span className="text-slate-400 italic">None (Unsupported round)</span>
+              )}
+            {support.spotBoltsEnabled && (support.spotBolts?.length || 0) > 0 && (
+              <span className="flex items-center gap-1 text-rose-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" /> Spot Bolt ({support.spotBolts?.length || 0})
+              </span>
+            )}
+            {support.protectionSupportEnabled && support.pipeRoofingEnabled && (
               <span className="flex items-center gap-1 text-orange-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block" /> Pipe Roof (∠{support.pipeRoofingAngleDeg ?? 7}°)
               </span>
             )}
-            {support.forepolingEnabled && (
+            {support.protectionSupportEnabled && support.forepolingEnabled && (
               <span className="flex items-center gap-1 text-amber-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block" /> Forepoling (∠{support.forepolingAngleDeg ?? 10}°)
               </span>
@@ -1052,6 +1177,26 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
             {support.rockBoltsEnabled && (
               <span className="flex items-center gap-1 text-sky-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block" /> Pattern Bolts ({support.rockBoltLengthM}m)
+              </span>
+            )}
+            {support.shotcreteEnabled && (
+              <span className="flex items-center gap-1 text-slate-300">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block" /> Shotcrete ({support.shotcreteCrownThicknessMm}mm)
+              </span>
+            )}
+            {support.wireMeshEnabled && (
+              <span className="flex items-center gap-1 text-teal-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-teal-400 inline-block" /> Wire Mesh
+              </span>
+            )}
+            {support.latticeGirderEnabled && (
+              <span className="flex items-center gap-1 text-purple-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block" /> Lattice Girder
+              </span>
+            )}
+            {support.ismbEnabled && (
+              <span className="flex items-center gap-1 text-amber-500">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" /> ISMB Rib
               </span>
             )}
           </div>
