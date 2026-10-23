@@ -249,6 +249,7 @@ export type FieldWorkflowStage =
   | 'discontinuity_q_rmr'
   | 'word_template_export'
   | 'photo_2d_report'
+  | 'advance_analysis'
   | 'geology_3d_report';
 
 export type SplitPhotoFilterType =
@@ -579,6 +580,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     } else if (
       stage === 'word_template_export' ||
       stage === 'photo_2d_report' ||
+      stage === 'advance_analysis' ||
       stage === 'geology_3d_report'
     ) {
       syncFieldMappingRoundForAiTraining(
@@ -607,31 +609,37 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       const projName = (activeProject?.projectName || 'Tunnel Project').trim();
       const locName = (activeLocation.name || 'Main Tunnel').trim();
 
-      const convertedJoints: Joint[] = activeRound.jointTraces.map((tr) => ({
-        id: tr.id,
-        surface:
-          tr.panel === 'left_wall'
-            ? 'leftWall'
-            : tr.panel === 'right_wall'
-            ? 'rightWall'
-            : tr.panel === 'crown'
-            ? 'crown'
-            : 'face',
-        geometry: tr.points,
-        traceAngle: tr.strike || 0,
-        strike: tr.strike || 0,
-        dip: tr.dipAmount || 45,
-        dipDirection: tr.dipDirection || 90,
-        set: tr.setId || 'J1',
-        featureType: 'joint',
-        confidence: 'High',
-        confidenceScore: 0.9,
-        confidenceBreakdown: { detection: 90, trace: 90, geometric: 90, orientation: 90 },
-        source: 'MANUAL',
-        accepted: true,
-        persistenceMeters: tr.traceLengthM || 1.5,
-        orientationStatus: tr.editedByCompass ? 'DIRECTLY_MEASURED' : 'GEOMETRICALLY_CALCULATED',
-      }));
+      const convertedJoints: Joint[] = activeRound.jointTraces.map((tr) => {
+        const metricPts =
+          tr.metricPoints && tr.metricPoints.length === tr.points.length
+            ? tr.metricPoints
+            : computePhysicalMetricPoints(tr.points, tr.panel, activeLocation, activeRound);
+        return {
+          id: tr.id,
+          surface:
+            tr.panel === 'left_wall'
+              ? 'leftWall'
+              : tr.panel === 'right_wall'
+              ? 'rightWall'
+              : tr.panel === 'crown'
+              ? 'crown'
+              : 'face',
+          geometry: metricPts,
+          traceAngle: tr.strike || 0,
+          strike: tr.strike || 0,
+          dip: tr.dipAmount || 45,
+          dipDirection: tr.dipDirection || 90,
+          set: tr.setId || 'J1',
+          featureType: 'joint',
+          confidence: 'High',
+          confidenceScore: 0.9,
+          confidenceBreakdown: { detection: 90, trace: 90, geometric: 90, orientation: 90 },
+          source: 'MANUAL',
+          accepted: true,
+          persistenceMeters: tr.traceLengthM || 1.5,
+          orientationStatus: tr.editedByCompass ? 'DIRECTLY_MEASURED' : 'GEOMETRICALLY_CALCULATED',
+        };
+      });
 
       const defQ = createDefaultQIndexParameters();
       const syntheticRecord: SavedProjectRecord = {
@@ -3700,6 +3708,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const isReportStage =
     stage === 'word_template_export' ||
     stage === 'photo_2d_report' ||
+    stage === 'advance_analysis' ||
     stage === 'geology_3d_report';
 
   const surfaceSmrAnalysis = useMemo(() => {
@@ -3926,6 +3935,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   ],
                   ['word_template_export', '10. Clean Report'],
                   ['photo_2d_report', '11. 2D Photo Report'],
+                  ['advance_analysis', '12. Advance Analysis'],
                 ]
               : [
                   ['project_setup', '1. Project & Data'],
@@ -3963,35 +3973,40 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   ],
                   ['word_template_export', '12. Clean Report'],
                   ['photo_2d_report', '13. 2D Photo Report'],
+                  ['advance_analysis', '14. Advance Analysis'],
                 ]) as [FieldWorkflowStage, string][]
-          ).map(([stKey, label]) => (
-            <button
-              key={stKey}
-              onClick={() => {
-                if (pending2DTrace) {
-                  commitPending2DTraceToRound(pending2DTrace);
+          ).map(([stKey, label]) => {
+            const isAdv = stKey === 'advance_analysis';
+            const isActive = stage === stKey;
+            return (
+              <button
+                key={stKey}
+                onClick={() => {
+                  if (pending2DTrace) {
+                    commitPending2DTraceToRound(pending2DTrace);
+                  }
+                  setStage(stKey);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-[10.5px] sm:text-[11px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1 ${
+                  isActive
+                    ? isAdv
+                      ? 'bg-amber-500 text-slate-950 font-black shadow-[0_2px_12px_rgba(245,158,11,0.55)] ring-2 ring-amber-300'
+                      : 'bg-orange-500 text-white shadow-[0_2px_10px_rgba(234,88,12,0.38)]'
+                    : isAdv
+                    ? 'bg-amber-950/60 text-amber-300 border border-amber-500/40 hover:bg-amber-900/80 hover:text-amber-200'
+                    : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                }`}
+                title={
+                  isAdv
+                    ? 'Advance Geological Analysis: Wedge FoS, 4-Surface Apparent Dip, Face Look-Ahead & Inflow'
+                    : label
                 }
-                setStage(stKey);
-              }}
-              className={`px-2 py-1 rounded-lg text-[10.5px] sm:text-[11px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                stage === stKey
-                  ? 'bg-orange-500 text-white shadow-[0_2px_10px_rgba(234,88,12,0.38)]'
-                  : 'bg-slate-800/80 text-slate-400 hover:text-white'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-
-          <button
-            type="button"
-            onClick={() => setIsAdvanceGeologicalAnalysisOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono font-black bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 cursor-pointer shrink-0 transition-all hover:brightness-110"
-            title="Open Advance Geological Analytics: 3D Kinematic Wedge FoS, 4-Surface Apparent Dip, Look-Ahead Extrapolation, Stand-Up Time, Palmström Blocks, Hydro Inflow"
-          >
-            <Zap className="w-3.5 h-3.5 fill-slate-950 text-slate-950" />
-            <span>Advance Geological Analytics</span>
-          </button>
+              >
+                {isAdv && <Zap className="w-3.5 h-3.5 fill-current" />}
+                <span>{label}</span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -11631,10 +11646,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               </button>
               <button
                 type="button"
-                onClick={() => setStage('geology_3d_report')}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/40 font-black text-[11px] cursor-pointer"
+                onClick={() => setStage('advance_analysis')}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 font-black text-[11px] cursor-pointer flex items-center gap-1.5"
+                title="Advance Geological Analysis: Wedge FoS, 4-Surface Apparent Dip, Face Look-Ahead Extrapolation & Inflow"
               >
-                3. 3D {domainPanelMap.domainTitle} &amp; Geological Report →
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>3. Advance Geological Analysis →</span>
               </button>
             </div>
           </div>
@@ -11696,14 +11713,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               rememberedRocks={rememberedRocksList}
               onUpdateRound={updateActiveRound}
               onBackToCleanReport={() => setStage('word_template_export')}
-              onProceedTo3DReport={() => setStage('geology_3d_report')}
+              onProceedTo3DReport={() => setStage('advance_analysis')}
             />
           </div>
         </div>
       )}
 
-      {/* ==================== STAGE 14: 3D TUNNEL & GEOLOGICAL REPORT (3D TUNNEL + JOINT TRACES + LITHOLOGY + GEOLOGICAL 3D) ==================== */}
-      {stage === 'geology_3d_report' && activeProject && activeLocation && activeRound && (
+      {/* ==================== STAGE 12 / 14: ADVANCE GEOLOGICAL ANALYSIS VIEW (Directly Embedded, Replaces 3D Report) ==================== */}
+      {(stage === 'advance_analysis' || stage === 'geology_3d_report') && activeProject && activeLocation && activeRound && (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <FaceCompletionAndReviewBar
             activeProject={activeProject}
@@ -11720,15 +11737,77 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               setStage('project_setup');
             }}
           />
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <Field3DTunnelGeologicalReportStage
-              activeProject={activeProject}
-              activeLocation={activeLocation}
-              activeRound={activeRound}
-              rememberedRocks={rememberedRocksList}
-              onUpdateRound={updateActiveRound}
-              onBackTo2DPhotoReport={() => setStage('photo_2d_report')}
-              onBackToCleanReport={() => setStage('word_template_export')}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-slate-950">
+            <AdvancedGeologicalAnalysisModal
+              fullPage
+              isOpen={true}
+              onClose={() => setStage('photo_2d_report')}
+              geometry={createTunnelGeometry(
+                activeLocation?.widthM || 8.5,
+                activeLocation?.heightM || 7.5,
+                activeLocation?.wallHeightM || 4.2,
+                activeLocation?.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped'
+              )}
+              settings={{
+                projectName: activeProject?.projectName || 'Tunnel Field Project',
+                tunnelName: activeLocation?.name || 'Heading 1',
+                location: activeLocation?.name || '',
+                locationName: activeLocation?.name || 'Active Face',
+                driveDirectionInput: `N ${Math.round(activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth ?? 0)}° E`,
+                driveDirection: activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth ?? 0,
+                chainage: `RD ${activeRound?.chainageFrom || '0.00'}m - ${activeRound?.chainageTo || '3.00'}m`,
+                faceChainage: `RD ${activeRound?.chainageTo || '3.00'}m`,
+                roundLength: activeRound?.pullLengthMeters || 3.0,
+                date: activeRound?.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
+                mappedBy: activeRound?.geologistName || 'Geologist',
+                lithology: activeRound?.rockType || 'Granite',
+              }}
+              joints={(activeRound?.jointTraces || []).map((t) => ({
+                id: t.id,
+                surface: (t.panel === 'left_wall' ? 'leftWall' : t.panel === 'right_wall' ? 'rightWall' : t.panel) as SurfaceType,
+                points: t.points.map((p) => ({ x: p.x, y: p.y })),
+                dipDirection: t.dipDirection ?? 135,
+                dip: t.dipAmount ?? 65,
+                strike: t.strike ?? 45,
+                set: t.setId || 'J1',
+                persistenceMeters: (t as any).lengthMeters || 3.0,
+                spacingMeters: 0.8,
+                roughness: 'ROUGH_PLANAR' as const,
+                apertureMm: 1.5,
+                weathering: 'SLIGHTLY_WEATHERED' as const,
+                infilling: 'NONE' as const,
+                seepageCondition: 'DRY' as const,
+                visible: true,
+              })) as unknown as Joint[]}
+              jointSets={
+                activeRound?.discontinuitySets && Array.isArray(activeRound.discontinuitySets) && activeRound.discontinuitySets.length > 0
+                  ? activeRound.discontinuitySets.map((s, idx) => ({
+                      id: s.setId || `J${idx + 1}`,
+                      name: `Joint Set ${s.setId || `J${idx + 1}`}`,
+                      color: idx === 0 ? '#ef4444' : idx === 1 ? '#3b82f6' : idx === 2 ? '#10b981' : '#f59e0b',
+                      meanDipDirection: Number(s.dipDirection) || (idx === 0 ? 135 : idx === 1 ? 225 : 315),
+                      meanDip: Number(s.dipAmount) || (idx === 0 ? 70 : idx === 1 ? 65 : 45),
+                      spacing: '0.45m',
+                      persistence: '3.2m',
+                      jrc: 8,
+                      jcs: 85,
+                      roughness: 'Rough planar',
+                      traceCount: (activeRound?.jointTraces || []).filter((t) => t.setId === s.setId).length || 3,
+                    })) as unknown as JointSet[]
+                  : ['J1', 'J2', 'J3'].map((s, idx) => ({
+                      id: s,
+                      name: `Joint Set ${s}`,
+                      color: idx === 0 ? '#ef4444' : idx === 1 ? '#3b82f6' : idx === 2 ? '#10b981' : '#f59e0b',
+                      meanDipDirection: idx === 0 ? 135 : idx === 1 ? 225 : 315,
+                      meanDip: idx === 0 ? 70 : idx === 1 ? 65 : 45,
+                      spacing: '0.45m',
+                      persistence: '3.2m',
+                      jrc: 8,
+                      jcs: 85,
+                      roughness: 'Rough planar',
+                      traceCount: 4,
+                    })) as unknown as JointSet[]
+              }
             />
           </div>
         </div>
@@ -11940,66 +12019,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         />
       )}
 
-      {/* Advance Geological Analytics Full-Page Modal */}
-      {isAdvanceGeologicalAnalysisOpen && (
-        <div className="fixed inset-0 z-50">
-          <AdvancedGeologicalAnalysisModal
-            fullPage
-            isOpen={true}
-            onClose={() => setIsAdvanceGeologicalAnalysisOpen(false)}
-            geometry={createTunnelGeometry(
-              activeLocation?.widthM || 8.5,
-              activeLocation?.heightM || 7.5,
-              activeLocation?.wallHeightM || 4.2,
-              activeLocation?.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped'
-            )}
-            settings={{
-              projectName: activeProject?.projectName || 'Tunnel Field Project',
-              tunnelName: activeLocation?.name || 'Heading 1',
-              location: activeLocation?.name || '',
-              locationName: activeLocation?.name || 'Active Face',
-              driveDirectionInput: `N ${Math.round(activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth ?? 0)}° E`,
-              driveDirection: activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth ?? 0,
-              chainage: `RD ${activeRound?.chainageFrom || '0.00'}m - ${activeRound?.chainageTo || '3.00'}m`,
-              faceChainage: `RD ${activeRound?.chainageTo || '3.00'}m`,
-              roundLength: activeRound?.pullLengthMeters || 3.0,
-              date: activeRound?.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
-              mappedBy: activeRound?.geologistName || 'Geologist',
-              lithology: activeRound?.rockType || 'Granite',
-            }}
-            joints={(activeRound?.jointTraces || []).map((t) => ({
-              id: t.id,
-              surface: (t.panel === 'left_wall' ? 'leftWall' : t.panel === 'right_wall' ? 'rightWall' : t.panel) as SurfaceType,
-              points: t.points.map((p) => ({ x: p.x, y: p.y })),
-              dipDirection: t.dipDirection ?? 135,
-              dip: t.dipAmount ?? 65,
-              strike: t.strike ?? 45,
-              set: t.setId || 'J1',
-              persistenceMeters: (t as any).lengthMeters || 3.0,
-              spacingMeters: 0.8,
-              roughness: 'ROUGH_PLANAR' as const,
-              apertureMm: 1.5,
-              weathering: 'SLIGHTLY_WEATHERED' as const,
-              infilling: 'NONE' as const,
-              seepageCondition: 'DRY' as const,
-              visible: true,
-            })) as unknown as Joint[]}
-            jointSets={['J1', 'J2', 'J3'].map((s, idx) => ({
-              id: s,
-              name: `Joint Set ${s}`,
-              color: idx === 0 ? '#ef4444' : idx === 1 ? '#3b82f6' : '#10b981',
-              meanDipDirection: idx === 0 ? 135 : idx === 1 ? 225 : 315,
-              meanDip: idx === 0 ? 70 : idx === 1 ? 65 : 45,
-              spacing: '0.45m',
-              persistence: '3.2m',
-              jrc: 8,
-              jcs: 85,
-              roughness: 'Rough planar',
-              traceCount: 4,
-            })) as unknown as JointSet[]}
-          />
-        </div>
-      )}
       </div>
     </div>
   );

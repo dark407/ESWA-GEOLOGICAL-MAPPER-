@@ -2262,7 +2262,57 @@ export function mapUnwrappedSurfacePointTo3DStrip(
   const boxX = 500 - boxW / 2;
   const boxY = 495 - boxH / 2;
 
-  // Normalized (u, v) in panel box
+  // Determine whether input point is already in physical metric coordinates [meters]
+  // or in canonical SVG canvas coordinates [0..1000]
+  const isDirectMetric = pt.x <= panelW * 1.15 && pt.y <= panelH * 1.15 && pt.x >= 0 && pt.y >= 0;
+
+  if (isDirectMetric) {
+    if (surface === 'leftWall') {
+      const pullX = Math.max(0, Math.min(pullSpan, pt.x));
+      const normH = Math.max(0, Math.min(1, pt.y / Math.max(0.1, leftWallArc)));
+      const rdX = interval.fromRd + pullX;
+      const perimY = normH * leftWallArc;
+      return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
+    }
+    if (surface === 'crown') {
+      const u = Math.max(0, Math.min(1, pt.x / Math.max(0.1, crownArc)));
+      const pullX = Math.max(0, Math.min(pullSpan, pt.y));
+      const rdX = interval.fromRd + pullX;
+      const perimY = leftWallArc + u * crownArc;
+      return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
+    }
+    if (surface === 'rightWall') {
+      const pullX = Math.max(0, Math.min(pullSpan, pt.x));
+      const normH = Math.max(0, Math.min(1, pt.y / Math.max(0.1, rightWallArc)));
+      const rdX = interval.fromRd + pullX;
+      const perimY = leftWallArc + crownArc + (1 - normH) * rightWallArc;
+      return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
+    }
+    // face surface in metric coordinates (pt.x = cross-chainage [0..width], pt.y = height above invert floor [0..height])
+    const faceX = Math.max(0, Math.min(width, pt.x));
+    const faceZ = Math.max(0, Math.min(height, pt.y));
+
+    let perimY = totalPerimM * 0.5;
+    if (faceZ >= wallH) {
+      // Crown Arch portion of the face
+      const normArch = Math.max(0, Math.min(1, faceX / Math.max(0.1, width)));
+      perimY = leftWallArc + normArch * crownArc;
+    } else if (faceX < width * 0.5) {
+      // Left Wall portion of the face
+      const normWall = Math.max(0.01, Math.min(1, faceZ / Math.max(0.1, wallH)));
+      perimY = normWall * leftWallArc;
+    } else {
+      // Right Wall portion of the face
+      const normWall = Math.max(0.01, Math.min(1, faceZ / Math.max(0.1, wallH)));
+      perimY = leftWallArc + crownArc + (1 - normWall) * rightWallArc;
+    }
+    return {
+      x: Number(interval.toRd.toFixed(3)),
+      y: Number(Math.max(0.05, Math.min(totalPerimM - 0.05, perimY)).toFixed(3)),
+    };
+  }
+
+  // Normalized (u, v) in panel box from canvas pixels
   const u =
     pt.x >= boxX - 40 && pt.x <= boxX + boxW + 40
       ? Math.max(0, Math.min(1, (pt.x - boxX) / Math.max(1, boxW)))
@@ -2305,7 +2355,7 @@ export function mapUnwrappedSurfacePointTo3DStrip(
     return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
   }
 
-  // 'face' surface:
+  // 'face' surface from canvas coordinates:
   // u is fraction across width (0 = Left Wall, 1 = Right Wall)
   // v is fraction from crown apex (0) down to floor (1)
   const faceX = u * width;
@@ -3193,10 +3243,10 @@ export function syncSavedProjectsIntoStripDatasets(
               return { x: u3d, y: v3d };
             }
             if (j.surface === 'crown') {
-              const u2d = Math.max(
-                0,
-                Math.min(1, (pt.x + recCrownArc * 0.5) / Math.max(0.5, recCrownArc))
-              );
+              const u2d =
+                pt.x < 0
+                  ? Math.max(0, Math.min(1, (pt.x + recCrownArc * 0.5) / Math.max(0.5, recCrownArc)))
+                  : Math.max(0, Math.min(1, pt.x / Math.max(0.5, recCrownArc)));
               const v2d = Math.max(0, Math.min(1, 1 - pt.y / safeRound));
               const { u3d, v3d } = rotateUnwrapped2DTo3DClockwise90(u2d, v2d);
               return { x: u3d, y: v3d };

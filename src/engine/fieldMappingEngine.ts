@@ -3701,10 +3701,9 @@ export function computePhysicalMetricPoints(
       };
     }
     if (panel === 'right_wall') {
-      // u: 0 = pull start (0m), 1 = face (pullM)
-      // v: 0 = springline (wallHM), 1 = invert floor (0m)
+      // On Right Wall canvas, u=0 (left) is Face advance (pullM) and u=1 (right) is Start of Round (0m)
       return {
-        x: Number((u * pullM).toFixed(3)),
+        x: Number(((1 - u) * pullM).toFixed(3)),
         y: Number(((1 - v) * wallHM).toFixed(3)),
       };
     }
@@ -3742,7 +3741,7 @@ export function convertPhysicalMetricPointsToCanvas(
       u = Math.max(0, Math.min(1, mp.x / crownArchM));
       v = Math.max(0, Math.min(1, 1 - mp.y / pullM));
     } else if (panel === 'right_wall') {
-      u = Math.max(0, Math.min(1, mp.x / pullM));
+      u = Math.max(0, Math.min(1, (pullM - mp.x) / pullM));
       v = Math.max(0, Math.min(1, 1 - mp.y / wallHM));
     } else {
       u = Math.max(0, Math.min(1, mp.x / geom.tunnelW));
@@ -3938,14 +3937,14 @@ export function computePanelOrientationReferenceMeta(
         yAxisKind: 'length' as const,
         driveDirectionSide: 'right' as const,
         xZeroAtStart: false,
-        yZeroAtStart: true,
+        /** False means 0m is at Bottom (y = bottom) and increases upward to top */
+        yZeroAtStart: false,
       };
     }
   }
 
   if (!isRotated90) {
     const driveOnRight = driveUV.sx >= 0.5;
-    const lenZeroAtTop = zeroLenUV.sy <= 0.5;
     return {
       tr,
       isRotated90: false,
@@ -3958,12 +3957,11 @@ export function computePanelOrientationReferenceMeta(
       driveDirectionSide: driveOnRight ? ('right' as const) : ('left' as const),
       /** True if 0m on X-axis (Pull) is at Left (x = left) and increases rightward */
       xZeroAtStart: driveOnRight,
-      /** True if 0m on Y-axis (Length) is at Top (y = top) and increases downward */
-      yZeroAtStart: lenZeroAtTop,
+      /** False means 0m (Invert floor) is at Bottom (y = bottom) and increases upward to SPL on top (0 bottom 3 top) */
+      yZeroAtStart: false,
     };
   } else {
     const lenZeroAtLeft = zeroLenUV.sx <= 0.5;
-    const driveAtBottom = driveUV.sy >= 0.5;
     return {
       tr,
       isRotated90: true,
@@ -3973,11 +3971,11 @@ export function computePanelOrientationReferenceMeta(
       heightM,
       xAxisKind: 'length' as const,
       yAxisKind: 'pull' as const,
-      driveDirectionSide: driveAtBottom ? ('bottom' as const) : ('top' as const),
+      driveDirectionSide: 'top' as const,
       /** True if 0m on X-axis (Length) is at Left (x = left) and increases rightward */
       xZeroAtStart: lenZeroAtLeft,
-      /** True if 0m on Y-axis (Pull) is at Top (y = top) and increases downward */
-      yZeroAtStart: driveAtBottom,
+      /** False means 0m (Round start) is at Bottom (y = bottom) and increases upward to 3m on top (0 bottom 3 top) */
+      yZeroAtStart: false,
     };
   }
 }

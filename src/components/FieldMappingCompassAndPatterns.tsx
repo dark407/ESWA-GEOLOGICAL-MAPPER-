@@ -4694,7 +4694,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           </>
         )}
         {activePanel === 'crown' && (
-          orientMeta.isRotated90 ? (
+          !orientMeta.isRotated90 ? (
             <line
               x1={cx}
               y1={top}
@@ -5251,53 +5251,29 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       : `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (◀ ${invertWord} ${splHeightM.toFixed(2)}m / ${splRightShort} 0m ▶)`;
 
   const vertTitle =
-    orientMeta.yAxisKind === 'length'
-      ? activePanel === 'crown'
-        ? orientMeta.yZeroAtStart
-          ? `${panelDisplayName} WIDTH = ${crownLengthM.toFixed(2)}m (▲ ${splLeftShort} ${String(leftAz).padStart(3, '0')}° · C/L · ${splRightShort} ${String(rightAz).padStart(3, '0')}° ▼)`
-          : `${panelDisplayName} WIDTH = ${crownLengthM.toFixed(2)}m (▲ ${splRightShort} ${String(rightAz).padStart(3, '0')}° · C/L · ${splLeftShort} ${String(leftAz).padStart(3, '0')}° ▼)`
-        : activePanel === 'left_wall'
-        ? orientMeta.yZeroAtStart
-          ? `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (▲ ${invertWord} 0m / ▼ ${splLeftShort} ${splHeightM.toFixed(2)}m)`
-          : `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (▲ ${splLeftShort} ${splHeightM.toFixed(2)}m / ▼ ${invertWord} 0m)`
-        : orientMeta.yZeroAtStart
-        ? `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (▲ ${splRightShort} 0m / ▼ ${invertWord} ${splHeightM.toFixed(2)}m)`
-        : `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (▲ ${invertWord} ${splHeightM.toFixed(2)}m / ▼ ${splRightShort} 0m)`
-      : orientMeta.yZeroAtStart
-      ? `▲ ${oppStr}° — ${pullWord} = ${pullM.toFixed(2)}m (0→${pullM}m) — ${driveWord} ${driveStr}° ▼`
-      : `▲ ${driveWord} ${driveStr}° — ${pullWord} = ${pullM.toFixed(2)}m (${pullM}←0m) — ${oppStr}° ▼`;
-
-  const topEdgeLabel = !orientMeta.isRotated90
-    ? activePanel === 'crown'
-      ? orientMeta.yZeroAtStart
-        ? `▲ ${splLeftWord} (0.00m)`
-        : `▲ ${splRightWord} (${crownLengthM.toFixed(2)}m)`
+    orientMeta.yAxisKind === 'pull'
+      ? `▲ ${driveWord} ${driveStr}° — ${pullWord} = ${pullM.toFixed(2)}m (${pullM.toFixed(2)}m ← 0m) — ${oppStr}° ▼`
+      : activePanel === 'crown'
+      ? `${panelDisplayName} WIDTH = ${crownLengthM.toFixed(2)}m (▲ ${splRightShort} ${String(rightAz).padStart(3, '0')}° · C/L · ${splLeftShort} ${String(leftAz).padStart(3, '0')}° ▼)`
       : activePanel === 'left_wall'
-      ? orientMeta.yZeroAtStart
-        ? `▲ ${invertWord} (0.00m)`
-        : `▲ ${splLeftWord} (${splHeightM.toFixed(2)}m)`
-      : orientMeta.yZeroAtStart
-      ? `▲ ${splRightWord} (0.00m)`
-      : `▲ ${invertWord} (${splHeightM.toFixed(2)}m)`
-    : orientMeta.yZeroAtStart
-    ? `▲ ${pullWord} 0.00m (${oppStr}°)`
-    : `▲ ${driveWord} ${driveStr}° (${pullWord} ${pullM.toFixed(2)}m)`;
+      ? `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (▲ ${splLeftShort} ${splHeightM.toFixed(2)}m / ▼ ${invertWord} 0m)`
+      : `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (▲ ${splRightShort} ${splHeightM.toFixed(2)}m / ▼ ${invertWord} 0m)`;
 
-  const bottomEdgeLabel = !orientMeta.isRotated90
-    ? activePanel === 'crown'
-      ? orientMeta.yZeroAtStart
-        ? `▼ ${splRightWord} (${crownLengthM.toFixed(2)}m)`
-        : `▼ ${splLeftWord} (0.00m)`
+  const topEdgeLabel =
+    orientMeta.yAxisKind === 'pull'
+      ? `▲ ${driveWord} ${driveStr}° (${pullWord} ${pullM.toFixed(2)}m)`
+      : activePanel === 'crown'
+      ? `▲ ${splRightWord} (${crownLengthM.toFixed(2)}m)`
       : activePanel === 'left_wall'
-      ? orientMeta.yZeroAtStart
-        ? `▼ ${splLeftWord} (${splHeightM.toFixed(2)}m)`
-        : `▼ ${invertWord} (0.00m)`
-      : orientMeta.yZeroAtStart
-      ? `▼ ${invertWord} (${splHeightM.toFixed(2)}m)`
-      : `▼ ${splRightWord} (0.00m)`
-    : orientMeta.yZeroAtStart
-    ? `▼ ${driveWord} ${driveStr}° (${pullWord} ${pullM.toFixed(2)}m)`
-    : `▼ ${pullWord} 0.00m (${oppStr}°)`;
+      ? `▲ ${splLeftWord} (${splHeightM.toFixed(2)}m)`
+      : `▲ ${splRightWord} (${splHeightM.toFixed(2)}m)`;
+
+  const bottomEdgeLabel =
+    orientMeta.yAxisKind === 'pull'
+      ? `▼ ${pullWord} 0.00m (${oppStr}°)`
+      : activePanel === 'crown'
+      ? `▼ ${splLeftWord} (0.00m)`
+      : `▼ ${invertWord} (0.00m)`;
 
   return (
     <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
@@ -5373,7 +5349,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
 
       {/* Crown Center Line (C/L) Callout */}
       {activePanel === 'crown' && (
-        orientMeta.isRotated90 ? (
+        !orientMeta.isRotated90 ? (
           <text
             x={cx}
             y={top - 11}

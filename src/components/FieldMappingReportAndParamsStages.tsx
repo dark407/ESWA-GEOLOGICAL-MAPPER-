@@ -419,8 +419,15 @@ export const FieldStripAlignmentStage: React.FC<{
         }
 
         if (inter.crown && inter.crown.lengthM > 0.05) {
-          const metricP1 = { x: inter.crown.p1.y, y: inter.crown.p1.x };
-          const metricP2 = { x: inter.crown.p2.y, y: inter.crown.p2.x };
+          const crownLenM = crownGeom.crownLengthM || activeLocation.widthM * 1.25;
+          const metricP1 = {
+            x: (inter.crown.p1.y / Math.max(0.1, spatialGeom.widthM)) * crownLenM,
+            y: inter.crown.p1.x,
+          };
+          const metricP2 = {
+            x: (inter.crown.p2.y / Math.max(0.1, spatialGeom.widthM)) * crownLenM,
+            y: inter.crown.p2.x,
+          };
           const [p1, p2] = convertPhysicalMetricPointsToCanvas([metricP1, metricP2], 'crown', activeLocation, activeRound);
           alignableItems.push({
             id: `proj-cr-${tr.id}`,
@@ -488,33 +495,51 @@ export const FieldStripAlignmentStage: React.FC<{
     nextPoints: FieldPoint2D[]
   ): FieldExcavationRound => {
     if (kind === 'joint') {
+      const isProjectedFaceTrace =
+        id.startsWith('proj-lw-') || id.startsWith('proj-cr-') || id.startsWith('proj-rw-');
+      const baseFaceId = isProjectedFaceTrace ? id.replace(/^proj-(lw|cr|rw)-/, '') : id;
+
       return {
         ...r,
         jointTraces: r.jointTraces.map((tr) => {
-          if (tr.id !== id) return tr;
-          const ori = computeTraceOrientationFromTunnelDrive(
-            nextPoints,
-            tr.panel,
-            r.tunnelDriveDirection,
-            tr.crownDipSign,
-            activeLocation.widthM,
-            activeLocation.heightM
-          );
-          const metricPoints = computePhysicalMetricPoints(
-            nextPoints,
-            tr.panel,
-            activeLocation,
-            r
-          );
-          return {
-            ...tr,
-            points: nextPoints,
-            metricPoints,
-            dipDirection: tr.editedByCompass ? tr.dipDirection : ori.dipDirection,
-            dipAmount: tr.editedByCompass ? tr.dipAmount : ori.dipAmount,
-            strike: tr.editedByCompass ? tr.strike : ori.strike,
-            traceLengthM: ori.traceLengthM,
-          };
+          if (tr.id === id) {
+            const ori = computeTraceOrientationFromTunnelDrive(
+              nextPoints,
+              tr.panel,
+              r.tunnelDriveDirection,
+              tr.crownDipSign,
+              activeLocation.widthM,
+              activeLocation.heightM
+            );
+            const metricPoints = computePhysicalMetricPoints(
+              nextPoints,
+              tr.panel,
+              activeLocation,
+              r
+            );
+            return {
+              ...tr,
+              points: nextPoints,
+              metricPoints,
+              dipDirection: tr.editedByCompass ? tr.dipDirection : ori.dipDirection,
+              dipAmount: tr.editedByCompass ? tr.dipAmount : ori.dipAmount,
+              strike: tr.editedByCompass ? tr.strike : ori.strike,
+              traceLengthM: ori.traceLengthM,
+            };
+          }
+          if (isProjectedFaceTrace && tr.id === baseFaceId) {
+            const metricPoints = computePhysicalMetricPoints(
+              tr.points,
+              tr.panel,
+              activeLocation,
+              r
+            );
+            return {
+              ...tr,
+              metricPoints,
+            };
+          }
+          return tr;
         }),
       };
     }
@@ -1580,6 +1605,15 @@ export const FieldStripAlignmentStage: React.FC<{
               <Move className="w-3 h-3" />
               <span>Pan</span>
             </button>
+          </div>
+
+          {/* Realtime 2-Way Portion Sync Indicator: Face Canvas ↔ Strip Log */}
+          <div
+            className="hidden md:inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-950/70 border border-emerald-500/40 text-[10.5px] font-mono text-emerald-300 font-bold"
+            title="Real-time background sync active: Face Canvas joint traces and unwrapped strip portions synchronized with metric coordinates (x, y)"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Face ↔ Strip Sync Active ({activeRound.jointTraces.length} Traces)</span>
           </div>
         </div>
 

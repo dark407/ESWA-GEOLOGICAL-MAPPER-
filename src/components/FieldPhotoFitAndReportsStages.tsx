@@ -30,6 +30,7 @@ import {
   Upload,
   Wand2,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   buildSmoothSvgPath,
@@ -5683,9 +5684,11 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
             <button
               type="button"
               onClick={onProceedTo3DReport}
-              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg cursor-pointer"
+              className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center gap-1.5 shadow-lg cursor-pointer ring-2 ring-amber-300"
+              title="Proceed to Advance Geological Analysis: Wedge FoS, Apparent Dip, Face Look-Ahead & Inflow"
             >
-              Next: 3D Tunnel &amp; Geological Report
+              <Zap className="w-3.5 h-3.5 fill-current text-slate-950" />
+              Next: Advance Geological Analysis
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
