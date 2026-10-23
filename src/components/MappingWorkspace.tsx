@@ -5689,7 +5689,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
               })()}
 
               {/* Professional Geological & Lithological Hatch Patterns (Section 13: All 22 Lithologies) */}
-              <LithologyPatternDefs prefix="lith-pat-" />
+              <LithologyPatternDefs prefix="lith-pat-" regions={lithologyRegions} />
 
               {/* Overbreak & Undercut Engineering Hatch Patterns */}
               <pattern
@@ -5856,15 +5856,24 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                           fillOpacity={Math.min(0.4, Math.max(0.04, reg.opacity * 0.55))}
                         />
                         {/* Subtle Geological Hatch Pattern */}
-                        <path
-                          d={polyPath}
-                          fill={`url(#lith-pat-${reg.patternType})`}
-                          fillOpacity={Math.min(0.85, Math.max(0.15, reg.opacity * 2.2))}
-                          stroke={reg.colorHex}
-                          strokeOpacity={isSelectedReg ? 0.9 : 0.45}
-                          strokeWidth={isSelectedReg ? '1.8' : '1'}
-                          strokeDasharray={isSelectedReg ? '6,3' : '4,4'}
-                        />
+                        {(() => {
+                          const effAngle = reg.angleDeg ?? reg.patternAngle ?? 0;
+                          const patUrl =
+                            effAngle !== 0
+                              ? `url(#lith-pat-${reg.patternType}-a${effAngle})`
+                              : `url(#lith-pat-${reg.patternType})`;
+                          return (
+                            <path
+                              d={polyPath}
+                              fill={patUrl}
+                              fillOpacity={Math.min(0.85, Math.max(0.15, reg.opacity * 2.2))}
+                              stroke={reg.colorHex}
+                              strokeOpacity={isSelectedReg ? 0.9 : 0.45}
+                              strokeWidth={isSelectedReg ? '1.8' : '1'}
+                              strokeDasharray={isSelectedReg ? '6,3' : '4,4'}
+                            />
+                          );
+                        })()}
                         {/* Subtle Lithology Region Label */}
                         <text
                           x={centX}
@@ -9115,6 +9124,31 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                               )
                             }
                             className="w-5 h-5 rounded border border-slate-300 cursor-pointer"
+                          />
+                        </label>
+                        <label className="flex items-center gap-1 text-[10px] text-slate-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-300">
+                          <span className="font-bold text-amber-900">Angle:</span>
+                          <span className="font-mono font-bold text-amber-800 w-8 text-right">
+                            {(currentSelReg.angleDeg || 0) > 0 ? `+${currentSelReg.angleDeg}°` : `${currentSelReg.angleDeg || 0}°`}
+                          </span>
+                          <input
+                            type="range"
+                            min={-90}
+                            max={90}
+                            step={5}
+                            value={currentSelReg.angleDeg || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              handleUpdateLithologyWithHistory(
+                                lithologyRegions.map((r) =>
+                                  r.id === currentSelReg.id
+                                    ? { ...r, angleDeg: val, patternAngle: val }
+                                    : r
+                                )
+                              );
+                            }}
+                            className="w-16 accent-amber-600 cursor-pointer"
+                            title="Rotate rock lithology pattern symbols"
                           />
                         </label>
                         <button

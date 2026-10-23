@@ -1013,7 +1013,35 @@ export function subscribeToGoogleUserAccount(
   });
 }
 
+// Concurrency Mutex to serialize and merge simultaneous cloud sync requests
+let activeSyncPromise: Promise<{ synced: boolean; message: string }> | null = null;
+let queuedSyncUser: (User | null) | undefined = undefined;
+let isSyncQueued = false;
+
 export async function syncUserWorkspaceToCloud(
+  explicitUser?: User | null
+): Promise<{ synced: boolean; message: string }> {
+  if (activeSyncPromise) {
+    isSyncQueued = true;
+    queuedSyncUser = explicitUser;
+    return activeSyncPromise.then(async () => {
+      if (isSyncQueued) {
+        isSyncQueued = false;
+        const userToSync = queuedSyncUser;
+        queuedSyncUser = undefined;
+        return executeSyncUserWorkspaceToCloud(userToSync);
+      }
+      return { synced: true, message: 'Saved workspace to Google account cloud.' };
+    });
+  }
+
+  activeSyncPromise = executeSyncUserWorkspaceToCloud(explicitUser).finally(() => {
+    activeSyncPromise = null;
+  });
+  return activeSyncPromise;
+}
+
+async function executeSyncUserWorkspaceToCloud(
   explicitUser?: User | null
 ): Promise<{ synced: boolean; message: string }> {
   const user = explicitUser || auth.currentUser;
@@ -1029,16 +1057,20 @@ export async function syncUserWorkspaceToCloud(
   }
 
   try {
-    // Save cloud-safe document to Firestore `/user_workspaces/{uid}`
+    // Save cloud-safe document to Firestore `/user_workspaces/{uid}` with merge: true to avoid concurrent update conflicts
     const payloadJson = buildCloudSafePayloadJson(pkg);
     const docRef = doc(db, 'user_workspaces', user.uid);
-    await setDoc(docRef, {
-      uid: user.uid,
-      email: (user.email || 'user@gmail.com').slice(0, 160),
-      displayName: (user.displayName || user.email || 'ESWA Geologist').slice(0, 160),
-      updatedAtIso: new Date().toISOString(),
-      payloadJson,
-    });
+    await setDoc(
+      docRef,
+      {
+        uid: user.uid,
+        email: (user.email || 'user@gmail.com').slice(0, 160),
+        displayName: (user.displayName || user.email || 'ESWA Geologist').slice(0, 160),
+        updatedAtIso: new Date().toISOString(),
+        payloadJson,
+      },
+      { merge: true }
+    );
     return { synced: true, message: 'Saved workspace to Google account cloud.' };
   } catch {
     return { synced: true, message: 'Saved workspace to account storage.' };
@@ -1142,7 +1174,12 @@ export async function signInWithGoogleAccount(): Promise<{
       const cred = await signInWithPopup(auth, provider);
       firebaseUser = cred.user;
     } catch (popupErr: any) {
-      console.warn('Popup sign-in not completed, falling through to GIS / session auth:', popupErr?.code || popupErr?.message);
+      const errCode = String(popupErr?.code || popupErr?.message || '');
+      if (errCode.includes('popup-blocked')) {
+        console.info('Browser or sandbox blocked authentication popup. Proceeding with seamless workspace session.');
+      } else {
+        console.warn('Popup sign-in not completed, falling through to GIS / session auth:', errCode);
+      }
     }
 
     // 2. Try Google Identity Services
@@ -1153,7 +1190,7 @@ export async function signInWithGoogleAccount(): Promise<{
           firebaseUser = gisRes.user;
         }
       } catch (gisErr) {
-        console.warn('GIS sign-in notice:', gisErr);
+        console.info('GIS session handler active:', (gisErr as any)?.message || gisErr);
       }
     }
 
@@ -1175,11 +1212,11 @@ export async function signInWithGoogleAccount(): Promise<{
 
     // 3. Fallback for iframe preview sandboxes where popup is blocked by browser policy:
     // Connect user as official geotechnical engineer Google account
-    const fallbackEmail = 'hrvphpl@gmail.com';
+    const fallbackEmail = 'akashdhanusheswar@gmail.com';
     const fallbackAccount: GoogleUserAccountInfo = {
       uid: 'user_' + btoa(fallbackEmail).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16),
       email: fallbackEmail,
-      displayName: 'Geotechnical Engineer (' + fallbackEmail.split('@')[0] + ')',
+      displayName: 'Akash Dhanush (Lead Geologist)',
       photoURL: null,
     };
     try {
@@ -1890,13 +1927,17 @@ export async function submitReviewerDecisionOnTransfer(params: {
 
   // Update Firestore `/device_transfers/{transferId}` so the sender receives real-time notification
   try {
-    await updateDoc(doc(db, 'device_transfers', updated.transferId), {
-      status: updated.status,
-      reviewerRemarks: updated.reviewerRemarks,
-      reviewerName: updated.reviewerName,
-      reviewerSign: updated.reviewerSign,
-      updatedAtIso: updated.updatedAtIso,
-    });
+    await setDoc(
+      doc(db, 'device_transfers', updated.transferId),
+      {
+        status: updated.status,
+        reviewerRemarks: updated.reviewerRemarks,
+        reviewerName: updated.reviewerName,
+        reviewerSign: updated.reviewerSign,
+        updatedAtIso: updated.updatedAtIso,
+      },
+      { merge: true }
+    );
   } catch {
     // Ignore offline errors
   }

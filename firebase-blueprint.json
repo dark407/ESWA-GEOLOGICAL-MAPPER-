@@ -371,6 +371,28 @@
       "required": [
         "id", "userId", "userEmail", "boundPcHardwareId", "timestamp", "appVersion", "mappingMethod", "projectName", "locationName"
       ]
+    },
+    "SharedProjectCollaboration": {
+      "title": "SharedProjectCollaboration",
+      "description": "Collaborative project sharing across Contractor, PMC, and Client devices.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "projectName": { "type": "string", "maxLength": 160 },
+        "portalScope": { "type": "string", "maxLength": 32 },
+        "lastSyncTimestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "projectName"]
+    },
+    "ProjectJoinCode": {
+      "title": "ProjectJoinCode",
+      "description": "Lookup code for devices joining collaborative tunneling projects.",
+      "type": "object",
+      "properties": {
+        "joinCode": { "type": "string", "maxLength": 32 },
+        "projectId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["joinCode", "projectId"]
     }
   },
   "firestore": {
@@ -401,6 +423,14 @@
     "/device_transfers/{transferId}": {
       "schema": { "$ref": "#/entities/DeviceTransferRecord" },
       "description": "Peer review requests and face completion packages routed between geologists via Device ID."
+    },
+    "/shared_projects/{projectId}": {
+      "schema": { "$ref": "#/entities/SharedProjectCollaboration" },
+      "description": "Collaborative project state for contractors, PMCs, and clients."
+    },
+    "/project_join_codes/{codeId}": {
+      "schema": { "$ref": "#/entities/ProjectJoinCode" },
+      "description": "Project join code lookup entries."
     },
     "/ai_training_telemetry/{recordId}": {
       "schema": { "$ref": "#/entities/AiTrainingTelemetry" },

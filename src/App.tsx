@@ -106,6 +106,7 @@ import { EswaAiExecutiveChatbot } from './components/EswaAiExecutiveChatbot';
 import { loadSavedSheetConfig, saveSheetConfigToStorage } from './engine/sheetLayoutEngine';
 import {
   ContinuousTunnelStripDataset,
+  createPowerTunnelReferenceDataset,
   loadAllContinuousStripDatasets,
   saveAllContinuousStripDatasets,
   seedSampleContinuousStripDatasets,
@@ -670,6 +671,7 @@ export default function App({
     NATM: 'MAIN_WINDOW',
     TBM: 'MAIN_WINDOW',
     MINING: 'MAIN_WINDOW',
+    GEOLOGICAL_MODELLING: 'MAIN_WINDOW',
   }));
 
   // TBM Live Multi-Ring Telemetry Table
@@ -3841,6 +3843,9 @@ export default function App({
             setIsFieldMappingModeOpen(false);
             setIsCoreLoggingOpen(true);
           }}
+          onOpenContinuousTunnelLog={() => {
+            setIsContinuousLogSetupOpen(true);
+          }}
           onBackToWelcome={() => {
             setIsFieldMappingModeOpen(false);
             setResumeFieldAtLastStage(false);
@@ -3897,8 +3902,18 @@ export default function App({
                     isAct ? 'font-black shadow-md' : 'text-white/70 hover:text-white hover:bg-white/10'
                   }`}
                   style={{
-                    backgroundColor: isAct ? (m === 'NATM' ? palette.primaryHex : m === 'TBM' ? '#06B6D4' : '#10B981') : undefined,
-                    color: isAct ? (m === 'NATM' ? palette.buttonTextColor : '#020617') : undefined,
+                    backgroundColor: isAct
+                      ? m === 'NATM'
+                        ? palette.primaryHex
+                        : m === 'TBM'
+                        ? '#06B6D4'
+                        : '#10B981'
+                      : undefined,
+                    color: isAct
+                      ? m === 'NATM'
+                        ? palette.buttonTextColor
+                        : '#020617'
+                      : undefined,
                   }}
                   title={
                     m === 'NATM'
@@ -4160,9 +4175,9 @@ export default function App({
           </div>
 
 
-          {/* Main Window: Only 3 Options — 1. Underground Face Mapping, 2. Surface Mapping, 3. Data Storage, Import & Export */}
+          {/* Main Window: Core Geological & Geotechnical Suite Options */}
           <div className="w-full space-y-2.5 p-2 sm:p-2.5 rounded-2xl bg-white/75 backdrop-blur-md border shadow-2xl" style={{ borderColor: palette.primaryHex + '40' }}>
-            {/* 1. First Option: Underground Face Mapping */}
+            {/* 1. Underground Face Mapping */}
             <div className="flex items-stretch gap-2 w-full">
               <button
                 type="button"
@@ -4173,12 +4188,12 @@ export default function App({
                   setResumeFieldAtLastStage(false);
                   setIsFieldMappingModeOpen(true);
                 }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
+                className="flex-1 py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
                 style={{
                   borderColor: palette.primaryHex,
                 }}
               >
-                <span className="flex items-center gap-2.5">
+                <span className="flex items-center gap-2.5 text-left">
                   <span
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
                     style={{
@@ -4188,7 +4203,10 @@ export default function App({
                   >
                     <Compass className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="text-stone-900 font-extrabold">Underground Face Mapping</span>
+                  <span className="flex flex-col">
+                    <span className="text-stone-900 font-extrabold">Underground Face Mapping</span>
+                    <span className="text-[10px] sm:text-[10.5px] font-medium text-stone-500">Vector Cross-Section • Joint Traces • Q / RMR / GSI</span>
+                  </span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
@@ -4204,7 +4222,7 @@ export default function App({
                   setResumeFieldAtLastStage(true);
                   setIsFieldMappingModeOpen(true);
                 }}
-                className="px-4 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                className="px-3.5 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
                 style={{
                   backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
                   borderColor: palette.accentHex,
@@ -4227,51 +4245,20 @@ export default function App({
               </button>
             </div>
 
-            {/* Continuous Tunnel Logging */}
-            <div className="flex items-stretch gap-2 w-full">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsContinuousLogSetupOpen(true);
-                }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
-                style={{
-                  borderColor: palette.primaryHex,
-                }}
-              >
-                <span className="flex items-center gap-2.5">
-                  <span
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
-                    style={{
-                      backgroundColor: palette.primaryHex + '20',
-                      color: palette.accentIconColor,
-                    }}
-                  >
-                    <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                  </span>
-                  <span className="text-stone-900 font-extrabold">Continuous Tunnel Logging</span>
-                </span>
-                <ArrowRight
-                  className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
-                  style={{ color: palette.accentIconColor }}
-                />
-              </button>
-            </div>
-
-            {/* Geotechnical Core Logging */}
+            {/* 2. Continuous 3D Tunnel Mapping & Strip Log */}
             <div className="flex items-stretch gap-2 w-full">
               <button
                 type="button"
                 onClick={() => {
                   setIsFirstOpening(false);
-                  setIsCoreLoggingOpen(true);
+                  setIsContinuousLogSetupOpen(true);
                 }}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
+                className="flex-1 py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
                 style={{
                   borderColor: palette.primaryHex,
                 }}
               >
-                <span className="flex items-center gap-2.5">
+                <span className="flex items-center gap-2.5 text-left">
                   <span
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
                     style={{
@@ -4281,7 +4268,72 @@ export default function App({
                   >
                     <Layers className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="text-stone-900 font-extrabold">Geotechnical Core Logging &amp; Reports</span>
+                  <span className="flex flex-col">
+                    <span className="text-stone-900 font-extrabold">Continuous 3D Tunnel Mapping</span>
+                    <span className="text-[10px] sm:text-[10.5px] font-medium text-stone-500">Multi-Pull 3D Strip • Unrolled CAD Advance • A3 Engineering Log</span>
+                  </span>
+                </span>
+                <ArrowRight
+                  className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
+                  style={{ color: palette.accentIconColor }}
+                />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFirstOpening(false);
+                  const datasets = loadAllContinuousStripDatasets();
+                  const targetDataset = datasets[0] || createPowerTunnelReferenceDataset();
+                  setActiveContinuousDataset(targetDataset);
+                  setInitialCadOpenForContinuous(true);
+                  setIsA3ContinuousLogOpen(true);
+                }}
+                className="px-3.5 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                style={{
+                  backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
+                  borderColor: palette.accentHex,
+                  color: palette.isLightBg ? '#FFFFFF' : '#0F172A',
+                }}
+                title="Launch Continuous 3D Tunnel CAD Editor directly"
+              >
+                <Box
+                  className="w-3.5 h-3.5 shrink-0"
+                  style={{
+                    color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                  }}
+                />
+                <span>3D CAD</span>
+              </button>
+            </div>
+
+            {/* 3. Geological & Geotechnical Core Logging */}
+            <div className="flex items-stretch gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFirstOpening(false);
+                  setIsCoreLoggingOpen(true);
+                }}
+                className="w-full py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
+                style={{
+                  borderColor: palette.primaryHex,
+                }}
+              >
+                <span className="flex items-center gap-2.5 text-left">
+                  <span
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                    style={{
+                      backgroundColor: palette.primaryHex + '20',
+                      color: palette.accentIconColor,
+                    }}
+                  >
+                    <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  </span>
+                  <span className="flex flex-col">
+                    <span className="text-stone-900 font-extrabold">Geological &amp; Geotechnical Core Logging</span>
+                    <span className="text-[10px] sm:text-[10.5px] font-medium text-stone-500">Diamond Drill Core • RQD &amp; Recovery • Barton Q &amp; RMR • Core Box Photos</span>
+                  </span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
@@ -4290,7 +4342,7 @@ export default function App({
               </button>
             </div>
 
-            {/* 2. Second Option: Surface Mapping (Isolated Subtypes) */}
+            {/* 4. Surface Mapping (Bench, Trench, Slope, Outcrop) */}
             <div
               className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 space-y-2 transition-colors"
               style={{
@@ -4417,7 +4469,7 @@ export default function App({
               </div>
             </div>
 
-            {/* 3. Third Option: Data Storage, Import & Export */}
+            {/* 5. Data Storage, Import & Export */}
             <div className="grid grid-cols-1 gap-2.5 w-full">
               <button
                 type="button"
@@ -4425,12 +4477,12 @@ export default function App({
                   setIsFirstOpening(false);
                   handleOpenProjectMemoryModal('field_data');
                 }}
-                className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
+                className="w-full py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
                 style={{
                   borderColor: palette.primaryHex,
                 }}
               >
-                <span className="flex items-center gap-2.5">
+                <span className="flex items-center gap-2.5 text-left">
                   <span
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
                     style={{
@@ -4440,7 +4492,10 @@ export default function App({
                   >
                     <Database className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="text-stone-900 font-extrabold">Data Storage, Import &amp; Export</span>
+                  <span className="flex flex-col">
+                    <span className="text-stone-900 font-extrabold">Data Storage, Import &amp; Export</span>
+                    <span className="text-[10px] sm:text-[10.5px] font-medium text-stone-500">Boreholes, Mapped Faces, Perimeters &amp; Offline Cloud Backup</span>
+                  </span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"

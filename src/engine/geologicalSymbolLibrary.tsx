@@ -851,10 +851,34 @@ export const StructuralGeologicalSymbolGlyph: React.FC<{
 export const LithologyPatternDefs: React.FC<{
   prefix: string;
   forPrintSheet?: boolean;
-}> = ({ prefix, forPrintSheet = false }) => {
+  regions?: { id?: string; patternType: string; angleDeg?: number; patternAngle?: number }[];
+}> = ({ prefix, forPrintSheet = false, regions = [] }) => {
   const op = forPrintSheet ? 0.62 : 0.65;
+  const uniqueAngledPairs = Array.from(
+    new Map(
+      regions
+        .filter((r) => (r.angleDeg ?? r.patternAngle ?? 0) !== 0)
+        .map((r) => {
+          const ang = r.angleDeg ?? r.patternAngle ?? 0;
+          return [`${r.patternType}-a${ang}`, { patternType: r.patternType, angle: ang }];
+        })
+    ).values()
+  );
   return (
     <>
+      {/* Dynamic Rotated Pattern Instances for Custom Angle Regions */}
+      {uniqueAngledPairs.map(({ patternType, angle }) => (
+        <pattern
+          key={`${prefix}${patternType}-a${angle}`}
+          id={`${prefix}${patternType}-a${angle}`}
+          width="24"
+          height="24"
+          patternUnits="userSpaceOnUse"
+          patternTransform={`rotate(${angle})`}
+        >
+          <rect width="24" height="24" fill={`url(#${prefix}${patternType})`} />
+        </pattern>
+      ))}
       {/* 1. Granite (+ crosses) */}
       <pattern id={`${prefix}granite`} width="18" height="18" patternUnits="userSpaceOnUse">
         <path d="M 3 5 L 7 5 M 5 3 L 5 7" stroke="#FB7185" strokeWidth="0.9" strokeOpacity={op} />

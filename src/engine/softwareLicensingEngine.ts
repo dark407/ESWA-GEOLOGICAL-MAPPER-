@@ -875,6 +875,13 @@ export function triggerTamperViolationLockout(reason: string): void {
 
 export function isTamperViolationLockoutActive(): boolean {
   try {
+    const isNativeDesktop =
+      typeof window !== 'undefined' &&
+      (Boolean((window as unknown as { __ESWA_NATIVE_DESKTOP__?: boolean }).__ESWA_NATIVE_DESKTOP__) ||
+        Boolean((window as unknown as { process?: { versions?: { electron?: string } } }).process?.versions?.electron));
+    if (!isNativeDesktop) {
+      return false;
+    }
     return !!localStorage.getItem(LOCAL_TAMPER_LOCKOUT_KEY);
   } catch {
     return false;
@@ -1142,9 +1149,18 @@ export function initEnterpriseSecurityShield(): () => void {
     }
   }, 5000);
 
-  // 7. Anti-Debugger Inspection Trap in Production Builds
+  // 7. Anti-Debugger Inspection Trap in Native Desktop Standalone Builds
   let antiDebugTimer: number | null = null;
-  if (!import.meta.env.DEV) {
+  const isNativeDesktop =
+    typeof window !== 'undefined' &&
+    (Boolean((window as unknown as { __ESWA_NATIVE_DESKTOP__?: boolean }).__ESWA_NATIVE_DESKTOP__) ||
+      Boolean((window as unknown as { process?: { versions?: { electron?: string } } }).process?.versions?.electron));
+
+  if (!isNativeDesktop) {
+    clearTamperViolationLockout();
+  }
+
+  if (!import.meta.env.DEV && isNativeDesktop) {
     antiDebugTimer = window.setInterval(() => {
       if (isMasterAdminLoggedIn()) return;
       const t0 = performance.now();

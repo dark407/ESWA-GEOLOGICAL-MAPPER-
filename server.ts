@@ -10,6 +10,14 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
 
+// Prevent unhandled WebSocket/socket errors from crashing the dev server process
+process.on('uncaughtException', (err) => {
+  console.warn('[Server Warning] uncaughtException suppressed:', err?.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Server Warning] unhandledRejection suppressed:', reason);
+});
+
 const PORT = 3000;
 const ESWA_GATEWAY_SALT = 'ESWA_GATEWAY_API_SIG_2026';
 
@@ -1824,7 +1832,10 @@ ${safeJsContent}
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

@@ -607,6 +607,61 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                   Drawn strictly below joints, faults, veins, symbols &amp; labels (max 40% to keep photo &amp; structures clear).
                 </div>
               </div>
+
+              {/* Symbol Orientation Angle (Bedding / Foliation Dip) */}
+              <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-slate-300 font-semibold">
+                    Symbol Angle (Bedding / Dip):
+                  </span>
+                  <span className="font-mono text-[10px] text-amber-400 font-bold px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700">
+                    {(selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0) > 0
+                      ? `+${selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}°`
+                      : `${selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}°`}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={-90}
+                  max={90}
+                  step={5}
+                  value={selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    updateSelectedRegion((reg) => ({
+                      ...reg,
+                      angleDeg: val,
+                      patternAngle: val,
+                    }));
+                  }}
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
+                <div className="grid grid-cols-4 gap-1">
+                  {[-45, -30, 0, 30, 45, 60, 90, -60].map((ang) => {
+                    const cur = selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0;
+                    return (
+                      <button
+                        key={ang}
+                        type="button"
+                        onClick={() =>
+                          updateSelectedRegion((reg) => ({
+                            ...reg,
+                            angleDeg: ang,
+                            patternAngle: ang,
+                          }))
+                        }
+                        className={`py-0.5 px-1 rounded text-[9px] font-bold border cursor-pointer ${
+                          cur === ang
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-black'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        {ang === 0 ? '0° Flat' : ang > 0 ? `+${ang}°` : `${ang}°`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             {/* ====================================================================

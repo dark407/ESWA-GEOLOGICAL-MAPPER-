@@ -1,6 +1,6 @@
 {
-  "summary":  "Appended NATM 3D Joint Inspector refinements: Real-time dynamic tunnel drive rotation synchronization, light-theme adoption for header and joint set badge, and excavation face advance pull anchoring (3.0m toward tunnel pull).",
-  "updatedAt":  "2026-10-22T00:13:10.378416400Z",
+  "summary":  "Implementation plan to restore 3 clean core options on the Welcome Screen, configure service worker auto-update with cleanupOutdatedCaches, and implement a version migration & cache cleanup prompt for legacy stored versions.",
+  "updatedAt":  "2026-10-23T09:22:27.408193526Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

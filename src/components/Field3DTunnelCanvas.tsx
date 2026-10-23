@@ -3105,6 +3105,13 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
               colorMode={activeRound.reportColorMode ?? 'color'}
               symbolDensity={activeRound.lithologySymbolDensity ?? lithologySymbolDensity}
               symbolDensityByPattern={activeRound.lithologyDensityByRock}
+              symbolAngleByPattern={activeRound.lithologyAngleByRock}
+              lithologyPatternAngle={activeRound.lithologyPatternAngle}
+              alternatingStrokes={activeRound.lithologyStrokes.filter(
+                (s) =>
+                  (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                  (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+              )}
               bandSymbolDensity={activeRound.veinBandSymbolDensity ?? veinBandSymbolDensity}
             />
             {surfaceMeshes.panelStrips.map((strip) => (

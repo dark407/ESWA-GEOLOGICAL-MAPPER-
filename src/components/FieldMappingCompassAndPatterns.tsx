@@ -52,11 +52,20 @@ export const FieldMonochromeGeologicalPatterns: React.FC<{
   symbolDensity?: number;
   symbolDensityByPattern?: Record<string, number>;
   customColorsByRock?: Record<string, string>;
-  extraLithologyDensities?: { patId: string; density: number; customColor?: string; domSuffix?: string }[];
+  extraLithologyDensities?: {
+    patId: string;
+    density: number;
+    customColor?: string;
+    domSuffix?: string;
+    angleDeg?: number;
+  }[];
   alternateStrokes?: FieldLithologyStroke[];
   alternatingStrokes?: FieldLithologyStroke[];
   rememberedRocks?: FieldRememberedRockItem[];
   bandSymbolDensity?: number;
+  symbolAngleByPattern?: Record<string, number>;
+  lithologyPatternAngle?: number;
+  alternatingAngleDeg?: number;
 }> = ({
   prefix = 'fpat',
   colorMode = 'bw',
@@ -68,6 +77,9 @@ export const FieldMonochromeGeologicalPatterns: React.FC<{
   alternatingStrokes = [],
   rememberedRocks = [],
   bandSymbolDensity = 85,
+  symbolAngleByPattern,
+  lithologyPatternAngle,
+  alternatingAngleDeg,
 }) => {
   const isColor = colorMode === 'color';
   const effectiveAltStrokes =
@@ -75,13 +87,14 @@ export const FieldMonochromeGeologicalPatterns: React.FC<{
       ? alternatingStrokes
       : alternateStrokes;
 
-  // Helper to render any rock lithology pattern with its own individual density & custom colour
-  // (reducing density increases tile spacing while keeping symbol size constant)
+  // Helper to render any rock lithology pattern with its own individual density, custom colour & orientation angle
+  // (reducing density increases tile spacing while keeping symbol size constant, angleDeg applies patternTransform rotation)
   const renderRockPatternDef = (
     patId: string,
     domId: string,
     rawDensity: number,
-    overrideColor?: string
+    overrideColor?: string,
+    angleDeg: number = 0
   ) => {
     const clampedDensity = Math.max(25, Math.min(220, rawDensity || 85));
     const s = Number((100 / clampedDensity).toFixed(3));
@@ -97,7 +110,8 @@ export const FieldMonochromeGeologicalPatterns: React.FC<{
       '#f8fafc';
     const bg = isColor ? chosenColor : '#ffffff';
 
-    switch (patId) {
+    const buildPatternNode = () => {
+      switch (patId) {
       case 'quartzite':
         return (
           <pattern
@@ -566,7 +580,17 @@ export const FieldMonochromeGeologicalPatterns: React.FC<{
             />
           </pattern>
         );
+      }
+    };
+
+    const patEl = buildPatternNode();
+    const rotAngle = Math.round(angleDeg || 0);
+    if (rotAngle !== 0 && React.isValidElement(patEl)) {
+      return React.cloneElement(patEl as React.ReactElement<{ patternTransform?: string }>, {
+        patternTransform: `rotate(${rotAngle}, 500, 500)`,
+      });
     }
+    return patEl;
   };
 
   const baseRockPatterns = [
@@ -592,28 +616,47 @@ export const FieldMonochromeGeologicalPatterns: React.FC<{
     'serpentinite',
   ];
 
-  // Deduplicate extra (patId, density, customColor) pairs so each stroke/lithology gets its own exact density & colour pattern
+  // Deduplicate extra (patId, density, customColor, angleDeg) pairs so each stroke/lithology gets its own exact density, colour & orientation angle
   const uniqueExtraMap = new Map<
     string,
-    { patId: string; density: number; customColor?: string }
+    { patId: string; density: number; customColor?: string; angleDeg?: number }
   >();
   extraLithologyDensities.forEach((item) => {
     const d = Math.round(item.density || 85);
-    const key = item.domSuffix || `${item.patId}-d${d}`;
+    const a = Math.round(
+      item.angleDeg ??
+        symbolAngleByPattern?.[item.patId] ??
+        lithologyPatternAngle ??
+        0
+    );
+    const angledSuffix = `${item.patId}-d${d}-a${a}`;
+    const plainSuffix = `${item.patId}-d${d}`;
+    const key = item.domSuffix || (a !== 0 ? angledSuffix : plainSuffix);
     if (!uniqueExtraMap.has(key)) {
       uniqueExtraMap.set(key, {
         patId: item.patId,
         density: d,
         customColor: item.customColor,
+        angleDeg: a,
+      });
+    }
+    // Also ensure plainSuffix is registered so fallback URLs always resolve
+    if (!uniqueExtraMap.has(plainSuffix)) {
+      uniqueExtraMap.set(plainSuffix, {
+        patId: item.patId,
+        density: d,
+        customColor: item.customColor,
+        angleDeg: a,
       });
     }
   });
 
-  // Ensure all sub-rocks in any alternating lithology bands have their base pattern definitions registered
+  // Ensure all sub-rocks in any alternating lithology bands have their base pattern definitions registered with proper angle
   effectiveAltStrokes.forEach((st) => {
     const subRocks = st.alternatingRockIds?.length
       ? st.alternatingRockIds
       : st.alternateRockTypes || [];
+    const stAngle = Math.round(st.alternateAngleDeg ?? alternatingAngleDeg ?? -22);
     if (subRocks.length >= 2) {
       subRocks.forEach((rId) => {
         const rm = resolveRockDisplayInfo(rId, rememberedRocks);
@@ -634,6 +677,16 @@ export const FieldMonochromeGeologicalPatterns: React.FC<{
             patId: rPat,
             density: rDens,
             customColor: rCol,
+            angleDeg: stAngle,
+          });
+        }
+        const aKey = `${rPat}-d${rDens}-a${stAngle}`;
+        if (!uniqueExtraMap.has(aKey)) {
+          uniqueExtraMap.set(aKey, {
+            patId: rPat,
+            density: rDens,
+            customColor: rCol,
+            angleDeg: stAngle,
           });
         }
       });
@@ -648,21 +701,28 @@ export const FieldMonochromeGeologicalPatterns: React.FC<{
   return (
     <defs>
       {/* Standard per-lithology patterns */}
-      {baseRockPatterns.map((patId) =>
-        renderRockPatternDef(
+      {baseRockPatterns.map((patId) => {
+        const rockAngle =
+          symbolAngleByPattern?.[patId] ??
+          lithologyPatternAngle ??
+          0;
+        return renderRockPatternDef(
           patId,
           `${prefix}-${patId}`,
-          symbolDensityByPattern?.[patId] ?? symbolDensity
-        )
-      )}
+          symbolDensityByPattern?.[patId] ?? symbolDensity,
+          customColorsByRock?.[patId],
+          rockAngle
+        );
+      })}
 
-      {/* Per-stroke / per-custom-lithology specific density & colour pattern instances */}
+      {/* Per-stroke / per-custom-lithology specific density, colour & angle pattern instances */}
       {Array.from(uniqueExtraMap.entries()).map(([suffix, item]) =>
         renderRockPatternDef(
           item.patId,
           `${prefix}-${suffix}`,
           item.density,
-          item.customColor
+          item.customColor,
+          item.angleDeg ?? 0
         )
       )}
 
@@ -684,7 +744,7 @@ export const FieldMonochromeGeologicalPatterns: React.FC<{
             Math.min(180, st.alternatingSpacingPx ?? st.alternateSpacingPx ?? 24)
           );
           const totalPeriod = rocks.length * bandW;
-          const angle = st.alternateAngleDeg ?? -22;
+          const angle = st.alternateAngleDeg ?? alternatingAngleDeg ?? -22;
           return (
             <pattern
               key={`${prefix}-alt-${st.id}`}

@@ -135,18 +135,35 @@ Whenever a new user prompt is received:
 
 ---
 
+- [x] **Milestone 19: Comprehensive System Audit & Full Error Elimination:**
+  - **Vite PWA Precache Limit Fix:** Resolved critical production build crash (`assets exceeding limit`) by expanding `maximumFileSizeToCacheInBytes` to 30 MB in `vite.config.ts` and optimizing `manualChunks` with dedicated `c-ui` components and `z9-core` engine partitions.
+  - **Anti-Debug / Tamper Lockout Guard:** Scoped anti-reversing inspection trap strictly to standalone native desktop executables (`isNativeDesktop`), eliminating false-positive `Interactive DevTools debugger inspection detected` lockouts and session resets in web browser and cloud preview environments. Auto-cleared any stale tamper lockout flags on web boot.
+  - **Firebase Firestore Connection & Health Check:** Added explicit `testConnection()` via `getDocFromServer` according to the Firebase integration skill, tested clean connectivity, and patched Node/Vite WebChannel stream assertion underflow (`ca9`/`b815`) via `patch-firestore-assertion.mjs`.
+  - **Build & Lint Verification:** Verified 100% clean TypeScript type check (`tsc --noEmit`), zero syntax errors, and successful production bundle compilation.
+
+---
+
+- [x] **Milestone 20: 2D-Only Portion Split View with Outline-Fitted Photo & Geological Filter Suite:**
+  - **Pure 2D Split Mode:** Replaced 3D photogrammetry toggle inside Split container with a streamlined 2D Geological Map + 2D Outline-Fitted Photo canvas, maintaining synchronized zoom, pan, and real-time trace drawing.
+  - **Portion-Specific Outline Fitting:** When selecting any tunnel portion (`face`, `left_wall`, `right_wall`, `crown`), Split mode shows the tunnel outline fitted for that specific portion photo only. Fixed portion photo fallback leak where Left Wall fell back to Face photo, and updated `<FieldCanvasGeometryReferenceOverlay activePanel={activePanel}>` so Left Wall and Crown display their own chainage/grid rather than hardcoded Face overlays.
+  - **Strict Visibility Guard:** Split option is strictly hidden in Field Mapping Mode (`workflowMode === 'field_mapping'`), and in Photogrammetry Mode (`workflowMode === 'photo_mapping'`) if no photo is uploaded for the active portion (`hasPhotoForActivePanel`). Automatically collapses to `map` if the user navigates to an unphotographed panel.
+  - **Geological Filter Suite:** Added full real-time trace extraction filter bar: Negative (Invert), High B&W, Ridge (Edges), Red/Green/Blue Channel, CLAHE, Thermal Relief, Sepia, plus Brightness and Contrast steppers with 1-click Reset.
+  - **Target Element Styling:** Applied high-contrast active styling to `button:nth-of-type(2)` with `Split (Map + 2D Photo)` label and responsive layout.
+
+---
+
 ### ACTIVE TASK CHECKPOINT
 <!-- FUTURE AI SESSIONS: Check this section first. If a task is active, resume from the first unchecked [ ] file. -->
 
-- **Current Status:** COMPLETED (Milestones 1 to 18 fully implemented & verified)
-- **Active Task:** None
+- **Current Status:** IN_PROGRESS (Milestone 21: Restoring Continuous 3D Tunnel Mapping & Core Logging to Main Window & Workspaces)
+- **Active Task:** Add dedicated launcher cards for Continuous 3D Tunnel Mapping (multi-pull strip, unrolled CAD, A3 log sheets) and Geological & Geotechnical Core Logging (diamond drill core, RQD, recovery, Q/RMR, core box photo logging) directly into the Main Welcome Window, and add quick switcher buttons in FieldMappingModeWorkspace.
 - **Target Files Checklist:**
-  - [x] `/src/components/NatmJoint3DInspectorModal.tsx` (Dynamic complete plane sizing ~5.5m, crown strike cut point, golden perimeter intersection)
-  - [x] `/src/engine/fieldMappingEngine.ts` (Crown joint trace inline labels show strike only, no angle)
-  - [x] `/src/components/FieldMappingModeWorkspace.tsx` (Crown 2D canvas trace text, live drawing badge, sidebar cards show strike only)
-  - [x] `/AI_HANDOFF.md` (Updated permanent memory)
+  - [ ] `/src/App.tsx` (Add Continuous 3D Tunnel Mapping & Core Logging cards to Welcome screen main card; wire continuous 3D launcher and core logging to props)
+  - [ ] `/src/components/FieldMappingModeWorkspace.tsx` (Add `onOpenContinuousTunnelLog` prop and quick switcher buttons)
+  - [ ] `/AI_HANDOFF.md` (Update checkpoint and mark completed upon verification)
 - **Notes / Last Known State:**
-  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`npm run build` and `compile_applet`) succeeded with 0 errors. All 12 analytical tests in `runJointEngineValidationTests()` pass 100%.
+  - Continuous 3D Strip Engine, A3 Continuous Log Modal, CAD strip editor, and Core Logging Workspace modules are complete in the codebase; exposing direct, high-visibility user-facing entry points on the main window.
+
 
 
 

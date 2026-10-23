@@ -327,6 +327,7 @@ export const FittedPanelPhotoSvgImage: React.FC<{
   clipPathId?: string;
   filterId?: string;
   overrideOpacity?: number;
+  cssFilter?: string;
 }> = ({
   photoUrl,
   fitConfig,
@@ -337,6 +338,7 @@ export const FittedPanelPhotoSvgImage: React.FC<{
   clipPathId,
   filterId,
   overrideOpacity,
+  cssFilter,
 }) => {
   const cx = boxX + boxW / 2;
   const cy = boxY + boxH / 2;
@@ -415,6 +417,7 @@ export const FittedPanelPhotoSvgImage: React.FC<{
           preserveAspectRatio={preserveAspectRatio}
           opacity={opacity}
           filter={filterId ? `url(#${filterId})` : undefined}
+          style={cssFilter ? { filter: cssFilter } : undefined}
         />
       </g>
     </g>
@@ -5131,6 +5134,13 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
                 colorMode={colorMode}
                 symbolDensity={activeRound.lithologySymbolDensity ?? 85}
                 symbolDensityByPattern={activeRound.lithologyDensityByRock}
+                symbolAngleByPattern={activeRound.lithologyAngleByRock}
+                lithologyPatternAngle={activeRound.lithologyPatternAngle}
+                alternatingStrokes={activeRound.lithologyStrokes.filter(
+                  (s) =>
+                    (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                    (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                )}
                 customColorsByRock={activeRound.lithologyColorByRock}
               />
 
@@ -5239,6 +5249,13 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
                 colorMode={colorMode}
                 symbolDensity={activeRound.lithologySymbolDensity ?? 85}
                 symbolDensityByPattern={activeRound.lithologyDensityByRock}
+                symbolAngleByPattern={activeRound.lithologyAngleByRock}
+                lithologyPatternAngle={activeRound.lithologyPatternAngle}
+                alternatingStrokes={activeRound.lithologyStrokes.filter(
+                  (s) =>
+                    (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                    (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                )}
                 customColorsByRock={activeRound.lithologyColorByRock}
               />
 

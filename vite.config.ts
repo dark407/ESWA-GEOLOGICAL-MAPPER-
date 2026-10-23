@@ -55,7 +55,7 @@ export default defineConfig(({command}) => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
           navigateFallbackDenylist: [/^\/api\//, /\.apk$/i, /\.exe$/i],
           runtimeCaching: [
             {
@@ -125,6 +125,9 @@ export default defineConfig(({command}) => {
               if (id.includes('firebase')) return 'v-fb';
               if (id.includes('lucide-react')) return 'v-ic';
               return 'v-core';
+            }
+            if (id.includes('/src/components/')) {
+              return 'c-ui';
             }
             if (id.includes('/src/engine/')) {
               // Proprietary mathematical, kinematic, structural & photogrammetry engines

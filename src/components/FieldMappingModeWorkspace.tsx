@@ -249,6 +249,31 @@ export type FieldWorkflowStage =
   | 'photo_2d_report'
   | 'geology_3d_report';
 
+export type SplitPhotoFilterType =
+  | 'normal'
+  | 'negative'
+  | 'bw_contrast'
+  | 'rgb_red'
+  | 'rgb_green'
+  | 'rgb_blue'
+  | 'ridge_edge'
+  | 'clahe'
+  | 'thermal'
+  | 'sepia';
+
+export const SPLIT_PHOTO_FILTER_LABELS: Record<SplitPhotoFilterType, string> = {
+  normal: 'Original',
+  negative: 'Negative (Invert)',
+  bw_contrast: 'High B&W',
+  rgb_red: 'Red (Iron Oxide)',
+  rgb_green: 'Green (Chlorite)',
+  rgb_blue: 'Blue (Seepage)',
+  ridge_edge: 'Ridge (Edges)',
+  clahe: 'CLAHE (Stretch)',
+  thermal: 'Thermal Heatmap',
+  sepia: 'Sepia Warm',
+};
+
 type FieldCanvasTool =
   | '1_lithology'
   | '2_vein_foliation'
@@ -759,9 +784,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [photoBrightness, setPhotoBrightness] = useState<number>(100);
   const [photoContrast, setPhotoContrast] = useState<number>(100);
   const [photoMatlabFilter, setPhotoMatlabFilter] = useState<boolean>(false);
+  const [splitPhotoFilter, setSplitPhotoFilter] = useState<SplitPhotoFilterType>('normal');
   const [syncCursorCoord, setSyncCursorCoord] = useState<FieldPoint2D | null>(null);
   const [dualCanvasMobileTab, setDualCanvasMobileTab] = useState<'map' | 'photo' | 'split'>('map');
-  const [photoCanvasViewMode, setPhotoCanvasViewMode] = useState<'2d' | '3d'>('3d');
+  const [photoCanvasViewMode, setPhotoCanvasViewMode] = useState<'2d' | '3d'>('2d');
   const [photoCanvasTheme, setPhotoCanvasTheme] = useState<'light' | 'dark'>('light');
   const photoCanvasSvgRef = useRef<SVGSVGElement | null>(null);
 
@@ -980,10 +1006,42 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     resumeAtLastStage && savedResume?.activePanel ? savedResume.activePanel : 'face'
   );
 
+  const activePanelUploadedPhoto = useMemo(() => {
+    return (
+      activeRound?.collectedPhotos
+        .slice()
+        .reverse()
+        .find(
+          (ph) =>
+            ph.panel === activePanel &&
+            Boolean(ph.dataUrl && ph.dataUrl.trim().length > 0)
+        ) || null
+    );
+  }, [activeRound?.collectedPhotos, activePanel]);
+
+  const hasPhotoForActivePanel = Boolean(activePanelUploadedPhoto?.dataUrl);
+
   const effectiveActivePanelPhotoDataUrl = useMemo(() => {
-    const p = activeRound?.collectedPhotos.slice().reverse().find((ph) => ph.panel === activePanel);
-    return p?.dataUrl || defaultSampleFacePhoto;
-  }, [activeRound?.collectedPhotos, activePanel, defaultSampleFacePhoto]);
+    if (activePanelUploadedPhoto?.dataUrl) {
+      return activePanelUploadedPhoto.dataUrl;
+    }
+    // Only fall back to sample photo on the face if user has not uploaded one yet in photogrammetry mode
+    if (workflowMode === 'photo_mapping' && activePanel === 'face') {
+      return defaultSampleFacePhoto;
+    }
+    return '';
+  }, [activePanelUploadedPhoto, activePanel, workflowMode, defaultSampleFacePhoto]);
+
+  // Split option is shown ONLY in photogrammetry mode AND ONLY if a photo is uploaded for the active portion
+  const canShowSplitOption =
+    workflowMode === 'photo_mapping' && hasPhotoForActivePanel;
+
+  // Auto-collapse split view if current panel has no photo or in field mapping mode
+  useEffect(() => {
+    if (!canShowSplitOption && dualCanvasMobileTab === 'split') {
+      setDualCanvasMobileTab('map');
+    }
+  }, [canShowSplitOption, dualCanvasMobileTab]);
   const [is3DMappingMode, setIs3DMappingMode] = useState<boolean>(() =>
     resumeAtLastStage && typeof savedResume?.is3DMappingMode === 'boolean'
       ? savedResume.is3DMappingMode
@@ -1197,6 +1255,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     'shale',
   ]);
   const [alternatingSpacingPx, setAlternatingSpacingPx] = useState<number>(18);
+  const [alternatingAngleDeg, setAlternatingAngleDeg] = useState<number>(() => {
+    return activeRound.alternateLithologyConfig?.angleDeg ?? -22;
+  });
+  const [lithologyPatternAngle, setLithologyPatternAngle] = useState<number>(() => {
+    return activeRound.lithologyPatternAngle ?? 0;
+  });
 
   // Collapsible & Draggable Left and Right sidebars on Stage 4 / Stage 5 Canvas (Prioritizes Canvas on Android & Compact screens)
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState<boolean>(() => {
@@ -2472,6 +2536,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeRound.lithologyDensityByRock?.[rockInfo.patternId] ??
         activeRound.lithologySymbolDensity ??
         lithologySymbolDensity;
+      const currentRockAngle =
+        activeRound.lithologyAngleByRock?.[selectedRockType] ??
+        activeRound.lithologyAngleByRock?.[rockInfo.patternId] ??
+        activeRound.lithologyPatternAngle ??
+        lithologyPatternAngle ??
+        0;
       const stroke: FieldLithologyStroke = {
         id: `lith-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         panel: targetPanel,
@@ -2482,6 +2552,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         fillColor: customRockColor || rockInfo.fillColor,
         customColor: customRockColor,
         patternId: rockInfo.patternId,
+        patternAngleDeg: currentRockAngle,
         mode: 'region_fill',
         points: shapedPts,
         brushRadius,
@@ -2492,6 +2563,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         alternatingRockNames: altNames,
         alternatingSpacingPx: isAltBands ? alternatingSpacingPx : undefined,
         alternateSpacingPx: isAltBands ? alternatingSpacingPx : undefined,
+        alternateAngleDeg: isAltBands ? alternatingAngleDeg : undefined,
       };
       updateActiveRound((r) => ({
         ...r,
@@ -2897,6 +2969,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeRound.lithologyDensityByRock?.[rockInfo.patternId] ??
         activeRound.lithologySymbolDensity ??
         lithologySymbolDensity;
+      const currentRockAngle =
+        activeRound.lithologyAngleByRock?.[selectedRockType] ??
+        activeRound.lithologyAngleByRock?.[rockInfo.patternId] ??
+        activeRound.lithologyPatternAngle ??
+        lithologyPatternAngle ??
+        0;
       const stroke: FieldLithologyStroke = {
         id: `lith-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         panel: targetPanel,
@@ -2907,6 +2985,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         fillColor: customRockColor || rockInfo.fillColor,
         customColor: customRockColor,
         patternId: rockInfo.patternId,
+        patternAngleDeg: currentRockAngle,
         mode: 'region_fill',
         points: pts,
         brushRadius,
@@ -2916,6 +2995,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         alternatingRockNames: altNames,
         alternatingSpacingPx: isAltBands ? alternatingSpacingPx : undefined,
         alternateSpacingPx: isAltBands ? alternatingSpacingPx : undefined,
+        alternateAngleDeg: isAltBands ? alternatingAngleDeg : undefined,
       };
       updateActiveRound((r) => ({
         ...r,
@@ -7681,8 +7761,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </button>
                 )}
 
-                {/* Dual Canvas (Photogrammetry Mode: Tunnel Face Rock Photo + Realtime Sync) */}
-                {stage === 'field_canvas' && (
+                {/* Dual Canvas (Photogrammetry Mode: Tunnel Portion Rock Photo + Realtime Sync) */}
+                {stage === 'field_canvas' && canShowSplitOption && (
                   <button
                     type="button"
                     onClick={() => {
@@ -7699,7 +7779,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow font-black'
                         : 'bg-slate-950 text-cyan-300 border-cyan-500/40 hover:bg-slate-800'
                     }`}
-                    title="Toggle Dual Canvas Mode: Tunnel Face Photo on one canvas with real-time synchronization"
+                    title={`Toggle Dual Canvas Mode: Tunnel ${FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel} Photo on right canvas with real-time synchronization`}
                   >
                     <Columns className="w-3 h-3" />
                     <span>{isPhotogrammetryDualCanvas ? 'Dual Canvas: ON' : 'Dual Canvas'}</span>
@@ -7839,14 +7919,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               />
             ) : (() => {
               const isDualCanvasActive =
-                stage === 'field_canvas' && isPhotogrammetryDualCanvas;
+                stage === 'field_canvas' && canShowSplitOption && isPhotogrammetryDualCanvas;
               return (
                 <div
                   ref={canvasWrapperRef}
                   className={`flex-1 min-h-0 ${photoCanvasTheme === 'light' ? 'bg-slate-200' : 'bg-slate-950'} overflow-hidden flex flex-col items-stretch justify-center relative touch-none`}
                 >
-                  {/* Top selector bar containing the view label and the "Map Only" / "Split (Map + Photo/3D)" buttons */}
-                  {isDualCanvasActive && (
+                  {/* Top selector bar containing the view label and the "Map Only" / "Split (Map + 2D Photo)" buttons */}
+                  {canShowSplitOption && isDualCanvasActive && (
                     <div
                       className={`flex items-center justify-between px-3 py-1 ${
                         photoCanvasTheme === 'light'
@@ -7897,15 +7977,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           <button
                             type="button"
                             onClick={() => setDualCanvasMobileTab('split')}
-                            className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                            className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${
                               dualCanvasMobileTab === 'split'
-                                ? 'bg-cyan-500 text-slate-950 shadow'
+                                ? 'bg-cyan-500 text-slate-950 shadow font-extrabold ring-1 ring-cyan-300'
                                 : photoCanvasTheme === 'light'
                                 ? 'text-slate-600 hover:text-slate-900'
                                 : 'text-slate-400 hover:text-white'
                             }`}
+                            title="Show synchronized 2D Geological Map & Tunnel Outline Fitted Photo side-by-side"
                           >
-                            Split (Map + Photo/3D)
+                            <Columns className="w-3 h-3 shrink-0" />
+                            <span>Split (Map + 2D Photo)</span>
                           </button>
                         </div>
                       </div>
@@ -7970,6 +8052,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   colorMode={activeRound.reportColorMode ?? 'color'}
                   symbolDensity={activeRound.lithologySymbolDensity ?? lithologySymbolDensity}
                   symbolDensityByPattern={activeRound.lithologyDensityByRock}
+                  symbolAngleByPattern={activeRound.lithologyAngleByRock}
+                  lithologyPatternAngle={lithologyPatternAngle}
+                  alternatingAngleDeg={alternatingAngleDeg}
                   customColorsByRock={activeRound.rockCustomColors}
                   alternatingStrokes={[
                     ...activeRound.lithologyStrokes.filter(
@@ -7991,6 +8076,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             alternateRockTypes: [...alternatingRockIds],
                             alternatingSpacingPx,
                             alternateSpacingPx: alternatingSpacingPx,
+                            alternateAngleDeg: alternatingAngleDeg,
                           },
                         ]
                       : []),
@@ -8013,7 +8099,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           activeRound.lithologySymbolDensity ??
                           lithologySymbolDensity
                       );
-                      return { patId: pid, density: dens };
+                      const ang = Math.round(
+                        s.patternAngleDeg ??
+                          activeRound.lithologyAngleByRock?.[s.rockType] ??
+                          activeRound.lithologyAngleByRock?.[pid] ??
+                          activeRound.lithologyPatternAngle ??
+                          lithologyPatternAngle ??
+                          0
+                      );
+                      return { patId: pid, density: dens, angleDeg: ang };
                     })}
                   bandSymbolDensity={activeRound.veinBandSymbolDensity ?? veinBandSymbolDensity}
                 />
@@ -8293,8 +8387,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             const isAltBandStroke =
                               (st.alternatingRockIds && st.alternatingRockIds.length >= 2) ||
                               (st.alternateRockTypes && st.alternateRockTypes.length >= 2);
+                            const indivAngle = Math.round(
+                              st.patternAngleDeg ??
+                                activeRound.lithologyAngleByRock?.[st.rockType] ??
+                                activeRound.lithologyAngleByRock?.[patId] ??
+                                activeRound.lithologyPatternAngle ??
+                                lithologyPatternAngle ??
+                                0
+                            );
                             const strokePatternUrl = isAltBandStroke
                               ? `url(#fcanv-alt-${st.id})`
+                              : indivAngle !== 0
+                              ? `url(#fcanv-${patId}-d${indivLithDens}-a${indivAngle})`
                               : `url(#fcanv-${patId}-d${indivLithDens})`;
                             const customRockCol =
                               st.customColor ||
@@ -8760,11 +8864,31 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               lithologySubMode !== 'erase_area' &&
                               alternatingBandMode &&
                               alternatingRockIds.length >= 2;
+                            const liveRockMeta = resolveRockDisplayInfo(selectedRockType, rememberedRocksList);
+                            const livePatId = liveRockMeta.patternId || 'quartzite';
+                            const liveLithDens = Math.round(
+                              activeRound.lithologyDensityByRock?.[selectedRockType] ??
+                                activeRound.lithologyDensityByRock?.[livePatId] ??
+                                activeRound.lithologySymbolDensity ??
+                                lithologySymbolDensity
+                            );
+                            const liveAngle = Math.round(
+                              activeRound.lithologyAngleByRock?.[selectedRockType] ??
+                                activeRound.lithologyAngleByRock?.[livePatId] ??
+                                activeRound.lithologyPatternAngle ??
+                                lithologyPatternAngle ??
+                                0
+                            );
+                            const liveSingleLithUrl = liveAngle !== 0
+                              ? `url(#fcanv-${livePatId}-d${liveLithDens}-a${liveAngle})`
+                              : `url(#fcanv-${livePatId}-d${liveLithDens})`;
                             const liveStrokeColor =
                               previewTool === '1_lithology' && lithologySubMode === 'erase_area'
                                 ? '#f43f5e'
                                 : isLiveAltLith
                                 ? 'url(#fcanv-alt-live-preview)'
+                                : previewTool === '1_lithology'
+                                ? liveSingleLithUrl
                                 : previewTool === '3_joint_trace'
                                 ? '#0f172a'
                                 : previewTool === '6_water_mark'
@@ -9120,7 +9244,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             </div>
           </div>
 
-          {/* 2. TUNNEL ROCK PHOTO & 3D PHOTOGRAMMETRY CANVAS (DUAL CANVAS MODE FOR ALL PORTIONS) */}
+          {/* 2. TUNNEL ROCK PHOTO CANVAS (2D OUTLINE-FITTED PORTION PHOTO WITH GEOLOGICAL FILTERS) */}
           {isDualCanvasActive && (
             <div
               className={`flex-1 min-w-0 min-h-0 flex flex-col ${
@@ -9131,7 +9255,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 dualCanvasMobileTab === 'map' ? 'hidden' : 'flex'
               }`}
             >
-              {/* Photo & 3D Canvas Top Bar */}
+              {/* Photo Canvas Top Bar with Geological Trace Extraction Filters */}
               <div className={`${
                 photoCanvasTheme === 'light'
                   ? 'bg-slate-200 border-b border-slate-300 text-slate-800'
@@ -9140,71 +9264,102 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 <div className="flex items-center gap-1.5 min-w-0">
                   <Camera className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
                   <span className={`${photoCanvasTheme === 'light' ? 'text-cyan-800' : 'text-cyan-300'} font-mono font-bold truncate`}>
-                    2. {FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Photo / 3D
+                    2. {FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Fitted Photo (2D)
                   </span>
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0 flex-wrap">
-                  {/* 2D Photo vs 3D Tunnel Photogrammetry Mode Selector */}
-                  <div className="inline-flex items-center rounded bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
+                  {/* Filter Dropdown */}
+                  <div className="inline-flex items-center bg-slate-950 rounded p-0.5 border border-slate-700 gap-1">
+                    <Sliders className="w-3 h-3 text-cyan-400 shrink-0 ml-1" />
+                    <select
+                      value={splitPhotoFilter}
+                      onChange={(e) => setSplitPhotoFilter(e.target.value as SplitPhotoFilterType)}
+                      className="bg-slate-900 border-none text-cyan-300 text-[10px] rounded px-1.5 py-0.5 font-bold cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      title="Geological Filters for Joint & Trace Extraction"
+                    >
+                      <option value="normal">Normal (RGB Clean)</option>
+                      <option value="negative">Negative (Invert - Joint Extraction)</option>
+                      <option value="bw_contrast">High B&W (Fracture Aperture)</option>
+                      <option value="rgb_red">Red Channel (Iron Oxide)</option>
+                      <option value="rgb_green">Green Channel (Chlorite)</option>
+                      <option value="rgb_blue">Blue Channel (Water Seepage)</option>
+                      <option value="ridge_edge">Ridge (Edge Convolution)</option>
+                      <option value="clahe">CLAHE (Adaptive Local Contrast)</option>
+                      <option value="thermal">Thermal Heatmap (Relief)</option>
+                      <option value="sepia">Sepia (Warm Tone)</option>
+                    </select>
+                  </div>
+
+                  {/* Filter Quick-Buttons for fast one-click toggling */}
+                  <div className="hidden sm:inline-flex items-center rounded bg-slate-950 p-0.5 border border-slate-800 gap-0.5">
                     <button
                       type="button"
-                      onClick={() => setPhotoCanvasViewMode('2d')}
-                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold cursor-pointer transition-colors ${
-                        photoCanvasViewMode === '2d'
+                      onClick={() => setSplitPhotoFilter('negative')}
+                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                        splitPhotoFilter === 'negative'
+                          ? 'bg-amber-500 text-slate-950 shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Invert photo to extract dark fracture lines on white ground"
+                    >
+                      Invert
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSplitPhotoFilter('bw_contrast')}
+                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                        splitPhotoFilter === 'bw_contrast'
+                          ? 'bg-amber-500 text-slate-950 shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="High-contrast black & white for open joints"
+                    >
+                      B&W
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSplitPhotoFilter('ridge_edge')}
+                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                        splitPhotoFilter === 'ridge_edge'
+                          ? 'bg-amber-500 text-slate-950 shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Edge detection for crack traces"
+                    >
+                      Ridge
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSplitPhotoFilter('rgb_red')}
+                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                        splitPhotoFilter === 'rgb_red'
+                          ? 'bg-rose-500 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Isolate Red channel (hematite / iron staining)"
+                    >
+                      Red
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSplitPhotoFilter('normal')}
+                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                        splitPhotoFilter === 'normal'
                           ? 'bg-cyan-500 text-slate-950 shadow'
                           : 'text-slate-400 hover:text-white'
                       }`}
-                      title="2D Rock Photograph Overlay"
+                      title="Reset filter to original"
                     >
-                      2D Photo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPhotoCanvasViewMode('3d')}
-                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold cursor-pointer transition-colors ${
-                        photoCanvasViewMode === '3d'
-                          ? 'bg-amber-500 text-slate-950 shadow'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Interactive 3D Procedural Tunnel Photogrammetry Model"
-                    >
-                      3D Tunnel
+                      Orig
                     </button>
                   </div>
-
-                  {/* Dark Mode vs Light Mode Toggle for Photo Canvas (Answers: "Why this is dark mode") */}
-                  <button
-                    type="button"
-                    onClick={() => setPhotoCanvasTheme((t) => (t === 'light' ? 'dark' : 'light'))}
-                    className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-600 cursor-pointer transition-colors"
-                    title="Toggle Theme between Light Engineering Mode and Dark Rock Mode"
-                  >
-                    {photoCanvasTheme === 'light' ? '☀️ Light' : '🌙 Dark'}
-                  </button>
-
-                  {/* Peek Traces on Photo Toggle */}
-                  {photoCanvasViewMode === '2d' && (
-                    <button
-                      type="button"
-                      onClick={() => setIsPeekingTracesOnPhoto((prev) => !prev)}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all ${
-                        isPeekingTracesOnPhoto
-                          ? 'bg-amber-500 text-slate-950 shadow'
-                          : 'bg-slate-800 text-slate-300 hover:text-white'
-                      }`}
-                      title="Show/Hide confirmed geological traces over rock photo (or hold Shift)"
-                    >
-                      <Eye className="w-3 h-3" />
-                      <span>{isPeekingTracesOnPhoto ? 'Traces: ON' : 'Peek'}</span>
-                    </button>
-                  )}
 
                   {/* Photo Brightness & Contrast Controls */}
                   <div className="inline-flex items-center bg-slate-950 rounded p-0.5 border border-slate-800 gap-0.5">
                     <button
                       type="button"
-                      onClick={() => setPhotoBrightness((b) => Math.max(50, b - 15))}
+                      onClick={() => setPhotoBrightness((b) => Math.max(40, b - 15))}
                       className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
                       title="Decrease Photo Brightness"
                     >
@@ -9213,15 +9368,60 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     <span className="text-[9px] font-mono text-amber-300 px-0.5">{photoBrightness}%</span>
                     <button
                       type="button"
-                      onClick={() => setPhotoBrightness((b) => Math.min(200, b + 15))}
+                      onClick={() => setPhotoBrightness((b) => Math.min(220, b + 15))}
                       className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
                       title="Increase Photo Brightness"
                     >
                       ☀+
                     </button>
+                    <span className="text-slate-700">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoContrast((c) => Math.max(40, c - 15))}
+                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                      title="Decrease Photo Contrast"
+                    >
+                      ◐-
+                    </button>
+                    <span className="text-[9px] font-mono text-cyan-300 px-0.5">{photoContrast}%</span>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoContrast((c) => Math.min(250, c + 15))}
+                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                      title="Increase Photo Contrast"
+                    >
+                      ◐+
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhotoBrightness(100);
+                        setPhotoContrast(100);
+                        setSplitPhotoFilter('normal');
+                      }}
+                      className="px-1 text-[9px] text-slate-400 hover:text-amber-300 cursor-pointer"
+                      title="Reset Filters, Brightness, and Contrast to default"
+                    >
+                      ↺
+                    </button>
                   </div>
 
-                  {/* Upload / Change Photo for current portion (face, rwall, lwall, crown) */}
+                  {/* Peek Traces on Photo Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setIsPeekingTracesOnPhoto((prev) => !prev)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all ${
+                      isPeekingTracesOnPhoto
+                        ? 'bg-amber-500 text-slate-950 shadow'
+                        : 'bg-slate-800 text-slate-300 hover:text-white'
+                    }`}
+                    title="Show/Hide confirmed geological traces over rock photo (or hold Shift)"
+                  >
+                    <Eye className="w-3 h-3" />
+                    <span>{isPeekingTracesOnPhoto ? 'Traces: ON' : 'Peek'}</span>
+                  </button>
+
+                  {/* Upload / Change Photo for current portion (face, left_wall, right_wall, crown) */}
                   <label
                     className="px-1.5 py-0.5 rounded bg-cyan-700/80 hover:bg-cyan-600 text-white text-[10px] font-black cursor-pointer flex items-center gap-0.5 shadow-sm"
                     title={`Upload Photo for ${FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel}`}
@@ -9262,35 +9462,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 </div>
               </div>
 
-              {/* Main Content Area: 3D Tunnel Photogrammetry Model OR 2D Photo Canvas */}
-              {photoCanvasViewMode === '3d' ? (
-                <div className="flex-1 min-h-0 relative w-full h-full">
-                  <Tunnel3DPhotoCanvas
-                    location={activeLocation}
-                    round={activeRound}
-                    activePanel={activePanel}
-                    photoUrl={effectiveActivePanelPhotoDataUrl}
-                    brightness={photoBrightness}
-                    contrast={photoContrast}
-                    matlabFilter={photoMatlabFilter}
-                    isLightMode={photoCanvasTheme === 'light'}
-                  />
-                </div>
-              ) : (
-                /* Photo SVG Canvas with Real-Time Drawing & Synced Crosshair */
-                <div className={`flex-1 min-h-0 relative flex items-center justify-center ${
-                  photoCanvasTheme === 'light' ? 'bg-[#E2E8F0]' : 'bg-slate-950'
-                }`}>
-                  <svg
-                    ref={photoCanvasSvgRef}
-                    viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
-                      500 -
-                      500 / canvasZoom +
-                      canvasPan.y
-                    ).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)}`}
-                    preserveAspectRatio="xMidYMid meet"
-                    style={{
-                      backgroundColor: photoCanvasTheme === 'light' ? '#E2E8F0' : '#020617',
+              {/* Photo SVG Canvas with Outline-Fitted Photo & Synced Drawing */}
+              <div className={`flex-1 min-h-0 relative flex items-center justify-center ${
+                photoCanvasTheme === 'light' ? 'bg-[#E2E8F0]' : 'bg-slate-950'
+              }`}>
+                <svg
+                  ref={photoCanvasSvgRef}
+                  viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
+                    500 -
+                    500 / canvasZoom +
+                    canvasPan.y
+                  ).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)} ${(1000 / canvasZoom).toFixed(1)}`}
+                  preserveAspectRatio="xMidYMid meet"
+                  style={{
+                    backgroundColor: photoCanvasTheme === 'light' ? '#E2E8F0' : '#020617',
                     cursor:
                       isCanvasPanMode
                         ? 'grab'
@@ -9312,7 +9497,52 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   onPointerLeave={() => setSyncCursorCoord(null)}
                   className="w-full h-full touch-none select-none"
                 >
-                  <FieldSvgMatlabFilterDefs round={activeRound} idPrefix="fcanv-photo-matlab" />
+                  <defs>
+                    {/* Red channel filter for iron oxide staining */}
+                    <filter id="split-filter-red-channel" colorInterpolationFilters="sRGB">
+                      <feColorMatrix type="matrix" values="1.8 0 0 0 0  0 0.1 0 0 0  0 0 0.1 0 0  0 0 0 1 0" />
+                      <feComponentTransfer>
+                        <feFuncR type="linear" slope="1.3" intercept="-0.05" />
+                      </feComponentTransfer>
+                    </filter>
+
+                    {/* Green channel filter for chlorite / epidote seams */}
+                    <filter id="split-filter-green-channel" colorInterpolationFilters="sRGB">
+                      <feColorMatrix type="matrix" values="0.1 0 0 0 0  0 1.8 0 0 0  0 0 0.1 0 0  0 0 0 1 0" />
+                      <feComponentTransfer>
+                        <feFuncG type="linear" slope="1.3" intercept="-0.05" />
+                      </feComponentTransfer>
+                    </filter>
+
+                    {/* Blue channel filter for water seepage & moisture tracking */}
+                    <filter id="split-filter-blue-channel" colorInterpolationFilters="sRGB">
+                      <feColorMatrix type="matrix" values="0.1 0 0 0 0  0 0.1 0 0 0  0 0 1.9 0 0  0 0 0 1 0" />
+                      <feComponentTransfer>
+                        <feFuncB type="linear" slope="1.3" intercept="-0.05" />
+                      </feComponentTransfer>
+                    </filter>
+
+                    {/* Ridge / Edge detection convolution kernel for joint traces */}
+                    <filter id="split-filter-ridge" colorInterpolationFilters="sRGB">
+                      <feColorMatrix type="matrix" values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 1 0" />
+                      <feConvolveMatrix order="3 3" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1" preserveAlpha="true" />
+                      <feComponentTransfer>
+                        <feFuncR type="linear" slope="2.4" intercept="0.08" />
+                        <feFuncG type="linear" slope="2.4" intercept="0.08" />
+                        <feFuncB type="linear" slope="2.4" intercept="0.08" />
+                      </feComponentTransfer>
+                    </filter>
+
+                    {/* False-color thermal / relief mapping for rock facet gradient */}
+                    <filter id="split-filter-thermal" colorInterpolationFilters="sRGB">
+                      <feColorMatrix type="matrix" values="0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0 0 0 1 0" result="lum" />
+                      <feComponentTransfer in="lum">
+                        <feFuncR type="table" tableValues="0.05 0.15 0.7 1.0 0.95" />
+                        <feFuncG type="table" tableValues="0.05 0.6 0.9 0.3 0.1" />
+                        <feFuncB type="table" tableValues="0.7 0.9 0.2 0.05 0.05" />
+                      </feComponentTransfer>
+                    </filter>
+                  </defs>
 
                   {(() => {
                     const dispGeom = computeDisplayPanelGeometry(
@@ -9340,27 +9570,35 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     const panelOutlinePathD =
                       faceOutline?.closedFillPathD ||
                       `M ${targetBox.x} ${targetBox.y} L ${targetBox.x + targetBox.w} ${targetBox.y} L ${targetBox.x + targetBox.w} ${targetBox.y + targetBox.h} L ${targetBox.x} ${targetBox.y + targetBox.h} Z`;
-                    const tr = getFieldPanelTransform(
-                      activeRound,
-                      activePanel,
-                      activeStageTransformMode
-                    );
-                    const fitCfg = getFieldPhotoFitConfig(activeRound, activePanel);
-                    const isRot90 = tr.rotationDeg === 90 || tr.rotationDeg === 270;
-                    const imgW = isRot90 ? targetBox.h : targetBox.w;
-                    const imgH = isRot90 ? targetBox.w : targetBox.h;
-                    const cx = targetBox.x + targetBox.w / 2;
-                    const cy = targetBox.y + targetBox.h / 2;
-                    const fitTx = (fitCfg.offsetX / 100) * targetBox.w;
-                    const fitTy = (fitCfg.offsetY / 100) * targetBox.h;
-                    const sx = (tr.mirrorH ? -1 : 1) * (fitCfg.mirrorH ? -1 : 1) * fitCfg.scale;
-                    const sy = (tr.mirrorV ? -1 : 1) * (fitCfg.mirrorV ? -1 : 1) * fitCfg.scale;
-                    const totalRot = (tr.rotationDeg + fitCfg.rotationDeg) % 360;
+
+                    const clipPathId = `split-panel-clip-${activePanel}`;
+
+                    // Calculate CSS filter based on selected filter mode and user brightness/contrast
+                    let computedCssFilter = `brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
+                    if (splitPhotoFilter === 'negative') {
+                      computedCssFilter = `invert(100%) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
+                    } else if (splitPhotoFilter === 'bw_contrast') {
+                      computedCssFilter = `grayscale(100%) contrast(${Math.round(photoContrast * 1.8)}%) brightness(${photoBrightness}%)`;
+                    } else if (splitPhotoFilter === 'sepia') {
+                      computedCssFilter = `sepia(100%) contrast(${Math.round(photoContrast * 1.3)}%) brightness(${photoBrightness}%)`;
+                    } else if (splitPhotoFilter === 'clahe') {
+                      computedCssFilter = `contrast(${Math.round(photoContrast * 1.6)}%) saturate(160%) brightness(${photoBrightness}%)`;
+                    } else if (splitPhotoFilter === 'rgb_red') {
+                      computedCssFilter = `url(#split-filter-red-channel) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
+                    } else if (splitPhotoFilter === 'rgb_green') {
+                      computedCssFilter = `url(#split-filter-green-channel) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
+                    } else if (splitPhotoFilter === 'rgb_blue') {
+                      computedCssFilter = `url(#split-filter-blue-channel) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
+                    } else if (splitPhotoFilter === 'ridge_edge') {
+                      computedCssFilter = `url(#split-filter-ridge) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
+                    } else if (splitPhotoFilter === 'thermal') {
+                      computedCssFilter = `url(#split-filter-thermal) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
+                    }
 
                     return (
                       <>
-                        {/* Clipped Tunnel Rock Photo */}
-                        <clipPath id="dual-canvas-panel-clip">
+                        {/* Clipped Outline for Active Portion */}
+                        <clipPath id={clipPathId}>
                           <path d={panelOutlinePathD} />
                         </clipPath>
 
@@ -9372,29 +9610,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           strokeWidth="2.5"
                         />
 
-                        {/* Actual High-Resolution Tunnel Rock Photo */}
-                        <g clipPath="url(#dual-canvas-panel-clip)">
-                          {effectiveActivePanelPhotoDataUrl && (
-                            <image
-                              href={effectiveActivePanelPhotoDataUrl}
-                              x={-imgW / 2}
-                              y={-imgH / 2}
-                              width={imgW}
-                              height={imgH}
-                              transform={`translate(${(cx + fitTx).toFixed(1)}, ${(cy + fitTy).toFixed(1)}) scale(${sx}, ${sy}) rotate(${totalRot})`}
-                              preserveAspectRatio="none"
-                              filter={photoMatlabFilter ? `url(#fcanv-photo-matlab-face)` : undefined}
-                              style={{
-                                filter: `brightness(${photoBrightness}%) contrast(${photoContrast}%)`,
-                              }}
-                              opacity={1}
-                            />
-                          )}
-                        </g>
+                        {/* Outline-Fitted Photo for the exact active tunnel portion */}
+                        {effectiveActivePanelPhotoDataUrl && (
+                          <FittedPanelPhotoSvgImage
+                            photoUrl={effectiveActivePanelPhotoDataUrl}
+                            fitConfig={getFieldPhotoFitConfig(activeRound, activePanel)}
+                            boxX={targetBox.x}
+                            boxY={targetBox.y}
+                            boxW={targetBox.w}
+                            boxH={targetBox.h}
+                            clipPathId={clipPathId}
+                            cssFilter={computedCssFilter}
+                            overrideOpacity={1}
+                          />
+                        )}
 
-                        {/* Tunnel Profile Outline, Springline (SPL) and Centerline (CL) */}
+                        {/* Portion-specific Tunnel Reference Grid, Springline (SPL), Centerline (CL) */}
                         <FieldCanvasGeometryReferenceOverlay
-                          activePanel="face"
+                          activePanel={activePanel}
                           location={activeLocation}
                           round={activeRound}
                           boxX={targetBox.x}
@@ -9465,16 +9698,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             })}
                           </g>
                         )}
-
-                        {/* Real-time Synchronized Crosshair Reticle removed per user preference */}
                       </>
                     );
                   })()}
                 </svg>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
           </div>
         </div>
       );
@@ -10116,6 +10346,122 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   );
                 })()}
 
+                {/* ==================== ROCK LITHOLOGY SYMBOL ANGLE (DIP / BEDDING / FOLIATION ORIENTATION) ==================== */}
+                {(() => {
+                  const activeRockMeta = resolveRockDisplayInfo(
+                    selectedRockType,
+                    rememberedRocksList
+                  );
+                  const currentRockAngle =
+                    activeRound.lithologyAngleByRock?.[selectedRockType] ??
+                    activeRound.lithologyAngleByRock?.[activeRockMeta.patternId] ??
+                    activeRound.lithologyPatternAngle ??
+                    lithologyPatternAngle ??
+                    0;
+
+                  const applyRockAngle = (angleVal: number) => {
+                    const normalized = Math.max(-180, Math.min(180, Math.round(angleVal)));
+                    setLithologyPatternAngle(normalized);
+                    updateActiveRound((r) => ({
+                      ...r,
+                      lithologyPatternAngle: normalized,
+                      lithologyAngleByRock: {
+                        ...(r.lithologyAngleByRock || {}),
+                        [selectedRockType]: normalized,
+                        [activeRockMeta.patternId]: normalized,
+                      },
+                      lithologyStrokes: r.lithologyStrokes.map((s) =>
+                        s.rockType === selectedRockType &&
+                        s.mode === 'region_fill' &&
+                        (!s.alternatingRockIds || s.alternatingRockIds.length < 2)
+                          ? { ...s, patternAngleDeg: normalized }
+                          : s
+                      ),
+                    }));
+                  };
+
+                  return (
+                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 space-y-2">
+                      <div className="flex items-center justify-between gap-1">
+                        <div>
+                          <div className="text-[10px] font-black uppercase tracking-wider text-amber-400 truncate">
+                            Symbol Angle — {activeRockMeta.name} ({activeRockMeta.code})
+                          </div>
+                          <div className="text-[9px] text-slate-400">
+                            Rotates pattern symbols (bedding, foliation, cleavage)
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Mini interactive compass angle indicator */}
+                          <div
+                            className="w-7 h-7 rounded-full bg-slate-900 border border-amber-400/60 relative flex items-center justify-center shadow-inner"
+                            title={`Current Symbol Dip Angle: ${currentRockAngle}°`}
+                          >
+                            <div className="absolute w-full h-[1px] bg-slate-700/60" />
+                            <div
+                              className="absolute w-6 h-[2px] bg-amber-400 rounded-full transition-transform duration-150"
+                              style={{ transform: `rotate(${currentRockAngle}deg)` }}
+                            />
+                            <div className="w-1.5 h-1.5 rounded-full bg-amber-300 z-10" />
+                          </div>
+                          <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold">
+                            {currentRockAngle > 0 ? `+${currentRockAngle}°` : `${currentRockAngle}°`}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Angle Slider (-90° to +90°) */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-mono text-slate-400 shrink-0">-90°</span>
+                        <input
+                          type="range"
+                          min={-90}
+                          max={90}
+                          step={5}
+                          value={currentRockAngle}
+                          onChange={(e) => applyRockAngle(Number(e.target.value))}
+                          className="w-full accent-amber-400 cursor-pointer"
+                        />
+                        <span className="text-[9px] font-mono text-slate-400 shrink-0">+90°</span>
+                      </div>
+
+                      {/* Quick Angle Presets */}
+                      <div className="grid grid-cols-5 gap-1">
+                        {(
+                          [
+                            [-60, '-60°'],
+                            [-45, '-45°'],
+                            [-30, '-30°'],
+                            [0, '0° Flat'],
+                            [30, '+30°'],
+                            [45, '+45°'],
+                            [60, '+60°'],
+                            [90, '90° Vert'],
+                            [-90, '-90° Vert'],
+                            [180, '180°'],
+                          ] as [number, string][]
+                        ).map(([angVal, label]) => {
+                          const isSel = currentRockAngle === angVal;
+                          return (
+                            <button
+                              key={`ang-${angVal}`}
+                              type="button"
+                              onClick={() => applyRockAngle(angVal)}
+                              className={`py-0.5 px-1 rounded text-[9px] font-bold border cursor-pointer transition-all ${
+                                isSel
+                                  ? 'bg-amber-400 text-slate-950 border-amber-300 shadow font-black'
+                                  : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white hover:border-slate-700'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* ==================== ROCK COLOUR & SMALL SIDE GRADIENT BOX PICKER ==================== */}
                 {(() => {
                   const activeRockMeta = resolveRockDisplayInfo(
@@ -10448,6 +10794,137 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               {lbl}
                             </button>
                           ))}
+                        </div>
+                      </div>
+
+                      {/* Alternating Strata & Symbols Angle Control (Interbedding Dip) */}
+                      <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] font-black uppercase text-cyan-300">
+                              Alternating Bands &amp; Symbols Angle
+                            </span>
+                            <div className="text-[8.5px] text-slate-400">
+                              Rotates alternating strata bands and lithology symbols together
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Mini rotating strata preview */}
+                            <div
+                              className="w-7 h-7 rounded-lg bg-slate-900 border border-cyan-400/60 overflow-hidden relative flex items-center justify-center shadow-inner"
+                              title={`Current Alternating Angle: ${alternatingAngleDeg}°`}
+                            >
+                              <div
+                                className="w-10 h-10 flex flex-col justify-center gap-0.5 transition-transform duration-150"
+                                style={{ transform: `rotate(${alternatingAngleDeg}deg)` }}
+                              >
+                                <div className="w-full h-1 bg-cyan-400/80 rounded-full" />
+                                <div className="w-full h-1 bg-amber-400/80 rounded-full" />
+                                <div className="w-full h-1 bg-teal-400/80 rounded-full" />
+                              </div>
+                            </div>
+                            <span className="px-2 py-0.5 rounded bg-cyan-500/20 font-mono text-[10px] font-bold text-cyan-300">
+                              {alternatingAngleDeg > 0 ? `+${alternatingAngleDeg}°` : `${alternatingAngleDeg}°`}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Angle Slider (-90° to +90°) */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-mono text-slate-400 shrink-0">-90°</span>
+                          <input
+                            type="range"
+                            min={-90}
+                            max={90}
+                            step={5}
+                            value={alternatingAngleDeg}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setAlternatingAngleDeg(val);
+                              updateActiveRound((r) => ({
+                                ...r,
+                                alternateLithologyConfig: {
+                                  ...(r.alternateLithologyConfig || {
+                                    enabled: true,
+                                    count: (alternatingRockIds.length as 2 | 3) || 2,
+                                    rockTypes: alternatingRockIds,
+                                    spacingPx: alternatingSpacingPx,
+                                    angleDeg: val,
+                                  }),
+                                  angleDeg: val,
+                                },
+                                lithologyStrokes: r.lithologyStrokes.map((s) =>
+                                  (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                                  (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                                    ? {
+                                        ...s,
+                                        alternateAngleDeg: val,
+                                      }
+                                    : s
+                                ),
+                              }));
+                            }}
+                            className="w-full accent-cyan-400 cursor-pointer"
+                          />
+                          <span className="text-[9px] font-mono text-slate-400 shrink-0">+90°</span>
+                        </div>
+
+                        {/* Quick Presets for Alternating Bands */}
+                        <div className="grid grid-cols-5 gap-1">
+                          {(
+                            [
+                              [-60, '-60°'],
+                              [-45, '-45°'],
+                              [-22, '-22° Nat'],
+                              [0, '0° Flat'],
+                              [30, '+30°'],
+                              [45, '+45°'],
+                              [60, '+60°'],
+                              [90, '90° Vert'],
+                              [-90, '-90° Vert'],
+                              [180, '180°'],
+                            ] as [number, string][]
+                          ).map(([angVal, lbl]) => {
+                            const isAltSel = alternatingAngleDeg === angVal;
+                            return (
+                              <button
+                                key={`alt-ang-${angVal}`}
+                                type="button"
+                                onClick={() => {
+                                  setAlternatingAngleDeg(angVal);
+                                  updateActiveRound((r) => ({
+                                    ...r,
+                                    alternateLithologyConfig: {
+                                      ...(r.alternateLithologyConfig || {
+                                        enabled: true,
+                                        count: (alternatingRockIds.length as 2 | 3) || 2,
+                                        rockTypes: alternatingRockIds,
+                                        spacingPx: alternatingSpacingPx,
+                                        angleDeg: angVal,
+                                      }),
+                                      angleDeg: angVal,
+                                    },
+                                    lithologyStrokes: r.lithologyStrokes.map((s) =>
+                                      (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                                      (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                                        ? {
+                                            ...s,
+                                            alternateAngleDeg: angVal,
+                                          }
+                                        : s
+                                    ),
+                                  }));
+                                }}
+                                className={`py-0.5 px-1 rounded text-[9px] font-bold border cursor-pointer transition-all ${
+                                  isAltSel
+                                    ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-black'
+                                    : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white hover:border-slate-700'
+                                }`}
+                              >
+                                {lbl}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>

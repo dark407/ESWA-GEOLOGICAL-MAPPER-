@@ -112,6 +112,8 @@ export interface FieldLithologyStroke {
   alternatingSpacingPx?: number;
   /** Orientation angle in deg for alternating lithology bands */
   alternateAngleDeg?: number;
+  /** Symbol orientation angle in deg for rock lithology pattern (-90..90 or 0..360) */
+  patternAngleDeg?: number;
   /** 'region_fill' = broad rock unit brush/polygon; 'vein_band' = thin cross-cutting band/vein; 'foliation_plane' = foliation band + strike/dip symbol; 'lithology_erase' = erases only lithology in a specific painted area */
   mode: 'region_fill' | 'vein_band' | 'foliation_plane' | 'lithology_erase';
   points: FieldPoint2D[];
@@ -524,6 +526,10 @@ export interface FieldExcavationRound {
   lithologySymbolDensity?: number;
   /** Per-lithology individual symbol density percentage map (rockType / patternId -> 30..180) */
   lithologyDensityByRock?: Record<string, number>;
+  /** Per-lithology symbol orientation angle map in deg (rockType / patternId -> -90..90 or 0..360) */
+  lithologyAngleByRock?: Record<string, number>;
+  /** Default/active pattern angle in deg for rock lithology symbols */
+  lithologyPatternAngle?: number;
   /** Per-lithology custom colour map (rockType / patternId -> hex colour) */
   lithologyColorByRock?: Record<string, string>;
   /** Sedimentary / Metamorphic Alternating Lithology Bands configuration (2 or 3 rocks + spacing) */

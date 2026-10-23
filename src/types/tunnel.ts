@@ -1282,6 +1282,9 @@ export interface LithologyRegion {
   colorHex: string;
   // Subtle visual geological representation opacity (0.05 to 0.40, default 0.16)
   opacity: number;
+  // Bedding / foliation orientation angle in degrees (-90 to 90 or 0 to 180) for pattern symbol rotation
+  angleDeg?: number;
+  patternAngle?: number;
   // Section 14 structured fields (AI-suggested -> User-edited & approved)
   description: string;
   structuralFeatures: string;

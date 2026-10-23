@@ -120,6 +120,27 @@ class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErrorBound
   }
 }
 
+// Application Version Synchronization & Cache Purge Guard
+if (typeof window !== 'undefined') {
+  try {
+    // Purge deprecated geological modelling storage and stale mode references
+    if (localStorage.getItem('eswa_active_industry_mode') === 'GEOLOGICAL_MODELLING') {
+      localStorage.setItem('eswa_active_industry_mode', 'NATM');
+    }
+    if (localStorage.getItem('eswa_default_industry_mode') === 'GEOLOGICAL_MODELLING') {
+      localStorage.setItem('eswa_default_industry_mode', 'NATM');
+    }
+    localStorage.removeItem('eswa_geological_modelling_suite_db_v1');
+    localStorage.removeItem('eswa_isolated_db_GEOLOGICAL_MODELLING');
+
+    // Clean up stale or deprecated cache keys
+    const staleKeys = ['eswa_active_industry_mode_v1', 'eswa_temp_modelling_cache'];
+    staleKeys.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // Ignore storage access restrictions
+  }
+}
+
 if (import.meta.env.DEV && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
   navigator.serviceWorker
     .getRegistrations()
@@ -129,6 +150,11 @@ if (import.meta.env.DEV && typeof navigator !== 'undefined' && 'serviceWorker' i
       }
     })
     .catch(() => {});
+} else if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  // Ensure new releases take control immediately without serving stale bundles
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    console.info('ESWA Suite updated to the latest version.');
+  });
 }
 
 initializeDesktopRuntimeBridge()
