@@ -45,6 +45,12 @@ import {
   generateProfessionalGeologicalDescription,
   getLocationSurfaceConfig,
 } from '../engine/fieldMappingEngine';
+import {
+  MappingDomainType,
+  SurfaceGeometryParameters,
+  evaluateSurfaceStabilityAndRomanaSmr,
+  getDomainExcavationMethodOptions,
+} from '../engine/surfaceMappingEngine';
 import { FieldSupport3DInteractiveCanvas } from './FieldSupport3DInteractiveCanvas';
 import { TunnelJunctionFactorModal } from './TunnelJunctionFactorModal';
 
@@ -2263,11 +2269,24 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
 export const FieldRockMassClassificationsStage: React.FC<{
   activeLocation?: FieldTunnelLocationItem;
   activeRound: FieldExcavationRound;
+  mappingDomain?: MappingDomainType;
+  surfaceParams?: SurfaceGeometryParameters;
   onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
   onBackToSets: () => void;
   onContinueToSupport: () => void;
-}> = ({ activeLocation, activeRound, onUpdateRound, onBackToSets, onContinueToSupport }) => {
-  const [activeTab, setActiveTab] = useState<'q' | 'rmr' | 'gsi'>('q');
+}> = ({
+  activeLocation,
+  activeRound,
+  mappingDomain,
+  surfaceParams,
+  onUpdateRound,
+  onBackToSets,
+  onContinueToSupport,
+}) => {
+  const isSurface = mappingDomain && mappingDomain !== 'TUNNEL';
+  const isSlopeOrBench = mappingDomain === 'SLOPE' || mappingDomain === 'BENCH';
+  const [activeTab, setActiveTab] = useState<'q' | 'rmr' | 'gsi'>('rmr');
+  const [simpleSurfaceTab, setSimpleSurfaceTab] = useState<'simple_rmr' | 'simple_smr'>('simple_rmr');
 
   const qRes = computeFieldQValue(activeRound.qSystem);
   const rmrRes = computeFieldRmrValue(activeRound.rmrSystem);
@@ -2276,6 +2295,53 @@ export const FieldRockMassClassificationsStage: React.FC<{
     rmr: true,
     gsi: true,
   };
+
+  const updateRmrRatingParam = (patch: Partial<FieldExcavationRound['rmrSystem']>) => {
+    onUpdateRound((r) => {
+      const nextSys = { ...r.rmrSystem, ...patch };
+      const res = computeFieldRmrValue(nextSys);
+      return {
+        ...r,
+        rmrSystem: nextSys,
+        rmrTotal: res.totalRmr,
+        rmrRockClass: res.rockClass,
+      };
+    });
+  };
+
+  const simpleSmrAnalysis = useMemo(() => {
+    const fallbackSets =
+      activeRound.discontinuitySets && activeRound.discontinuitySets.length > 0
+        ? activeRound.discontinuitySets
+        : (activeRound.jointTraces || []).map((t, i) => ({
+            id: t.setId || `J${i + 1}`,
+            meanDip: t.dipAmount,
+            meanDipDirection: t.dipDirection,
+          }));
+    const effSurf: SurfaceGeometryParameters = surfaceParams || {
+      subType: (mappingDomain as any) || 'BENCH',
+      faceStrikeDeg: ((activeRound.tunnelDriveDirection || 135) - 90 + 360) % 360,
+      faceDipDirectionDeg: activeRound.tunnelDriveDirection || 135,
+      faceDipAngleDeg: 65,
+      exposureLengthMeters: activeRound.pullLengthMeters || 10,
+      frictionAngleDeg: 33,
+      excavationMethod: 'SMOOTH_BLASTING',
+      benchHeightMeters: 10,
+      bermWidthMeters: 5,
+      crestElevationRl: 280,
+      toeElevationRl: 270,
+      benchNumberLabel: 'Bench 1',
+      trenchDepthMeters: 2.5,
+      trenchWidthMeters: 2.0,
+      overburdenThicknessMeters: 0.5,
+      groundwaterDepthMeters: 2,
+      slopeHeightMeters: 15,
+      overallSlopeAngleDeg: 65,
+      numberOfBenches: 1,
+      slopeCondition: 'DRY',
+    };
+    return evaluateSurfaceStabilityAndRomanaSmr(effSurf, rmrRes.totalRmr, fallbackSets);
+  }, [surfaceParams, mappingDomain, activeRound.discontinuitySets, activeRound.jointTraces, activeRound.tunnelDriveDirection, activeRound.pullLengthMeters, rmrRes.totalRmr]);
 
   const support = useMemo(
     () => ({
@@ -2313,10 +2379,366 @@ export const FieldRockMassClassificationsStage: React.FC<{
     });
   };
 
-  return (
-    <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 bg-slate-950 overflow-hidden">
-      {/* Top Bar: Q, RMR, GSI, and Protection / Cavity Support Summary Cards + Tab Switcher + Navigation */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
+  if (isSurface) {
+    return (
+      <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 bg-slate-950 overflow-hidden">
+        {/* Simple RMR & SMR Top Navigation Bar */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950 p-0.5">
+              <button
+                type="button"
+                onClick={() => setSimpleSurfaceTab('simple_rmr')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-2 cursor-pointer transition-all ${
+                  simpleSurfaceTab === 'simple_rmr'
+                    ? 'bg-amber-500 text-slate-950 shadow'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>1. Simple Bieniawski RMR</span>
+                <span className="font-mono px-2 py-0.5 rounded bg-slate-900/90 text-amber-300 text-[11px] font-bold">
+                  RMR = {rmrRes.totalRmr} ({rmrRes.rockClass})
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSimpleSurfaceTab('simple_smr')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-2 cursor-pointer transition-all ${
+                  simpleSurfaceTab === 'simple_smr'
+                    ? 'bg-cyan-500 text-slate-950 shadow'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>2. Simple Romana SMR</span>
+                {simpleSmrAnalysis && (
+                  <span className="font-mono px-2 py-0.5 rounded bg-slate-900/90 text-cyan-300 text-[11px] font-bold">
+                    SMR = {simpleSmrAnalysis.governingSmrScore} (Class {simpleSmrAnalysis.governingSmrClass})
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onBackToSets}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Sets
+            </button>
+            <button
+              type="button"
+              onClick={onContinueToSupport}
+              className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer"
+            >
+              <span>{isSlopeOrBench ? 'Next: Surface Stabilization' : 'Next: Clean Report'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
+          {simpleSurfaceTab === 'simple_rmr' ? (
+            <div className="space-y-3">
+              {/* RMR Total Banner */}
+              <div className="bg-slate-900 border border-amber-500/40 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-wider text-amber-400">
+                    Bieniawski (1989) Rock Mass Rating — Essential 5 Parameters
+                  </div>
+                  <div className="text-xs text-slate-300 mt-0.5">
+                    RMR = UCS ({activeRound.rmrSystem?.intactStrengthRating ?? 12}) + RQD ({activeRound.rmrSystem?.rqdRating ?? 17}) + Spacing ({activeRound.rmrSystem?.spacingRating ?? 10}) + Condition ({activeRound.rmrSystem?.conditionRating ?? 20}) + Water ({activeRound.rmrSystem?.groundwaterRating ?? 15})
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <div className="text-2xl font-black font-mono text-amber-400">
+                      RMR = {rmrRes.totalRmr}
+                    </div>
+                    <div className="text-xs font-bold text-emerald-400">{rmrRes.rockClass}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5 Clean RMR Parameter Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* 1. Intact Strength */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300 uppercase">
+                      1. Strength of Intact Rock (UCS)
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-xs font-bold">
+                      {activeRound.rmrSystem?.intactStrengthRating ?? 12} / 15 pts
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {[
+                      { r: 15, label: '> 250 MPa', sub: 'Extremely Strong' },
+                      { r: 12, label: '100–250 MPa', sub: 'Very Strong' },
+                      { r: 7, label: '50–100 MPa', sub: 'Strong Rock' },
+                      { r: 4, label: '25–50 MPa', sub: 'Medium Strong' },
+                      { r: 2, label: '5–25 MPa', sub: 'Weak Rock' },
+                      { r: 1, label: '< 5 MPa', sub: 'Very Weak' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.r}
+                        type="button"
+                        onClick={() => updateRmrRatingParam({ intactStrengthRating: opt.r })}
+                        className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                          (activeRound.rmrSystem?.intactStrengthRating ?? 12) === opt.r
+                            ? 'bg-amber-500 text-slate-950 border-amber-300 font-bold shadow'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="text-xs font-mono font-bold">{opt.label}</div>
+                        <div className="text-[10px] opacity-80">{opt.sub} ({opt.r} pts)</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. RQD */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-cyan-300 uppercase">
+                      2. Drill Core RQD (%)
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono text-xs font-bold">
+                      {activeRound.rmrSystem?.rqdRating ?? 17} / 20 pts
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {[
+                      { r: 20, label: '90–100%', sub: 'Excellent' },
+                      { r: 17, label: '75–90%', sub: 'Good Quality' },
+                      { r: 13, label: '50–75%', sub: 'Fair Quality' },
+                      { r: 8, label: '25–50%', sub: 'Poor Quality' },
+                      { r: 3, label: '< 25%', sub: 'Very Poor' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.r}
+                        type="button"
+                        onClick={() => updateRmrRatingParam({ rqdRating: opt.r })}
+                        className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                          (activeRound.rmrSystem?.rqdRating ?? 17) === opt.r
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold shadow'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="text-xs font-mono font-bold">{opt.label}</div>
+                        <div className="text-[10px] opacity-80">{opt.sub} ({opt.r} pts)</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Discontinuity Spacing */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-300 uppercase">
+                      3. Spacing of Discontinuities
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold">
+                      {activeRound.rmrSystem?.spacingRating ?? 10} / 20 pts
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {[
+                      { r: 20, label: '> 2.0 m', sub: 'Very Wide' },
+                      { r: 15, label: '0.6–2.0 m', sub: 'Wide Spacing' },
+                      { r: 10, label: '200–600 mm', sub: 'Moderate' },
+                      { r: 8, label: '60–200 mm', sub: 'Close' },
+                      { r: 5, label: '< 60 mm', sub: 'Very Close' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.r}
+                        type="button"
+                        onClick={() => updateRmrRatingParam({ spacingRating: opt.r })}
+                        className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                          (activeRound.rmrSystem?.spacingRating ?? 10) === opt.r
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-bold shadow'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="text-xs font-mono font-bold">{opt.label}</div>
+                        <div className="text-[10px] opacity-80">{opt.sub} ({opt.r} pts)</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 4. Condition of Discontinuities */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-orange-300 uppercase">
+                      4. Condition of Discontinuities
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 font-mono text-xs font-bold">
+                      {activeRound.rmrSystem?.conditionRating ?? 20} / 30 pts
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {[
+                      { r: 30, label: 'Very Rough / Tight', sub: 'Unweathered, tight (<0.1mm)' },
+                      { r: 25, label: 'Slightly Rough', sub: 'Slightly weathered, sep <1mm' },
+                      { r: 20, label: 'Slightly Rough / Moderately Weathered', sub: 'Sep 1–5mm' },
+                      { r: 10, label: 'Slickensided / Gouge <5mm', sub: 'Open 1–5mm' },
+                      { r: 0, label: 'Soft Gouge >5mm', sub: 'Continuous open thick gouge' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.r}
+                        type="button"
+                        onClick={() => updateRmrRatingParam({ conditionRating: opt.r })}
+                        className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                          (activeRound.rmrSystem?.conditionRating ?? 20) === opt.r
+                            ? 'bg-orange-500 text-slate-950 border-orange-300 font-bold shadow'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{opt.label}</div>
+                        <div className="text-[10px] opacity-80">{opt.sub} ({opt.r} pts)</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 5. Groundwater Condition */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2 md:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-sky-300 uppercase">
+                      5. Groundwater Seepage Condition
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono text-xs font-bold">
+                      {activeRound.rmrSystem?.groundwaterRating ?? 15} / 15 pts
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                    {[
+                      { r: 15, label: 'Completely Dry', sub: 'No water or dampness' },
+                      { r: 10, label: 'Damp', sub: 'Minor surface dampness' },
+                      { r: 7, label: 'Wet', sub: 'Water droplets forming' },
+                      { r: 4, label: 'Dripping', sub: 'Continuous water drip' },
+                      { r: 0, label: 'Flowing', sub: 'Active flowing water' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.r}
+                        type="button"
+                        onClick={() => updateRmrRatingParam({ groundwaterRating: opt.r })}
+                        className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                          (activeRound.rmrSystem?.groundwaterRating ?? 15) === opt.r
+                            ? 'bg-sky-500 text-slate-950 border-sky-300 font-bold shadow'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{opt.label}</div>
+                        <div className="text-[10px] opacity-80">{opt.sub} ({opt.r} pts)</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Simple SMR Content */
+            <div className="space-y-3">
+              {/* SMR Banner */}
+              {simpleSmrAnalysis && (
+                <div className="bg-slate-900 border border-cyan-500/40 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-black uppercase tracking-wider text-cyan-400">
+                      Romana (1985) Slope Mass Rating (SMR)
+                    </div>
+                    <div className="text-xs text-slate-300 mt-0.5">
+                      SMR = Basic RMR ({rmrRes.totalRmr}) + (F1 × F2 × F3) + F4 ({simpleSmrAnalysis.setChecks[0]?.f4 ?? 0})
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <div className="text-2xl font-black font-mono text-cyan-400">
+                        SMR = {simpleSmrAnalysis.governingSmrScore}
+                      </div>
+                      <div className="text-xs font-bold text-amber-300">
+                        Class {simpleSmrAnalysis.governingSmrClass} — {simpleSmrAnalysis.stabilityDescription}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Joint Set SMR Evaluation Table */}
+              {simpleSmrAnalysis && (
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                    Kinematic Joint Sets &amp; Romana Adjustment Factors
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-mono text-[11px]">
+                          <th className="py-2 px-2.5">Set ID</th>
+                          <th className="py-2 px-2.5">Orientation (Dip/Dir)</th>
+                          <th className="py-2 px-2.5">F1 (Parallelism)</th>
+                          <th className="py-2 px-2.5">F2 (Dip Angle)</th>
+                          <th className="py-2 px-2.5">F3 (Relationship)</th>
+                          <th className="py-2 px-2.5">F4 (Excavation)</th>
+                          <th className="py-2 px-2.5">Set SMR</th>
+                          <th className="py-2 px-2.5">Failure Mode</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 font-mono">
+                        {simpleSmrAnalysis.setChecks.map((sc) => (
+                          <tr key={sc.setId} className="hover:bg-slate-800/40">
+                            <td className="py-2 px-2.5 font-bold text-amber-300">{sc.setId}</td>
+                            <td className="py-2 px-2.5 text-white">{sc.dip}° ∠ {sc.dipDirection}°</td>
+                            <td className="py-2 px-2.5 text-slate-300">{sc.f1}</td>
+                            <td className="py-2 px-2.5 text-slate-300">{sc.f2}</td>
+                            <td className="py-2 px-2.5 text-slate-300">{sc.f3}</td>
+                            <td className="py-2 px-2.5 text-slate-300">{sc.f4 > 0 ? `+${sc.f4}` : sc.f4}</td>
+                            <td className="py-2 px-2.5 font-bold text-cyan-300">
+                              {sc.smrScore} (Class {sc.smrClass})
+                            </td>
+                            <td className="py-2 px-2.5">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  sc.governingMode === 'PLANAR'
+                                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                    : sc.governingMode === 'TOPPLING'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                }`}
+                              >
+                                {sc.governingMode}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Recommended Support Measures for SMR Class */}
+              {simpleSmrAnalysis && (
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-1.5">
+                  <div className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                    Prescribed Stabilization Measures (Romana 1985 Guidelines)
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300 leading-relaxed font-mono">
+                    {simpleSmrAnalysis.recommendedSupportText}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
         <div className="flex flex-wrap items-center gap-2">
           {/* Tab 1: Q-System */}
           <div className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950 p-0.5">

@@ -41,6 +41,7 @@ import {
   calculateSurfaceApparentTraceAngles,
   TunnelSpatialGeometry,
 } from '../engine/joint3DInspectorEngine';
+import { getSurfacePanelLabelMap } from '../engine/surfaceMappingEngine';
 
 /**
  * Geological SVG Hatch Patterns
@@ -5147,47 +5148,112 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
     );
   }
 
-  // Unfolded Rectangular Surfaces: 'crown', 'left_wall', 'right_wall'
   const driveStr = String(normDrive).padStart(3, '0');
   const oppStr = String(oppDrive).padStart(3, '0');
+  const domainPanelMeta = getSurfacePanelLabelMap(mappingDomain);
   const panelDisplayName = isSurface
-    ? mappingDomain === 'BENCH'
-      ? activePanel === 'left_wall'
-        ? 'LEFT BENCH FLANK'
-        : activePanel === 'crown'
-        ? 'UPPER BERM / CREST'
-        : 'RIGHT BENCH FLANK'
-      : mappingDomain === 'TRENCH'
-      ? activePanel === 'left_wall'
-        ? 'LEFT TRENCH WALL'
-        : activePanel === 'crown'
-        ? 'TRENCH FLOOR LOG'
-        : 'RIGHT TRENCH WALL'
+    ? activePanel === 'crown'
+      ? domainPanelMeta.crown.shortLabel.toUpperCase()
       : activePanel === 'left_wall'
-      ? 'LEFT SLOPE FLANK'
-      : activePanel === 'crown'
-      ? 'UPPER CATCH BERM'
-      : 'RIGHT SLOPE FLANK'
+      ? domainPanelMeta.leftWall.shortLabel.toUpperCase()
+      : domainPanelMeta.rightWall.shortLabel.toUpperCase()
     : activePanel === 'left_wall'
     ? 'LEFT WALL'
     : activePanel === 'crown'
     ? 'CROWN'
     : 'RIGHT WALL';
 
-  const pullWord = isSurface ? 'SPAN' : 'PULL';
-  const pullWordTitle = isSurface ? 'Span' : 'Pull';
-  const driveWord = isSurface ? 'DIP DIR' : 'DRIVE';
-  const driveWordTitle = isSurface ? 'Dip Dir' : 'Drive';
-  const splLeftWord = isSurface ? 'LEFT CREST' : 'LEFT SPL';
-  const splRightWord = isSurface ? 'RIGHT CREST' : 'RIGHT SPL';
-  const splLeftShort = isSurface ? 'L-CREST' : 'L-SPL';
-  const splRightShort = isSurface ? 'R-CREST' : 'R-SPL';
-  const invertWord = isSurface ? 'TOE' : 'INVERT';
+  const pullWord = isSurface
+    ? mappingDomain === 'BENCH'
+      ? 'BENCH LENGTH'
+      : mappingDomain === 'TRENCH'
+      ? 'TRENCH INTERVAL'
+      : mappingDomain === 'SLOPE'
+      ? 'SECTOR WIDTH'
+      : 'EXPOSURE SPAN'
+    : 'PULL';
+  const pullWordTitle = isSurface
+    ? mappingDomain === 'BENCH'
+      ? 'Bench Length'
+      : mappingDomain === 'TRENCH'
+      ? 'Trench Interval'
+      : mappingDomain === 'SLOPE'
+      ? 'Sector Width'
+      : 'Exposure Span'
+    : 'Pull';
+  const driveWord = isSurface
+    ? mappingDomain === 'TRENCH'
+      ? 'AXIS AZIMUTH'
+      : 'DIP DIR'
+    : 'DRIVE';
+  const driveWordTitle = isSurface
+    ? mappingDomain === 'TRENCH'
+      ? 'Axis Azimuth'
+      : 'Dip Dir'
+    : 'Drive';
+  const splLeftWord = isSurface
+    ? mappingDomain === 'BENCH'
+      ? 'TOE TRACE'
+      : mappingDomain === 'TRENCH'
+      ? 'LEFT TOP'
+      : mappingDomain === 'SLOPE'
+      ? 'TOE DITCH'
+      : 'LEFT FLANK'
+    : 'LEFT SPL';
+  const splRightWord = isSurface
+    ? mappingDomain === 'BENCH'
+      ? 'SIDE FLANK'
+      : mappingDomain === 'TRENCH'
+      ? 'RIGHT TOP'
+      : mappingDomain === 'SLOPE'
+      ? 'FLANK CUT'
+      : 'RIGHT FLANK'
+    : 'RIGHT SPL';
+  const splLeftShort = isSurface
+    ? mappingDomain === 'BENCH'
+      ? 'TOE'
+      : mappingDomain === 'TRENCH'
+      ? 'L-TOP'
+      : mappingDomain === 'SLOPE'
+      ? 'TOE'
+      : 'L-FLANK'
+    : 'L-SPL';
+  const splRightShort = isSurface
+    ? mappingDomain === 'BENCH'
+      ? 'FLANK'
+      : mappingDomain === 'TRENCH'
+      ? 'R-TOP'
+      : mappingDomain === 'SLOPE'
+      ? 'FLANK'
+      : 'R-FLANK'
+    : 'R-SPL';
+  const invertWord = isSurface
+    ? mappingDomain === 'BENCH'
+      ? 'SUB-GRADE TOE'
+      : mappingDomain === 'TRENCH'
+      ? 'INVERT FLOOR'
+      : mappingDomain === 'SLOPE'
+      ? 'TOE CATCH'
+      : 'EXPOSURE BASE'
+    : 'INVERT';
   const crownWordTitle = isSurface
     ? mappingDomain === 'TRENCH'
-      ? 'Floor'
-      : 'Berm'
+      ? 'Floor Width Wt'
+      : mappingDomain === 'BENCH'
+      ? 'Berm Width Wb'
+      : mappingDomain === 'SLOPE'
+      ? 'Crest Zone'
+      : 'Crest Ledge'
     : 'Crown';
+  const heightDimName = isSurface
+    ? mappingDomain === 'TRENCH'
+      ? 'Depth Dt'
+      : mappingDomain === 'BENCH'
+      ? 'Bench Height Hb'
+      : mappingDomain === 'SLOPE'
+      ? 'Slope Height Hs'
+      : 'Exposure Height Hr'
+    : 'Height';
 
   const xMaxInt = Math.max(1, Math.floor(panelWidthM + 1e-4));
   const xStepStride = compact && xMaxInt > 8 ? 2 : 1;
@@ -5234,8 +5300,8 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           ? `X: ${crownWordTitle} (0–${crownLengthM}m)`
           : `X: ${crownWordTitle} (${crownLengthM}–0m)`
         : orientMeta.xZeroAtStart
-        ? `X: Height (0–${splHeightM}m)`
-        : `X: Height (${splHeightM}–0m)`;
+        ? `X: ${heightDimName} (0–${splHeightM}m)`
+        : `X: ${heightDimName} (${splHeightM}–0m)`;
 
     const yAxisLabel =
       orientMeta.yAxisKind === 'length'
@@ -5244,8 +5310,8 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             ? `Y: ${crownWordTitle} (0→${crownLengthM}m)`
             : `Y: ${crownWordTitle} (${crownLengthM}→0m)`
           : orientMeta.yZeroAtStart
-          ? `Y: Height (0→${splHeightM}m)`
-          : `Y: Height (${splHeightM}→0m)`
+          ? `Y: ${heightDimName} (0→${splHeightM}m)`
+          : `Y: ${heightDimName} (${splHeightM}→0m)`
         : orientMeta.yZeroAtStart
         ? `Y: ${pullWordTitle} (0→${pullM}m) ▼`
         : `▲ Y: ${pullWordTitle} (${pullM}←0m)`;

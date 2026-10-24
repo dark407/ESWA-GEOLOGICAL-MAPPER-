@@ -492,17 +492,17 @@ export const FieldInBuiltCameraStage: React.FC<{
     },
     {
       id: 'left_wall',
-      title: isSurface ? surfMap.leftWall.fullLabel : 'Left Wall',
-      shortLabel: isSurface ? surfMap.leftWall.shortLabel : 'LW',
-      portionCode: 'LW',
+      title: 'LEFT WALL',
+      shortLabel: 'LEFT WALL',
+      portionCode: 'LEFTWALL',
       dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
       available: isSurface ? surfCfg.hasLeftWall : true,
     },
     {
       id: 'right_wall',
-      title: isSurface ? surfMap.rightWall.fullLabel : 'Right Wall',
-      shortLabel: isSurface ? surfMap.rightWall.shortLabel : 'RW',
-      portionCode: 'RW',
+      title: 'RIGHT WALL',
+      shortLabel: 'RIGHT WALL',
+      portionCode: 'RIGHTWALL',
       dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
       available: isSurface ? surfCfg.hasRightWall : true,
     },
@@ -607,9 +607,9 @@ export const FieldInBuiltCameraStage: React.FC<{
         : panelId === 'crown'
         ? 'CROWN'
         : panelId === 'left_wall'
-        ? 'LW'
+        ? 'LEFTWALL'
         : panelId === 'right_wall'
-        ? 'RW'
+        ? 'RIGHTWALL'
         : String(panelId).toUpperCase();
 
     const d = new Date();

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   BookmarkCheck,
@@ -6,6 +6,8 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleDot,
   Columns,
   Compass,
@@ -17,6 +19,7 @@ import {
   FolderPlus,
   Layers,
   MapPin,
+  Maximize2,
   Move,
   Paintbrush,
   Pencil,
@@ -209,7 +212,10 @@ import {
   FaceCompletionAndReviewBar,
 } from './DeviceIdReviewAndNotificationCenter';
 import {
+  computeSegmentCanvasViewBox,
+  computeSurfaceSegments,
   evaluateSurfaceStabilityAndRomanaSmr,
+  getDomainExcavationMethodOptions,
   getSurfacePanelLabelMap,
   loadSavedSurfaceGeometryParameters,
   MappingDomainType,
@@ -217,6 +223,7 @@ import {
   saveSurfaceMappingResumeState,
   SurfaceGeometryParameters,
   SurfaceMappingSubType,
+  SurfaceSegmentItem,
 } from '../engine/surfaceMappingEngine';
 
 interface FieldMappingModeWorkspaceProps {
@@ -967,6 +974,56 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   const activeStageTransformMode: FieldTransformStageMode =
     stage === 'joint_grouping' ? 'joint_grouping' : 'field_canvas';
+
+  // Surface Segmented Mapping Mode (e.g. 10m surface split into 2m x 5 segments)
+  const [isSurfaceSegmentedMode, setIsSurfaceSegmentedMode] = useState<boolean>(false);
+  const [surfaceSegmentSpanM, setSurfaceSegmentSpanM] = useState<number>(2.0);
+  const [surfaceActiveSegmentIdx, setSurfaceActiveSegmentIdx] = useState<number>(0);
+
+  const surfaceSegments: SurfaceSegmentItem[] = useMemo(() => {
+    if (mappingDomain === 'TUNNEL' || !activeLocation) return [];
+    return computeSurfaceSegments(activeLocation.widthM || 10, surfaceSegmentSpanM);
+  }, [mappingDomain, activeLocation?.widthM, surfaceSegmentSpanM]);
+
+  const activeSurfaceSegment: SurfaceSegmentItem | undefined = useMemo(() => {
+    if (surfaceSegments.length === 0) return undefined;
+    return surfaceSegments[Math.max(0, Math.min(surfaceSegments.length - 1, surfaceActiveSegmentIdx))];
+  }, [surfaceSegments, surfaceActiveSegmentIdx]);
+
+  const jumpToSurfaceSegment = useCallback((segIdx: number, overrideSpanM?: number) => {
+    if (!activeLocation || !activeRound) return;
+    const spanM = overrideSpanM ?? surfaceSegmentSpanM;
+    const totalW = activeLocation.widthM || 10;
+    const segs = computeSurfaceSegments(totalW, spanM);
+    if (segs.length === 0) return;
+    const clampedIdx = Math.max(0, Math.min(segs.length - 1, segIdx));
+    setSurfaceActiveSegmentIdx(clampedIdx);
+
+    const dispGeom = computeDisplayPanelGeometry(
+      'face',
+      activeLocation,
+      activeRound,
+      activeStageTransformMode
+    );
+    const targetBox = {
+      x: dispGeom.boxX,
+      y: dispGeom.boxY,
+      w: dispGeom.boxW,
+      h: dispGeom.boxH,
+    };
+
+    const targetView = computeSegmentCanvasViewBox(
+      clampedIdx,
+      segs.length,
+      targetBox,
+      spanM,
+      totalW
+    );
+
+    setCanvasZoom(targetView.zoom);
+    setCanvasPan({ x: targetView.panX, y: targetView.panY });
+    setIsCanvasPanMode(false);
+  }, [activeLocation, surfaceSegmentSpanM, activeRound, activeStageTransformMode]);
 
   useEffect(() => {
     if (
@@ -3870,83 +3927,95 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
         {/* Horizontal Field & Photo Mapping Workflow Navigation */}
         <div className="flex items-center gap-1 shrink-0">
-          {(
-            (workflowMode === 'field_mapping'
-              ? [
-                  ['project_setup', '1. Project & Data'],
-                  [
-                    'excavation_round',
-                    mappingDomain === 'TUNNEL'
-                      ? '2. Round & Pull'
-                      : `2. ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station`,
-                  ],
-                  [
-                    'field_canvas',
-                    mappingDomain === 'TUNNEL'
-                      ? '3. Face Canvas'
-                      : `3. ${domainPanelMap.face.shortLabel}`,
-                  ],
-                  [
-                    'joint_grouping',
-                    mappingDomain === 'TRENCH' ? '4. Unrolled 3-Panel Log' : '4. Group Joints',
-                  ],
-                  ['strip_align', '5. Strip Log'],
-                  ['discontinuity_sets', '6. Discontinuity Sets'],
-                  [
-                    'q_rmr_gsi',
-                    mappingDomain === 'TUNNEL' ? '7. Q / RMR / GSI' : '7. SMR / RMR / GSI',
-                  ],
-                  [
-                    'support_system',
-                    mappingDomain === 'TUNNEL' ? '8. Support System' : '8. Surface Stabilization',
-                  ],
-                  [
-                    'survey_overbreak',
-                    mappingDomain === 'TUNNEL' ? '9. Survey & OB' : '9. Crest/Toe Survey',
-                  ],
-                  ['word_template_export', '10. Clean Report'],
-                  ['photo_2d_report', '11. 2D Photo Report'],
-                  ['advance_analysis', '12. Advance Analysis'],
-                ]
-              : [
-                  ['project_setup', '1. Project & Data'],
-                  [
-                    'excavation_round',
-                    mappingDomain === 'TUNNEL'
-                      ? '2. Round & Pull'
-                      : `2. ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station`,
-                  ],
-                  ['camera_prompt', '3. Upload Photos'],
-                  ['photo_fit', '4. Photo Fit'],
-                  [
-                    'field_canvas',
-                    mappingDomain === 'TUNNEL'
-                      ? '5. Face Canvas'
-                      : `5. ${domainPanelMap.face.shortLabel}`,
-                  ],
-                  [
-                    'joint_grouping',
-                    mappingDomain === 'TRENCH' ? '6. Unrolled 3-Panel Log' : '6. Group Joints',
-                  ],
-                  ['strip_align', '7. Strip Log'],
-                  ['discontinuity_sets', '8. Discontinuity Sets'],
-                  [
-                    'q_rmr_gsi',
-                    mappingDomain === 'TUNNEL' ? '9. Q / RMR / GSI' : '9. SMR / RMR / GSI',
-                  ],
-                  [
-                    'support_system',
-                    mappingDomain === 'TUNNEL' ? '10. Support System' : '10. Surface Stabilization',
-                  ],
-                  [
-                    'survey_overbreak',
-                    mappingDomain === 'TUNNEL' ? '11. Survey & OB' : '11. Crest/Toe Survey',
-                  ],
-                  ['word_template_export', '12. Clean Report'],
-                  ['photo_2d_report', '13. 2D Photo Report'],
-                  ['advance_analysis', '14. Advance Analysis'],
-                ]) as [FieldWorkflowStage, string][]
-          ).map(([stKey, label]) => {
+          {(() => {
+            const isSurface = mappingDomain !== 'TUNNEL';
+            const isSlopeOrBench = mappingDomain === 'SLOPE' || mappingDomain === 'BENCH';
+
+            const rawStages: [FieldWorkflowStage, string][] = [];
+            let stepNum = 1;
+
+            rawStages.push(['project_setup', `${stepNum++}. Project & Data`]);
+            rawStages.push([
+              'excavation_round',
+              mappingDomain === 'TUNNEL'
+                ? `${stepNum++}. Round & Pull`
+                : `${stepNum++}. ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station`,
+            ]);
+
+            if (workflowMode === 'photo_mapping') {
+              rawStages.push(['camera_prompt', `${stepNum++}. Upload Photos`]);
+              rawStages.push(['photo_fit', `${stepNum++}. Photo Fit`]);
+            }
+
+            rawStages.push([
+              'field_canvas',
+              mappingDomain === 'TUNNEL'
+                ? `${stepNum++}. Face Canvas`
+                : `${stepNum++}. ${domainPanelMap.face.shortLabel}`,
+            ]);
+
+            rawStages.push([
+              'joint_grouping',
+              mappingDomain === 'TRENCH'
+                ? `${stepNum++}. Unrolled 3-Panel Log`
+                : `${stepNum++}. Group Joints`,
+            ]);
+
+            // Strip Log: Completely omitted per user specification (No need for strip logging)
+
+            rawStages.push([
+              'discontinuity_sets',
+              `${stepNum++}. Discontinuity Sets`,
+            ]);
+
+            // RMR & SMR: Simple RMR & SMR for surface mapping
+            rawStages.push([
+              'q_rmr_gsi',
+              mappingDomain === 'TUNNEL'
+                ? `${stepNum++}. Q / RMR / GSI`
+                : `${stepNum++}. Simple RMR & SMR`,
+            ]);
+
+            // Surface Stabilization: only for Slope & Bench (or Tunnel support system)
+            if (isSlopeOrBench) {
+              rawStages.push([
+                'support_system',
+                `${stepNum++}. Surface Stabilization`,
+              ]);
+            } else if (!isSurface) {
+              rawStages.push([
+                'support_system',
+                `${stepNum++}. Support System`,
+              ]);
+            }
+
+            // Survey: Completely omitted per user specification (No need for survey)
+
+            rawStages.push([
+              'word_template_export',
+              `${stepNum++}. Clean Report`,
+            ]);
+
+            rawStages.push([
+              'photo_2d_report',
+              `${stepNum++}. 2D Photo Report`,
+            ]);
+
+            // Advance Analysis: only for Slope and Bench (or Tunnel)
+            if (isSlopeOrBench) {
+              rawStages.push([
+                'advance_analysis',
+                `${stepNum++}. Advance Analysis`,
+              ]);
+            } else if (!isSurface) {
+              rawStages.push([
+                'advance_analysis',
+                `${stepNum++}. Advance Analysis`,
+              ]);
+            }
+
+            return rawStages;
+          })().map(([stKey, label]) => {
             const isAdv = stKey === 'advance_analysis';
             const isActive = stage === stKey;
             return (
@@ -4077,45 +4146,29 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           {mappingDomain !== 'TUNNEL' &&
             setupLayoutMode === 'wizard' &&
             setupWindowStep === 'surface_type' && (
-              <div className="flex-1 min-h-0 bg-slate-900/95 border border-amber-500/40 rounded-2xl p-4 sm:p-6 flex flex-col justify-between overflow-y-auto">
+              <div className="flex-1 min-h-0 bg-slate-900/95 border border-amber-500/40 rounded-2xl p-4 sm:p-6 flex flex-col justify-center overflow-y-auto">
                 <div className="max-w-3xl mx-auto w-full space-y-4">
-                  <div className="text-center space-y-1">
-                    <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-black uppercase tracking-wider">
-                      Surface Mapping Setup • Step 0
-                    </span>
-                    <h2 className="text-lg sm:text-xl font-black text-white">
-                      Select Surface Mapping Structure Type
-                    </h2>
-                    <p className="text-xs text-slate-400">
-                      Choose whether you are mapping a Bench, Trench, Exposed Rock Surface, or Cut/Natural Slope. Then proceed to Project → Location → Face/Station.
-                    </p>
-                  </div>
-
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {(
                       [
                         {
                           id: 'BENCH' as MappingDomainType,
                           title: '1. Bench Mapping',
-                          subtitle: 'Open-Pit Quarry & Mine Bench Face + Berm Width & Romana SMR',
                           badge: 'Bench Face & Berm',
                         },
                         {
                           id: 'TRENCH' as MappingDomainType,
                           title: '2. Trench Mapping',
-                          subtitle: 'Unrolled 3-Panel Trench Log (Left Wall • Floor • Right Wall)',
                           badge: '3-Panel Trench',
                         },
                         {
                           id: 'ROCK_SURFACE' as MappingDomainType,
                           title: '3. Surface / Outcrop Mapping',
-                          subtitle: '1-Panel or Multi-Panel Exposed Rock Surface Window Mapping',
                           badge: 'Rock Surface',
                         },
                         {
                           id: 'SLOPE' as MappingDomainType,
                           title: '4. Slope Mapping',
-                          subtitle: 'Engineered Cut Slope & Natural Rock Slope Kinematic & SMR Analysis',
                           badge: 'Cut / Natural Slope',
                         },
                       ]
@@ -4129,7 +4182,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             handleSelectMappingDomain(item.id);
                             setSetupWindowStep('project');
                           }}
-                          className={`p-4 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                          className={`p-4 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-3 ${
                             active
                               ? 'bg-amber-500/20 border-amber-400 shadow-lg'
                               : 'bg-slate-950/80 border-slate-800 hover:border-amber-500/50'
@@ -4141,7 +4194,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               {item.badge}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-300">{item.subtitle}</p>
                           <div className="text-[11px] font-black text-amber-400 flex items-center justify-end gap-1 pt-1">
                             <span>Select &amp; Continue to Project Window →</span>
                           </div>
@@ -4773,7 +4825,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
-                      Chainage From (m)
+                      {mappingDomain === 'TUNNEL'
+                        ? 'Chainage From (m)'
+                        : `${domainPanelMap.stationPrefix} From (m)`}
                     </label>
                     <input
                       type="text"
@@ -4784,7 +4838,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
-                      Pull / Advance Length (m)
+                      {mappingDomain === 'TUNNEL'
+                        ? 'Pull / Advance Length (m)'
+                        : domainPanelMap.roundLengthLabel}
                     </label>
                     <input
                       type="number"
@@ -4808,14 +4864,32 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
-                      Excavation Method
+                      {mappingDomain === 'TUNNEL'
+                        ? 'Excavation Method'
+                        : mappingDomain === 'ROCK_SURFACE'
+                        ? 'Surface / Outcrop Type'
+                        : 'Excavation Method'}
                     </label>
-                    <input
-                      type="text"
-                      value={newFaceExcavationMode}
-                      onChange={(e) => setNewFaceExcavationMode(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
-                    />
+                    {mappingDomain === 'TUNNEL' ? (
+                      <input
+                        type="text"
+                        value={newFaceExcavationMode}
+                        onChange={(e) => setNewFaceExcavationMode(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      />
+                    ) : (
+                      <select
+                        value={newFaceExcavationMode}
+                        onChange={(e) => setNewFaceExcavationMode(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      >
+                        {getDomainExcavationMethodOptions(mappingDomain).map((opt) => (
+                          <option key={opt.value} value={opt.label}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 </div>
 
@@ -5375,12 +5449,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         ? 'Bench Mapping Station & Bench Geometry Details'
                         : mappingDomain === 'TRENCH'
                         ? 'Trench Mapping Station & 3-Wall Log Geometry Details'
+                        : mappingDomain === 'ROCK_SURFACE'
+                        ? 'Rock Surface Station & Exposure Geometry Details'
                         : 'Slope Mapping Station & Cut / Natural Slope Details'}
                     </h2>
                     <p className="text-xs text-slate-400">
                       Sector: <strong>{surfaceParams.benchNumberLabel}</strong> (
-                      {mappingDomain} RECTANGULAR PROFILE — {activeLocation.widthM}m Span ×{' '}
-                      {activeLocation.heightM}m Height)
+                      {mappingDomain === 'BENCH'
+                        ? `Hb = ${surfaceParams.benchHeightMeters}m · Berm Wb = ${surfaceParams.bermWidthMeters}m · Exposure = ${surfaceParams.exposureLengthMeters}m`
+                        : mappingDomain === 'TRENCH'
+                        ? `Dt = ${surfaceParams.trenchDepthMeters}m · Bottom Wt = ${surfaceParams.trenchWidthMeters}m · Log Span = ${surfaceParams.exposureLengthMeters}m`
+                        : mappingDomain === 'SLOPE'
+                        ? `Hs = ${surfaceParams.slopeHeightMeters}m · Angle = ${surfaceParams.overallSlopeAngleDeg}° · Sector Span = ${surfaceParams.exposureLengthMeters}m`
+                        : `Wr = ${surfaceParams.rockExposureWidthMeters || surfaceParams.exposureLengthMeters}m · Hr = ${surfaceParams.rockExposureHeightMeters || surfaceParams.benchHeightMeters}m`}
+                      )
                     </p>
                   </div>
                   {surfaceSmrAnalysis && (
@@ -5391,11 +5473,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   )}
                 </div>
 
-                {/* Row 1: Station Chainage From, Mapped Bay Span (m), Station Chainage To, Bench/Trench/Slope ID */}
+                {/* Row 1: Station From, Mapped Span (m), Station To, Sector/Location ID */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1">
-                      Station / Chainage From (m)
+                      {domainPanelMap.stationPrefix} From (m)
                     </label>
                     <input
                       type="text"
@@ -5409,9 +5491,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                   <div>
                     <label className="block text-xs font-black text-amber-400 mb-1">
-                      {mappingDomain === 'TRENCH'
-                        ? 'Trench Log Bay Length (m)'
-                        : 'Mapped Bay / Window Span (m)'}
+                      {domainPanelMap.roundLengthLabel}
                     </label>
                     <input
                       type="number"
@@ -5432,7 +5512,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1">
-                      Station / Chainage To (m)
+                      {domainPanelMap.stationPrefix} To (m)
                     </label>
                     <input
                       type="text"
@@ -5447,9 +5527,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1">
                       {mappingDomain === 'BENCH'
-                        ? 'Bench ID & RL Label'
+                        ? 'Bench ID & Level / RL'
                         : mappingDomain === 'TRENCH'
                         ? 'Trench ID & Reference'
+                        : mappingDomain === 'ROCK_SURFACE'
+                        ? 'Exposure Reference ID'
                         : 'Slope Cut / Sector ID'}
                     </label>
                     <input
@@ -5802,7 +5884,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1">
-                      Excavation Method (Romana F4)
+                      {domainPanelMap.domainTitle.replace(' Mapping', '')} Method (Romana F4)
                     </label>
                     <select
                       value={surfaceParams.excavationMethod}
@@ -5816,11 +5898,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       }}
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"
                     >
-                      <option value="NATURAL_SLOPE">Natural Slope (F4 = +15)</option>
-                      <option value="PRESPLITTING">Presplitting (F4 = +10)</option>
-                      <option value="SMOOTH_BLASTING">Smooth Blasting (F4 = +8)</option>
-                      <option value="MECHANICAL">Mechanical / Ripping / Trench (F4 = 0)</option>
-                      <option value="NORMAL_BLASTING">Normal Bench / Slope Blasting (F4 = -8)</option>
+                      {getDomainExcavationMethodOptions(mappingDomain).map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -7506,6 +7588,32 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </button>
                 </div>
 
+                {/* Surface Segment Mapping Mode Toggle (e.g. 10m split into 2m x 5 segments) */}
+                {mappingDomain !== 'TUNNEL' && stage === 'field_canvas' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !isSurfaceSegmentedMode;
+                      setIsSurfaceSegmentedMode(next);
+                      if (next) {
+                        jumpToSurfaceSegment(0);
+                      } else {
+                        setCanvasZoom(1);
+                        setCanvasPan({ x: 0, y: 0 });
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
+                      isSurfaceSegmentedMode
+                        ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                        : 'bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800'
+                    }`}
+                    title="Split long surface exposure into custom segments (e.g. 2m windows) to trace window-by-window"
+                  >
+                    <Layers className="w-3 h-3" />
+                    <span>{isSurfaceSegmentedMode ? `Segments: ${surfaceSegmentSpanM}m` : 'Segments'}</span>
+                  </button>
+                )}
+
                 {/* 4 Drawing Tools (Pencil, Brush, Spline, Polyline) in Top Bar for all features except Mark Water */}
                 {stage === 'field_canvas' && hasFourDrawSubTools && (
                   <div className="inline-flex items-center gap-1">
@@ -7564,7 +7672,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow font-black'
                         : 'bg-slate-950 text-cyan-300 border-cyan-500/40 hover:bg-slate-800'
                     }`}
-                    title={`Toggle Dual Canvas Mode: Tunnel ${FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel} Photo on right canvas with real-time synchronization`}
+                    title={`Toggle Dual Canvas Mode: ${mappingDomain === 'TUNNEL' ? 'Tunnel' : domainPanelMap.domainTitle.replace(' Mapping', '')} ${domainPanelMap[activePanel]?.label || FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel} Photo on right canvas with real-time synchronization`}
                   >
                     <Columns className="w-3 h-3" />
                     <span>{isPhotogrammetryDualCanvas ? 'Dual Canvas: ON' : 'Dual Canvas'}</span>
@@ -7769,7 +7877,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 ? 'text-slate-600 hover:text-slate-900'
                                 : 'text-slate-400 hover:text-white'
                             }`}
-                            title="Show synchronized 2D Geological Map & Tunnel Outline Fitted Photo side-by-side"
+                            title={`Show synchronized 2D Geological Map & ${mappingDomain === 'TUNNEL' ? 'Tunnel' : domainPanelMap.domainTitle.replace(' Mapping', '')} Outline Fitted Photo side-by-side`}
                           >
                             <Columns className="w-3 h-3 shrink-0" />
                             <span>Split (Map + 2D Photo)</span>
@@ -7793,7 +7901,102 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         isDualCanvasActive && dualCanvasMobileTab === 'photo' ? 'hidden' : 'flex'
                       }`}
                     >
-                    <div className="flex-1 min-h-0 relative flex items-center justify-center w-full h-full">
+                      {/* Segmented Surface Mapping Navigation Bar */}
+                      {mappingDomain !== 'TUNNEL' && isSurfaceSegmentedMode && stage === 'field_canvas' && (
+                        <div className="bg-slate-900/95 border-b border-amber-500/30 px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-1.5 text-xs shrink-0 z-10 shadow-md">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-bold text-amber-400 uppercase tracking-wider text-[11px] flex items-center gap-1 shrink-0">
+                              <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span className="hidden sm:inline">{domainPanelMap.domainTitle.replace(' Mapping', '')}</span> Segment:
+                            </span>
+
+                            {/* Segment Width Selector */}
+                            <div className="inline-flex items-center bg-slate-950 rounded p-0.5 border border-slate-700 text-[10px]">
+                              {[1.0, 2.0, 3.0, 5.0].map((sz) => (
+                                <button
+                                  key={sz}
+                                  type="button"
+                                  onClick={() => {
+                                    setSurfaceSegmentSpanM(sz);
+                                    jumpToSurfaceSegment(0, sz);
+                                  }}
+                                  className={`px-1.5 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                                    surfaceSegmentSpanM === sz
+                                      ? 'bg-amber-500 text-slate-950 font-black'
+                                      : 'text-slate-400 hover:text-white'
+                                  }`}
+                                  title={`Split face into ${sz}m windows`}
+                                >
+                                  {sz}m
+                                </button>
+                              ))}
+                            </div>
+
+                            <span className="text-[10.5px] font-mono text-cyan-300 font-bold shrink-0">
+                              {activeSurfaceSegment
+                                ? `${activeSurfaceSegment.label} (${activeSurfaceSegment.index + 1}/${surfaceSegments.length})`
+                                : ''}
+                            </span>
+                          </div>
+
+                          {/* Segment Pills & Sliding Stepper */}
+                          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0">
+                            <button
+                              type="button"
+                              disabled={surfaceActiveSegmentIdx <= 0}
+                              onClick={() => jumpToSurfaceSegment(surfaceActiveSegmentIdx - 1)}
+                              className="px-2 py-0.5 rounded bg-slate-800 disabled:opacity-30 disabled:pointer-events-none hover:bg-slate-700 text-white font-bold text-[10.5px] flex items-center gap-0.5 cursor-pointer"
+                              title="Slide canvas back to previous segment (moves right)"
+                            >
+                              <ChevronLeft className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Prev</span>
+                            </button>
+
+                            <div className="flex items-center gap-0.5 max-w-[280px] sm:max-w-none overflow-x-auto no-scrollbar">
+                              {surfaceSegments.map((seg) => (
+                                <button
+                                  key={seg.index}
+                                  type="button"
+                                  onClick={() => jumpToSurfaceSegment(seg.index)}
+                                  className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] whitespace-nowrap transition-all cursor-pointer ${
+                                    surfaceActiveSegmentIdx === seg.index
+                                      ? 'bg-amber-500 text-slate-950 font-black shadow ring-1 ring-amber-300'
+                                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white'
+                                  }`}
+                                  title={`Jump to ${seg.label}`}
+                                >
+                                  {seg.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            <button
+                              type="button"
+                              disabled={surfaceActiveSegmentIdx >= surfaceSegments.length - 1}
+                              onClick={() => jumpToSurfaceSegment(surfaceActiveSegmentIdx + 1)}
+                              className="px-2.5 py-0.5 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-30 disabled:pointer-events-none text-slate-950 font-black text-[10.5px] flex items-center gap-0.5 shadow cursor-pointer"
+                              title="Slide canvas forward to next segment (old slides left, next spawns right)"
+                            >
+                              <span>Next</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCanvasZoom(1);
+                                setCanvasPan({ x: 0, y: 0 });
+                              }}
+                              className="ml-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-[10px] flex items-center gap-1 cursor-pointer border border-cyan-500/30"
+                              title="View full exposure overview"
+                            >
+                              <Maximize2 className="w-3 h-3" />
+                              <span className="hidden sm:inline">Overview</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex-1 min-h-0 relative flex items-center justify-center w-full h-full">
                       <svg
                         ref={canvasSvgRef}
                         viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
@@ -8911,6 +9114,64 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             mappingDomain={mappingDomain}
                           />
                         )}
+
+                        {/* Segment Grid & Boundary Markers for Surface Mapping */}
+                        {panelId === 'face' && mappingDomain !== 'TUNNEL' && surfaceSegments.length > 1 && (
+                          <g className="pointer-events-none opacity-90">
+                            {surfaceSegments.map((seg, sIdx) => {
+                              const pxPerM = targetBox.w / Math.max(0.5, activeLocation.widthM || 10);
+                              const bX = targetBox.x + seg.stationFromM * pxPerM;
+                              const bW = seg.spanM * pxPerM;
+                              const isActiveSeg = isSurfaceSegmentedMode && surfaceActiveSegmentIdx === sIdx;
+                              return (
+                                <g key={`face-seg-${seg.index}`}>
+                                  {/* Active Segment Tinted Region */}
+                                  {isActiveSeg && (
+                                    <rect
+                                      x={bX}
+                                      y={targetBox.y}
+                                      width={bW}
+                                      height={targetBox.h}
+                                      fill="rgba(245, 158, 11, 0.08)"
+                                      stroke="#F59E0B"
+                                      strokeWidth="2.5"
+                                      strokeDasharray="6 3"
+                                    />
+                                  )}
+
+                                  {/* Boundary Division Line */}
+                                  {sIdx > 0 && (
+                                    <line
+                                      x1={bX}
+                                      y1={targetBox.y}
+                                      x2={bX}
+                                      y2={targetBox.y + targetBox.h}
+                                      stroke="#F59E0B"
+                                      strokeWidth="2"
+                                      strokeDasharray="4 4"
+                                      opacity="0.85"
+                                    />
+                                  )}
+
+                                  {/* Boundary Metric Station Label */}
+                                  <text
+                                    x={bX + 4}
+                                    y={targetBox.y + 14}
+                                    fontSize="10"
+                                    fontWeight="900"
+                                    fill="#F59E0B"
+                                    stroke="rgba(0,0,0,0.85)"
+                                    strokeWidth="3"
+                                    paintOrder="stroke"
+                                    fontFamily="IBM Plex Mono, monospace"
+                                  >
+                                    {seg.stationFromM.toFixed(1)}m
+                                  </text>
+                                </g>
+                              );
+                            })}
+                          </g>
+                        )}
                       </g>
                     );
                   };
@@ -8955,12 +9216,72 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               strokeWidth="3.5"
                               paintOrder="stroke"
                             >
-                              {domainPanelMap.face.shortLabel.toUpperCase()} ({tLayout.tunnelW}m W × {tLayout.tunnelH}m {mappingDomain === 'TRENCH' ? 'D' : 'H'} | {mappingDomain === 'TUNNEL' ? 'Drive' : mappingDomain === 'TRENCH' ? 'Axis' : 'Strike'} {driveStr}° ▲)
+                              {(() => {
+                                const dimStr =
+                                  mappingDomain === 'BENCH'
+                                    ? `${tLayout.tunnelW}m L × ${tLayout.tunnelH}m Hb | Strike ${driveStr}° ▲`
+                                    : mappingDomain === 'TRENCH'
+                                    ? `${tLayout.tunnelW}m Wt × ${tLayout.tunnelH}m Dt | Axis ${driveStr}° ▲`
+                                    : mappingDomain === 'SLOPE'
+                                    ? `${tLayout.tunnelW}m W × ${tLayout.tunnelH}m Hs | Strike ${driveStr}° ▲`
+                                    : mappingDomain === 'ROCK_SURFACE'
+                                    ? `${tLayout.tunnelW}m Wr × ${tLayout.tunnelH}m Hr | Strike ${driveStr}° ▲`
+                                    : `${tLayout.tunnelW}m W × ${tLayout.tunnelH}m H | Drive ${driveStr}° ▲`;
+                                return `${domainPanelMap.face.shortLabel.toUpperCase()} (${dimStr})`;
+                              })()}
                             </text>
                           </g>
                         );
                       })()}
-                      {/* Synchronized crosshair reticle removed per user preference */}
+                      {/* Glowing Continuation Anchor at last trace point */}
+                      {pending2DTrace && pending2DTrace.points.length >= 1 && (() => {
+                        const lastPt = pending2DTrace.points[pending2DTrace.points.length - 1];
+                        if (!lastPt) return null;
+                        return (
+                          <g className="pointer-events-none select-none">
+                            <circle
+                              cx={lastPt.x}
+                              cy={lastPt.y}
+                              r="13"
+                              fill="none"
+                              stroke="#10B981"
+                              strokeWidth="2.5"
+                              className="animate-ping"
+                              opacity="0.8"
+                            />
+                            <circle
+                              cx={lastPt.x}
+                              cy={lastPt.y}
+                              r="5.5"
+                              fill="#10B981"
+                              stroke="#FFFFFF"
+                              strokeWidth="1.5"
+                            />
+                            <rect
+                              x={lastPt.x + 8}
+                              y={lastPt.y - 12}
+                              width="165"
+                              height="19"
+                              rx="4"
+                              fill="rgba(15, 23, 42, 0.94)"
+                              stroke="#10B981"
+                              strokeWidth="1"
+                            />
+                            <text
+                              x={lastPt.x + 13}
+                              y={lastPt.y + 1.5}
+                              fontSize="9.5"
+                              fontWeight="bold"
+                              fill="#34D399"
+                              fontFamily="IBM Plex Mono, monospace"
+                            >
+                              {isCanvasPanMode
+                                ? '✋ Canvas Move active'
+                                : '📍 Trace here · Draw to continue'}
+                            </text>
+                          </g>
+                        );
+                      })()}
                     </>
                   );
                 })()}
@@ -8990,6 +9311,36 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       </span>
                     )}
                   </div>
+
+                  {/* Pause / Move Canvas Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsCanvasPanMode((prev) => !prev)}
+                    className={`px-2.5 py-1 rounded-lg font-black text-xs flex items-center gap-1 cursor-pointer transition-all ${
+                      isCanvasPanMode
+                        ? 'bg-sky-500 text-slate-950 shadow ring-1 ring-sky-300'
+                        : 'bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/40'
+                    }`}
+                    title="Pause trace drawing to pan or move canvas without dropping points"
+                  >
+                    <Move className="w-3.5 h-3.5" />
+                    <span>{isCanvasPanMode ? 'Resume Draw' : 'Move Canvas'}</span>
+                  </button>
+
+                  {/* Move to Next Segment in Segmented Mode */}
+                  {mappingDomain !== 'TUNNEL' && isSurfaceSegmentedMode && surfaceActiveSegmentIdx < surfaceSegments.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        jumpToSurfaceSegment(surfaceActiveSegmentIdx + 1);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow cursor-pointer animate-pulse"
+                      title="Slide canvas forward to next segment while keeping trace active"
+                    >
+                      <span>Next ({surfaceSegments[surfaceActiveSegmentIdx + 1]?.label || 'Next'}) ▶</span>
+                    </button>
+                  )}
+
                   {pending2DTrace.points.length >= 2 && (
                     <button
                       type="button"
@@ -9049,7 +9400,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 <div className="flex items-center gap-1.5 min-w-0">
                   <Camera className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
                   <span className={`${photoCanvasTheme === 'light' ? 'text-cyan-800' : 'text-cyan-300'} font-mono font-bold truncate`}>
-                    2. {FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Fitted Photo (2D)
+                    2. {domainPanelMap[activePanel]?.label || FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Fitted Photo (2D)
                   </span>
                 </div>
 
@@ -9206,10 +9557,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     <span>{isPeekingTracesOnPhoto ? 'Traces: ON' : 'Peek'}</span>
                   </button>
 
-                  {/* Upload / Change Photo for current portion (face, left_wall, right_wall, crown) */}
+                  {/* Upload / Change Photo for current portion (domain-specific panel) */}
                   <label
                     className="px-1.5 py-0.5 rounded bg-cyan-700/80 hover:bg-cyan-600 text-white text-[10px] font-black cursor-pointer flex items-center gap-0.5 shadow-sm"
-                    title={`Upload Photo for ${FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel}`}
+                    title={`Upload Photo for ${domainPanelMap[activePanel]?.label || FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel}`}
                   >
                     <span>Photo</span>
                     <input
@@ -9229,7 +9580,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   id: `photo-${activePanel}-${Date.now()}`,
                                   panel: activePanel,
                                   dataUrl: url,
-                                  label: `Underground Tunnel ${activePanel} High-Resolution Rock Photo`,
+                                  label: `${mappingDomain === 'TUNNEL' ? 'Underground Tunnel' : domainPanelMap.domainTitle.replace(' Mapping', '')} ${domainPanelMap[activePanel]?.label || activePanel} High-Resolution Rock Photo`,
                                   capturedAt: new Date().toISOString(),
                                 };
                                 return {
@@ -9585,17 +9936,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setStage('strip_align')}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/40 font-bold text-[10.5px] sm:text-xs shrink-0 cursor-pointer"
-                    >
-                      6. Strip Align →
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => setStage('discontinuity_sets')}
-                      className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] sm:text-xs uppercase tracking-wider flex items-center gap-1 shadow whitespace-nowrap shrink-0 cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] sm:text-xs uppercase tracking-wider flex items-center gap-1.5 shadow whitespace-nowrap shrink-0 cursor-pointer"
                     >
-                      <span>7. Discontinuity Sets →</span>
+                      <span>Discontinuity Sets →</span>
                     </button>
                   </div>
                 </>
@@ -11513,33 +11857,42 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           onUpdateProject={updateActiveProject}
           onUpdateRound={updateActiveRound}
           onUpdateSetRecord={handleUpdateDiscontinuitySet}
-          onBackToStripAlign={() => setStage('strip_align')}
+          onBackToStripAlign={() => setStage('joint_grouping')}
           onContinueToClassifications={() => setStage('q_rmr_gsi')}
         />
       )}
 
-      {/* ==================== STAGE 8: DEDICATED Q-SYSTEM, RMR89 & GSI SHEET ==================== */}
+      {/* ==================== STAGE 8: DEDICATED Q-SYSTEM, RMR89 & GSI SHEET (OR SIMPLE RMR & SMR) ==================== */}
       {stage === 'q_rmr_gsi' && activeRound && (
         <FieldRockMassClassificationsStage
+          activeLocation={activeLocation}
           activeRound={activeRound}
+          mappingDomain={mappingDomain}
+          surfaceParams={surfaceParams}
           onUpdateRound={updateActiveRound}
           onBackToSets={() => setStage('discontinuity_sets')}
-          onContinueToSupport={() => setStage('support_system')}
+          onContinueToSupport={() => {
+            if (mappingDomain === 'SLOPE' || mappingDomain === 'BENCH' || mappingDomain === 'TUNNEL') {
+              setStage('support_system');
+            } else {
+              setStage('word_template_export');
+            }
+          }}
         />
       )}
 
-      {/* ==================== STAGE 9: DEDICATED SUPPORT SYSTEM (2D DRAWING + 3D SPOT BOLTS) ==================== */}
+      {/* ==================== STAGE 9: DEDICATED SUPPORT SYSTEM / SURFACE STABILIZATION (SLOPE & BENCH) ==================== */}
       {stage === 'support_system' && activeLocation && activeRound && (
         <FieldSupportSystemStage
           activeLocation={activeLocation}
           activeRound={activeRound}
           onUpdateRound={updateActiveRound}
           onBackToClassifications={() => setStage('q_rmr_gsi')}
-          onContinueToSurvey={() => setStage('survey_overbreak')}
+          onContinueToSurvey={() => setStage('word_template_export')}
         />
       )}
 
-      {/* ==================== STAGE 10: DEDICATED TUNNEL FACE SURVEY & OVERBREAK ==================== */}
+      {/* ==================== STAGE 10: DEDICATED TUNNEL FACE SURVEY & OVERBREAK (Omitted if not needed) ==================== */}
       {stage === 'survey_overbreak' && activeLocation && activeRound && (
         <FieldSurveyOverbreakStage
           activeProject={activeProject}
@@ -11574,15 +11927,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               >
                 2. 2D Photo Report (Page 1 {domainPanelMap.face.shortLabel} • Page 2 {domainPanelMap.crown.shortLabel} &amp; Flanks) →
               </button>
-              <button
-                type="button"
-                onClick={() => setStage('advance_analysis')}
-                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 font-black text-[11px] cursor-pointer flex items-center gap-1.5"
-                title="Advance Geological Analysis: Wedge FoS, 4-Surface Apparent Dip, Face Look-Ahead Extrapolation & Inflow"
-              >
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                <span>3. Advance Geological Analysis →</span>
-              </button>
+              {(mappingDomain === 'SLOPE' || mappingDomain === 'BENCH' || mappingDomain === 'TUNNEL') && (
+                <button
+                  type="button"
+                  onClick={() => setStage('advance_analysis')}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 font-black text-[11px] cursor-pointer flex items-center gap-1.5"
+                  title="Advance Geological Analysis: Wedge FoS, Slope Stability & Stabilization, 4-Surface Apparent Dip"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <span>3. Advance Analysis →</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -11593,7 +11948,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               activeRound={activeRound}
               onUpdateProject={updateActiveProject}
               onUpdateRound={updateActiveRound}
-              onBackToParams={() => setStage('survey_overbreak')}
+              onBackToParams={() => {
+                if (mappingDomain === 'SLOPE' || mappingDomain === 'BENCH' || mappingDomain === 'TUNNEL') {
+                  setStage('support_system');
+                } else {
+                  setStage('q_rmr_gsi');
+                }
+              }}
               onSaveAndReturnToProjectSetup={() => {
                 saveFieldMappingStore(store);
                 setStage('photo_2d_report');
@@ -11626,16 +11987,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               activeProject={activeProject}
               activeLocation={activeLocation}
               activeRound={activeRound}
+              mappingDomain={mappingDomain}
+              surfaceParams={surfaceParams}
               rememberedRocks={rememberedRocksList}
               onUpdateRound={updateActiveRound}
               onBackToCleanReport={() => setStage('word_template_export')}
-              onProceedTo3DReport={() => setStage('advance_analysis')}
+              onProceedTo3DReport={() => {
+                if (mappingDomain === 'SLOPE' || mappingDomain === 'BENCH' || mappingDomain === 'TUNNEL') {
+                  setStage('advance_analysis');
+                } else {
+                  setStage('word_template_export');
+                }
+              }}
             />
           </div>
         </div>
       )}
 
-      {/* ==================== STAGE 12 / 14: ADVANCE GEOLOGICAL ANALYSIS VIEW (Directly Embedded, Replaces 3D Report) ==================== */}
+      {/* ==================== STAGE 12 / 14: ADVANCE GEOLOGICAL ANALYSIS VIEW (Directly Embedded) ==================== */}
       {(stage === 'advance_analysis' || stage === 'geology_3d_report') && activeProject && activeLocation && activeRound && (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <FaceCompletionAndReviewBar
@@ -11658,6 +12027,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               fullPage
               isOpen={true}
               onClose={() => setStage('photo_2d_report')}
+              mappingDomain={mappingDomain}
+              surfaceParams={surfaceParams}
+              surfaceSmrAnalysis={surfaceSmrAnalysis}
               geometry={createTunnelGeometry(
                 activeLocation?.widthM || 8.5,
                 activeLocation?.heightM || 7.5,

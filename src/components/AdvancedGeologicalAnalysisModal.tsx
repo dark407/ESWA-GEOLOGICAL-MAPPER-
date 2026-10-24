@@ -72,8 +72,15 @@ import {
   feedDataFromNatmActiveState,
   FedNatmDataBundle,
 } from '../engine/advancedModelingAndAlignmentEngine';
+import {
+  MappingDomainType,
+  SurfaceGeometryParameters,
+  SurfaceStabilityAnalysisResult,
+  evaluateSurfaceStabilityAndRomanaSmr,
+} from '../engine/surfaceMappingEngine';
 
 export type AdvancedAnalysisTab =
+  | 'SLOPE_STABILITY_AND_STABILIZATION'
   | 'EXCAVATION_3D_LOG'
   | 'WEAK_ZONE_PROJECTOR'
   | 'SEQUENTIAL_3D_RECON'
@@ -104,6 +111,9 @@ export interface AdvancedGeologicalAnalysisModalProps {
   lithologyRegions?: LithologyRegion[];
   junctionFactorData?: JunctionFactorResult | null;
   savedProjects?: SavedProjectRecord[];
+  mappingDomain?: MappingDomainType;
+  surfaceParams?: SurfaceGeometryParameters;
+  surfaceSmrAnalysis?: SurfaceStabilityAnalysisResult | null;
   onOpenJunctionCalculator?: () => void;
   onClearJunctionFactor?: () => void;
 }
@@ -123,10 +133,16 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   lithologyRegions = [],
   junctionFactorData = null,
   savedProjects = [],
+  mappingDomain,
+  surfaceParams,
+  surfaceSmrAnalysis: propSurfaceSmrAnalysis,
   onOpenJunctionCalculator,
   onClearJunctionFactor,
 }) => {
-  const [activeTab, setActiveTab] = useState<AdvancedAnalysisTab>('EXCAVATION_3D_LOG');
+  const isSlopeOrBench = mappingDomain === 'SLOPE' || mappingDomain === 'BENCH';
+  const [activeTab, setActiveTab] = useState<AdvancedAnalysisTab>(
+    isSlopeOrBench ? 'SLOPE_STABILITY_AND_STABILIZATION' : 'EXCAVATION_3D_LOG'
+  );
 
   // Compute live fed data bundle from NATM active state
   const fedData = useMemo(() => {

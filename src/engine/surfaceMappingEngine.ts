@@ -345,31 +345,31 @@ export function getSurfacePanelLabelMap(domain: MappingDomainType): SurfacePanel
       roundLengthLabel: 'Bench Exposure Length (m)',
       face: {
         shortLabel: 'Bench Face',
-        fullLabel: '1. BENCH FACE (Steep Batter)',
+        fullLabel: '1. BENCH FACE (Batter)',
         badge: 'BENCH FACE',
         description: 'Main excavated bench batter face between crest and toe',
         subtitle: 'Main excavated bench batter face between crest and toe',
       },
       crown: {
         shortLabel: 'Upper Berm / Crest',
-        fullLabel: '2. UPPER BERM / CREST FLOOR',
+        fullLabel: '2. UPPER BERM / CREST',
         badge: 'UPPER BERM',
         description: 'Horizontal catch berm and crest trace above bench face',
         subtitle: 'Horizontal catch berm and crest trace above bench face',
       },
       leftWall: {
-        shortLabel: 'LEFT WALL',
-        fullLabel: '3. LEFT WALL',
-        badge: 'LEFT WALL',
-        description: 'Left lateral bench exposure / side cut',
-        subtitle: 'Left lateral bench exposure / side cut',
+        shortLabel: 'Toe / Floor Cut',
+        fullLabel: '3. BENCH TOE & FLOOR CUT',
+        badge: 'TOE FLOOR',
+        description: 'Bench toe line and sub-grade working floor cut',
+        subtitle: 'Bench toe line and sub-grade working floor cut',
       },
       rightWall: {
-        shortLabel: 'RIGHT WALL',
-        fullLabel: '4. RIGHT WALL',
-        badge: 'RIGHT WALL',
-        description: 'Right lateral bench exposure / floor',
-        subtitle: 'Right lateral bench exposure / floor',
+        shortLabel: 'Side Flank Cut',
+        fullLabel: '4. BENCH SIDE FLANK CUT',
+        badge: 'SIDE FLANK',
+        description: 'Lateral bench exposure / abutment boundary flank cut',
+        subtitle: 'Lateral bench exposure / abutment boundary flank cut',
       },
     };
   }
@@ -377,37 +377,37 @@ export function getSurfacePanelLabelMap(domain: MappingDomainType): SurfacePanel
   if (domain === 'TRENCH') {
     return {
       domainTitle: 'Trench Mapping',
-      domainSubtitle: 'Foundation / Fault / Exploration Trench Left Wall, Floor, Right Wall & End Face',
-      stationPrefix: 'Trench Interval',
+      domainSubtitle: 'Foundation / Fault / Exploration Trench Left Wall, Floor, Right Wall & End Cross-Section',
+      stationPrefix: 'Trench Station',
       directionLabel: 'Trench Axis Bearing (°)',
       roundLengthLabel: 'Trench Segment Length (m)',
       face: {
-        shortLabel: 'Trench End Face',
-        fullLabel: '1. TRENCH END FACE',
+        shortLabel: 'End Cross-Section',
+        fullLabel: '1. TRENCH END FACE (Cross-Section)',
         badge: 'END FACE',
         description: 'Vertical cross-section face at end of trench advance',
         subtitle: 'Vertical cross-section face at end of trench advance',
       },
       crown: {
         shortLabel: 'Trench Floor',
-        fullLabel: '2. TRENCH FLOOR (Unrolled Center)',
+        fullLabel: '2. TRENCH FLOOR (Center Invert)',
         badge: 'TRENCH FLOOR',
-        description: 'Horizontal trench invert / floor connecting Left & Right Trench Walls',
-        subtitle: 'Horizontal trench invert / floor connecting Left & Right Trench Walls',
+        description: 'Horizontal trench floor connecting Left & Right Trench Walls',
+        subtitle: 'Horizontal trench floor connecting Left & Right Trench Walls',
       },
       leftWall: {
-        shortLabel: 'LEFT WALL',
-        fullLabel: '3. LEFT WALL',
-        badge: 'LEFT WALL',
-        description: 'Vertical left trench wall exposure',
-        subtitle: 'Vertical left trench wall exposure',
+        shortLabel: 'Left Trench Wall',
+        fullLabel: '3. LEFT TRENCH WALL',
+        badge: 'LEFT TRENCH WALL',
+        description: 'Vertical left sidewall trench exposure',
+        subtitle: 'Vertical left sidewall trench exposure',
       },
       rightWall: {
-        shortLabel: 'RIGHT WALL',
-        fullLabel: '4. RIGHT WALL',
-        badge: 'RIGHT WALL',
-        description: 'Vertical right trench wall exposure',
-        subtitle: 'Vertical right trench wall exposure',
+        shortLabel: 'Right Trench Wall',
+        fullLabel: '4. RIGHT TRENCH WALL',
+        badge: 'RIGHT TRENCH WALL',
+        description: 'Vertical right sidewall trench exposure',
+        subtitle: 'Vertical right sidewall trench exposure',
       },
     };
   }
@@ -417,7 +417,7 @@ export function getSurfacePanelLabelMap(domain: MappingDomainType): SurfacePanel
       domainTitle: 'Slope Mapping',
       domainSubtitle: 'Rock Slope Face, Crest, Flanks, Romana SMR & Kinematic Stability',
       stationPrefix: 'Slope Sector',
-      directionLabel: 'Slope Dip Direction (°)',
+      directionLabel: 'Slope Dip Direction / Aspect (°)',
       roundLengthLabel: 'Slope Sector Width (m)',
       face: {
         shortLabel: 'Main Slope Face',
@@ -427,25 +427,25 @@ export function getSurfacePanelLabelMap(domain: MappingDomainType): SurfacePanel
         subtitle: 'Primary cut or natural rock slope exposure',
       },
       crown: {
-        shortLabel: 'Upper Slope Crest',
-        fullLabel: '2. UPPER SLOPE CREST',
+        shortLabel: 'Upper Crest Zone',
+        fullLabel: '2. UPPER CREST & TENSION ZONE',
         badge: 'SLOPE CREST',
-        description: 'Upper crest, tension crack zone, and natural overburden',
-        subtitle: 'Upper crest, tension crack zone, and natural overburden',
+        description: 'Upper crest, tension crack zone, and overburden',
+        subtitle: 'Upper crest, tension crack zone, and overburden',
       },
       leftWall: {
-        shortLabel: 'LEFT WALL',
-        fullLabel: '3. LEFT WALL',
-        badge: 'LEFT WALL',
-        description: 'Left lateral cut / gully boundary exposure',
-        subtitle: 'Left lateral cut / gully boundary exposure',
+        shortLabel: 'Slope Toe & Ditch',
+        fullLabel: '3. SLOPE TOE & CATCH DITCH',
+        badge: 'TOE DITCH',
+        description: 'Slope toe break-line and rockfall catchment ditch',
+        subtitle: 'Slope toe break-line and rockfall catchment ditch',
       },
       rightWall: {
-        shortLabel: 'RIGHT WALL',
-        fullLabel: '4. RIGHT WALL',
-        badge: 'RIGHT WALL',
-        description: 'Right lateral cut / abutment boundary exposure',
-        subtitle: 'Right lateral cut / abutment boundary exposure',
+        shortLabel: 'Lateral Flank Cut',
+        fullLabel: '4. LATERAL FLANK / ABUTMENT',
+        badge: 'SLOPE FLANK',
+        description: 'Lateral cut, gully or side abutment boundary exposure',
+        subtitle: 'Lateral cut, gully or side abutment boundary exposure',
       },
     };
   }
@@ -453,35 +453,35 @@ export function getSurfacePanelLabelMap(domain: MappingDomainType): SurfacePanel
   if (domain === 'ROCK_SURFACE') {
     return {
       domainTitle: 'Rock Surface Mapping',
-      domainSubtitle: 'Exposed Outcrop, Foundation Rock Surface, Joint Trace & Lithology Mapping',
-      stationPrefix: 'Rock Exposure',
+      domainSubtitle: 'Exposed Outcrop, Foundation Bedrock, Joint Trace & Scanline Mapping',
+      stationPrefix: 'Exposure Station',
       directionLabel: 'Rock Surface Dip Direction (°)',
       roundLengthLabel: 'Exposure Width / Span (m)',
       face: {
-        shortLabel: 'Rock Surface',
-        fullLabel: '1. MAIN ROCK SURFACE',
+        shortLabel: 'Rock Exposure Face',
+        fullLabel: '1. ROCK EXPOSURE FACE (Scanline)',
         badge: 'ROCK SURFACE',
-        description: 'Primary exposed rock outcrop or foundation rock surface',
-        subtitle: 'Primary exposed rock outcrop or foundation rock surface',
+        description: 'Primary exposed rock outcrop or foundation bedrock face',
+        subtitle: 'Primary exposed rock outcrop or foundation bedrock face',
       },
       crown: {
-        shortLabel: 'Upper Crest Exposure',
-        fullLabel: '2. UPPER CREST EXPOSURE',
+        shortLabel: 'Upper Crest Trace',
+        fullLabel: '2. UPPER CREST / CONTACT TRACE',
         badge: 'UPPER CREST',
-        description: 'Upper horizontal/inclined rock surface above main face',
-        subtitle: 'Upper horizontal/inclined rock surface above main face',
+        description: 'Upper contact trace and horizontal ledge surface',
+        subtitle: 'Upper contact trace and horizontal ledge surface',
       },
       leftWall: {
-        shortLabel: 'LEFT WALL',
-        fullLabel: '3. LEFT WALL',
-        badge: 'LEFT WALL',
+        shortLabel: 'Left Exposure Flank',
+        fullLabel: '3. LEFT EXPOSURE FLANK',
+        badge: 'LEFT FLANK',
         description: 'Left lateral rock outcrop exposure',
         subtitle: 'Left lateral rock outcrop exposure',
       },
       rightWall: {
-        shortLabel: 'RIGHT WALL',
-        fullLabel: '4. RIGHT WALL',
-        badge: 'RIGHT WALL',
+        shortLabel: 'Right Exposure Flank',
+        fullLabel: '4. RIGHT EXPOSURE FLANK',
+        badge: 'RIGHT FLANK',
         description: 'Right lateral rock outcrop exposure',
         subtitle: 'Right lateral rock outcrop exposure',
       },
@@ -523,6 +523,58 @@ export function getSurfacePanelLabelMap(domain: MappingDomainType): SurfacePanel
       subtitle: 'Developed right tunnel wall strip',
     },
   };
+}
+
+export interface DomainExcavationOption {
+  value: SurfaceGeometryParameters['excavationMethod'];
+  label: string;
+  f4Bonus: number;
+}
+
+export function getDomainExcavationMethodOptions(domain: MappingDomainType): DomainExcavationOption[] {
+  if (domain === 'BENCH') {
+    return [
+      { value: 'SMOOTH_BLASTING', label: 'Smooth Blasting / Perimeter Trim (F4 = +8)', f4Bonus: 8 },
+      { value: 'PRESPLITTING', label: 'Presplitting Line (F4 = +10)', f4Bonus: 10 },
+      { value: 'NORMAL_BLASTING', label: 'Production Bench Blasting (F4 = -8)', f4Bonus: -8 },
+      { value: 'MECHANICAL', label: 'Mechanical Ripping / Hydraulic Breaker (F4 = 0)', f4Bonus: 0 },
+      { value: 'NATURAL_SLOPE', label: 'Natural Quarry / Bench Face (F4 = +15)', f4Bonus: 15 },
+    ];
+  }
+  if (domain === 'TRENCH') {
+    return [
+      { value: 'MECHANICAL', label: 'Hydraulic Excavator / Trench Box (F4 = 0)', f4Bonus: 0 },
+      { value: 'NATURAL_SLOPE', label: 'Hand-Cleaned Geotech Trench (F4 = +15)', f4Bonus: 15 },
+      { value: 'SMOOTH_BLASTING', label: 'Controlled Rock Saw / Trim (F4 = +8)', f4Bonus: 8 },
+      { value: 'PRESPLITTING', label: 'Presplit Trench Trenching (F4 = +10)', f4Bonus: 10 },
+      { value: 'NORMAL_BLASTING', label: 'Bulk Trench Blasting (F4 = -8)', f4Bonus: -8 },
+    ];
+  }
+  if (domain === 'SLOPE') {
+    return [
+      { value: 'PRESPLITTING', label: 'Presplitting Cut Slope (F4 = +10)', f4Bonus: 10 },
+      { value: 'SMOOTH_BLASTING', label: 'Smooth Wall Blasting & Trim (F4 = +8)', f4Bonus: 8 },
+      { value: 'MECHANICAL', label: 'Mechanical Scaled Rock Cut (F4 = 0)', f4Bonus: 0 },
+      { value: 'NATURAL_SLOPE', label: 'Natural Unexcavated Slope (F4 = +15)', f4Bonus: 15 },
+      { value: 'NORMAL_BLASTING', label: 'Standard Production Slope Blasting (F4 = -8)', f4Bonus: -8 },
+    ];
+  }
+  if (domain === 'ROCK_SURFACE') {
+    return [
+      { value: 'NATURAL_SLOPE', label: 'Natural Weathered Outcrop (F4 = +15)', f4Bonus: 15 },
+      { value: 'MECHANICAL', label: 'Cleaned / Scraped Bedrock Surface (F4 = 0)', f4Bonus: 0 },
+      { value: 'PRESPLITTING', label: 'Pre-split Rock Surface (F4 = +10)', f4Bonus: 10 },
+      { value: 'SMOOTH_BLASTING', label: 'Smooth Surface Cut (F4 = +8)', f4Bonus: 8 },
+      { value: 'NORMAL_BLASTING', label: 'Blasted Bedrock Foundation (F4 = -8)', f4Bonus: -8 },
+    ];
+  }
+  return [
+    { value: 'NORMAL_BLASTING', label: 'Drill & Blast (Full Face)', f4Bonus: -8 },
+    { value: 'SMOOTH_BLASTING', label: 'Controlled Drill & Blast', f4Bonus: 8 },
+    { value: 'MECHANICAL', label: 'Roadheader / Mechanical', f4Bonus: 0 },
+    { value: 'PRESPLITTING', label: 'Pre-split / TBM Heading', f4Bonus: 10 },
+    { value: 'NATURAL_SLOPE', label: 'NATM / Hydraulic Breaker', f4Bonus: 15 },
+  ];
 }
 
 export function getSurfacePanelBadgeForFieldPanel(
@@ -920,3 +972,69 @@ export function evaluateSurfaceStabilityAndRomanaSmr(
     wedgeChecks,
   };
 }
+
+export interface SurfaceSegmentItem {
+  index: number;
+  label: string;
+  stationFromM: number;
+  stationToM: number;
+  spanM: number;
+  pctFrom: number;
+  pctTo: number;
+}
+
+export function computeSurfaceSegments(
+  totalSpanMeters: number,
+  segmentSpanMeters: number
+): SurfaceSegmentItem[] {
+  const total = Math.max(0.5, totalSpanMeters || 10);
+  const step = Math.max(0.5, Math.min(total, segmentSpanMeters || 2.0));
+  const count = Math.max(1, Math.ceil(total / step));
+  const segments: SurfaceSegmentItem[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const fromM = Number((i * step).toFixed(2));
+    const toM = Number((Math.min(total, (i + 1) * step)).toFixed(2));
+    segments.push({
+      index: i,
+      label: `${fromM.toFixed(1)}m → ${toM.toFixed(1)}m`,
+      stationFromM: fromM,
+      stationToM: toM,
+      spanM: Number((toM - fromM).toFixed(2)),
+      pctFrom: fromM / total,
+      pctTo: toM / total,
+    });
+  }
+  return segments;
+}
+
+export function computeSegmentCanvasViewBox(
+  activeSegmentIndex: number,
+  totalSegments: number,
+  targetBox: { x: number; y: number; w: number; h: number },
+  segmentSpanMeters: number,
+  totalSpanMeters: number
+): { zoom: number; panX: number; panY: number } {
+  const total = Math.max(0.5, totalSpanMeters || 10);
+  const step = Math.max(0.5, Math.min(total, segmentSpanMeters || 2.0));
+  const segIndex = Math.max(0, Math.min(totalSegments - 1, activeSegmentIndex));
+
+  const fromM = segIndex * step;
+  const toM = Math.min(total, (segIndex + 1) * step);
+  const segSpanM = Math.max(0.2, toM - fromM);
+
+  const pxPerM = targetBox.w / total;
+  const segSvgX = targetBox.x + fromM * pxPerM;
+  const segSvgW = segSpanM * pxPerM;
+  const segSvgCenterX = segSvgX + segSvgW / 2;
+  const segSvgCenterY = targetBox.y + targetBox.h / 2;
+
+  const targetCanvasW = 750;
+  const zoom = Math.max(1.0, Math.min(12.0, Number((targetCanvasW / Math.max(10, segSvgW)).toFixed(2))));
+
+  const panX = Number((segSvgCenterX - 500).toFixed(1));
+  const panY = Number((segSvgCenterY - 500).toFixed(1));
+
+  return { zoom, panX, panY };
+}
+

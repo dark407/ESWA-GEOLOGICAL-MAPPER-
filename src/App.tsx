@@ -4203,7 +4203,7 @@ export default function App({
                   >
                     <Compass className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="text-stone-900 font-extrabold">Underground Face Mapping</span>
+                  <span className="text-black font-extrabold text-sm sm:text-base">Underground Face Mapping</span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
@@ -4223,7 +4223,7 @@ export default function App({
                 style={{
                   backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
                   borderColor: palette.accentHex,
-                  color: palette.isLightBg ? '#FFFFFF' : '#0F172A',
+                  color: palette.isLightBg ? '#FFFFFF' : '#000000',
                 }}
                 title={
                   fieldResumeMeta
@@ -4250,7 +4250,7 @@ export default function App({
                   setIsFirstOpening(false);
                   setIsCoreLoggingOpen(true);
                 }}
-                className="w-full py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white dark:bg-stone-900 text-stone-950 dark:text-stone-50 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer hover:shadow-xl active:scale-99 group"
+                className="w-full py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer hover:shadow-xl active:scale-99 group"
                 style={{
                   borderColor: palette.primaryHex,
                 }}
@@ -4265,7 +4265,7 @@ export default function App({
                   >
                     <FileSpreadsheet className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="text-stone-950 dark:text-stone-50 font-black tracking-tight">Geological &amp; Geotechnical Core Logging</span>
+                  <span className="text-black font-extrabold text-sm sm:text-base tracking-tight">Geological &amp; Geotechnical Core Logging</span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
@@ -4303,7 +4303,7 @@ export default function App({
                     >
                       <Mountain className="w-3.5 h-3.5 shrink-0" />
                     </span>
-                    <span className="text-stone-900 font-extrabold">Surface Mapping</span>
+                    <span className="text-black font-extrabold text-sm sm:text-base">Surface Mapping</span>
                     <span
                       className="px-2 py-0.5 rounded font-mono text-[10px] font-bold"
                       style={{
@@ -4339,7 +4339,7 @@ export default function App({
                   style={{
                     backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
                     borderColor: palette.accentHex,
-                    color: palette.isLightBg ? '#FFFFFF' : '#0F172A',
+                    color: palette.isLightBg ? '#FFFFFF' : '#000000',
                   }}
                   title={
                     surfaceResumeMeta
@@ -4357,147 +4357,9 @@ export default function App({
                   <span>Resume</span>
                 </button>
               </div>
-
-              {/* Isolated Subtype Direct Launchers (Bench, Trench, Slope, Outcrop) */}
-              <div
-                className="grid grid-cols-4 gap-1.5 pt-1.5 border-t"
-                style={{
-                  borderColor: palette.primaryHex + '25',
-                }}
-              >
-                {(
-                  [
-                    ['BENCH', 'Bench'],
-                    ['TRENCH', 'Trench'],
-                    ['SLOPE', 'Slope'],
-                    ['ROCK_SURFACE', 'Outcrop'],
-                  ] as [SurfaceMappingSubType, string][]
-                ).map(([sub, lbl]) => {
-                  const isSelected = selectedSurfaceSubType === sub;
-                  return (
-                    <button
-                      key={sub}
-                      type="button"
-                      onClick={() => {
-                        setIsFirstOpening(false);
-                        setSelectedSurfaceSubType(sub);
-                        handleSwitchMappingDomain(sub);
-                        setActiveFieldWorkflowMode('field_mapping');
-                        setResumeFieldAtLastStage(false);
-                        setIsFieldMappingModeOpen(true);
-                      }}
-                      className="py-1 px-1 rounded-md text-[10px] font-bold text-center transition-all cursor-pointer border"
-                      style={{
-                        backgroundColor: isSelected ? palette.primaryHex : '#F8FAFC',
-                        borderColor: isSelected ? palette.accentHex : palette.primaryHex + '35',
-                        color: isSelected ? palette.buttonTextColor : '#0F172A',
-                        boxShadow: isSelected ? `0 2px 8px ${palette.primaryHex}45` : undefined,
-                      }}
-                    >
-                      {lbl}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
 
-            {/* 4. Continuous 3D Tunnel Logging & AutoCAD 2026 Canvas */}
-            <div className="w-full bg-linear-to-r from-slate-900 via-slate-950 to-slate-900 rounded-xl border-2 border-amber-500/80 p-2.5 space-y-2 shadow-[0_8px_24px_-4px_rgba(245,158,11,0.35)] transition-all">
-              <div className="flex items-stretch gap-2 w-full">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFirstOpening(false);
-                    setIsContinuousLogSetupOpen(true);
-                  }}
-                  className="flex-1 py-1.5 px-2.5 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 text-white transition-all cursor-pointer group text-left"
-                >
-                  <span className="flex items-center gap-2.5 text-left">
-                    <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-amber-500/20 text-amber-400 border border-amber-500/40">
-                      <Layers className="w-4 h-4 shrink-0" />
-                    </span>
-                    <span className="flex flex-col text-left">
-                      <span className="flex items-center gap-2">
-                        <span className="text-white font-extrabold tracking-wide">
-                          Continuous 3D Tunnel Logging
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500 text-slate-950">
-                          AutoCAD 2026
-                        </span>
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-normal">
-                        Unfolded 3D Shell · Ch. 0+000 to Ch. 0+150 · A3 Strip &amp; DXF Export
-                      </span>
-                    </span>
-                  </span>
-                  <ArrowRight className="w-4 h-4 shrink-0 text-amber-400 transition-transform group-hover:translate-x-1" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFirstOpening(false);
-                    const allDatasets = loadAllContinuousStripDatasets();
-                    const target = allDatasets[0] || createPowerTunnelReferenceDataset();
-                    setActiveContinuousDataset(target);
-                    setInitialCadOpenForContinuous(true);
-                    setIsA3ContinuousLogOpen(true);
-                  }}
-                  className="px-3.5 py-2 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-[0_4px_14px_-2px_rgba(245,158,11,0.5)] transition-all cursor-pointer border border-amber-300 shrink-0 active:scale-95"
-                  title="Direct 1-Click Launch into Continuous 3D ESWA-CAD Canvas"
-                >
-                  <Play className="w-3.5 h-3.5 shrink-0 fill-current" />
-                  <span>CAD View</span>
-                </button>
-              </div>
-
-              {/* Quick Preset Strip Dataset Chips */}
-              <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-slate-800 text-[10px] font-mono">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFirstOpening(false);
-                    setIsContinuousLogSetupOpen(true);
-                  }}
-                  className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 text-center font-bold truncate cursor-pointer transition-colors"
-                  title="Open Continuous Tunnel Log Setup & Pull Records Schedule"
-                >
-                  📋 Setup &amp; Pulls
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFirstOpening(false);
-                    const all = loadAllContinuousStripDatasets();
-                    const target = all[0] || createPowerTunnelReferenceDataset();
-                    setActiveContinuousDataset(target);
-                    setInitialCadOpenForContinuous(false);
-                    setIsA3ContinuousLogOpen(true);
-                  }}
-                  className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 text-center font-bold truncate cursor-pointer transition-colors"
-                  title="Open A3 Continuous Multi-Pull Engineering Strip Sheet"
-                >
-                  📐 A3 Strip Sheet
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFirstOpening(false);
-                    const all = loadAllContinuousStripDatasets();
-                    const target = all[0] || createPowerTunnelReferenceDataset();
-                    setActiveContinuousDataset(target);
-                    setInitialCadOpenForContinuous(true);
-                    setIsA3ContinuousLogOpen(true);
-                  }}
-                  className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30 text-center font-bold truncate cursor-pointer transition-colors"
-                  title="Open ESWA-CAD Dark Slate Continuous 3D Tunnel Canvas"
-                >
-                  🖥️ AutoCAD 2026
-                </button>
-              </div>
-            </div>
-
-            {/* 5. Data Storage, Import & Export */}
+            {/* 4. Data Storage, Import & Export */}
             <div className="grid grid-cols-1 gap-2.5 w-full">
               <button
                 type="button"
@@ -4520,7 +4382,7 @@ export default function App({
                   >
                     <Database className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="text-stone-900 font-extrabold">Data Storage, Import &amp; Export</span>
+                  <span className="text-black font-extrabold text-sm sm:text-base">Data Storage, Import &amp; Export</span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
