@@ -1126,12 +1126,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
           {/* Borehole Picker */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:inline">Hole:</span>
+            <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider hidden sm:inline">Hole:</span>
             <div className="relative">
               <select
                 value={currentBorehole.id}
                 onChange={(e) => handleSelectBorehole(e.target.value)}
-                className="pl-3 pr-8 py-1 rounded-lg text-xs font-mono font-bold bg-orange-50 dark:bg-orange-950/40 text-orange-900 dark:text-orange-200 border border-orange-300 dark:border-orange-800 cursor-pointer appearance-none shadow-xs"
+                className="pl-3 pr-8 py-1 rounded-lg text-xs font-mono font-black bg-orange-50 dark:bg-orange-950/60 text-orange-950 dark:text-orange-100 border-2 border-orange-400 dark:border-orange-700 cursor-pointer appearance-none shadow-xs"
               >
                 {boreholes.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -1139,7 +1139,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                   </option>
                 ))}
               </select>
-              <ChevronDown className="w-3.5 h-3.5 text-orange-600 absolute right-2.5 top-2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-orange-700 dark:text-orange-300 absolute right-2.5 top-2 pointer-events-none" />
             </div>
 
             <button
@@ -1155,7 +1155,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
             <button
               type="button"
               onClick={handleLoadExampleCoreLog}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-600 hover:bg-cyan-700 text-white shadow-xs transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-700 hover:bg-cyan-800 text-white shadow-xs transition-all cursor-pointer"
               title={`Load authentic example borehole dataset for ${activeIndustryMode}`}
             >
               <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
@@ -1166,24 +1166,24 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => setIsStorageCenterOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 shadow-xs transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 dark:bg-amber-950/60 hover:bg-amber-200 dark:hover:bg-amber-900/80 text-amber-950 dark:text-amber-100 border border-amber-400 dark:border-amber-700 shadow-xs transition-all cursor-pointer"
               title="Access already logged boreholes, inspection details, backups, and storage"
             >
-              <Database className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <Database className="w-3.5 h-3.5 text-amber-700 dark:text-amber-300" />
               <span className="hidden sm:inline">Data &amp; Storage</span>
-              <span className="bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200 px-1.5 py-0.2 rounded-full font-mono text-[10px]">
+              <span className="bg-amber-200 dark:bg-amber-900 text-amber-950 dark:text-amber-100 px-1.5 py-0.2 rounded-full font-mono text-[10px] font-black">
                 {boreholes.length}
               </span>
             </button>
 
             {/* Industry Mode Identifier Badge */}
             <div
-              className={`hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono font-bold border ${
+              className={`hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono font-black border ${
                 activeIndustryMode === 'MINING'
-                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  ? 'bg-amber-500/20 text-amber-900 dark:text-amber-200 border-amber-500/50'
                   : activeIndustryMode === 'TBM'
-                  ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
-                  : 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                  ? 'bg-indigo-500/20 text-indigo-900 dark:text-indigo-200 border-indigo-500/50'
+                  : 'bg-sky-500/20 text-sky-900 dark:text-sky-200 border-sky-500/50'
               }`}
             >
               <span>
@@ -1196,13 +1196,13 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
+          <div className="hidden md:flex items-center gap-2 text-xs text-slate-800 dark:text-slate-200">
             <span>&bull;</span>
-            <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[200px]">
+            <span className="font-extrabold text-slate-900 dark:text-white truncate max-w-[200px]">
               {currentBorehole.projectName}
             </span>
             {currentBorehole.chainageLabel && (
-              <span className="font-mono bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[11px]">
+              <span className="font-mono font-bold bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-1.5 py-0.5 rounded text-[11px]">
                 {currentBorehole.chainageLabel}
               </span>
             )}
@@ -1213,7 +1213,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
         <div className="flex items-center gap-2">
           {/* Quick Active Geologist Indicator */}
           {activeGeologistProfile && (
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-semibold">
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-emerald-100 dark:bg-emerald-950/60 text-emerald-950 dark:text-emerald-200 border border-emerald-400 dark:border-emerald-700 font-bold">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>[{activeGeologistProfile.role}]</span>
               <span className="truncate max-w-[100px]">{activeGeologistProfile.name}</span>
@@ -1223,7 +1223,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
           <button
             type="button"
             onClick={handleOpenAddRun}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 hover:bg-orange-50 dark:hover:bg-orange-950/40 text-orange-600 border border-orange-300 dark:border-orange-800 shadow-xs transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 hover:bg-orange-50 dark:hover:bg-orange-950/40 text-orange-700 dark:text-orange-300 border border-orange-400 dark:border-orange-700 shadow-xs transition-all cursor-pointer"
             title="Add next core run"
           >
             <Plus className="w-4 h-4" />
@@ -1246,53 +1246,53 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-2 shrink-0 flex items-center justify-between gap-3 overflow-x-auto text-xs">
         <div className="flex items-center gap-4 shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 uppercase font-semibold text-[10px]">Total Drilled:</span>
-            <span className="font-mono font-black text-slate-900 dark:text-white">
+            <span className="text-slate-800 dark:text-slate-200 uppercase font-black text-[10.5px]">Total Drilled:</span>
+            <span className="font-mono font-black text-slate-950 dark:text-white">
               {summary.totalDrilledDepth.toFixed(2)} m
             </span>
           </div>
 
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 uppercase font-semibold text-[10px]">TCR:</span>
-            <span className="font-mono font-black text-slate-900 dark:text-white">{summary.averageTcr.toFixed(1)}%</span>
-            <span className="text-[10px] text-slate-400">({summary.totalCoreRecovered.toFixed(2)}m)</span>
+            <span className="text-slate-800 dark:text-slate-200 uppercase font-black text-[10.5px]">TCR:</span>
+            <span className="font-mono font-black text-slate-950 dark:text-white">{summary.averageTcr.toFixed(1)}%</span>
+            <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-300">({summary.totalCoreRecovered.toFixed(2)}m)</span>
           </div>
 
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 uppercase font-semibold text-[10px]">RQD:</span>
-            <span className="font-mono font-black text-slate-900 dark:text-white">{summary.averageRqd.toFixed(1)}%</span>
+            <span className="text-slate-800 dark:text-slate-200 uppercase font-black text-[10.5px]">RQD:</span>
+            <span className="font-mono font-black text-slate-950 dark:text-white">{summary.averageRqd.toFixed(1)}%</span>
             <span
-              className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${rqdBadge.bg} ${rqdBadge.text} ${rqdBadge.border}`}
+              className={`px-1.5 py-0.2 rounded text-[10px] font-black border ${rqdBadge.bg} ${rqdBadge.text} ${rqdBadge.border}`}
             >
               {summary.overallRqdRating}
             </span>
           </div>
 
           <div className="hidden sm:flex items-center gap-1.5">
-            <span className="text-slate-500 uppercase font-semibold text-[10px]">Dominant Rock:</span>
-            <span className="font-bold text-slate-800 dark:text-slate-200">{summary.dominantLithology}</span>
-            <span className="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+            <span className="text-slate-800 dark:text-slate-200 uppercase font-black text-[10.5px]">Dominant Rock:</span>
+            <span className="font-black text-slate-950 dark:text-white">{summary.dominantLithology}</span>
+            <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-[10.5px] font-black text-slate-900 dark:text-slate-100">
               {summary.dominantWeathering}
             </span>
           </div>
 
           <div className="hidden md:flex items-center gap-1.5">
-            <span className="text-slate-500 uppercase font-semibold text-[10px]">Runs:</span>
-            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{summary.runCount}</span>
-            <span className="text-slate-500 uppercase font-semibold text-[10px] ml-2">Boxes:</span>
-            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{summary.boxCount}</span>
+            <span className="text-slate-800 dark:text-slate-200 uppercase font-black text-[10.5px]">Runs:</span>
+            <span className="font-mono font-black text-slate-950 dark:text-white">{summary.runCount}</span>
+            <span className="text-slate-800 dark:text-slate-200 uppercase font-black text-[10.5px] ml-2">Boxes:</span>
+            <span className="font-mono font-black text-slate-950 dark:text-white">{summary.boxCount}</span>
           </div>
         </div>
 
         {/* Tab Switcher Pills - Hole Details is FIRST */}
-        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg shrink-0">
+        <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-800 p-0.5 rounded-lg shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('metadata')}
-            className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1 rounded-md text-xs transition-all cursor-pointer ${
               activeTab === 'metadata'
-                ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                ? 'bg-white dark:bg-slate-700 text-orange-700 dark:text-orange-300 font-black shadow-xs'
+                : 'text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-bold'
             }`}
           >
             Hole Details &amp; Setup
@@ -1300,10 +1300,10 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('runs')}
-            className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1 rounded-md text-xs transition-all cursor-pointer ${
               activeTab === 'runs'
-                ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                ? 'bg-white dark:bg-slate-700 text-orange-700 dark:text-orange-300 font-black shadow-xs'
+                : 'text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-bold'
             }`}
           >
             Core Runs ({currentBorehole.runs.length})
@@ -1311,10 +1311,10 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('visual')}
-            className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1 rounded-md text-xs transition-all cursor-pointer ${
               activeTab === 'visual'
-                ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                ? 'bg-white dark:bg-slate-700 text-orange-700 dark:text-orange-300 font-black shadow-xs'
+                : 'text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-bold'
             }`}
           >
             Visual Strip Log
@@ -1322,10 +1322,10 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('photos')}
-            className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1 rounded-md text-xs transition-all cursor-pointer ${
               activeTab === 'photos'
-                ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                ? 'bg-white dark:bg-slate-700 text-orange-700 dark:text-orange-300 font-black shadow-xs'
+                : 'text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-bold'
             }`}
           >
             Core Box Photos ({currentBorehole.photos?.length || 0})
@@ -1333,10 +1333,10 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('signoff')}
-            className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1 rounded-md text-xs transition-all cursor-pointer ${
               activeTab === 'signoff'
-                ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                ? 'bg-white dark:bg-slate-700 text-orange-700 dark:text-orange-300 font-black shadow-xs'
+                : 'text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-bold'
             }`}
           >
             Tri-Party Sign-Off
@@ -1344,13 +1344,13 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('storage')}
-            className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3 py-1 rounded-md text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
               activeTab === 'storage'
-                ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                ? 'bg-white dark:bg-slate-700 text-orange-700 dark:text-orange-300 font-black shadow-xs'
+                : 'text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-bold'
             }`}
           >
-            <Database className="w-3.5 h-3.5 text-amber-500" />
+            <Database className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
             <span>Data &amp; Storage ({boreholes.length})</span>
           </button>
         </div>
@@ -1455,7 +1455,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-slate-50 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
+                    <tr className="bg-slate-200 dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-black uppercase text-[10.5px] border-b-2 border-slate-300 dark:border-slate-700 tracking-wider">
                       <th className="py-2.5 px-3 text-center w-10">#</th>
                       <th className="py-2.5 px-3 text-center">From (m)</th>
                       <th className="py-2.5 px-3 text-center">To (m)</th>
@@ -1496,29 +1496,29 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                       <th className="py-2.5 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {currentBorehole.runs.map((run) => {
                       const ratingColor = getRqdBadgeColor(run.rqdRating);
                       return (
                         <tr
                           key={run.id}
-                          className="hover:bg-orange-50/40 dark:hover:bg-slate-800/50 transition-colors"
+                          className="hover:bg-orange-50/60 dark:hover:bg-slate-800/80 transition-colors"
                         >
-                          <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900 dark:text-slate-100">
+                          <td className="py-2.5 px-3 text-center font-mono font-black text-slate-950 dark:text-slate-50">
                             {run.runNumber}
                           </td>
-                          <td className="py-2.5 px-3 text-center font-mono font-medium">{run.depthFrom.toFixed(2)}</td>
-                          <td className="py-2.5 px-3 text-center font-mono font-medium">{run.depthTo.toFixed(2)}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-slate-500 font-medium">
+                          <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900 dark:text-slate-100">{run.depthFrom.toFixed(2)}</td>
+                          <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900 dark:text-slate-100">{run.depthTo.toFixed(2)}</td>
+                          <td className="py-2.5 px-3 text-center font-mono font-extrabold text-slate-800 dark:text-slate-200">
                             {run.runLength.toFixed(2)}
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             <span
-                              className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold"
+                              className="inline-block px-2 py-0.5 rounded text-[11px] font-black"
                               style={{
-                                backgroundColor: run.lithologyColor ? `${run.lithologyColor}25` : '#f1f5f9',
-                                color: run.lithologyColor || '#0f172a',
-                                border: `1px solid ${run.lithologyColor || '#cbd5e1'}`,
+                                backgroundColor: run.lithologyColor ? `${run.lithologyColor}35` : '#e2e8f0',
+                                color: run.lithologyColor ? '#0f172a' : '#0f172a',
+                                border: `1.5px solid ${run.lithologyColor || '#64748b'}`,
                               }}
                             >
                               {run.lithology}
@@ -1527,102 +1527,102 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
                           {activeIndustryMode === 'MINING' ? (
                             <>
-                              <td className="py-2.5 px-3 text-center font-mono text-[11px]">
+                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900 dark:text-slate-100 text-[11px]">
                                 {run.discontinuitiesDescription?.includes('Silicification') || run.discontinuitiesDescription?.includes('Chlorit') || run.discontinuitiesDescription?.includes('Sericit')
                                   ? run.discontinuitiesDescription.split('.')[1] || 'Alteration halo'
                                   : 'Silicified + Pyrite'}
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold text-amber-600 dark:text-amber-400">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-amber-700 dark:text-amber-300">
                                 {run.discontinuitiesDescription?.match(/Sample ID:\s*([A-Za-z0-9-]+)/)?.[1] || `S-620-${String(run.runNumber).padStart(2, '0')}`}
                               </td>
                               <td className="py-2.5 px-3 text-center">
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                <span className={`px-1.5 py-0.5 rounded text-[10.5px] font-black ${
                                   run.discontinuitiesDescription?.includes('CRM Standard')
-                                    ? 'bg-emerald-500/20 text-emerald-600 border border-emerald-500/40'
-                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                    ? 'bg-emerald-500/30 text-emerald-950 dark:text-emerald-200 border-2 border-emerald-500/60'
+                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-300 dark:border-slate-700'
                                 }`}>
                                   {run.discontinuitiesDescription?.includes('CRM Standard') ? 'CRM Standard' : 'Regular'}
                                 </span>
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-black text-sm text-amber-500">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-sm text-amber-600 dark:text-amber-400">
                                 {run.assayGrade || '—'}
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono text-[11px] text-cyan-600 dark:text-cyan-400">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-[11px] text-cyan-800 dark:text-cyan-300">
                                 {run.discontinuitiesDescription?.match(/Alpha:\s*([0-9°]+),\s*Beta:\s*([0-9°]+)/)
                                   ? `${run.discontinuitiesDescription.match(/Alpha:\s*([0-9°]+)/)?.[1]} / ${run.discontinuitiesDescription.match(/Beta:\s*([0-9°]+)/)?.[1]}`
                                   : '65° / 130°'}
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-900 dark:text-white">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-950 dark:text-white">
                                 {run.rqdPercent.toFixed(1)}%
                               </td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300 max-w-[200px] truncate">
+                              <td className="py-2.5 px-3 text-slate-900 dark:text-slate-100 font-semibold max-w-[200px] truncate">
                                 {run.remarks || run.discontinuitiesDescription || '—'}
                               </td>
                             </>
                           ) : activeIndustryMode === 'TBM' ? (
                             <>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-indigo-700 dark:text-indigo-300">
                                 {run.discontinuitiesDescription?.match(/UCS:\s*([0-9\sA-Za-z()]+),/)?.[1] || '125 MPa'}
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono text-[11px]">
+                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900 dark:text-slate-100 text-[11px]">
                                 {run.discontinuitiesDescription?.match(/CAI:\s*([0-9.\sA-Za-z()]+),/)?.[1] || 'CAI 3.4'}
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono text-[11px] text-sky-600 dark:text-sky-400">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-[11px] text-sky-700 dark:text-sky-300">
                                 {run.discontinuitiesDescription?.match(/Water\s*(?:Inflow|Pressure):\s*([^.]+)\./)?.[1] || '1.0 bar'}
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold">
-                                <span className={run.tcrPercent >= 90 ? 'text-emerald-600' : run.tcrPercent >= 70 ? 'text-amber-600' : 'text-rose-600'}>
+                              <td className="py-2.5 px-3 text-center font-mono font-black">
+                                <span className={run.tcrPercent >= 90 ? 'text-emerald-700 dark:text-emerald-400' : run.tcrPercent >= 70 ? 'text-amber-700 dark:text-amber-400' : 'text-rose-700 dark:text-rose-400'}>
                                   {run.tcrPercent.toFixed(1)}%
                                 </span>
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-900 dark:text-white">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-950 dark:text-white">
                                 {run.rqdPercent.toFixed(1)}%
                               </td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300 max-w-[260px] truncate font-medium">
-                                <span className={run.discontinuitiesDescription?.includes('FAULT SHEAR') ? 'text-rose-600 dark:text-rose-400 font-bold' : run.discontinuitiesDescription?.includes('HIGH CUTTER WEAR') ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-emerald-600 dark:text-emerald-400 font-medium'}>
+                              <td className="py-2.5 px-3 text-slate-900 dark:text-slate-100 max-w-[260px] truncate font-bold">
+                                <span className={run.discontinuitiesDescription?.includes('FAULT SHEAR') ? 'text-rose-700 dark:text-rose-300 font-black' : run.discontinuitiesDescription?.includes('HIGH CUTTER WEAR') ? 'text-amber-700 dark:text-amber-300 font-black' : 'text-emerald-700 dark:text-emerald-300 font-bold'}>
                                   {run.discontinuitiesDescription?.match(/Ahead Hazard:\s*([^.]+)\./)?.[1] || 'OPTIMAL BORING'}
                                 </span>
                               </td>
                             </>
                           ) : (
                             <>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-950 dark:text-slate-50">
                                 {run.coreRecovered.toFixed(2)}
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold">
-                                <span className={run.tcrPercent >= 90 ? 'text-emerald-600' : run.tcrPercent >= 70 ? 'text-amber-600' : 'text-rose-600'}>
+                              <td className="py-2.5 px-3 text-center font-mono font-black">
+                                <span className={run.tcrPercent >= 90 ? 'text-emerald-700 dark:text-emerald-400' : run.tcrPercent >= 70 ? 'text-amber-700 dark:text-amber-400' : 'text-rose-700 dark:text-rose-400'}>
                                   {run.tcrPercent.toFixed(1)}%
                                 </span>
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-medium">
+                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-900 dark:text-slate-100">
                                 {run.soundPiecesOver10cm.toFixed(2)}
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-900 dark:text-white">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-950 dark:text-white">
                                 {run.rqdPercent.toFixed(1)}%
                               </td>
                               <td className="py-2.5 px-3 text-center">
                                 <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border ${ratingColor.bg} ${ratingColor.text} ${ratingColor.border}`}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-black border ${ratingColor.bg} ${ratingColor.text} ${ratingColor.border}`}
                                 >
                                   {run.rqdRating}
                                 </span>
                               </td>
-                              <td className="py-2.5 px-3 text-center font-bold font-mono">
-                                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                              <td className="py-2.5 px-3 text-center font-black font-mono">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-950 dark:text-slate-50">
                                   {run.weathering}
                                 </span>
                               </td>
-                              <td className="py-2.5 px-3 text-center font-bold font-mono">
-                                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                              <td className="py-2.5 px-3 text-center font-black font-mono">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-950 dark:text-slate-50">
                                   {run.strengthGrade}
                                 </span>
                               </td>
-                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-600 dark:text-slate-400">
+                              <td className="py-2.5 px-3 text-center font-mono font-black text-slate-800 dark:text-slate-200">
                                 #{run.coreBoxNumber}
                               </td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300 max-w-[240px] truncate">
-                                <div className="truncate font-medium">{run.discontinuitiesDescription || '—'}</div>
-                                {run.remarks && <div className="text-[10px] text-slate-400 truncate">{run.remarks}</div>}
+                              <td className="py-2.5 px-3 text-slate-900 dark:text-slate-100 max-w-[240px] truncate">
+                                <div className="truncate font-bold">{run.discontinuitiesDescription || '—'}</div>
+                                {run.remarks && <div className="text-[10.5px] text-slate-700 dark:text-slate-300 font-semibold truncate">{run.remarks}</div>}
                               </td>
                             </>
                           )}
@@ -1634,7 +1634,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                                   setEditingRun(run);
                                   setIsRunModalOpen(true);
                                 }}
-                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-orange-600 cursor-pointer"
+                                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 hover:text-orange-600 cursor-pointer"
                                 title="Edit Run"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
@@ -1642,7 +1642,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleDeleteRun(run.id)}
-                                className="p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                className="p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-950/50 text-slate-600 dark:text-slate-400 hover:text-rose-600 cursor-pointer"
                                 title="Delete Run"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1664,10 +1664,10 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
           <div className="space-y-4 max-w-5xl mx-auto">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                <h2 className="text-base font-extrabold text-slate-950 dark:text-white">
                   Visual Borehole Strip Log &amp; Stratigraphy
                 </h2>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
                   Continuous geotechnical drillhole column illustrating depth, lithological units, RQD rating spectrum, and fracture density.
                 </p>
               </div>
@@ -1684,7 +1684,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-5 space-y-4">
               {/* Graphic Column Header */}
-              <div className="grid grid-cols-12 gap-2 pb-2 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase text-slate-500">
+              <div className="grid grid-cols-12 gap-2 pb-2 border-b-2 border-slate-300 dark:border-slate-700 text-[11px] font-black uppercase text-slate-900 dark:text-slate-100 tracking-wide">
                 <div className="col-span-2 text-right pr-2">Depth (m)</div>
                 <div className="col-span-2 text-center">Lithology</div>
                 <div className="col-span-4 text-center">RQD % Rating Spectrum</div>
@@ -1702,23 +1702,23 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                       setEditingRun(run);
                       setIsRunModalOpen(true);
                     }}
-                    className="grid grid-cols-12 gap-2 items-center p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 border border-slate-100 dark:border-slate-800 transition-all cursor-pointer text-xs"
+                    className="grid grid-cols-12 gap-2 items-center p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/80 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer text-xs"
                     title="Click to edit run data"
                   >
                     {/* Depth Range */}
-                    <div className="col-span-2 text-right pr-2 font-mono font-bold text-slate-700 dark:text-slate-300">
+                    <div className="col-span-2 text-right pr-2 font-mono font-black text-slate-950 dark:text-slate-50">
                       {run.depthFrom.toFixed(2)} – {run.depthTo.toFixed(2)}m
-                      <div className="text-[10px] font-normal text-slate-400">Run #{run.runNumber}</div>
+                      <div className="text-[10.5px] font-bold text-slate-700 dark:text-slate-300">Run #{run.runNumber}</div>
                     </div>
 
                     {/* Lithology Pill */}
                     <div className="col-span-2">
                       <div
-                        className="py-1 px-2 rounded-md font-bold text-center text-xs truncate border"
+                        className="py-1 px-2 rounded-md font-black text-center text-xs truncate border"
                         style={{
-                          backgroundColor: run.lithologyColor ? `${run.lithologyColor}25` : '#f1f5f9',
-                          borderColor: run.lithologyColor || '#cbd5e1',
-                          color: run.lithologyColor || '#0f172a',
+                          backgroundColor: run.lithologyColor ? `${run.lithologyColor}35` : '#e2e8f0',
+                          borderColor: run.lithologyColor || '#64748b',
+                          color: '#0f172a',
                         }}
                       >
                         {run.lithology}
@@ -1727,7 +1727,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
                     {/* RQD Bar Graphic */}
                     <div className="col-span-4">
-                      <div className="bg-slate-100 dark:bg-slate-800 rounded-full h-5 overflow-hidden relative border border-slate-200 dark:border-slate-700 flex items-center">
+                      <div className="bg-slate-200 dark:bg-slate-800 rounded-full h-5 overflow-hidden relative border border-slate-300 dark:border-slate-600 flex items-center">
                         <div
                           className="h-full transition-all duration-500"
                           style={{
@@ -1744,26 +1744,26 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                                 : '#EF4444',
                           }}
                         />
-                        <span className="absolute left-2.5 font-mono text-[10px] font-bold text-slate-900 dark:text-white drop-shadow-xs">
+                        <span className="absolute left-2.5 font-mono text-[10.5px] font-black text-slate-950 dark:text-white drop-shadow-xs">
                           {run.rqdPercent.toFixed(1)}% &bull; {run.rqdRating}
                         </span>
                       </div>
                     </div>
 
                     {/* TCR */}
-                    <div className="col-span-1 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
+                    <div className="col-span-1 text-center font-mono font-black text-slate-950 dark:text-slate-50">
                       {run.tcrPercent.toFixed(0)}%
                     </div>
 
                     {/* Weathering & Strength */}
                     <div className="col-span-1 text-center">
-                      <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono font-black text-slate-950 dark:text-slate-50">
                         {run.weathering}/{run.strengthGrade}
                       </span>
                     </div>
 
                     {/* Discontinuities */}
-                    <div className="col-span-2 pl-2 text-[11px] text-slate-500 truncate">
+                    <div className="col-span-2 pl-2 text-[11px] font-bold text-slate-900 dark:text-slate-100 truncate">
                       {run.discontinuitiesDescription || run.remarks || 'Intact rock'}
                     </div>
                   </div>
@@ -1947,43 +1947,43 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
             {/* Quick Hole Overview Metrics */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Depth</span>
-                <span className="text-lg font-black font-mono text-slate-900 dark:text-white">
+              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-xs">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 block">Total Depth</span>
+                <span className="text-lg font-black font-mono text-slate-950 dark:text-white">
                   {summary.totalDrilledDepth.toFixed(2)} m
                 </span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">{summary.runCount} continuous runs logged</span>
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mt-0.5">{summary.runCount} continuous runs logged</span>
               </div>
 
-              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Core Recovery</span>
-                <span className="text-lg font-black font-mono text-slate-900 dark:text-white">
+              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-xs">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 block">Core Recovery</span>
+                <span className="text-lg font-black font-mono text-slate-950 dark:text-white">
                   {summary.averageTcr.toFixed(1)}% TCR
                 </span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mt-0.5">
                   {summary.totalCoreRecovered.toFixed(2)}m recovered
                 </span>
               </div>
 
-              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">RQD Rating</span>
+              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-xs">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 block">RQD Rating</span>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-lg font-black font-mono text-slate-900 dark:text-white">
+                  <span className="text-lg font-black font-mono text-slate-950 dark:text-white">
                     {summary.averageRqd.toFixed(1)}%
                   </span>
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${rqdBadge.bg} ${rqdBadge.text} ${rqdBadge.border}`}>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-black border-2 ${rqdBadge.bg} ${rqdBadge.text} ${rqdBadge.border}`}>
                     {summary.overallRqdRating}
                   </span>
                 </div>
-                <span className="text-[10px] text-slate-400 block mt-0.5">{summary.totalSoundPieces.toFixed(2)}m sound (≥10cm)</span>
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mt-0.5">{summary.totalSoundPieces.toFixed(2)}m sound (≥10cm)</span>
               </div>
 
-              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Core Boxes &amp; Sign-Off</span>
-                <span className="text-lg font-black font-mono text-slate-900 dark:text-white">
+              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-xs">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 block">Core Boxes &amp; Sign-Off</span>
+                <span className="text-lg font-black font-mono text-slate-950 dark:text-white">
                   {summary.boxCount} Boxes
                 </span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mt-0.5">
                   Signatures: {currentBorehole.signOff.contractorSignature ? '1/3' : '0/3'} recorded
                 </span>
               </div>
@@ -1992,65 +1992,65 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
             {/* Structured Engineering Form Sections */}
             <div className="space-y-5">
               {/* SECTION 1: Hole Identification & Alignment Context */}
-              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-5">
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border-2 border-slate-200 dark:border-slate-700 p-5">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-950 dark:text-slate-100 mb-3 pb-2 border-b-2 border-slate-200 dark:border-slate-700">
                   1. Borehole Identification &amp; Project Context
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Borehole Identifier</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Borehole Identifier</label>
                     <input
                       type="text"
                       value={currentBorehole.boreholeId}
                       onChange={(e) => updateBorehole({ ...currentBorehole, boreholeId: e.target.value })}
                       placeholder="e.g. BH-01"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Project Name</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Project Name</label>
                     <input
                       type="text"
                       value={currentBorehole.projectName}
                       onChange={(e) => updateBorehole({ ...currentBorehole, projectName: e.target.value })}
                       placeholder="e.g. Expressway Tunnel Package-02"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Location / Chainage</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Location / Chainage</label>
                     <input
                       type="text"
                       value={currentBorehole.chainageLabel || ''}
                       onChange={(e) => updateBorehole({ ...currentBorehole, chainageLabel: e.target.value })}
                       placeholder="e.g. Ch. 120+450"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Tunnel Drive / Section</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Tunnel Drive / Section</label>
                     <input
                       type="text"
                       value={currentBorehole.tunnelName || ''}
                       onChange={(e) => updateBorehole({ ...currentBorehole, tunnelName: e.target.value })}
                       placeholder="e.g. Main Tunnel Southbound"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
                 </div>
               </div>
 
               {/* SECTION 2: Spatial Coordinates & Geometry */}
-              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-5">
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border-2 border-slate-200 dark:border-slate-700 p-5">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-950 dark:text-slate-100 mb-3 pb-2 border-b-2 border-slate-200 dark:border-slate-700">
                   2. Spatial Coordinates &amp; Borehole Geometry
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Collar Elevation (m a.s.l.)</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Collar Elevation (m a.s.l.)</label>
                     <input
                       type="number"
                       step="0.01"
@@ -2058,12 +2058,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                       onChange={(e) =>
                         updateBorehole({ ...currentBorehole, collarElevation: parseFloat(e.target.value) || 0 })
                       }
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Coordinates: Northing (Y)</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Coordinates: Northing (Y)</label>
                     <input
                       type="text"
                       value={currentBorehole.coordinates?.northing || ''}
@@ -2074,12 +2074,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         })
                       }
                       placeholder="e.g. 2,845,612.35 m N"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Coordinates: Easting (X)</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Coordinates: Easting (X)</label>
                     <input
                       type="text"
                       value={currentBorehole.coordinates?.easting || ''}
@@ -2090,12 +2090,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         })
                       }
                       placeholder="e.g. 412,890.12 m E"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">
                       Inclination / Plunge (°)
                     </label>
                     <div className="flex items-center gap-1.5">
@@ -2105,16 +2105,16 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         onChange={(e) =>
                           updateBorehole({ ...currentBorehole, inclinationDeg: parseInt(e.target.value, 10) || -90 })
                         }
-                        className="w-24 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                        className="w-24 px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                       />
-                      <span className="text-[11px] text-slate-500 font-semibold">
+                      <span className="text-[11px] text-slate-800 dark:text-slate-200 font-bold">
                         {currentBorehole.inclinationDeg === -90 ? 'Vertical' : `${currentBorehole.inclinationDeg}° Dip`}
                       </span>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Azimuth / Bearing (°)</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Azimuth / Bearing (°)</label>
                     <input
                       type="number"
                       value={currentBorehole.azimuthDeg}
@@ -2122,24 +2122,24 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         updateBorehole({ ...currentBorehole, azimuthDeg: parseInt(e.target.value, 10) || 0 })
                       }
                       placeholder="0 - 360"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
                 </div>
               </div>
 
               {/* SECTION 3: Drilling Specifications & Rig */}
-              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-5">
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border-2 border-slate-200 dark:border-slate-700 p-5">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-950 dark:text-slate-100 mb-3 pb-2 border-b-2 border-slate-200 dark:border-slate-700">
                   3. Drilling Equipment, Core Size &amp; Hydrogeology
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Core Diameter / Barrel</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Core Diameter / Barrel</label>
                     <select
                       value={currentBorehole.coreDiameter}
                       onChange={(e) => updateBorehole({ ...currentBorehole, coreDiameter: e.target.value })}
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold focus:border-orange-500 focus:outline-hidden"
                     >
                       {CORE_DIAMETERS.map((d) => (
                         <option key={d} value={d}>
@@ -2150,11 +2150,11 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                   </div>
 
                   <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Drilling Method</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Drilling Method</label>
                     <select
                       value={currentBorehole.drillingMethod}
                       onChange={(e) => updateBorehole({ ...currentBorehole, drillingMethod: e.target.value })}
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold focus:border-orange-500 focus:outline-hidden"
                     >
                       {DRILLING_METHODS.map((m) => (
                         <option key={m} value={m}>
@@ -2165,7 +2165,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Static Water Table (m)</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Static Water Table (m)</label>
                     <input
                       type="number"
                       step="0.1"
@@ -2177,89 +2177,89 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         })
                       }
                       placeholder="e.g. 6.80"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
-                    <span className="text-[10px] text-slate-400">Depth below ground level</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400 font-semibold">Depth below ground level</span>
                   </div>
                 </div>
               </div>
 
               {/* SECTION 4: Professional Entities & Personnel */}
-              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-5">
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border-2 border-slate-200 dark:border-slate-700 p-5">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-950 dark:text-slate-100 mb-3 pb-2 border-b-2 border-slate-200 dark:border-slate-700">
                   4. Professional Entities &amp; Schedule
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Drilling Contractor</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Drilling Contractor</label>
                     <input
                       type="text"
                       value={currentBorehole.drillingContractor}
                       onChange={(e) => updateBorehole({ ...currentBorehole, drillingContractor: e.target.value })}
                       placeholder="e.g. Alpha Geotechnical Drilling"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">PMC / Consultant</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">PMC / Consultant</label>
                     <input
                       type="text"
                       value={currentBorehole.pmcConsultant}
                       onChange={(e) => updateBorehole({ ...currentBorehole, pmcConsultant: e.target.value })}
                       placeholder="e.g. Geotechnical Consultants Ltd"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Client / Employer</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Client / Employer</label>
                     <input
                       type="text"
                       value={currentBorehole.clientEmployer}
                       onChange={(e) => updateBorehole({ ...currentBorehole, clientEmployer: e.target.value })}
                       placeholder="e.g. Highway Infrastructure Authority"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Logged By (Geologist)</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Logged By (Geologist)</label>
                     <input
                       type="text"
                       value={currentBorehole.loggedBy}
                       onChange={(e) => updateBorehole({ ...currentBorehole, loggedBy: e.target.value })}
                       placeholder="e.g. Dr. A. Kumar"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reviewed By (Engineer)</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Reviewed By (Engineer)</label>
                     <input
                       type="text"
                       value={currentBorehole.reviewedBy}
                       onChange={(e) => updateBorehole({ ...currentBorehole, reviewedBy: e.target.value })}
                       placeholder="e.g. Lead Geotechnical Engineer"
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Dates Commenced / Completed</label>
+                    <label className="block font-black text-slate-900 dark:text-slate-100 mb-1">Dates Commenced / Completed</label>
                     <div className="flex items-center gap-2">
                       <input
                         type="date"
                         value={currentBorehole.startDate}
                         onChange={(e) => updateBorehole({ ...currentBorehole, startDate: e.target.value })}
-                        className="w-1/2 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-[11px]"
+                        className="w-1/2 px-2 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono text-[11px] font-bold focus:border-orange-500 focus:outline-hidden"
                       />
-                      <span className="text-slate-400">to</span>
+                      <span className="text-slate-800 dark:text-slate-200 font-bold">to</span>
                       <input
                         type="date"
                         value={currentBorehole.completionDate}
                         onChange={(e) => updateBorehole({ ...currentBorehole, completionDate: e.target.value })}
-                        className="w-1/2 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-[11px]"
+                        className="w-1/2 px-2 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono text-[11px] font-bold focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
                   </div>
@@ -2310,13 +2310,13 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                   <ShieldCheck className="w-5 h-5 text-orange-600" />
                   <span>Tri-Party Geotechnical Sign-Off &amp; Approvals</span>
                 </h2>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
                   Role-stamped digital signatures for Contractor, PMC, and Client geologists with on-screen signature pad or PNG upload.
                 </p>
               </div>
 
               {activeGeologistProfile && (
-                <div className="text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-800 font-semibold flex items-center gap-2">
+                <div className="text-xs text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/70 px-3 py-1.5 rounded-lg border-2 border-emerald-400 dark:border-emerald-700 font-bold flex items-center gap-2">
                   <span>Logged in as: {activeGeologistProfile.name} ({activeGeologistProfile.role})</span>
                 </div>
               )}
@@ -2324,18 +2324,18 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* 1. CONTRACTOR CARD */}
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-amber-300 dark:border-amber-800/60 p-4 flex flex-col justify-between shadow-sm">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border-2 border-amber-400 dark:border-amber-700 p-4 flex flex-col justify-between shadow-xs">
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-amber-200 text-amber-950 dark:bg-amber-950 dark:text-amber-200 border border-amber-400 dark:border-amber-700">
                       Contractor
                     </span>
-                    <span className="text-[10px] text-slate-400">Drilling &amp; Logging</span>
+                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">Drilling &amp; Logging</span>
                   </div>
 
                   <div className="space-y-2 text-xs">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">Geologist Name</label>
+                      <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Geologist Name</label>
                       <input
                         type="text"
                         value={currentBorehole.signOff.contractorName}
@@ -2346,12 +2346,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                           })
                         }
                         placeholder="Contractor Geologist"
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-xs"
+                        className="w-full px-2 py-1 rounded border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 text-xs focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">Designation</label>
+                      <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Designation</label>
                       <input
                         type="text"
                         value={currentBorehole.signOff.contractorDesignation}
@@ -2362,12 +2362,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                           })
                         }
                         placeholder="Drilling Geologist"
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                        className="w-full px-2 py-1 rounded border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 text-xs focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">Date</label>
+                      <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Date</label>
                       <input
                         type="date"
                         value={currentBorehole.signOff.contractorDate}
@@ -2377,15 +2377,15 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                             signOff: { ...currentBorehole.signOff, contractorDate: e.target.value },
                           })
                         }
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-xs"
+                        className="w-full px-2 py-1 rounded border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold text-xs focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Signature</label>
-                  <div className="h-20 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center overflow-hidden mb-2 relative">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Signature</label>
+                  <div className="h-20 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center overflow-hidden mb-2 relative">
                     {currentBorehole.signOff.contractorSignature ? (
                       <img
                         src={currentBorehole.signOff.contractorSignature}
@@ -2393,7 +2393,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         className="max-h-16 object-contain"
                       />
                     ) : (
-                      <span className="text-[10px] text-slate-400 italic">No signature recorded</span>
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold italic">No signature recorded</span>
                     )}
                   </div>
 
@@ -2422,18 +2422,18 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
               </div>
 
               {/* 2. PMC CONSULTANT CARD */}
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-blue-300 dark:border-blue-800/60 p-4 flex flex-col justify-between shadow-sm">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border-2 border-blue-400 dark:border-blue-700 p-4 flex flex-col justify-between shadow-xs">
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-blue-200 text-blue-950 dark:bg-blue-950 dark:text-blue-200 border border-blue-400 dark:border-blue-700">
                       PMC Consultant
                     </span>
-                    <span className="text-[10px] text-slate-400">Review &amp; Witness</span>
+                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">Review &amp; Witness</span>
                   </div>
 
                   <div className="space-y-2 text-xs">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">PMC Geologist</label>
+                      <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">PMC Geologist</label>
                       <input
                         type="text"
                         value={currentBorehole.signOff.pmcName}
@@ -2444,12 +2444,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                           })
                         }
                         placeholder="PMC Consultant Geologist"
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-xs"
+                        className="w-full px-2 py-1 rounded border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 text-xs focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">Designation</label>
+                      <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Designation</label>
                       <input
                         type="text"
                         value={currentBorehole.signOff.pmcDesignation}
@@ -2460,12 +2460,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                           })
                         }
                         placeholder="Geotechnical Specialist"
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                        className="w-full px-2 py-1 rounded border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 text-xs focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">Date</label>
+                      <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Date</label>
                       <input
                         type="date"
                         value={currentBorehole.signOff.pmcDate}
@@ -2475,15 +2475,15 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                             signOff: { ...currentBorehole.signOff, pmcDate: e.target.value },
                           })
                         }
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-xs"
+                        className="w-full px-2 py-1 rounded border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold text-xs focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Signature</label>
-                  <div className="h-20 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center overflow-hidden mb-2 relative">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Signature</label>
+                  <div className="h-20 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center overflow-hidden mb-2 relative">
                     {currentBorehole.signOff.pmcSignature ? (
                       <img
                         src={currentBorehole.signOff.pmcSignature}
@@ -2491,7 +2491,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         className="max-h-16 object-contain"
                       />
                     ) : (
-                      <span className="text-[10px] text-slate-400 italic">No signature recorded</span>
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold italic">No signature recorded</span>
                     )}
                   </div>
 
@@ -2520,18 +2520,18 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
               </div>
 
               {/* 3. CLIENT / EMPLOYER CARD */}
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-emerald-300 dark:border-emerald-800/60 p-4 flex flex-col justify-between shadow-sm">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border-2 border-emerald-400 dark:border-emerald-700 p-4 flex flex-col justify-between shadow-xs">
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-200 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-400 dark:border-emerald-700">
                       Client / Employer
                     </span>
-                    <span className="text-[10px] text-slate-400">Approval &amp; Acceptance</span>
+                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">Approval &amp; Acceptance</span>
                   </div>
 
                   <div className="space-y-2 text-xs">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">Representative</label>
+                      <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Representative</label>
                       <input
                         type="text"
                         value={currentBorehole.signOff.clientName}
@@ -2542,12 +2542,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                           })
                         }
                         placeholder="Client Geologist / Engineer"
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-xs"
+                        className="w-full px-2 py-1 rounded border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 text-xs focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">Designation</label>
+                      <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Designation</label>
                       <input
                         type="text"
                         value={currentBorehole.signOff.clientDesignation}
@@ -2558,12 +2558,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                           })
                         }
                         placeholder="Executive Tunnel Engineer"
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                        className="w-full px-2 py-1 rounded border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 text-xs focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">Date</label>
+                      <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Date</label>
                       <input
                         type="date"
                         value={currentBorehole.signOff.clientDate}
@@ -2573,15 +2573,15 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                             signOff: { ...currentBorehole.signOff, clientDate: e.target.value },
                           })
                         }
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-xs"
+                        className="w-full px-2 py-1 rounded border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold text-xs focus:border-orange-500 focus:outline-hidden"
                       />
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Signature</label>
-                  <div className="h-20 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center overflow-hidden mb-2 relative">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">Signature</label>
+                  <div className="h-20 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center overflow-hidden mb-2 relative">
                     {currentBorehole.signOff.clientSignature ? (
                       <img
                         src={currentBorehole.signOff.clientSignature}
@@ -2589,7 +2589,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         className="max-h-16 object-contain"
                       />
                     ) : (
-                      <span className="text-[10px] text-slate-400 italic">No signature recorded</span>
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold italic">No signature recorded</span>
                     )}
                   </div>
 
@@ -2662,9 +2662,9 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
               {/* Depth & Recovery Inputs */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-100 dark:bg-slate-800/70 p-3 rounded-xl border-2 border-slate-300 dark:border-slate-700">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Depth From (m)
                   </label>
                   <input
@@ -2676,12 +2676,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                       const metrics = calculateRunMetrics(from, editingRun.depthTo, editingRun.coreRecovered, editingRun.soundPiecesOver10cm);
                       setEditingRun({ ...editingRun, depthFrom: from, ...metrics });
                     }}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-mono font-bold"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Depth To (m)
                   </label>
                   <input
@@ -2693,12 +2693,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                       const metrics = calculateRunMetrics(editingRun.depthFrom, to, editingRun.coreRecovered, editingRun.soundPiecesOver10cm);
                       setEditingRun({ ...editingRun, depthTo: to, ...metrics });
                     }}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-mono font-bold"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Core Recovered (m)
                   </label>
                   <input
@@ -2710,12 +2710,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                       const metrics = calculateRunMetrics(editingRun.depthFrom, editingRun.depthTo, rec, editingRun.soundPiecesOver10cm);
                       setEditingRun({ ...editingRun, coreRecovered: rec, ...metrics });
                     }}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-mono font-bold"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Pieces ≥10cm (m)
                   </label>
                   <input
@@ -2727,36 +2727,36 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                       const metrics = calculateRunMetrics(editingRun.depthFrom, editingRun.depthTo, editingRun.coreRecovered, sound);
                       setEditingRun({ ...editingRun, soundPiecesOver10cm: sound, ...metrics });
                     }}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-mono font-bold"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
               </div>
 
               {/* Instant Calculated Metrics Preview */}
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="p-2 rounded-lg bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800">
-                  <span className="text-[10px] font-bold text-orange-800 dark:text-orange-300 block uppercase">
+                <div className="p-2 rounded-lg bg-orange-100/70 dark:bg-orange-950/60 border-2 border-orange-300 dark:border-orange-700">
+                  <span className="text-[10px] font-black text-orange-950 dark:text-orange-200 block uppercase">
                     Run Length
                   </span>
-                  <span className="font-mono font-black text-sm text-slate-900 dark:text-white">
+                  <span className="font-mono font-black text-sm text-slate-950 dark:text-white">
                     {editingRun.runLength.toFixed(2)} m
                   </span>
                 </div>
 
-                <div className="p-2 rounded-lg bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800">
-                  <span className="text-[10px] font-bold text-orange-800 dark:text-orange-300 block uppercase">
+                <div className="p-2 rounded-lg bg-orange-100/70 dark:bg-orange-950/60 border-2 border-orange-300 dark:border-orange-700">
+                  <span className="text-[10px] font-black text-orange-950 dark:text-orange-200 block uppercase">
                     TCR (Total Recovery)
                   </span>
-                  <span className="font-mono font-black text-sm text-slate-900 dark:text-white">
+                  <span className="font-mono font-black text-sm text-slate-950 dark:text-white">
                     {editingRun.tcrPercent.toFixed(1)}%
                   </span>
                 </div>
 
-                <div className="p-2 rounded-lg bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800">
-                  <span className="text-[10px] font-bold text-orange-800 dark:text-orange-300 block uppercase">
+                <div className="p-2 rounded-lg bg-orange-100/70 dark:bg-orange-950/60 border-2 border-orange-300 dark:border-orange-700">
+                  <span className="text-[10px] font-black text-orange-950 dark:text-orange-200 block uppercase">
                     RQD &amp; Rating
                   </span>
-                  <span className="font-mono font-black text-sm text-slate-900 dark:text-white">
+                  <span className="font-mono font-black text-sm text-slate-950 dark:text-white">
                     {editingRun.rqdPercent.toFixed(1)}% ({editingRun.rqdRating})
                   </span>
                 </div>
@@ -2765,7 +2765,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
               {/* Lithology & Geotechnical Classifications */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Lithology / Rock Type
                   </label>
                   <select
@@ -2778,7 +2778,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         lithologyColor: selected?.color || '#FB7185',
                       });
                     }}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-semibold"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold focus:border-orange-500 focus:outline-hidden"
                   >
                     {COMMON_LITHOLOGIES.map((l) => (
                       <option key={l.name} value={l.name}>
@@ -2789,7 +2789,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Weathering Grade
                   </label>
                   <select
@@ -2800,7 +2800,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         weathering: e.target.value as any,
                       })
                     }
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-semibold"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold focus:border-orange-500 focus:outline-hidden"
                   >
                     {WEATHERING_GRADES.map((w) => (
                       <option key={w.code} value={w.code}>
@@ -2811,7 +2811,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     ISRM Strength Grade
                   </label>
                   <select
@@ -2822,7 +2822,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                         strengthGrade: e.target.value as any,
                       })
                     }
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-semibold"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold focus:border-orange-500 focus:outline-hidden"
                   >
                     {STRENGTH_GRADES.map((s) => (
                       <option key={s.code} value={s.code}>
@@ -2836,19 +2836,19 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
               {/* Core Box & Fractures */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Core Box Number
                   </label>
                   <input
                     type="text"
                     value={editingRun.coreBoxNumber}
                     onChange={(e) => setEditingRun({ ...editingRun, coreBoxNumber: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-mono"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Fracture Frequency (FF/m)
                   </label>
                   <input
@@ -2857,14 +2857,14 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     onChange={(e) =>
                       setEditingRun({ ...editingRun, fractureFrequency: parseInt(e.target.value, 10) || 0 })
                     }
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-mono"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
               </div>
 
               {/* Descriptions & Remarks */}
               <div>
-                <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                   Discontinuity Description &amp; Joint Sets
                 </label>
                 <input
@@ -2872,12 +2872,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                   value={editingRun.discontinuitiesDescription || ''}
                   onChange={(e) => setEditingRun({ ...editingRun, discontinuitiesDescription: e.target.value })}
                   placeholder="e.g. J1 dip 65°, rough planar, tight contact; calcite infill <1mm"
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800"
+                  className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                   Geological Remarks &amp; Ingress Observations
                 </label>
                 <input
@@ -2885,7 +2885,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                   value={editingRun.remarks || ''}
                   onChange={(e) => setEditingRun({ ...editingRun, remarks: e.target.value })}
                   placeholder="e.g. Intact solid cylindrical core; no water ingress observed"
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800"
+                  className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                 />
               </div>
             </div>
@@ -2930,18 +2930,18 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
             <div className="p-5 space-y-4 text-xs">
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Box Number
                   </label>
                   <input
                     type="text"
                     value={editingPhoto.boxNumber}
                     onChange={(e) => setEditingPhoto({ ...editingPhoto, boxNumber: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     From (m)
                   </label>
                   <input
@@ -2951,11 +2951,11 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     onChange={(e) =>
                       setEditingPhoto({ ...editingPhoto, depthFrom: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     To (m)
                   </label>
                   <input
@@ -2965,23 +2965,23 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     onChange={(e) =>
                       setEditingPhoto({ ...editingPhoto, depthTo: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                    className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                   Core Condition
                 </label>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
                   {(['Wet', 'Dry', 'Natural'] as const).map((cond) => (
-                    <label key={cond} className="flex items-center gap-1.5 cursor-pointer font-semibold">
+                    <label key={cond} className="flex items-center gap-1.5 cursor-pointer font-bold text-slate-900 dark:text-slate-100">
                       <input
                         type="radio"
                         checked={editingPhoto.condition === cond}
                         onChange={() => setEditingPhoto({ ...editingPhoto, condition: cond })}
-                        className="text-orange-600"
+                        className="text-orange-600 focus:ring-orange-500"
                       />
                       <span>{cond}</span>
                     </label>
@@ -2991,7 +2991,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
               {/* Photo Upload / Camera Picker */}
               <div>
-                <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                   Core Box Photo Image
                 </label>
                 <input
@@ -3008,11 +3008,11 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                       reader.readAsDataURL(file);
                     }
                   }}
-                  className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 cursor-pointer"
+                  className="w-full text-xs text-slate-800 dark:text-slate-200 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-orange-100 dark:file:bg-orange-950 file:text-orange-900 dark:file:text-orange-200 hover:file:bg-orange-200 cursor-pointer"
                 />
 
                 {editingPhoto.photoUrl && (
-                  <div className="mt-2 h-36 bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                  <div className="mt-2 h-36 bg-slate-100 dark:bg-slate-800 rounded-lg overflow-hidden border-2 border-slate-300 dark:border-slate-700">
                     <img
                       src={editingPhoto.photoUrl}
                       alt="Preview"
@@ -3023,7 +3023,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                   Notes / Observations
                 </label>
                 <input
@@ -3031,7 +3031,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                   value={editingPhoto.notes || ''}
                   onChange={(e) => setEditingPhoto({ ...editingPhoto, notes: e.target.value })}
                   placeholder="e.g. Natural daylight photo showing clean core joints"
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  className="w-full px-2.5 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
                 />
               </div>
             </div>
@@ -3192,7 +3192,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
             <form onSubmit={handleCreateNewBoreholeSubmit} className="p-5 space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Borehole ID <span className="text-rose-500">*</span>
                   </label>
                   <input
@@ -3200,14 +3200,14 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     value={newBoreholeForm.boreholeId}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, boreholeId: e.target.value })}
                     placeholder="e.g. BH-02, PBH-104"
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-sm"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-black text-sm placeholder:text-slate-400 focus:border-orange-500 focus:outline-hidden"
                     autoFocus
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Project Name
                   </label>
                   <input
@@ -3215,14 +3215,14 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     value={newBoreholeForm.projectName}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, projectName: e.target.value })}
                     placeholder="Project Name"
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Location / Chainage
                   </label>
                   <input
@@ -3230,12 +3230,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     value={newBoreholeForm.chainageLabel}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, chainageLabel: e.target.value })}
                     placeholder="e.g. Ch. 120+450"
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold placeholder:text-slate-400 focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Tunnel Alignment / Drive
                   </label>
                   <input
@@ -3243,14 +3243,14 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     value={newBoreholeForm.tunnelName}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, tunnelName: e.target.value })}
                     placeholder="e.g. Main Tunnel Drive"
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Collar RL (m a.s.l.)
                   </label>
                   <input
@@ -3258,12 +3258,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     step="0.1"
                     value={newBoreholeForm.collarElevation}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, collarElevation: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Inclination (°)
                   </label>
                   <input
@@ -3271,12 +3271,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     value={newBoreholeForm.inclinationDeg}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, inclinationDeg: parseInt(e.target.value, 10) || -90 })}
                     placeholder="-90 for vertical"
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold placeholder:text-slate-400 focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Azimuth (°)
                   </label>
                   <input
@@ -3284,20 +3284,20 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     value={newBoreholeForm.azimuthDeg}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, azimuthDeg: parseInt(e.target.value, 10) || 0 })}
                     placeholder="0 - 360"
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-mono font-bold placeholder:text-slate-400 focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Core Diameter
                   </label>
                   <select
                     value={newBoreholeForm.coreDiameter}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, coreDiameter: e.target.value })}
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold focus:border-orange-500 focus:outline-hidden"
                   >
                     {CORE_DIAMETERS.map((d) => (
                       <option key={d} value={d}>
@@ -3308,13 +3308,13 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Drilling Method
                   </label>
                   <select
                     value={newBoreholeForm.drillingMethod}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, drillingMethod: e.target.value })}
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold focus:border-orange-500 focus:outline-hidden"
                   >
                     {DRILLING_METHODS.map((m) => (
                       <option key={m} value={m}>
@@ -3327,7 +3327,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Drilling Contractor
                   </label>
                   <input
@@ -3335,12 +3335,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     value={newBoreholeForm.drillingContractor}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, drillingContractor: e.target.value })}
                     placeholder="Contractor entity"
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  <label className="block text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase mb-1">
                     Logged By (Geologist)
                   </label>
                   <input
@@ -3348,7 +3348,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                     value={newBoreholeForm.loggedBy}
                     onChange={(e) => setNewBoreholeForm({ ...newBoreholeForm, loggedBy: e.target.value })}
                     placeholder="Geologist name"
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-bold placeholder:text-slate-400 focus:border-orange-500 focus:outline-hidden"
                   />
                 </div>
               </div>

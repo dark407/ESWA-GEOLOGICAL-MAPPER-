@@ -3131,8 +3131,8 @@ export function computeUnfoldedStripBoxes(
   // Generous margin around the tunnel outline:
   // - Top margin (strip to face outline) so crown overbreak line markings have clear headroom below top strip
   // - Left & right side margins (at least 150px on both sides) for left and right wall overbreak line markings and height rulers
-  const maxFaceWidth = 620;
-  const maxFaceHeight = 310;
+  const maxFaceWidth = 600;
+  const maxFaceHeight = 285;
   const facePxPerMeter = Math.min(
     maxFaceWidth / Math.max(1, faceGeom.tunnelW),
     maxFaceHeight / Math.max(1, faceGeom.tunnelH)
@@ -3140,9 +3140,9 @@ export function computeUnfoldedStripBoxes(
   const idealFaceW = Number((faceGeom.tunnelW * facePxPerMeter).toFixed(1));
   const idealFaceH = Number((faceGeom.tunnelH * facePxPerMeter).toFixed(1));
   const stripY = topStripOnly ? 38 : 24;
-  // Generous gap between top continuous unfolded strip and face tunnel outline (76px)
-  // leaving 26px below title and 30px headroom above crown arch for overbreak lines & markings
-  const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 76);
+  // Generous gap between top continuous unfolded strip and face tunnel outline (125px)
+  // providing 28px clearance below top strip for section title and 97px headroom above crown arch for overbreak lines & markings
+  const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 125);
   const stripViewBoxH = topStripOnly ? Math.max(210, Math.round(stripY + stripH + 42)) : 760;
 
   return {
@@ -4179,10 +4179,10 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       {/* PRIMARY SECTION: TUNNEL FACE OUTLINE (IN THE MIDDLE BELOW STRIP) */}
       {!topStripOnly && (
         <g>
-          {/* Clean Title above Face Outline with comfortable headroom */}
+          {/* Clean Section Title positioned 28px below top strip, providing generous headroom above crown arch for overbreak lines & labels */}
           <text
             x="460"
-            y={faceTargetY - 26}
+            y={stripY + stripH + 28}
             textAnchor="middle"
             fontSize="12.5"
             fontWeight="bold"
@@ -4274,231 +4274,289 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             R-SPL ({splHeightM}m)
           </text>
 
-          <g
-            transform={`translate(${faceOffsetX}, ${faceOffsetY}) scale(${faceScaleX}, ${faceScaleY})`}
-          >
-            <path d={facePath} fill="#ffffff" stroke="none" />
-            {/* CL & SPL Reference Lines on Face Report Sketch */}
-            <line
-              x1={faceGeom.boxX + faceGeom.boxW / 2}
-              y1={faceGeom.boxY}
-              x2={faceGeom.boxX + faceGeom.boxW / 2}
-              y2={faceGeom.boxY + faceGeom.boxH}
-              stroke="#0f172a"
-              strokeWidth="2.2"
-              strokeDasharray="12,5,3,5"
-            />
-            <line
-              x1={faceGeom.boxX}
-              y1={faceGeom.boxY + faceGeom.boxH * (1 - splRatio)}
-              x2={faceGeom.boxX + faceGeom.boxW}
-              y2={faceGeom.boxY + faceGeom.boxH * (1 - splRatio)}
-              stroke="#0f172a"
-              strokeWidth="2.2"
-              strokeDasharray="10,5"
-            />
-          </g>
-          {renderPanelContent(
-            'face',
-            faceOffsetX,
-            faceOffsetY,
-            faceScaleX,
-            faceScaleY,
-            'clip-sheet-face'
-          )}
-          <g
-            transform={`translate(${faceOffsetX}, ${faceOffsetY}) scale(${faceScaleX}, ${faceScaleY})`}
-          >
-            <path d={faceStrokePath} fill="none" stroke="#0f172a" strokeWidth="3.6" />
-            {/* Payline Outline on Report Face Sketch */}
-            {(() => {
-              if (
-                round.surveyOverbreak?.status !== 'completed' ||
-                round.surveyOverbreak.paylineEnabled === false
-              ) {
-                return null;
-              }
-              const facePolyPts = [
-                ...(faceDetails.leftWallPoly || []),
-                ...(faceDetails.crownPoly || []),
-                ...(faceDetails.rightWallPoly || []).slice().reverse(),
-                ...(faceDetails.invertPoly || []).slice().reverse(),
-              ];
-              if (facePolyPts.length < 3) return null;
-              const payOffM = (round.surveyOverbreak.paylineOffsetMm ?? 150) / 1000;
-              const scX = faceGeom.boxW / Math.max(0.1, location.widthM);
-              const scY = faceGeom.boxH / Math.max(0.1, location.heightM);
-              const c = {
-                x: faceGeom.boxX + faceGeom.boxW / 2,
-                y: faceGeom.boxY + faceGeom.boxH * 0.55,
-              };
-              const payPts = computePaylinePolygon(facePolyPts, payOffM, scX, scY, c);
-              if (payPts.length < 3) return null;
-              return (
-                <g>
-                  <polygon
-                    points={payPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
-                    fill="none"
-                    stroke={colorMode === 'bw' ? '#475569' : '#059669'}
-                    strokeWidth="2.0"
-                    strokeDasharray="6,3"
-                  />
-                  {payPts[Math.floor(payPts.length * 0.28)] && (
-                    <text
-                      x={payPts[Math.floor(payPts.length * 0.28)].x}
-                      y={payPts[Math.floor(payPts.length * 0.28)].y - 6}
-                      fontSize="11"
-                      fontWeight="bold"
-                      fontFamily="monospace"
-                      fill={colorMode === 'bw' ? '#475569' : '#059669'}
-                    >
-                      PAYLINE (+{round.surveyOverbreak.paylineOffsetMm ?? 150}mm)
-                    </text>
-                  )}
-                </g>
-              );
-            })()}
+          {/* Survey Overbreak (OB) Pre-calculation & Geometry Fitting */}
+          {(() => {
+            const hasOverbreakSurvey =
+              round.surveyOverbreak?.status === 'completed' &&
+              (round.surveyOverbreak.surveyPoints?.length || 0) >= 2;
 
-            {/* Survey Overbreak (OB) Outline on Report Face Sketch — Precisely mapped to tunnel design outline */}
-            {round.surveyOverbreak?.status === 'completed' &&
-              (round.surveyOverbreak.surveyPoints?.length || 0) >= 2 && (() => {
-                const W_m = Math.max(2, location.widthM || 8);
-                const H_m = Math.max(2, location.heightM || 7);
-                const advMaxBoxW = 430;
-                const advMaxBoxH = 350;
-                const advScale = Math.min(advMaxBoxW / W_m, advMaxBoxH / H_m);
-                const advBoxW = Math.round(W_m * advScale);
-                const advBoxH = Math.round(H_m * advScale);
-                const advBoxX = Math.round(300 - advBoxW / 2);
-                const advBoxY = Math.round(230 - advBoxH / 2);
+            let mappedSurveyPoints: { x: number; y: number; xM: number; yM: number }[] = [];
+            let closedOverbreakPolygonPoints: { x: number; y: number }[] = [];
+            let isLoopClosed = false;
+            let strokeColor = '#059669';
+            let fillColor = 'rgba(16, 185, 129, 0.20)';
 
-                const mappedSurveyPoints = round.surveyOverbreak.surveyPoints.map((pt: any) => {
-                  let xM: number;
-                  let yM: number;
-                  if (typeof pt.xM === 'number' && typeof pt.yM === 'number') {
-                    xM = pt.xM;
-                    yM = pt.yM;
+            if (hasOverbreakSurvey && round.surveyOverbreak?.surveyPoints) {
+              const W_m = Math.max(1, faceGeom.panelWidthM || faceGeom.tunnelW || Number(location.widthM) || 8);
+              const H_m = Math.max(1, faceGeom.panelHeightM || faceGeom.tunnelH || Number(location.heightM) || 7);
+              const advMaxBoxW = 430;
+              const advMaxBoxH = 350;
+              const advScale = Math.min(advMaxBoxW / W_m, advMaxBoxH / H_m);
+              const advBoxW = Math.round(W_m * advScale);
+              const advBoxH = Math.round(H_m * advScale);
+              const advBoxX = Math.round(300 - advBoxW / 2);
+              const advBoxY = Math.round(230 - advBoxH / 2);
+
+              mappedSurveyPoints = round.surveyOverbreak.surveyPoints.map((pt: any) => {
+                let xM: number;
+                let yM: number;
+                if (typeof pt.xM === 'number' && typeof pt.yM === 'number' && !isNaN(pt.xM) && !isNaN(pt.yM)) {
+                  xM = pt.xM;
+                  yM = pt.yM;
+                } else {
+                  xM = ((pt.x - (advBoxX + advBoxW / 2)) / Math.max(1, advBoxW)) * W_m;
+                  yM = ((advBoxY + advBoxH - pt.y) / Math.max(1, advBoxH)) * H_m;
+                }
+                const targetX = faceGeom.boxX + faceGeom.boxW / 2 + (xM / Math.max(0.1, W_m)) * faceGeom.boxW;
+                const targetY = faceGeom.boxY + faceGeom.boxH - (yM / Math.max(0.1, H_m)) * faceGeom.boxH;
+                return {
+                  x: Number(targetX.toFixed(1)),
+                  y: Number(targetY.toFixed(1)),
+                  xM: Number(xM.toFixed(2)),
+                  yM: Number(yM.toFixed(2)),
+                };
+              });
+
+              if (mappedSurveyPoints.length >= 3) {
+                const p0 = mappedSurveyPoints[0];
+                const pEnd = mappedSurveyPoints[mappedSurveyPoints.length - 1];
+                const distEnds = Math.hypot(p0.x - pEnd.x, p0.y - pEnd.y);
+                isLoopClosed = distEnds < Math.max(16, faceGeom.boxW * 0.08);
+
+                if (isLoopClosed) {
+                  closedOverbreakPolygonPoints = mappedSurveyPoints;
+                } else {
+                  const floorY = faceGeom.boxY + faceGeom.boxH;
+                  const rightX = faceGeom.boxX + faceGeom.boxW;
+                  const leftX = faceGeom.boxX;
+                  if (p0.x <= pEnd.x) {
+                    closedOverbreakPolygonPoints = [
+                      ...mappedSurveyPoints,
+                      { x: rightX, y: floorY },
+                      { x: leftX, y: floorY },
+                    ];
                   } else {
-                    xM = ((pt.x - (advBoxX + advBoxW / 2)) / Math.max(1, advBoxW)) * W_m;
-                    yM = ((advBoxY + advBoxH - pt.y) / Math.max(1, advBoxH)) * H_m;
+                    closedOverbreakPolygonPoints = [
+                      ...mappedSurveyPoints,
+                      { x: leftX, y: floorY },
+                      { x: rightX, y: floorY },
+                    ];
                   }
-                  const targetX = faceGeom.boxX + faceGeom.boxW / 2 + (xM / Math.max(0.1, W_m)) * faceGeom.boxW;
-                  const targetY = faceGeom.boxY + faceGeom.boxH - (yM / Math.max(0.1, H_m)) * faceGeom.boxH;
-                  return {
-                    x: Number(targetX.toFixed(1)),
-                    y: Number(targetY.toFixed(1)),
-                    xM: Number(xM.toFixed(2)),
-                    yM: Number(yM.toFixed(2)),
-                  };
-                });
+                }
+              }
 
-                const isReal = Boolean(round.surveyOverbreak.isRealOverbreak);
-                const strokeColor = colorMode === 'bw' ? '#0f172a' : isReal ? '#dc2626' : '#059669';
-                const fillColor = colorMode === 'bw'
-                  ? 'rgba(15, 23, 42, 0.12)'
-                  : isReal
-                  ? 'rgba(239, 68, 68, 0.22)'
-                  : 'rgba(16, 185, 129, 0.18)';
+              const isReal = Boolean(round.surveyOverbreak.isRealOverbreak);
+              strokeColor = colorMode === 'bw' ? '#0f172a' : isReal ? '#dc2626' : '#059669';
+              fillColor = colorMode === 'bw'
+                ? 'rgba(15, 23, 42, 0.12)'
+                : isReal
+                ? 'rgba(239, 68, 68, 0.22)'
+                : 'rgba(16, 185, 129, 0.18)';
+            }
 
-                return (
-                  <g>
-                    {/* Shaded Overbreak Boundary Fill behind or along design profile */}
-                    {mappedSurveyPoints.length >= 3 && (
-                      <polygon
-                        points={[
-                          ...mappedSurveyPoints,
-                          { x: faceGeom.boxX + faceGeom.boxW, y: faceGeom.boxY + faceGeom.boxH },
-                          { x: faceGeom.boxX, y: faceGeom.boxY + faceGeom.boxH },
-                        ]
-                          .map((p) => `${p.x},${p.y}`)
-                          .join(' ')}
-                        fill={fillColor}
-                        stroke="none"
-                      />
-                    )}
-                    {/* Survey Profile Outline */}
-                    <path
-                      d={`${mappedSurveyPoints
-                        .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
-                        .join(' ')} Z`}
-                      fill="none"
+            return (
+              <>
+                {/* 1. Shaded Overbreak Excavation Polygon - RENDERED IN THE BACKGROUND BEHIND WHITE FACE */}
+                {closedOverbreakPolygonPoints.length >= 3 && (
+                  <g
+                    transform={`translate(${faceOffsetX}, ${faceOffsetY}) scale(${faceScaleX}, ${faceScaleY})`}
+                  >
+                    <polygon
+                      points={closedOverbreakPolygonPoints.map((p) => `${p.x},${p.y}`).join(' ')}
+                      fill={fillColor}
                       stroke={strokeColor}
-                      strokeWidth="3.2"
-                      strokeDasharray="9,4"
+                      strokeWidth="1.8"
+                      strokeDasharray="6,3"
                     />
-                    {/* Survey Point Markers & Labels */}
-                    {mappedSurveyPoints.map((pt, pIdx) => (
-                      <g key={`rpt-ob-pt-${pIdx}`}>
-                        <circle
-                          cx={pt.x}
-                          cy={pt.y}
-                          r="4.5"
-                          fill={strokeColor}
-                          stroke="#ffffff"
-                          strokeWidth="1.8"
+                  </g>
+                )}
+
+                {/* 2. White Design Tunnel Face Mask & Reference CL / SPL Lines */}
+                <g
+                  transform={`translate(${faceOffsetX}, ${faceOffsetY}) scale(${faceScaleX}, ${faceScaleY})`}
+                >
+                  <path d={facePath} fill="#ffffff" stroke="none" />
+                  <line
+                    x1={faceGeom.boxX + faceGeom.boxW / 2}
+                    y1={faceGeom.boxY}
+                    x2={faceGeom.boxX + faceGeom.boxW / 2}
+                    y2={faceGeom.boxY + faceGeom.boxH}
+                    stroke="#0f172a"
+                    strokeWidth="2.2"
+                    strokeDasharray="12,5,3,5"
+                  />
+                  <line
+                    x1={faceGeom.boxX}
+                    y1={faceGeom.boxY + faceGeom.boxH * (1 - splRatio)}
+                    x2={faceGeom.boxX + faceGeom.boxW}
+                    y2={faceGeom.boxY + faceGeom.boxH * (1 - splRatio)}
+                    stroke="#0f172a"
+                    strokeWidth="2.2"
+                    strokeDasharray="10,5"
+                  />
+                </g>
+
+                {/* 3. Panel Geological Contents (Lithology, Joints, Planes) */}
+                {renderPanelContent(
+                  'face',
+                  faceOffsetX,
+                  faceOffsetY,
+                  faceScaleX,
+                  faceScaleY,
+                  'clip-sheet-face'
+                )}
+
+                {/* 4. Design Tunnel Profile Stroke, Payline & Survey Overbreak Outline */}
+                <g
+                  transform={`translate(${faceOffsetX}, ${faceOffsetY}) scale(${faceScaleX}, ${faceScaleY})`}
+                >
+                  <path d={faceStrokePath} fill="none" stroke="#0f172a" strokeWidth="3.6" />
+
+                  {/* Payline Outline on Report Face Sketch */}
+                  {(() => {
+                    if (
+                      round.surveyOverbreak?.status !== 'completed' ||
+                      round.surveyOverbreak.paylineEnabled === false
+                    ) {
+                      return null;
+                    }
+                    const facePolyPts = [
+                      ...(faceDetails.leftWallPoly || []),
+                      ...(faceDetails.crownPoly || []),
+                      ...(faceDetails.rightWallPoly || []).slice().reverse(),
+                      ...(faceDetails.invertPoly || []).slice().reverse(),
+                    ];
+                    if (facePolyPts.length < 3) return null;
+                    const payOffM = (round.surveyOverbreak.paylineOffsetMm ?? 150) / 1000;
+                    const scX = faceGeom.boxW / Math.max(0.1, location.widthM);
+                    const scY = faceGeom.boxH / Math.max(0.1, location.heightM);
+                    const c = {
+                      x: faceGeom.boxX + faceGeom.boxW / 2,
+                      y: faceGeom.boxY + faceGeom.boxH * 0.55,
+                    };
+                    const payPts = computePaylinePolygon(facePolyPts, payOffM, scX, scY, c);
+                    if (payPts.length < 3) return null;
+                    return (
+                      <g>
+                        <polygon
+                          points={payPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+                          fill="none"
+                          stroke={colorMode === 'bw' ? '#475569' : '#059669'}
+                          strokeWidth="2.0"
+                          strokeDasharray="6,3"
                         />
-                        {(mappedSurveyPoints.length <= 8 || pIdx % 2 === 0 || pIdx === 0 || pIdx === mappedSurveyPoints.length - 1) && (
+                        {payPts[Math.floor(payPts.length * 0.28)] && (
                           <text
-                            x={pt.x + 6}
-                            y={pt.y - 6}
-                            fontSize="10"
+                            x={payPts[Math.floor(payPts.length * 0.28)].x}
+                            y={payPts[Math.floor(payPts.length * 0.28)].y - 6}
+                            fontSize="11"
                             fontWeight="bold"
                             fontFamily="monospace"
-                            fill={strokeColor}
-                            stroke="#ffffff"
-                            strokeWidth="2.5"
-                            paintOrder="stroke"
+                            fill={colorMode === 'bw' ? '#475569' : '#059669'}
                           >
-                            P{pIdx + 1}
+                            PAYLINE (+{round.surveyOverbreak.paylineOffsetMm ?? 150}mm)
                           </text>
                         )}
                       </g>
+                    );
+                  })()}
+
+                  {/* Survey Profile Outline (Traces excavated rock perimeter accurately) */}
+                  {mappedSurveyPoints.length >= 2 &&
+                    (isLoopClosed ? (
+                      <polygon
+                        points={mappedSurveyPoints.map((p) => `${p.x},${p.y}`).join(' ')}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth="3.2"
+                        strokeDasharray="9,4"
+                      />
+                    ) : (
+                      <polyline
+                        points={mappedSurveyPoints.map((p) => `${p.x},${p.y}`).join(' ')}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth="3.2"
+                        strokeDasharray="9,4"
+                      />
                     ))}
-                    {/* Clear Overbreak Callout Box when overbreak exists */}
-                    {round.surveyOverbreak.overbreakAreaM2 > 0 && (
-                      <g transform={`translate(${faceGeom.boxX + faceGeom.boxW / 2}, ${faceGeom.boxY + faceGeom.boxH * 0.45})`}>
-                        <rect
-                          x="-105"
-                          y="-13"
-                          width="210"
-                          height="26"
-                          rx="4"
-                          fill="#ffffff"
-                          fillOpacity="0.94"
-                          stroke={strokeColor}
-                          strokeWidth="1.6"
-                        />
+
+                  {/* Survey Point Markers & Labels */}
+                  {mappedSurveyPoints.map((pt, pIdx) => (
+                    <g key={`rpt-ob-pt-${pIdx}`}>
+                      <circle
+                        cx={pt.x}
+                        cy={pt.y}
+                        r="4.5"
+                        fill={strokeColor}
+                        stroke="#ffffff"
+                        strokeWidth="1.8"
+                      />
+                      {(mappedSurveyPoints.length <= 8 || pIdx % 2 === 0 || pIdx === 0 || pIdx === mappedSurveyPoints.length - 1) && (
                         <text
-                          x="0"
-                          y="4"
-                          textAnchor="middle"
-                          fontSize="9.8"
+                          x={pt.x + (pt.x < faceGeom.boxX + faceGeom.boxW / 2 ? -7 : 7)}
+                          y={pt.y - 6}
+                          textAnchor={pt.x < faceGeom.boxX + faceGeom.boxW / 2 ? 'end' : 'start'}
+                          fontSize="10"
                           fontWeight="bold"
                           fontFamily="monospace"
                           fill={strokeColor}
+                          stroke="#ffffff"
+                          strokeWidth="2.5"
+                          paintOrder="stroke"
                         >
-                          SURVEY OB: {round.surveyOverbreak.overbreakAreaM2.toFixed(2)} m² ({round.surveyOverbreak.overbreakPercent.toFixed(1)}%)
+                          P{pIdx + 1}
                         </text>
-                      </g>
-                    )}
-                  </g>
-                );
-              })()}
-            {/* 1m Reference Tick Lines along the Face Tunnel Outline for all shapes */}
-            {faceDetails.ticks
-              .filter((tk) => tk.zone !== 'invert')
-              .map((tk, idx) => (
-                <line
-                  key={`fc-arch-tk-${idx}`}
-                  x1={tk.x - tk.nx * 7}
-                  y1={tk.y - tk.ny * 7}
-                  x2={tk.x + tk.nx * 8}
-                  y2={tk.y + tk.ny * 8}
-                  stroke="#0f172a"
-                  strokeWidth="2.6"
-                />
-              ))}
-          </g>
+                      )}
+                    </g>
+                  ))}
+
+                  {/* Clear Overbreak Callout Box when overbreak exists */}
+                  {round.surveyOverbreak && round.surveyOverbreak.overbreakAreaM2 > 0 && (
+                    <g transform={`translate(${faceGeom.boxX + faceGeom.boxW / 2}, ${faceGeom.boxY + faceGeom.boxH * 0.45})`}>
+                      <rect
+                        x="-105"
+                        y="-13"
+                        width="210"
+                        height="26"
+                        rx="4"
+                        fill="#ffffff"
+                        fillOpacity="0.94"
+                        stroke={strokeColor}
+                        strokeWidth="1.6"
+                      />
+                      <text
+                        x="0"
+                        y="4"
+                        textAnchor="middle"
+                        fontSize="9.8"
+                        fontWeight="bold"
+                        fontFamily="monospace"
+                        fill={strokeColor}
+                      >
+                        SURVEY OB: {round.surveyOverbreak.overbreakAreaM2.toFixed(2)} m² ({round.surveyOverbreak.overbreakPercent.toFixed(1)}%)
+                      </text>
+                    </g>
+                  )}
+
+                  {/* 1m Reference Tick Lines along the Face Tunnel Outline for all shapes */}
+                  {faceDetails.ticks
+                    .filter((tk) => tk.zone !== 'invert')
+                    .map((tk, idx) => (
+                      <line
+                        key={`fc-arch-tk-${idx}`}
+                        x1={tk.x - tk.nx * 7}
+                        y1={tk.y - tk.ny * 7}
+                        x2={tk.x + tk.nx * 8}
+                        y2={tk.y + tk.ny * 8}
+                        stroke="#0f172a"
+                        strokeWidth="2.6"
+                      />
+                    ))}
+                </g>
+              </>
+            );
+          })()}
 
           {/* Legend Box Positioned Directly BELOW BOTH the Strip and Tunnel Face */}
           <rect

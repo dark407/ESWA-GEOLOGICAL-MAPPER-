@@ -8,6 +8,7 @@ import {
   inferSegmentZoneRole,
 } from './customProfileEngine';
 import { getCrownStrikePair, type Joint3DInspectionData } from './joint3DInspectorEngine';
+import type { ContinuousTunnelStripDataset } from './continuous3DStripEngine';
 
 export type FieldTunnelShapeType =
   | 'd_shaped'
@@ -464,6 +465,16 @@ export interface FieldSupportSystemConfig {
   cavityDepthM?: number;
   cavityWidthM?: number;
   cavityBackfillMethod?: string;
+  // Junction Factor & Intersection Advance Optimization
+  junctionFactorEnabled?: boolean;
+  junctionType?: 'T_JUNCTION' | 'CROSS_INTERSECTION' | 'Y_BIFURCATION' | 'PORTAL_BREAK_IN' | 'CROSS_PASSAGE' | 'CUSTOM';
+  junctionTypeLabel?: string;
+  junctionMultiplier?: number;
+  junctionAngleDeg?: number;
+  junctionAdvanceFactor?: number;
+  junctionAdjustQ?: boolean;
+  junctionAdjustRmr?: boolean;
+  junctionNotes?: string;
   remarks?: string;
 }
 
@@ -1960,6 +1971,15 @@ export function createDefaultSupportSystem(): FieldSupportSystemConfig {
     cavityDepthM: 1.2,
     cavityWidthM: 3.5,
     cavityBackfillMethod: 'SFRS Sealing Arch + Foamed Concrete / Cement Grout Backfill',
+    junctionFactorEnabled: false,
+    junctionType: 'T_JUNCTION',
+    junctionTypeLabel: 'T-Junction (90° Intersect)',
+    junctionMultiplier: 1.5,
+    junctionAngleDeg: 90,
+    junctionAdvanceFactor: 0.7,
+    junctionAdjustQ: true,
+    junctionAdjustRmr: true,
+    junctionNotes: '',
     remarks: '',
   };
 }
@@ -3372,6 +3392,93 @@ export function computeFieldRmrValue(rmr?: Partial<FieldExcavationRound['rmrSyst
   else if (totalRmr >= 21) rmrClass = 'Class IV — Poor Rock (21–40)';
   else rmrClass = 'Class V — Very Poor Rock (< 20)';
   return { totalRmr, rmrClass };
+}
+
+export interface JunctionGeotechnicalAdjustment {
+  baselineQ: number;
+  baselineQClass: string;
+  adjustedQ: number;
+  adjustedQClass: string;
+  baselineRmr: number;
+  baselineRmrClass: string;
+  deltaRmr: number;
+  adjustedRmr: number;
+  adjustedRmrClass: string;
+  baselinePullM: number;
+  recommendedAdvancePullM: number;
+  advanceReductionPct: number;
+  junctionMultiplier: number;
+  junctionAngleDeg: number;
+  junctionAdvanceFactor: number;
+  effectiveMultiplier: number;
+}
+
+export function computeJunctionGeotechnicalAdjustments(
+  support: FieldSupportSystemConfig,
+  round?: FieldExcavationRound | null
+): JunctionGeotechnicalAdjustment {
+  const baseQRes = computeFieldQValue(round?.qSystem);
+  const baseRmrRes = computeFieldRmrValue(round?.rmrSystem);
+
+  const jf = Math.max(1.0, support.junctionMultiplier ?? 1.5);
+  const angle = Math.max(15, Math.min(90, support.junctionAngleDeg ?? 90));
+  // Angle correction: acute intersections create acute rock wedges with elevated stress concentration
+  const angleCorrection = Math.min(1.35, Math.max(1.0, Math.pow(90 / angle, 0.25)));
+  const effectiveMultiplier = Number((jf * angleCorrection).toFixed(2));
+
+  // 1. Barton Q-System Junction Adjustment
+  const rawAdjQ = support.junctionAdjustQ !== false ? baseQRes.qValue / effectiveMultiplier : baseQRes.qValue;
+  const adjustedQ = Number(Math.max(0.001, rawAdjQ).toFixed(3));
+  let adjustedQClass = 'Class D — Poor Rock';
+  if (adjustedQ > 40) adjustedQClass = 'Class A — Very Good to Exceptionally Good Rock';
+  else if (adjustedQ > 10) adjustedQClass = 'Class B — Good Rock';
+  else if (adjustedQ > 4) adjustedQClass = 'Class C — Fair Rock';
+  else if (adjustedQ > 1) adjustedQClass = 'Class D — Poor Rock';
+  else if (adjustedQ > 0.1) adjustedQClass = 'Class E — Very Poor Rock';
+  else adjustedQClass = 'Class F/G — Extremely Poor / Squeezing Rock';
+
+  // 2. Bieniawski RMR89 Junction Adjustment
+  const deltaRmr = support.junctionAdjustRmr !== false ? Math.round((effectiveMultiplier - 1.0) * 16) : 0;
+  const adjustedRmr = Math.max(5, Math.min(100, baseRmrRes.totalRmr - deltaRmr));
+  let adjustedRmrClass = 'Class III — Fair Rock (41–60)';
+  if (adjustedRmr >= 81) adjustedRmrClass = 'Class I — Very Good Rock (81–100)';
+  else if (adjustedRmr >= 61) adjustedRmrClass = 'Class II — Good Rock (61–80)';
+  else if (adjustedRmr >= 41) adjustedRmrClass = 'Class III — Fair Rock (41–60)';
+  else if (adjustedRmr >= 21) adjustedRmrClass = 'Class IV — Poor Rock (21–40)';
+  else adjustedRmrClass = 'Class V — Very Poor Rock (< 20)';
+
+  // 3. Advance Length / Pull Reduction Factor
+  const baselinePullM = Math.max(0.5, round?.pullLengthMeters ?? 3.0);
+  const junctionAdvanceFactor = Math.max(
+    0.35,
+    Math.min(1.0, support.junctionAdvanceFactor ?? Number((1.0 / effectiveMultiplier).toFixed(2)))
+  );
+  const recommendedAdvancePullM = Number(
+    Math.max(0.8, Math.min(baselinePullM, baselinePullM * junctionAdvanceFactor)).toFixed(1)
+  );
+  const advanceReductionPct = Math.max(
+    0,
+    Math.round(((baselinePullM - recommendedAdvancePullM) / baselinePullM) * 100)
+  );
+
+  return {
+    baselineQ: baseQRes.qValue,
+    baselineQClass: baseQRes.rockClass,
+    adjustedQ,
+    adjustedQClass,
+    baselineRmr: baseRmrRes.totalRmr,
+    baselineRmrClass: baseRmrRes.rmrClass,
+    deltaRmr,
+    adjustedRmr,
+    adjustedRmrClass,
+    baselinePullM,
+    recommendedAdvancePullM,
+    advanceReductionPct,
+    junctionMultiplier: jf,
+    junctionAngleDeg: angle,
+    junctionAdvanceFactor,
+    effectiveMultiplier,
+  };
 }
 
 export interface FieldLocationSurfaceConfig {
@@ -5600,8 +5707,8 @@ export function buildFieldMappingTwoPageWordHtml(
 
   const lithologyUsed = Array.from(
     new Set(
-      round.lithologyStrokes
-        .filter((s) => s.mode !== 'lithology_erase')
+      (round.lithologyStrokes || [])
+        .filter((s) => s && s.mode !== 'lithology_erase')
         .map((s) => s.rockName || s.rockType)
     )
   )
@@ -5869,11 +5976,49 @@ export function buildFieldMappingTwoPageWordHtml(
           ${selClass.rmr ? `<strong>RMR = ${totalRmr}</strong> (${rmrClass})<br/>` : ''}
           ${
             selClass.gsi
-              ? `<strong>GSI = ${round.gsiValue}</strong> (${round.rockMassStructuralType} / ${round.surfaceQualityType})`
+              ? `<strong>GSI = ${round.gsiValue ?? 60}</strong> (${round.rockMassStructuralType || 'Interlocking'} / ${round.surfaceQualityType || 'Good'})`
               : ''
           }
         </td>
       </tr>
+      ${
+        (sup.protectionSupportEnabled || selClass.protectionSupport)
+          ? `<tr>
+        <th style="background:#f1f5f9;">Protection / Cavity Support</th>
+        <td colspan="7">
+          ${[
+            sup.forepolingEnabled !== false
+              ? `<strong>Forepoling:</strong> ${sup.forepolingType || 'Grouted Rebar Spiles'} Ø${sup.forepolingDiameterMm ?? 32}mm, L=${sup.forepolingLengthM ?? 4.0}m @ ${sup.forepolingSpacingCm ?? 30}cm c/c (${sup.forepolingSector || 'Crown 120°'})`
+              : null,
+            sup.pipeRoofingEnabled
+              ? `<strong>Pipe Roofing:</strong> ${sup.pipeRoofingType || 'Perforated Canopy Tube'} Ø${sup.pipeRoofingDiameterMm ?? 114}mm, L=${sup.pipeRoofingLengthM ?? 12.0}m @ ${sup.pipeRoofingSpacingCm ?? 40}cm c/c`
+              : null,
+            sup.groutingEnabled
+              ? `<strong>Grouting:</strong> ${sup.groutingType || 'Consolidation Grouting'} L=${sup.groutingHoleLengthM ?? 6.0}m, ${sup.groutingHoleCount ?? 8} holes @ ${sup.groutingPressureBar ?? 15} bar`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' | ') || 'Enabled'}
+        </td>
+      </tr>`
+          : ''
+      }
+      ${
+        sup.junctionFactorEnabled
+          ? (() => {
+              const jAdj = computeJunctionGeotechnicalAdjustments(sup, round);
+              return `<tr>
+        <th style="background:#fef3c7;">Junction Factor &amp; Advance</th>
+        <td colspan="7">
+          <strong>Type:</strong> ${sup.junctionTypeLabel || 'Junction'} (∠${jAdj.junctionAngleDeg}°) |
+          <strong>Jf:</strong> ${jAdj.effectiveMultiplier}x |
+          <strong>Advance Factor:</strong> ${jAdj.junctionAdvanceFactor}x (Nominal: ${jAdj.baselinePullM}m → Rec. Pull: <strong>${jAdj.recommendedAdvancePullM}m</strong>, -${jAdj.advanceReductionPct}%) |
+          <strong>Adjusted:</strong> Q<sub>adj</sub> = <strong>${jAdj.adjustedQ}</strong> (${jAdj.adjustedQClass.split('—')[0].trim()}), RMR<sub>adj</sub> = <strong>${jAdj.adjustedRmr}</strong> (${jAdj.adjustedRmrClass.split('—')[0].trim()})
+        </td>
+      </tr>`;
+            })()
+          : ''
+      }
     </tbody>
   </table>
 
@@ -5890,8 +6035,8 @@ export function buildFieldMappingTwoPageWordHtml(
       <th>Survey Overbreak Analysis</th>
       <td><strong>${
         (surv.overbreakCause || '').toLowerCase() === 'no_overbreak'
-          ? `No Overbreak Observed (Design Profile: ${surv.designAreaM2.toFixed(2)} m²${surv.paylineEnabled !== false ? ` | Payline +${surv.paylineOffsetMm ?? 150}mm: ${(surv.paylineAreaM2 || 0).toFixed(2)} m²` : ''})`
-          : `Overbreak Area: ${surv.overbreakAreaM2.toFixed(2)} m² (${surv.overbreakPercent.toFixed(1)}%) | Volume: ${(surv.overbreakVolumeM3 || surv.overbreakAreaM2 * (round.pullLengthMeters || 3)).toFixed(2)} m³ | Max Depth: ${surv.maxOverbreakDepthM.toFixed(2)} m${
+          ? `No Overbreak Observed (Design Profile: ${(surv.designAreaM2 || 0).toFixed(2)} m²${surv.paylineEnabled !== false ? ` | Payline +${surv.paylineOffsetMm ?? 150}mm: ${(surv.paylineAreaM2 || 0).toFixed(2)} m²` : ''})`
+          : `Overbreak Area: ${(surv.overbreakAreaM2 || 0).toFixed(2)} m² (${(surv.overbreakPercent || 0).toFixed(1)}%) | Volume: ${(surv.overbreakVolumeM3 || (surv.overbreakAreaM2 || 0) * (round.pullLengthMeters || 3)).toFixed(2)} m³ | Max Depth: ${(surv.maxOverbreakDepthM || 0).toFixed(2)} m${
               surv.paylineEnabled !== false
                 ? ` | <strong>Payline (+${surv.paylineOffsetMm ?? 150}mm):</strong> ${
                     surv.isRealOverbreak && (surv.realOverbreakAreaM2 || 0) > 0.01
@@ -5974,33 +6119,37 @@ export function exportFieldMappingTwoPageWordSheet(
   sketchCompositeDataUrl?: string | null,
   supportDrawingDataUrl?: string | null
 ): void {
-  const html = buildFieldMappingTwoPageWordHtml(
-    project,
-    location,
-    round,
-    sketchCompositeDataUrl,
-    supportDrawingDataUrl
-  );
-  const blob = new Blob(['\ufeff', html], {
-    type: 'application/msword;charset=utf-8',
-  });
-  const safeLoc = location.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const safeCh = `${round.chainageFrom}_${round.chainageTo}`.replace(/[^a-zA-Z0-9_.-]/g, '_');
-  const filename = `Field_Face_Log_${safeLoc}_CH_${safeCh}.doc`;
+  try {
+    const html = buildFieldMappingTwoPageWordHtml(
+      project,
+      location,
+      round,
+      sketchCompositeDataUrl,
+      supportDrawingDataUrl
+    );
+    const blob = new Blob(['\ufeff', html], {
+      type: 'application/msword;charset=utf-8',
+    });
+    const safeLoc = (location?.name || 'Location').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeCh = `${round?.chainageFrom || '0'}_${round?.chainageTo || '0'}`.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const filename = `Field_Face_Log_${safeLoc}_CH_${safeCh}.doc`;
 
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 15000);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+  } catch (err) {
+    console.error('exportFieldMappingTwoPageWordSheet error:', err);
+  }
 }
 
 /**
  * Reliably rasterizes an SVG DOM element into a high-resolution PNG DataURL
- * by cloning the SVG and setting explicit width, height, and xmlns attributes.
+ * with timeout safeguards, inlined text styles, and zero unhandled rejections.
  */
 export function renderSvgElementToHighResPngDataUrl(
   svgEl: SVGSVGElement | null,
@@ -6028,28 +6177,59 @@ export function renderSvgElementToHighResPngDataUrl(
         clone.setAttribute('viewBox', `0 0 ${vbW} ${vbH}`);
       }
 
+      // Add baseline SVG styles for crisp typography and geometric precision
+      const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      styleEl.textContent = `
+        text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; shape-rendering: geometricPrecision; }
+        svg { background: #ffffff; }
+      `;
+      clone.insertBefore(styleEl, clone.firstChild);
+
       const serializer = new XMLSerializer();
       const svgStr = serializer.serializeToString(clone);
       const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
       const url = URL.createObjectURL(svgBlob);
       const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = outW;
-        canvas.height = outH;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          URL.revokeObjectURL(url);
+          resolve(null);
         }
-        URL.revokeObjectURL(url);
-        resolve(canvas.toDataURL('image/png'));
+      }, 3000);
+
+      img.onload = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = outW;
+          canvas.height = outH;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          }
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL('image/png'));
+        } catch {
+          URL.revokeObjectURL(url);
+          resolve(null);
+        }
       };
+
       img.onerror = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
         URL.revokeObjectURL(url);
         resolve(null);
       };
+
       img.src = url;
     } catch {
       resolve(null);
@@ -6064,8 +6244,26 @@ function dataUrlToImage(dataUrl: string | null | undefined): Promise<HTMLImageEl
       return;
     }
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+    }, 2500);
+
+    img.onload = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(img);
+    };
+    img.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(null);
+    };
     img.src = dataUrl;
   });
 }
@@ -6082,12 +6280,13 @@ function base64ToBytes(base64: string): Uint8Array {
 
 /**
  * Packages one or more HTMLCanvasElement pages into a standalone binary PDF-1.4 file
- * and triggers a direct file download (.pdf) without relying on window.print().
+ * with accurate A4 / A3 dimensions and aspect-ratio preservation (zero tiny misaligned thumbnails).
  */
 export function exportCanvasesAsPdfDocument(
   canvases: HTMLCanvasElement[],
   filename: string,
-  orientation: 'portrait' | 'landscape' = 'portrait'
+  orientation: 'portrait' | 'landscape' = 'portrait',
+  pageSize: 'A4' | 'A3' = 'A4'
 ): void {
   const pages: {
     jpegBytes: Uint8Array;
@@ -6098,11 +6297,21 @@ export function exportCanvasesAsPdfDocument(
   }[] = [];
 
   for (const c of canvases) {
-    const jpegDataUrl = c.toDataURL('image/jpeg', 0.92);
+    const jpegDataUrl = c.toDataURL('image/jpeg', 0.94);
     const b64 = jpegDataUrl.split(',')[1] || '';
     if (!b64) continue;
-    const pagePtW = orientation === 'portrait' ? 595.28 : 841.89;
-    const pagePtH = orientation === 'portrait' ? 841.89 : 595.28;
+
+    let pagePtW = 595.28;
+    let pagePtH = 841.89;
+
+    if (pageSize === 'A3') {
+      pagePtW = orientation === 'portrait' ? 841.89 : 1190.55;
+      pagePtH = orientation === 'portrait' ? 1190.55 : 841.89;
+    } else {
+      pagePtW = orientation === 'portrait' ? 595.28 : 841.89;
+      pagePtH = orientation === 'portrait' ? 841.89 : 595.28;
+    }
+
     pages.push({
       jpegBytes: base64ToBytes(b64),
       widthPx: c.width,
@@ -6161,9 +6370,30 @@ export function exportCanvasesAsPdfDocument(
     const contentObjId = 4 + i * 3;
     const imageObjId = 5 + i * 3;
     const imgName = `/Im${i + 1}`;
-    const contentStream = `q\n${p.pagePtW.toFixed(2)} 0 0 ${p.pagePtH.toFixed(
+
+    // Fit canvas aspect into page preserving full page dimensions with zero distortion
+    const imgAspect = p.widthPx / Math.max(1, p.heightPx);
+    const pageAspect = p.pagePtW / Math.max(1, p.pagePtH);
+    let drawW = p.pagePtW;
+    let drawH = p.pagePtH;
+    let drawX = 0;
+    let drawY = 0;
+
+    if (Math.abs(imgAspect - pageAspect) > 0.02) {
+      if (imgAspect > pageAspect) {
+        drawW = p.pagePtW;
+        drawH = p.pagePtW / imgAspect;
+        drawY = (p.pagePtH - drawH) / 2;
+      } else {
+        drawH = p.pagePtH;
+        drawW = p.pagePtH * imgAspect;
+        drawX = (p.pagePtW - drawW) / 2;
+      }
+    }
+
+    const contentStream = `q\n${drawW.toFixed(2)} 0 0 ${drawH.toFixed(2)} ${drawX.toFixed(
       2
-    )} 0 0 cm\n${imgName} Do\nQ\n`;
+    )} ${drawY.toFixed(2)} cm\n${imgName} Do\nQ\n`;
     const contentBytes = encoder.encode(contentStream);
 
     startObj(pageObjId);
@@ -6212,8 +6442,9 @@ export function exportCanvasesAsPdfDocument(
 }
 
 /**
- * Generates and downloads a 2-Page A4 Portrait standalone `.pdf` file
- * for the Engineering Geological Face Log (matching the 2-page Word report).
+ * Generates and downloads a 2-Page standalone `.pdf` file
+ * for the Engineering Geological Face Log, supporting both A4 and A3 formats.
+ * Perfectly balances all content across both pages so nothing is tiny or misaligned.
  */
 export async function exportFieldMappingTwoPagePdfSheet(
   projectOrOptions:
@@ -6224,11 +6455,14 @@ export async function exportFieldMappingTwoPagePdfSheet(
         round: FieldExcavationRound;
         sketchPngDataUrl?: string | null;
         support2DPngDataUrl?: string | null;
+        pageSize?: 'A4' | 'A3';
+        orientation?: 'portrait' | 'landscape';
       },
   locationArg?: FieldTunnelLocationItem,
   roundArg?: FieldExcavationRound,
   sketchCompositeDataUrlArg?: string | null,
-  supportDrawingDataUrlArg?: string | null
+  supportDrawingDataUrlArg?: string | null,
+  pageSizeArg: 'A4' | 'A3' = 'A4'
 ): Promise<void> {
   const isOptionsObject =
     projectOrOptions &&
@@ -6252,6 +6486,12 @@ export async function exportFieldMappingTwoPagePdfSheet(
   const supportDrawingDataUrl: string | null | undefined = isOptionsObject
     ? (projectOrOptions as any).support2DPngDataUrl ?? (projectOrOptions as any).supportDrawingDataUrl
     : supportDrawingDataUrlArg;
+  const pageSize: 'A4' | 'A3' = isOptionsObject
+    ? (projectOrOptions as any).pageSize || 'A4'
+    : pageSizeArg || 'A4';
+  const orientation: 'portrait' | 'landscape' = isOptionsObject
+    ? (projectOrOptions as any).orientation || 'portrait'
+    : 'portrait';
 
   if (!project || !location || !round) {
     console.warn('exportFieldMappingTwoPagePdfSheet called with missing project, location, or round.');
@@ -6282,207 +6522,294 @@ export async function exportFieldMappingTwoPagePdfSheet(
     dataUrlToImage(project.rightLogoDataUrl),
   ]);
 
-  const W = 1240;
-  const H = 1754;
+  // Scaled dimensions: A4 portrait is 1240 x 1754, A3 portrait is 1754 x 2480
+  const isA3 = pageSize === 'A3';
+  const W = isA3 ? 1754 : 1240;
+  const H = isA3 ? 2480 : 1754;
+  const scale = isA3 ? 1754 / 1240 : 1.0;
+
+  const margin = Math.round(24 * scale);
+  const innerPad = Math.round(10 * scale);
+  const headerH = Math.round(84 * scale);
+  const signH = Math.round(44 * scale);
+  const yTop = margin + innerPad + headerH + Math.round(10 * scale);
+  const yBottom = H - margin - innerPad - signH - Math.round(10 * scale);
 
   const drawHeaderAndSign = (ctx: CanvasRenderingContext2D, pageNum: 1 | 2) => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(28, 28, W - 56, H - 56);
 
-    // Top Header Table (y = 36 .. 118)
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(36, 36, W - 72, 82);
+    // Outer Heavy Engineering Border
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = Math.round(2.5 * scale);
+    ctx.strokeRect(margin, margin, W - margin * 2, H - margin * 2);
+
+    // Inner Clean Margin Line
+    ctx.lineWidth = Math.round(1.0 * scale);
+    ctx.strokeRect(margin + 4 * scale, margin + 4 * scale, W - (margin + 4 * scale) * 2, H - (margin + 4 * scale) * 2);
+
+    // Top Header Table
+    const hY = margin + innerPad;
+    const hW = W - (margin + innerPad) * 2;
+    const logoW = Math.round(180 * scale);
+
+    ctx.lineWidth = Math.round(1.5 * scale);
+    ctx.strokeRect(margin + innerPad, hY, hW, headerH);
     ctx.beginPath();
-    ctx.moveTo(210, 36);
-    ctx.lineTo(210, 118);
-    ctx.moveTo(W - 210, 36);
-    ctx.lineTo(W - 210, 118);
-    ctx.moveTo(210, 76);
-    ctx.lineTo(W - 210, 76);
+    ctx.moveTo(margin + innerPad + logoW, hY);
+    ctx.lineTo(margin + innerPad + logoW, hY + headerH);
+    ctx.moveTo(W - margin - innerPad - logoW, hY);
+    ctx.lineTo(W - margin - innerPad - logoW, hY + headerH);
+    ctx.moveTo(margin + innerPad + logoW, hY + Math.round(headerH * 0.52));
+    ctx.lineTo(W - margin - innerPad - logoW, hY + Math.round(headerH * 0.52));
     ctx.stroke();
 
+    // Client Logo / Title (Left)
     if (leftLogoImg) {
-      ctx.drawImage(leftLogoImg, 54, 44, 136, 64);
+      const pad = Math.round(6 * scale);
+      const lW = logoW - pad * 2;
+      const lH = headerH - pad * 2;
+      const sc = Math.min(lW / Math.max(1, leftLogoImg.width), lH / Math.max(1, leftLogoImg.height));
+      const dw = leftLogoImg.width * sc;
+      const dh = leftLogoImg.height * sc;
+      ctx.drawImage(leftLogoImg, margin + innerPad + (logoW - dw) / 2, hY + (headerH - dh) / 2, dw, dh);
     } else {
       ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 15px Arial';
+      ctx.font = `bold ${Math.round(13 * scale)}px Arial, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(project.clientName || 'CLIENT', 122, 82);
+      ctx.fillText(project.clientName || 'CLIENT', margin + innerPad + logoW / 2, hY + headerH / 2 + 5 * scale);
     }
 
+    // Contractor Logo / Title (Right)
     if (rightLogoImg) {
-      ctx.drawImage(rightLogoImg, W - 190, 44, 136, 64);
+      const pad = Math.round(6 * scale);
+      const rW = logoW - pad * 2;
+      const rH = headerH - pad * 2;
+      const sc = Math.min(rW / Math.max(1, rightLogoImg.width), rH / Math.max(1, rightLogoImg.height));
+      const dw = rightLogoImg.width * sc;
+      const dh = rightLogoImg.height * sc;
+      ctx.drawImage(rightLogoImg, W - margin - innerPad - logoW + (logoW - dw) / 2, hY + (headerH - dh) / 2, dw, dh);
     } else {
       ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 15px Arial';
+      ctx.font = `bold ${Math.round(13 * scale)}px Arial, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(project.contractorName || 'CONTRACTOR', W - 122, 82);
+      ctx.fillText(project.contractorName || 'CONTRACTOR', W - margin - innerPad - logoW / 2, hY + headerH / 2 + 5 * scale);
     }
 
+    // Center Title Block
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 19px Arial';
+    ctx.font = `bold ${Math.round(17 * scale)}px Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(
-      `ENGINEERING GEOLOGICAL FACE LOG — ${project.projectName} (${location.name}) [Page ${pageNum}/2]`,
+      `ENGINEERING GEOLOGICAL FACE LOG — ${project.projectName || 'PROJECT'} (${location.name}) [Page ${pageNum}/2]`,
       W / 2,
-      62
+      hY + Math.round(headerH * 0.35)
     );
 
-    ctx.font = 'bold 13px Arial';
+    ctx.font = `bold ${Math.round(11.5 * scale)}px Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      `Client: ${project.clientName || '-'} | CH ${round.chainageFrom}–${round.chainageTo}m (Pull ${round.pullLengthMeters}m) | ${location.shape.replace(/_/g, ' ').toUpperCase()} (${location.widthM}m×${location.heightM}m) | ${round.dateAndTimeOfExcavation} | Drive: N${String(round.tunnelDriveDirection || 0).padStart(3, '0')}°`,
+      W / 2,
+      hY + Math.round(headerH * 0.82)
+    );
+
+    // Bottom Sign-off Box
+    const sY = H - margin - innerPad - signH;
+    ctx.strokeRect(margin + innerPad, sY, hW, signH);
+    ctx.beginPath();
+    ctx.moveTo(margin + innerPad + hW * 0.5, sY);
+    ctx.lineTo(margin + innerPad + hW * 0.5, sY + signH);
+    ctx.stroke();
+
+    ctx.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
     ctx.textAlign = 'left';
     ctx.fillText(
-      `Client/Cons: ${project.clientName || '-'} / ${project.consultantName || '-'}   |   CH ${round.chainageFrom}–${round.chainageTo}m (Pull ${round.pullLengthMeters}m)   |   ${location.shape.replace(/_/g, ' ').toUpperCase()} (${location.widthM}m×${location.heightM}m)   |   ${round.dateAndTimeOfExcavation}`,
-      222,
-      102
-    );
-
-    // Bottom Geologist Sign Block (y = H - 78 .. H - 36)
-    ctx.strokeRect(36, H - 78, W - 72, 42);
-    ctx.beginPath();
-    ctx.moveTo(W / 2, H - 78);
-    ctx.lineTo(W / 2, H - 36);
-    ctx.stroke();
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText(
-      `CONTRACTOR GEOLOGIST: ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}   |   Sign: ${round.contractorGeologistSign || '________'}`,
-      48,
-      H - 52
+      `CONTRACTOR GEOLOGIST: ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}   Sign: ${round.contractorGeologistSign || '________'}`,
+      margin + innerPad + 12 * scale,
+      sY + Math.round(signH * 0.62)
     );
     ctx.fillText(
-      `CLIENT GEOLOGIST: ${round.clientGeologistName || round.clientRepName || '________________'}   |   Sign: ${round.clientGeologistSign || '________'}`,
-      W / 2 + 14,
-      H - 52
+      `CLIENT / CONSULTANT: ${round.clientGeologistName || round.clientRepName || '________________'}   Sign: ${round.clientGeologistSign || '________'}`,
+      margin + innerPad + hW * 0.5 + 12 * scale,
+      sY + Math.round(signH * 0.62)
     );
   };
 
-  // ==================== PAGE 1 CANVAS ====================
+  // ==========================================================================
+  // PAGE 1: TUNNEL FACE SKETCH + UNIFORM DISCONTINUITY SETS TABLE
+  // ==========================================================================
   const page1 = document.createElement('canvas');
   page1.width = W;
   page1.height = H;
   const ctx1 = page1.getContext('2d')!;
   drawHeaderAndSign(ctx1, 1);
 
-  let y1 = 128;
-  const sketchBoxH = 1040;
-  ctx1.strokeRect(36, y1, W - 72, sketchBoxH);
+  const p1ContentW = W - (margin + innerPad) * 2;
+  const p1AvailH = yBottom - yTop;
+
+  // Discontinuity table dimensions
+  const colCount = 10;
+  const thH = Math.round(28 * scale);
+  const chH = Math.round(26 * scale);
+  const rowCount = Math.max(1, Math.min(10, activeSets.length || 1));
+  const rowH = Math.round(26 * scale);
+  const discTableH = thH + chH + rowCount * rowH;
+
+  // The remaining available vertical space is fully given to the Geological Sketch Box
+  const sketchBoxH = p1AvailH - discTableH - Math.round(14 * scale);
+  const sketchBoxY = yTop;
+
+  ctx1.lineWidth = Math.round(1.5 * scale);
+  ctx1.strokeRect(margin + innerPad, sketchBoxY, p1ContentW, sketchBoxH);
+
   if (sketchImg) {
-    const pad = 12;
-    const availW = W - 72 - pad * 2;
+    const pad = Math.round(12 * scale);
+    const availW = p1ContentW - pad * 2;
     const availH = sketchBoxH - pad * 2;
-    const scale = Math.min(availW / Math.max(1, sketchImg.width), availH / Math.max(1, sketchImg.height));
-    const dw = sketchImg.width * scale;
-    const dh = sketchImg.height * scale;
+    const sc = Math.min(availW / Math.max(1, sketchImg.width), availH / Math.max(1, sketchImg.height));
+    const dw = sketchImg.width * sc;
+    const dh = sketchImg.height * sc;
     ctx1.drawImage(
       sketchImg,
-      36 + (W - 72 - dw) / 2,
-      y1 + (sketchBoxH - dh) / 2,
+      margin + innerPad + (p1ContentW - dw) / 2,
+      sketchBoxY + (sketchBoxH - dh) / 2,
       dw,
       dh
     );
+  } else {
+    // Elegant fallback technical drawing if sketch raster is absent
+    ctx1.fillStyle = '#f8fafc';
+    ctx1.fillRect(margin + innerPad + 2, sketchBoxY + 2, p1ContentW - 4, sketchBoxH - 4);
+    ctx1.fillStyle = '#0f172a';
+    ctx1.font = `bold ${Math.round(16 * scale)}px Arial, sans-serif`;
+    ctx1.textAlign = 'center';
+    ctx1.fillText('GEOLOGICAL TUNNEL FACE SKETCH & UNROLLED PROFILE', W / 2, sketchBoxY + sketchBoxH / 2 - 15 * scale);
+    ctx1.font = `${Math.round(12 * scale)}px Arial, sans-serif`;
+    ctx1.fillText(`CH ${round.chainageFrom} to ${round.chainageTo}m (${activeSets.length} Discontinuity Sets Recorded)`, W / 2, sketchBoxY + sketchBoxH / 2 + 15 * scale);
   }
-  y1 += sketchBoxH + 12;
 
   // Discontinuity Sets Table on Page 1
+  const tY = sketchBoxY + sketchBoxH + Math.round(14 * scale);
   ctx1.fillStyle = '#f1f5f9';
-  ctx1.fillRect(36, y1, W - 72, 28);
-  ctx1.strokeRect(36, y1, W - 72, 28);
+  ctx1.fillRect(margin + innerPad, tY, p1ContentW, thH);
+  ctx1.strokeRect(margin + innerPad, tY, p1ContentW, thH);
   ctx1.fillStyle = '#0f172a';
-  ctx1.font = 'bold 14px Arial';
+  ctx1.font = `bold ${Math.round(13.5 * scale)}px Arial, sans-serif`;
   ctx1.textAlign = 'center';
-  ctx1.fillText('1. DISCONTINUITY / JOINT SETS PARAMETERS (J1–J5, J-BEDDING, J-RANDOM)', W / 2, y1 + 19);
-  y1 += 28;
+  ctx1.fillText('1. DISCONTINUITY / JOINT SETS PARAMETERS (J1–J5, J-BEDDING, J-RANDOM)', W / 2, tY + Math.round(thH * 0.65));
 
   const cols = [
-    { label: 'Set', w: 90 },
-    { label: 'Dip Dir', w: 110 },
-    { label: 'Dip Amt', w: 95 },
-    { label: 'Spacing', w: 125 },
-    { label: 'Persistence', w: 125 },
-    { label: 'Aperture', w: 120 },
-    { label: 'Roughness', w: 140 },
-    { label: 'Infilling', w: 135 },
-    { label: 'Weathering', w: 125 },
-    { label: 'Water', w: 103 },
+    { label: 'Set', pct: 0.08 },
+    { label: 'Dip Dir (°)', pct: 0.10 },
+    { label: 'Dip Amt (°)', pct: 0.10 },
+    { label: 'Spacing', pct: 0.11 },
+    { label: 'Persistence', pct: 0.11 },
+    { label: 'Aperture', pct: 0.10 },
+    { label: 'Roughness', pct: 0.12 },
+    { label: 'Infilling', pct: 0.11 },
+    { label: 'Weathering', pct: 0.10 },
+    { label: 'Water', pct: 0.07 },
   ];
-  let cx = 36;
+
+  let curY = tY + thH;
   ctx1.fillStyle = '#f8fafc';
-  ctx1.fillRect(36, y1, W - 72, 26);
-  ctx1.strokeRect(36, y1, W - 72, 26);
+  ctx1.fillRect(margin + innerPad, curY, p1ContentW, chH);
+  ctx1.strokeRect(margin + innerPad, curY, p1ContentW, chH);
   ctx1.fillStyle = '#0f172a';
-  ctx1.font = 'bold 12px Arial';
+  ctx1.font = `bold ${Math.round(11.5 * scale)}px Arial, sans-serif`;
+
+  let curX = margin + innerPad;
   cols.forEach((c) => {
-    ctx1.fillText(c.label, cx + c.w / 2, y1 + 17);
-    cx += c.w;
+    const cW = p1ContentW * c.pct;
+    ctx1.fillText(c.label, curX + cW / 2, curY + Math.round(chH * 0.65));
+    curX += cW;
   });
-  y1 += 26;
+  curY += chH;
 
-  activeSets.slice(0, 10).forEach((s) => {
-    let rx = 36;
-    ctx1.strokeRect(36, y1, W - 72, 26);
-    ctx1.font = '12px Arial';
-    const vals = [
-      s.setId,
-      `${String(s.dipDirectionFrom).padStart(3, '0')}°–${String(s.dipDirectionTo).padStart(3, '0')}°`,
-      `${s.dipAmountFrom}°–${s.dipAmountTo}°`,
-      s.spacing,
-      s.persistence,
-      s.aperture,
-      s.roughness,
-      s.infilling,
-      s.weathering,
-      s.groundwater,
-    ];
-    vals.forEach((v, idx) => {
-      ctx1.fillText(String(v || '-'), rx + cols[idx].w / 2, y1 + 17);
-      rx += cols[idx].w;
+  const setsToRender = activeSets.length > 0 ? activeSets.slice(0, 10) : [];
+  if (setsToRender.length === 0) {
+    ctx1.strokeRect(margin + innerPad, curY, p1ContentW, rowH);
+    ctx1.font = `italic ${Math.round(11.5 * scale)}px Arial, sans-serif`;
+    ctx1.fillText('No grouped discontinuity sets mapped on face canvas.', W / 2, curY + Math.round(rowH * 0.65));
+  } else {
+    setsToRender.forEach((s, idx) => {
+      ctx1.fillStyle = idx % 2 === 0 ? '#ffffff' : '#fcfcfd';
+      ctx1.fillRect(margin + innerPad, curY, p1ContentW, rowH);
+      ctx1.strokeRect(margin + innerPad, curY, p1ContentW, rowH);
+      ctx1.fillStyle = '#0f172a';
+      ctx1.font = `${Math.round(11 * scale)}px Arial, sans-serif`;
+
+      let rx = margin + innerPad;
+      const vals = [
+        s.setId,
+        `${String(s.dipDirectionFrom || 0).padStart(3, '0')}°–${String(s.dipDirectionTo || 0).padStart(3, '0')}°`,
+        `${s.dipAmountFrom || 0}°–${s.dipAmountTo || 0}°`,
+        s.spacing || '-',
+        s.persistence || '-',
+        s.aperture || '-',
+        s.roughness || '-',
+        s.infilling || '-',
+        s.weathering || '-',
+        s.groundwater || 'Dry',
+      ];
+      vals.forEach((v, cIdx) => {
+        const cW = p1ContentW * cols[cIdx].pct;
+        ctx1.fillText(String(v || '-'), rx + cW / 2, curY + Math.round(rowH * 0.65));
+        rx += cW;
+      });
+      curY += rowH;
     });
-    y1 += 26;
-  });
+  }
 
-  // ==================== PAGE 2 CANVAS ====================
+  // ==========================================================================
+  // PAGE 2: ISRM INDICES + ROCK MASS RATINGS + OVERBREAK + 2D SUPPORT SYSTEM
+  // ==========================================================================
   const page2 = document.createElement('canvas');
   page2.width = W;
   page2.height = H;
   const ctx2 = page2.getContext('2d')!;
   drawHeaderAndSign(ctx2, 2);
 
-  let y2 = 132;
-  const drawSectionRow = (title: string, value: string, rowH = 38) => {
-    ctx2.strokeRect(36, y2, W - 72, rowH);
+  const p2ContentW = W - (margin + innerPad) * 2;
+  let y2 = yTop;
+
+  const drawRow = (title: string, val: string, h = Math.round(36 * scale)) => {
+    ctx2.strokeRect(margin + innerPad, y2, p2ContentW, h);
     ctx2.beginPath();
-    ctx2.moveTo(310, y2);
-    ctx2.lineTo(310, y2 + rowH);
+    ctx2.moveTo(margin + innerPad + Math.round(270 * scale), y2);
+    ctx2.lineTo(margin + innerPad + Math.round(270 * scale), y2 + h);
     ctx2.stroke();
     ctx2.fillStyle = '#0f172a';
-    ctx2.font = 'bold 13px Arial';
+    ctx2.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
     ctx2.textAlign = 'left';
-    ctx2.fillText(title, 48, y2 + 23);
-    ctx2.font = '13px Arial';
-    ctx2.fillText(value.slice(0, 115), 322, y2 + 23);
-    y2 += rowH;
+    ctx2.fillText(title, margin + innerPad + 12 * scale, y2 + Math.round(h * 0.62));
+    ctx2.font = `${Math.round(11.5 * scale)}px Arial, sans-serif`;
+    ctx2.fillText(val.slice(0, 130), margin + innerPad + Math.round(282 * scale), y2 + Math.round(h * 0.62));
+    y2 += h;
   };
 
-  drawSectionRow('Weathering Index (ISRM)', `Selected: ${round.weatheringIndex || 'WII'}`);
-  drawSectionRow('Strength Index (ISRM)', `Selected: ${round.strengthIndex || 'S3'}`);
+  // Section 2: ISRM Indices & Custom Tick Boxes
+  drawRow('Weathering Index (ISRM)', `Selected: ${round.weatheringIndex || 'WII — Slightly Weathered'}`);
+  drawRow('Strength Index (ISRM)', `Selected: ${round.strengthIndex || 'S3 — Medium Strong Rock (25–50 MPa)'}`);
   (round.customTickBoxGroups || []).forEach((grp) => {
     const checkedStr = grp.options
       .map((o) => `${o.checked ? '[X]' : '[ ]'} ${o.label}`)
       .join('   ');
-    drawSectionRow(grp.categoryTitle, checkedStr);
+    drawRow(grp.categoryTitle, checkedStr, Math.round(32 * scale));
   });
 
-  y2 += 10;
+  // Section 3: Rock Mass Classification
+  y2 += Math.round(8 * scale);
+  const classBannerH = Math.round(28 * scale);
   ctx2.fillStyle = '#f1f5f9';
-  ctx2.fillRect(36, y2, W - 72, 30);
-  ctx2.strokeRect(36, y2, W - 72, 30);
+  ctx2.fillRect(margin + innerPad, y2, p2ContentW, classBannerH);
+  ctx2.strokeRect(margin + innerPad, y2, p2ContentW, classBannerH);
   ctx2.fillStyle = '#0f172a';
-  ctx2.font = 'bold 14px Arial';
+  ctx2.font = `bold ${Math.round(13 * scale)}px Arial, sans-serif`;
   ctx2.textAlign = 'center';
-  ctx2.fillText('ROCK MASS CLASSIFICATION (Q-SYSTEM / BIENIAWSKI RMR / HOEK-BROWN GSI)', W / 2, y2 + 20);
-  y2 += 30;
+  ctx2.fillText('3. ROCK MASS CLASSIFICATION & EMPIRICAL RATINGS', W / 2, y2 + Math.round(classBannerH * 0.65));
+  y2 += classBannerH;
 
   const rqdVal = round.qSystem?.rqd ?? 65;
   const jnVal = round.qSystem?.jn ?? 9;
@@ -6491,50 +6818,82 @@ export async function exportFieldMappingTwoPagePdfSheet(
   const jwVal = round.qSystem?.jw ?? 1.0;
   const srfVal = round.qSystem?.srf ?? 1.0;
 
-  ctx2.strokeRect(36, y2, W - 72, 46);
+  const qRowH = Math.round(44 * scale);
+  ctx2.strokeRect(margin + innerPad, y2, p2ContentW, qRowH);
   ctx2.textAlign = 'left';
-  ctx2.font = 'bold 13.5px Arial';
+  ctx2.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
   ctx2.fillText(
     `Q-System: ${selClass.q ? `RQD=${rqdVal}%, Jn=${jnVal}, Jr=${jrVal}, Ja=${jaVal}, Jw=${jwVal}, SRF=${srfVal}  =>  Q = ${qValue} (${rockClass})` : 'Not Selected'}`,
-    48,
-    y2 + 20
+    margin + innerPad + 12 * scale,
+    y2 + Math.round(qRowH * 0.38)
   );
   ctx2.fillText(
-    `RMR: ${selClass.rmr ? `${totalRmr} (${rmrClass})` : 'N/A'}   |   GSI: ${selClass.gsi ? `${round.gsiValue ?? 60} (${round.rockMassStructuralType || 'Interlocking'} / ${round.surfaceQualityType || 'Good'})` : 'N/A'}`,
-    48,
-    y2 + 39
+    `RMR89: ${selClass.rmr ? `${totalRmr} (${rmrClass})` : 'N/A'}   |   Hoek-Brown GSI: ${selClass.gsi ? `${round.gsiValue ?? 60} (${round.rockMassStructuralType || 'Interlocking'} / ${round.surfaceQualityType || 'Good'})` : 'N/A'}`,
+    margin + innerPad + 12 * scale,
+    y2 + Math.round(qRowH * 0.78)
   );
-  y2 += 56;
+  y2 += qRowH;
+
+  // Protection Support / Canopy details if enabled
+  if (sup.protectionSupportEnabled || selClass.protectionSupport) {
+    const protParts = [
+      sup.forepolingEnabled !== false
+        ? `Forepoling: ${sup.forepolingType || 'Grouted Rebar Spiles'} Ø${sup.forepolingDiameterMm ?? 32}mm, L=${sup.forepolingLengthM ?? 4.0}m @ ${sup.forepolingSpacingCm ?? 30}cm`
+        : null,
+      sup.pipeRoofingEnabled
+        ? `Pipe Canopy: ${sup.pipeRoofingType || 'Perforated Tube'} Ø${sup.pipeRoofingDiameterMm ?? 114}mm, L=${sup.pipeRoofingLengthM ?? 12.0}m`
+        : null,
+      sup.groutingEnabled
+        ? `Grouting: ${sup.groutingType || 'Consolidation'} L=${sup.groutingHoleLengthM ?? 6.0}m @ ${sup.groutingPressureBar ?? 15} bar`
+        : null,
+    ].filter(Boolean);
+    drawRow('Protection / Cavity Support', protParts.join(' | ') || 'Enabled', Math.round(34 * scale));
+  }
+
+  // Junction Factor Geotechnical Adjustment if enabled
+  if (sup.junctionFactorEnabled) {
+    const jAdj = computeJunctionGeotechnicalAdjustments(sup, round);
+    drawRow(
+      'Junction Factor & Advance',
+      `Type: ${sup.junctionTypeLabel || 'Junction'} (∠${jAdj.junctionAngleDeg}°) | Jf: ${jAdj.effectiveMultiplier}x | Adv Factor: ${jAdj.junctionAdvanceFactor}x (Pull: ${jAdj.baselinePullM}m → ${jAdj.recommendedAdvancePullM}m, -${jAdj.advanceReductionPct}%) | Qadj=${jAdj.adjustedQ} (${jAdj.adjustedQClass.split('—')[0].trim()}) | RMRadj=${jAdj.adjustedRmr}`,
+      Math.round(36 * scale)
+    );
+  }
 
   // Geological Description Box
-  const descText =
-    round.geologicalDescription || generateProfessionalGeologicalDescription(round, location);
-  ctx2.strokeRect(36, y2, W - 72, 150);
-  ctx2.font = 'bold 13.5px Arial';
-  ctx2.fillText('Overall Geological, Lithology, Structural & Overbreak Description:', 48, y2 + 22);
-  ctx2.font = '12.5px Arial';
+  const descText = round.geologicalDescription || generateProfessionalGeologicalDescription(round, location);
+  const descBoxH = Math.round(110 * scale);
+  ctx2.strokeRect(margin + innerPad, y2, p2ContentW, descBoxH);
+  ctx2.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
+  ctx2.fillText('Overall Geological, Lithology, Structural & Overbreak Description:', margin + innerPad + 12 * scale, y2 + 18 * scale);
+  ctx2.font = `${Math.round(11 * scale)}px Arial, sans-serif`;
+
   const words = descText.replace(/\n+/g, ' ').split(' ');
-  let line = '';
-  let ly = y2 + 44;
+  let descLine = '';
+  let ly = y2 + 36 * scale;
   for (const w of words) {
-    if ((line + w).length > 125) {
-      ctx2.fillText(line, 48, ly);
-      line = w + ' ';
-      ly += 20;
-      if (ly > y2 + 140) break;
+    if ((descLine + w).length > Math.round(120 * scale)) {
+      ctx2.fillText(descLine, margin + innerPad + 12 * scale, ly);
+      descLine = w + ' ';
+      ly += 16 * scale;
+      if (ly > y2 + descBoxH - 12 * scale) break;
     } else {
-      line += w + ' ';
+      descLine += w + ' ';
     }
   }
-  if (line && ly <= y2 + 140) ctx2.fillText(line, 48, ly);
-  y2 += 160;
+  if (descLine && ly <= y2 + descBoxH - 12 * scale) {
+    ctx2.fillText(descLine, margin + innerPad + 12 * scale, ly);
+  }
+  y2 += descBoxH;
 
-  // Support System Summary
-  drawSectionRow(
-    `Support System (${sup.supportClass})`,
-    `Bolts: ${sup.rockBoltEnabled ? `${sup.rockBoltType} L=${sup.rockBoltLengthM}m @ ${sup.rockBoltSpacingInPlaneM}x${sup.rockBoltSpacingPullM}m` : 'None'} | Shotcrete: ${sup.shotcreteEnabled ? `${sup.shotcreteThicknessMm}mm` : 'None'} | Ribs: ${sup.steelRibType}`,
-    42
+  // Installed Support System Row
+  drawRow(
+    `Support System (${sup.supportClass || 'Class III'})`,
+    `Bolts: ${sup.rockBoltEnabled ? `${sup.rockBoltType} L=${sup.rockBoltLengthM}m @ ${sup.rockBoltSpacingInPlaneM}x${sup.rockBoltSpacingPullM}m` : 'None'} | Shotcrete: ${sup.shotcreteEnabled ? `${sup.shotcreteThicknessMm}mm` : 'None'} | Ribs: ${sup.steelRibType || 'None'}`,
+    Math.round(38 * scale)
   );
+
+  // Survey Overbreak Assessment Row
   if (surv && surv.status === 'completed') {
     const paylineSummary =
       surv.paylineEnabled !== false
@@ -6542,27 +6901,271 @@ export async function exportFieldMappingTwoPagePdfSheet(
           ? ` | Payline +${surv.paylineOffsetMm ?? 150}mm: Real OB ${(surv.realOverbreakAreaM2 || 0).toFixed(2)} m² (Beyond Contract)`
           : ` | Payline +${surv.paylineOffsetMm ?? 150}mm: Within Payline (Permissible)`
         : '';
-    drawSectionRow(
+    drawRow(
       'Survey Overbreak Analysis',
-      `OB: ${surv.overbreakAreaM2.toFixed(2)} m² (${surv.overbreakPercent.toFixed(1)}%)${paylineSummary} — ${formatOverbreakCauseLabel(surv.overbreakCause)}`,
-      40
+      `OB: ${(surv.overbreakAreaM2 || 0).toFixed(2)} m² (${(surv.overbreakPercent || 0).toFixed(1)}%)${paylineSummary} — ${formatOverbreakCauseLabel(surv.overbreakCause)}`,
+      Math.round(36 * scale)
     );
   }
 
-  // 2D Support System Drawing on Page 2
-  if (supportImg && y2 + 220 < H - 90) {
-    const availH = H - 95 - (y2 + 10);
-    const availW = W - 96;
-    ctx2.strokeRect(36, y2 + 8, W - 72, availH);
-    const sc = Math.min(availW / Math.max(1, supportImg.width), (availH - 16) / Math.max(1, supportImg.height));
-    const dw = supportImg.width * sc;
-    const dh = supportImg.height * sc;
-    ctx2.drawImage(supportImg, 36 + (W - 72 - dw) / 2, y2 + 16 + (availH - 16 - dh) / 2, dw, dh);
+  // Section 4: 2D Support System Drawing (Takes the remainder of available height, filling Page 2 perfectly)
+  const remainingH = yBottom - y2 - Math.round(10 * scale);
+  if (remainingH > 100 * scale) {
+    const sBoxY = y2 + Math.round(8 * scale);
+    const sBoxH = remainingH - Math.round(8 * scale);
+
+    ctx2.strokeRect(margin + innerPad, sBoxY, p2ContentW, sBoxH);
+
+    // Section 4 Label Bar
+    ctx2.fillStyle = '#f8fafc';
+    ctx2.fillRect(margin + innerPad, sBoxY, p2ContentW, Math.round(24 * scale));
+    ctx2.strokeRect(margin + innerPad, sBoxY, p2ContentW, Math.round(24 * scale));
+    ctx2.fillStyle = '#0f172a';
+    ctx2.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
+    ctx2.textAlign = 'center';
+    ctx2.fillText(`4. 2D ROCK SUPPORT SYSTEM ENGINEERING OUTLINE (${location.shape.toUpperCase()} — ${location.widthM}m W × ${location.heightM}m H)`, W / 2, sBoxY + Math.round(16 * scale));
+
+    const drawAreaY = sBoxY + Math.round(24 * scale);
+    const drawAreaH = sBoxH - Math.round(24 * scale);
+
+    if (supportImg) {
+      const pad = Math.round(12 * scale);
+      const availW = p2ContentW - pad * 2;
+      const availH = drawAreaH - pad * 2;
+      const sc = Math.min(availW / Math.max(1, supportImg.width), availH / Math.max(1, supportImg.height));
+      const dw = supportImg.width * sc;
+      const dh = supportImg.height * sc;
+      ctx2.drawImage(supportImg, margin + innerPad + (p2ContentW - dw) / 2, drawAreaY + (drawAreaH - dh) / 2, dw, dh);
+    } else {
+      // Clean fallback vector cross-section outline
+      ctx2.strokeStyle = '#334155';
+      ctx2.lineWidth = Math.round(2 * scale);
+      ctx2.strokeRect(margin + innerPad + Math.round(60 * scale), drawAreaY + Math.round(20 * scale), p2ContentW - Math.round(120 * scale), drawAreaH - Math.round(40 * scale));
+      ctx2.fillStyle = '#0f172a';
+      ctx2.font = `bold ${Math.round(14 * scale)}px Arial, sans-serif`;
+      ctx2.textAlign = 'center';
+      ctx2.fillText(`2D Support Cross-Section: ${location.shape.toUpperCase()} (${location.widthM}m W × ${location.heightM}m H)`, W / 2, drawAreaY + drawAreaH / 2);
+    }
   }
 
-  const safeLoc = location.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const safeCh = `${round.chainageFrom}_${round.chainageTo}`.replace(/[^a-zA-Z0-9_.-]/g, '_');
-  exportCanvasesAsPdfDocument([page1, page2], `Field_Face_Log_${safeLoc}_CH_${safeCh}.pdf`, 'portrait');
+  const safeLoc = (location.name || 'Location').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeCh = `${round.chainageFrom || '0'}_${round.chainageTo || '0'}`.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const filename = `Field_Face_Log_${safeLoc}_CH_${safeCh}_${pageSize}.pdf`;
+
+  exportCanvasesAsPdfDocument([page1, page2], filename, orientation, pageSize);
+}
+
+/**
+ * Generates and downloads a true high-resolution A3 Landscape PDF (.pdf)
+ * for the Continuous Tunnel Geological Log (replicating full engineering strip blueprints).
+ */
+export function exportContinuousTunnelLogAsA3Pdf(
+  dataset: ContinuousTunnelStripDataset,
+  customFilename?: string
+): void {
+  try {
+    const W = 2380;
+    const H = 1684;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d')!;
+
+    // 1. Sheet Background and Heavy A3 Engineering Border
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = '#1c1917';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(32, 32, W - 64, H - 64);
+
+    ctx.lineWidth = 2;
+    ctx.strokeRect(40, 40, W - 80, H - 80);
+
+    // 2. Section 1: Header Engineering Title Block
+    const tbY = 48;
+    const tbH = 150;
+    const tbW = W - 96;
+    ctx.strokeRect(48, tbY, tbW, tbH);
+
+    ctx.beginPath();
+    ctx.moveTo(48 + tbW * 0.65, tbY);
+    ctx.lineTo(48 + tbW * 0.65, tbY + tbH);
+    ctx.moveTo(48 + tbW * 0.65, tbY + 75);
+    ctx.lineTo(48 + tbW, tbY + 75);
+    ctx.stroke();
+
+    // Left Title Block Content
+    ctx.fillStyle = '#1c1917';
+    ctx.font = 'bold 22px Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText((dataset.projectName || 'CONTINUOUS TUNNEL GEOLOGICAL LOG').toUpperCase(), 68, tbY + 44);
+
+    ctx.font = 'bold 15px Arial, sans-serif';
+    ctx.fillStyle = '#44403c';
+    ctx.fillText(`EMPLOYER / CLIENT: ${dataset.clientName || 'PROJECT OWNER'}   |   CONTRACTOR: ${dataset.contractorName || 'MAIN CONTRACTOR'}`, 68, tbY + 80);
+
+    const fromRd = dataset.viewFromRd ?? (dataset.pulls?.[0]?.fromRd || 0);
+    const toRd = dataset.viewToRd ?? (dataset.pulls?.[dataset.pulls.length - 1]?.toRd || 30);
+    ctx.fillStyle = '#ea580c';
+    ctx.font = 'bold 16px Arial, sans-serif';
+    ctx.fillText(`TUNNEL HEADING: ${(dataset.tunnelLocationName || 'POWER TUNNEL').toUpperCase()}   |   SCOPE: CH ${fromRd.toFixed(2)} m TO CH ${toRd.toFixed(2)} m`, 68, tbY + 120);
+
+    // Right Title Block Content (Scale, Review Status, Drawing No)
+    ctx.fillStyle = '#1c1917';
+    ctx.font = 'bold 14px Arial, sans-serif';
+    ctx.textAlign = 'left';
+    const rx = 48 + tbW * 0.65 + 20;
+    ctx.fillText('DRAWING TITLE: CONTINUOUS GEOLOGICAL TUNNEL STRIP LOG', rx, tbY + 34);
+    ctx.fillText('HORIZONTAL & VERTICAL SCALE: 1 : 100 (A3 LANDSCAPE)', rx, tbY + 60);
+    ctx.fillText(`REVIEW STATUS: ${dataset.reviewStatus || 'APPROVED AS-BUILT'}   |   DATE: ${new Date().toLocaleDateString()}`, rx, tbY + 110);
+    ctx.fillText(`GEOLOGIST: ${dataset.geologistContractor || 'CONTRACTOR LEAD'} / ${dataset.geologistClient || 'CLIENT REP'}`, rx, tbY + 134);
+
+    // 3. Section 2: Unfolded Continuous Tunnel Strip
+    const stripY = tbY + tbH + 20;
+    const stripH = 760;
+    ctx.strokeStyle = '#1c1917';
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(48, stripY, tbW, stripH);
+
+    // Unfolded Sector Lines (Left Wall, Crown Arch, Right Wall)
+    const leftH = stripH * 0.26;
+    const crownH = stripH * 0.48;
+    const rightH = stripH * 0.26;
+    const lSplY = stripY + leftH;
+    const rSplY = lSplY + crownH;
+
+    ctx.strokeStyle = '#0284c7';
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([8, 5]);
+    ctx.beginPath();
+    ctx.moveTo(48, lSplY);
+    ctx.lineTo(48 + tbW, lSplY);
+    ctx.moveTo(48, rSplY);
+    ctx.lineTo(48 + tbW, rSplY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Sector Labels
+    ctx.font = 'bold 13px Arial, sans-serif';
+    ctx.fillStyle = '#0284c7';
+    ctx.textAlign = 'left';
+    ctx.fillText('LEFT SPRING LINE (L-SPL) — LEFT WALL (INVERT TO SPRING LINE)', 60, lSplY - 8);
+    ctx.fillText('RIGHT SPRING LINE (R-SPL) — CROWN / ARCH (L-SPL TO R-SPL)', 60, rSplY - 8);
+    ctx.fillText('RIGHT WALL (R-SPL TO INVERT)', 60, stripY + stripH - 12);
+
+    // Pull division lines along chainage
+    const pulls = dataset.pulls || [];
+    const pullCount = Math.max(1, pulls.length);
+    const colW = tbW / pullCount;
+
+    for (let i = 0; i < pullCount; i++) {
+      const px = 48 + i * colW;
+      const p = pulls[i];
+
+      // Vertical Pull Boundary
+      ctx.strokeStyle = '#a8a29e';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(px, stripY);
+      ctx.lineTo(px, stripY + stripH);
+      ctx.stroke();
+
+      // Top Chainage Station Label
+      ctx.fillStyle = '#1c1917';
+      ctx.font = 'bold 12px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      if (p) {
+        ctx.fillText(`PULL #${i + 1}`, px + colW / 2, stripY + 22);
+        ctx.fillText(`CH ${p.fromRd}–${p.toRd}m`, px + colW / 2, stripY + 38);
+      }
+    }
+
+    // 4. Section 3: Tabular Parameter Bands per Pull (RQD, Jn, Jr, Ja, Q, RMR, Support, etc.)
+    const tableY = stripY + stripH + 16;
+    const bandRows = [
+      { label: 'RQD (%) & Joint Sets (Jn)', key: 'rqd' },
+      { label: 'Roughness (Jr) & Alteration (Ja)', key: 'jr' },
+      { label: 'Barton Q-Value & Rock Class', key: 'q' },
+      { label: 'Bieniawski RMR89 & Class', key: 'rmr' },
+      { label: 'Hoek-Brown GSI Rating', key: 'gsi' },
+      { label: 'Groundwater Inflow Condition', key: 'water' },
+      { label: 'Survey Overbreak Volume (m³)', key: 'overbreak' },
+      { label: 'Installed Rock Bolts & Mesh', key: 'bolts' },
+      { label: 'Installed Shotcrete Lining', key: 'shotcrete' },
+      { label: 'Steel Ribs / Lattice Girders', key: 'ribs' },
+    ];
+    const bRowH = 42;
+
+    const labelColW = 280;
+    const dataAreaW = tbW - labelColW;
+    const dataColW = dataAreaW / pullCount;
+
+    bandRows.forEach((row, rIdx) => {
+      const by = tableY + rIdx * bRowH;
+      ctx.fillStyle = rIdx % 2 === 0 ? '#f8fafc' : '#ffffff';
+      ctx.fillRect(48, by, tbW, bRowH);
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(48, by, tbW, bRowH);
+
+      // Label Header
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 12px Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(row.label, 58, by + 26);
+
+      // Data columns per pull
+      pulls.forEach((p, pIdx) => {
+        const dx = 48 + labelColW + pIdx * dataColW;
+        ctx.strokeRect(dx, by, dataColW, bRowH);
+
+        let cellText = '-';
+        if (row.key === 'rqd') cellText = `${p.rqdValue ?? 65}% (Jn=${(p as any).jn ?? 9})`;
+        else if (row.key === 'jr') cellText = `Jr=${(p as any).jr ?? 1.5}, Ja=${(p as any).ja ?? 1.0}`;
+        else if (row.key === 'q') cellText = `Q=${p.qValue ?? 4.5} (${p.rockClass || 'Class C'})`;
+        else if (row.key === 'rmr') cellText = `RMR=${p.rmrValue ?? 55} (${p.rockClass || 'Class III'})`;
+        else if (row.key === 'gsi') cellText = `GSI=${p.gsiValue ?? 58}`;
+        else if (row.key === 'water') cellText = p.seepageCondition || 'Dry';
+        else if (row.key === 'overbreak') cellText = `${(p.overbreakVolumeM3 || 0).toFixed(1)} m³`;
+        else if (row.key === 'bolts') cellText = p.rockBoltsInstalled || 'Resin Ø25 L=3.5m';
+        else if (row.key === 'shotcrete') cellText = p.shotcreteInstalled || '100mm SFRS';
+        else if (row.key === 'ribs') cellText = p.steelRibsInstalled || 'None';
+
+        ctx.font = '11.5px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(cellText, dx + dataColW / 2, by + 26);
+      });
+    });
+
+    // 5. Section 4: Geologist Sign-Off Block at Base
+    const signY = tableY + bandRows.length * bRowH + 14;
+    const signBoxH = H - 48 - signY;
+    if (signBoxH > 40) {
+      ctx.strokeStyle = '#1c1917';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(48, signY, tbW, signBoxH);
+
+      ctx.beginPath();
+      ctx.moveTo(48 + tbW / 3, signY);
+      ctx.lineTo(48 + tbW / 3, signY + signBoxH);
+      ctx.moveTo(48 + (tbW * 2) / 3, signY);
+      ctx.lineTo(48 + (tbW * 2) / 3, signY + signBoxH);
+      ctx.stroke();
+
+      ctx.font = 'bold 12px Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`CONTRACTOR: ${dataset.contractorName || 'Main Contractor'}  |  Sign: __________________`, 60, signY + signBoxH * 0.6);
+      ctx.fillText(`CONSULTANT: ${(dataset as any).consultantName || 'Supervision Consultant'}  |  Sign: __________________`, 48 + tbW / 3 + 12, signY + signBoxH * 0.6);
+      ctx.fillText(`CLIENT / OWNER: ${dataset.clientName || 'Project Authority'}  |  Sign: __________________`, 48 + (tbW * 2) / 3 + 12, signY + signBoxH * 0.6);
+    }
+
+    const safeProj = (dataset.projectName || 'Tunnel').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeFilename = customFilename || `${safeProj}_Continuous_Log_CH${fromRd.toFixed(0)}-${toRd.toFixed(0)}_A3.pdf`;
+    exportCanvasesAsPdfDocument([canvas], safeFilename, 'landscape', 'A3');
+  } catch (err) {
+    console.error('exportContinuousTunnelLogAsA3Pdf error:', err);
+  }
 }
 
 // ============================================================================

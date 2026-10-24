@@ -203,29 +203,29 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
       </div>
 
         {/* Global Storage & Data KPI Metrics Strip */}
-        <div className="bg-slate-100 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+        <div className="bg-slate-100 dark:bg-slate-950/80 border-b-2 border-slate-300 dark:border-slate-800 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
             <div className="flex items-center gap-2">
-              <span className="text-slate-500 font-semibold uppercase text-[10px]">Total Boreholes:</span>
-              <span className="font-mono font-black text-slate-900 dark:text-white">{boreholes.length}</span>
+              <span className="text-slate-900 dark:text-slate-200 font-black uppercase text-[10px]">Total Boreholes:</span>
+              <span className="font-mono font-black text-slate-950 dark:text-white">{boreholes.length}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-slate-500 font-semibold uppercase text-[10px]">Total Drilled Depth:</span>
-              <span className="font-mono font-black text-slate-900 dark:text-white">
+              <span className="text-slate-900 dark:text-slate-200 font-black uppercase text-[10px]">Total Drilled Depth:</span>
+              <span className="font-mono font-black text-slate-950 dark:text-white">
                 {totalDrilledAllHoles.toFixed(2)} m
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-slate-500 font-semibold uppercase text-[10px]">Total Core Runs:</span>
-              <span className="font-mono font-black text-slate-900 dark:text-white">{totalRunsAllHoles}</span>
+              <span className="text-slate-900 dark:text-slate-200 font-black uppercase text-[10px]">Total Core Runs:</span>
+              <span className="font-mono font-black text-slate-950 dark:text-white">{totalRunsAllHoles}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-slate-500 font-semibold uppercase text-[10px]">Core Box Photos:</span>
-              <span className="font-mono font-black text-slate-900 dark:text-white">{totalPhotosAllHoles}</span>
+              <span className="text-slate-900 dark:text-slate-200 font-black uppercase text-[10px]">Core Box Photos:</span>
+              <span className="font-mono font-black text-slate-950 dark:text-white">{totalPhotosAllHoles}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-slate-500 font-semibold uppercase text-[10px]">Local Storage:</span>
-              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+              <span className="text-slate-900 dark:text-slate-200 font-black uppercase text-[10px]">Local Storage:</span>
+              <span className="font-mono font-black text-slate-950 dark:text-slate-100">
                 {storageUsage.formattedSize}
               </span>
               <div className="w-16 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700 overflow-hidden">
@@ -241,7 +241,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
             <button
               type="button"
               onClick={handleLoadBenchmarks}
-              className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 shadow-2xs transition-all cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 border-2 border-slate-300 dark:border-slate-700 shadow-2xs transition-all cursor-pointer"
               title="Load 3 complete benchmark borehole datasets (BH-01, BH-02, BH-03)"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
@@ -280,13 +280,13 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
         {/* Toolbar & Search Bar */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="relative flex-1 min-w-[240px] max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+            <Search className="w-4 h-4 text-slate-600 dark:text-slate-300 absolute left-3 top-2.5 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search boreholes by ID, project, chainage, geologist..."
-              className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
+              className="w-full pl-9 pr-3 py-1.5 rounded-lg border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs text-slate-950 dark:text-slate-50 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
             />
           </div>
 
@@ -357,7 +357,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
+                  <tr className="bg-slate-200 dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-black uppercase text-[10px] border-b-2 border-slate-300 dark:border-slate-700">
                     <th className="py-2.5 px-4 w-12 text-center">Status</th>
                     <th className="py-2.5 px-4">Borehole ID</th>
                     <th className="py-2.5 px-4">Project &amp; Location</th>
@@ -370,13 +370,13 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                     <th className="py-2.5 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {filteredBoreholes.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-slate-400">
-                        <FolderArchive className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                        <p className="font-semibold text-slate-600 dark:text-slate-300">No boreholes found</p>
-                        <p className="text-xs text-slate-400 mt-1">
+                      <td colSpan={10} className="py-12 text-center text-slate-500">
+                        <FolderArchive className="w-8 h-8 mx-auto mb-2 text-slate-400 dark:text-slate-500" />
+                        <p className="font-bold text-slate-900 dark:text-slate-100">No boreholes found</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
                           Try adjusting your search query or click "Create Hole" to begin logging.
                         </p>
                       </td>
@@ -399,17 +399,17 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                           key={b.id}
                           className={`transition-colors ${
                             isActive
-                              ? 'bg-orange-50/60 dark:bg-orange-950/20'
+                              ? 'bg-orange-100/70 dark:bg-orange-950/40'
                               : isInspected
-                              ? 'bg-slate-50 dark:bg-slate-800/40'
-                              : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/30'
+                              ? 'bg-slate-100 dark:bg-slate-800/60'
+                              : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/40'
                           }`}
                         >
                           {/* Active Status Badge */}
                           <td className="py-3 px-4 text-center">
                             {isActive ? (
                               <span
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-400 dark:border-emerald-700"
                                 title="Currently open in workspace"
                               >
                                 Active
@@ -421,7 +421,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                                   onSelectBorehole(b.id);
                                   triggerStatus(`Switched active hole to ${b.boreholeId}`, 'info');
                                 }}
-                                className="text-[10px] font-semibold text-slate-400 hover:text-orange-600 dark:hover:text-orange-400 hover:underline cursor-pointer"
+                                className="text-[10px] font-bold text-slate-700 hover:text-orange-600 dark:text-slate-300 dark:hover:text-orange-400 hover:underline cursor-pointer"
                                 title="Click to make this borehole active in workspace"
                               >
                                 Select
@@ -432,48 +432,48 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                           {/* Hole ID */}
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-2">
-                              <span className="font-mono font-black text-sm text-slate-900 dark:text-white">
+                              <span className="font-mono font-black text-sm text-slate-950 dark:text-white">
                                 {b.boreholeId}
                               </span>
                               {b.coreDiameter && (
-                                <span className="font-mono text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded">
+                                <span className="font-mono text-[10px] font-bold text-slate-800 dark:text-slate-200 bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700">
                                   {b.coreDiameter.split(' ')[0]}
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                            <div className="text-[11px] text-slate-800 dark:text-slate-200 font-bold font-mono mt-0.5">
                               {b.chainageLabel || 'Chainage N/A'}
                             </div>
                           </td>
 
                           {/* Project & Alignment */}
                           <td className="py-3 px-4 max-w-[200px]">
-                            <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                            <div className="font-bold text-slate-950 dark:text-slate-100 truncate">
                               {b.projectName}
                             </div>
-                            <div className="text-[11px] text-slate-400 truncate">
+                            <div className="text-[11px] text-slate-700 dark:text-slate-300 font-medium truncate">
                               {b.tunnelName || 'Tunnel Alignment'} &bull; RL: {b.collarElevation || 0}m
                             </div>
                           </td>
 
                           {/* Total Depth */}
-                          <td className="py-3 px-4 text-center font-mono font-black text-slate-900 dark:text-white">
+                          <td className="py-3 px-4 text-center font-mono font-black text-slate-950 dark:text-white">
                             {sm.totalDrilledDepth.toFixed(2)} m
                           </td>
 
                           {/* Runs count */}
-                          <td className="py-3 px-4 text-center font-mono text-slate-700 dark:text-slate-300">
+                          <td className="py-3 px-4 text-center font-mono font-bold text-slate-900 dark:text-slate-100">
                             {sm.runCount}
                           </td>
 
                           {/* TCR % Recovery */}
                           <td className="py-3 px-4 text-center">
                             <div className="flex items-center justify-center gap-1.5">
-                              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                              <span className="font-mono font-black text-slate-950 dark:text-slate-50">
                                 {sm.averageTcr.toFixed(1)}%
                               </span>
                             </div>
-                            <div className="w-16 mx-auto h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden mt-1">
+                            <div className="w-16 mx-auto h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden mt-1">
                               <div
                                 className={`h-full ${
                                   sm.averageTcr >= 90
@@ -490,11 +490,11 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                           {/* RQD % */}
                           <td className="py-3 px-4 text-center">
                             <div className="flex items-center justify-center gap-1">
-                              <span className="font-mono font-bold text-slate-900 dark:text-white">
+                              <span className="font-mono font-black text-slate-950 dark:text-white">
                                 {sm.averageRqd.toFixed(1)}%
                               </span>
                               <span
-                                className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${badge.bg} ${badge.text} ${badge.border}`}
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-black border ${badge.bg} ${badge.text} ${badge.border}`}
                               >
                                 {sm.overallRqdRating}
                               </span>
@@ -503,21 +503,21 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
 
                           {/* Dominant Rock */}
                           <td className="py-3 px-4">
-                            <div className="font-semibold text-slate-800 dark:text-slate-200">
+                            <div className="font-bold text-slate-950 dark:text-slate-100">
                               {sm.dominantLithology}
                             </div>
-                            <div className="text-[10px] text-slate-400">Weathering: {sm.dominantWeathering}</div>
+                            <div className="text-[10px] text-slate-700 dark:text-slate-300 font-semibold">Weathering: {sm.dominantWeathering}</div>
                           </td>
 
                           {/* Sign-Off status */}
                           <td className="py-3 px-4 text-center">
                             <span
-                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${
                                 signOffCount === 3
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  ? 'bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-200 border-emerald-400 dark:border-emerald-700'
                                   : signOffCount > 0
-                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                                  ? 'bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-200 border-amber-400 dark:border-amber-700'
+                                  : 'bg-slate-200 text-slate-900 dark:bg-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700'
                               }`}
                             >
                               <ShieldCheck className="w-3 h-3" />
@@ -670,38 +670,38 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
               {/* Inspector Content Grid */}
               <div className="p-5 space-y-5 text-xs">
                 {/* Hole Parameters Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 bg-slate-100 dark:bg-slate-950 p-4 rounded-xl border-2 border-slate-300 dark:border-slate-800">
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase block">Collar RL</span>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    <span className="text-[10px] text-slate-800 dark:text-slate-200 font-black uppercase block">Collar RL</span>
+                    <span className="font-mono font-black text-slate-950 dark:text-white">
                       {inspectedBorehole.collarElevation || 0} m a.s.l.
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase block">Inclination / Azimuth</span>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    <span className="text-[10px] text-slate-800 dark:text-slate-200 font-black uppercase block">Inclination / Azimuth</span>
+                    <span className="font-mono font-black text-slate-950 dark:text-white">
                       {inspectedBorehole.inclinationDeg}° / {inspectedBorehole.azimuthDeg}°
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase block">Core Diameter</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200">{inspectedBorehole.coreDiameter}</span>
+                    <span className="text-[10px] text-slate-800 dark:text-slate-200 font-black uppercase block">Core Diameter</span>
+                    <span className="font-bold text-slate-950 dark:text-slate-50">{inspectedBorehole.coreDiameter}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase block">Drilling Method</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200 truncate block">
+                    <span className="text-[10px] text-slate-800 dark:text-slate-200 font-black uppercase block">Drilling Method</span>
+                    <span className="font-bold text-slate-950 dark:text-slate-50 truncate block">
                       {inspectedBorehole.drillingMethod}
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase block">Core Recovery</span>
-                    <span className="font-mono font-black text-slate-900 dark:text-white">
+                    <span className="text-[10px] text-slate-800 dark:text-slate-200 font-black uppercase block">Core Recovery</span>
+                    <span className="font-mono font-black text-slate-950 dark:text-white">
                       {inspectedSummary.averageTcr.toFixed(1)}% TCR
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase block">RQD Rating</span>
-                    <span className="font-mono font-black text-slate-900 dark:text-white">
+                    <span className="text-[10px] text-slate-800 dark:text-slate-200 font-black uppercase block">RQD Rating</span>
+                    <span className="font-mono font-black text-slate-950 dark:text-white">
                       {inspectedSummary.averageRqd.toFixed(1)}% ({inspectedSummary.overallRqdRating})
                     </span>
                   </div>
@@ -711,15 +711,15 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white text-xs uppercase tracking-wider mb-2 flex items-center justify-between">
                     <span>Continuous Run Log Table ({inspectedBorehole.runs.length} runs)</span>
-                    <span className="text-[11px] font-normal text-slate-500">
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
                       ISO 22475-1 / ASTM D2113 Engineering Runs
                     </span>
                   </h4>
-                  <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+                  <div className="border-2 border-slate-300 dark:border-slate-800 rounded-lg overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse text-xs">
                         <thead>
-                          <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-700">
+                          <tr className="bg-slate-200 dark:bg-slate-800 text-slate-950 dark:text-slate-50 font-black uppercase text-[10px] border-b-2 border-slate-300 dark:border-slate-700">
                             <th className="py-2 px-3 text-center">Run #</th>
                             <th className="py-2 px-3 text-center">Depth (From - To)</th>
                             <th className="py-2 px-3 text-center">Length</th>
@@ -733,50 +733,50 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                             <th className="py-2 px-3">Discontinuities / Remarks</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                           {inspectedBorehole.runs.map((r) => {
                             const rb = getRqdBadgeColor(r.rqdRating);
                             return (
-                              <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                                <td className="py-2 px-3 text-center font-mono font-bold">{r.runNumber}</td>
-                                <td className="py-2 px-3 text-center font-mono">
+                              <tr key={r.id} className="hover:bg-slate-100/80 dark:hover:bg-slate-800/40">
+                                <td className="py-2 px-3 text-center font-mono font-black text-slate-950 dark:text-white">{r.runNumber}</td>
+                                <td className="py-2 px-3 text-center font-mono font-bold text-slate-950 dark:text-slate-100">
                                   {r.depthFrom.toFixed(2)} - {r.depthTo.toFixed(2)}m
                                 </td>
-                                <td className="py-2 px-3 text-center font-mono text-slate-500">
+                                <td className="py-2 px-3 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
                                   {r.runLength.toFixed(2)}m
                                 </td>
-                                <td className="py-2 px-3 text-center font-mono font-bold">{r.coreRecovered.toFixed(2)}m</td>
-                                <td className="py-2 px-3 text-center font-mono font-bold">
-                                  <span className={r.tcrPercent >= 90 ? 'text-emerald-600' : 'text-amber-600'}>
+                                <td className="py-2 px-3 text-center font-mono font-black text-slate-950 dark:text-white">{r.coreRecovered.toFixed(2)}m</td>
+                                <td className="py-2 px-3 text-center font-mono font-black">
+                                  <span className={r.tcrPercent >= 90 ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}>
                                     {r.tcrPercent.toFixed(1)}%
                                   </span>
                                 </td>
-                                <td className="py-2 px-3 text-center font-mono">{r.soundPiecesOver10cm.toFixed(2)}m</td>
-                                <td className="py-2 px-3 text-center font-mono font-black">{r.rqdPercent.toFixed(1)}%</td>
+                                <td className="py-2 px-3 text-center font-mono font-bold text-slate-950 dark:text-slate-100">{r.soundPiecesOver10cm.toFixed(2)}m</td>
+                                <td className="py-2 px-3 text-center font-mono font-black text-slate-950 dark:text-white">{r.rqdPercent.toFixed(1)}%</td>
                                 <td className="py-2 px-3 text-center">
                                   <span
-                                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${rb.bg} ${rb.text} ${rb.border}`}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-black border ${rb.bg} ${rb.text} ${rb.border}`}
                                   >
                                     {r.rqdRating}
                                   </span>
                                 </td>
                                 <td className="py-2 px-3 text-center">
                                   <span
-                                    className="px-2 py-0.5 rounded text-[11px] font-semibold"
+                                    className="px-2 py-0.5 rounded text-[11px] font-bold"
                                     style={{
-                                      backgroundColor: r.lithologyColor ? `${r.lithologyColor}25` : '#f1f5f9',
-                                      color: r.lithologyColor || '#0f172a',
-                                      border: `1px solid ${r.lithologyColor || '#cbd5e1'}`,
+                                      backgroundColor: r.lithologyColor ? `${r.lithologyColor}30` : '#f1f5f9',
+                                      color: '#0f172a',
+                                      border: `1.5px solid ${r.lithologyColor || '#cbd5e1'}`,
                                     }}
                                   >
                                     {r.lithology}
                                   </span>
                                 </td>
-                                <td className="py-2 px-3 text-center font-mono font-bold">
+                                <td className="py-2 px-3 text-center font-mono font-black text-slate-950 dark:text-slate-50">
                                   {r.weathering} / {r.strengthGrade}
                                 </td>
-                                <td className="py-2 px-3 text-slate-600 dark:text-slate-300">
-                                  <div className="truncate max-w-[260px] font-medium">
+                                <td className="py-2 px-3 text-slate-800 dark:text-slate-200">
+                                  <div className="truncate max-w-[260px] font-bold">
                                     {r.discontinuitiesDescription || r.remarks || '—'}
                                   </div>
                                 </td>
@@ -800,22 +800,22 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                       {inspectedBorehole.photos.map((p) => (
                         <div
                           key={p.id}
-                          className="p-3 bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800"
+                          className="p-3 bg-white dark:bg-slate-950 rounded-lg border-2 border-slate-200 dark:border-slate-800 shadow-2xs"
                         >
                           <div className="aspect-16/9 bg-slate-200 dark:bg-slate-800 rounded flex items-center justify-center overflow-hidden mb-2">
                             {p.photoUrl ? (
                               <img src={p.photoUrl} alt={p.photoTitle} className="w-full h-full object-cover" />
                             ) : (
-                              <div className="text-center p-3 text-slate-400">
+                              <div className="text-center p-3 text-slate-500">
                                 <Camera className="w-6 h-6 mx-auto mb-1 opacity-50" />
-                                <span className="text-[10px]">Photo Recorded</span>
+                                <span className="text-[10px] font-bold">Photo Recorded</span>
                               </div>
                             )}
                           </div>
-                          <div className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                          <div className="font-black text-slate-950 dark:text-slate-100 text-xs">
                             Box #{p.boxNumber} ({p.depthFrom.toFixed(2)}m - {p.depthTo.toFixed(2)}m)
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          <div className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold truncate mt-0.5">
                             {p.photoTitle || p.notes || 'Condition: ' + p.condition}
                           </div>
                         </div>
@@ -825,33 +825,33 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                 )}
 
                 {/* Sign-Off Parties Preview */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
-                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase block">1. Contractor Geologist</span>
-                    <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t-2 border-slate-200 dark:border-slate-800">
+                  <div className="p-3 bg-white dark:bg-slate-950 rounded-lg border-2 border-slate-200 dark:border-slate-800 shadow-2xs">
+                    <span className="text-[10px] font-black text-slate-800 dark:text-slate-200 uppercase block">1. Contractor Geologist</span>
+                    <div className="font-black text-slate-950 dark:text-slate-50 mt-0.5">
                       {inspectedBorehole.signOff?.contractorName || 'Pending'}
                     </div>
-                    <div className="text-[10px] text-slate-400">
+                    <div className="text-[10px] text-slate-600 dark:text-slate-400 font-semibold">
                       {inspectedBorehole.signOff?.contractorDesignation || inspectedBorehole.drillingContractor}
                     </div>
                   </div>
 
-                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase block">2. PMC Geotechnical Lead</span>
-                    <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                  <div className="p-3 bg-white dark:bg-slate-950 rounded-lg border-2 border-slate-200 dark:border-slate-800 shadow-2xs">
+                    <span className="text-[10px] font-black text-slate-800 dark:text-slate-200 uppercase block">2. PMC Geotechnical Lead</span>
+                    <div className="font-black text-slate-950 dark:text-slate-50 mt-0.5">
                       {inspectedBorehole.signOff?.pmcName || 'Pending'}
                     </div>
-                    <div className="text-[10px] text-slate-400">
+                    <div className="text-[10px] text-slate-600 dark:text-slate-400 font-semibold">
                       {inspectedBorehole.signOff?.pmcDesignation || inspectedBorehole.pmcConsultant}
                     </div>
                   </div>
 
-                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase block">3. Client Project Director</span>
-                    <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                  <div className="p-3 bg-white dark:bg-slate-950 rounded-lg border-2 border-slate-200 dark:border-slate-800 shadow-2xs">
+                    <span className="text-[10px] font-black text-slate-800 dark:text-slate-200 uppercase block">3. Client Project Director</span>
+                    <div className="font-black text-slate-950 dark:text-slate-50 mt-0.5">
                       {inspectedBorehole.signOff?.clientName || 'Pending'}
                     </div>
-                    <div className="text-[10px] text-slate-400">
+                    <div className="text-[10px] text-slate-600 dark:text-slate-400 font-semibold">
                       {inspectedBorehole.signOff?.clientDesignation || inspectedBorehole.clientEmployer}
                     </div>
                   </div>

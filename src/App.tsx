@@ -4250,7 +4250,7 @@ export default function App({
                   setIsFirstOpening(false);
                   setIsCoreLoggingOpen(true);
                 }}
-                className="w-full py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
+                className="w-full py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white dark:bg-stone-900 text-stone-950 dark:text-stone-50 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer hover:shadow-xl active:scale-99 group"
                 style={{
                   borderColor: palette.primaryHex,
                 }}
@@ -4259,13 +4259,13 @@ export default function App({
                   <span
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
                     style={{
-                      backgroundColor: palette.primaryHex + '20',
+                      backgroundColor: palette.primaryHex + '25',
                       color: palette.accentIconColor,
                     }}
                   >
                     <FileSpreadsheet className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="text-stone-900 font-extrabold">Geological &amp; Geotechnical Core Logging</span>
+                  <span className="text-stone-950 dark:text-stone-50 font-black tracking-tight">Geological &amp; Geotechnical Core Logging</span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"

@@ -19,6 +19,7 @@ import {
   computeFieldQValue,
   computeFieldRmrValue,
   computePhysicalMetricPoints,
+  computeJunctionGeotechnicalAdjustments,
   computeTraceOrientationFromTunnelDrive,
   convertPhysicalMetricPointsToCanvas,
   createDefaultSupportSystem,
@@ -2619,6 +2620,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
 }) => {
   const [savedBanner, setSavedBanner] = useState<boolean>(false);
   const [showTemplateEditor, setShowTemplateEditor] = useState<boolean>(false);
+  const [isExportingWord, setIsExportingWord] = useState<boolean>(false);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [exportBanner, setExportBanner] = useState<string | null>(null);
 
   const colorMode = activeRound.reportColorMode || 'bw';
   const selClass = activeRound.selectedClassifications || { q: true, rmr: true, gsi: true };
@@ -2649,60 +2653,96 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
   };
 
   const handleExportTwoPageWordDoc = async () => {
-    const svgEl = document.getElementById(
-      'field-unfolded-report-svg'
-    ) as unknown as SVGSVGElement | null;
-    const supSvgEl = document.getElementById(
-      'field-report-support-2d-svg'
-    ) as unknown as SVGSVGElement | null;
-    const vbH = svgEl?.viewBox?.baseVal?.height || 610;
-    const [pngDataUrl, supportPngUrl] = await Promise.all([
-      renderSvgElementToHighResPngDataUrl(svgEl, 1600, Math.round((1600 * vbH) / 920)),
-      renderSvgElementToHighResPngDataUrl(supSvgEl, 1400, 740),
-    ]);
-    exportFieldMappingTwoPageWordSheet(
-      activeProject,
-      activeLocation,
-      activeRound,
-      pngDataUrl,
-      supportPngUrl
-    );
-    if (activeRound) {
-      syncFieldMappingRoundForAiTraining(
+    try {
+      setIsExportingWord(true);
+      setExportBanner('Preparing Microsoft Word (.doc) document with tables & vector sketch...');
+      const svgEl = document.getElementById(
+        'field-unfolded-report-svg'
+      ) as unknown as SVGSVGElement | null;
+      const supSvgEl = document.getElementById(
+        'field-report-support-2d-svg'
+      ) as unknown as SVGSVGElement | null;
+      const vbH = svgEl?.viewBox?.baseVal?.height || 610;
+      const [pngDataUrl, supportPngUrl] = await Promise.all([
+        renderSvgElementToHighResPngDataUrl(svgEl, 1600, Math.round((1600 * vbH) / 920)),
+        renderSvgElementToHighResPngDataUrl(supSvgEl, 1400, 740),
+      ]);
+      exportFieldMappingTwoPageWordSheet(
+        activeProject,
+        activeLocation,
         activeRound,
-        activeProject || undefined,
-        activeLocation || undefined,
-        'EXPORT_GENERATED'
+        pngDataUrl,
+        supportPngUrl
       );
+      if (activeRound) {
+        try {
+          syncFieldMappingRoundForAiTraining(
+            activeRound,
+            activeProject || undefined,
+            activeLocation || undefined,
+            'EXPORT_GENERATED'
+          );
+        } catch {}
+      }
+      setExportBanner('Word Document (.doc) downloaded successfully!');
+      setTimeout(() => setExportBanner(null), 3500);
+    } catch (err: any) {
+      console.error('Word export error:', err);
+      setExportBanner('Word download error, retrying without embedded raster...');
+      try {
+        exportFieldMappingTwoPageWordSheet(activeProject, activeLocation, activeRound, null, null);
+      } catch {}
+    } finally {
+      setIsExportingWord(false);
     }
   };
 
-  const handleExportTwoPagePdfDoc = async () => {
-    const svgEl = document.getElementById(
-      'field-unfolded-report-svg'
-    ) as unknown as SVGSVGElement | null;
-    const supSvgEl = document.getElementById(
-      'field-report-support-2d-svg'
-    ) as unknown as SVGSVGElement | null;
-    const vbH = svgEl?.viewBox?.baseVal?.height || 610;
-    const [pngDataUrl, supportPngUrl] = await Promise.all([
-      renderSvgElementToHighResPngDataUrl(svgEl, 1600, Math.round((1600 * vbH) / 920)),
-      renderSvgElementToHighResPngDataUrl(supSvgEl, 1400, 740),
-    ]);
-    await exportFieldMappingTwoPagePdfSheet(
-      activeProject,
-      activeLocation,
-      activeRound,
-      pngDataUrl,
-      supportPngUrl
-    );
-    if (activeRound) {
-      syncFieldMappingRoundForAiTraining(
-        activeRound,
-        activeProject || undefined,
-        activeLocation || undefined,
-        'EXPORT_GENERATED'
+  const handleExportTwoPagePdfDoc = async (pageSize: 'A4' | 'A3' = 'A4') => {
+    try {
+      setIsExportingPdf(true);
+      setExportBanner(`Rendering high-resolution 2-Page ${pageSize} standalone PDF...`);
+      const svgEl = document.getElementById(
+        'field-unfolded-report-svg'
+      ) as unknown as SVGSVGElement | null;
+      const supSvgEl = document.getElementById(
+        'field-report-support-2d-svg'
+      ) as unknown as SVGSVGElement | null;
+      const vbH = svgEl?.viewBox?.baseVal?.height || 610;
+      const [pngDataUrl, supportPngUrl] = await Promise.all([
+        renderSvgElementToHighResPngDataUrl(svgEl, 1600, Math.round((1600 * vbH) / 920)),
+        renderSvgElementToHighResPngDataUrl(supSvgEl, 1400, 740),
+      ]);
+      await exportFieldMappingTwoPagePdfSheet(
+        {
+          project: activeProject,
+          location: activeLocation,
+          round: activeRound,
+          sketchPngDataUrl: pngDataUrl,
+          support2DPngDataUrl: supportPngUrl,
+          pageSize,
+          orientation: 'portrait',
+        }
       );
+      if (activeRound) {
+        try {
+          syncFieldMappingRoundForAiTraining(
+            activeRound,
+            activeProject || undefined,
+            activeLocation || undefined,
+            'EXPORT_GENERATED'
+          );
+        } catch {}
+      }
+      setExportBanner(`${pageSize} PDF Report downloaded successfully!`);
+      setTimeout(() => setExportBanner(null), 3500);
+    } catch (err: any) {
+      console.error('PDF export error:', err);
+      setExportBanner('PDF export error: generating standard PDF...');
+      try {
+        await exportFieldMappingTwoPagePdfSheet(activeProject, activeLocation, activeRound, null, null, pageSize);
+      } catch {}
+    } finally {
+      setIsExportingPdf(false);
     }
   };
 
@@ -2774,19 +2814,45 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
 
             <button
               type="button"
+              disabled={isExportingWord}
               onClick={handleExportTwoPageWordDoc}
-              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow cursor-pointer"
+              className={`px-3 py-1.5 rounded-lg text-slate-950 font-black text-xs flex items-center gap-1.5 shadow transition-all cursor-pointer ${
+                isExportingWord
+                  ? 'bg-emerald-300 opacity-75 cursor-wait'
+                  : 'bg-emerald-500 hover:bg-emerald-400'
+              }`}
+              title="Download Microsoft Word 2-page document with editable tables and vector graphics"
             >
               <Download className="w-3.5 h-3.5" />
-              Download Word (.doc)
+              {isExportingWord ? 'Exporting Word...' : 'Download Word (.doc)'}
             </button>
             <button
               type="button"
-              onClick={handleExportTwoPagePdfDoc}
-              className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-black text-xs flex items-center gap-1.5 shadow cursor-pointer"
+              disabled={isExportingPdf}
+              onClick={() => handleExportTwoPagePdfDoc('A4')}
+              className={`px-3 py-1.5 rounded-lg text-white font-black text-xs flex items-center gap-1.5 shadow transition-all cursor-pointer ${
+                isExportingPdf
+                  ? 'bg-rose-400 opacity-75 cursor-wait'
+                  : 'bg-rose-600 hover:bg-rose-500'
+              }`}
+              title="Download 2-Page A4 Portrait PDF (210×297mm) perfectly fitted to page"
             >
               <Download className="w-3.5 h-3.5" />
-              Download PDF (.pdf)
+              {isExportingPdf ? 'Exporting...' : 'Download PDF (A4)'}
+            </button>
+            <button
+              type="button"
+              disabled={isExportingPdf}
+              onClick={() => handleExportTwoPagePdfDoc('A3')}
+              className={`px-3 py-1.5 rounded-lg text-slate-950 font-black text-xs flex items-center gap-1.5 shadow transition-all cursor-pointer ${
+                isExportingPdf
+                  ? 'bg-amber-300 opacity-75 cursor-wait'
+                  : 'bg-amber-400 hover:bg-amber-300'
+              }`}
+              title="Download 2-Page High-Resolution A3 PDF (297×420mm) perfectly fitted to page"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download PDF (A3)
             </button>
             {onSaveAndReturnToProjectSetup && (
               <button
@@ -2796,7 +2862,7 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                   setTimeout(() => setSavedBanner(false), 2500);
                   onSaveAndReturnToProjectSetup();
                 }}
-                className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow cursor-pointer"
+                className="px-3.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow cursor-pointer"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 {savedBanner ? 'Saved to Project Data!' : 'Save Round to Project Data'}
@@ -2805,10 +2871,20 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
           </div>
         </div>
 
+        {exportBanner && (
+          <div className="mx-2 mb-2 px-3 py-1.5 rounded-lg bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 text-xs font-bold flex items-center gap-2 animate-in fade-in shrink-0">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{exportBanner}</span>
+          </div>
+        )}
+
         {/* Scrollable 2-Page A4 Vertical Document Sheet Container */}
         <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1 bg-slate-800/60 p-2 sm:p-3.5 rounded-lg touch-pan-y">
           {/* ==================== PAGE 1 OF 2 (A4 VERTICAL: 210mm × 297mm) ==================== */}
-          <div className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm] print:break-after-page">
+          <div
+            id="field-mapping-report-page-1"
+            className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm] print:break-after-page"
+          >
             {/* TOP: Compact Basic Details Header (Small in size, zero wasted space) */}
             <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
               <tbody>
@@ -3032,7 +3108,10 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
           </div>
 
           {/* ==================== PAGE 2 OF 2 (A4 VERTICAL: 210mm × 297mm) ==================== */}
-          <div className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm]">
+          <div
+            id="field-mapping-report-page-2"
+            className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm]"
+          >
             {/* TOP: Compact Basic Details Header (Small in size, zero wasted space) */}
             <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
               <tbody>
@@ -3281,6 +3360,25 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                       </td>
                     </tr>
                   )}
+                  {activeRound.supportSystem?.junctionFactorEnabled && (() => {
+                    const jAdj = computeJunctionGeotechnicalAdjustments(activeRound.supportSystem, activeRound);
+                    return (
+                      <tr>
+                        <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                          Junction Factor &amp; Advance
+                        </th>
+                        <td colSpan={3} className="border border-slate-900 bg-white px-2 py-1 font-mono text-[10px]">
+                          Type: <strong>{activeRound.supportSystem.junctionTypeLabel || 'Junction'}</strong> (∠{jAdj.junctionAngleDeg}°) | Jf: <strong>{jAdj.effectiveMultiplier}x</strong> | Adv Factor: <strong>{jAdj.junctionAdvanceFactor}x</strong> (Nominal: {jAdj.baselinePullM}m → Rec. Pull: <strong>{jAdj.recommendedAdvancePullM}m</strong>, -{jAdj.advanceReductionPct}%)
+                        </td>
+                        <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                          Adjusted Q / RMR
+                        </th>
+                        <td className="border border-slate-900 bg-white px-2 py-1 font-black text-amber-950">
+                          Q<sub>adj</sub> = {jAdj.adjustedQ} ({jAdj.adjustedQClass.split('—')[0].trim()}) | RMR<sub>adj</sub> = {jAdj.adjustedRmr} ({jAdj.adjustedRmrClass.split('—')[0].trim()})
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </tbody>
               </table>
 
@@ -3299,6 +3397,7 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                       <FieldSupport2DCrossSectionSvg
                         svgId="field-report-support-2d-svg"
                         location={activeLocation}
+                        round={activeRound}
                         support={activeRound.supportSystem || createDefaultSupportSystem()}
                         pullLengthM={activeRound.pullLengthMeters}
                         compactForReport={true}

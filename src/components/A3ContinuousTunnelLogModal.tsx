@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import {
   Check,
   CheckCircle2,
+  Download,
   Edit,
   Edit3,
   FileCode2,
@@ -20,6 +21,7 @@ import {
   resolveStripTraceColor,
   runAiTrendAlignmentOnDataset,
 } from '../engine/continuous3DStripEngine';
+import { exportContinuousTunnelLogAsA3Pdf } from '../engine/fieldMappingEngine';
 
 import {
   EswaCadContinuousStripModal,
@@ -72,6 +74,8 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
 
   // Zoom scale for A3 sheet view
   const [sheetZoom, setSheetZoom] = useState<number>(1.0);
+  const [isExportingA3, setIsExportingA3] = useState<boolean>(false);
+  const [a3ExportBanner, setA3ExportBanner] = useState<string | null>(null);
 
   // Step-by-Step Customizer Drawer
   const [isCustomizerOpen, setIsCustomizerOpen] = useState<boolean>(false);
@@ -149,9 +153,28 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
     }
   };
 
-  // Print / A3 Landscape PDF Export
+  // Direct A3 Landscape PDF Export
+  const handleExportA3Pdf = () => {
+    try {
+      setIsExportingA3(true);
+      setA3ExportBanner('Generating high-resolution A3 Landscape PDF (420×297mm)...');
+      exportContinuousTunnelLogAsA3Pdf(dataset);
+      setA3ExportBanner('A3 Landscape PDF downloaded successfully!');
+      setTimeout(() => setA3ExportBanner(null), 3500);
+    } catch (err) {
+      console.error('A3 PDF export error:', err);
+      setA3ExportBanner('PDF export failed. Opening print dialog...');
+      window.print();
+    } finally {
+      setIsExportingA3(false);
+    }
+  };
+
+  // Print / A3 Landscape Sheet
   const handlePrintA3 = () => {
+    document.body.classList.add('print-a3-landscape');
     window.print();
+    setTimeout(() => document.body.classList.remove('print-a3-landscape'), 1200);
   };
 
   // Submit for Review
@@ -274,15 +297,31 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
               <span>Edit Canvas (ESWA CAD)</span>
             </button>
 
-            {/* Print / Export A3 PDF */}
+            {/* Download A3 Landscape PDF */}
+            <button
+              type="button"
+              disabled={isExportingA3}
+              onClick={handleExportA3Pdf}
+              className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer ${
+                isExportingA3
+                  ? 'bg-orange-400 text-stone-950 opacity-75 cursor-wait'
+                  : 'bg-orange-600 hover:bg-orange-500 text-white shadow-orange-600/20'
+              }`}
+              title="Download high-resolution A3 Landscape PDF (420×297mm)"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{isExportingA3 ? 'Exporting A3...' : 'Download A3 PDF'}</span>
+            </button>
+
+            {/* Print A3 */}
             <button
               type="button"
               onClick={handlePrintA3}
-              className="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-orange-600/20 transition cursor-pointer"
-              title="Export high-resolution A3 Landscape PDF"
+              className="px-2.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs flex items-center gap-1.5 border border-stone-700 transition cursor-pointer"
+              title="Print A3 Drawing Sheet"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Export A3 PDF</span>
+              <span>Print A3</span>
             </button>
 
             {/* Export DXF */}
@@ -306,6 +345,13 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
             </button>
           </div>
         </div>
+
+        {a3ExportBanner && (
+          <div className="mx-4 my-2 px-3.5 py-2 rounded-xl bg-orange-950/90 text-orange-200 border border-orange-500/50 text-xs font-bold flex items-center gap-2 animate-in fade-in shrink-0">
+            <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0" />
+            <span>{a3ExportBanner}</span>
+          </div>
+        )}
 
         {/* Main Body Area: Exact Engineering A3 Landscape Drawing Sheet (Replicating User's Attached PDF) */}
         <div className="flex-1 flex overflow-hidden relative">

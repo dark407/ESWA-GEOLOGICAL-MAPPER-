@@ -166,63 +166,63 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
       </div>
 
       {/* Structured Geotechnical Metadata Table */}
-      <table className="w-full text-[10px] border-collapse">
+      <table className="w-full text-[10px] border-collapse border-2 border-slate-900">
         <tbody>
           <tr>
-            <td className="w-[14%] bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Project Name:</td>
-            <td className="w-[36%] font-bold text-slate-900">{borehole.projectName || '—'}</td>
-            <td className="w-[14%] bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Client / Employer:</td>
-            <td className="w-[36%] font-medium text-slate-900">{borehole.clientEmployer || '—'}</td>
+            <td className="w-[14%] bg-slate-200 font-black uppercase text-[9px] text-slate-950">Project Name:</td>
+            <td className="w-[36%] font-bold text-slate-950">{borehole.projectName || '—'}</td>
+            <td className="w-[14%] bg-slate-200 font-black uppercase text-[9px] text-slate-950">Client / Employer:</td>
+            <td className="w-[36%] font-bold text-slate-950">{borehole.clientEmployer || '—'}</td>
           </tr>
           <tr>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Location / Chainage:</td>
-            <td className="font-bold text-slate-900 font-mono">
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Location / Chainage:</td>
+            <td className="font-black text-slate-950 font-mono">
               {borehole.chainageLabel || borehole.tunnelName || '—'}
             </td>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Drilling Contractor:</td>
-            <td className="font-medium text-slate-900">{borehole.drillingContractor || '—'}</td>
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Drilling Contractor:</td>
+            <td className="font-bold text-slate-950">{borehole.drillingContractor || '—'}</td>
           </tr>
           <tr>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Collar Elevation:</td>
-            <td className="font-mono text-slate-900">
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Collar Elevation:</td>
+            <td className="font-mono font-bold text-slate-950">
               {borehole.collarElevation ? `${borehole.collarElevation.toFixed(2)} m a.s.l.` : '—'}
             </td>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Geotechnical PMC:</td>
-            <td className="font-medium text-slate-900">{borehole.pmcConsultant || '—'}</td>
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Geotechnical PMC:</td>
+            <td className="font-bold text-slate-950">{borehole.pmcConsultant || '—'}</td>
           </tr>
           <tr>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Coordinates:</td>
-            <td className="font-mono text-slate-900 text-[9.5px]">
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Coordinates:</td>
+            <td className="font-mono font-bold text-slate-950 text-[9.5px]">
               {borehole.coordinates?.easting && borehole.coordinates?.northing
                 ? `E: ${borehole.coordinates.easting} | N: ${borehole.coordinates.northing}`
                 : borehole.coordinates?.elevation || 'Standard Site Grid'}
             </td>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Drilling Rig / Method:</td>
-            <td className="font-medium text-slate-900">{borehole.drillingMethod || 'Wireline Diamond Core HQ3'}</td>
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Drilling Rig / Method:</td>
+            <td className="font-bold text-slate-950">{borehole.drillingMethod || 'Wireline Diamond Core HQ3'}</td>
           </tr>
           <tr>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Inclination / Azimuth:</td>
-            <td className="font-mono font-bold text-slate-900">
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Inclination / Azimuth:</td>
+            <td className="font-mono font-black text-slate-950">
               {borehole.inclinationDeg}° (from horiz) &bull; Azimuth {borehole.azimuthDeg}°
             </td>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Core Barrel / Size:</td>
-            <td className="font-semibold text-slate-900">{borehole.coreDiameter || 'HQ3 (61.1 mm)'}</td>
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Core Barrel / Size:</td>
+            <td className="font-bold text-slate-950">{borehole.coreDiameter || 'HQ3 (61.1 mm)'}</td>
           </tr>
           <tr>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Total Drilled Depth:</td>
-            <td className="font-mono font-black text-slate-900">{summary.totalDrilledDepth.toFixed(2)} m</td>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Water Table Depth:</td>
-            <td className="font-mono font-bold text-blue-800">
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Total Drilled Depth:</td>
+            <td className="font-mono font-black text-slate-950">{summary.totalDrilledDepth.toFixed(2)} m</td>
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Water Table Depth:</td>
+            <td className="font-mono font-black text-blue-900">
               {borehole.waterTableDepth !== undefined ? `${borehole.waterTableDepth.toFixed(2)} m b.g.l.` : 'Dry / Nil Ingress'}
             </td>
           </tr>
           <tr>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Dates Commenced / Ended:</td>
-            <td className="font-mono text-slate-900 text-[9px]">
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Dates Commenced / Ended:</td>
+            <td className="font-mono font-bold text-slate-950 text-[9px]">
               {borehole.startDate || '—'} to {borehole.completionDate || '—'}
             </td>
-            <td className="bg-slate-100 font-bold uppercase text-[9px] text-slate-700">Logged By / Checked By:</td>
-            <td className="font-medium text-slate-900 text-[9px]">
+            <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Logged By / Checked By:</td>
+            <td className="font-bold text-slate-950 text-[9px]">
               Logged: {borehole.loggedBy || 'Site Geologist'} &bull; Checked: {borehole.reviewedBy || 'PMC Engineer'}
             </td>
           </tr>
@@ -277,14 +277,14 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
 
           <div className="flex items-center gap-2">
             {/* Sheet View Selector Filter */}
-            <div className="hidden md:flex items-center gap-1 bg-slate-200 dark:bg-slate-800 p-1 rounded-lg text-xs">
+            <div className="hidden md:flex items-center gap-1 bg-slate-300 dark:bg-slate-800 p-1 rounded-lg text-xs border border-slate-300 dark:border-slate-700">
               <button
                 type="button"
                 onClick={() => setSelectedSheetView('all')}
-                className={`px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-1 rounded font-black transition-all cursor-pointer ${
                   selectedSheetView === 'all'
-                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    ? 'bg-white dark:bg-slate-700 text-slate-950 dark:text-white shadow-xs'
+                    : 'text-slate-800 dark:text-slate-200 hover:text-orange-600'
                 }`}
               >
                 All Sheets ({totalSheets})
@@ -294,10 +294,10 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
                   key={sNum}
                   type="button"
                   onClick={() => setSelectedSheetView(sNum)}
-                  className={`px-2 py-1 rounded font-mono font-bold transition-all cursor-pointer ${
+                  className={`px-2 py-1 rounded font-mono font-black transition-all cursor-pointer ${
                     selectedSheetView === sNum
                       ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      : 'text-slate-800 dark:text-slate-200 hover:text-orange-600'
                   }`}
                   title={`View Sheet ${sNum}`}
                 >
@@ -309,10 +309,10 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
             <button
               type="button"
               onClick={handleDownloadHtml}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 flex items-center gap-1.5 transition-all cursor-pointer"
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 border-2 border-slate-300 dark:border-slate-700 flex items-center gap-1.5 transition-all cursor-pointer"
               title="Download standalone A4 HTML report"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-3.5 h-3.5 text-blue-600" />
               <span className="hidden sm:inline">Export HTML</span>
             </button>
 

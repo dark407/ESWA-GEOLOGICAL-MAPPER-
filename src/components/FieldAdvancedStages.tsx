@@ -38,6 +38,7 @@ import {
   SPACING_OPTIONS,
   WEATHERING_OPTIONS,
   computePaylinePolygon,
+  computeJunctionGeotechnicalAdjustments,
   createDefaultSupportSystem,
   createDefaultSurveyOverbreak,
   generateOverbreakSummarySentence,
@@ -45,6 +46,7 @@ import {
   getLocationSurfaceConfig,
 } from '../engine/fieldMappingEngine';
 import { FieldSupport3DInteractiveCanvas } from './FieldSupport3DInteractiveCanvas';
+import { TunnelJunctionFactorModal } from './TunnelJunctionFactorModal';
 
 // ============================================================================
 // REUSABLE TEMPLATE EDIT PANEL (HEADER LOGOS, MISSING TICK-BOXES, CUSTOM WORD TEMPLATE)
@@ -982,8 +984,17 @@ const GSI_SURFACE_COLS: {
   },
 ];
 
-export function buildSupportRecommendationText(next: FieldSupportSystemConfig): string {
+export function buildSupportRecommendationText(
+  next: FieldSupportSystemConfig,
+  round?: FieldExcavationRound | null
+): string {
   const parts: string[] = [`Support ${next.supportClass}:`];
+  if (next.junctionFactorEnabled) {
+    const jAdj = computeJunctionGeotechnicalAdjustments(next, round);
+    parts.push(
+      `[Junction Zone: ${next.junctionTypeLabel || 'Intersection'} (Jf=${jAdj.effectiveMultiplier}x, ∠${jAdj.junctionAngleDeg}°, Adv Factor=${jAdj.junctionAdvanceFactor}x, Rec Pull=${jAdj.recommendedAdvancePullM}m | Eff. Q=${jAdj.adjustedQ}, Eff. RMR=${jAdj.adjustedRmr})]`
+    );
+  }
   if (next.rockBoltsEnabled) {
     parts.push(
       `${next.rockBoltType} Rock Bolts L=${next.rockBoltLengthM}m @ ${next.rockBoltInPlaneSpacingM}m×${next.rockBoltLongitudinalSpacingM}m (${
@@ -1046,6 +1057,524 @@ export function buildSupportRecommendationText(next: FieldSupportSystemConfig): 
   }
   return parts.join(' + ');
 }
+
+export const FIELD_JUNCTION_PRESETS = [
+  {
+    id: 'T_JUNCTION' as const,
+    label: 'T-Junction',
+    fullLabel: 'T-Junction (90° Intersect)',
+    multiplier: 1.5,
+    angleDeg: 90,
+    advanceFactor: 0.7,
+    description: '3-way orthogonal opening; diagonal span 1.41×, 3D stress concentration K ≈ 1.5×',
+    badgeColor: 'border-amber-500/80 bg-amber-500/10 text-amber-300',
+  },
+  {
+    id: 'CROSS_INTERSECTION' as const,
+    label: '4-Way Cross',
+    fullLabel: '4-Way Cross Intersection (+)',
+    multiplier: 1.75,
+    angleDeg: 90,
+    advanceFactor: 0.6,
+    description: 'Orthogonal cross opening; maximum unsupported roof corner diagonals & stress concentration',
+    badgeColor: 'border-orange-500/80 bg-orange-500/10 text-orange-300',
+  },
+  {
+    id: 'Y_BIFURCATION' as const,
+    label: 'Y-Bifurcation',
+    fullLabel: 'Y-Bifurcation / Fork (Branching)',
+    multiplier: 2.0,
+    angleDeg: 45,
+    advanceFactor: 0.5,
+    description: 'Acute divergence crotch pillar with critical stress peak at the bullnose wedge',
+    badgeColor: 'border-rose-500/80 bg-rose-500/10 text-rose-300',
+  },
+  {
+    id: 'CROSS_PASSAGE' as const,
+    label: 'Cross-Passage',
+    fullLabel: 'Cross-Passage / Niche Breakout',
+    multiplier: 1.25,
+    angleDeg: 90,
+    advanceFactor: 0.8,
+    description: 'Breakout into connecting cross-passage, refuge niche, or transformer chamber',
+    badgeColor: 'border-sky-500/80 bg-sky-500/10 text-sky-300',
+  },
+  {
+    id: 'PORTAL_BREAK_IN' as const,
+    label: 'Portal Break-in',
+    fullLabel: 'Portal Break-in / Shallow Junction',
+    multiplier: 1.35,
+    angleDeg: 90,
+    advanceFactor: 0.75,
+    description: 'Transition from canopy umbrella / low cover portal into standard tunnel drive',
+    badgeColor: 'border-purple-500/80 bg-purple-500/10 text-purple-300',
+  },
+  {
+    id: 'CUSTOM' as const,
+    label: 'Custom',
+    fullLabel: 'Custom Geotechnical Junction',
+    multiplier: 1.5,
+    angleDeg: 90,
+    advanceFactor: 0.7,
+    description: 'Custom site-specific junction factor, intersection geometry & advance pull factor',
+    badgeColor: 'border-emerald-500/80 bg-emerald-500/10 text-emerald-300',
+  },
+];
+
+export const FieldJunctionFactorSystemCard: React.FC<{
+  support: FieldSupportSystemConfig;
+  round: FieldExcavationRound;
+  location?: FieldTunnelLocationItem;
+  onUpdateSupport: (patch: Partial<FieldSupportSystemConfig>) => void;
+  onUpdateRound?: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
+  onApplyClassPreset?: (cls: 'Class I' | 'Class II' | 'Class III' | 'Class IV' | 'Class V' | 'Custom') => void;
+}> = ({ support, round, location, onUpdateSupport, onUpdateRound, onApplyClassPreset }) => {
+  const isEnabled = Boolean(support.junctionFactorEnabled);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [appliedMsg, setAppliedMsg] = useState<string | null>(null);
+
+  const adj = useMemo(
+    () => computeJunctionGeotechnicalAdjustments(support, round),
+    [support, round]
+  );
+
+  const handleToggle = (checked: boolean) => {
+    onUpdateSupport({
+      junctionFactorEnabled: checked,
+      ...(checked && !support.junctionType
+        ? {
+            junctionType: 'T_JUNCTION',
+            junctionTypeLabel: 'T-Junction (90° Intersect)',
+            junctionMultiplier: 1.5,
+            junctionAngleDeg: 90,
+            junctionAdvanceFactor: 0.7,
+            junctionAdjustQ: true,
+            junctionAdjustRmr: true,
+          }
+        : {}),
+    });
+  };
+
+  const handleSelectPreset = (preset: (typeof FIELD_JUNCTION_PRESETS)[number]) => {
+    onUpdateSupport({
+      junctionType: preset.id,
+      junctionTypeLabel: preset.fullLabel,
+      junctionMultiplier: preset.multiplier,
+      junctionAngleDeg: preset.angleDeg,
+      junctionAdvanceFactor: preset.advanceFactor,
+      junctionFactorEnabled: true,
+    });
+  };
+
+  const handleAutoAdjustSupport = () => {
+    const jf = Math.max(1.0, adj.effectiveMultiplier);
+    const sqrtJf = Math.sqrt(jf);
+
+    // 1. Rock Bolts: tighten spacing, increase length
+    const baseInPlane = support.rockBoltInPlaneSpacingM || 1.5;
+    const baseLong = support.rockBoltLongitudinalSpacingM || 1.5;
+    const nextInPlane = Math.max(0.8, Number((baseInPlane / sqrtJf).toFixed(1)));
+    const nextLong = Math.max(0.8, Number((baseLong / sqrtJf).toFixed(1)));
+    const baseLen = support.rockBoltLengthM || 4.0;
+    const nextLen = Math.min(12, Number((baseLen * 1.2).toFixed(1)));
+
+    // 2. Shotcrete: thicken crown & wall
+    const thickMultiplier = 1.0 + (jf - 1.0) * 0.5;
+    const baseCrown = support.shotcreteCrownThicknessMm || 100;
+    const baseWall = support.shotcreteWallThicknessMm || 75;
+    const nextCrown = Math.min(350, Math.round((baseCrown * thickMultiplier) / 25) * 25);
+    const nextWall = Math.min(300, Math.round((baseWall * thickMultiplier) / 25) * 25);
+
+    // 3. Lattice Girder / ISMB
+    const nextLgSpacing = support.latticeGirderEnabled
+      ? Math.max(0.6, Number(((support.latticeGirderSpacingM || 1.2) / sqrtJf).toFixed(1)))
+      : support.latticeGirderSpacingM;
+    const nextIsmbSpacing = support.ismbEnabled
+      ? Math.max(0.5, Number(((support.ismbSpacingM || 1.0) / sqrtJf).toFixed(1)))
+      : support.ismbSpacingM;
+
+    onUpdateSupport({
+      rockBoltsEnabled: true,
+      rockBoltInPlaneSpacingM: nextInPlane,
+      rockBoltLongitudinalSpacingM: nextLong,
+      rockBoltLengthM: nextLen,
+      shotcreteEnabled: true,
+      shotcreteCrownThicknessMm: nextCrown,
+      shotcreteWallThicknessMm: nextWall,
+      wireMeshEnabled: true,
+      ...(support.latticeGirderEnabled ? { latticeGirderSpacingM: nextLgSpacing } : {}),
+      ...(support.ismbEnabled ? { ismbSpacingM: nextIsmbSpacing } : {}),
+    });
+
+    setAppliedMsg(
+      `Support adjusted for Junction: Bolts ${nextInPlane}×${nextLong}m (L=${nextLen}m), Shotcrete Crown ${nextCrown}mm / Wall ${nextWall}mm`
+    );
+    setTimeout(() => setAppliedMsg(null), 4500);
+  };
+
+  const handleApplyAdvancePullToRound = () => {
+    if (onUpdateRound) {
+      onUpdateRound((r) => ({
+        ...r,
+        pullLengthMeters: adj.recommendedAdvancePullM,
+      }));
+      setAppliedMsg(
+        `Round advance pull updated to ${adj.recommendedAdvancePullM}m (Adv Factor ${adj.junctionAdvanceFactor}x, -${adj.advanceReductionPct}%)`
+      );
+      setTimeout(() => setAppliedMsg(null), 4500);
+    }
+  };
+
+  const handleResetToBaseline = () => {
+    if (onApplyClassPreset) {
+      onApplyClassPreset(support.supportClass);
+      setAppliedMsg(`Support parameters restored to standard ${support.supportClass} baseline`);
+      setTimeout(() => setAppliedMsg(null), 4000);
+    }
+  };
+
+  return (
+    <div
+      className={`rounded-xl border transition-all ${
+        isEnabled
+          ? 'bg-slate-900 border-amber-500/60 shadow-lg shadow-amber-950/20'
+          : 'bg-slate-900/80 border-slate-800'
+      } p-3 space-y-2.5`}
+    >
+      {/* Header & ON/OFF Toggle Switch */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+        <div className="flex items-center gap-2">
+          <div
+            className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
+              isEnabled ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+            }`}
+          >
+            Jf
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                Junction Factor &amp; Advance Optimization
+              </span>
+              {isEnabled && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  {support.junctionTypeLabel || 'Active'} • Jf={adj.effectiveMultiplier}x
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] text-slate-400">
+              Adjust support dimensions, recall Q &amp; RMR ratings, and control safe advance pull for tunnel intersections
+            </p>
+          </div>
+        </div>
+
+        {/* ON / OFF Switch */}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-bold text-slate-300">
+            Junction Factor:
+          </span>
+          <button
+            type="button"
+            onClick={() => handleToggle(!isEnabled)}
+            className={`relative inline-flex h-6 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+              isEnabled ? 'bg-emerald-500' : 'bg-slate-700'
+            }`}
+            role="switch"
+            aria-checked={isEnabled}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                isEnabled ? 'translate-x-6' : 'translate-x-0'
+              }`}
+            />
+          </button>
+          <span
+            className={`text-xs font-black uppercase px-2 py-0.5 rounded ${
+              isEnabled
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                : 'bg-slate-800 text-slate-400 border border-slate-700'
+            }`}
+          >
+            {isEnabled ? 'ON' : 'OFF'}
+          </span>
+        </div>
+      </div>
+
+      {/* Main Junction Controls (When Enabled) */}
+      {isEnabled && (
+        <div className="space-y-2.5 pt-0.5">
+          {/* 1. Junction Presets */}
+          <div>
+            <div className="flex items-center justify-between text-[10.5px] font-bold text-slate-300 mb-1">
+              <span>Select Geotechnical Junction Type:</span>
+              <span className="text-[10px] text-amber-300/80 font-mono">
+                {FIELD_JUNCTION_PRESETS.find((p) => p.id === support.junctionType)?.description || ''}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5">
+              {FIELD_JUNCTION_PRESETS.map((p) => {
+                const isSelected = (support.junctionType || 'T_JUNCTION') === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleSelectPreset(p)}
+                    className={`px-2 py-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? `${p.badgeColor} ring-1 ring-amber-400 shadow`
+                        : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="text-[11px] font-black">{p.label}</div>
+                    <div className="text-[9.5px] font-mono opacity-80">
+                      Jf={p.multiplier}x | ∠{p.angleDeg}°
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Accurate Numerical Sliders & Inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-950/80 border border-slate-800 rounded-lg p-2 text-xs">
+            {/* Multiplier Jf */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase text-amber-400">
+                  Junction Multiplier (Jf)
+                </label>
+                <span className="font-mono text-xs font-black text-amber-300">
+                  {adj.junctionMultiplier.toFixed(2)}x
+                </span>
+              </div>
+              <input
+                type="range"
+                min={1.0}
+                max={2.5}
+                step={0.05}
+                value={support.junctionMultiplier ?? 1.5}
+                onChange={(e) =>
+                  onUpdateSupport({ junctionMultiplier: Number(e.target.value) })
+                }
+                className="w-full accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded"
+              />
+              <div className="flex items-center justify-between text-[9px] text-slate-500 font-mono">
+                <span>1.0x (Straight)</span>
+                <span>1.75x (Cross)</span>
+                <span>2.5x (Severe)</span>
+              </div>
+            </div>
+
+            {/* Intersection Angle Theta */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase text-sky-400">
+                  Intersection Angle (θ)
+                </label>
+                <span className="font-mono text-xs font-black text-sky-300">
+                  {adj.junctionAngleDeg}°
+                  {adj.junctionAngleDeg < 90 && (
+                    <span className="ml-1 text-[9px] text-rose-400 font-normal">
+                      (+{Math.round((adj.effectiveMultiplier / adj.junctionMultiplier - 1) * 100)}% wedge stress)
+                    </span>
+                  )}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={20}
+                max={90}
+                step={5}
+                value={support.junctionAngleDeg ?? 90}
+                onChange={(e) =>
+                  onUpdateSupport({ junctionAngleDeg: Number(e.target.value) })
+                }
+                className="w-full accent-sky-500 cursor-pointer h-1.5 bg-slate-800 rounded"
+              />
+              <div className="flex items-center justify-between text-[9px] text-slate-500 font-mono">
+                <span>20° (Skew Crotch)</span>
+                <span>60° (Branch)</span>
+                <span>90° (Tee / +)</span>
+              </div>
+            </div>
+
+            {/* Junction Advance Factor */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase text-emerald-400">
+                  Junction Advance Factor
+                </label>
+                <span className="font-mono text-xs font-black text-emerald-300">
+                  {adj.junctionAdvanceFactor.toFixed(2)}x
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.4}
+                max={1.0}
+                step={0.05}
+                value={support.junctionAdvanceFactor ?? 0.7}
+                onChange={(e) =>
+                  onUpdateSupport({ junctionAdvanceFactor: Number(e.target.value) })
+                }
+                className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-slate-800 rounded"
+              />
+              <div className="flex items-center justify-between text-[9px] text-slate-500 font-mono">
+                <span>0.4x (Cautious)</span>
+                <span>0.7x (Standard)</span>
+                <span>1.0x (Full Pull)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Recalled Geotechnical Ratings Box (Barton Q & Bieniawski RMR89 & Advance Pull) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {/* Barton Q Call & Adjustment */}
+            <div className="bg-slate-950 border border-amber-500/30 rounded-lg p-2 space-y-1">
+              <div className="flex items-center justify-between text-[10.5px]">
+                <span className="font-black text-amber-400">Barton Q-System</span>
+                <label className="inline-flex items-center gap-1 text-[9.5px] text-slate-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={support.junctionAdjustQ !== false}
+                    onChange={(e) => onUpdateSupport({ junctionAdjustQ: e.target.checked })}
+                    className="w-3 h-3 accent-amber-500 cursor-pointer"
+                  />
+                  <span>Adjust Q</span>
+                </label>
+              </div>
+              <div className="flex items-center justify-between font-mono text-[11px]">
+                <span className="text-slate-400">
+                  Baseline Q: <strong className="text-slate-200">{adj.baselineQ}</strong>
+                </span>
+                <span className="text-amber-400 font-black">
+                  → Q<sub>adj</sub>: {adj.adjustedQ}
+                </span>
+              </div>
+              <div className="text-[9.5px] text-slate-400 truncate font-mono">
+                {adj.adjustedQClass}
+              </div>
+            </div>
+
+            {/* Bieniawski RMR89 Call & Adjustment */}
+            <div className="bg-slate-950 border border-emerald-500/30 rounded-lg p-2 space-y-1">
+              <div className="flex items-center justify-between text-[10.5px]">
+                <span className="font-black text-emerald-400">Bieniawski RMR89</span>
+                <label className="inline-flex items-center gap-1 text-[9.5px] text-slate-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={support.junctionAdjustRmr !== false}
+                    onChange={(e) => onUpdateSupport({ junctionAdjustRmr: e.target.checked })}
+                    className="w-3 h-3 accent-emerald-500 cursor-pointer"
+                  />
+                  <span>Adjust RMR</span>
+                </label>
+              </div>
+              <div className="flex items-center justify-between font-mono text-[11px]">
+                <span className="text-slate-400">
+                  Baseline RMR: <strong className="text-slate-200">{adj.baselineRmr}</strong>
+                </span>
+                <span className="text-emerald-400 font-black">
+                  → RMR<sub>adj</sub>: {adj.adjustedRmr} (Δ-{adj.deltaRmr})
+                </span>
+              </div>
+              <div className="text-[9.5px] text-slate-400 truncate font-mono">
+                {adj.adjustedRmrClass}
+              </div>
+            </div>
+
+            {/* Junction Advance Pull Optimization */}
+            <div className="bg-slate-950 border border-sky-500/30 rounded-lg p-2 space-y-1">
+              <div className="flex items-center justify-between text-[10.5px]">
+                <span className="font-black text-sky-400">Junction Advance Pull</span>
+                <span className="text-[9.5px] font-bold text-rose-300">
+                  -{adj.advanceReductionPct}% Pull
+                </span>
+              </div>
+              <div className="flex items-center justify-between font-mono text-[11px]">
+                <span className="text-slate-400">
+                  Nominal: <strong className="text-slate-200">{adj.baselinePullM}m</strong>
+                </span>
+                <span className="text-sky-400 font-black">
+                  → Rec: {adj.recommendedAdvancePullM}m
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleApplyAdvancePullToRound}
+                className="w-full mt-0.5 py-0.5 px-1.5 rounded bg-sky-950 hover:bg-sky-900 border border-sky-700/60 text-sky-200 text-[10px] font-bold cursor-pointer transition-colors"
+              >
+                Apply {adj.recommendedAdvancePullM}m Pull to Round
+              </button>
+            </div>
+          </div>
+
+          {/* 4. Action Bar: Auto-Adjust Support + Reset + Deep Analysis Modal */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAutoAdjustSupport}
+                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer transition-all"
+              >
+                <span>⚡ Auto-Adjust Support from Junction Factor</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetToBaseline}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center gap-1 cursor-pointer transition-all"
+                title={`Revert spacing and thickness back to nominal ${support.supportClass} standards`}
+              >
+                <span>↺ Revert to Baseline</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setModalOpen(true)}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white font-bold text-xs flex items-center gap-1 cursor-pointer transition-all"
+            >
+              <span>Detailed Modal Analysis</span>
+            </button>
+          </div>
+
+          {/* Toast / Notification feedback */}
+          {appliedMsg && (
+            <div className="p-2 rounded-lg bg-emerald-950/80 border border-emerald-500/60 text-emerald-300 text-xs font-bold animate-fadeIn">
+              ✓ {appliedMsg}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Deep-Dive Analysis Modal */}
+      {modalOpen && (
+        <TunnelJunctionFactorModal
+          isOpen={modalOpen}
+          onClose={() => setModalOpen(false)}
+          defaultMainSpanM={location?.widthM || 8.5}
+          defaultBranchSpanM={(location?.widthM || 8.5) * 0.9}
+          currentQVal={adj.baselineQ}
+          currentRmrVal={adj.baselineRmr}
+          onApplyJunctionFactor={(res) => {
+            onUpdateSupport({
+              junctionFactorEnabled: true,
+              junctionType: res.junctionType === 'OBLIQUE_SKEW' ? 'CUSTOM' : res.junctionType,
+              junctionTypeLabel: `${res.junctionType.replace(/_/g, ' ')} (${res.intersectionAngleDeg}°)`,
+              junctionMultiplier: res.junctionFactorKj,
+              junctionAngleDeg: res.intersectionAngleDeg,
+              junctionAdvanceFactor: Number((1.0 / res.junctionFactorKj).toFixed(2)),
+            });
+            setModalOpen(false);
+            setAppliedMsg(`Imported junction parameters from deep-dive calculator (Jf=${res.junctionFactorKj}x)`);
+            setTimeout(() => setAppliedMsg(null), 4000);
+          }}
+        />
+      )}
+    </div>
+  );
+};
 
 export const FieldProtectionCavitySupportDesigner: React.FC<{
   support: FieldSupportSystemConfig;
@@ -1738,7 +2267,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
   onBackToSets: () => void;
   onContinueToSupport: () => void;
 }> = ({ activeLocation, activeRound, onUpdateRound, onBackToSets, onContinueToSupport }) => {
-  const [activeTab, setActiveTab] = useState<'q' | 'rmr' | 'gsi' | 'protection'>('q');
+  const [activeTab, setActiveTab] = useState<'q' | 'rmr' | 'gsi'>('q');
 
   const qRes = computeFieldQValue(activeRound.qSystem);
   const rmrRes = computeFieldRmrValue(activeRound.rmrSystem);
@@ -1870,43 +2399,6 @@ export const FieldRockMassClassificationsStage: React.FC<{
               title="Include GSI in final report"
             >
               {selClass.gsi ? '☑ In Report' : '☐ Hidden'}
-            </button>
-          </div>
-
-          {/* Tab 4: Protection / Cavity Support (Forepoling, Pipe Roofing & Grouting) */}
-          <div className="inline-flex items-center rounded-xl border border-rose-500/50 bg-slate-950 p-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('protection');
-                if (!support.protectionSupportEnabled) {
-                  updateSupportFromClassifications({ protectionSupportEnabled: true });
-                }
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-2 cursor-pointer transition-all ${
-                activeTab === 'protection'
-                  ? 'bg-rose-500 text-slate-950 shadow'
-                  : 'text-rose-300 hover:text-white'
-              }`}
-            >
-              <span>4. Protection / Cavity Support</span>
-              <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-rose-300 text-[10.5px]">
-                Forepoling • Pipe Roof • Grout
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                updateSupportFromClassifications({
-                  protectionSupportEnabled: !support.protectionSupportEnabled,
-                })
-              }
-              className={`px-2 py-1 text-[10px] font-bold rounded cursor-pointer ${
-                support.protectionSupportEnabled ? 'text-emerald-400' : 'text-slate-500'
-              }`}
-              title="Enable / Disable Protection or Cavity Support"
-            >
-              {support.protectionSupportEnabled ? '☑ Active' : '☐ Off'}
             </button>
           </div>
         </div>
@@ -2248,16 +2740,6 @@ export const FieldRockMassClassificationsStage: React.FC<{
           </div>
         )}
 
-        {/* ==================== TAB 4: DEDICATED PROTECTION / CAVITY SUPPORT DESIGNER ==================== */}
-        {activeTab === 'protection' && (
-          <FieldProtectionCavitySupportDesigner
-            support={support}
-            onUpdateSupport={updateSupportFromClassifications}
-            location={activeLocation}
-            round={activeRound}
-            showLiveDrawing={true}
-          />
-        )}
 
         {/* ==================== TAB 3: HOEK & MARINOS INTERACTIVE 2D GSI SHEET ==================== */}
         {activeTab === 'gsi' && (
@@ -2541,7 +3023,7 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
   pullLengthM?: number;
   compact?: boolean;
   compactForReport?: boolean;
-}> = ({ svgId, location, support, compact = false, compactForReport = false }) => {
+}> = ({ svgId, location, round, support, compact = false, compactForReport = false }) => {
   const isCompact = compact || compactForReport;
   const surf = useMemo(() => getLocationSurfaceConfig(location), [location]);
   const W = Math.max(1.5, surf.tunnelW || location.widthM || 8);
@@ -2879,8 +3361,17 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
       }
     }
 
+    if (support.junctionFactorEnabled) {
+      const jAdj = computeJunctionGeotechnicalAdjustments(support, round);
+      list.push({
+        label: `Junction Factor (${support.junctionTypeLabel || 'Intersection'})`,
+        text: `Jf=${jAdj.effectiveMultiplier}x, ∠${jAdj.junctionAngleDeg}°, Adv Factor ${jAdj.junctionAdvanceFactor}x (Rec. Pull: ${jAdj.recommendedAdvancePullM}m) | Q: ${jAdj.baselineQ}→${jAdj.adjustedQ}, RMR: ${jAdj.baselineRmr}→${jAdj.adjustedRmr}`,
+        fill: '#b45309',
+      });
+    }
+
     return list;
-  }, [support]);
+  }, [support, round]);
 
   const shapeLabel = (location.shape || 'd_shaped').replace(/_/g, ' ').toUpperCase();
 
@@ -2913,6 +3404,35 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
       >
         2D SUPPORT CROSS-SECTION — {shapeLabel} ({W}m W × {H}m H | {support.supportClass.toUpperCase()})
       </text>
+
+      {/* Junction Factor Indicator Banner */}
+      {support.junctionFactorEnabled && (() => {
+        const jAdj = computeJunctionGeotechnicalAdjustments(support, round);
+        return (
+          <g transform="translate(8, 36)">
+            <rect
+              x="0"
+              y="0"
+              width="544"
+              height="18"
+              fill="#78350f"
+              stroke="#b45309"
+              strokeWidth="1"
+            />
+            <text
+              x="272"
+              y="12.5"
+              textAnchor="middle"
+              fontSize="7.8"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#fef3c7"
+            >
+              JUNCTION ZONE ({support.junctionTypeLabel || 'INTERSECTION'} ∠{jAdj.junctionAngleDeg}°) • Jf={jAdj.effectiveMultiplier}x • ADV FACTOR={jAdj.junctionAdvanceFactor}x (REC PULL: {jAdj.recommendedAdvancePullM}m) • EFF Q={jAdj.adjustedQ} • EFF RMR={jAdj.adjustedRmr}
+            </text>
+          </g>
+        );
+      })()}
 
       {/* 0. PROTECTION / CAVITY SUPPORT: Cavity Pocket, Grouting Fan, Forepoling & Pipe Roofing */}
       {support.protectionSupportEnabled && (
@@ -3517,7 +4037,7 @@ export const FieldSupportSystemStage: React.FC<{
       return {
         ...r,
         supportSystem: next,
-        rockSupportRecommendation: buildSupportRecommendationText(next),
+        rockSupportRecommendation: buildSupportRecommendationText(next, r),
       };
     });
   };
@@ -3967,6 +4487,16 @@ export const FieldSupportSystemStage: React.FC<{
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2.5 overflow-hidden">
         {/* Left 6 Columns: Support System Configuration + 3D Spot Bolt Placement */}
         <div className="lg:col-span-6 min-h-0 overflow-y-auto space-y-2.5 pr-1">
+          {/* 0. Dedicated Geotechnical Junction Factor & Advance Optimization Card */}
+          <FieldJunctionFactorSystemCard
+            support={support}
+            round={activeRound}
+            location={activeLocation}
+            onUpdateSupport={updateSupport}
+            onUpdateRound={onUpdateRound}
+            onApplyClassPreset={applySupportClassPreset}
+          />
+
           {/* 1. Wire Mesh & Shotcrete Controls */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             {/* Shotcrete Card */}

@@ -125,9 +125,16 @@ function buildPdfFromJpegPages(
     const imageObjId = 5 + i * 3;
     const imgName = `/Im${i + 1}`;
 
-    const contentStream = `q\n${p.pagePtW.toFixed(2)} 0 0 ${p.pagePtH.toFixed(
+    // Calculate proportional fit and center on the PDF page
+    const scale = Math.min(p.pagePtW / Math.max(1, p.widthPx), p.pagePtH / Math.max(1, p.heightPx));
+    const drawW = p.widthPx * scale;
+    const drawH = p.heightPx * scale;
+    const drawX = (p.pagePtW - drawW) / 2;
+    const drawY = (p.pagePtH - drawH) / 2;
+
+    const contentStream = `q\n${drawW.toFixed(2)} 0 0 ${drawH.toFixed(2)} ${drawX.toFixed(
       2
-    )} 0 0 cm\n${imgName} Do\nQ\n`;
+    )} ${drawY.toFixed(2)} cm\n${imgName} Do\nQ\n`;
     const contentBytes = encoder.encode(contentStream);
 
     // Page object
@@ -533,9 +540,8 @@ export async function downloadEngineeringSheetAsPDF(payload: PdfWordExportPayloa
       const jpegDataUrl = svgCanvas.toDataURL('image/jpeg', 0.92);
       const b64 = jpegDataUrl.split(',')[1] || '';
       if (b64) {
-        const aspect = svgCanvas.width / Math.max(1, svgCanvas.height);
-        const pagePtW = 1190.55; // A3 Landscape width in points
-        const pagePtH = Number((pagePtW / aspect).toFixed(2));
+        const pagePtW = 1190.55; // Standard ISO A3 Landscape width in points
+        const pagePtH = 841.89; // Standard ISO A3 Landscape height in points
         pages.push({
           jpegBytes: base64ToUint8Array(b64),
           widthPx: svgCanvas.width,

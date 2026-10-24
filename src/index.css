@@ -84,6 +84,15 @@
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
+
+  input, select, textarea {
+    color: #0f172a;
+  }
+  html[data-theme="dark"] input,
+  html[data-theme="dark"] select,
+  html[data-theme="dark"] textarea {
+    color: #f8fafc;
+  }
 }
 
 /* ============================================================================
@@ -1021,9 +1030,36 @@ canvas,
 
 @media print {
   @page {
-    size: A3 landscape;
-    margin: 0mm;
+    size: auto;
+    margin: 6mm;
   }
+  @page a4-portrait {
+    size: A4 portrait;
+    margin: 6mm;
+  }
+  @page a4-landscape {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+  @page a3-landscape {
+    size: A3 landscape;
+    margin: 6mm;
+  }
+  @page a3-portrait {
+    size: A3 portrait;
+    margin: 6mm;
+  }
+
+  body.print-a4-portrait,
+  .print-page-a4 {
+    page: a4-portrait;
+  }
+
+  body.print-a3-landscape,
+  .print-page-a3 {
+    page: a3-landscape;
+  }
+
   html,
   body,
   #root {
@@ -1034,7 +1070,9 @@ canvas,
     background: #ffffff !important;
     color: #000000 !important;
   }
+
   .no-print,
+  .print\:hidden,
   .eswa-bg-watermark {
     display: none !important;
     opacity: 0 !important;
@@ -1156,16 +1194,5 @@ button:not(:disabled):active {
   transform: scale(0.975);
 }
 
-@media print {
-  @page {
-    size: A3 landscape;
-    margin: 8mm;
-  }
-  body, html, #root {
-    background: #ffffff !important;
-    color: #000000 !important;
-    height: auto !important;
-    overflow: visible !important;
-  }
-}
+
 
