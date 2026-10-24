@@ -295,6 +295,7 @@ interface MappingWorkspaceProps {
   onUpdateSettings?: React.Dispatch<React.SetStateAction<TunnelSettings>>;
   savedProjects?: SavedProjectRecord[];
   onLoadProjectRecord?: (rec: SavedProjectRecord) => void;
+  onOpenContinuousTunnelLog?: () => void;
 }
 
 type ActiveTool =
@@ -384,6 +385,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
   onUpdateSettings,
   savedProjects = [],
   onLoadProjectRecord,
+  onOpenContinuousTunnelLog,
 }) => {
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
   const [selectedJointId, setSelectedJointId] = useState<string | null>(null);
@@ -3884,7 +3886,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                 { id: 'TUNNEL_PHOTO', step: '1', label: 'Face Fit', fullLabel: '1. Face Fit & Photo' },
                 { id: 'HOME', step: '2', label: 'Core Mapping', fullLabel: '2. Core Mapping' },
                 { id: 'GEOLOGY_3D', step: '3', label: 'Geology', fullLabel: '3. Geology & Rock' },
-                { id: 'ADVANCED_ANALYSIS', step: '4', label: 'Geol Analytics', fullLabel: '4. Advance Geological Analytics' },
+                { id: 'ADVANCED_ANALYSIS', step: '4', label: 'Advance Modeling', fullLabel: '4. Advance Analysis & Modeling' },
                 { id: 'SURVEY_OVERBREAK', step: '5', label: 'Survey', fullLabel: '5. Survey & Overbreak' },
                 { id: 'CLASSIFICATION_SHEET', step: '6', label: 'Data Sheets', fullLabel: '6. Data Sheets & Export' },
               ] as const
@@ -4088,11 +4090,41 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     </button>
                   );
                 })}
+
+              {onOpenContinuousTunnelLog && (
+                <button
+                  type="button"
+                  onClick={onOpenContinuousTunnelLog}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-bold rounded-md border border-amber-500/70 bg-gradient-to-r from-slate-900 to-slate-950 text-amber-300 hover:text-amber-200 transition-all cursor-pointer shadow-xs shrink-0"
+                  title="Open Continuous 3D Tunnel Logging (Unfolded 3D Shell Ch. 0+000 to Ch. 0+150 · A3 Strip · AutoCAD 2026)"
+                >
+                  <Layers className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden md:inline">Continuous 3D Log</span>
+                  <span className="md:hidden">3D Log</span>
+                  <span className="px-1 py-0.2 rounded bg-amber-500 text-slate-950 text-[9px] font-extrabold">CAD</span>
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Right: Layers + Property Palette + Collapse Toggle */}
+          {/* Right: Layers + Advance Analysis & Modeling + Collapse Toggle */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Direct Advance Analysis & 3D Modeling Launcher */}
+            <button
+              type="button"
+              onClick={() => {
+                setCadRibbonTab('ADVANCED_ANALYSIS');
+                setCadRibbonCollapsed(false);
+              }}
+              className="flex items-center gap-1 px-2 py-1 text-[11px] font-mono font-bold rounded-lg transition-all cursor-pointer bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-xs ring-1 ring-amber-400"
+              title="Open Advance Analysis & 3D Geological Modeling (6 Full Capabilities: Excavation Logs, Weak Zone Projector, Sequential Face Recon, Apparent Thickness, Alignment Alternatives, Poor Rock Proportions)"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+              <span className="hidden sm:inline">Advance Analysis &amp; Modeling</span>
+              <span className="sm:hidden">Adv Modeling</span>
+              <span className="px-1 py-0.2 rounded bg-slate-950 text-amber-300 text-[9px] font-extrabold">6-in-1</span>
+            </button>
+
             {cadRibbonTab !== 'CLASSIFICATION_SHEET' && (
               <>
                 {/* Vector Layer Manager Dropdown */}
@@ -5320,6 +5352,18 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                     3. Final Output Sheet
                   </button>
 
+                  {onOpenContinuousTunnelLog && (
+                    <button
+                      type="button"
+                      onClick={onOpenContinuousTunnelLog}
+                      className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-mono font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-md shadow-2xs cursor-pointer"
+                      title="Open Continuous 3D Tunnel Logging, Multi-Pull Unfolded Shell & AutoCAD 2026 Strip"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      4. Continuous 3D Log &amp; CAD
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() =>
@@ -5498,6 +5542,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
           overbreakAnalysis={overbreakAnalysis}
           lithologyRegions={lithologyRegions}
           junctionFactorData={junctionFactorData}
+          savedProjects={savedProjects}
           onOpenJunctionCalculator={() => setShowJunctionFactorModal(true)}
           onClearJunctionFactor={() => setJunctionFactorData(null)}
         />

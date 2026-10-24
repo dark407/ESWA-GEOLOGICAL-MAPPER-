@@ -707,12 +707,12 @@ export const ContinuousTunnelLogSetupModal: React.FC<ContinuousTunnelLogSetupMod
           </div>
         </div>
 
-        {/* Modal Footer Actions */}
-        <div className="px-5 py-4 bg-[#FFF4E8] border-t border-orange-200 flex items-center justify-between gap-3">
+        {/* Modal Footer Actions - AutoCAD 2026 Dark Slate Theme */}
+        <div className="px-5 py-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2.5 rounded-xl text-xs font-semibold text-stone-600 hover:text-stone-900 hover:bg-orange-100/80 transition cursor-pointer"
+            className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-slate-100 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition cursor-pointer font-mono"
           >
             Cancel
           </button>
@@ -720,15 +720,17 @@ export const ContinuousTunnelLogSetupModal: React.FC<ContinuousTunnelLogSetupMod
             <button
               type="button"
               onClick={handleLaunchContinuousLog}
-              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-stone-700 hover:text-stone-900 hover:bg-white bg-white/80 border border-stone-200 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-200 hover:text-white bg-slate-900 hover:bg-slate-850 border border-slate-750 hover:border-sky-500/60 transition cursor-pointer flex items-center gap-2 shadow-md font-mono group"
+              title="Open full A3 Continuous Engineering Log View"
             >
               <span>View A3 Template</span>
-              <ArrowRight className="w-3.5 h-3.5 text-stone-400" />
+              <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-sky-400 group-hover:translate-x-0.5 transition-transform" />
             </button>
             <button
               type="button"
               onClick={handleLaunchCad}
-              className="px-6 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 active:scale-[0.99] text-white font-bold text-sm flex items-center gap-2 shadow-md shadow-orange-600/25 transition cursor-pointer"
+              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 active:scale-[0.99] text-white font-bold text-sm flex items-center gap-2 shadow-lg shadow-sky-600/30 ring-1 ring-sky-300/50 transition cursor-pointer font-mono"
+              title="Launch ESWACAD 2026 Continuous 3D Strip Canvas"
             >
               <Edit3 className="w-4 h-4" />
               <span>Edit Canvas</span>

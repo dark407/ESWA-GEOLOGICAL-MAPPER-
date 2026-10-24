@@ -40,6 +40,9 @@ import {
   Zap,
   FileDown,
   GitFork,
+  Check,
+  FolderOpen,
+  Box,
 } from 'lucide-react';
 import {
   Joint,
@@ -49,6 +52,7 @@ import {
   QIndexParameters,
   RmrParameters,
   RockMassSummaryTable,
+  SavedProjectRecord,
   TunnelGeometry,
   TunnelSettings,
   SurfaceType,
@@ -58,8 +62,24 @@ import { computeRockStrataSupportSpotBoltingAndFailureFos } from '../engine/supp
 import { KinematicWedge3DViewport } from './KinematicWedge3DViewport';
 import { FutureAdvance3DViewport } from './FutureAdvance3DViewport';
 import { JunctionFactorResult } from './TunnelJunctionFactorModal';
+import { ExcavationSpecific3DLogViewport } from './ExcavationSpecific3DLogViewport';
+import { WeakZoneAheadProjectorView } from './WeakZoneAheadProjectorView';
+import { SequentialFace3DReconstructionView } from './SequentialFace3DReconstructionView';
+import { ComponentApparentThicknessView } from './ComponentApparentThicknessView';
+import { AlignmentAlternativesEvaluatorView } from './AlignmentAlternativesEvaluatorView';
+import { PoorRockProportionsEstimatorView } from './PoorRockProportionsEstimatorView';
+import {
+  feedDataFromNatmActiveState,
+  FedNatmDataBundle,
+} from '../engine/advancedModelingAndAlignmentEngine';
 
 export type AdvancedAnalysisTab =
+  | 'EXCAVATION_3D_LOG'
+  | 'WEAK_ZONE_PROJECTOR'
+  | 'SEQUENTIAL_3D_RECON'
+  | 'APPARENT_THICKNESS_SPACING'
+  | 'ALIGNMENT_ALTERNATIVES'
+  | 'POOR_ROCK_PROPORTIONS'
   | 'EXECUTIVE_REPORT'
   | 'WEDGE_FOS'
   | 'FUTURE_FORECAST'
@@ -83,6 +103,7 @@ export interface AdvancedGeologicalAnalysisModalProps {
   overbreakAnalysis?: OverbreakUndercutAnalysis;
   lithologyRegions?: LithologyRegion[];
   junctionFactorData?: JunctionFactorResult | null;
+  savedProjects?: SavedProjectRecord[];
   onOpenJunctionCalculator?: () => void;
   onClearJunctionFactor?: () => void;
 }
@@ -101,16 +122,40 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   overbreakAnalysis,
   lithologyRegions = [],
   junctionFactorData = null,
+  savedProjects = [],
   onOpenJunctionCalculator,
   onClearJunctionFactor,
 }) => {
-  const [activeTab, setActiveTab] = useState<AdvancedAnalysisTab>('EXECUTIVE_REPORT');
+  const [activeTab, setActiveTab] = useState<AdvancedAnalysisTab>('EXCAVATION_3D_LOG');
+
+  // Compute live fed data bundle from NATM active state
+  const fedData = useMemo(() => {
+    return feedDataFromNatmActiveState(
+      geometry,
+      settings,
+      joints,
+      jointSets,
+      propRmrParams,
+      propQIndexParams,
+      savedProjects
+    );
+  }, [geometry, settings, joints, jointSets, propRmrParams, propQIndexParams, savedProjects]);
+
+  const [feedNotification, setFeedNotification] = useState<string>('Connected to Active NATM Face');
 
   // Interactive controls for Apparent Dip vs Drive Direction Solver
   const [customDriveAzimuth, setCustomDriveAzimuth] = useState<number>(
-    settings.driveDirection ?? 0
+    settings.driveDirection ?? fedData.driveAzimuth
   );
   const [selectedJointIndex, setSelectedJointIndex] = useState<number>(0);
+
+  const handleRefreshFeed = () => {
+    setCustomDriveAzimuth(settings.driveDirection ?? fedData.driveAzimuth);
+    setFeedNotification(
+      `Synchronized with Active Face (${fedData.faceChainageStr}) at ${new Date().toLocaleTimeString()} · Geometry ${fedData.spanW}m W × ${fedData.heightH}m H, RMR ${fedData.rmrTotal}, ${joints.length} joints & ${fedData.historicalFaceLogs.length} face logs fed.`
+    );
+    setTimeout(() => setFeedNotification('Connected to Active NATM Face'), 4500);
+  };
 
   // Interactive controls for Wedge FoS sensitivity
   const [simulatedBoltCapacityKn, setSimulatedBoltCapacityKn] = useState<number>(200);
@@ -912,42 +957,220 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
         </div>
       </div>
 
-      {/* 8 NAVIGATION TABS */}
-      <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-950 border-b border-slate-800 overflow-x-auto no-scrollbar shrink-0 no-print">
-        {[
-          { id: 'EXECUTIVE_REPORT', label: '1. Executive Report Sheet', icon: FileText },
-          { id: 'WEDGE_FOS', label: '2. 2D/3D Kinematic Wedge & FoS', icon: ShieldCheck },
-          { id: 'FUTURE_FORECAST', label: '3. Future Advance & Geohazard Forecast', icon: TrendingUp },
-          { id: 'APPARENT_DIP_SOLVER', label: '4. 4-Surface Apparent Dip', icon: Compass },
-          { id: 'HOEK_BROWN_ROCK', label: '5. Hoek-Brown & Stress Envelopes', icon: Activity },
-          { id: 'STANDUP_TIME_SPAN', label: '6. Stand-Up Time & Rock Load', icon: Clock },
-          { id: 'PALMSTROM_BLOCKS', label: '7. Palmström Blocks & Overbreak', icon: Layers },
-          { id: 'HYDRO_INFLOW', label: '8. Hydrogeology & Inflow', icon: Droplets },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as AdvancedAnalysisTab)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all whitespace-nowrap cursor-pointer ${
-                isActive
-                  ? 'bg-sky-600 text-white shadow-md ring-1 ring-sky-400'
-                  : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700/60'
-              }`}
-            >
-              <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-amber-300' : 'text-slate-400'}`} />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
+      {/* LIVE DATA FEEDER FROM ACTIVE NATM FACE BANNER */}
+      <div className="px-3 py-2 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 border-b border-cyan-800/60 flex flex-wrap items-center justify-between gap-2.5 text-xs font-mono shrink-0 no-print">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/50 text-emerald-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-bold text-[11px] uppercase tracking-wide">{feedNotification}</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-slate-300 text-[11px]">
+            <span>
+              Section: <strong className="text-white">{fedData.spanW.toFixed(1)}m W × {fedData.heightH.toFixed(1)}m H</strong> (Bench {fedData.benchHeight.toFixed(1)}m)
+            </span>
+            <span className="text-slate-600">|</span>
+            <span>
+              Chainage: <strong className="text-amber-300">{fedData.faceChainageStr}</strong>
+            </span>
+            <span className="text-slate-600">|</span>
+            <span>
+              Bearing: <strong className="text-cyan-300">N {Math.round(customDriveAzimuth)}° E</strong>
+            </span>
+            <span className="text-slate-600">|</span>
+            <span>
+              Pull: <strong className="text-slate-200">{fedData.pullLengthM.toFixed(1)}m</strong>
+            </span>
+            <span className="text-slate-600">|</span>
+            <span>
+              Governing Discontinuity: <strong className="text-rose-400">{fedData.governingJoint.set}</strong> ({fedData.governingJoint.dip}° ∠ {fedData.governingJoint.dipDirection}°)
+            </span>
+            <span className="text-slate-600">|</span>
+            <span>
+              RMR89: <strong className="text-emerald-400">{fedData.rmrTotal}</strong> · Q: <strong className="text-cyan-300">{fedData.qValue}</strong>
+            </span>
+          </div>
+        </div>
+
+        <button
+          onClick={handleRefreshFeed}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-600/30 hover:bg-sky-600/50 text-sky-200 border border-sky-500/40 hover:border-sky-400 text-[11px] font-bold transition-all cursor-pointer shadow-xs shrink-0"
+          title="Re-read current tunnel dimensions, joints, RMR/Q, and face chainage from active canvas"
+        >
+          <RefreshCw className="w-3.5 h-3.5 text-sky-300" />
+          <span>Sync from Current Face</span>
+        </button>
+      </div>
+
+      {/* 2-ROW TAB NAVIGATION: 6 CORE MODELING CAPABILITIES + GEOTECHNICAL TOOLS */}
+      <div className="flex flex-col bg-slate-950 border-b border-slate-800 shrink-0 no-print">
+        {/* ROW 1: 6 CAPABILITIES FROM SYSTEM SPECIFICATION */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 overflow-x-auto no-scrollbar border-b border-slate-800/80">
+          <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest shrink-0 mr-1 flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-amber-400" /> 3D Modeling &amp; Analytics:
+          </span>
+          {[
+            { id: 'EXCAVATION_3D_LOG', label: '1. 3D Excavation Logs (Multi-Stage)', icon: Box },
+            { id: 'WEAK_ZONE_PROJECTOR', label: '2. Weak Zone Ahead Projector', icon: AlertTriangle },
+            { id: 'SEQUENTIAL_3D_RECON', label: '3. Sequential Face 3D Reconstruction', icon: Layers },
+            { id: 'APPARENT_THICKNESS_SPACING', label: '4. Component Apparent Thickness', icon: Ruler },
+            { id: 'ALIGNMENT_ALTERNATIVES', label: '5. Alignment Alternatives & Rose Sweep', icon: Compass },
+            { id: 'POOR_ROCK_PROPORTIONS', label: '6. Poor Rock Proportions (erf Bounds)', icon: BarChart3 },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as AdvancedAnalysisTab)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  isActive
+                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md ring-2 ring-amber-300'
+                    : 'bg-amber-950/30 hover:bg-amber-900/40 text-amber-200 border border-amber-700/40'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-slate-950' : 'text-amber-400'}`} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ROW 2: GEOTECHNICAL & KINEMATIC TOOLS */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 overflow-x-auto no-scrollbar bg-slate-950/80">
+          <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest shrink-0 mr-1">
+            Rock Mechanics:
+          </span>
+          {[
+            { id: 'EXECUTIVE_REPORT', label: 'Executive Report Sheet', icon: FileText },
+            { id: 'WEDGE_FOS', label: '2D/3D Kinematic Wedge & FoS', icon: ShieldCheck },
+            { id: 'FUTURE_FORECAST', label: 'Future Advance & Geohazard Forecast', icon: TrendingUp },
+            { id: 'APPARENT_DIP_SOLVER', label: '4-Surface Apparent Dip', icon: Compass },
+            { id: 'HOEK_BROWN_ROCK', label: 'Hoek-Brown & Stress Envelopes', icon: Activity },
+            { id: 'STANDUP_TIME_SPAN', label: 'Stand-Up Time & Rock Load', icon: Clock },
+            { id: 'PALMSTROM_BLOCKS', label: 'Palmström Blocks & Overbreak', icon: Layers },
+            { id: 'HYDRO_INFLOW', label: 'Hydrogeology & Inflow', icon: Droplets },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as AdvancedAnalysisTab)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  isActive
+                    ? 'bg-sky-600 text-white shadow-md ring-1 ring-sky-400'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+                }`}
+              >
+                <Icon className={`w-3 h-3 ${isActive ? 'text-amber-300' : 'text-slate-400'}`} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* TAB CONTENT AREA */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
 
         {/* ================================================================= */}
-        {/* TAB 1: EXECUTIVE ENGINEERING REPORT SHEET (PRINT & SIGN-OFF READY)*/}
+        {/* CAPABILITY 1: EXCAVATION-SPECIFIC 3D GEOLOGICAL LOGS               */}
+        {/* ================================================================= */}
+        {activeTab === 'EXCAVATION_3D_LOG' && (
+          <div className="h-[620px] w-full">
+            <ExcavationSpecific3DLogViewport
+              spanW={fedData.spanW}
+              heightH={fedData.heightH}
+              benchHeight={fedData.benchHeight}
+              zStart={Math.max(0, fedData.currentFaceChainageNum - fedData.pullLengthM)}
+              zEnd={fedData.currentFaceChainageNum}
+              lithologyName={fedData.lithologyName}
+              driveAzimuth={customDriveAzimuth}
+            />
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* CAPABILITY 2: PROJECTING WEAK ZONES BEYOND TUNNEL HEADINGS        */}
+        {/* ================================================================= */}
+        {activeTab === 'WEAK_ZONE_PROJECTOR' && (
+          <div className="min-h-[580px] w-full">
+            <WeakZoneAheadProjectorView
+              zFaceDefault={fedData.currentFaceChainageNum}
+              alphaDriveDefault={customDriveAzimuth}
+              hTunnelDefault={fedData.heightH}
+              betaDefault={fedData.governingJoint.dip}
+              thetaDipDefault={fedData.governingJoint.dipDirection}
+              tTrueDefault={fedData.governingJoint.thicknessM}
+              lPullDefault={fedData.pullLengthM}
+              lithologyName={fedData.lithologyName}
+            />
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* CAPABILITY 3: RECONSTRUCTING 3D GEOLOGY FROM SEQUENTIAL FACE LOGS */}
+        {/* ================================================================= */}
+        {activeTab === 'SEQUENTIAL_3D_RECON' && (
+          <div className="h-[620px] w-full">
+            <SequentialFace3DReconstructionView
+              faceLogs={fedData.historicalFaceLogs}
+              driveAzimuth={customDriveAzimuth}
+              spanW={fedData.spanW}
+              heightH={fedData.heightH}
+            />
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* CAPABILITY 4: COMPONENT-SPECIFIC APPARENT THICKNESS & SPACING     */}
+        {/* ================================================================= */}
+        {activeTab === 'APPARENT_THICKNESS_SPACING' && (
+          <div className="min-h-[580px] w-full">
+            <ComponentApparentThicknessView
+              tTrueDefault={fedData.governingJoint.thicknessM}
+              sTrueDefault={fedData.governingJoint.spacingM}
+              betaDefault={fedData.governingJoint.dip}
+              thetaDipDefault={fedData.governingJoint.dipDirection}
+              alphaDriveDefault={customDriveAzimuth}
+              gammaDriveDefault={0}
+            />
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* CAPABILITY 5: EVALUATING TUNNEL ALIGNMENT ALTERNATIVES            */}
+        {/* ================================================================= */}
+        {activeTab === 'ALIGNMENT_ALTERNATIVES' && (
+          <div className="min-h-[580px] w-full">
+            <AlignmentAlternativesEvaluatorView
+              currentDriveAzimuth={customDriveAzimuth}
+              faults={fedData.faultsList}
+              controllingJoint={{
+                id: fedData.governingJoint.id,
+                beta: fedData.governingJoint.dip,
+                thetaDip: fedData.governingJoint.dipDirection,
+                frictionAngle: 32,
+              }}
+              sigmaHAzDefault={110}
+            />
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* CAPABILITY 6: POOR ROCK MASS PROPORTIONS ESTIMATOR                */}
+        {/* ================================================================= */}
+        {activeTab === 'POOR_ROCK_PROPORTIONS' && (
+          <div className="min-h-[580px] w-full">
+            <PoorRockProportionsEstimatorView
+              totalLengthDefault={Math.max(1200, Math.round(fedData.currentFaceChainageNum * 8))}
+            />
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* TAB 7: EXECUTIVE ENGINEERING REPORT SHEET (PRINT & SIGN-OFF READY)*/}
         {/* ================================================================= */}
         {activeTab === 'EXECUTIVE_REPORT' && (
           <div id="printable-geotech-report" className="space-y-6 bg-slate-900 text-slate-100 p-2 sm:p-6 rounded-xl border border-slate-700/60 print:bg-white print:text-black print:border-none print:p-0">

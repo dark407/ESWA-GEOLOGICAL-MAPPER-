@@ -29,6 +29,7 @@ import {
   Shield,
   Sliders,
   Sparkles,
+  Terminal,
   Trash2,
   Type,
   X,
@@ -431,6 +432,32 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
   const [selectedJointSetId, setSelectedJointSetId] = useState<string>('J1');
   const [selectedRockTypeId, setSelectedRockTypeId] = useState<StripRockTypeId>('Qtz');
   const [selectedWaterCondition, setSelectedWaterCondition] = useState<StripGroundwaterId>('Dripping');
+
+  // AutoCAD 2026 Workflow Ribbon State
+  const [cadRibbonTab, setCadRibbonTab] = useState<
+    'HOME' | 'DISCONTINUITIES' | 'STRATA' | 'SUPPORT_WATER' | 'EXPORT_3D'
+  >('HOME');
+  const [cadRibbonCollapsed, setCadRibbonCollapsed] = useState<boolean>(false);
+
+  // AutoCAD 2026 Interactive Command Line & Real-Time Status Bar
+  const [cadCommandInput, setCadCommandInput] = useState<string>('');
+  const [, setCadCommandHistory] = useState<string[]>([
+    'ESWACAD 2026 Continuous 3D Strip Workspace Loaded.',
+    'Ready. Commands: L, PL, M, PE, MERGE, E, LITH, WATER, SUPPORT, DIST, AI, ZOOM, OSNAP, DYN, F3, F7, F8, F9, F12.',
+  ]);
+  const [cadStatusMessage, setCadStatusMessage] = useState<string>('Ready.');
+
+  // AutoCAD Mode Toggles
+  const [orthoMode, setOrthoMode] = useState<boolean>(false); // F8
+  const [polarTracking, setPolarTracking] = useState<boolean>(true); // F10
+  const [cadOsnapEnabled, setCadOsnapEnabled] = useState<boolean>(true); // F3
+  const [cadDynInputEnabled, setCadDynInputEnabled] = useState<boolean>(true); // F12
+  const [lineWeightDisplay, setLineWeightDisplay] = useState<boolean>(true);
+  const [showCadViewCube] = useState<boolean>(true);
+
+  // Live Cursor Coordinates & Object Snap (OSNAP - F3) Detection
+  const [cursorCoords, setCursorCoords] = useState<{ ch: number; yPerim: number; screenX: number; screenY: number } | null>(null);
+  const [hoverOsnap, setHoverOsnap] = useState<{ x: number; y: number; type: 'ENDPOINT' | 'MIDPOINT'; label: string } | null>(null);
 
   // Tunnel Geometry Bounds
   const fromRd = currentDataset.viewFromRd ?? 0;
@@ -1229,6 +1256,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       yPerimeter: yPerim,
       zone: getZoneLabelForY(yPerim),
     });
+    setCursorCoords({ ch, yPerim, screenX: mouseX, screenY: mouseY });
 
     // 1. If dragging a specific vertex of the selected trace
     if (draggingVertexIdx !== null && selectedObjectId && selectedObjectType === 'trace') {
@@ -1307,6 +1335,46 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         }
       }
       setHoveredTraceId(tHover);
+
+      // AutoCAD 2026 Object Snap (OSNAP - F3) Detection (Endpoint □ & Midpoint △)
+      if (cadOsnapEnabled) {
+        let snap: { x: number; y: number; type: 'ENDPOINT' | 'MIDPOINT'; label: string } | null = null;
+        for (const trace of currentDataset.traces || []) {
+          const pts = trace.points || [];
+          for (let i = 0; i < pts.length; i++) {
+            const sx = worldToScreenX(pts[i].x);
+            const sy = worldToScreenY(pts[i].y);
+            if (Math.hypot(mouseX - sx, mouseY - sy) < 14) {
+              snap = {
+                x: sx,
+                y: sy,
+                type: 'ENDPOINT',
+                label: `Endpoint (${pts[i].x.toFixed(2)}m, ${pts[i].y.toFixed(2)}m)`,
+              };
+              break;
+            }
+            if (i < pts.length - 1) {
+              const mx = (pts[i].x + pts[i + 1].x) / 2;
+              const my = (pts[i].y + pts[i + 1].y) / 2;
+              const smx = worldToScreenX(mx);
+              const smy = worldToScreenY(my);
+              if (Math.hypot(mouseX - smx, mouseY - smy) < 14) {
+                snap = {
+                  x: smx,
+                  y: smy,
+                  type: 'MIDPOINT',
+                  label: `Midpoint (${mx.toFixed(2)}m, ${my.toFixed(2)}m)`,
+                };
+                break;
+              }
+            }
+          }
+          if (snap) break;
+        }
+        setHoverOsnap(snap);
+      } else {
+        setHoverOsnap(null);
+      }
     }
   };
 
@@ -1829,7 +1897,109 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     onClose();
   };
 
-  // Global Keyboard Shortcuts (Delete, Undo, Redo, Esc, Enter)
+  // Execute AutoCAD 2026 Command from Command Line Prompt Bar
+  const handleExecuteCadCommand = useCallback(
+    (rawCmd: string) => {
+      const cmd = rawCmd.trim().toUpperCase();
+      if (!cmd) return;
+      setCadCommandHistory((prev) => [...prev.slice(-19), `COMMAND: ${cmd}`]);
+
+      if (cmd === 'L' || cmd === 'LINE' || cmd === 'PL' || cmd === 'PLINE' || cmd === 'J' || cmd === 'JOINT') {
+        setActiveTool('draw_joint');
+        setCadStatusMessage('DRAW JOINT: Click points on tunnel perimeter to trace discontinuity');
+      } else if (cmd === 'M' || cmd === 'MOVE') {
+        setActiveTool('move_joint');
+        setCadStatusMessage('MOVE JOINT: Drag joint trace or points across chainage');
+      } else if (cmd === 'PE' || cmd === 'EDIT' || cmd === 'VERTEX') {
+        setActiveTool('edit_joint');
+        setCadStatusMessage('EDIT VERTICES: Drag points or click line segment to insert point');
+      } else if (cmd === 'MERGE') {
+        setActiveTool('merge_joint');
+        setCadStatusMessage('MERGE JOINTS: Select first trace, then second trace to merge');
+      } else if (cmd === 'E' || cmd === 'DEL' || cmd === 'DELETE' || cmd === 'ERASE') {
+        if (selectedObjectId) {
+          handleDeleteSelected();
+          setCadStatusMessage(`ERASE: Deleted selected ${selectedObjectType}`);
+        } else {
+          setActiveTool('delete_joint');
+          setCadStatusMessage('DELETE JOINT: Click trace to delete');
+        }
+      } else if (cmd === 'LITH' || cmd === 'HATCH' || cmd === 'STRATA') {
+        setActiveTool('add_lithology');
+        setSidebarTab('lithology');
+        setCadStatusMessage('LITHOLOGY HATCH: Draw vertices or use 1-Click Fill Span');
+      } else if (cmd === 'WATER' || cmd === 'SYM' || cmd === 'SEEP') {
+        setActiveTool('place_water');
+        setSidebarTab('properties');
+        setCadStatusMessage('WATER INFLOW: Click position to drop seepage indicator');
+      } else if (cmd === 'SUPPORT' || cmd === 'BOLT' || cmd === 'GIRDER') {
+        setActiveTool('place_support');
+        setSidebarTab('properties');
+        setCadStatusMessage('ROCK SUPPORT: Click position to add rock bolt or girder');
+      } else if (cmd === 'DIST' || cmd === 'DI' || cmd === 'MEASURE') {
+        setActiveTool('measure');
+        setMeasureStartPoint(null);
+        setCadStatusMessage('MEASURE: Click start point, then endpoint to measure span');
+      } else if (cmd === 'V' || cmd === 'SELECT' || cmd === 'ESC') {
+        setActiveTool('select');
+        setActiveDraftPoints([]);
+        setMeasureStartPoint(null);
+        setCadStatusMessage('SELECT & PROPERTIES');
+      } else if (cmd === 'AI' || cmd === 'TREND' || cmd === 'ALIGN') {
+        handleRunAiTrendAlignment();
+        setCadStatusMessage('AI TREND ALIGNMENT: Discontinuity traces smoothly aligned across pulls');
+      } else if (cmd === 'ZOOM' || cmd === 'ZE' || cmd === 'FIT' || cmd === '1:1') {
+        handleFitToScreen();
+        setCadStatusMessage('ZOOM EXTENTS: Continuous unwrapped strip fitted to screen');
+      } else if (cmd === 'U' || cmd === 'UNDO') {
+        handleUndo();
+        setCadStatusMessage('UNDO: Last CAD action reverted');
+      } else if (cmd === 'REDO') {
+        handleRedo();
+        setCadStatusMessage('REDO: Action re-applied');
+      } else if (cmd === 'SAVE' || cmd === 'W' || cmd === 'COMMIT') {
+        handleSaveAndCommit();
+      } else if (cmd === 'GRID' || cmd === 'F7') {
+        setSnapToGrid((prev) => !prev);
+        setCadStatusMessage('GRID: Grid display toggled');
+      } else if (cmd === 'SNAP' || cmd === 'F9') {
+        setSnapToGrid((prev) => !prev);
+        setCadStatusMessage('SNAP: Cursor grid snapping toggled');
+      } else if (cmd === 'ORTHO' || cmd === 'F8') {
+        setOrthoMode((prev) => !prev);
+        setCadStatusMessage('ORTHO: 90° Orthogonal constraint toggled');
+      } else if (cmd === 'POLAR' || cmd === 'F10') {
+        setPolarTracking((prev) => !prev);
+        setCadStatusMessage('POLAR: Polar tracking guides toggled');
+      } else if (cmd === 'OSNAP' || cmd === 'F3') {
+        setCadOsnapEnabled((prev) => !prev);
+        setCadStatusMessage('OSNAP: Object snap (Endpoint/Midpoint) toggled');
+      } else if (cmd === 'DYN' || cmd === 'F12') {
+        setCadDynInputEnabled((prev) => !prev);
+        setCadStatusMessage('DYN: Dynamic input cursor coordinate readout toggled');
+      } else if (cmd === 'PROPS' || cmd === 'PR') {
+        setSidebarTab((prev) => (prev === 'properties' ? 'layers' : 'properties'));
+        setCadStatusMessage('PROPERTIES: Inspector sidebar toggled');
+      } else {
+        setCadStatusMessage(
+          `Unknown command "${cmd}". Try: L, PL, M, PE, MERGE, E, LITH, WATER, SUPPORT, DIST, AI, ZOOM, OSNAP, DYN, F3, F7, F8, F9, F12.`
+        );
+      }
+      setCadCommandInput('');
+    },
+    [
+      handleDeleteSelected,
+      handleFitToScreen,
+      handleRedo,
+      handleRunAiTrendAlignment,
+      handleSaveAndCommit,
+      handleUndo,
+      selectedObjectId,
+      selectedObjectType,
+    ]
+  );
+
+  // Global Keyboard Shortcuts (AutoCAD function keys, Delete, Undo, Redo, Esc, Enter)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -1839,7 +2009,26 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       ) {
         return;
       }
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      // AutoCAD Standard Function Keys (F3, F7, F8, F9, F10, F12)
+      if (e.key === 'F3') {
+        e.preventDefault();
+        setCadOsnapEnabled((prev) => !prev);
+      } else if (e.key === 'F7') {
+        e.preventDefault();
+        setSnapToGrid((prev) => !prev);
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        setOrthoMode((prev) => !prev);
+      } else if (e.key === 'F9') {
+        e.preventDefault();
+        setSnapToGrid((prev) => !prev);
+      } else if (e.key === 'F10') {
+        e.preventDefault();
+        setPolarTracking((prev) => !prev);
+      } else if (e.key === 'F12') {
+        e.preventDefault();
+        setCadDynInputEnabled((prev) => !prev);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedObjectId) {
           handleDeleteSelected();
         }
@@ -1889,6 +2078,9 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     mergeSourceTraceId,
     mergeTargetTraceId,
     handleExecuteMergeTraces,
+    handleDeleteSelected,
+    handleUndo,
+    handleRedo,
   ]);
 
   // Currently Selected Object Data for Inspector
@@ -1923,51 +2115,52 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex flex-col bg-stone-950 text-stone-100 select-none overflow-hidden font-sans">
-      {/* 1. TOP HEADER (Matching Underground Face Mapping) */}
-      <div className="h-13 bg-stone-900 border-b border-stone-800 px-3 flex items-center justify-between shrink-0 shadow-md">
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950 text-slate-100 select-none overflow-hidden font-sans">
+      {/* 1. TOP AUTOCAD 2026 HEADER BAR */}
+      <div className="h-12 bg-slate-950 border-b border-slate-800 px-3 flex items-center justify-between shrink-0 shadow-md">
         <div className="flex items-center gap-3">
-          {/* Back button */}
+          {/* Back / Return button */}
           <button
             type="button"
             onClick={onClose}
-            className="px-2.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white border border-stone-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-            title="Exit CAD and Return"
+            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer font-mono"
+            title="Exit Continuous CAD Workspace and Return"
           >
-            <ArrowLeft className="w-4 h-4 text-orange-400" />
+            <ArrowLeft className="w-4 h-4 text-sky-400" />
             <span className="hidden sm:inline">Exit CAD</span>
           </button>
 
+          {/* AutoCAD 2026 Brand Badge & Title */}
           <div className="flex items-center gap-2 pl-1">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 border border-orange-400 flex items-center justify-center text-stone-950 font-black text-xs shadow-sm">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-red-600 to-amber-600 border border-red-400 flex items-center justify-center text-white font-black text-xs shadow-md">
               CAD
             </div>
             <div>
-              <h1 className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
-                ESWA CONTINUOUS CAD
-                <span className="text-[10px] text-orange-400 font-semibold px-1.5 py-0.2 rounded bg-orange-950/60 border border-orange-500/30">
-                  UNDERGROUND LOG
+              <h1 className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5 font-mono">
+                ESWACAD 2026
+                <span className="text-[10px] text-sky-400 font-semibold px-1.5 py-0.2 rounded bg-sky-950/70 border border-sky-500/30">
+                  CONTINUOUS 3D STRIP
                 </span>
               </h1>
             </div>
           </div>
 
-          <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-stone-800 text-[11px] text-stone-400">
-            <span>Project: <strong className="text-stone-200">{currentDataset.projectName || 'Tunnel Drive'}</strong></span>
+          <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-800 text-[11px] text-slate-400 font-mono">
+            <span>Project: <strong className="text-slate-200">{currentDataset.projectName || 'Tunnel Drive'}</strong></span>
             <span>•</span>
-            <span>Loc: <strong className="text-stone-200">{currentDataset.tunnelLocationName || 'Power Tunnel'}</strong></span>
+            <span>Loc: <strong className="text-slate-200">{currentDataset.tunnelLocationName || 'Power Tunnel'}</strong></span>
             <span>•</span>
-            <span className="font-mono text-orange-400 font-bold">
+            <span className="text-amber-400 font-bold">
               RD {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m ({totalLengthM.toFixed(1)}m)
             </span>
             <span>•</span>
-            <span className="px-1.5 py-0.2 rounded bg-stone-800 text-stone-300 font-mono text-[10px]">
+            <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 text-[10px]">
               Horseshoe Arch
             </span>
           </div>
         </div>
 
-        {/* CAD Actions */}
+        {/* CAD Actions Right */}
         <div className="flex items-center gap-2">
           {/* Undo */}
           <button
@@ -1976,13 +2169,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             disabled={historyIndex < 0}
             className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition ${
               historyIndex >= 0
-                ? 'bg-stone-800 hover:bg-stone-700 text-stone-200 border-stone-700 cursor-pointer'
-                : 'bg-stone-900/50 text-stone-600 border-stone-800 cursor-not-allowed'
+                ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-750 cursor-pointer'
+                : 'bg-slate-950 text-slate-600 border-slate-850 cursor-not-allowed'
             }`}
             title="Undo (Ctrl+Z)"
           >
             <CornerUpLeft className="w-3.5 h-3.5" />
-            <span className="text-[10px] hidden sm:inline">Undo</span>
+            <span className="text-[10px] hidden sm:inline font-mono">Undo</span>
           </button>
 
           {/* Redo */}
@@ -1992,20 +2185,20 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             disabled={historyIndex + 1 >= history.length}
             className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition ${
               historyIndex + 1 < history.length
-                ? 'bg-stone-800 hover:bg-stone-700 text-stone-200 border-stone-700 cursor-pointer'
-                : 'bg-stone-900/50 text-stone-600 border-stone-800 cursor-not-allowed'
+                ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-750 cursor-pointer'
+                : 'bg-slate-950 text-slate-600 border-slate-850 cursor-not-allowed'
             }`}
             title="Redo (Ctrl+Y)"
           >
             <CornerUpRight className="w-3.5 h-3.5" />
-            <span className="text-[10px] hidden sm:inline">Redo</span>
+            <span className="text-[10px] hidden sm:inline font-mono">Redo</span>
           </button>
 
           {/* AI Trend Alignment button */}
           <button
             type="button"
             onClick={handleRunAiTrendAlignment}
-            className="px-2.5 py-1.5 rounded-lg bg-purple-950/70 hover:bg-purple-900/70 border border-purple-700 text-purple-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+            className="px-2.5 py-1.5 rounded-lg bg-purple-950/70 hover:bg-purple-900/70 border border-purple-700 text-purple-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm font-mono"
             title="AI Trend Alignment: Smoothly align and interpolate joint discontinuity trends across tunnel rounds"
           >
             <Sparkles className="w-3.5 h-3.5 text-purple-400" />
@@ -2016,7 +2209,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           <button
             type="button"
             onClick={() => setIsDarkMode(!isDarkMode)}
-            className="p-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 border border-stone-700 text-xs transition cursor-pointer"
+            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-750 text-xs transition cursor-pointer"
             title={isDarkMode ? 'Switch to Light CAD' : 'Switch to Dark CAD'}
           >
             {isDarkMode ? '🌙' : '☀️'}
@@ -2026,8 +2219,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           <button
             type="button"
             onClick={handleFitToScreen}
-            className="p-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 border border-stone-700 transition cursor-pointer"
-            title="Fit to Screen"
+            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-750 transition cursor-pointer"
+            title="Fit to Screen (Zoom Extents)"
           >
             <Maximize2 className="w-4 h-4" />
           </button>
@@ -2036,7 +2229,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           <button
             type="button"
             onClick={handleSaveAndCommit}
-            className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition cursor-pointer"
+            className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/30 ring-1 ring-emerald-300/40 transition cursor-pointer font-mono"
             title="Save CAD edits and update the A3 Continuous Tunnel Log Report window"
           >
             <Check className="w-4 h-4" />
@@ -2047,30 +2240,197 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* 2. MAIN CAD WORKSPACE (Left Tools + Central Canvas + Right Inspector) */}
+      {/* 2. PROMINENT 5-STEP WORKFLOW RIBBON BAR (Matching Underground NATM Workspace) */}
+      <div className="w-full bg-slate-900 border-b border-slate-800 px-2 py-1 shrink-0">
+        <div className="grid grid-cols-5 gap-1.5 w-full">
+          {[
+            { id: 'HOME', step: '1', label: 'Geometry', fullLabel: '1. Strip Geometry' },
+            { id: 'DISCONTINUITIES', step: '2', label: 'Joints', fullLabel: '2. Discontinuity Tracing' },
+            { id: 'STRATA', step: '3', label: 'Strata', fullLabel: '3. Strata & Lithology' },
+            { id: 'SUPPORT_WATER', step: '4', label: 'Support/Water', fullLabel: '4. Support & Water' },
+            { id: 'EXPORT_3D', step: '5', label: '3D & Export', fullLabel: '5. 3D Model & Export' },
+          ].map((tab) => {
+            const isActive = cadRibbonTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setCadRibbonTab(tab.id as any);
+                  if (tab.id === 'DISCONTINUITIES') {
+                    setActiveTool('draw_joint');
+                    setSidebarTab('properties');
+                  } else if (tab.id === 'STRATA') {
+                    setActiveTool('add_lithology');
+                    setSidebarTab('lithology');
+                  } else if (tab.id === 'SUPPORT_WATER') {
+                    setActiveTool('place_water');
+                    setSidebarTab('properties');
+                  } else if (tab.id === 'EXPORT_3D') {
+                    handleRunAiTrendAlignment();
+                  } else if (tab.id === 'HOME') {
+                    handleFitToScreen();
+                  }
+                }}
+                className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg font-mono font-bold transition-all cursor-pointer min-w-0 ${
+                  isActive
+                    ? 'bg-gradient-to-r from-sky-500 to-sky-600 text-white shadow-md ring-2 ring-sky-300/50'
+                    : 'bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700/80'
+                }`}
+              >
+                <span
+                  className={`w-5 h-5 inline-flex items-center justify-center rounded-full text-xs font-extrabold shrink-0 ${
+                    isActive ? 'bg-white text-sky-700' : 'bg-slate-700 text-amber-300'
+                  }`}
+                >
+                  {tab.step}
+                </span>
+                <span className="truncate sm:hidden text-xs">{tab.label}</span>
+                <span className="truncate hidden sm:inline text-xs">{tab.fullLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Ribbon Secondary Tool Tray */}
+        {!cadRibbonCollapsed && (
+          <div className="mt-1 pt-1 border-t border-slate-800 flex items-center justify-between gap-2 overflow-x-auto text-[11px] font-mono text-slate-300">
+            {cadRibbonTab === 'HOME' && (
+              <div className="flex items-center gap-3">
+                <span className="text-slate-400">Span: RD {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m</span>
+                <span>•</span>
+                <span className="text-sky-300">Total Unwrapped Perimeter: {totalPerimeterM.toFixed(2)}m</span>
+                <span>•</span>
+                <span className="text-amber-300">Left Wall: 0–{leftWallHeight.toFixed(1)}m | Crown: {leftWallHeight.toFixed(1)}–{(leftWallHeight + crownWidth).toFixed(1)}m | Right Wall: {(leftWallHeight + crownWidth).toFixed(1)}–{totalPerimeterM.toFixed(1)}m</span>
+              </div>
+            )}
+            {cadRibbonTab === 'DISCONTINUITIES' && (
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 font-bold">Active Joint Set:</span>
+                {JOINT_SETS.map((js) => (
+                  <button
+                    key={js.id}
+                    type="button"
+                    onClick={() => setSelectedJointSetId(js.id)}
+                    className={`px-2 py-0.5 rounded text-xs flex items-center gap-1 border transition cursor-pointer ${
+                      selectedJointSetId === js.id
+                        ? 'bg-slate-800 text-white border-sky-400 font-bold shadow-xs'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: js.color }} />
+                    <span>{js.id}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {cadRibbonTab === 'STRATA' && (
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 font-bold">Quick Rock Type:</span>
+                {ROCK_TYPES.slice(0, 6).map((rt) => (
+                  <button
+                    key={rt.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedRockTypeId(rt.id);
+                      setActiveTool('add_lithology');
+                    }}
+                    className={`px-2 py-0.5 rounded text-xs flex items-center gap-1 border transition cursor-pointer ${
+                      selectedRockTypeId === rt.id
+                        ? 'bg-slate-800 text-white border-amber-400 font-bold shadow-xs'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: rt.color }} />
+                    <span>{rt.id}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={handleFillBetweenChainages}
+                  className="px-2 py-0.5 rounded bg-amber-950/70 hover:bg-amber-900 border border-amber-600/60 text-amber-300 font-bold text-xs cursor-pointer ml-2"
+                >
+                  ⚡ 1-Click Fill Span
+                </button>
+              </div>
+            )}
+            {cadRibbonTab === 'SUPPORT_WATER' && (
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 font-bold">Water Condition:</span>
+                {(['Dripping', 'Flowing', 'Wet', 'Damp'] as StripGroundwaterId[]).map((cond) => (
+                  <button
+                    key={cond}
+                    type="button"
+                    onClick={() => {
+                      setSelectedWaterCondition(cond);
+                      setActiveTool('place_water');
+                    }}
+                    className={`px-2 py-0.5 rounded text-xs transition cursor-pointer ${
+                      selectedWaterCondition === cond
+                        ? 'bg-cyan-600 text-white font-bold'
+                        : 'bg-slate-800 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    {cond}
+                  </button>
+                ))}
+              </div>
+            )}
+            {cadRibbonTab === 'EXPORT_3D' && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRunAiTrendAlignment}
+                  className="px-2.5 py-0.5 rounded bg-purple-900/60 hover:bg-purple-800 border border-purple-600 text-purple-200 text-xs font-bold cursor-pointer"
+                >
+                  ✨ AI Trend Extrapolator
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAndCommit}
+                  className="px-2.5 py-0.5 rounded bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-600 text-emerald-200 text-xs font-bold cursor-pointer"
+                >
+                  💾 Save to A3 Sheet Log
+                </button>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setCadRibbonCollapsed(true)}
+              className="text-slate-500 hover:text-slate-300 p-0.5 ml-auto"
+              title="Collapse Ribbon Shelf"
+            >
+              ▲
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 3. MAIN CAD WORKSPACE (Left Tools + Central Canvas + Right Inspector) */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left CAD Tool Palette */}
-        <div className="w-14 sm:w-16 bg-stone-900 border-r border-stone-800 flex flex-col items-center py-2 gap-1.5 shrink-0 z-20 shadow-lg">
+        {/* Left CAD Tool Palette (AutoCAD 2026 Dark Slate Icon Strip) */}
+        <div className="w-14 sm:w-16 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-2 gap-1.5 shrink-0 z-20 shadow-xl">
           {/* Select Tool */}
           <button
             type="button"
             onClick={() => setActiveTool('select')}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'select'
-                ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
+                ? 'bg-sky-500 text-white font-bold shadow-md shadow-sky-500/40 ring-1 ring-sky-300'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
             }`}
             title="Select & Inspect (Shortcut: V)"
           >
             <Crosshair className="w-4 h-4" />
-            <span className="text-[9px]">Select</span>
+            <span className="text-[9px] font-mono">Select</span>
           </button>
 
           {/* Draw Joint Discontinuity */}
@@ -2079,13 +2439,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             onClick={() => setActiveTool('draw_joint')}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'draw_joint'
-                ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
+                ? 'bg-sky-500 text-white font-bold shadow-md shadow-sky-500/40 ring-1 ring-sky-300'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
             }`}
-            title="Add Joint Trace (Shortcut: J)"
+            title="Add Joint Polyline (Shortcut: PL / J)"
           >
             <PenTool className="w-4 h-4" />
-            <span className="text-[9px]">Joint</span>
+            <span className="text-[9px] font-mono">Joint</span>
           </button>
 
           {/* Move Joint Tool */}
@@ -2094,13 +2454,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             onClick={() => setActiveTool('move_joint')}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'move_joint'
-                ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
+                ? 'bg-sky-500 text-white font-bold shadow-md shadow-sky-500/40 ring-1 ring-sky-300'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
             }`}
             title="Move Joint (Shortcut: M) — Drag joint trace or points across chainage and perimeter"
           >
             <Move className="w-4 h-4" />
-            <span className="text-[9px]">Move</span>
+            <span className="text-[9px] font-mono">Move</span>
           </button>
 
           {/* Edit / Reshape Joint Tool */}
@@ -2109,13 +2469,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             onClick={() => setActiveTool('edit_joint')}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'edit_joint'
-                ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
+                ? 'bg-sky-500 text-white font-bold shadow-md shadow-sky-500/40 ring-1 ring-sky-300'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
             }`}
-            title="Edit Vertices (Shortcut: E) — Drag points or click line segment to insert new vertex"
+            title="Edit Vertices (Shortcut: PE / E) — Drag points or click line segment to insert vertex"
           >
             <Edit2 className="w-4 h-4" />
-            <span className="text-[9px]">Edit</span>
+            <span className="text-[9px] font-mono">Edit</span>
           </button>
 
           {/* Merge Joints Tool */}
@@ -2128,13 +2488,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             }}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'merge_joint'
-                ? 'bg-amber-500 text-stone-950 font-bold shadow-md shadow-amber-500/30'
-                : 'text-stone-400 hover:text-amber-400 hover:bg-stone-800'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/40'
+                : 'text-slate-400 hover:text-amber-400 hover:bg-slate-800'
             }`}
-            title="Merge Joints (Shortcut: G) — Click two joint traces to fuse into continuous line"
+            title="Merge Joints (Shortcut: MERGE / G) — Fuse two traces into continuous seam"
           >
             <GitMerge className="w-4 h-4" />
-            <span className="text-[9px]">Merge</span>
+            <span className="text-[9px] font-mono">Merge</span>
           </button>
 
           {/* Delete Joint Tool */}
@@ -2143,45 +2503,51 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             onClick={() => setActiveTool('delete_joint')}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'delete_joint'
-                ? 'bg-red-600 text-white font-bold shadow-md shadow-red-600/30'
-                : 'text-stone-400 hover:text-red-400 hover:bg-stone-800'
+                ? 'bg-red-600 text-white font-bold shadow-md shadow-red-600/40'
+                : 'text-slate-400 hover:text-red-400 hover:bg-slate-800'
             }`}
-            title="Delete Joint (Click any joint trace on canvas)"
+            title="Delete Discontinuity (Shortcut: ERASE / E)"
           >
             <Trash2 className="w-4 h-4" />
-            <span className="text-[9px]">Delete</span>
+            <span className="text-[9px] font-mono">Erase</span>
           </button>
 
-          <div className="w-8 h-px bg-stone-800 my-0.5" />
+          <div className="w-8 h-px bg-slate-800 my-0.5" />
 
           {/* Add Lithology Zone */}
           <button
             type="button"
-            onClick={() => setActiveTool('add_lithology')}
+            onClick={() => {
+              setActiveTool('add_lithology');
+              setSidebarTab('lithology');
+            }}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'add_lithology'
-                ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/40'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
             }`}
-            title="Add Lithology Strata (Shortcut: L) — Draw custom zone polygon or use 1-click fill"
+            title="Lithology Hatcher (Shortcut: HATCH / L)"
           >
             <Layers className="w-4 h-4" />
-            <span className="text-[9px]">Litho</span>
+            <span className="text-[9px] font-mono">Litho</span>
           </button>
 
           {/* Groundwater Seepage */}
           <button
             type="button"
-            onClick={() => setActiveTool('place_water')}
+            onClick={() => {
+              setActiveTool('place_water');
+              setSidebarTab('properties');
+            }}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'place_water'
-                ? 'bg-cyan-500 text-stone-950 font-bold shadow-md shadow-cyan-500/30'
-                : 'text-stone-400 hover:text-cyan-400 hover:bg-stone-800'
+                ? 'bg-cyan-500 text-slate-950 font-bold shadow-md shadow-cyan-500/40'
+                : 'text-slate-400 hover:text-cyan-400 hover:bg-slate-800'
             }`}
-            title="Groundwater Inflow — Place seepage marker (Dripping, Flowing, Wet)"
+            title="Groundwater Inflow (Shortcut: WATER / W)"
           >
             <Droplet className="w-4 h-4" />
-            <span className="text-[9px]">Water</span>
+            <span className="text-[9px] font-mono">Water</span>
           </button>
 
           {/* Measurement Tape */}
@@ -2193,23 +2559,23 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             }}
             className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
               activeTool === 'measure'
-                ? 'bg-cyan-500 text-stone-950 font-bold shadow-md shadow-cyan-500/30'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-800'
+                ? 'bg-cyan-500 text-slate-950 font-bold shadow-md shadow-cyan-500/40'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
             }`}
-            title="Measure Tape / Inclination (Click two points to measure distance & angle)"
+            title="Measurement Tape (Shortcut: DIST / DI)"
           >
             <Ruler className="w-4 h-4" />
-            <span className="text-[9px]">Measure</span>
+            <span className="text-[9px] font-mono">Measure</span>
           </button>
 
-          <div className="w-8 h-px bg-stone-800 my-1" />
+          <div className="w-8 h-px bg-slate-800 my-1" />
 
-          {/* Zoom % Reset (Mouse Wheel & Touch Pinch to Zoom) */}
+          {/* Zoom % Reset */}
           <button
             type="button"
             onClick={() => setZoom(1.0)}
-            className="w-9 h-8 rounded-lg text-stone-300 hover:text-white hover:bg-stone-800 flex items-center justify-center font-mono text-[10px] font-bold transition cursor-pointer"
-            title="Mouse Wheel / Trackpad / 2-Finger Pinch to Zoom. Click to reset to 100%."
+            className="w-9 h-8 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 flex items-center justify-center font-mono text-[10px] font-bold transition cursor-pointer"
+            title="Reset Zoom to 100% (Shortcut: 1:1)"
           >
             {Math.round(zoom * 100)}%
           </button>
@@ -2219,9 +2585,9 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             type="button"
             onClick={() => setSnapToGrid(!snapToGrid)}
             className={`w-9 h-9 rounded-lg flex items-center justify-center transition cursor-pointer ${
-              snapToGrid ? 'text-orange-400 bg-orange-950/40' : 'text-stone-500 hover:text-stone-300'
+              snapToGrid ? 'text-sky-400 bg-sky-950/60 border border-sky-600/50' : 'text-slate-500 hover:text-slate-300'
             }`}
-            title={snapToGrid ? `Snap to Grid (${gridStepM}m): ON` : 'Snap to Grid: OFF'}
+            title={snapToGrid ? `Snap Grid (${gridStepM}m): ON (F9)` : 'Snap Grid: OFF (F9)'}
           >
             <Grid className="w-4 h-4" />
           </button>
@@ -2230,9 +2596,9 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         {/* Central CAD Canvas Container */}
         <div className="flex-1 relative overflow-hidden bg-black flex flex-col">
           {/* Top Quick Joint Presets Strip */}
-          <div className="bg-stone-900 border-b border-stone-800 px-3 py-1.5 flex items-center justify-between gap-2 overflow-x-auto shrink-0 z-20">
+          <div className="bg-slate-900 border-b border-slate-800 px-3 py-1.5 flex items-center justify-between gap-2 overflow-x-auto shrink-0 z-20">
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[10px] uppercase font-bold text-stone-400 mr-1 hidden sm:inline">Joint Sets:</span>
+              <span className="text-[10px] uppercase font-bold text-slate-400 mr-1 hidden sm:inline font-mono">Joint Sets:</span>
               {JOINT_SETS.map((js) => {
                 const isSelected = selectedJointSetId === js.id;
                 return (
@@ -2261,10 +2627,10 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         }));
                       }
                     }}
-                    className={`px-2 py-0.5 rounded-lg text-xs flex items-center gap-1.5 border transition cursor-pointer ${
+                    className={`px-2 py-0.5 rounded-lg text-xs flex items-center gap-1.5 border transition cursor-pointer font-mono ${
                       isSelected
-                        ? 'bg-stone-800 text-white border-orange-500 shadow-sm font-bold'
-                        : 'bg-stone-950 text-stone-300 border-stone-800 hover:border-stone-700'
+                        ? 'bg-slate-800 text-white border-sky-400 shadow-sm font-bold'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
                     }`}
                     title={`${js.name}: ${js.defaultDipDir}°/${js.defaultDip}°`}
                   >
@@ -2276,21 +2642,21 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             </div>
 
             {/* Current Active Mode Status Indicator */}
-            <div className="flex items-center gap-2 text-[11px] font-mono text-stone-300 shrink-0">
+            <div className="flex items-center gap-2 text-[11px] font-mono text-slate-300 shrink-0">
               {activeTool === 'move_joint' && (
-                <span className="px-2 py-0.5 rounded bg-orange-950 border border-orange-500/40 text-orange-400 font-bold flex items-center gap-1">
+                <span className="px-2 py-0.5 rounded bg-sky-950 border border-sky-500/50 text-sky-300 font-bold flex items-center gap-1">
                   <Move className="w-3 h-3" />
                   <span>MOVE JOINT: Drag trace on canvas</span>
                 </span>
               )}
               {activeTool === 'edit_joint' && (
-                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-400 font-bold flex items-center gap-1">
+                <span className="px-2 py-0.5 rounded bg-sky-950 border border-sky-500/50 text-sky-300 font-bold flex items-center gap-1">
                   <Edit2 className="w-3 h-3" />
                   <span>EDIT VERTICES: Drag points or click line to add point</span>
                 </span>
               )}
               {activeTool === 'merge_joint' && (
-                <span className="px-2 py-0.5 rounded bg-amber-950 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1">
+                <span className="px-2 py-0.5 rounded bg-amber-950 border border-amber-500/50 text-amber-300 font-bold flex items-center gap-1">
                   <GitMerge className="w-3 h-3" />
                   <span>
                     {mergeSourceTraceId
@@ -2300,7 +2666,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 </span>
               )}
               {activeTool === 'measure' && (
-                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 font-bold flex items-center gap-1">
+                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/50 text-cyan-300 font-bold flex items-center gap-1">
                   <Ruler className="w-3 h-3" />
                   <span>{measureStartPoint ? 'MEASURE: Click target point' : 'MEASURE: Click start point'}</span>
                 </span>
@@ -2310,12 +2676,12 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
           {/* Floating Merge Action Banner */}
           {activeTool === 'merge_joint' && mergeSourceTraceId && mergeTargetTraceId && (
-            <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-stone-900 border-2 border-amber-500 rounded-2xl p-3 shadow-2xl flex items-center gap-3 animate-in fade-in zoom-in-95">
+            <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-slate-900 border-2 border-amber-500 rounded-2xl p-3 shadow-2xl flex items-center gap-3 animate-in fade-in zoom-in-95 font-mono">
               <div className="flex items-center gap-2">
                 <GitMerge className="w-5 h-5 text-amber-400" />
                 <div className="text-xs">
                   <div className="font-bold text-white">Merge Discontinuity Joint Traces?</div>
-                  <div className="text-[11px] font-mono text-stone-400">
+                  <div className="text-[11px] text-slate-400">
                     <strong className="text-amber-400">{mergeSourceTraceId}</strong> + <strong className="text-cyan-400">{mergeTargetTraceId}</strong>
                   </div>
                 </div>
@@ -2323,7 +2689,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               <button
                 type="button"
                 onClick={() => handleExecuteMergeTraces(mergeSourceTraceId, mergeTargetTraceId)}
-                className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md"
+                className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md"
               >
                 <Check className="w-4 h-4" />
                 <span>Confirm Merge</span>
@@ -2334,7 +2700,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                   setMergeSourceTraceId(null);
                   setMergeTargetTraceId(null);
                 }}
-                className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition cursor-pointer"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2343,26 +2709,94 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
           {/* Active Drawing Banner */}
           {activeDraftPoints.length > 0 && (
-            <div className="absolute top-12 left-4 z-30 bg-stone-900/95 border border-orange-500/60 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs shadow-xl backdrop-blur-md">
-              <span className="text-stone-300 font-medium">
+            <div className="absolute top-12 left-4 z-30 bg-slate-900/95 border border-sky-500/60 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs shadow-xl backdrop-blur-md font-mono">
+              <span className="text-slate-300 font-medium">
                 Drafting {activeTool === 'draw_joint' ? 'Joint' : 'Lithology'} ({activeDraftPoints.length} pts)
               </span>
               <button
                 type="button"
                 onClick={handleCommitDraft}
-                className="px-2.5 py-1 rounded bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs transition cursor-pointer shadow-sm"
+                className="px-2.5 py-1 rounded bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs transition cursor-pointer shadow-sm"
               >
                 ✓ Commit (Enter)
               </button>
               <button
                 type="button"
                 onClick={() => setActiveDraftPoints([])}
-                className="px-2 py-1 rounded text-stone-400 hover:text-white text-xs cursor-pointer"
+                className="px-2 py-1 rounded text-slate-400 hover:text-white text-xs cursor-pointer"
               >
                 Clear
               </button>
             </div>
           )}
+
+          {/* Interactive AutoCAD 3D ViewCube (Top-Right Corner) */}
+          {showCadViewCube && (
+            <div className="absolute top-12 right-4 z-30 select-none pointer-events-auto">
+              <div className="relative w-24 h-24 flex items-center justify-center">
+                {/* Compass Ring */}
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="46" fill="#090d16" stroke="#334155" strokeWidth="1.5" opacity="0.85" />
+                  <circle cx="50" cy="50" r="42" fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="2 2" />
+                  <text x="50" y="12" fill="#38bdf8" fontSize="9" fontWeight="bold" textAnchor="middle">N</text>
+                  <text x="88" y="53" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="middle">E</text>
+                  <text x="50" y="93" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="middle">S</text>
+                  <text x="12" y="53" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="middle">W</text>
+                </svg>
+                {/* 3D Isometric ViewCube block */}
+                <div className="w-14 h-14 bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-sky-500/60 rounded shadow-xl flex flex-col items-center justify-center transform rotate-[-4deg] hover:rotate-0 hover:scale-105 transition-all cursor-pointer group">
+                  <button
+                    type="button"
+                    onClick={handleFitToScreen}
+                    className="w-full h-full flex flex-col items-center justify-center gap-0.5"
+                    title="Top View (Continuous Unwrapped Horseshoe Shell) - Click to Reset View"
+                  >
+                    <span className="text-[10px] font-black tracking-widest text-sky-400 group-hover:text-white transition-colors">TOP</span>
+                    <span className="text-[8px] font-mono text-slate-400">UNFOLD</span>
+                  </button>
+                </div>
+                {/* Home Button */}
+                <button
+                  type="button"
+                  onClick={handleFitToScreen}
+                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-slate-800 hover:bg-sky-500 hover:text-white border border-slate-600 text-slate-300 text-[10px] flex items-center justify-center shadow transition cursor-pointer"
+                  title="Home View (Fit All)"
+                >
+                  ⌂
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Vector Overlay for AutoCAD Object Snap (OSNAP - F3) & Dynamic Input (DYN - F12) */}
+          <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+            {hoverOsnap && (
+              <div
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5"
+                style={{ left: hoverOsnap.x, top: hoverOsnap.y }}
+              >
+                {hoverOsnap.type === 'ENDPOINT' ? (
+                  <div className="w-3.5 h-3.5 border-2 border-emerald-400 bg-emerald-400/20" />
+                ) : (
+                  <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[10px] border-b-cyan-400" />
+                )}
+                <div className="bg-slate-900/90 text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded border border-slate-700 shadow-md">
+                  {hoverOsnap.label}
+                </div>
+              </div>
+            )}
+
+            {cadDynInputEnabled && cursorCoords && (
+              <div
+                className="absolute transform translate-x-3 translate-y-3 bg-slate-900/95 border border-sky-500/70 text-white font-mono text-[10px] px-2 py-0.5 rounded shadow-lg flex items-center gap-2"
+                style={{ left: cursorCoords.screenX, top: cursorCoords.screenY }}
+              >
+                <span className="text-sky-300 font-bold">CH {cursorCoords.ch.toFixed(2)}m</span>
+                <span className="text-slate-400">|</span>
+                <span className="text-amber-300 font-bold">Y {cursorCoords.yPerim >= 0 ? '+' : ''}{cursorCoords.yPerim.toFixed(2)}m</span>
+              </div>
+            )}
+          </div>
 
           {/* Canvas Rendering Area */}
           <canvas
@@ -2384,26 +2818,153 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             }`}
           />
 
-          {/* Bottom Status Bar */}
-          <div className="h-7 bg-stone-900/95 border-t border-stone-800 px-3 flex items-center justify-end text-[11px] font-mono text-stone-400 shrink-0 z-10">
-            <div className="flex items-center gap-3">
-              <span>Zoom: {Math.round(zoom * 100)}%</span>
-              <span>Snap: {snapToGrid ? `${gridStepM}m` : 'OFF'}</span>
+          {/* AutoCAD 2026 Interactive Command Line Prompt Bar */}
+          <div className="bg-slate-950 border-t border-slate-800 px-3 py-1.5 flex items-center gap-2 font-mono text-xs z-20 shrink-0">
+            <div className="flex items-center gap-1.5 text-sky-400 font-bold shrink-0">
+              <Terminal className="w-3.5 h-3.5" />
+              <span className="tracking-wider">COMMAND:</span>
+            </div>
+            <input
+              type="text"
+              value={cadCommandInput}
+              onChange={(e) => setCadCommandInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleExecuteCadCommand(cadCommandInput);
+                } else if (e.key === 'Escape') {
+                  setCadCommandInput('');
+                  setActiveTool('select');
+                }
+              }}
+              placeholder="Type command (e.g. LINE, MOVE, EDIT, MERGE, ERASE, LITH, WATER, MEASURE, AI, ZOOM, OSNAP, DYN)..."
+              className="flex-1 bg-transparent border-none outline-none text-slate-100 placeholder:text-slate-600 text-xs font-mono"
+            />
+            <div className="hidden md:flex items-center gap-2 text-[10px] text-slate-400 shrink-0 border-l border-slate-800 pl-2">
+              <span className="truncate max-w-xs text-amber-300/90">{cadStatusMessage}</span>
+            </div>
+          </div>
+
+          {/* AutoCAD 2026 Status Bar (Bottom Status & Toggles) */}
+          <div className="h-7 bg-slate-900 border-t border-slate-800 px-2 sm:px-3 flex items-center justify-between text-[10.5px] font-mono text-slate-400 shrink-0 z-20 select-none">
+            {/* Left: Dynamic Coordinates & Surface Zone */}
+            <div className="flex items-center gap-2 sm:gap-3 text-slate-300 font-mono">
+              <span className="text-sky-400 font-bold">
+                CH: {cursorCoords ? `${cursorCoords.ch.toFixed(2)}m` : `${fromRd.toFixed(2)}m`}
+              </span>
+              <span>
+                Y: {cursorCoords ? `${cursorCoords.yPerim >= 0 ? '+' : ''}${cursorCoords.yPerim.toFixed(2)}m` : '+0.00m'}
+              </span>
+              <span className="hidden sm:inline px-1.5 py-0.2 rounded bg-slate-800 text-amber-400 text-[10px] font-sans font-semibold">
+                {cursorCoords ? getZoneLabelForY(cursorCoords.yPerim) : 'Crown Arch'}
+              </span>
+              <span className="hidden lg:inline text-slate-500">|</span>
+              <span className="hidden lg:inline text-slate-400">Scale: {Math.round(zoom * 100)}%</span>
+            </div>
+
+            {/* Right: AutoCAD Standard Status Toggles (MODEL, GRID, SNAP, ORTHO, POLAR, OSNAP, DYN, LWT) */}
+            <div className="flex items-center gap-1 font-mono text-[10px]">
+              <span className="px-1.5 py-0.5 rounded bg-sky-950 text-sky-300 font-bold border border-sky-700/50">
+                MODEL
+              </span>
+              <button
+                type="button"
+                onClick={() => setSnapToGrid(!snapToGrid)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  snapToGrid
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="GRID DISPLAY (F7)"
+              >
+                GRID
+              </button>
+              <button
+                type="button"
+                onClick={() => setSnapToGrid(!snapToGrid)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  snapToGrid
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="SNAP MODE (F9)"
+              >
+                SNAP
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrthoMode(!orthoMode)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  orthoMode
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="ORTHO MODE (F8)"
+              >
+                ORTHO
+              </button>
+              <button
+                type="button"
+                onClick={() => setPolarTracking(!polarTracking)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  polarTracking
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="POLAR TRACKING (F10)"
+              >
+                POLAR
+              </button>
+              <button
+                type="button"
+                onClick={() => setCadOsnapEnabled(!cadOsnapEnabled)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  cadOsnapEnabled
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="OBJECT SNAP (F3)"
+              >
+                OSNAP
+              </button>
+              <button
+                type="button"
+                onClick={() => setCadDynInputEnabled(!cadDynInputEnabled)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  cadDynInputEnabled
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="DYNAMIC INPUT (F12)"
+              >
+                DYN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLineWeightDisplay(!lineWeightDisplay)}
+                className={`hidden sm:inline px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  lineWeightDisplay
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="LINEWEIGHT DISPLAY"
+              >
+                LWT
+              </button>
             </div>
           </div>
         </div>
 
-        {/* 3. RIGHT PROPERTY INSPECTOR PANEL */}
-        <div className="w-72 sm:w-84 bg-stone-900 border-l border-stone-800 flex flex-col shrink-0 overflow-hidden shadow-2xl">
+        {/* 3. RIGHT PROPERTY INSPECTOR PANEL (AutoCAD 2026 Dark Slate Theme) */}
+        <div className="w-72 sm:w-84 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 overflow-hidden shadow-2xl">
           {/* Sidebar Tabs */}
-          <div className="flex items-center border-b border-stone-800 bg-stone-950 shrink-0 overflow-x-auto">
+          <div className="flex items-center border-b border-slate-800 bg-slate-950 shrink-0 overflow-x-auto font-mono">
             <button
               type="button"
               onClick={() => setSidebarTab('properties')}
               className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
                 sidebarTab === 'properties'
-                  ? 'border-orange-500 text-orange-400 bg-stone-900/60'
-                  : 'border-transparent text-stone-400 hover:text-stone-200'
+                  ? 'border-sky-500 text-sky-400 bg-slate-900/60'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
               <Sliders className="w-3.5 h-3.5" />
@@ -2414,8 +2975,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               onClick={() => setSidebarTab('lithology')}
               className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
                 sidebarTab === 'lithology'
-                  ? 'border-orange-500 text-orange-400 bg-stone-900/60'
-                  : 'border-transparent text-stone-400 hover:text-stone-200'
+                  ? 'border-sky-500 text-sky-400 bg-slate-900/60'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
@@ -2426,13 +2987,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               onClick={() => setSidebarTab('previous_joints')}
               className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
                 sidebarTab === 'previous_joints'
-                  ? 'border-orange-500 text-orange-400 bg-stone-900/60'
-                  : 'border-transparent text-stone-400 hover:text-stone-200'
+                  ? 'border-sky-500 text-sky-400 bg-slate-900/60'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
               <Hash className="w-3.5 h-3.5" />
               <span>Traces</span>
-              <span className="ml-0.5 px-1.5 py-0.2 text-[9px] font-mono rounded-full bg-orange-950 text-orange-400 border border-orange-500/30">
+              <span className="ml-0.5 px-1.5 py-0.2 text-[9px] font-mono rounded-full bg-sky-950 text-sky-400 border border-sky-500/30">
                 {(currentDataset.traces || []).length}
               </span>
             </button>
@@ -2441,8 +3002,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               onClick={() => setSidebarTab('features')}
               className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
                 sidebarTab === 'features'
-                  ? 'border-orange-500 text-orange-400 bg-stone-900/60'
-                  : 'border-transparent text-stone-400 hover:text-stone-200'
+                  ? 'border-sky-500 text-sky-400 bg-slate-900/60'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -2453,8 +3014,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               onClick={() => setSidebarTab('layers')}
               className={`flex-1 py-2.5 px-2 text-[11px] font-bold flex items-center justify-center gap-1.5 border-b-2 transition cursor-pointer shrink-0 ${
                 sidebarTab === 'layers'
-                  ? 'border-orange-500 text-orange-400 bg-stone-900/60'
-                  : 'border-transparent text-stone-400 hover:text-stone-200'
+                  ? 'border-sky-500 text-sky-400 bg-slate-900/60'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
               <Shield className="w-3.5 h-3.5" />

@@ -330,7 +330,7 @@ export function saveConfiguredGithubRepo(rawInput: string): string {
 }
 
 export const PUBLIC_SHARED_APP_ORIGIN =
-  'https://ais-pre-7ikzqfzql6gljr6mfk6quj-728524179497.asia-northeast1.run.app';
+  'https://ais-pre-rbj2jpy2po3ssp54klqlu3-728524179497.asia-northeast1.run.app';
 
 export function getPublicShareOrigin(): string {
   if (typeof window === 'undefined') return PUBLIC_SHARED_APP_ORIGIN;
