@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Check,
@@ -21,6 +21,8 @@ import {
   computePhysicalMetricPoints,
   computeJunctionGeotechnicalAdjustments,
   computeTraceOrientationFromTunnelDrive,
+  computeTraceScreenDipTickVector,
+  buildSmoothSvgPath,
   convertPhysicalMetricPointsToCanvas,
   createDefaultSupportSystem,
   exportFieldMappingTwoPagePdfSheet,
@@ -58,6 +60,7 @@ import {
 import {
   computeUnfoldedStripBoxes,
   FieldUnfoldedSheetSvgPreview,
+  FieldMonochromeGeologicalPatterns,
 } from './FieldMappingCompassAndPatterns';
 import {
   FieldSupport2DCrossSectionSvg,
@@ -65,6 +68,11 @@ import {
 import {
   syncFieldMappingRoundForAiTraining,
 } from '../engine/userCloudAndPackageEngine';
+import {
+  MappingDomainType,
+  SurfaceGeometryParameters,
+  evaluateSurfaceStabilityAndRomanaSmr,
+} from '../engine/surfaceMappingEngine';
 
 type StripAlignItemKind = 'joint' | 'vein' | 'feature';
 type JointPointActionMode = 'add_point' | 'bend' | 'move' | 'extend';
@@ -2599,12 +2607,1089 @@ export const FieldReportTemplateEditorPanel: React.FC<{
 };
 
 // ============================================================================
-// STAGE 7: 2-PAGE REFERENCE REPORT (PAGE 1 & PAGE 2) + WORD TEMPLATE ENGINE
+// SURFACE CLEAN REPORT: 3-PAGE A4 VERTICAL REPORT FOR SLOPE & BENCH MAPPING
+// - Page 1: Surface Exposure Geological Map (Portion 1)
+// - Page 2: Discontinuity Structural Analysis & Joint Sets (Portion 2)
+// - Page 3: Geotechnical Ratings, Surface Stabilization Specs & Other Data (Portion 3: Last Page Other Data)
+// ============================================================================
+export const FieldSurfaceMappingThreePageReport: React.FC<{
+  activeProject: FieldProjectItem;
+  activeLocation: FieldTunnelLocationItem;
+  activeRound: FieldExcavationRound;
+  mappingDomain: MappingDomainType;
+  surfaceParams?: SurfaceGeometryParameters;
+  colorMode: 'color' | 'bw';
+  selClass: any;
+  qRes: any;
+  rmrRes: any;
+  smrResult: any;
+  onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
+  handleToggleTickOption: (groupId: string, optionIdx: number) => void;
+  handleDeleteTickGroup: (groupId: string) => void;
+}> = ({
+  activeProject,
+  activeLocation,
+  activeRound,
+  mappingDomain,
+  surfaceParams,
+  colorMode,
+  selClass,
+  qRes,
+  rmrRes,
+  smrResult,
+  onUpdateRound,
+  handleToggleTickOption,
+  handleDeleteTickGroup,
+}) => {
+  const slopeFaceAngle = surfaceParams?.faceDipAngleDeg ?? 70;
+  const slopeAzimuth = activeRound.tunnelDriveDirection ?? 135;
+  const slopeHeightM = surfaceParams?.benchHeightMeters ?? surfaceParams?.exposureLengthMeters ?? activeLocation.heightM ?? 12;
+  const slopeWidthM = activeLocation.widthM || 20;
+  const sup = activeRound.supportSystem || createDefaultSupportSystem();
+
+  const availableSetIds = FIELD_JOINT_SET_IDS.filter(
+    (setId) =>
+      activeRound.jointTraces.some((j) => j.setId === setId) ||
+      activeRound.dipPlaneSurfaces.some((d) => d.setId === setId) ||
+      activeRound.discontinuitySets[setId]?.manualOrientationOverride
+  );
+
+  const renderCompactSignBlock = (pageLabel = '') => (
+    <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+      <tbody>
+        <tr>
+          <td className="border border-slate-900 bg-white px-2 py-1 w-1/2">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="font-black uppercase shrink-0">Contractor Geologist:</span>
+              <input
+                type="text"
+                value={
+                  activeRound.contractorGeologistName ??
+                  activeRound.contractorRepName ??
+                  activeRound.geologistName ??
+                  ''
+                }
+                onChange={(e) =>
+                  onUpdateRound((r) => ({
+                    ...r,
+                    contractorGeologistName: e.target.value,
+                    geologistName: e.target.value,
+                  }))
+                }
+                placeholder="Name"
+                className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[36%] focus:outline-none"
+              />
+              <span className="font-bold text-slate-900 shrink-0">Sign:</span>
+              <input
+                type="text"
+                value={activeRound.contractorGeologistSign ?? ''}
+                onChange={(e) =>
+                  onUpdateRound((r) => ({
+                    ...r,
+                    contractorGeologistSign: e.target.value,
+                  }))
+                }
+                placeholder="Sign"
+                className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[26%] focus:outline-none"
+              />
+            </div>
+          </td>
+          <td className="border border-slate-900 bg-white px-2 py-1 w-1/2">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="font-black uppercase shrink-0">Client Geologist:</span>
+              <input
+                type="text"
+                value={
+                  activeRound.clientGeologistName ?? activeRound.clientRepName ?? ''
+                }
+                onChange={(e) =>
+                  onUpdateRound((r) => ({
+                    ...r,
+                    clientGeologistName: e.target.value,
+                    clientRepName: e.target.value,
+                  }))
+                }
+                placeholder="Name"
+                className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[36%] focus:outline-none"
+              />
+              <span className="font-bold text-slate-900 shrink-0">Sign:</span>
+              <input
+                type="text"
+                value={activeRound.clientGeologistSign ?? ''}
+                onChange={(e) =>
+                  onUpdateRound((r) => ({
+                    ...r,
+                    clientGeologistSign: e.target.value,
+                  }))
+                }
+                placeholder="Sign"
+                className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[26%] focus:outline-none"
+              />
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  );
+
+  return (
+    <>
+      {/* =====================================================================
+          PAGE 1 OF 3 (A4 VERTICAL): SURFACE EXPOSURE GEOLOGICAL CAD MAP
+         ===================================================================== */}
+      <div
+        id="field-surface-report-page-1"
+        className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm] print:break-after-page"
+      >
+        {/* Top Header */}
+        <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+          <tbody>
+            <tr>
+              <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
+                {activeProject.leftLogoDataUrl ? (
+                  <img
+                    src={activeProject.leftLogoDataUrl}
+                    alt="Client Logo"
+                    className="max-h-7 mx-auto object-contain"
+                  />
+                ) : (
+                  <div className="text-[9px] font-bold text-slate-950 leading-tight">
+                    {activeProject.clientName || 'CLIENT'}
+                  </div>
+                )}
+              </td>
+              <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
+                <div className="text-[11px] font-black tracking-wide uppercase text-slate-950 leading-tight">
+                  ENGINEERING GEOLOGICAL SURFACE EXPOSURE MAP — {activeProject.projectName} ({activeLocation.name})
+                  <span className="text-[9px] font-semibold text-slate-700 ml-1.5">[Page 1/3]</span>
+                </div>
+              </td>
+              <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
+                {activeProject.rightLogoDataUrl ? (
+                  <img
+                    src={activeProject.rightLogoDataUrl}
+                    alt="Contractor Logo"
+                    className="max-h-7 mx-auto object-contain"
+                  />
+                ) : (
+                  <div className="text-[9px] font-bold text-slate-950 leading-tight">
+                    {activeProject.contractorName || 'CONTRACTOR'}
+                  </div>
+                )}
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Domain:</span> {mappingDomain} MAPPING
+              </td>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Station:</span> CH {activeRound.chainageFrom}–{activeRound.chainageTo}m (W={slopeWidthM.toFixed(1)}m × H={slopeHeightM.toFixed(1)}m)
+              </td>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Face Dip / Az:</span> {slopeFaceAngle}° / N{String(slopeAzimuth).padStart(3, '0')}°
+              </td>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Date / Geologist:</span> {activeRound.dateAndTimeOfExcavation} | {activeRound.geologistName || 'Geologist'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Center: Full-Page Surface Face Exposure Geological CAD Map */}
+        <div className="border border-slate-900 p-1 bg-white flex-1 flex flex-col justify-between gap-1">
+          <svg
+            id="field-surface-report-svg"
+            viewBox="0 0 880 660"
+            className="w-full flex-1 h-auto border border-slate-900 bg-white"
+          >
+            <FieldMonochromeGeologicalPatterns
+              prefix="srf-rep-pat"
+              colorMode={colorMode}
+              symbolDensity={activeRound.lithologySymbolDensity ?? 85}
+              symbolDensityByPattern={activeRound.lithologyDensityByRock}
+              symbolAngleByPattern={activeRound.lithologyAngleByRock}
+              lithologyPatternAngle={activeRound.lithologyPatternAngle}
+              alternatingStrokes={activeRound.lithologyStrokes.filter(
+                (s) =>
+                  (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                  (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+              )}
+              customColorsByRock={activeRound.lithologyColorByRock}
+            />
+
+            {/* Geological Map Title Header */}
+            <text
+              x={440}
+              y={24}
+              textAnchor="middle"
+              fontSize="12"
+              fontWeight="bold"
+              fontFamily="monospace"
+              fill="#0f172a"
+            >
+              HIGH-RESOLUTION GEOLOGICAL CAD MAPPING OF SURFACE EXPOSURE ({slopeWidthM.toFixed(1)}m W × {slopeHeightM.toFixed(1)}m H)
+            </text>
+
+            {/* Boundary Framing & Coordinate Scale Grid (80,45 to 800,565) */}
+            <rect
+              x={80}
+              y={45}
+              width={720}
+              height={520}
+              fill="#fafafa"
+              stroke="#0f172a"
+              strokeWidth={2}
+            />
+
+            {/* Light Grid Lines */}
+            {[1, 2, 3, 4].map((i) => (
+              <g key={`vgrid-${i}`}>
+                <line
+                  x1={80 + i * 144}
+                  y1={45}
+                  x2={80 + i * 144}
+                  y2={565}
+                  stroke="#cbd5e1"
+                  strokeWidth={0.8}
+                  strokeDasharray="4 4"
+                />
+                <text
+                  x={80 + i * 144}
+                  y={580}
+                  textAnchor="middle"
+                  fontSize="9.5"
+                  fontFamily="monospace"
+                  fill="#475569"
+                >
+                  +{((slopeWidthM / 5) * i).toFixed(1)}m
+                </text>
+              </g>
+            ))}
+
+            {[1, 2, 3].map((i) => (
+              <g key={`hgrid-${i}`}>
+                <line
+                  x1={80}
+                  y1={565 - i * 130}
+                  x2={800}
+                  y2={565 - i * 130}
+                  stroke="#cbd5e1"
+                  strokeWidth={0.8}
+                  strokeDasharray="4 4"
+                />
+                <text
+                  x={70}
+                  y={569 - i * 130}
+                  textAnchor="end"
+                  fontSize="9.5"
+                  fontFamily="monospace"
+                  fill="#475569"
+                >
+                  +{((slopeHeightM / 4) * i).toFixed(1)}m
+                </text>
+              </g>
+            ))}
+
+            {/* Base Rock Pattern Fill */}
+            <rect
+              x={80}
+              y={45}
+              width={720}
+              height={520}
+              fill="url(#srf-rep-pat-monochrome-granite)"
+              opacity={0.35}
+            />
+
+            {/* Lithology Custom Strokes / Contact Regions */}
+            {activeRound.lithologyStrokes.map((stroke) => {
+              if (!stroke.points || stroke.points.length < 2) return null;
+              const mappedPts = stroke.points.map((p) => ({
+                x: 80 + (p.x / 1000) * 720,
+                y: 45 + (p.y / 1000) * 520,
+              }));
+              const pathD = buildSmoothSvgPath(mappedPts);
+              const patFill = stroke.rockType
+                ? `url(#srf-rep-pat-monochrome-${stroke.rockType.toLowerCase().replace(/[^a-z0-9_-]/g, '_')})`
+                : 'none';
+              return (
+                <path
+                  key={stroke.id}
+                  d={pathD}
+                  fill={patFill}
+                  stroke={colorMode === 'bw' ? '#0f172a' : stroke.color || '#3b82f6'}
+                  strokeWidth={2}
+                  opacity={0.7}
+                />
+              );
+            })}
+
+            {/* Structural Fracture Traces / Discontinuities */}
+            {activeRound.jointTraces.map((trace) => {
+              if (!trace.points || trace.points.length < 2) return null;
+              const mappedPts = trace.points.map((p) => ({
+                x: 80 + (p.x / 1000) * 720,
+                y: 45 + (p.y / 1000) * 520,
+              }));
+              const pathD = buildSmoothSvgPath(mappedPts);
+              const traceColor = colorMode === 'bw'
+                ? '#0f172a'
+                : (trace.setId && FIELD_JOINT_GROUP_COLORS[trace.setId]?.stroke) || '#e11d48';
+
+              const midIdx = Math.floor(mappedPts.length / 2);
+              const midP = mappedPts[midIdx];
+              const tickVec = computeTraceScreenDipTickVector(mappedPts, 'face', trace.dipDirection ?? 135, slopeAzimuth);
+
+              return (
+                <g key={trace.id}>
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={traceColor}
+                    strokeWidth={2.4}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  {/* Dip Tick Vector */}
+                  {tickVec && (
+                    <line
+                      x1={tickVec.mid.x}
+                      y1={tickVec.mid.y}
+                      x2={tickVec.mid.x + tickVec.ux * 12}
+                      y2={tickVec.mid.y + tickVec.uy * 12}
+                      stroke={traceColor}
+                      strokeWidth={2.2}
+                    />
+                  )}
+                  {/* Dip Label */}
+                  <text
+                    x={midP.x + 8}
+                    y={midP.y - 6}
+                    fontSize="9.5"
+                    fontWeight="bold"
+                    fontFamily="monospace"
+                    fill={traceColor}
+                  >
+                    {trace.setId ? `${trace.setId} ` : ''}{trace.dipAmount ?? 65}°/N{String(trace.dipDirection ?? 135).padStart(3, '0')}°
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Engineering Scale Bar (2.0m & 5.0m) */}
+            <g transform="translate(100, 535)">
+              <rect x={0} y={0} width={120} height={8} fill="#ffffff" stroke="#0f172a" strokeWidth={1} />
+              <rect x={0} y={0} width={60} height={8} fill="#0f172a" />
+              <text x={0} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a">0m</text>
+              <text x={60} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle">2.5m</text>
+              <text x={120} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="end">5.0m</text>
+              <text x={60} y={18} fontSize="9" fontFamily="monospace" fontWeight="black" fill="#0f172a" textAnchor="middle">SCALE 1:100</text>
+            </g>
+
+            {/* North Arrow & Face Orientation */}
+            <g transform="translate(740, 95)">
+              <circle cx={0} cy={0} r={22} fill="#ffffff" stroke="#0f172a" strokeWidth={1.2} />
+              <line x1={0} y1={-20} x2={0} y2={20} stroke="#0f172a" strokeWidth={1.5} />
+              <polygon points="0,-20 -5,-7 5,-7" fill="#dc2626" />
+              <text x={0} y={-24} fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#dc2626" textAnchor="middle">N</text>
+              <text x={0} y={32} fontSize="8.5" fontWeight="bold" fontFamily="monospace" fill="#0f172a" textAnchor="middle">Face N{String(slopeAzimuth).padStart(3, '0')}°</text>
+            </g>
+
+            {/* Crest & Toe Bench Boundary Labels */}
+            <text x={440} y={40} textAnchor="middle" fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#047857">
+              ▲ CREST OF SLOPE / UPPER BENCH BENCHMARK (+{slopeHeightM.toFixed(1)}m EL)
+            </text>
+            <text x={440} y={598} textAnchor="middle" fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#047857">
+              ▼ TOE OF SLOPE / ROADWAY DRAINAGE BENCH (+0.0m EL)
+            </text>
+          </svg>
+
+          {/* Integrated Lithology & Geological Legend Table */}
+          <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+            <thead>
+              <tr className="bg-slate-100">
+                <th colSpan={6} className="border border-slate-900 px-2 py-0.5 text-center font-black uppercase text-slate-900">
+                  Surface Lithology &amp; Geological Trace Legend
+                </th>
+              </tr>
+              <tr className="bg-white">
+                <th className="border border-slate-900 px-1.5 py-0.5 text-left w-[20%]">Bedrock Lithology</th>
+                <th className="border border-slate-900 px-1.5 py-0.5 text-left w-[20%]">Weathering Grade</th>
+                <th className="border border-slate-900 px-1.5 py-0.5 text-left w-[20%]">Structural Type</th>
+                <th className="border border-slate-900 px-1.5 py-0.5 text-center w-[13%]">Mapped Joints</th>
+                <th className="border border-slate-900 px-1.5 py-0.5 text-center w-[13%]">Joint Sets</th>
+                <th className="border border-slate-900 px-1.5 py-0.5 text-center w-[14%]">GSI Rating</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-slate-900 px-1.5 py-1 font-bold text-slate-900">
+                  {activeRound.rockType || 'Competent Bedrock'}
+                </td>
+                <td className="border border-slate-900 px-1.5 py-1 text-slate-800">
+                  {activeRound.weatheringIndex || 'WII'} (Moderately Weathered)
+                </td>
+                <td className="border border-slate-900 px-1.5 py-1 text-slate-800">
+                  {activeRound.rockMassStructuralType || 'Blocky / Interlocked'}
+                </td>
+                <td className="border border-slate-900 px-1.5 py-1 text-center font-bold text-slate-900">
+                  {activeRound.jointTraces.length} traces
+                </td>
+                <td className="border border-slate-900 px-1.5 py-1 text-center font-bold text-amber-700">
+                  {availableSetIds.length > 0 ? availableSetIds.join(', ') : 'Random'}
+                </td>
+                <td className="border border-slate-900 px-1.5 py-1 text-center font-black text-emerald-800">
+                  GSI = {activeRound.gsiValue || 55}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Bottom Signatures */}
+        {renderCompactSignBlock('Page 1/3')}
+      </div>
+
+      {/* =====================================================================
+          PAGE 2 OF 3 (A4 VERTICAL): DISCONTINUITY STRUCTURAL ANALYSIS & KINEMATICS
+         ===================================================================== */}
+      <div
+        id="field-surface-report-page-2"
+        className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm] print:break-after-page"
+      >
+        {/* Top Header */}
+        <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+          <tbody>
+            <tr>
+              <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
+                {activeProject.leftLogoDataUrl ? (
+                  <img
+                    src={activeProject.leftLogoDataUrl}
+                    alt="Client Logo"
+                    className="max-h-7 mx-auto object-contain"
+                  />
+                ) : (
+                  <span className="text-[9px] font-bold">
+                    {activeProject.clientName || 'CLIENT'}
+                  </span>
+                )}
+              </td>
+              <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
+                <div className="text-[11px] font-black uppercase leading-tight">
+                  DISCONTINUITY STRUCTURAL ANALYSIS &amp; KINEMATIC STABILITY — {activeProject.projectName} ({activeLocation.name})
+                  <span className="text-[9px] font-semibold text-slate-700 ml-1.5">[Page 2/3]</span>
+                </div>
+              </td>
+              <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
+                {activeProject.rightLogoDataUrl ? (
+                  <img
+                    src={activeProject.rightLogoDataUrl}
+                    alt="Contractor Logo"
+                    className="max-h-7 mx-auto object-contain"
+                  />
+                ) : (
+                  <span className="text-[9px] font-bold">
+                    {activeProject.contractorName || 'CONTRACTOR'}
+                  </span>
+                )}
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Location:</span> {activeLocation.name}
+              </td>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Station:</span> CH {activeRound.chainageFrom}–{activeRound.chainageTo}m
+              </td>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Face Dip / Az:</span> {slopeFaceAngle}° / N{String(slopeAzimuth).padStart(3, '0')}°
+              </td>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Excavation:</span> {activeRound.modeOfExcavation || 'Rip & Blast'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Section 1: Detailed Discontinuity Table */}
+        <div className="space-y-2 flex-1 flex flex-col justify-between">
+          <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+            <thead>
+              <tr className="bg-slate-100">
+                <th colSpan={10} className="border border-slate-900 py-1 px-2 text-center font-black uppercase text-slate-900">
+                  1. Discontinuity / Joint Sets Parameters (J1–J5, J-Bedding, J-Random)
+                </th>
+              </tr>
+              <tr className="bg-white">
+                <th className="border border-slate-900 bg-white px-1 py-0.5 text-center">Set</th>
+                <th className="border border-slate-900 bg-white px-1 py-0.5 text-center">Dip Dir (°)</th>
+                <th className="border border-slate-900 bg-white px-1 py-0.5 text-center">Dip Amt (°)</th>
+                <th className="border border-slate-900 bg-white px-1 py-0.5">Spacing</th>
+                <th className="border border-slate-900 bg-white px-1 py-0.5">Persistence</th>
+                <th className="border border-slate-900 bg-white px-1 py-0.5">Aperture</th>
+                <th className="border border-slate-900 bg-white px-1 py-0.5">Roughness</th>
+                <th className="border border-slate-900 bg-white px-1 py-0.5">Infilling</th>
+                <th className="border border-slate-900 bg-white px-1 py-0.5">Weathering</th>
+                <th className="border border-slate-900 bg-white px-1 py-0.5">Water</th>
+              </tr>
+            </thead>
+            <tbody>
+              {availableSetIds.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="border border-slate-900 bg-white px-2 py-2 text-center text-slate-600 italic">
+                    No grouped discontinuity sets mapped on canvas. Defaulting to general joint parameters.
+                  </td>
+                </tr>
+              ) : (
+                availableSetIds.map((setId) => {
+                  const s = activeRound.discontinuitySets[setId];
+                  const grpColor = FIELD_JOINT_GROUP_COLORS[setId]?.badgeBg || '#0f172a';
+                  const meanDipDir = s ? Math.round((s.dipDirectionFrom + s.dipDirectionTo) / 2) : 135;
+                  const meanDipAmt = s ? Math.round((s.dipAmountFrom + s.dipAmountTo) / 2) : 60;
+                  return (
+                    <tr key={setId} className="bg-white">
+                      <td className="border border-slate-900 bg-white px-1 py-0.5 text-center font-black">
+                        <span
+                          className="px-1.5 py-0.2 rounded text-white text-[9px] font-bold"
+                          style={{ backgroundColor: colorMode === 'bw' ? '#0f172a' : grpColor }}
+                        >
+                          {setId}
+                        </span>
+                      </td>
+                      <td className="border border-slate-900 bg-white px-1 py-0.5 text-center font-mono font-bold">
+                        {s ? `${meanDipDir}°` : '—'}
+                      </td>
+                      <td className="border border-slate-900 bg-white px-1 py-0.5 text-center font-mono font-bold">
+                        {s ? `${meanDipAmt}°` : '—'}
+                      </td>
+                      <td className="border border-slate-900 bg-white px-1 py-0.5">{s?.spacing || '0.2–0.6m'}</td>
+                      <td className="border border-slate-900 bg-white px-1 py-0.5">{s?.persistence || '3–10m'}</td>
+                      <td className="border border-slate-900 bg-white px-1 py-0.5">{s?.aperture || '0.1–1.0mm'}</td>
+                      <td className="border border-slate-900 bg-white px-1 py-0.5">{s?.roughness || 'Rough / Stepped'}</td>
+                      <td className="border border-slate-900 bg-white px-1 py-0.5">{s?.infilling || 'None / Clean'}</td>
+                      <td className="border border-slate-900 bg-white px-1 py-0.5">{s?.weathering || 'Slightly Weathered'}</td>
+                      <td className="border border-slate-900 bg-white px-1 py-0.5">{s?.groundwater || 'Dry'}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+
+          {/* Section 2: Kinematic Slope & Bench Failure Mode Screening */}
+          <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+            <thead>
+              <tr className="bg-slate-100">
+                <th colSpan={5} className="border border-slate-900 py-1 px-2 text-center font-black uppercase text-slate-900">
+                  2. Kinematic Slope &amp; Bench Structural Failure Screening (Face Dip β={slopeFaceAngle}°, Azimuth N{String(slopeAzimuth).padStart(3, '0')}°)
+                </th>
+              </tr>
+              <tr className="bg-white">
+                <th className="border border-slate-900 px-2 py-0.5 text-left w-[20%]">Failure Mode</th>
+                <th className="border border-slate-900 px-2 py-0.5 text-left w-[30%]">Kinematic Geometric Test</th>
+                <th className="border border-slate-900 px-2 py-0.5 text-left w-[22%]">Governing Joint Set</th>
+                <th className="border border-slate-900 px-2 py-0.5 text-center w-[14%]">Kinematic Status</th>
+                <th className="border border-slate-900 px-2 py-0.5 text-left w-[14%]">Hazard Severity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Planar Sliding Check */}
+              {(() => {
+                let criticalPlanarSet = '';
+                let isPlanarDaylighting = false;
+                availableSetIds.forEach((setId) => {
+                  const s = activeRound.discontinuitySets[setId];
+                  if (s) {
+                    const dip = (s.dipAmountFrom + s.dipAmountTo) / 2;
+                    const dipDir = (s.dipDirectionFrom + s.dipDirectionTo) / 2;
+                    const strikeDiff = Math.abs((dipDir - slopeAzimuth + 360) % 360);
+                    if (dip < slopeFaceAngle && dip > 25 && (strikeDiff <= 25 || strikeDiff >= 335)) {
+                      isPlanarDaylighting = true;
+                      criticalPlanarSet = setId;
+                    }
+                  }
+                });
+                return (
+                  <tr>
+                    <td className="border border-slate-900 px-2 py-1 font-bold">Planar Sliding</td>
+                    <td className="border border-slate-900 px-2 py-1 font-mono text-[9px]">
+                      ψp &lt; βs ({slopeFaceAngle}°) &amp; ψp &gt; φ (30°) &amp; |αj - αs| ≤ 20°
+                    </td>
+                    <td className="border border-slate-900 px-2 py-1 font-bold text-amber-800">
+                      {criticalPlanarSet || (availableSetIds[0] || 'J1')}
+                    </td>
+                    <td className={`border border-slate-900 px-2 py-1 text-center font-bold ${isPlanarDaylighting ? 'text-rose-700 bg-rose-50' : 'text-emerald-700'}`}>
+                      {isPlanarDaylighting ? 'DAYLIGHTS (CRITICAL)' : 'NO DAYLIGHT'}
+                    </td>
+                    <td className="border border-slate-900 px-2 py-1 font-bold text-slate-800">
+                      {isPlanarDaylighting ? 'High Risk' : 'Low Hazard'}
+                    </td>
+                  </tr>
+                );
+              })()}
+
+              {/* Intersecting Wedge Check */}
+              <tr>
+                <td className="border border-slate-900 px-2 py-1 font-bold">Wedge Failure</td>
+                <td className="border border-slate-900 px-2 py-1 font-mono text-[9px]">
+                  Plunge ψi &lt; βs ({slopeFaceAngle}°) &amp; ψi &gt; φ (30°) along line of intersection
+                </td>
+                <td className="border border-slate-900 px-2 py-1 font-bold text-cyan-800">
+                  {availableSetIds.length >= 2 ? `${availableSetIds[0]} ∩ ${availableSetIds[1]}` : 'J1 ∩ J2'}
+                </td>
+                <td className="border border-slate-900 px-2 py-1 text-center font-bold text-amber-700 bg-amber-50">
+                  FEASIBLE (INTERSECTS)
+                </td>
+                <td className="border border-slate-900 px-2 py-1 font-bold text-amber-800">
+                  Moderate Risk
+                </td>
+              </tr>
+
+              {/* Flexural Toppling Check */}
+              <tr>
+                <td className="border border-slate-900 px-2 py-1 font-bold">Flexural Toppling</td>
+                <td className="border border-slate-900 px-2 py-1 font-mono text-[9px]">
+                  (90° - ψp) ≤ (βs - φ) (Goodman &amp; Bray Criterion, joint dipping into face)
+                </td>
+                <td className="border border-slate-900 px-2 py-1 font-bold text-slate-800">
+                  {availableSetIds[1] || availableSetIds[0] || 'J-Bedding'}
+                </td>
+                <td className="border border-slate-900 px-2 py-1 text-center font-bold text-slate-700">
+                  LOW SUSCEPTIBILITY
+                </td>
+                <td className="border border-slate-900 px-2 py-1 font-bold text-emerald-800">
+                  Stable
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          {/* Section 3: Rock Mass Indices & Interactive Checklist */}
+          <table className="w-full border-collapse border border-slate-900 text-[10px] bg-white shrink-0">
+            <thead>
+              <tr className="bg-slate-100">
+                <th colSpan={2} className="border border-slate-900 py-1 px-2 text-center font-black uppercase text-slate-900">
+                  3. Rock Mass Weathering &amp; Strength Indices (Click to Update)
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th className="border border-slate-900 bg-white px-2 py-1 text-left w-[28%]">
+                  Weathering Index (WI – WVI)
+                </th>
+                <td className="border border-slate-900 bg-white px-2 py-1">
+                  <div className="flex flex-wrap gap-3.5">
+                    {(['WI', 'WII', 'WIII', 'WIV', 'WV', 'WVI'] as const).map((w) => {
+                      const checked = activeRound.weatheringIndex === w;
+                      return (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() =>
+                            onUpdateRound((r) => ({ ...r, weatheringIndex: w }))
+                          }
+                          className="inline-flex items-center gap-1 font-bold text-slate-900 hover:text-amber-700 cursor-pointer"
+                        >
+                          <span className="text-xs">{checked ? '☑' : '☐'}</span>
+                          <span>{w}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                  Strength Index (S1 – S6)
+                </th>
+                <td className="border border-slate-900 bg-white px-2 py-1">
+                  <div className="flex flex-wrap gap-3.5">
+                    {(['S1', 'S2', 'S3', 'S4', 'S5', 'S6'] as const).map((s) => {
+                      const checked = activeRound.strengthIndex === s;
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() =>
+                            onUpdateRound((r) => ({ ...r, strengthIndex: s }))
+                          }
+                          className="inline-flex items-center gap-1 font-bold text-slate-900 hover:text-amber-700 cursor-pointer"
+                        >
+                          <span className="text-xs">{checked ? '☑' : '☐'}</span>
+                          <span>{s}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </td>
+              </tr>
+
+              {/* Custom Tick Groups */}
+              {(activeRound.customTickBoxGroups || []).map((grp) => (
+                <tr key={grp.id}>
+                  <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                    <div className="flex items-center justify-between">
+                      <span>{grp.categoryTitle}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTickGroup(grp.id)}
+                        className="text-rose-600 hover:text-rose-800 ml-1 print:hidden"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </th>
+                  <td className="border border-slate-900 bg-white px-2 py-1">
+                    <div className="flex flex-wrap gap-3.5">
+                      {grp.options.map((opt, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleToggleTickOption(grp.id, idx)}
+                          className="inline-flex items-center gap-1 font-semibold text-slate-900 hover:text-amber-700 cursor-pointer"
+                        >
+                          <span className="text-xs">{opt.checked ? '☑' : '☐'}</span>
+                          <span>{opt.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Bottom Signatures */}
+        {renderCompactSignBlock('Page 2/3')}
+      </div>
+
+      {/* =====================================================================
+          PAGE 3 OF 3 (A4 VERTICAL): GEOTECHNICAL RATINGS & SURFACE STABILIZATION (LAST PAGE OTHER DATA)
+         ===================================================================== */}
+      <div
+        id="field-surface-report-page-3"
+        className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm]"
+      >
+        {/* Top Header */}
+        <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+          <tbody>
+            <tr>
+              <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
+                {activeProject.leftLogoDataUrl ? (
+                  <img
+                    src={activeProject.leftLogoDataUrl}
+                    alt="Client Logo"
+                    className="max-h-7 mx-auto object-contain"
+                  />
+                ) : (
+                  <span className="text-[9px] font-bold">
+                    {activeProject.clientName || 'CLIENT'}
+                  </span>
+                )}
+              </td>
+              <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
+                <div className="text-[11px] font-black uppercase leading-tight">
+                  GEOTECHNICAL RATINGS &amp; SURFACE STABILIZATION DESIGN — {activeProject.projectName} ({activeLocation.name})
+                  <span className="text-[9px] font-semibold text-slate-700 ml-1.5">[Page 3/3 - Last Page]</span>
+                </div>
+              </td>
+              <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
+                {activeProject.rightLogoDataUrl ? (
+                  <img
+                    src={activeProject.rightLogoDataUrl}
+                    alt="Contractor Logo"
+                    className="max-h-7 mx-auto object-contain"
+                  />
+                ) : (
+                  <span className="text-[9px] font-bold">
+                    {activeProject.contractorName || 'CONTRACTOR'}
+                  </span>
+                )}
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Location:</span> {activeLocation.name}
+              </td>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Station:</span> CH {activeRound.chainageFrom}–{activeRound.chainageTo}m
+              </td>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Support Class:</span> {sup.supportClass || 'Class III'}
+              </td>
+              <td className="border border-slate-900 bg-white px-1.5 py-0.5">
+                <span className="font-bold">Geologist:</span> {activeRound.geologistName || 'Geologist'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Section 1: Geotechnical Classification Ratings (RMR89 & Romana SMR) */}
+        <div className="space-y-2 flex-1 flex flex-col justify-between">
+          <table className="w-full border-collapse border border-slate-900 text-[10px] bg-white shrink-0">
+            <thead>
+              <tr className="bg-slate-100">
+                <th colSpan={4} className="border border-slate-900 py-1 px-2 text-center font-black uppercase text-slate-900">
+                  1. Rock Mass Geotechnical Classifications (RMR89 &amp; Romana SMR)
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th className="border border-slate-900 bg-white px-2 py-1 text-left w-[22%]">
+                  Bieniawski RMR89
+                </th>
+                <td className="border border-slate-900 bg-white px-2 py-1 font-mono text-[9.5px]">
+                  UCS={activeRound.rmrSystem.ucsRating} | RQD={activeRound.rmrSystem.rqdRating} | Spacing={activeRound.rmrSystem.spacingRating} | Cond={activeRound.rmrSystem.conditionRating} | Water={activeRound.rmrSystem.waterRating} | Adj={activeRound.rmrSystem.orientationAdj}
+                </td>
+                <th className="border border-slate-900 bg-white px-2 py-1 text-left w-[20%]">
+                  Total RMR &amp; Class
+                </th>
+                <td className="border border-slate-900 bg-white px-2 py-1 font-black text-amber-900">
+                  RMR = {rmrRes.totalRmr} ({rmrRes.rmrClass})
+                </td>
+              </tr>
+              <tr>
+                <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                  Romana SMR (Slope)
+                </th>
+                <td className="border border-slate-900 bg-white px-2 py-1 font-mono text-[9.5px]">
+                  SMR = RMRb ({rmrRes.totalRmr}) + (F1×F2×F3) + F4 = <strong>{smrResult?.smrValue ?? (rmrRes.totalRmr - 8)}</strong>
+                </td>
+                <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                  SMR Stability Class
+                </th>
+                <td className="border border-slate-900 bg-white px-2 py-1 font-black text-emerald-800">
+                  {smrResult?.smrClass ?? 'Class III (Partially Stable)'}
+                </td>
+              </tr>
+              <tr>
+                <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                  Hoek-Brown GSI &amp; Strengths
+                </th>
+                <td colSpan={3} className="border border-slate-900 bg-white px-2 py-1 font-mono text-[9.5px]">
+                  GSI = <strong>{activeRound.gsiValue || 55}</strong> | Cohesion c&apos; = <strong>{(25 + (activeRound.gsiValue || 55) * 0.9).toFixed(0)} kPa</strong> | Friction φ&apos; = <strong>{(28 + (activeRound.gsiValue || 55) * 0.22).toFixed(1)}°</strong> | Modulus Erm = <strong>{(8.5 + (activeRound.gsiValue || 55) * 0.28).toFixed(1)} GPa</strong>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          {/* Section 2: Surface Stabilization Design & 2D Engineering Section */}
+          <table className="w-full border-collapse border border-slate-900 text-[10px] bg-white shrink-0">
+            <thead>
+              <tr className="bg-slate-100">
+                <th colSpan={2} className="border border-slate-900 py-1 px-2 text-left font-black uppercase text-slate-900">
+                  2. Slope &amp; Bench Surface Stabilization System Design (Face β={slopeFaceAngle}°)
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colSpan={2} className="border border-slate-900 p-1 bg-white">
+                  {/* Clean 2D Cross Section SVG Preview for Surface Stabilization */}
+                  <svg
+                    id="field-report-support-2d-svg"
+                    viewBox="0 0 840 280"
+                    className="w-full h-auto border border-slate-800 bg-white"
+                  >
+                    {/* Ground Slope Face & Crest */}
+                    <path
+                      d="M 60 40 L 220 40 L 460 220 L 780 220"
+                      fill="none"
+                      stroke="#0f172a"
+                      strokeWidth={3}
+                    />
+                    <path
+                      d="M 60 40 L 220 40 L 460 220 L 780 220 L 780 270 L 60 270 Z"
+                      fill="#f1f5f9"
+                    />
+
+                    {/* Slope Crest Interceptor Drainage Ditch */}
+                    <rect x={160} y={30} width={28} height={18} fill="#38bdf8" stroke="#0284c7" strokeWidth={1.5} />
+                    <text x={174} y={24} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0369a1" textAnchor="middle">Crest Ditch</text>
+
+                    {/* Fiber Shotcrete Layer on Face */}
+                    <path
+                      d="M 220 40 L 460 220"
+                      fill="none"
+                      stroke="#475569"
+                      strokeWidth={7}
+                      strokeLinecap="round"
+                    />
+
+                    {/* High-Tensile Wire Mesh Layer on Face */}
+                    <path
+                      d="M 218 38 L 462 222"
+                      fill="none"
+                      stroke="#0284c7"
+                      strokeWidth={2}
+                      strokeDasharray="4 3"
+                    />
+
+                    {/* Systematic Pattern Soil Nails / Grouted Anchors */}
+                    {[0, 1, 2, 3].map((i) => {
+                      const t = (i + 1) / 5;
+                      const px = 220 + t * 240;
+                      const py = 40 + t * 180;
+                      const anchorLen = 80;
+                      const angleRad = (15 * Math.PI) / 180;
+                      const nx = px - anchorLen * Math.cos(angleRad);
+                      const ny = py + anchorLen * Math.sin(angleRad);
+                      return (
+                        <g key={`nail-${i}`}>
+                          {/* Grout Body */}
+                          <line
+                            x1={px}
+                            y1={py}
+                            x2={nx}
+                            y2={ny}
+                            stroke="#94a3b8"
+                            strokeWidth={7}
+                            strokeLinecap="round"
+                          />
+                          {/* Steel Rebar Tendon */}
+                          <line
+                            x1={px}
+                            y1={py}
+                            x2={nx}
+                            y2={ny}
+                            stroke="#dc2626"
+                            strokeWidth={2}
+                          />
+                          {/* Diamond Spike Plate P33 */}
+                          <circle cx={px} cy={py} r={5} fill="#f59e0b" stroke="#78350f" strokeWidth={1.5} />
+                        </g>
+                      );
+                    })}
+
+                    {/* Weep Holes with Drainage Drops */}
+                    {[0, 1, 2].map((i) => {
+                      const t = (i + 1.5) / 5;
+                      const px = 220 + t * 240;
+                      const py = 40 + t * 180;
+                      return (
+                        <g key={`weep-${i}`}>
+                          <circle cx={px} cy={py} r={3} fill="#0ea5e9" />
+                          <line x1={px} y1={py} x2={px + 8} y2={py + 10} stroke="#0ea5e9" strokeWidth={1.5} strokeDasharray="2 2" />
+                        </g>
+                      );
+                    })}
+
+                    {/* Sub-horizontal PVC Drainage Hole */}
+                    <line
+                      x1={440}
+                      y1={205}
+                      x2={280}
+                      y2={195}
+                      stroke="#0284c7"
+                      strokeWidth={3}
+                      strokeDasharray="6 3"
+                    />
+                    <text x={270} y={192} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0284c7">Sub-Horizontal Drain (L=10m @ +4°)</text>
+
+                    {/* Catchment Bench / Toe Ditch */}
+                    <text x={530} y={242} fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#0f172a">Catchment Berm W={surfaceParams?.bermWidthMeters ?? 6.0}m</text>
+
+                    {/* Callouts */}
+                    <text x={380} y={80} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#dc2626">Soil Nails Ø25mm (L={sup.soilNailLengthM ?? 4.5}m @ 1.5×1.5m c/c)</text>
+                    <text x={380} y={98} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0284c7">TECCO® G65 High-Tensile Wire Mesh</text>
+                    <text x={380} y={116} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#475569">{sup.shotcreteThicknessMm || 75}mm Fiber Shotcrete + Weep Holes</text>
+                  </svg>
+                </td>
+              </tr>
+              {/* Specifications Table */}
+              <tr>
+                <td colSpan={2} className="border border-slate-900 p-0">
+                  <table className="w-full border-collapse text-[9.5px]">
+                    <tbody>
+                      <tr className="bg-slate-50">
+                        <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
+                          Soil Nails / Rock Anchors:
+                        </td>
+                        <td className="border-r border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
+                          {sup.soilNailType || 'Ø25mm High-Yield Rebar'}, L={sup.soilNailLengthM ?? 4.5}m @ {sup.soilNailSpacingM ?? 1.5}×{sup.soilNailSpacingM ?? 1.5}m c/c (∠{sup.soilNailAngleDeg ?? 15}° down)
+                        </td>
+                        <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
+                          High-Tensile Wire Mesh:
+                        </td>
+                        <td className="border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
+                          {sup.wireMeshType || 'TECCO® G65 High-Tensile Steel Wire Mesh'} with {sup.spikePlateType || 'P33 Diamond Spike Plates'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
+                          Fiber Shotcrete &amp; Weeps:
+                        </td>
+                        <td className="border-r border-slate-900 px-2 py-0.5 font-mono">
+                          {sup.shotcreteThicknessMm || 75}mm SFRS Shotcrete with Ø50mm PVC Weep Holes @ {sup.weepHolesSpacingM ?? 2.0}m c/c
+                        </td>
+                        <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
+                          Drainage &amp; Crest Ditch:
+                        </td>
+                        <td className="px-2 py-0.5 font-mono">
+                          Sub-horizontal Drains L={sup.subHorizontalDrainsLengthM ?? 8.0}m @ +4° up + Concrete Crest Interceptor Ditch
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          {/* Section 3: Overall Geological Observations & Field Recommendations */}
+          <table className="w-full border-collapse border border-slate-900 text-[10.5px] bg-white flex-1">
+            <thead>
+              <tr className="bg-slate-100">
+                <th className="border border-slate-900 py-1 px-2 text-left font-black uppercase text-slate-900">
+                  3. Overall Geological Observations &amp; Surface Stabilization Instructions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-slate-900 bg-white p-2 align-top">
+                  <div
+                    contentEditable
+                    suppressContentEditableWarning
+                    onBlur={(e) => {
+                      const nextText = e.currentTarget.innerText.trim();
+                      if (nextText) {
+                        onUpdateRound((r) => ({ ...r, geologicalDescription: nextText }));
+                      }
+                    }}
+                    className="w-full bg-white text-slate-950 text-[10.5px] leading-relaxed whitespace-pre-wrap break-words min-h-[90px] focus:outline-none"
+                  >
+                    {activeRound.geologicalDescription ||
+                      `SURFACE STABILIZATION SPECIFICATION (${mappingDomain} MAPPING):\n` +
+                      `1. Rock mass mapped at CH ${activeRound.chainageFrom}–${activeRound.chainageTo}m comprises ${activeRound.rockType || 'Jointed Bedrock'} with ${availableSetIds.length} governing joint sets.\n` +
+                      `2. Recommended Surface Stabilization: Install ${sup.soilNailType || 'Ø25mm SN Rebar Dowels'} (L=${sup.soilNailLengthM ?? 4.5}m @ ${sup.soilNailSpacingM ?? 1.5}×${sup.soilNailSpacingM ?? 1.5}m c/c) drilled at 15° declination with OPC cement grout.\n` +
+                      `3. Drape ${sup.wireMeshType || 'TECCO® G65 High-Tensile Mesh'} fastened by P33 spike plates followed by ${sup.shotcreteThicknessMm || 75}mm SFRS fiber shotcrete with Ø50mm PVC weep holes @ 2.0m c/c.\n` +
+                      `4. Excavate and maintain concrete-lined crest interceptor ditch along upper slope boundary to divert runoff.`}
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Bottom Signatures */}
+        {renderCompactSignBlock('Page 3/3 - Final Sign-off')}
+      </div>
+    </>
+  );
+};
+
+// ============================================================================
+// STAGE 7: 2-PAGE / 3-PAGE REFERENCE REPORT + WORD TEMPLATE ENGINE
 // ============================================================================
 export const FieldTwoPageReportAndTemplateStage: React.FC<{
   activeProject: FieldProjectItem;
   activeLocation: FieldTunnelLocationItem;
   activeRound: FieldExcavationRound;
+  mappingDomain?: MappingDomainType;
+  surfaceParams?: SurfaceGeometryParameters;
   onUpdateProject: (updater: (prev: FieldProjectItem) => FieldProjectItem) => void;
   onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
   onBackToParams: () => void;
@@ -2613,6 +3698,8 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
   activeProject,
   activeLocation,
   activeRound,
+  mappingDomain = 'TUNNEL',
+  surfaceParams,
   onUpdateProject,
   onUpdateRound,
   onBackToParams,
@@ -2624,10 +3711,45 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [exportBanner, setExportBanner] = useState<string | null>(null);
 
+  const isSurface =
+    mappingDomain === 'SLOPE' ||
+    mappingDomain === 'BENCH' ||
+    mappingDomain === 'TRENCH' ||
+    mappingDomain === 'ROCK_SURFACE';
+
   const colorMode = activeRound.reportColorMode || 'bw';
   const selClass = activeRound.selectedClassifications || { q: true, rmr: true, gsi: true };
   const qRes = computeFieldQValue(activeRound.qSystem);
   const rmrRes = computeFieldRmrValue(activeRound.rmrSystem);
+
+  const smrResult = useMemo(() => {
+    if (!isSurface || !surfaceParams) return null;
+    const jointSetsArray = FIELD_JOINT_SET_IDS.filter(
+      (id) =>
+        activeRound.jointTraces.some((j) => j.setId === id) ||
+        activeRound.dipPlaneSurfaces.some((d) => d.setId === id) ||
+        activeRound.discontinuitySets[id]?.manualOrientationOverride
+    ).map((id) => {
+      const s = activeRound.discontinuitySets[id];
+      return {
+        id,
+        meanDip: s ? (s.dipAmountFrom + s.dipAmountTo) / 2 : 60,
+        meanDipDirection: s ? (s.dipDirectionFrom + s.dipDirectionTo) / 2 : 135,
+      };
+    });
+    return evaluateSurfaceStabilityAndRomanaSmr(
+      surfaceParams,
+      jointSetsArray,
+      rmrRes.totalRmr
+    );
+  }, [
+    isSurface,
+    surfaceParams,
+    activeRound.jointTraces,
+    activeRound.dipPlaneSurfaces,
+    activeRound.discontinuitySets,
+    rmrRes.totalRmr,
+  ]);
 
   // Toggle a tick-box option on Page 2
   const handleToggleTickOption = (groupId: string, optionIdx: number) => {
@@ -2656,9 +3778,12 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
     try {
       setIsExportingWord(true);
       setExportBanner('Preparing Microsoft Word (.doc) document with tables & vector sketch...');
-      const svgEl = document.getElementById(
-        'field-unfolded-report-svg'
-      ) as unknown as SVGSVGElement | null;
+      const svgEl = (document.getElementById(
+        'field-surface-report-svg'
+      ) ||
+        document.getElementById(
+          'field-unfolded-report-svg'
+        )) as unknown as SVGSVGElement | null;
       const supSvgEl = document.getElementById(
         'field-report-support-2d-svg'
       ) as unknown as SVGSVGElement | null;
@@ -2700,10 +3825,13 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
   const handleExportTwoPagePdfDoc = async (pageSize: 'A4' | 'A3' = 'A4') => {
     try {
       setIsExportingPdf(true);
-      setExportBanner(`Rendering high-resolution 2-Page ${pageSize} standalone PDF...`);
-      const svgEl = document.getElementById(
-        'field-unfolded-report-svg'
-      ) as unknown as SVGSVGElement | null;
+      setExportBanner(`Rendering high-resolution ${isSurface ? '3-Page' : '2-Page'} ${pageSize} standalone PDF...`);
+      const svgEl = (document.getElementById(
+        'field-surface-report-svg'
+      ) ||
+        document.getElementById(
+          'field-unfolded-report-svg'
+        )) as unknown as SVGSVGElement | null;
       const supSvgEl = document.getElementById(
         'field-report-support-2d-svg'
       ) as unknown as SVGSVGElement | null;
@@ -2778,7 +3906,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
               <span>{showTemplateEditor ? 'Close Template Edit' : 'Template Edit'}</span>
             </button>
             <span className="text-xs font-extrabold uppercase tracking-wider text-amber-400">
-              Engineering Geological Face Log (2-Page A4 Vertical Layout)
+              {isSurface
+                ? `Clean Surface Geological Report (${mappingDomain} • 3-Page A4 Vertical Layout)`
+                : 'Engineering Geological Face Log (2-Page A4 Vertical Layout)'}
             </span>
           </div>
 
@@ -2878,13 +4008,31 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
           </div>
         )}
 
-        {/* Scrollable 2-Page A4 Vertical Document Sheet Container */}
+        {/* Scrollable Document Container: 3-Page for Surface vs 2-Page for Tunnel */}
         <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1 bg-slate-800/60 p-2 sm:p-3.5 rounded-lg touch-pan-y">
-          {/* ==================== PAGE 1 OF 2 (A4 VERTICAL: 210mm × 297mm) ==================== */}
-          <div
-            id="field-mapping-report-page-1"
-            className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm] print:break-after-page"
-          >
+          {isSurface ? (
+            <FieldSurfaceMappingThreePageReport
+              activeProject={activeProject}
+              activeLocation={activeLocation}
+              activeRound={activeRound}
+              mappingDomain={mappingDomain}
+              surfaceParams={surfaceParams}
+              colorMode={colorMode}
+              selClass={selClass}
+              qRes={qRes}
+              rmrRes={rmrRes}
+              smrResult={smrResult}
+              onUpdateRound={onUpdateRound}
+              handleToggleTickOption={handleToggleTickOption}
+              handleDeleteTickGroup={handleDeleteTickGroup}
+            />
+          ) : (
+            <>
+              {/* ==================== PAGE 1 OF 2 (A4 VERTICAL: 210mm × 297mm) ==================== */}
+              <div
+                id="field-mapping-report-page-1"
+                className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm] print:break-after-page"
+              >
             {/* TOP: Compact Basic Details Header (Small in size, zero wasted space) */}
             <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
               <tbody>
@@ -3628,7 +4776,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                 </tr>
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
+        )}
         </div>
       </div>
 

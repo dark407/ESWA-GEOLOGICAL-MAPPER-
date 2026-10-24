@@ -23,6 +23,7 @@ import {
   RefreshCw,
   RotateCcw,
   RotateCw,
+  Ruler,
   Sliders,
   Sparkles,
   Target,
@@ -73,6 +74,7 @@ import {
 import {
   getSurfacePanelLabelMap,
   MappingDomainType,
+  SurfaceGeometryParameters,
 } from '../engine/surfaceMappingEngine';
 
 export const PHOTO_MAPPING_PANEL_ORDER: {
@@ -5031,6 +5033,8 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
   activeProject: FieldProjectItem;
   activeLocation: FieldTunnelLocationItem;
   activeRound: FieldExcavationRound;
+  mappingDomain?: MappingDomainType;
+  surfaceParams?: SurfaceGeometryParameters;
   rememberedRocks: FieldRememberedRockItem[];
   onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
   onBackToCleanReport: () => void;
@@ -5039,6 +5043,8 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
   activeProject,
   activeLocation,
   activeRound,
+  mappingDomain = 'TUNNEL',
+  surfaceParams,
   rememberedRocks,
   onUpdateRound,
   onBackToCleanReport,
@@ -5046,8 +5052,22 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
 }) => {
   const [showGeologicalOverlay, setShowGeologicalOverlay] = useState(false);
   const [cropModalPanel, setCropModalPanel] = useState<FieldPanelId | null>(null);
+  const [stationFrom, setStationFrom] = useState(activeRound.chainageFrom || '0.00');
+  const [stationTo, setStationTo] = useState(activeRound.chainageTo || '3.00');
+  const [splitPhotoMode, setSplitPhotoMode] = useState<'standard' | 'split_trace' | 'split_panoramic' | 'before_after'>('standard');
+  const [selectedPhotoId, setSelectedPhotoId] = useState<string>(activeRound.collectedPhotos[0]?.id || '');
+  const [page2Mode, setPage2Mode] = useState<'photo_2' | 'cad_overlay' | 'before_after'>('cad_overlay');
+  const [page1PhotoId, setPage1PhotoId] = useState<string>(activeRound.collectedPhotos[0]?.id || '');
+  const [page2PhotoId, setPage2PhotoId] = useState<string>(activeRound.collectedPhotos[1]?.id || activeRound.collectedPhotos[0]?.id || '');
   const quickUploadInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  const isSurface =
+    mappingDomain === 'SLOPE' ||
+    mappingDomain === 'BENCH' ||
+    mappingDomain === 'TRENCH' ||
+    mappingDomain === 'ROCK_SURFACE';
+
+  const domainMap = useMemo(() => getSurfacePanelLabelMap(mappingDomain), [mappingDomain]);
   const colorMode: 'color' | 'bw' = activeRound.reportColorMode ?? 'color';
 
   // Compute adaptable aspect ratios for Page 1 (Face) and Page 2 (Crown on Top, Left & Right Wall on Bottom)
@@ -5363,9 +5383,9 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
           </td>
           <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
             <div className="text-[11px] font-black tracking-wide uppercase text-slate-950 leading-tight">
-              2D TUNNEL PHOTOGRAPH REPORT — {activeProject.projectName} ({activeLocation.name})
+              2D {domainMap.domainTitle.toUpperCase()} REPORT — {activeProject.projectName} ({activeLocation.name})
               <span className="text-[9px] font-semibold text-slate-700 ml-1.5">
-                [Page {pageNum}/2 • {pageNum === 1 ? 'Tunnel Face Photo' : 'Crown & Side Wall Photos'}]
+                [Page {pageNum}/2 • {pageNum === 1 ? `${domainMap.face.shortLabel} Photo` : `${domainMap.crown.shortLabel} & Flank Photos`}]
               </span>
             </div>
           </td>
@@ -5388,7 +5408,7 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
             <span className="font-bold">Client/Cons:</span> {activeProject.clientName} / {activeProject.consultantName}
           </td>
           <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-            <span className="font-bold">Chainage:</span> CH {activeRound.chainageFrom}–{activeRound.chainageTo}m (Pull {pullM.toFixed(1)}m)
+            <span className="font-bold">{domainMap.stationPrefix}:</span> {stationFrom}–{stationTo}m (Pull {pullM.toFixed(1)}m)
           </td>
           <td className="border border-slate-900 bg-white px-1.5 py-0.5">
             <span className="font-bold">Shape/Size:</span> {activeLocation.shape.replace(/_/g, ' ').toUpperCase()} ({spanW.toFixed(1)}m×{heightH.toFixed(1)}m)
@@ -5561,12 +5581,16 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-bold uppercase">
-                Simple 2-Page 2D Photo Report • Page 1: Tunnel Face Photo • Page 2: Crown (Top) + Left &amp; Right Wall
+                {isSurface
+                  ? `2-Page 2D Surface Photo Report • ${mappingDomain} MAPPING • Each Page Each Photo`
+                  : 'Simple 2-Page 2D Photo Report • Page 1: Tunnel Face Photo • Page 2: Crown (Top) + Left & Right Wall'}
               </span>
             </div>
             <h2 className="text-sm sm:text-base font-bold text-white mt-1 flex items-center gap-2">
               <ImageIcon className="w-4 h-4 text-amber-400" />
-              2-Page 2D Tunnel Photo Report ({activeLocation.shape.toUpperCase()} {spanW.toFixed(1)}m W × {heightH.toFixed(1)}m H)
+              {isSurface
+                ? `2-Page 2D ${mappingDomain} Photo Report (${spanW.toFixed(1)}m W × ${heightH.toFixed(1)}m H)`
+                : `2-Page 2D Tunnel Photo Report (${activeLocation.shape.toUpperCase()} ${spanW.toFixed(1)}m W × ${heightH.toFixed(1)}m H)`}
             </h2>
           </div>
 
@@ -5654,6 +5678,88 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
           </div>
         </div>
 
+        {/* From-To Station & Photo Split Layout Toolbar */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs font-mono print:hidden shadow-md">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-bold text-amber-400 flex items-center gap-1.5 uppercase text-[11px]">
+              <Ruler className="w-4 h-4 text-amber-400" />
+              <span>Photo Station Range &amp; Split Selection:</span>
+            </span>
+            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-700 px-2.5 py-1 rounded-lg">
+              <span className="text-slate-400 font-bold">From:</span>
+              <input
+                type="text"
+                value={stationFrom}
+                onChange={(e) => setStationFrom(e.target.value)}
+                placeholder="0.00m"
+                className="w-16 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white font-bold focus:outline-none text-center"
+              />
+              <span className="text-cyan-400 font-bold">→</span>
+              <span className="text-slate-400 font-bold">To:</span>
+              <input
+                type="text"
+                value={stationTo}
+                onChange={(e) => setStationTo(e.target.value)}
+                placeholder="3.00m"
+                className="w-16 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white font-bold focus:outline-none text-center"
+              />
+            </div>
+
+            {/* Quick Station Presets */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setStationFrom(activeRound.chainageFrom || '0.00');
+                  setStationTo(activeRound.chainageTo || '3.00');
+                }}
+                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10.5px] cursor-pointer border border-slate-700"
+              >
+                Current Round
+              </button>
+              {Array.isArray((activeLocation as any).rounds) && (activeLocation as any).rounds.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const rList = (activeLocation as any).rounds;
+                    const first = rList[0];
+                    const last = rList[rList.length - 1];
+                    setStationFrom(first.chainageFrom || '0.00');
+                    setStationTo(last.chainageTo || '10.00');
+                  }}
+                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10.5px] cursor-pointer border border-slate-700"
+                >
+                  Full Heading ({(activeLocation as any).rounds.length} Rounds)
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Split Photos View Selector */}
+          <div className="flex items-center gap-1 bg-slate-950 border border-slate-700 rounded-lg p-0.5">
+            <span className="text-[10.5px] text-slate-400 font-bold px-1.5">Photo View:</span>
+            {[
+              { id: 'standard', label: '1. Standard Full' },
+              { id: 'split_trace', label: '2. Split Photo + CAD Trace' },
+              { id: 'split_panoramic', label: '3. Split Left / Right' },
+              { id: 'before_after', label: '4. Before & After Support' },
+            ].map((sm) => (
+              <button
+                key={sm.id}
+                type="button"
+                onClick={() => setSplitPhotoMode(sm.id as any)}
+                className={`px-2.5 py-1 rounded text-[10.5px] font-bold cursor-pointer transition-all ${
+                  splitPhotoMode === sm.id
+                    ? 'bg-cyan-500 text-slate-950 shadow font-black'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                {sm.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* =====================================================================
             PAGE 1 OF 2: COMPACT TOP BASIC DETAILS + FULL ADAPTED TUNNEL FACE PHOTO + COMPACT BOTTOM GEOLOGIST SIGN
            ===================================================================== */}
@@ -5674,96 +5780,252 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
               </span>
             </div>
 
-            <svg
-              viewBox={`0 0 ${p1SvgW} ${p1SvgH}`}
-              className="w-full flex-1 h-auto border border-slate-900 bg-white"
-            >
-              <FieldMonochromeGeologicalPatterns
-                prefix="photorep-pat"
-                colorMode={colorMode}
-                symbolDensity={activeRound.lithologySymbolDensity ?? 85}
-                symbolDensityByPattern={activeRound.lithologyDensityByRock}
-                symbolAngleByPattern={activeRound.lithologyAngleByRock}
-                lithologyPatternAngle={activeRound.lithologyPatternAngle}
-                alternatingStrokes={activeRound.lithologyStrokes.filter(
-                  (s) =>
-                    (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
-                    (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
-                )}
-                customColorsByRock={activeRound.lithologyColorByRock}
-              />
+            {splitPhotoMode === 'split_trace' ? (
+              <div className="grid grid-cols-2 gap-2 flex-1 border border-slate-900 p-1.5 bg-slate-50">
+                {/* Left Split Panel: Raw Field Photograph */}
+                <div className="border border-slate-700 bg-white p-2 flex flex-col justify-between">
+                  <div className="flex items-center justify-between border-b border-slate-300 pb-1 text-[11px] font-mono font-bold text-slate-900">
+                    <span className="text-cyan-800">1A. FIELD PHOTOGRAPH (RAW)</span>
+                    <span className="text-slate-500">{domainMap.stationPrefix} {stationFrom}–{stationTo}m</span>
+                  </div>
+                  <div className="flex-1 min-h-[360px] flex items-center justify-center p-1 relative">
+                    <svg viewBox={`0 0 ${p1SvgW} ${p1SvgH}`} className="w-full h-full max-h-[500px]">
+                      <ReportSingleSurfacePhotoAndGeologySvg
+                        panel="face"
+                        location={activeLocation}
+                        round={activeRound}
+                        rememberedRocks={rememberedRocks}
+                        colorMode={colorMode}
+                        showGeologicalOverlay={false}
+                        targetX={p1FaceX}
+                        targetY={p1FaceY}
+                        targetW={p1FaceW}
+                        targetH={p1FaceH}
+                        clipId="photorep-p1-split-raw"
+                        onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                        onPanPhotoOffset={handlePanPhotoOffset}
+                      />
+                    </svg>
+                  </div>
+                  {/* Calibrated Visual Scale Bar & Compass */}
+                  <div className="border-t border-slate-300 pt-1.5 flex items-center justify-between text-[10px] font-mono text-slate-800">
+                    <div className="flex items-center gap-1.5">
+                      <Compass className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Bearing / Dip: N{String(activeRound.tunnelDriveDirection).padStart(3, '0')}°</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold">Scale:</span>
+                      <div className="w-14 h-2 border border-slate-900 flex">
+                        <div className="w-1/2 h-full bg-slate-900" />
+                        <div className="w-1/2 h-full bg-white" />
+                      </div>
+                      <span className="font-bold">2.0m</span>
+                    </div>
+                  </div>
+                </div>
 
-              <text
-                x={p1SvgW / 2}
-                y="24"
-                textAnchor="middle"
-                fontSize="13"
-                fontWeight="bold"
-                fontFamily="monospace"
-                fill="#0f172a"
+                {/* Right Split Panel: Geological Structural CAD Trace */}
+                <div className="border border-slate-700 bg-white p-2 flex flex-col justify-between">
+                  <div className="flex items-center justify-between border-b border-slate-300 pb-1 text-[11px] font-mono font-bold text-slate-900">
+                    <span className="text-amber-800">1B. GEOLOGICAL CAD LINE TRACE</span>
+                    <span className="text-emerald-700 font-bold">{activeRound.rmrRockClass || 'RMR'} ({activeRound.rmrTotal ?? 62})</span>
+                  </div>
+                  <div className="flex-1 min-h-[360px] flex items-center justify-center p-1 relative">
+                    <svg viewBox={`0 0 ${p1SvgW} ${p1SvgH}`} className="w-full h-full max-h-[500px]">
+                      <FieldMonochromeGeologicalPatterns
+                        prefix="photorep-split-pat"
+                        colorMode={colorMode}
+                        symbolDensity={activeRound.lithologySymbolDensity ?? 85}
+                        symbolDensityByPattern={activeRound.lithologyDensityByRock}
+                        symbolAngleByPattern={activeRound.lithologyAngleByRock}
+                        lithologyPatternAngle={activeRound.lithologyPatternAngle}
+                        alternatingStrokes={activeRound.lithologyStrokes.filter(
+                          (s) =>
+                            (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                            (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                        )}
+                        customColorsByRock={activeRound.lithologyColorByRock}
+                      />
+                      <ReportSingleSurfacePhotoAndGeologySvg
+                        panel="face"
+                        location={activeLocation}
+                        round={activeRound}
+                        rememberedRocks={rememberedRocks}
+                        colorMode={colorMode}
+                        showGeologicalOverlay={true}
+                        targetX={p1FaceX}
+                        targetY={p1FaceY}
+                        targetW={p1FaceW}
+                        targetH={p1FaceH}
+                        clipId="photorep-p1-split-trace"
+                        onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                        onPanPhotoOffset={handlePanPhotoOffset}
+                      />
+                    </svg>
+                  </div>
+                  <div className="border-t border-slate-300 pt-1.5 flex items-center justify-between text-[10px] font-mono text-slate-800">
+                    <div>
+                      <span>Fracture Traces: <strong>{activeRound.jointTraces?.length ?? 0} features</strong></span>
+                    </div>
+                    <div>
+                      <span>Lithology: <strong>{activeRound.rockType || 'Bedrock'}</strong></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : splitPhotoMode === 'before_after' ? (
+              <div className="grid grid-cols-2 gap-2 flex-1 border border-slate-900 p-1.5 bg-slate-50">
+                <div className="border border-slate-700 bg-white p-2 flex flex-col justify-between">
+                  <div className="flex items-center justify-between border-b border-slate-300 pb-1 text-[11px] font-mono font-bold text-slate-900">
+                    <span className="text-rose-800">PRE-EXCAVATION / UNSUPPORTED FACE</span>
+                    <span className="text-slate-500">Day 1</span>
+                  </div>
+                  <div className="flex-1 min-h-[360px] flex items-center justify-center p-1 relative">
+                    <svg viewBox={`0 0 ${p1SvgW} ${p1SvgH}`} className="w-full h-full max-h-[500px]">
+                      <ReportSingleSurfacePhotoAndGeologySvg
+                        panel="face"
+                        location={activeLocation}
+                        round={activeRound}
+                        rememberedRocks={rememberedRocks}
+                        colorMode={colorMode}
+                        showGeologicalOverlay={false}
+                        targetX={p1FaceX}
+                        targetY={p1FaceY}
+                        targetW={p1FaceW}
+                        targetH={p1FaceH}
+                        clipId="photorep-p1-pre"
+                        onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                        onPanPhotoOffset={handlePanPhotoOffset}
+                      />
+                    </svg>
+                  </div>
+                  <div className="border-t border-slate-300 pt-1.5 text-[10px] font-mono text-slate-800 flex justify-between">
+                    <span>Unreinforced Jointed Rock Mass</span>
+                    <span>Target FoS &lt; 1.0</span>
+                  </div>
+                </div>
+                <div className="border border-slate-700 bg-white p-2 flex flex-col justify-between">
+                  <div className="flex items-center justify-between border-b border-slate-300 pb-1 text-[11px] font-mono font-bold text-slate-900">
+                    <span className="text-emerald-800">POST-STABILIZATION SUPPORTED FACE</span>
+                    <span className="text-emerald-700 font-bold">Reinforced</span>
+                  </div>
+                  <div className="flex-1 min-h-[360px] flex items-center justify-center p-1 relative">
+                    <svg viewBox={`0 0 ${p1SvgW} ${p1SvgH}`} className="w-full h-full max-h-[500px]">
+                      <ReportSingleSurfacePhotoAndGeologySvg
+                        panel="face"
+                        location={activeLocation}
+                        round={activeRound}
+                        rememberedRocks={rememberedRocks}
+                        colorMode={colorMode}
+                        showGeologicalOverlay={true}
+                        targetX={p1FaceX}
+                        targetY={p1FaceY}
+                        targetW={p1FaceW}
+                        targetH={p1FaceH}
+                        clipId="photorep-p1-post"
+                        onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                        onPanPhotoOffset={handlePanPhotoOffset}
+                      />
+                    </svg>
+                  </div>
+                  <div className="border-t border-slate-300 pt-1.5 text-[10px] font-mono text-slate-800 flex justify-between">
+                    <span>Shotcrete + Pattern Bolting</span>
+                    <span className="font-bold text-emerald-700">FoS &ge; 1.50 Compliant</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <svg
+                viewBox={`0 0 ${p1SvgW} ${p1SvgH}`}
+                className="w-full flex-1 h-auto border border-slate-900 bg-white"
               >
-                TUNNEL EXCAVATION FACE PHOTOGRAPH — {activeLocation.shape.replace(/_/g, ' ').toUpperCase()} ({spanW.toFixed(1)}m W × {heightH.toFixed(1)}m H)
-              </text>
+                <FieldMonochromeGeologicalPatterns
+                  prefix="photorep-pat"
+                  colorMode={colorMode}
+                  symbolDensity={activeRound.lithologySymbolDensity ?? 85}
+                  symbolDensityByPattern={activeRound.lithologyDensityByRock}
+                  symbolAngleByPattern={activeRound.lithologyAngleByRock}
+                  lithologyPatternAngle={activeRound.lithologyPatternAngle}
+                  alternatingStrokes={activeRound.lithologyStrokes.filter(
+                    (s) =>
+                      (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                      (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                  )}
+                  customColorsByRock={activeRound.lithologyColorByRock}
+                />
 
-              {/* Adapted Tunnel Face Surface Photo */}
-              <ReportSingleSurfacePhotoAndGeologySvg
-                panel="face"
-                location={activeLocation}
-                round={activeRound}
-                rememberedRocks={rememberedRocks}
-                colorMode={colorMode}
-                showGeologicalOverlay={showGeologicalOverlay}
-                targetX={p1FaceX}
-                targetY={p1FaceY}
-                targetW={p1FaceW}
-                targetH={p1FaceH}
-                clipId="photorep-p1-face-clip"
-                onRequestCropOrImport={(p) => setCropModalPanel(p)}
-                onPanPhotoOffset={handlePanPhotoOffset}
-              />
+                <text
+                  x={p1SvgW / 2}
+                  y="24"
+                  textAnchor="middle"
+                  fontSize="13"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                  fill="#0f172a"
+                >
+                  {domainMap.domainTitle.toUpperCase()} PHOTOGRAPH — {activeLocation.shape.replace(/_/g, ' ').toUpperCase()} ({spanW.toFixed(1)}m W × {heightH.toFixed(1)}m H)
+                </text>
 
-              {/* Width & Height Dimension Annotations around Face */}
-              <line
-                x1={p1FaceX}
-                y1={p1FaceY + p1FaceH + 18}
-                x2={p1FaceX + p1FaceW}
-                y2={p1FaceY + p1FaceH + 18}
-                stroke="#0f172a"
-                strokeWidth="1.5"
-              />
-              <text
-                x={p1FaceX + p1FaceW / 2}
-                y={p1FaceY + p1FaceH + 34}
-                textAnchor="middle"
-                fontSize="11.5"
-                fontWeight="bold"
-                fontFamily="monospace"
-                fill="#0f172a"
-              >
-                Tunnel Face Span W = {spanW.toFixed(2)} m (CL at 0.0m)
-              </text>
+                {/* Adapted Tunnel Face Surface Photo */}
+                <ReportSingleSurfacePhotoAndGeologySvg
+                  panel="face"
+                  location={activeLocation}
+                  round={activeRound}
+                  rememberedRocks={rememberedRocks}
+                  colorMode={colorMode}
+                  showGeologicalOverlay={showGeologicalOverlay}
+                  targetX={p1FaceX}
+                  targetY={p1FaceY}
+                  targetW={p1FaceW}
+                  targetH={p1FaceH}
+                  clipId="photorep-p1-face-clip"
+                  onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                  onPanPhotoOffset={handlePanPhotoOffset}
+                />
 
-              <line
-                x1={p1FaceX - 18}
-                y1={p1FaceY}
-                x2={p1FaceX - 18}
-                y2={p1FaceY + p1FaceH}
-                stroke="#0f172a"
-                strokeWidth="1.5"
-              />
-              <text
-                x={p1FaceX - 28}
-                y={p1FaceY + p1FaceH / 2}
-                textAnchor="middle"
-                fontSize="11.5"
-                fontWeight="bold"
-                fontFamily="monospace"
-                fill="#0f172a"
-                transform={`rotate(-90, ${p1FaceX - 28}, ${p1FaceY + p1FaceH / 2})`}
-              >
-                Excavation Height H = {heightH.toFixed(2)} m
-              </text>
-            </svg>
+                {/* Width & Height Dimension Annotations around Face */}
+                <line
+                  x1={p1FaceX}
+                  y1={p1FaceY + p1FaceH + 18}
+                  x2={p1FaceX + p1FaceW}
+                  y2={p1FaceY + p1FaceH + 18}
+                  stroke="#0f172a"
+                  strokeWidth="1.5"
+                />
+                <text
+                  x={p1FaceX + p1FaceW / 2}
+                  y={p1FaceY + p1FaceH + 34}
+                  textAnchor="middle"
+                  fontSize="11.5"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                  fill="#0f172a"
+                >
+                  Span W = {spanW.toFixed(2)} m (Station {stationFrom}–{stationTo}m)
+                </text>
+
+                <line
+                  x1={p1FaceX - 18}
+                  y1={p1FaceY}
+                  x2={p1FaceX - 18}
+                  y2={p1FaceY + p1FaceH}
+                  stroke="#0f172a"
+                  strokeWidth="1.5"
+                />
+                <text
+                  x={p1FaceX - 28}
+                  y={p1FaceY + p1FaceH / 2}
+                  textAnchor="middle"
+                  fontSize="11.5"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                  fill="#0f172a"
+                  transform={`rotate(-90, ${p1FaceX - 28}, ${p1FaceY + p1FaceH / 2})`}
+                >
+                  Height H = {heightH.toFixed(2)} m
+                </text>
+              </svg>
+            )}
           </div>
 
           {/* BOTTOM: Compact Geologist Sign (Small in size, zero wasted space) */}
@@ -5780,169 +6042,403 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
           {/* TOP: Compact Basic Details (Small in size, zero wasted space) */}
           {renderCompactTopBasicDetails(2)}
 
-          {/* MIDDLE: Full-Page Adapted Crown (Top) + Left Wall & Right Wall (Bottom) */}
+          {/* MIDDLE: Page 2 Content (Dedicated Full-Page Surface Photo / CAD Overlay for Surface vs Crown+Walls for Tunnel) */}
           <div className="border border-slate-900 p-1.5 bg-white flex-1 flex flex-col justify-between gap-1.5">
-            {/* Screen-only Import / Crop & Place Controls for Crown, Left Wall & Right Wall */}
-            <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-slate-200 pb-1 print:hidden">
-              {hasCrown && renderSurfaceQuickControlPill('crown', 'Top: Crown')}
-              {hasWalls && renderSurfaceQuickControlPill('left_wall', 'Left Wall')}
-              {hasWalls && renderSurfaceQuickControlPill('right_wall', 'Right Wall')}
-            </div>
+            {isSurface ? (
+              <>
+                {/* Surface Page 2 Toolbar: View Selector & Photo Selection */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-1.5 print:hidden">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-900">Page 2 View:</span>
+                    <div className="flex items-center bg-slate-100 border border-slate-300 rounded p-0.5 text-xs">
+                      {[
+                        { id: 'cad_overlay', label: '1. CAD Line Trace Overlay' },
+                        { id: 'photo_2', label: '2. Dedicated Field Photo #2' },
+                        { id: 'before_after', label: '3. Before & After Stabilization' },
+                      ].map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setPage2Mode(m.id as any)}
+                          className={`px-2 py-0.5 rounded font-bold cursor-pointer text-[10.5px] ${
+                            page2Mode === m.id
+                              ? 'bg-amber-500 text-slate-950 font-black'
+                              : 'text-slate-700 hover:text-black'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
 
-            <svg
-              viewBox={`0 0 ${p2SvgW} ${p2SvgH}`}
-              className="w-full flex-1 h-auto border border-slate-900 bg-white"
-            >
-              <FieldMonochromeGeologicalPatterns
-                prefix="photorep-pat"
-                colorMode={colorMode}
-                symbolDensity={activeRound.lithologySymbolDensity ?? 85}
-                symbolDensityByPattern={activeRound.lithologyDensityByRock}
-                symbolAngleByPattern={activeRound.lithologyAngleByRock}
-                lithologyPatternAngle={activeRound.lithologyPatternAngle}
-                alternatingStrokes={activeRound.lithologyStrokes.filter(
-                  (s) =>
-                    (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
-                    (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                    {/* Photo selector dropdown for Page 2 */}
+                    {activeRound.collectedPhotos.length > 0 && page2Mode === 'photo_2' && (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] font-mono text-slate-600 font-bold">Choose Photo:</span>
+                        <select
+                          value={page2PhotoId}
+                          onChange={(e) => setPage2PhotoId(e.target.value)}
+                          className="bg-white border border-slate-300 rounded px-1.5 py-0.5 text-[10.5px] font-mono text-slate-900 font-bold"
+                        >
+                          {activeRound.collectedPhotos.map((p, idx) => (
+                            <option key={p.id} value={p.id}>
+                              #{idx + 1}: {p.label || p.panel || `Photo ${idx + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {renderSurfaceQuickControlPill('face', 'Photo 2 Controls')}
+                  </div>
+                </div>
+
+                {/* Page 2 Surface Display */}
+                {page2Mode === 'cad_overlay' ? (
+                  <svg
+                    viewBox={`0 0 ${p1SvgW} ${p1SvgH}`}
+                    className="w-full flex-1 h-auto border border-slate-900 bg-white"
+                  >
+                    <FieldMonochromeGeologicalPatterns
+                      prefix="photorep-p2-cad"
+                      colorMode={colorMode}
+                      symbolDensity={activeRound.lithologySymbolDensity ?? 85}
+                      symbolDensityByPattern={activeRound.lithologyDensityByRock}
+                      symbolAngleByPattern={activeRound.lithologyAngleByRock}
+                      lithologyPatternAngle={activeRound.lithologyPatternAngle}
+                      alternatingStrokes={activeRound.lithologyStrokes.filter(
+                        (s) =>
+                          (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                          (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                      )}
+                      customColorsByRock={activeRound.lithologyColorByRock}
+                    />
+
+                    <text
+                      x={p1SvgW / 2}
+                      y="24"
+                      textAnchor="middle"
+                      fontSize="13"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                      fill="#0f172a"
+                    >
+                      PAGE 2: GEOLOGICAL STRUCTURAL CAD TRACE &amp; DISCONTINUITY OVERLAY MAP
+                    </text>
+
+                    <ReportSingleSurfacePhotoAndGeologySvg
+                      panel="face"
+                      location={activeLocation}
+                      round={activeRound}
+                      rememberedRocks={rememberedRocks}
+                      colorMode={colorMode}
+                      showGeologicalOverlay={true}
+                      targetX={p1FaceX}
+                      targetY={p1FaceY}
+                      targetW={p1FaceW}
+                      targetH={p1FaceH}
+                      clipId="photorep-p2-surface-trace"
+                      onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                      onPanPhotoOffset={handlePanPhotoOffset}
+                    />
+
+                    {/* Calibrated Scale Bar */}
+                    <g transform={`translate(${p1FaceX + 20}, ${p1FaceY + p1FaceH - 30})`}>
+                      <rect x={0} y={0} width={120} height={8} fill="#ffffff" stroke="#0f172a" strokeWidth={1} />
+                      <rect x={0} y={0} width={60} height={8} fill="#0f172a" />
+                      <text x={0} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a">0m</text>
+                      <text x={60} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle">2.5m</text>
+                      <text x={120} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="end">5.0m</text>
+                      <text x={60} y={18} fontSize="9" fontFamily="monospace" fontWeight="black" fill="#0f172a" textAnchor="middle">SCALE 1:100</text>
+                    </g>
+
+                    {/* Structural Summary Callout */}
+                    <text
+                      x={p1FaceX + p1FaceW - 20}
+                      y={p1FaceY + p1FaceH - 15}
+                      textAnchor="end"
+                      fontSize="10"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                      fill="#047857"
+                    >
+                      {activeRound.jointTraces.length} Discontinuity Traces Mapped • Face Angle {activeLocation.wallHeightM ? `${activeLocation.wallHeightM}m` : ''} β=70°
+                    </text>
+                  </svg>
+                ) : page2Mode === 'before_after' ? (
+                  <div className="grid grid-cols-2 gap-2 flex-1 border border-slate-900 p-1.5 bg-slate-50">
+                    <div className="border border-slate-700 bg-white p-2 flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b border-slate-300 pb-1 text-[11px] font-mono font-bold text-slate-900">
+                        <span className="text-rose-800">2A. PRE-STABILIZATION / NATURAL EXPOSURE</span>
+                        <span className="text-slate-500">{stationFrom}–{stationTo}m</span>
+                      </div>
+                      <div className="flex-1 min-h-[380px] flex items-center justify-center p-1 relative">
+                        <svg viewBox={`0 0 ${p1SvgW} ${p1SvgH}`} className="w-full h-full max-h-[500px]">
+                          <ReportSingleSurfacePhotoAndGeologySvg
+                            panel="face"
+                            location={activeLocation}
+                            round={activeRound}
+                            rememberedRocks={rememberedRocks}
+                            colorMode={colorMode}
+                            showGeologicalOverlay={false}
+                            targetX={p1FaceX}
+                            targetY={p1FaceY}
+                            targetW={p1FaceW}
+                            targetH={p1FaceH}
+                            clipId="photorep-p2-pre"
+                            onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                            onPanPhotoOffset={handlePanPhotoOffset}
+                          />
+                        </svg>
+                      </div>
+                      <div className="border-t border-slate-300 pt-1.5 text-[10px] font-mono text-slate-800 flex justify-between">
+                        <span>Unstabilized Jointed Slope Face</span>
+                        <span className="text-rose-700 font-bold">Unreinforced FoS &lt; 1.20</span>
+                      </div>
+                    </div>
+                    <div className="border border-slate-700 bg-white p-2 flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b border-slate-300 pb-1 text-[11px] font-mono font-bold text-slate-900">
+                        <span className="text-emerald-800">2B. STABILIZED / SOIL NAILS + MESH + SHOTCRETE</span>
+                        <span className="text-emerald-700 font-bold">Reinforced</span>
+                      </div>
+                      <div className="flex-1 min-h-[380px] flex items-center justify-center p-1 relative">
+                        <svg viewBox={`0 0 ${p1SvgW} ${p1SvgH}`} className="w-full h-full max-h-[500px]">
+                          <ReportSingleSurfacePhotoAndGeologySvg
+                            panel="face"
+                            location={activeLocation}
+                            round={activeRound}
+                            rememberedRocks={rememberedRocks}
+                            colorMode={colorMode}
+                            showGeologicalOverlay={true}
+                            targetX={p1FaceX}
+                            targetY={p1FaceY}
+                            targetW={p1FaceW}
+                            targetH={p1FaceH}
+                            clipId="photorep-p2-post"
+                            onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                            onPanPhotoOffset={handlePanPhotoOffset}
+                          />
+                        </svg>
+                      </div>
+                      <div className="border-t border-slate-300 pt-1.5 text-[10px] font-mono text-slate-800 flex justify-between">
+                        <span>Systematic Soil Nails + TECCO® Mesh + Shotcrete</span>
+                        <span className="font-bold text-emerald-700">Target FoS &ge; 1.50</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Standard Full Page 2 Photo */
+                  <svg
+                    viewBox={`0 0 ${p1SvgW} ${p1SvgH}`}
+                    className="w-full flex-1 h-auto border border-slate-900 bg-white"
+                  >
+                    <text
+                      x={p1SvgW / 2}
+                      y="24"
+                      textAnchor="middle"
+                      fontSize="13"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                      fill="#0f172a"
+                    >
+                      PAGE 2: SECONDARY SURFACE EXPOSURE PHOTOGRAPH ({stationFrom}–{stationTo}m)
+                    </text>
+
+                    <ReportSingleSurfacePhotoAndGeologySvg
+                      panel="face"
+                      location={activeLocation}
+                      round={activeRound}
+                      rememberedRocks={rememberedRocks}
+                      colorMode={colorMode}
+                      showGeologicalOverlay={showGeologicalOverlay}
+                      targetX={p1FaceX}
+                      targetY={p1FaceY}
+                      targetW={p1FaceW}
+                      targetH={p1FaceH}
+                      clipId="photorep-p2-photo2-clip"
+                      onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                      onPanPhotoOffset={handlePanPhotoOffset}
+                    />
+
+                    {/* Scale bar */}
+                    <g transform={`translate(${p1FaceX + 20}, ${p1FaceY + p1FaceH - 30})`}>
+                      <rect x={0} y={0} width={100} height={8} fill="#ffffff" stroke="#0f172a" strokeWidth={1} />
+                      <rect x={0} y={0} width={50} height={8} fill="#0f172a" />
+                      <text x={0} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a">0m</text>
+                      <text x={50} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle">1.0m</text>
+                      <text x={100} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="end">2.0m</text>
+                      <text x={50} y={18} fontSize="9" fontFamily="monospace" fontWeight="black" fill="#0f172a" textAnchor="middle">SCALE BAR 2.0m</text>
+                    </g>
+                  </svg>
                 )}
-                customColorsByRock={activeRound.lithologyColorByRock}
-              />
+              </>
+            ) : (
+              /* Tunnel Crown on Top + Left & Right Walls on Bottom */
+              <>
+                {/* Screen-only Import / Crop & Place Controls for Crown, Left Wall & Right Wall */}
+                <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-slate-200 pb-1 print:hidden">
+                  {hasCrown && renderSurfaceQuickControlPill('crown', 'Top: Crown')}
+                  {hasWalls && renderSurfaceQuickControlPill('left_wall', 'Left Wall')}
+                  {hasWalls && renderSurfaceQuickControlPill('right_wall', 'Right Wall')}
+                </div>
 
-              {/* TOP BOX: CROWN / ROOF ARCH PHOTOGRAPH */}
-              {hasCrown && (
-                <>
-                  <text
-                    x={p2CrownX + p2CrownW / 2}
-                    y={p2CrownY - 10}
-                    textAnchor="middle"
-                    fontSize="12"
-                    fontWeight="bold"
-                    fontFamily="monospace"
-                    fill="#0f172a"
-                  >
-                    TOP: CROWN / ROOF ARCH PHOTOGRAPH (Arc {crownArcM.toFixed(1)}m × Pull {pullM.toFixed(1)}m • L-SPL to R-SPL)
-                  </text>
-                  <ReportSingleSurfacePhotoAndGeologySvg
-                    panel="crown"
-                    location={activeLocation}
-                    round={activeRound}
-                    rememberedRocks={rememberedRocks}
+                <svg
+                  viewBox={`0 0 ${p2SvgW} ${p2SvgH}`}
+                  className="w-full flex-1 h-auto border border-slate-900 bg-white"
+                >
+                  <FieldMonochromeGeologicalPatterns
+                    prefix="photorep-pat"
                     colorMode={colorMode}
-                    showGeologicalOverlay={showGeologicalOverlay}
-                    targetX={p2CrownX}
-                    targetY={p2CrownY}
-                    targetW={p2CrownW}
-                    targetH={p2CrownH}
-                    clipId="photorep-p2-crown-clip"
-                    onRequestCropOrImport={(p) => setCropModalPanel(p)}
-                    onPanPhotoOffset={handlePanPhotoOffset}
-                  />
-                  <text
-                    x={p2CrownX - 8}
-                    y={p2CrownY + p2CrownH / 2}
-                    textAnchor="end"
-                    fontSize="10.5"
-                    fontWeight="bold"
-                    fontFamily="monospace"
-                    fill="#0f172a"
-                  >
-                    L-SPL
-                  </text>
-                  <text
-                    x={p2CrownX + p2CrownW + 8}
-                    y={p2CrownY + p2CrownH / 2}
-                    textAnchor="start"
-                    fontSize="10.5"
-                    fontWeight="bold"
-                    fontFamily="monospace"
-                    fill="#0f172a"
-                  >
-                    R-SPL
-                  </text>
-                </>
-              )}
-
-              {/* BOTTOM: LEFT WALL & RIGHT WALL PHOTOGRAPHS (When shape has side walls) */}
-              {hasWalls && (
-                <>
-                  {/* Connector lines showing L-SPL & R-SPL folding down to Left Wall & Right Wall */}
-                  <line
-                    x1={p2CrownX}
-                    y1={p2CrownY + p2CrownH}
-                    x2={p2LeftX + p2LeftW / 2}
-                    y2={p2WallsY - 22}
-                    stroke="#0f172a"
-                    strokeWidth="1.2"
-                    strokeDasharray="5 4"
-                  />
-                  <line
-                    x1={p2CrownX + p2CrownW}
-                    y1={p2CrownY + p2CrownH}
-                    x2={p2RightX + p2RightW / 2}
-                    y2={p2WallsY - 22}
-                    stroke="#0f172a"
-                    strokeWidth="1.2"
-                    strokeDasharray="5 4"
+                    symbolDensity={activeRound.lithologySymbolDensity ?? 85}
+                    symbolDensityByPattern={activeRound.lithologyDensityByRock}
+                    symbolAngleByPattern={activeRound.lithologyAngleByRock}
+                    lithologyPatternAngle={activeRound.lithologyPatternAngle}
+                    alternatingStrokes={activeRound.lithologyStrokes.filter(
+                      (s) =>
+                        (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                        (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                    )}
+                    customColorsByRock={activeRound.lithologyColorByRock}
                   />
 
-                  {/* BOTTOM-LEFT BOX: LEFT WALL PHOTOGRAPH */}
-                  <text
-                    x={p2LeftX + p2LeftW / 2}
-                    y={p2WallsY - 8}
-                    textAnchor="middle"
-                    fontSize="12"
-                    fontWeight="bold"
-                    fontFamily="monospace"
-                    fill="#0f172a"
-                  >
-                    LEFT WALL PHOTO ({leftWallH.toFixed(1)}m H × {pullM.toFixed(1)}m Pull)
-                  </text>
-                  <ReportSingleSurfacePhotoAndGeologySvg
-                    panel="left_wall"
-                    location={activeLocation}
-                    round={activeRound}
-                    rememberedRocks={rememberedRocks}
-                    colorMode={colorMode}
-                    showGeologicalOverlay={showGeologicalOverlay}
-                    targetX={p2LeftX}
-                    targetY={p2WallsY}
-                    targetW={p2LeftW}
-                    targetH={p2LeftH}
-                    clipId="photorep-p2-lwall-clip"
-                    onRequestCropOrImport={(p) => setCropModalPanel(p)}
-                    onPanPhotoOffset={handlePanPhotoOffset}
-                  />
+                  {/* TOP BOX: CROWN / ROOF ARCH PHOTOGRAPH */}
+                  {hasCrown && (
+                    <>
+                      <text
+                        x={p2CrownX + p2CrownW / 2}
+                        y={p2CrownY - 10}
+                        textAnchor="middle"
+                        fontSize="12"
+                        fontWeight="bold"
+                        fontFamily="monospace"
+                        fill="#0f172a"
+                      >
+                        TOP: CROWN / ROOF ARCH PHOTOGRAPH (Arc {crownArcM.toFixed(1)}m × Pull {pullM.toFixed(1)}m • L-SPL to R-SPL)
+                      </text>
+                      <ReportSingleSurfacePhotoAndGeologySvg
+                        panel="crown"
+                        location={activeLocation}
+                        round={activeRound}
+                        rememberedRocks={rememberedRocks}
+                        colorMode={colorMode}
+                        showGeologicalOverlay={showGeologicalOverlay}
+                        targetX={p2CrownX}
+                        targetY={p2CrownY}
+                        targetW={p2CrownW}
+                        targetH={p2CrownH}
+                        clipId="photorep-p2-crown-clip"
+                        onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                        onPanPhotoOffset={handlePanPhotoOffset}
+                      />
+                      <text
+                        x={p2CrownX - 8}
+                        y={p2CrownY + p2CrownH / 2}
+                        textAnchor="end"
+                        fontSize="10.5"
+                        fontWeight="bold"
+                        fontFamily="monospace"
+                        fill="#0f172a"
+                      >
+                        L-SPL
+                      </text>
+                      <text
+                        x={p2CrownX + p2CrownW + 8}
+                        y={p2CrownY + p2CrownH / 2}
+                        textAnchor="start"
+                        fontSize="10.5"
+                        fontWeight="bold"
+                        fontFamily="monospace"
+                        fill="#0f172a"
+                      >
+                        R-SPL
+                      </text>
+                    </>
+                  )}
 
-                  {/* BOTTOM-RIGHT BOX: RIGHT WALL PHOTOGRAPH */}
-                  <text
-                    x={p2RightX + p2RightW / 2}
-                    y={p2WallsY - 8}
-                    textAnchor="middle"
-                    fontSize="12"
-                    fontWeight="bold"
-                    fontFamily="monospace"
-                    fill="#0f172a"
-                  >
-                    RIGHT WALL PHOTO ({rightWallH.toFixed(1)}m H × {pullM.toFixed(1)}m Pull)
-                  </text>
-                  <ReportSingleSurfacePhotoAndGeologySvg
-                    panel="right_wall"
-                    location={activeLocation}
-                    round={activeRound}
-                    rememberedRocks={rememberedRocks}
-                    colorMode={colorMode}
-                    showGeologicalOverlay={showGeologicalOverlay}
-                    targetX={p2RightX}
-                    targetY={p2WallsY}
-                    targetW={p2RightW}
-                    targetH={p2RightH}
-                    clipId="photorep-p2-rwall-clip"
-                    onRequestCropOrImport={(p) => setCropModalPanel(p)}
-                    onPanPhotoOffset={handlePanPhotoOffset}
-                  />
-                </>
-              )}
-            </svg>
+                  {/* BOTTOM: LEFT WALL & RIGHT WALL PHOTOGRAPHS */}
+                  {hasWalls && (
+                    <>
+                      <line
+                        x1={p2CrownX}
+                        y1={p2CrownY + p2CrownH}
+                        x2={p2LeftX + p2LeftW / 2}
+                        y2={p2WallsY - 22}
+                        stroke="#0f172a"
+                        strokeWidth="1.2"
+                        strokeDasharray="5 4"
+                      />
+                      <line
+                        x1={p2CrownX + p2CrownW}
+                        y1={p2CrownY + p2CrownH}
+                        x2={p2RightX + p2RightW / 2}
+                        y2={p2WallsY - 22}
+                        stroke="#0f172a"
+                        strokeWidth="1.2"
+                        strokeDasharray="5 4"
+                      />
+
+                      {/* BOTTOM-LEFT BOX: LEFT WALL PHOTOGRAPH */}
+                      <text
+                        x={p2LeftX + p2LeftW / 2}
+                        y={p2WallsY - 8}
+                        textAnchor="middle"
+                        fontSize="12"
+                        fontWeight="bold"
+                        fontFamily="monospace"
+                        fill="#0f172a"
+                      >
+                        LEFT WALL PHOTO ({leftWallH.toFixed(1)}m H × {pullM.toFixed(1)}m Pull)
+                      </text>
+                      <ReportSingleSurfacePhotoAndGeologySvg
+                        panel="left_wall"
+                        location={activeLocation}
+                        round={activeRound}
+                        rememberedRocks={rememberedRocks}
+                        colorMode={colorMode}
+                        showGeologicalOverlay={showGeologicalOverlay}
+                        targetX={p2LeftX}
+                        targetY={p2WallsY}
+                        targetW={p2LeftW}
+                        targetH={p2LeftH}
+                        clipId="photorep-p2-lwall-clip"
+                        onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                        onPanPhotoOffset={handlePanPhotoOffset}
+                      />
+
+                      {/* BOTTOM-RIGHT BOX: RIGHT WALL PHOTOGRAPH */}
+                      <text
+                        x={p2RightX + p2RightW / 2}
+                        y={p2WallsY - 8}
+                        textAnchor="middle"
+                        fontSize="12"
+                        fontWeight="bold"
+                        fontFamily="monospace"
+                        fill="#0f172a"
+                      >
+                        RIGHT WALL PHOTO ({rightWallH.toFixed(1)}m H × {pullM.toFixed(1)}m Pull)
+                      </text>
+                      <ReportSingleSurfacePhotoAndGeologySvg
+                        panel="right_wall"
+                        location={activeLocation}
+                        round={activeRound}
+                        rememberedRocks={rememberedRocks}
+                        colorMode={colorMode}
+                        showGeologicalOverlay={showGeologicalOverlay}
+                        targetX={p2RightX}
+                        targetY={p2WallsY}
+                        targetW={p2RightW}
+                        targetH={p2RightH}
+                        clipId="photorep-p2-rwall-clip"
+                        onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                        onPanPhotoOffset={handlePanPhotoOffset}
+                      />
+                    </>
+                  )}
+                </svg>
+              </>
+            )}
           </div>
 
           {/* BOTTOM: Compact Geologist Sign (Small in size, zero wasted space) */}

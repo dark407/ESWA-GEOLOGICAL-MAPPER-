@@ -3862,6 +3862,7 @@ export default function App({
           }}
         />
         {projectMemoryModalNode}
+        {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
       </>
@@ -4420,6 +4421,12 @@ export default function App({
           googleUser={googleUser}
           activeGeologist={activeGeologist}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
+          onOpenContinuousTunnelLog={() => {
+            setIsContinuousLogSetupOpen(true);
+          }}
+          onOpenCoreLogging={() => {
+            setIsCoreLoggingOpen(true);
+          }}
           isAuthBusy={isAuthBusy}
           onGoogleSignIn={async () => {
             setIsAuthBusy(true);
@@ -4434,6 +4441,7 @@ export default function App({
             setGoogleUser(null);
           }}
         />
+        {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
       </>
@@ -4452,6 +4460,12 @@ export default function App({
           googleUser={googleUser}
           activeGeologist={activeGeologist}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
+          onOpenContinuousTunnelLog={() => {
+            setIsContinuousLogSetupOpen(true);
+          }}
+          onOpenCoreLogging={() => {
+            setIsCoreLoggingOpen(true);
+          }}
           isAuthBusy={isAuthBusy}
           onGoogleSignIn={async () => {
             setIsAuthBusy(true);
@@ -4468,6 +4482,7 @@ export default function App({
             setGoogleUser(null);
           }}
         />
+        {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
       </>

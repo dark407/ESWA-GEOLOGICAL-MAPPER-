@@ -5,6 +5,7 @@ import {
   Crosshair,
   FileText,
   Image as ImageIcon,
+  Info,
   Plus,
   Shield,
   Sparkles,
@@ -2304,15 +2305,22 @@ export const FieldRockMassClassificationsStage: React.FC<{
         ...r,
         rmrSystem: nextSys,
         rmrTotal: res.totalRmr,
-        rmrRockClass: res.rockClass,
+        rmrRockClass: res.rmrClass,
       };
     });
   };
 
   const simpleSmrAnalysis = useMemo(() => {
+    const discSetsList = activeRound.discontinuitySets
+      ? Object.values(activeRound.discontinuitySets)
+      : [];
     const fallbackSets =
-      activeRound.discontinuitySets && activeRound.discontinuitySets.length > 0
-        ? activeRound.discontinuitySets
+      discSetsList.length > 0
+        ? discSetsList.map((s) => ({
+            id: s.setId,
+            meanDip: Number((s.dipAmountFrom + s.dipAmountTo) / 2) || 45,
+            meanDipDirection: Number((s.dipDirectionFrom + s.dipDirectionTo) / 2) || 120,
+          }))
         : (activeRound.jointTraces || []).map((t, i) => ({
             id: t.setId || `J${i + 1}`,
             meanDip: t.dipAmount,
@@ -2397,7 +2405,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
               >
                 <span>1. Simple Bieniawski RMR</span>
                 <span className="font-mono px-2 py-0.5 rounded bg-slate-900/90 text-amber-300 text-[11px] font-bold">
-                  RMR = {rmrRes.totalRmr} ({rmrRes.rockClass})
+                  RMR = {rmrRes.totalRmr} ({rmrRes.rmrClass})
                 </span>
               </button>
               <button
@@ -2443,14 +2451,35 @@ export const FieldRockMassClassificationsStage: React.FC<{
         <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
           {simpleSurfaceTab === 'simple_rmr' ? (
             <div className="space-y-3">
+              {/* What is Needed for RMR Guidance Banner */}
+              <div className="bg-amber-950/30 border border-amber-500/40 rounded-xl p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                    <Info className="w-4 h-4 text-amber-400" />
+                    <span>What is Needed for Bieniawski (1989) RMR: 5 Core Geotechnical Inputs</span>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
+                    RMRbasic: 0–100 Scale
+                  </span>
+                </div>
+                <p className="text-[11.5px] text-slate-300 leading-relaxed font-sans">
+                  To compute rock mass rating for strip logging and face mapping, five field parameters are required:
+                  <strong> 1. UCS Intact Strength</strong> (laboratory UCS or field Schmidt hammer / point load index, 0–15 pts),
+                  <strong> 2. RQD %</strong> (rock quality designation core recovery &gt;10cm or volumetric joint count Jv, 3–20 pts),
+                  <strong> 3. Discontinuity Spacing</strong> (mean spacing between fractures along scanline, 5–20 pts),
+                  <strong> 4. Discontinuity Condition</strong> (persistence, aperture &lt;1mm to &gt;5mm, surface roughness, gouge infilling, weathering, 0–30 pts), and
+                  <strong> 5. Groundwater Inflow</strong> (completely dry, damp, wet, dripping, or flowing, 0–15 pts).
+                </p>
+              </div>
+
               {/* RMR Total Banner */}
               <div className="bg-slate-900 border border-amber-500/40 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-black uppercase tracking-wider text-amber-400">
-                    Bieniawski (1989) Rock Mass Rating — Essential 5 Parameters
+                    Bieniawski (1989) Rock Mass Rating — Calculated Rating
                   </div>
-                  <div className="text-xs text-slate-300 mt-0.5">
-                    RMR = UCS ({activeRound.rmrSystem?.intactStrengthRating ?? 12}) + RQD ({activeRound.rmrSystem?.rqdRating ?? 17}) + Spacing ({activeRound.rmrSystem?.spacingRating ?? 10}) + Condition ({activeRound.rmrSystem?.conditionRating ?? 20}) + Water ({activeRound.rmrSystem?.groundwaterRating ?? 15})
+                  <div className="text-xs text-slate-300 mt-0.5 font-mono">
+                    RMRbasic = UCS ({activeRound.rmrSystem?.ucsRating ?? 12}) + RQD ({activeRound.rmrSystem?.rqdRating ?? 17}) + Spacing ({activeRound.rmrSystem?.spacingRating ?? 10}) + Condition ({activeRound.rmrSystem?.conditionRating ?? 20}) + Water ({activeRound.rmrSystem?.waterRating ?? 15})
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -2458,7 +2487,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
                     <div className="text-2xl font-black font-mono text-amber-400">
                       RMR = {rmrRes.totalRmr}
                     </div>
-                    <div className="text-xs font-bold text-emerald-400">{rmrRes.rockClass}</div>
+                    <div className="text-xs font-bold text-emerald-400">{rmrRes.rmrClass}</div>
                   </div>
                 </div>
               </div>
@@ -2472,7 +2501,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
                       1. Strength of Intact Rock (UCS)
                     </span>
                     <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-xs font-bold">
-                      {activeRound.rmrSystem?.intactStrengthRating ?? 12} / 15 pts
+                      {activeRound.rmrSystem?.ucsRating ?? 12} / 15 pts
                     </span>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
@@ -2487,9 +2516,9 @@ export const FieldRockMassClassificationsStage: React.FC<{
                       <button
                         key={opt.r}
                         type="button"
-                        onClick={() => updateRmrRatingParam({ intactStrengthRating: opt.r })}
+                        onClick={() => updateRmrRatingParam({ ucsRating: opt.r })}
                         className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
-                          (activeRound.rmrSystem?.intactStrengthRating ?? 12) === opt.r
+                          (activeRound.rmrSystem?.ucsRating ?? 12) === opt.r
                             ? 'bg-amber-500 text-slate-950 border-amber-300 font-bold shadow'
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
@@ -2613,7 +2642,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
                       5. Groundwater Seepage Condition
                     </span>
                     <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono text-xs font-bold">
-                      {activeRound.rmrSystem?.groundwaterRating ?? 15} / 15 pts
+                      {activeRound.rmrSystem?.waterRating ?? 15} / 15 pts
                     </span>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
@@ -2627,9 +2656,9 @@ export const FieldRockMassClassificationsStage: React.FC<{
                       <button
                         key={opt.r}
                         type="button"
-                        onClick={() => updateRmrRatingParam({ groundwaterRating: opt.r })}
+                        onClick={() => updateRmrRatingParam({ waterRating: opt.r })}
                         className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
-                          (activeRound.rmrSystem?.groundwaterRating ?? 15) === opt.r
+                          (activeRound.rmrSystem?.waterRating ?? 15) === opt.r
                             ? 'bg-sky-500 text-slate-950 border-sky-300 font-bold shadow'
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
@@ -2645,15 +2674,109 @@ export const FieldRockMassClassificationsStage: React.FC<{
           ) : (
             /* Simple SMR Content */
             <div className="space-y-3">
+              {/* What is Needed for Romana SMR Guidance Banner */}
+              <div className="bg-cyan-950/30 border border-cyan-500/40 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-black uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
+                    <Info className="w-4 h-4 text-cyan-400" />
+                    <span>What is Needed for Romana (1985) SMR: Rock Slope &amp; Bench Mass Rating</span>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-bold">
+                    Formula: SMR = RMRbasic + (F1 × F2 × F3) + F4
+                  </span>
+                </div>
+                <p className="text-[11.5px] text-slate-300 leading-relaxed font-sans">
+                  SMR adapts Bieniawski’s tunnel RMR specifically for rock slopes and quarry/mine benches by applying 4 adjustment factors:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px] font-mono">
+                  <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-lg">
+                    <div className="font-bold text-amber-300">1. Basic RMR ({rmrRes.totalRmr})</div>
+                    <div className="text-slate-400 text-[10px]">Sum of UCS, RQD, Spacing, Condition, and Water</div>
+                  </div>
+                  <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-lg">
+                    <div className="font-bold text-cyan-300">2. F1 Parallelism Factor</div>
+                    <div className="text-slate-400 text-[10px]">(1 - sin|αj - αs|)²: Parallel strike gives F1=1.00 (critical)</div>
+                  </div>
+                  <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-lg">
+                    <div className="font-bold text-emerald-300">3. F2 &amp; F3 Geometry</div>
+                    <div className="text-slate-400 text-[10px]">F2: Joint dip (tan βj)². F3: Daylighting on slope face (-60 to 0)</div>
+                  </div>
+                  <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-lg">
+                    <div className="font-bold text-purple-300">4. F4 Excavation Method</div>
+                    <div className="text-slate-400 text-[10px]">Natural +15, Presplit +10, Smooth +8, Blasting 0, Poor -8</div>
+                  </div>
+                </div>
+
+                {/* Interactive Slope Orientation & Blasting Method Calibration */}
+                <div className="pt-2 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-mono font-bold text-slate-400 mb-0.5">
+                      Slope / Bench Face Dip Dir (αs)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={360}
+                      value={surfaceParams?.faceDipDirectionDeg ?? activeRound.tunnelDriveDirection ?? 135}
+                      onChange={(e) => {
+                        const dir = Number(e.target.value) || 0;
+                        onUpdateRound((r) => ({ ...r, tunnelDriveDirection: dir }));
+                      }}
+                      className="w-full bg-slate-950 border border-cyan-500/40 rounded px-2 py-1 text-xs font-mono font-bold text-cyan-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-mono font-bold text-slate-400 mb-0.5">
+                      Slope / Bench Face Dip Angle (βs)
+                    </label>
+                    <input
+                      type="number"
+                      min={15}
+                      max={90}
+                      value={surfaceParams?.faceDipAngleDeg ?? 65}
+                      onChange={(e) => {
+                        const dip = Number(e.target.value) || 65;
+                        if (surfaceParams) {
+                          surfaceParams.faceDipAngleDeg = dip;
+                        }
+                      }}
+                      className="w-full bg-slate-950 border border-cyan-500/40 rounded px-2 py-1 text-xs font-mono font-bold text-amber-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-mono font-bold text-slate-400 mb-0.5">
+                      Excavation / Blasting Method (F4)
+                    </label>
+                    <select
+                      value={surfaceParams?.excavationMethod ?? 'SMOOTH_BLASTING'}
+                      onChange={(e) => {
+                        const method = e.target.value as SurfaceGeometryParameters['excavationMethod'];
+                        if (surfaceParams) {
+                          surfaceParams.excavationMethod = method;
+                        }
+                        onUpdateRound((r) => ({ ...r, modeOfExcavation: method }));
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs font-mono font-bold text-white"
+                    >
+                      <option value="NATURAL_SLOPE">Natural Slope (+15)</option>
+                      <option value="PRESPLITTING">Presplitting (+10)</option>
+                      <option value="SMOOTH_BLASTING">Smooth Blasting (+8)</option>
+                      <option value="MECHANICAL">Mechanical / Normal Blasting (0)</option>
+                      <option value="NORMAL_BLASTING">Deficient / Heavy Blasting (-8)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               {/* SMR Banner */}
               {simpleSmrAnalysis && (
                 <div className="bg-slate-900 border border-cyan-500/40 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="text-xs font-black uppercase tracking-wider text-cyan-400">
-                      Romana (1985) Slope Mass Rating (SMR)
+                      Romana (1985) Slope Mass Rating (SMR) — Calculated Score
                     </div>
-                    <div className="text-xs text-slate-300 mt-0.5">
-                      SMR = Basic RMR ({rmrRes.totalRmr}) + (F1 × F2 × F3) + F4 ({simpleSmrAnalysis.setChecks[0]?.f4 ?? 0})
+                    <div className="text-xs text-slate-300 mt-0.5 font-mono">
+                      SMR = Basic RMR ({rmrRes.totalRmr}) + Adjustment ({simpleSmrAnalysis.setChecks[0] ? (simpleSmrAnalysis.setChecks[0].f1 * simpleSmrAnalysis.setChecks[0].f2 * simpleSmrAnalysis.setChecks[0].f3) : 0}) + F4 ({simpleSmrAnalysis.setChecks[0]?.f4 ?? 0})
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -2739,6 +2862,11 @@ export const FieldRockMassClassificationsStage: React.FC<{
       </div>
     );
   }
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 bg-slate-950 overflow-hidden">
+      {/* Top Classification Switcher & Navigation Bar */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex flex-wrap items-center gap-2">
           {/* Tab 1: Q-System */}
           <div className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950 p-0.5">
@@ -4422,12 +4550,16 @@ export const FieldSupport2DCrossSectionSvg = FieldSupportSystem2DDrawingSvg;
 export const FieldSupportSystemStage: React.FC<{
   activeLocation: FieldTunnelLocationItem;
   activeRound: FieldExcavationRound;
+  mappingDomain?: MappingDomainType;
+  surfaceParams?: SurfaceGeometryParameters;
   onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
   onBackToClassifications: () => void;
   onContinueToSurvey: () => void;
 }> = ({
   activeLocation,
   activeRound,
+  mappingDomain = 'TUNNEL',
+  surfaceParams,
   onUpdateRound,
   onBackToClassifications,
   onContinueToSurvey,
@@ -4854,6 +4986,744 @@ export const FieldSupportSystemStage: React.FC<{
       spotBolts: [...(support.spotBolts || []), newBolt],
     });
   };
+
+  const isSurface =
+    mappingDomain === 'SLOPE' ||
+    mappingDomain === 'BENCH' ||
+    mappingDomain === 'TRENCH' ||
+    mappingDomain === 'ROCK_SURFACE';
+
+  if (isSurface) {
+    const slopeBetaDeg = surfaceParams?.faceDipAngleDeg || 65;
+    const slopeHeightVal = surfaceParams?.slopeHeightMeters || (surfaceParams?.benchHeightMeters ? surfaceParams.benchHeightMeters : 12);
+    const smrScore = activeRound.rmrTotal ? Math.max(15, activeRound.rmrTotal - 10) : 55;
+    const smrClass = smrScore >= 81 ? 'Class I (Completely Stable)' : smrScore >= 61 ? 'Class II (Stable)' : smrScore >= 41 ? 'Class III (Partially Stable)' : smrScore >= 21 ? 'Class IV (Unstable)' : 'Class V (Completely Unstable)';
+
+    const applySurfacePreset = (preset: 'Class I' | 'Class II' | 'Class III' | 'Class IV' | 'Class V') => {
+      if (preset === 'Class I') {
+        updateSupport({
+          supportClass: 'Class I',
+          rockBoltsEnabled: false,
+          soilNailEnabled: false,
+          shotcreteEnabled: false,
+          wireMeshEnabled: false,
+          weepHolesEnabled: false,
+          subHorizontalDrainsEnabled: false,
+          crestDrainDitchEnabled: true,
+          slopeStabilizationSummary: 'Class I (SMR 81–100): Completely stable slope. No surface stabilization required. Periodic crest ditch cleaning.',
+        });
+      } else if (preset === 'Class II') {
+        updateSupport({
+          supportClass: 'Class II',
+          rockBoltsEnabled: true,
+          soilNailEnabled: true,
+          soilNailType: 'Ø25mm High-Yield SN Rebar Dowels',
+          soilNailLengthM: 3.0,
+          soilNailSpacingM: 2.5,
+          shotcreteEnabled: false,
+          wireMeshEnabled: true,
+          wireMeshType: 'Localized Double-Twisted Hexagonal Mesh Drapery',
+          weepHolesEnabled: true,
+          weepHolesSpacingM: 2.5,
+          subHorizontalDrainsEnabled: false,
+          crestDrainDitchEnabled: true,
+          slopeStabilizationSummary: 'Class II (SMR 61–80): Stable slope with local joint blocks. Spot rebar dowels (Ø25mm, L=3.0m) and wire mesh drapery on localized joints.',
+        });
+      } else if (preset === 'Class III') {
+        updateSupport({
+          supportClass: 'Class III',
+          rockBoltsEnabled: true,
+          soilNailEnabled: true,
+          soilNailType: 'Ø25mm SN Rebar Dowels with Cement Grouting',
+          soilNailLengthM: 4.5,
+          soilNailSpacingM: 1.5,
+          soilNailAngleDeg: 15,
+          soilNailGroutPressureBar: 5,
+          shotcreteEnabled: true,
+          shotcreteType: 'SFRS',
+          shotcreteThicknessMm: 75,
+          wireMeshEnabled: true,
+          wireMeshType: 'TECCO® G65 High-Tensile Steel Wire Mesh',
+          spikePlateType: 'P33 Diamond Spike Plates',
+          weepHolesEnabled: true,
+          weepHolesSpacingM: 2.0,
+          subHorizontalDrainsEnabled: true,
+          subHorizontalDrainsLengthM: 6.0,
+          crestDrainDitchEnabled: true,
+          slopeStabilizationSummary: 'Class III (SMR 41–60): Partially stable slope. Systematic pattern soil nails (Ø25mm, L=4.5m @ 1.5×1.5m) + TECCO® G65 High-Tensile Mesh + 75mm SFRS Shotcrete with Ø50mm PVC weep holes @ 2.0m c/c + sub-horizontal drainage holes.',
+        });
+      } else if (preset === 'Class IV') {
+        updateSupport({
+          supportClass: 'Class IV',
+          rockBoltsEnabled: true,
+          soilNailEnabled: true,
+          soilNailType: 'Hollow-Core Self-Drilling Anchors R32 (Fully Grouted)',
+          soilNailLengthM: 6.0,
+          soilNailSpacingM: 1.2,
+          soilNailAngleDeg: 20,
+          soilNailGroutPressureBar: 8,
+          shotcreteEnabled: true,
+          shotcreteType: 'SFRS',
+          shotcreteThicknessMm: 100,
+          wireMeshEnabled: true,
+          wireMeshType: 'Heavy Welded Wire Mesh (100×100×6mm) + TECCO G65',
+          spikePlateType: 'P66 Heavy Anchor Plates',
+          weepHolesEnabled: true,
+          weepHolesSpacingM: 1.5,
+          subHorizontalDrainsEnabled: true,
+          subHorizontalDrainsLengthM: 9.0,
+          crestDrainDitchEnabled: true,
+          slopeStabilizationSummary: 'Class IV (SMR 21–40): Unstable slope. Heavy pattern ground anchors (R32, L=6.0m @ 1.2×1.2m) + 100mm SFRS Shotcrete with Ø50mm weep holes @ 1.5m c/c + deep sub-horizontal perforated drains + lined crest drain ditch.',
+        });
+      } else if (preset === 'Class V') {
+        updateSupport({
+          supportClass: 'Class V',
+          rockBoltsEnabled: true,
+          soilNailEnabled: true,
+          soilNailType: 'Prestressed Multi-Strand Ground Anchors / Hollow-Core R38',
+          soilNailLengthM: 12.0,
+          soilNailSpacingM: 1.0,
+          soilNailAngleDeg: 20,
+          soilNailGroutPressureBar: 10,
+          shotcreteEnabled: true,
+          shotcreteType: 'SFRS',
+          shotcreteThicknessMm: 150,
+          wireMeshEnabled: true,
+          wireMeshType: 'High-Tensile Wire Mesh + Reinforcing Rebar Grid',
+          spikePlateType: 'P66 Heavy Clamping Plates',
+          weepHolesEnabled: true,
+          weepHolesSpacingM: 1.0,
+          subHorizontalDrainsEnabled: true,
+          subHorizontalDrainsLengthM: 12.0,
+          crestDrainDitchEnabled: true,
+          slopeStabilizationSummary: 'Class V (SMR 0–20): Completely unstable slope. Requires deep prestressed ground anchors (L=12m), multi-level sub-horizontal drainage array, 150mm SFRS shotcrete, toe counterweight berm, or bench re-grading.',
+        });
+      }
+    };
+
+    const soilNailActive = support.soilNailEnabled ?? support.rockBoltsEnabled ?? true;
+    const shotcreteActive = support.shotcreteEnabled ?? true;
+    const meshActive = support.wireMeshEnabled ?? true;
+    const weepHolesActive = support.weepHolesEnabled ?? true;
+    const subDrainsActive = support.subHorizontalDrainsEnabled ?? true;
+
+    return (
+      <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 bg-slate-950 overflow-hidden font-sans">
+        {/* Simple Top Bar for Slope & Bench Stabilization */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <Shield className="w-4 h-4 text-emerald-400" />
+              <span>{mappingDomain === 'BENCH' ? 'Bench Face Stabilization' : 'Slope Surface Stabilization'}</span>
+            </span>
+
+            {/* Presets by SMR Stability Class */}
+            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+              {(['Class I', 'Class II', 'Class III', 'Class IV', 'Class V'] as const).map((cls) => (
+                <button
+                  key={cls}
+                  type="button"
+                  onClick={() => applySurfacePreset(cls)}
+                  className={`px-2 py-0.5 rounded text-[10.5px] font-black cursor-pointer transition-all ${
+                    support.supportClass === cls
+                      ? 'bg-emerald-500 text-slate-950 shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title={`Apply Romana SMR ${cls} Prescribed Stabilization`}
+                >
+                  {cls}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onBackToClassifications}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              SMR &amp; RMR
+            </button>
+            <button
+              type="button"
+              onClick={onContinueToSurvey}
+              className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer"
+            >
+              <span>Next: Clean Report</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Workspace: Left 7 Cols Controls + Right 5 Cols Clean 2D Elevation Sketch */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3 overflow-hidden">
+          {/* Left Column: Simple Stabilization Controls */}
+          <div className="lg:col-span-7 min-h-0 overflow-y-auto space-y-3 pr-1">
+            {/* Romana SMR Recommendation Banner */}
+            <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-xl p-3 space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-emerald-400 uppercase tracking-wider">
+                  Romana (1985) Slope Stabilization Recommendation
+                </span>
+                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold text-[11px]">
+                  {smrClass}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed font-mono">
+                {support.slopeStabilizationSummary ||
+                  'Systematic pattern soil nails (L=4.5m @ 1.5×1.5m) + TECCO® G65 High-Tensile Wire Mesh + 75mm SFRS Shotcrete with Ø50mm PVC weep holes @ 2.0m c/c + Sub-horizontal drainage relief holes.'}
+              </p>
+            </div>
+
+            {/* 1. Soil Nails & Rock Anchors Card */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={soilNailActive}
+                    onChange={(e) =>
+                      updateSupport({
+                        soilNailEnabled: e.target.checked,
+                        rockBoltsEnabled: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
+                  />
+                  <span className="text-xs font-black uppercase text-amber-300">
+                    1. Soil Nails &amp; Rock Anchors (Grouting)
+                  </span>
+                </label>
+                <span className="text-[10px] font-mono text-amber-400 font-bold">
+                  {soilNailActive ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+
+              {soilNailActive && (
+                <div className="space-y-2 pt-1 border-t border-slate-800 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                        Nail / Anchor Type
+                      </label>
+                      <select
+                        value={support.soilNailType || support.rockBoltType || 'Ø25mm SN Rebar Dowels'}
+                        onChange={(e) =>
+                          updateSupport({
+                            soilNailType: e.target.value,
+                            rockBoltType: e.target.value,
+                          })
+                        }
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs text-slate-200 font-mono"
+                      >
+                        <option value="Ø25mm SN Rebar Dowels with Cement Grout">Ø25mm High-Yield SN Rebar (Grouted)</option>
+                        <option value="Ø32mm High-Yield Threaded SN Bar">Ø32mm Heavy Threaded Bar</option>
+                        <option value="Hollow-Core Self-Drilling Anchor R32">Hollow-Core Self-Drilling R32</option>
+                        <option value="Hollow-Core Self-Drilling Anchor R38">Hollow-Core Self-Drilling R38</option>
+                        <option value="Prestressed Multi-Strand Ground Anchors">Prestressed Multi-Strand Anchors</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                        Nail Length (m)
+                      </label>
+                      <div className="grid grid-cols-5 gap-1">
+                        {[3.0, 4.5, 6.0, 9.0, 12.0].map((len) => (
+                          <button
+                            key={len}
+                            type="button"
+                            onClick={() =>
+                              updateSupport({
+                                soilNailLengthM: len,
+                                rockBoltLengthM: len,
+                              })
+                            }
+                            className={`py-1 rounded text-[10px] font-mono font-bold border cursor-pointer ${
+                              (support.soilNailLengthM || support.rockBoltLengthM || 4.5) === len
+                                ? 'bg-amber-500 text-slate-950 border-amber-300'
+                                : 'bg-slate-950 text-slate-300 border-slate-800'
+                            }`}
+                          >
+                            {len}m
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                        Pattern Spacing
+                      </label>
+                      <div className="grid grid-cols-3 gap-1">
+                        {[1.2, 1.5, 2.0].map((sp) => (
+                          <button
+                            key={sp}
+                            type="button"
+                            onClick={() =>
+                              updateSupport({
+                                soilNailSpacingM: sp,
+                                rockBoltInPlaneSpacingM: sp,
+                                rockBoltLongitudinalSpacingM: sp,
+                              })
+                            }
+                            className={`py-1 rounded text-[10px] font-mono font-bold border cursor-pointer ${
+                              (support.soilNailSpacingM || support.rockBoltInPlaneSpacingM || 1.5) === sp
+                                ? 'bg-amber-500 text-slate-950 border-amber-300'
+                                : 'bg-slate-950 text-slate-300 border-slate-800'
+                            }`}
+                          >
+                            {sp}×{sp}m
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                        Downward Inclination
+                      </label>
+                      <div className="grid grid-cols-2 gap-1">
+                        {[15, 20].map((ang) => (
+                          <button
+                            key={ang}
+                            type="button"
+                            onClick={() => updateSupport({ soilNailAngleDeg: ang })}
+                            className={`py-1 rounded text-[10px] font-mono font-bold border cursor-pointer ${
+                              (support.soilNailAngleDeg || 15) === ang
+                                ? 'bg-amber-500 text-slate-950 border-amber-300'
+                                : 'bg-slate-950 text-slate-300 border-slate-800'
+                            }`}
+                          >
+                            ∠{ang}° Down
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                        Grout Pressure
+                      </label>
+                      <div className="grid grid-cols-2 gap-1">
+                        {[5, 8].map((bar) => (
+                          <button
+                            key={bar}
+                            type="button"
+                            onClick={() => updateSupport({ soilNailGroutPressureBar: bar })}
+                            className={`py-1 rounded text-[10px] font-mono font-bold border cursor-pointer ${
+                              (support.soilNailGroutPressureBar || 5) === bar
+                                ? 'bg-amber-500 text-slate-950 border-amber-300'
+                                : 'bg-slate-950 text-slate-300 border-slate-800'
+                            }`}
+                          >
+                            {bar} Bar
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Shotcrete & Weep Holes Card */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={shotcreteActive}
+                    onChange={(e) => updateSupport({ shotcreteEnabled: e.target.checked })}
+                    className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
+                  />
+                  <span className="text-xs font-black uppercase text-cyan-300">
+                    2. Shotcrete Surface Seal &amp; Weep Holes
+                  </span>
+                </label>
+                <span className="text-[10px] font-mono text-cyan-400 font-bold">
+                  {shotcreteActive ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+
+              {shotcreteActive && (
+                <div className="space-y-2 pt-1 border-t border-slate-800 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                        Shotcrete Spec
+                      </label>
+                      <div className="grid grid-cols-3 gap-1">
+                        {[
+                          { id: 'Plain', label: 'Plain' },
+                          { id: 'SFRS', label: 'SFRS (Steel)' },
+                          { id: 'PP Fibre Shotcrete', label: 'PP Fibre' },
+                        ].map((sc) => (
+                          <button
+                            key={sc.id}
+                            type="button"
+                            onClick={() => updateSupport({ shotcreteType: sc.id as any })}
+                            className={`py-1 rounded text-[10px] font-mono font-bold border cursor-pointer ${
+                              (support.shotcreteType || 'SFRS') === sc.id
+                                ? 'bg-cyan-500 text-slate-950 border-cyan-300'
+                                : 'bg-slate-950 text-slate-300 border-slate-800'
+                            }`}
+                          >
+                            {sc.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                        Thickness (mm)
+                      </label>
+                      <div className="grid grid-cols-4 gap-1">
+                        {[50, 75, 100, 150].map((th) => (
+                          <button
+                            key={th}
+                            type="button"
+                            onClick={() =>
+                              updateSupport({
+                                shotcreteCrownThicknessMm: th,
+                                shotcreteWallThicknessMm: th,
+                                shotcreteThicknessMm: th,
+                              })
+                            }
+                            className={`py-1 rounded text-[10px] font-mono font-bold border cursor-pointer ${
+                              (support.shotcreteCrownThicknessMm || 75) === th
+                                ? 'bg-cyan-500 text-slate-950 border-cyan-300'
+                                : 'bg-slate-950 text-slate-300 border-slate-800'
+                            }`}
+                          >
+                            {th}mm
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={weepHolesActive}
+                        onChange={(e) => updateSupport({ weepHolesEnabled: e.target.checked })}
+                        className="w-3.5 h-3.5 accent-cyan-400 rounded cursor-pointer"
+                      />
+                      <span className="text-[11px] font-bold text-slate-300">
+                        Include Ø50mm PVC Sub-surface Weep Holes (Relieves Hydrostatic Pressure)
+                      </span>
+                    </label>
+                    <span className="font-mono text-cyan-300 text-[10px] font-bold">
+                      @ {support.weepHolesSpacingM || 2.0}m c/c
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 3. Wire Mesh Drape Card */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={meshActive}
+                    onChange={(e) => updateSupport({ wireMeshEnabled: e.target.checked })}
+                    className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
+                  />
+                  <span className="text-xs font-black uppercase text-emerald-300">
+                    3. High-Tensile Wire Mesh Drape
+                  </span>
+                </label>
+                <span className="text-[10px] font-mono text-emerald-400 font-bold">
+                  {meshActive ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+
+              {meshActive && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-800 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                      Mesh Specification
+                    </label>
+                    <select
+                      value={support.wireMeshType || 'TECCO® G65 High-Tensile Wire Mesh'}
+                      onChange={(e) => updateSupport({ wireMeshType: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs text-slate-200 font-mono"
+                    >
+                      <option value="TECCO® G65 High-Tensile Steel Wire Mesh">TECCO® G65 High-Tensile Mesh (3mm/4mm)</option>
+                      <option value="DELTAX Double-Twisted Wire Mesh">DELTAX® Double-Twisted Mesh</option>
+                      <option value="Welded Wire Mesh (100×100×6mm)">Welded Wire Mesh (100×100×6mm)</option>
+                      <option value="Double-Twisted Hexagonal Wire Mesh">Hexagonal Wire Netting</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                      Spike Bearing Plate
+                    </label>
+                    <div className="grid grid-cols-2 gap-1">
+                      {['P33 Diamond Spike Plate', 'P66 Heavy Anchor Plate'].map((spk) => (
+                        <button
+                          key={spk}
+                          type="button"
+                          onClick={() => updateSupport({ spikePlateType: spk })}
+                          className={`py-1 rounded text-[10px] font-mono font-bold border cursor-pointer truncate px-1 ${
+                            (support.spikePlateType || 'P33 Diamond Spike Plate') === spk
+                              ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                              : 'bg-slate-950 text-slate-300 border-slate-800'
+                          }`}
+                        >
+                          {spk.split(' ')[0]} Plate
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 4. Drainage & Catchment Card */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2">
+              <span className="text-xs font-black uppercase text-sky-300">
+                4. Drainage Relief &amp; Catchment Berm
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <label className="flex items-center gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={subDrainsActive}
+                    onChange={(e) => updateSupport({ subHorizontalDrainsEnabled: e.target.checked })}
+                    className="w-4 h-4 accent-sky-400 rounded cursor-pointer"
+                  />
+                  <div>
+                    <div className="font-bold text-slate-200 text-xs">Sub-horizontal Drains</div>
+                    <div className="text-[10px] text-slate-400 font-mono">Ø50mm PVC, L={support.subHorizontalDrainsLengthM || 6}m (∠5° Upward)</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(support.crestDrainDitchEnabled ?? true)}
+                    onChange={(e) => updateSupport({ crestDrainDitchEnabled: e.target.checked })}
+                    className="w-4 h-4 accent-sky-400 rounded cursor-pointer"
+                  />
+                  <div>
+                    <div className="font-bold text-slate-200 text-xs">Crest Interceptor Ditch</div>
+                    <div className="text-[10px] text-slate-400 font-mono">Lined trapezoidal drain at slope crest</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: Clean 2D Face & Slope Elevation Section SVG (Zero 3D) */}
+          <div className="lg:col-span-5 min-h-[420px] bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col justify-between gap-2 overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="text-xs font-bold text-white uppercase font-mono flex items-center gap-1.5">
+                <Crosshair className="w-4 h-4 text-emerald-400" />
+                <span>2D Slope Face &amp; Elevation Profile</span>
+              </span>
+              <span className="font-mono text-[10.5px] font-bold text-emerald-300">
+                Height {slopeHeightVal}m • Face ∠{slopeBetaDeg}°
+              </span>
+            </div>
+
+            {/* Clean 2D Section SVG */}
+            <div className="flex-1 min-h-[300px] flex items-center justify-center bg-white rounded-lg border border-slate-800 p-2 overflow-hidden">
+              <svg viewBox="0 0 540 380" className="w-full h-full max-h-[360px]">
+                {/* Background Sky / Ground */}
+                <rect x="0" y="0" width="540" height="380" fill="#f8fafc" />
+
+                {/* Ground Cross-Section Polygon */}
+                {/* Crest at (140, 50), Toe at (340, 310), Invert to bottom */}
+                <polygon
+                  points="0,50 140,50 340,310 540,310 540,380 0,380"
+                  fill="#e2e8f0"
+                  stroke="#334155"
+                  strokeWidth="2.5"
+                />
+
+                {/* Bedrock hatch / lines inside ground */}
+                <g stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4 4">
+                  <line x1="20" y1="90" x2="160" y2="90" />
+                  <line x1="40" y1="140" x2="200" y2="140" />
+                  <line x1="60" y1="190" x2="240" y2="190" />
+                  <line x1="80" y1="240" x2="280" y2="240" />
+                  <line x1="100" y1="290" x2="320" y2="290" />
+                </g>
+
+                {/* Crest Interceptor Ditch */}
+                {Boolean(support.crestDrainDitchEnabled ?? true) && (
+                  <g>
+                    <polygon points="120,50 128,62 136,50" fill="#0284c7" stroke="#0369a1" strokeWidth="1.5" />
+                    <text x="128" y="42" textAnchor="middle" fontSize="8" fontWeight="bold" fontFamily="monospace" fill="#0369a1">
+                      Crest Ditch
+                    </text>
+                  </g>
+                )}
+
+                {/* Toe Ritchie Catchment Berm */}
+                <g>
+                  <polygon points="340,310 380,310 395,318 420,310" fill="#cbd5e1" stroke="#475569" strokeWidth="1.5" />
+                  <text x="380" y="332" textAnchor="middle" fontSize="8" fontWeight="bold" fontFamily="monospace" fill="#475569">
+                    Ritchie Toe Catchment
+                  </text>
+                </g>
+
+                {/* Shotcrete Layer on Slope Face (140, 50) to (340, 310) */}
+                {shotcreteActive && (
+                  <g>
+                    <line
+                      x1="138"
+                      y1="48"
+                      x2="338"
+                      y2="308"
+                      stroke="#94a3b8"
+                      strokeWidth={Math.max(4, (support.shotcreteCrownThicknessMm || 75) / 15)}
+                    />
+                    <text x="260" y="160" textAnchor="start" fontSize="8.5" fontWeight="bold" fontFamily="monospace" fill="#0f172a">
+                      {support.shotcreteType || 'SFRS'} Shotcrete ({support.shotcreteCrownThicknessMm || 75}mm)
+                    </text>
+                  </g>
+                )}
+
+                {/* Wire Mesh Drape on Slope Face */}
+                {meshActive && (
+                  <g>
+                    <line
+                      x1="134"
+                      y1="46"
+                      x2="344"
+                      y2="314"
+                      stroke="#059669"
+                      strokeWidth="2"
+                      strokeDasharray="6 3"
+                    />
+                    {/* Top and Bottom Boundary Anchor Pins */}
+                    <circle cx="134" cy="46" r="3.5" fill="#059669" stroke="#ffffff" strokeWidth="1" />
+                    <circle cx="344" cy="314" r="3.5" fill="#059669" stroke="#ffffff" strokeWidth="1" />
+                    <text x="210" y="115" textAnchor="end" fontSize="8" fontWeight="bold" fontFamily="monospace" fill="#059669">
+                      {support.spikePlateType?.split(' ')[0] || 'P33'} Mesh Drape
+                    </text>
+                  </g>
+                )}
+
+                {/* Soil Nails / Rock Anchors Pattern into Rock Mass */}
+                {soilNailActive &&
+                  [
+                    { x: 175, y: 95 },
+                    { x: 215, y: 147 },
+                    { x: 255, y: 200 },
+                    { x: 295, y: 252 },
+                  ].map((pt, idx) => {
+                    const nailLenPx = Math.min(110, (support.soilNailLengthM || 4.5) * 16);
+                    const angRad = ((support.soilNailAngleDeg || 15) * Math.PI) / 180;
+                    const endX = pt.x - Math.cos(angRad) * nailLenPx;
+                    const endY = pt.y + Math.sin(angRad) * nailLenPx;
+                    return (
+                      <g key={idx}>
+                        {/* Grout Bulb Hole */}
+                        <line
+                          x1={pt.x}
+                          y1={pt.y}
+                          x2={endX}
+                          y2={endY}
+                          stroke="#cbd5e1"
+                          strokeWidth="6"
+                          strokeLinecap="round"
+                        />
+                        {/* High-Tensile Steel Rebar */}
+                        <line
+                          x1={pt.x}
+                          y1={pt.y}
+                          x2={endX}
+                          y2={endY}
+                          stroke="#d97706"
+                          strokeWidth="2"
+                        />
+                        {/* Diamond Spike Bearing Plate at Collar */}
+                        <circle cx={pt.x} cy={pt.y} r="4.5" fill="#d97706" stroke="#ffffff" strokeWidth="1.2" />
+                        {/* Nail Collar Callout */}
+                        {idx === 1 && (
+                          <text x={endX - 8} y={endY} textAnchor="end" fontSize="8" fontWeight="bold" fontFamily="monospace" fill="#d97706">
+                            Nail L={support.soilNailLengthM || 4.5}m (∠{support.soilNailAngleDeg || 15}°)
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+
+                {/* Weep Holes on Face */}
+                {shotcreteActive && weepHolesActive && (
+                  <g>
+                    {[
+                      { x: 195, y: 121 },
+                      { x: 235, y: 174 },
+                      { x: 275, y: 226 },
+                    ].map((wPt, idx) => (
+                      <g key={idx}>
+                        <line x1={wPt.x} y1={wPt.y} x2={wPt.x - 22} y2={wPt.y - 2} stroke="#0284c7" strokeWidth="2.5" />
+                        <circle cx={wPt.x} cy={wPt.y} r="2.5" fill="#0284c7" />
+                        {idx === 0 && (
+                          <text x={wPt.x + 10} y={wPt.y + 3} textAnchor="start" fontSize="7.5" fontWeight="bold" fontFamily="monospace" fill="#0284c7">
+                            Ø50mm Weep Hole
+                          </text>
+                        )}
+                      </g>
+                    ))}
+                  </g>
+                )}
+
+                {/* Sub-Horizontal Relief Drains near Toe */}
+                {subDrainsActive && (
+                  <g>
+                    <line x1="330" y1="298" x2="200" y2="286" stroke="#0369a1" strokeWidth="3" strokeDasharray="5 3" />
+                    <circle cx="330" cy="298" r="4" fill="#0369a1" />
+                    <text x="210" y="278" textAnchor="end" fontSize="8" fontWeight="bold" fontFamily="monospace" fill="#0369a1">
+                      Sub-Horizontal Drain (L={support.subHorizontalDrainsLengthM || 6}m, ∠5° Up)
+                    </text>
+                  </g>
+                )}
+
+                {/* Slope Geometry Labels */}
+                <text x="190" y="28" textAnchor="middle" fontSize="9" fontWeight="black" fontFamily="monospace" fill="#0f172a">
+                  Crest RL 280.0m
+                </text>
+                <text x="360" y="360" textAnchor="middle" fontSize="9" fontWeight="black" fontFamily="monospace" fill="#0f172a">
+                  Toe RL 268.0m (H = {slopeHeightVal}m)
+                </text>
+              </svg>
+            </div>
+
+            {/* Quick Summary Pill Bar */}
+            <div className="bg-slate-950 border border-slate-800 rounded-lg p-2 flex flex-wrap items-center justify-between gap-1 text-[10.5px] font-mono">
+              <span className="text-slate-400">Prescription:</span>
+              <span className="font-bold text-amber-300">
+                {soilNailActive ? `Soil Nails ${support.soilNailLengthM || 4.5}m @ ${support.soilNailSpacingM || 1.5}m` : 'No Nails'}
+              </span>
+              <span className="text-slate-600">•</span>
+              <span className="font-bold text-cyan-300">
+                {shotcreteActive ? `${support.shotcreteType || 'SFRS'} ${support.shotcreteCrownThicknessMm || 75}mm` : 'No Shotcrete'}
+              </span>
+              <span className="text-slate-600">•</span>
+              <span className="font-bold text-emerald-300">
+                {meshActive ? 'TECCO Mesh' : 'No Mesh'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 bg-slate-950 overflow-hidden">

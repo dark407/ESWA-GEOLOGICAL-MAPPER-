@@ -476,6 +476,22 @@ export interface FieldSupportSystemConfig {
   junctionAdjustRmr?: boolean;
   junctionNotes?: string;
   remarks?: string;
+
+  /** Surface Mapping (Slope & Bench) Simple Stabilization */
+  soilNailEnabled?: boolean;
+  soilNailType?: string;
+  soilNailLengthM?: number;
+  soilNailSpacingM?: number;
+  soilNailAngleDeg?: number;
+  soilNailGroutPressureBar?: number;
+  spikePlateType?: string;
+  weepHolesEnabled?: boolean;
+  weepHolesSpacingM?: number;
+  subHorizontalDrainsEnabled?: boolean;
+  subHorizontalDrainsLengthM?: number;
+  crestDrainDitchEnabled?: boolean;
+  surfaceStabilizationNotes?: string;
+  slopeStabilizationSummary?: string;
 }
 
 export interface FieldSurveyOverbreakData {
@@ -659,6 +675,7 @@ export interface FieldExcavationRound {
   reviewerDeviceId?: string;
   reviewerRemarks?: string;
   rmrTotal?: number;
+  rmrRockClass?: string;
   /** ISO timestamp when marked Completed */
   completedAtIso?: string;
   /** True when the unified Master Archive (.eswa.json with reports + original photos + JSON) is generated */

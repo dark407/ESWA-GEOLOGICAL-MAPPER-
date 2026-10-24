@@ -26,6 +26,7 @@ import {
   HardDrive,
   Download,
   FolderOpen,
+  Box,
 } from 'lucide-react';
 import { EswaAppBackgroundWatermark, EswaTunnelLogo, playEswaWelcomeChime } from '../EswaBrandIdentity';
 import { ThemeToggleButton, useTheme } from '../../context/ThemeContext';
@@ -50,6 +51,8 @@ export interface MiningMainWindowProps {
   googleUser?: GoogleUserAccountInfo | null;
   activeGeologist?: GeologistUserProfile | null;
   onOpenGlobalSettings: () => void;
+  onOpenContinuousTunnelLog?: () => void;
+  onOpenCoreLogging?: () => void;
   isAuthBusy?: boolean;
   onGoogleSignIn?: () => void;
   onGoogleSignOut?: () => void;
@@ -61,6 +64,8 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
   googleUser,
   activeGeologist,
   onOpenGlobalSettings,
+  onOpenContinuousTunnelLog,
+  onOpenCoreLogging,
   isAuthBusy = false,
   onGoogleSignIn,
   onGoogleSignOut,
@@ -368,6 +373,35 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
               </span>
             </button>
           </div>
+
+          {/* OPTION 4: Continuous 3D Tunnel Mapping / 3D CAD Strip Logging */}
+          {onOpenContinuousTunnelLog && (
+            <div className="w-full">
+              <button
+                type="button"
+                onClick={onOpenContinuousTunnelLog}
+                className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-slate-900/90 hover:bg-slate-850 border-2 border-emerald-500/40 hover:border-emerald-400 transition-all cursor-pointer group shadow-lg shadow-emerald-500/10 text-emerald-300"
+              >
+                <span className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
+                    <Box className="w-4 h-4" />
+                  </div>
+                  <div className="text-left font-mono">
+                    <div className="font-bold text-slate-100">
+                      4. Continuous 3D Tunnel Mapping &amp; Strip CAD Log
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-normal">
+                      Multi-round longitudinal 3D tunnel strip log, unrolled crown &amp; walls CAD
+                    </div>
+                  </div>
+                </span>
+                <span className="text-[11px] font-mono text-emerald-400 font-bold group-hover:underline flex items-center gap-1">
+                  <span>Launch 3D Log</span>
+                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
