@@ -3841,37 +3841,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             <span>Menu</span>
           </button>
 
-          {/* Top-Left High-Contrast Segmented 3-Mode Selector (NATM | TBM | MINING) */}
-          <div className="flex items-center p-0.5 rounded-lg bg-slate-950 border border-slate-700/80 shadow-xs shrink-0">
-            {(['NATM', 'TBM', 'MINING'] as IndustryMode[]).map((m) => {
-              const isAct = currentIndustryMode === m;
-              return (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => handleModeSwitch(m)}
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
-                    isAct
-                      ? m === 'NATM'
-                        ? 'bg-amber-500 text-slate-950 font-black shadow'
-                        : m === 'TBM'
-                        ? 'bg-cyan-500 text-slate-950 font-black shadow'
-                        : 'bg-emerald-500 text-slate-950 font-black shadow'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title={
-                    m === 'NATM'
-                      ? 'NATM: New Austrian Tunnelling Method'
-                      : m === 'TBM'
-                      ? 'TBM: Shield Tunnel Boring Machine'
-                      : 'MINING: Underground Hardrock Mining Stope & Grade Control'
-                  }
-                >
-                  {m}
-                </button>
-              );
-            })}
-          </div>
+
 
           {currentIndustryMode === 'MINING' && (
             <button
@@ -4011,60 +3981,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {activeGeologist && (
-            <button
-              type="button"
-              onClick={() => setIsGlobalSettingsOpen(true)}
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
-                activeGeologist.role === 'Contractor'
-                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
-                  : activeGeologist.role === 'PMC'
-                  ? 'bg-blue-500/10 text-blue-300 border-blue-500/30 hover:bg-blue-500/20'
-                  : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
-              }`}
-              title={`Active Geologist: ${activeGeologist.name} (${activeGeologist.role}) - Click to switch profile`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-bold">[{activeGeologist.role}]</span>
-              <span className="truncate max-w-[110px]">{activeGeologist.name}</span>
-            </button>
-          )}
-
-          {onOpenContinuousTunnelLog && (
-            <button
-              type="button"
-              onClick={onOpenContinuousTunnelLog}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 hover:text-cyan-200 border border-cyan-500/40 shadow-xs transition-all cursor-pointer"
-              title="Launch Continuous 3D Tunnel Strip Log & Multi-Pull CAD"
-            >
-              <Layers className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden xl:inline">Continuous 3D Log</span>
-            </button>
-          )}
-
-          {onOpenCoreLogging && (
-            <button
-              type="button"
-              onClick={onOpenCoreLogging}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 shadow-xs transition-all cursor-pointer"
-              title="Open Diamond Drill Core Logging & RQD/Box Photography"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden xl:inline">Core Logging</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setIsGlobalSettingsOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 shadow-sm transition-all cursor-pointer"
-            title="Open Global Settings (Google Account, Device ID, Multi-Device Project Sync, Geologist Profiles & Signatures)"
-          >
-            <Settings className="w-3.5 h-3.5 text-orange-400" />
-            <span className="hidden md:inline">Settings</span>
-          </button>
-
-          <ThemeToggleButton compact />
           <div className="hidden md:flex items-center gap-1 text-[10.5px] text-emerald-500 font-semibold shrink-0">
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Saved</span>
@@ -4110,7 +4026,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               >
                 <FolderPlus className="w-3.5 h-3.5" />
                 <span>
-                  1. Project Window ({activeProject ? formatDomainProjName(activeProject.projectName) : 'Select'})
+                  1. Project ({activeProject ? formatDomainProjName(activeProject.projectName) : 'Select'})
                 </span>
               </button>
               <span className="text-slate-600 text-xs font-black">→</span>
@@ -4125,7 +4041,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               >
                 <MapPin className="w-3.5 h-3.5" />
                 <span>
-                  2. Location Window ({activeLocation ? formatDomainLocName(activeLocation.name) : 'Select'})
+                  2. Location ({activeLocation ? formatDomainLocName(activeLocation.name) : 'Select'})
                 </span>
               </button>
               <span className="text-slate-600 text-xs font-black">→</span>
@@ -4139,9 +4055,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 }`}
               >
                 <Compass className="w-3.5 h-3.5" />
-                <span>
-                  3. {mappingDomain === 'TUNNEL' ? 'Face Window' : 'Station / Face Window'}
-                </span>
+                <span>3. Face Details</span>
               </button>
             </div>
 
@@ -4258,7 +4172,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             <div className="flex items-center justify-between mb-2 gap-1">
               <h2 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
                 <FolderPlus className="w-4 h-4" />
-                1. First Window: Select Existing Project or Create New
+                1. Select Existing Project or Create New
               </h2>
               <div className="flex items-center gap-1">
                 <button
@@ -4821,8 +4735,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 )}
                 <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
                   {mappingDomain === 'TUNNEL'
-                    ? '3. Third Window: Face Data & Completion / Review Status'
-                    : `3. Third Window: ${domainPanelMap.domainTitle} Stations & Status`}
+                    ? '3. Face Details & Completion / Review Status'
+                    : `3. ${domainPanelMap.domainTitle} Face Details & Status`}
                 </h2>
               </div>
               {activeLocation && (
@@ -4843,12 +4757,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               <div className="mb-3 p-3.5 rounded-xl bg-slate-950 border-2 border-emerald-500/60 shadow-2xl space-y-3 shrink-0">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                    <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
                       Create New {mappingDomain === 'TUNNEL' ? 'Tunnel Face' : `${domainPanelMap.domainTitle} Station`}
                     </span>
-                    <h3 className="text-sm font-black text-white">
-                      Enter Face Details &amp; Choose Mapping Method (Field or Photogrammetry)
-                    </h3>
                   </div>
                   <button
                     type="button"
@@ -4932,9 +4843,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-300 mt-1">
-                        In-built Field Camera capture + direct 2D &amp; 3D structural, lithology, support, and survey canvas mapping.
-                      </p>
                     </button>
 
                     <button
@@ -4956,9 +4864,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-300 mt-1">
-                        Upload Face/Wall/Crown photos + warp &amp; fit photos to profile shape + photo-based 2D &amp; 3D tracing.
-                      </p>
                     </button>
                   </div>
                 </div>
@@ -11680,21 +11585,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               </button>
             </div>
           </div>
-          <FaceCompletionAndReviewBar
-            activeProject={activeProject}
-            activeLocation={activeLocation}
-            activeRound={activeRound}
-            mappingDomain={mappingDomain}
-            onUpdateRound={(patch) => {
-              updateActiveRound((r) => ({ ...r, ...patch }));
-              saveFieldMappingStore(latestStoreRef.current);
-            }}
-            onReturnToFaceList={() => {
-              saveFieldMappingStore(latestStoreRef.current);
-              setSetupWindowStep('face');
-              setStage('project_setup');
-            }}
-          />
+
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <FieldTwoPageReportAndTemplateStage
               activeProject={activeProject}

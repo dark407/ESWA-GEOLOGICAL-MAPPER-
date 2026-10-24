@@ -5857,7 +5857,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                         />
                         {/* Subtle Geological Hatch Pattern */}
                         {(() => {
-                          const effAngle = reg.angleDeg ?? reg.patternAngle ?? 0;
+                          const effAngle = reg.patternAngleDeg ?? reg.angleDeg ?? reg.patternAngle ?? 0;
                           const patUrl =
                             effAngle !== 0
                               ? `url(#lith-pat-${reg.patternType}-a${effAngle})`

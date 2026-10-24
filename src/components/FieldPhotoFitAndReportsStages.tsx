@@ -822,6 +822,10 @@ export const FieldInBuiltCameraStage: React.FC<{
     }));
   };
 
+  const activePortionPhoto = activeRound.collectedPhotos.find(
+    (p) => p.panel === targetPanel
+  );
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-4 bg-slate-950 flex flex-col">
       {viewMode === 'camera' ? (
@@ -889,70 +893,26 @@ export const FieldInBuiltCameraStage: React.FC<{
               className={`w-full h-full object-cover ${liveCameraActive ? 'block' : 'hidden'}`}
             />
 
-            {!liveCameraActive && (
-              <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-black flex flex-col items-center justify-center p-4 text-center">
-                <Camera className="w-14 h-14 text-amber-400/80 mb-2 animate-pulse" />
-                <div className="text-base font-black text-white uppercase tracking-wider">
-                  {activePortionInfo.title} Camera
-                </div>
-                <div className="text-xs font-mono text-slate-400 mt-1">
-                  {activeLocation.name} • {rdChainageStr} • {activePortionInfo.dimLabel}
-                </div>
-                <div className="mt-3 flex items-center gap-2 text-[11px] text-amber-300 bg-amber-950/60 border border-amber-800/80 px-3 py-1 rounded-full font-mono">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Auto-Upscale & Shadow Removal Ready
-                </div>
-              </div>
+            {!liveCameraActive && activePortionPhoto && (
+              <img
+                src={activePortionPhoto.dataUrl}
+                alt={activePortionPhoto.label}
+                className="w-full h-full object-contain bg-black"
+              />
             )}
 
-            {/* Shape Outline Guide HUD */}
-            <svg
-              viewBox="0 0 1000 600"
-              className="absolute inset-0 w-full h-full pointer-events-none"
-            >
-              {targetPanel === 'face' && !isSurface ? (
-                <path
-                  d={
-                    computeFaceTunnelOutlineDetails(activeLocation, 220, 70, 560, 420)
-                      .wallStrokePathD
-                  }
-                  fill="none"
-                  stroke="#38BDF8"
-                  strokeWidth="3"
-                  strokeDasharray="10 6"
-                />
-              ) : (
-                <rect
-                  x="180"
-                  y="70"
-                  width="640"
-                  height="420"
-                  fill="none"
-                  stroke="#38BDF8"
-                  strokeWidth="3"
-                  strokeDasharray="10 6"
-                  rx="8"
-                />
-              )}
-            </svg>
-
-            {/* Camera Overlay HUD (Enhancements & Metadata) */}
-            <div className="absolute top-3 left-3 flex flex-col gap-1 pointer-events-none">
-              <div className="px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-sm border border-slate-700 text-white text-[11px] font-mono flex items-center gap-1.5 shadow-md">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                <span className="font-bold text-amber-400">{activePortionInfo.portionCode}</span>
-                <span className="text-slate-400">|</span>
-                <span>{rdChainageStr}</span>
+            {!liveCameraActive && !activePortionPhoto && (
+              <div className="flex flex-col items-center justify-center p-4">
+                <button
+                  type="button"
+                  onClick={startCamera}
+                  className="p-5 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-amber-400 hover:scale-105 transition-all shadow-2xl cursor-pointer"
+                  title="Activate Camera"
+                >
+                  <Camera className="w-10 h-10" />
+                </button>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/50 text-[10px] font-bold text-emerald-300">
-                  ✨ 1600×1000 HD Upscale
-                </span>
-                <span className="px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/50 text-[10px] font-bold text-cyan-300">
-                  🌓 Shadow Lift
-                </span>
-              </div>
-            </div>
+            )}
 
             {/* Notification Toast */}
             {lastNotification && (
@@ -1941,14 +1901,14 @@ export const FieldPhotoFitStage: React.FC<{
     ? [
         { id: 'face', label: surfMap.face.fullLabel, shortLabel: surfMap.face.shortLabel, available: true },
         { id: 'crown', label: surfMap.crown.fullLabel, shortLabel: surfMap.crown.shortLabel, available: surfCfg.hasCrown },
-        { id: 'left_wall', label: surfMap.leftWall.fullLabel, shortLabel: surfMap.leftWall.shortLabel, available: surfCfg.hasLeftWall },
-        { id: 'right_wall', label: surfMap.rightWall.fullLabel, shortLabel: surfMap.rightWall.shortLabel, available: surfCfg.hasRightWall },
+        { id: 'left_wall', label: 'LEFT WALL', shortLabel: 'LEFT WALL', available: surfCfg.hasLeftWall },
+        { id: 'right_wall', label: 'RIGHT WALL', shortLabel: 'RIGHT WALL', available: surfCfg.hasRightWall },
       ]
     : [
         { id: 'face', label: 'Tunnel Face', shortLabel: 'Face', available: true },
         { id: 'crown', label: 'Crown / Roof Arch', shortLabel: 'Crown', available: surfCfg.hasCrown },
-        { id: 'left_wall', label: 'Left Wall', shortLabel: 'Left Wall', available: surfCfg.hasLeftWall },
-        { id: 'right_wall', label: 'Right Wall', shortLabel: 'Right Wall', available: surfCfg.hasRightWall },
+        { id: 'left_wall', label: 'LEFT WALL', shortLabel: 'LEFT WALL', available: surfCfg.hasLeftWall },
+        { id: 'right_wall', label: 'RIGHT WALL', shortLabel: 'RIGHT WALL', available: surfCfg.hasRightWall },
       ];
 
   const panelTabs = rawPanelTabs.filter((p) => p.available);

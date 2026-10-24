@@ -3128,15 +3128,22 @@ export function computeUnfoldedStripBoxes(
   const rightWallX = Number((crownX + stripCrownW).toFixed(1));
 
   // Give primary visual importance to the Tunnel Face Picture on Page 1 (large & adapted to tunnel shape & W:H ratio)
+  // Generous margin around the tunnel outline:
+  // - Top margin (strip to face outline) so crown overbreak line markings have clear headroom below top strip
+  // - Left & right side margins (at least 150px on both sides) for left and right wall overbreak line markings and height rulers
+  const maxFaceWidth = 620;
+  const maxFaceHeight = 310;
   const facePxPerMeter = Math.min(
-    760 / Math.max(1, faceGeom.tunnelW),
-    340 / Math.max(1, faceGeom.tunnelH)
+    maxFaceWidth / Math.max(1, faceGeom.tunnelW),
+    maxFaceHeight / Math.max(1, faceGeom.tunnelH)
   );
   const idealFaceW = Number((faceGeom.tunnelW * facePxPerMeter).toFixed(1));
   const idealFaceH = Number((faceGeom.tunnelH * facePxPerMeter).toFixed(1));
   const stripY = topStripOnly ? 38 : 24;
-  const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 34);
-  const stripViewBoxH = topStripOnly ? Math.max(210, Math.round(stripY + stripH + 42)) : 720;
+  // Generous gap between top continuous unfolded strip and face tunnel outline (76px)
+  // leaving 26px below title and 30px headroom above crown arch for overbreak lines & markings
+  const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 76);
+  const stripViewBoxH = topStripOnly ? Math.max(210, Math.round(stripY + stripH + 42)) : 760;
 
   return {
     faceGeom,
@@ -4172,12 +4179,12 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       {/* PRIMARY SECTION: TUNNEL FACE OUTLINE (IN THE MIDDLE BELOW STRIP) */}
       {!topStripOnly && (
         <g>
-          {/* Clean Title above Face Outline (No unwanted outer framing box) */}
+          {/* Clean Title above Face Outline with comfortable headroom */}
           <text
             x="460"
-            y={faceTargetY - 12}
+            y={faceTargetY - 26}
             textAnchor="middle"
-            fontSize="13"
+            fontSize="12.5"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4185,40 +4192,40 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             TUNNEL EXCAVATION FACE — {location.shape.replace(/_/g, ' ').toUpperCase()} ({location.widthM}m SPAN × {location.heightM}m HEIGHT | SPL {splHeightM}m)
           </text>
 
-          {/* Left & Right Height Rulers + Width Scale Bar around the large Face Picture */}
+          {/* Left & Right Height Rulers + Width Scale Bar around the large Face Picture with generous side clearance */}
           <line
-            x1={faceTargetX - 16}
+            x1={faceTargetX - 24}
             y1={faceTargetY}
-            x2={faceTargetX - 16}
+            x2={faceTargetX - 24}
             y2={faceTargetY + faceTargetH}
             stroke="#0f172a"
             strokeWidth="1.3"
           />
           <line
-            x1={faceTargetX - 21}
+            x1={faceTargetX - 29}
             y1={faceTargetY}
-            x2={faceTargetX - 11}
+            x2={faceTargetX - 19}
             y2={faceTargetY}
             stroke="#0f172a"
             strokeWidth="1.3"
           />
           <line
-            x1={faceTargetX - 21}
+            x1={faceTargetX - 29}
             y1={faceTargetY + faceTargetH}
-            x2={faceTargetX - 11}
+            x2={faceTargetX - 19}
             y2={faceTargetY + faceTargetH}
             stroke="#0f172a"
             strokeWidth="1.3"
           />
           <text
-            x={faceTargetX - 26}
+            x={faceTargetX - 34}
             y={faceTargetY + faceTargetH / 2}
             textAnchor="middle"
-            fontSize="12"
+            fontSize="11.5"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
-            transform={`rotate(-90, ${faceTargetX - 26}, ${faceTargetY + faceTargetH / 2})`}
+            transform={`rotate(-90, ${faceTargetX - 34}, ${faceTargetY + faceTargetH / 2})`}
           >
             Face Height H = {location.heightM.toFixed(2)} m
           </text>
@@ -4233,9 +4240,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           />
           <text
             x={faceTargetX + faceTargetW / 2}
-            y={faceTargetY + faceTargetH + 24}
+            y={faceTargetY + faceTargetH + 25}
             textAnchor="middle"
-            fontSize="12"
+            fontSize="11.5"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4245,10 +4252,10 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
 
           {/* SPL Markers on Left and Right of the Large Face Picture */}
           <text
-            x={faceTargetX - 8}
+            x={faceTargetX - 10}
             y={faceTargetY + faceTargetH * (1 - splRatio) - 4}
             textAnchor="end"
-            fontSize="11.5"
+            fontSize="11"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4256,10 +4263,10 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             L-SPL ({splHeightM}m)
           </text>
           <text
-            x={faceTargetX + faceTargetW + 8}
+            x={faceTargetX + faceTargetW + 10}
             y={faceTargetY + faceTargetH * (1 - splRatio) - 4}
             textAnchor="start"
-            fontSize="11.5"
+            fontSize="11"
             fontWeight="bold"
             fontFamily="monospace"
             fill="#0f172a"
@@ -4352,44 +4359,131 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               );
             })()}
 
-            {/* Survey Overbreak (OB) Outline on Report Face Sketch — ONLY rendered when Survey status === 'completed', NEVER when skipped */}
+            {/* Survey Overbreak (OB) Outline on Report Face Sketch — Precisely mapped to tunnel design outline */}
             {round.surveyOverbreak?.status === 'completed' &&
-              (round.surveyOverbreak.surveyPoints?.length || 0) >= 2 && (
-                <g>
-                  <path
-                    d={`${round.surveyOverbreak.surveyPoints
-                      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-                      .join(' ')} Z`}
-                    fill="none"
-                    stroke={
-                      colorMode === 'bw'
-                        ? '#0f172a'
-                        : round.surveyOverbreak.isRealOverbreak
-                        ? '#dc2626'
-                        : '#059669'
-                    }
-                    strokeWidth="3.2"
-                    strokeDasharray="9,4"
-                  />
-                  {round.surveyOverbreak.surveyPoints.map((pt, pIdx) => (
-                    <circle
-                      key={`rpt-ob-pt-${pIdx}`}
-                      cx={pt.x}
-                      cy={pt.y}
-                      r="4"
-                      fill={
-                        colorMode === 'bw'
-                          ? '#0f172a'
-                          : round.surveyOverbreak?.isRealOverbreak
-                          ? '#dc2626'
-                          : '#059669'
-                      }
-                      stroke="#ffffff"
-                      strokeWidth="1.5"
+              (round.surveyOverbreak.surveyPoints?.length || 0) >= 2 && (() => {
+                const W_m = Math.max(2, location.widthM || 8);
+                const H_m = Math.max(2, location.heightM || 7);
+                const advMaxBoxW = 430;
+                const advMaxBoxH = 350;
+                const advScale = Math.min(advMaxBoxW / W_m, advMaxBoxH / H_m);
+                const advBoxW = Math.round(W_m * advScale);
+                const advBoxH = Math.round(H_m * advScale);
+                const advBoxX = Math.round(300 - advBoxW / 2);
+                const advBoxY = Math.round(230 - advBoxH / 2);
+
+                const mappedSurveyPoints = round.surveyOverbreak.surveyPoints.map((pt: any) => {
+                  let xM: number;
+                  let yM: number;
+                  if (typeof pt.xM === 'number' && typeof pt.yM === 'number') {
+                    xM = pt.xM;
+                    yM = pt.yM;
+                  } else {
+                    xM = ((pt.x - (advBoxX + advBoxW / 2)) / Math.max(1, advBoxW)) * W_m;
+                    yM = ((advBoxY + advBoxH - pt.y) / Math.max(1, advBoxH)) * H_m;
+                  }
+                  const targetX = faceGeom.boxX + faceGeom.boxW / 2 + (xM / Math.max(0.1, W_m)) * faceGeom.boxW;
+                  const targetY = faceGeom.boxY + faceGeom.boxH - (yM / Math.max(0.1, H_m)) * faceGeom.boxH;
+                  return {
+                    x: Number(targetX.toFixed(1)),
+                    y: Number(targetY.toFixed(1)),
+                    xM: Number(xM.toFixed(2)),
+                    yM: Number(yM.toFixed(2)),
+                  };
+                });
+
+                const isReal = Boolean(round.surveyOverbreak.isRealOverbreak);
+                const strokeColor = colorMode === 'bw' ? '#0f172a' : isReal ? '#dc2626' : '#059669';
+                const fillColor = colorMode === 'bw'
+                  ? 'rgba(15, 23, 42, 0.12)'
+                  : isReal
+                  ? 'rgba(239, 68, 68, 0.22)'
+                  : 'rgba(16, 185, 129, 0.18)';
+
+                return (
+                  <g>
+                    {/* Shaded Overbreak Boundary Fill behind or along design profile */}
+                    {mappedSurveyPoints.length >= 3 && (
+                      <polygon
+                        points={[
+                          ...mappedSurveyPoints,
+                          { x: faceGeom.boxX + faceGeom.boxW, y: faceGeom.boxY + faceGeom.boxH },
+                          { x: faceGeom.boxX, y: faceGeom.boxY + faceGeom.boxH },
+                        ]
+                          .map((p) => `${p.x},${p.y}`)
+                          .join(' ')}
+                        fill={fillColor}
+                        stroke="none"
+                      />
+                    )}
+                    {/* Survey Profile Outline */}
+                    <path
+                      d={`${mappedSurveyPoints
+                        .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
+                        .join(' ')} Z`}
+                      fill="none"
+                      stroke={strokeColor}
+                      strokeWidth="3.2"
+                      strokeDasharray="9,4"
                     />
-                  ))}
-                </g>
-              )}
+                    {/* Survey Point Markers & Labels */}
+                    {mappedSurveyPoints.map((pt, pIdx) => (
+                      <g key={`rpt-ob-pt-${pIdx}`}>
+                        <circle
+                          cx={pt.x}
+                          cy={pt.y}
+                          r="4.5"
+                          fill={strokeColor}
+                          stroke="#ffffff"
+                          strokeWidth="1.8"
+                        />
+                        {(mappedSurveyPoints.length <= 8 || pIdx % 2 === 0 || pIdx === 0 || pIdx === mappedSurveyPoints.length - 1) && (
+                          <text
+                            x={pt.x + 6}
+                            y={pt.y - 6}
+                            fontSize="10"
+                            fontWeight="bold"
+                            fontFamily="monospace"
+                            fill={strokeColor}
+                            stroke="#ffffff"
+                            strokeWidth="2.5"
+                            paintOrder="stroke"
+                          >
+                            P{pIdx + 1}
+                          </text>
+                        )}
+                      </g>
+                    ))}
+                    {/* Clear Overbreak Callout Box when overbreak exists */}
+                    {round.surveyOverbreak.overbreakAreaM2 > 0 && (
+                      <g transform={`translate(${faceGeom.boxX + faceGeom.boxW / 2}, ${faceGeom.boxY + faceGeom.boxH * 0.45})`}>
+                        <rect
+                          x="-105"
+                          y="-13"
+                          width="210"
+                          height="26"
+                          rx="4"
+                          fill="#ffffff"
+                          fillOpacity="0.94"
+                          stroke={strokeColor}
+                          strokeWidth="1.6"
+                        />
+                        <text
+                          x="0"
+                          y="4"
+                          textAnchor="middle"
+                          fontSize="9.8"
+                          fontWeight="bold"
+                          fontFamily="monospace"
+                          fill={strokeColor}
+                        >
+                          SURVEY OB: {round.surveyOverbreak.overbreakAreaM2.toFixed(2)} m² ({round.surveyOverbreak.overbreakPercent.toFixed(1)}%)
+                        </text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })()}
             {/* 1m Reference Tick Lines along the Face Tunnel Outline for all shapes */}
             {faceDetails.ticks
               .filter((tk) => tk.zone !== 'invert')

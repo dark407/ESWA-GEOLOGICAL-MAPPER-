@@ -851,15 +851,15 @@ export const StructuralGeologicalSymbolGlyph: React.FC<{
 export const LithologyPatternDefs: React.FC<{
   prefix: string;
   forPrintSheet?: boolean;
-  regions?: { id?: string; patternType: string; angleDeg?: number; patternAngle?: number }[];
+  regions?: { id?: string; patternType: string; angleDeg?: number; patternAngle?: number; patternAngleDeg?: number }[];
 }> = ({ prefix, forPrintSheet = false, regions = [] }) => {
   const op = forPrintSheet ? 0.62 : 0.65;
   const uniqueAngledPairs = Array.from(
     new Map(
       regions
-        .filter((r) => (r.angleDeg ?? r.patternAngle ?? 0) !== 0)
+        .filter((r) => (r.patternAngleDeg ?? r.angleDeg ?? r.patternAngle ?? 0) !== 0)
         .map((r) => {
-          const ang = r.angleDeg ?? r.patternAngle ?? 0;
+          const ang = r.patternAngleDeg ?? r.angleDeg ?? r.patternAngle ?? 0;
           return [`${r.patternType}-a${ang}`, { patternType: r.patternType, angle: ang }];
         })
     ).values()

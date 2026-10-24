@@ -2921,8 +2921,8 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = ({
                 />
               </pattern>
 
-              {/* All 25 Professional Lithology Patterns (Sections 13 & 14) */}
-              <LithologyPatternDefs prefix="sheet-lith-" forPrintSheet={true} />
+              {/* All 25 Professional Lithology Patterns (Sections 13 & 14) with Dynamic Angle Rotations */}
+              <LithologyPatternDefs prefix="sheet-lith-" forPrintSheet={true} regions={lithologyRegions} />
 
               {/* Print-Ready Overbreak & Undercut Engineering Hatch Patterns */}
               <pattern
@@ -4072,15 +4072,23 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = ({
                           fill={reg.colorHex}
                           fillOpacity={Math.min(0.22, reg.opacity * 0.48)}
                         />
-                        <path
-                          d={dPoly}
-                          fill={`url(#sheet-lith-${reg.patternType})`}
-                          fillOpacity={Math.min(0.78, reg.opacity * 1.9)}
-                          stroke={reg.colorHex}
-                          strokeOpacity="0.5"
-                          strokeWidth="1"
-                          strokeDasharray="5,3"
-                        />
+                        {(() => {
+                          const effAngle = reg.patternAngleDeg ?? reg.angleDeg ?? reg.patternAngle ?? 0;
+                          const patUrl = effAngle !== 0
+                            ? `url(#sheet-lith-${reg.patternType}-a${effAngle})`
+                            : `url(#sheet-lith-${reg.patternType})`;
+                          return (
+                            <path
+                              d={dPoly}
+                              fill={patUrl}
+                              fillOpacity={Math.min(0.78, reg.opacity * 1.9)}
+                              stroke={reg.colorHex}
+                              strokeOpacity="0.5"
+                              strokeWidth="1"
+                              strokeDasharray="5,3"
+                            />
+                          );
+                        })()}
                         <text
                           x={cx}
                           y={cy}
@@ -4345,15 +4353,23 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = ({
                           fill={reg.colorHex}
                           fillOpacity={Math.min(0.22, reg.opacity * 0.48)}
                         />
-                        <path
-                          d={dPoly}
-                          fill={`url(#sheet-lith-${reg.patternType})`}
-                          fillOpacity={Math.min(0.78, reg.opacity * 1.9)}
-                          stroke={reg.colorHex}
-                          strokeOpacity="0.5"
-                          strokeWidth="1"
-                          strokeDasharray="5,3"
-                        />
+                        {(() => {
+                          const effAngle = reg.patternAngleDeg ?? reg.angleDeg ?? reg.patternAngle ?? 0;
+                          const patUrl = effAngle !== 0
+                            ? `url(#sheet-lith-${reg.patternType}-a${effAngle})`
+                            : `url(#sheet-lith-${reg.patternType})`;
+                          return (
+                            <path
+                              d={dPoly}
+                              fill={patUrl}
+                              fillOpacity={Math.min(0.78, reg.opacity * 1.9)}
+                              stroke={reg.colorHex}
+                              strokeOpacity="0.5"
+                              strokeWidth="1"
+                              strokeDasharray="5,3"
+                            />
+                          );
+                        })()}
                         <text
                           x={cx}
                           y={cy}

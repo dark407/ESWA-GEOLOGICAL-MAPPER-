@@ -1285,6 +1285,7 @@ export interface LithologyRegion {
   // Bedding / foliation orientation angle in degrees (-90 to 90 or 0 to 180) for pattern symbol rotation
   angleDeg?: number;
   patternAngle?: number;
+  patternAngleDeg?: number;
   // Section 14 structured fields (AI-suggested -> User-edited & approved)
   description: string;
   structuralFeatures: string;

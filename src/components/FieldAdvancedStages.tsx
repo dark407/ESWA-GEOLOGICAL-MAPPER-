@@ -3916,21 +3916,21 @@ export const FieldSupportSystemStage: React.FC<{
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 bg-slate-950 overflow-hidden">
       {/* Top Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <Shield className="w-4 h-4 text-amber-400" />
-          <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400">
-            Tunnel Support System Design &amp; 3D Spot Bolt Locator
+      <div className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-1.5 shrink-0 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto no-scrollbar">
+          <Shield className="w-4 h-4 text-amber-400 shrink-0" />
+          <span className="text-xs font-black uppercase tracking-wider text-amber-400 whitespace-nowrap">
+            Support System
           </span>
           {/* Support Class Selector */}
-          <div className="flex items-center gap-1 bg-slate-950 border border-slate-700 rounded-lg p-0.5">
+          <div className="flex items-center gap-0.5 bg-slate-950 border border-slate-700 rounded-lg p-0.5 shrink-0">
             {(['Class I', 'Class II', 'Class III', 'Class IV', 'Class V', 'Custom'] as const).map(
               (cls) => (
                 <button
                   key={cls}
                   type="button"
                   onClick={() => applySupportClassPreset(cls)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-black cursor-pointer transition-all ${
+                  className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap transition-all ${
                     support.supportClass === cls
                       ? 'bg-amber-500 text-slate-950 shadow'
                       : 'text-slate-300 hover:text-white'
@@ -3943,11 +3943,11 @@ export const FieldSupportSystemStage: React.FC<{
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={onBackToClassifications}
-            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 cursor-pointer"
+            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 cursor-pointer whitespace-nowrap"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             Q / RMR / GSI
@@ -3955,7 +3955,7 @@ export const FieldSupportSystemStage: React.FC<{
           <button
             type="button"
             onClick={onContinueToSurvey}
-            className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer"
+            className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer whitespace-nowrap"
           >
             <span>Next: Survey Overbreak</span>
             <ArrowRight className="w-4 h-4" />
@@ -3964,7 +3964,7 @@ export const FieldSupportSystemStage: React.FC<{
       </div>
 
       {/* Main 12-Column Workspace */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2.5 overflow-y-auto lg:overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2.5 overflow-hidden">
         {/* Left 6 Columns: Support System Configuration + 3D Spot Bolt Placement */}
         <div className="lg:col-span-6 min-h-0 overflow-y-auto space-y-2.5 pr-1">
           {/* 1. Wire Mesh & Shotcrete Controls */}
@@ -5111,7 +5111,9 @@ export const FieldSurveyOverbreakStage: React.FC<{
     }
     const coords = getSvgCoordinatesFromPointer(e.clientX, e.clientY);
     if (!coords) return;
-    const nextPts = [...(survey.surveyPoints || []), coords];
+    const xM = Number((((coords.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
+    const yM = Number((((boxY + boxH - coords.y) / boxH) * H).toFixed(2));
+    const nextPts = [...(survey.surveyPoints || []), { ...coords, xM, yM }];
     recomputeOverbreakMetrics(nextPts, 'completed');
   };
 
@@ -5122,7 +5124,9 @@ export const FieldSurveyOverbreakStage: React.FC<{
 
     if (draggingPointIdx !== null && survey.surveyPoints && draggingPointIdx < survey.surveyPoints.length) {
       const nextPts = [...survey.surveyPoints];
-      nextPts[draggingPointIdx] = coords;
+      const xM = Number((((coords.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
+      const yM = Number((((boxY + boxH - coords.y) / boxH) * H).toFixed(2));
+      nextPts[draggingPointIdx] = { ...coords, xM, yM };
       recomputeOverbreakMetrics(nextPts, 'completed');
     }
   };
@@ -5140,9 +5144,15 @@ export const FieldSurveyOverbreakStage: React.FC<{
       const len = Math.hypot(dx, dy) || 1;
       // Add realistic crown/shoulder overbreak (12–26px outward)
       const extraPx = idx > 3 && idx < designPolyPts.length - 3 ? 18 + (idx % 3) * 5 : 4;
+      const xVal = Number((p.x + (dx / len) * extraPx).toFixed(1));
+      const yVal = Number((p.y + (dy / len) * extraPx).toFixed(1));
+      const xM = Number((((xVal - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
+      const yM = Number((((boxY + boxH - yVal) / boxH) * H).toFixed(2));
       return {
-        x: Number((p.x + (dx / len) * extraPx).toFixed(1)),
-        y: Number((p.y + (dy / len) * extraPx).toFixed(1)),
+        x: xVal,
+        y: yVal,
+        xM,
+        yM,
       };
     });
     recomputeOverbreakMetrics(samplePts, 'completed', {
@@ -5175,53 +5185,53 @@ export const FieldSurveyOverbreakStage: React.FC<{
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 bg-slate-950 overflow-hidden">
       {/* Top Bar: Survey Status (Record Survey | Skip Survey | Feed Later) + Navigation */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <Crosshair className="w-4 h-4 text-amber-400" />
-          <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400">
-            Tunnel Face Survey &amp; Overbreak Calculator
+      <div className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-1.5 shrink-0 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto no-scrollbar">
+          <Crosshair className="w-4 h-4 text-amber-400 shrink-0" />
+          <span className="text-xs font-black uppercase tracking-wider text-amber-400 whitespace-nowrap">
+            Survey &amp; Overbreak
           </span>
 
           {/* Status Selector: Completed vs Skip vs Feed Later */}
-          <div className="flex items-center gap-1 bg-slate-950 border border-slate-700 rounded-lg p-0.5">
+          <div className="flex items-center gap-0.5 bg-slate-950 border border-slate-700 rounded-lg p-0.5 shrink-0">
             <button
               type="button"
               onClick={() =>
                 recomputeOverbreakMetrics(survey.surveyPoints || [], 'completed')
               }
-              className={`px-2.5 py-1 rounded-md text-xs font-black cursor-pointer ${
+              className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap ${
                 survey.status === 'completed'
                   ? 'bg-emerald-500 text-slate-950 shadow'
                   : 'text-slate-300 hover:text-white'
               }`}
             >
-              1. Feed Survey Now
+              1. Feed Now
             </button>
             <button
               type="button"
               onClick={() =>
                 recomputeOverbreakMetrics(survey.surveyPoints || [], 'feed_later')
               }
-              className={`px-2.5 py-1 rounded-md text-xs font-black cursor-pointer ${
+              className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap ${
                 survey.status === 'feed_later'
                   ? 'bg-amber-500 text-slate-950 shadow'
                   : 'text-slate-300 hover:text-white'
               }`}
             >
-              2. Feed Survey Later
+              2. Feed Later
             </button>
             <button
               type="button"
               onClick={() =>
                 recomputeOverbreakMetrics(survey.surveyPoints || [], 'skipped')
               }
-              className={`px-2.5 py-1 rounded-md text-xs font-black cursor-pointer ${
+              className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap ${
                 survey.status === 'skipped'
                   ? 'bg-rose-500 text-white shadow'
                   : 'text-slate-300 hover:text-white'
               }`}
             >
-              3. Skip Survey (Omit from Report)
+              3. Skip
             </button>
           </div>
 

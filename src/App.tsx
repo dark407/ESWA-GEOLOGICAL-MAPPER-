@@ -4176,7 +4176,7 @@ export default function App({
 
 
           {/* Main Window: Core Geological & Geotechnical Suite Options */}
-          <div className="w-full space-y-2.5 p-2 sm:p-2.5 rounded-2xl bg-white/75 backdrop-blur-md border shadow-2xl" style={{ borderColor: palette.primaryHex + '40' }}>
+          <div className="w-full space-y-2.5">
             {/* 1. Underground Face Mapping */}
             <div className="flex items-stretch gap-2 w-full">
               <button

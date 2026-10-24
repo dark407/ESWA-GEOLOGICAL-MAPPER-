@@ -608,16 +608,16 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                 </div>
               </div>
 
-              {/* Symbol Orientation Angle (Bedding / Foliation Dip) */}
+              {/* Symbol Orientation Angle (Bedding / Foliation Dip & Alternative Rock Angle) */}
               <div className="space-y-1.5 pt-2 border-t border-slate-800">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-slate-300 font-semibold">
-                    Symbol Angle (Bedding / Dip):
+                    Symbol Angle (Bedding / Foliation / Dip):
                   </span>
                   <span className="font-mono text-[10px] text-amber-400 font-bold px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700">
-                    {(selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0) > 0
-                      ? `+${selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}°`
-                      : `${selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}°`}
+                    {(selectedRegion.patternAngleDeg ?? selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0) > 0
+                      ? `+${selectedRegion.patternAngleDeg ?? selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}°`
+                      : `${selectedRegion.patternAngleDeg ?? selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}°`}
                   </span>
                 </div>
                 <input
@@ -625,20 +625,21 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                   min={-90}
                   max={90}
                   step={5}
-                  value={selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}
+                  value={selectedRegion.patternAngleDeg ?? selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}
                   onChange={(e) => {
                     const val = Number(e.target.value);
                     updateSelectedRegion((reg) => ({
                       ...reg,
                       angleDeg: val,
                       patternAngle: val,
+                      patternAngleDeg: val,
                     }));
                   }}
                   className="w-full accent-amber-500 cursor-pointer"
                 />
                 <div className="grid grid-cols-4 gap-1">
                   {[-45, -30, 0, 30, 45, 60, 90, -60].map((ang) => {
-                    const cur = selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0;
+                    const cur = selectedRegion.patternAngleDeg ?? selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0;
                     return (
                       <button
                         key={ang}
@@ -648,6 +649,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                             ...reg,
                             angleDeg: ang,
                             patternAngle: ang,
+                            patternAngleDeg: ang,
                           }))
                         }
                         className={`py-0.5 px-1 rounded text-[9px] font-bold border cursor-pointer ${
@@ -661,6 +663,40 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     );
                   })}
                 </div>
+                {/* Sync with Bedding / Foliation (J0) button */}
+                {(() => {
+                  const beddingJoint = joints.find(
+                    (j) =>
+                      j.surface === activeSurface &&
+                      (j.set === 'J0' ||
+                        j.featureType === 'bedding' ||
+                        j.featureType === 'foliation' ||
+                        j.featureType === 'schistosity')
+                  );
+                  if (!beddingJoint) return null;
+                  const rawAngle = Math.round(beddingJoint.traceAngle || beddingJoint.apparentDip || 0);
+                  const normalizedAngle = rawAngle > 90 ? rawAngle - 180 : rawAngle;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateSelectedRegion((reg) => ({
+                          ...reg,
+                          angleDeg: normalizedAngle,
+                          patternAngle: normalizedAngle,
+                          patternAngleDeg: normalizedAngle,
+                        }));
+                        onStatusMessage?.(
+                          `Aligned ${selectedRegion.lithologyName} symbol angle to Bedding/Foliation (${normalizedAngle}°).`
+                        );
+                      }}
+                      className="w-full mt-1 py-1 px-2 bg-amber-950/70 hover:bg-amber-900 border border-amber-600/50 rounded text-[9.5px] font-bold text-amber-300 flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      Sync with Bedding / Foliation J0 ({normalizedAngle}°)
+                    </button>
+                  );
+                })()}
               </div>
             </div>
 

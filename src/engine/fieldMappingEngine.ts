@@ -87,9 +87,13 @@ export type FieldWaterCondition =
   | 'High Pressure';
 
 export interface FieldPoint2D {
-  /** Normalized 0..1000 coordinate inside panel canvas */
+  /** Normalized 0..1000 coordinate inside panel canvas or editor px */
   x: number;
   y: number;
+  /** Real-world tunnel meters from centerline (X=0m, negative left, positive right) */
+  xM?: number;
+  /** Real-world tunnel elevation meters from invert (Y=0m, H at crown apex) */
+  yM?: number;
 }
 
 export interface FieldLithologyStroke {

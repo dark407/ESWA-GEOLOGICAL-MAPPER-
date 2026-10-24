@@ -2707,12 +2707,12 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
   };
 
   return (
-    <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2.5 p-2 sm:p-3 overflow-y-auto lg:overflow-hidden bg-slate-950 touch-pan-y">
+    <div className="flex-1 min-h-0 w-full h-full grid grid-cols-1 lg:grid-cols-12 gap-2 p-1.5 sm:p-2.5 overflow-hidden bg-slate-950">
       {/* Live Interactive 2-Page Reference Report (Full Width unless Template Edit is opened) */}
       <div
         className={`${
           showTemplateEditor ? 'lg:col-span-8' : 'lg:col-span-12'
-        } min-h-[340px] lg:min-h-0 bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 sm:p-3 flex flex-col overflow-hidden`}
+        } min-h-0 h-full bg-slate-900/90 border border-slate-800 rounded-xl p-2 sm:p-2.5 flex flex-col overflow-hidden`}
       >
         {/* Top Report Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-800 shrink-0">
@@ -2806,9 +2806,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
         </div>
 
         {/* Scrollable 2-Page A4 Vertical Document Sheet Container */}
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-6 pr-1 bg-slate-800/60 p-2 sm:p-4 rounded-lg touch-pan-y">
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1 bg-slate-800/60 p-2 sm:p-3.5 rounded-lg touch-pan-y">
           {/* ==================== PAGE 1 OF 2 (A4 VERTICAL: 210mm × 297mm) ==================== */}
-          <div className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2.5 sm:p-3.5 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-x-auto print:shadow-none print:w-[210mm] print:min-h-[297mm] print:break-after-page">
+          <div className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm] print:break-after-page">
             {/* TOP: Compact Basic Details Header (Small in size, zero wasted space) */}
             <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
               <tbody>
@@ -3032,7 +3032,7 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
           </div>
 
           {/* ==================== PAGE 2 OF 2 (A4 VERTICAL: 210mm × 297mm) ==================== */}
-          <div className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2.5 sm:p-3.5 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-2 overflow-x-auto print:shadow-none print:w-[210mm] print:min-h-[297mm]">
+          <div className="bg-white text-slate-950 shadow-xl border-2 border-slate-900 p-2 sm:p-3 mx-auto w-full max-w-[210mm] min-h-[297mm] flex flex-col justify-between gap-1.5 overflow-hidden print:shadow-none print:w-[210mm] print:min-h-[297mm]">
             {/* TOP: Compact Basic Details Header (Small in size, zero wasted space) */}
             <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
               <tbody>
