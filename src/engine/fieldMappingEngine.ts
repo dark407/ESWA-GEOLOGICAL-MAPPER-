@@ -96,6 +96,8 @@ export interface FieldPoint2D {
   xM?: number;
   /** Real-world tunnel elevation meters from invert (Y=0m, H at crown apex) */
   yM?: number;
+  /** Millimeter deviation from theoretical profile (+mm for overbreak, -mm for undercut) */
+  deviationMm?: number;
 }
 
 export interface FieldLithologyStroke {

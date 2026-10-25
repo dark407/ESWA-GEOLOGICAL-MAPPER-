@@ -226,6 +226,11 @@ import {
   SurfaceMappingSubType,
   SurfaceSegmentItem,
 } from '../engine/surfaceMappingEngine';
+import {
+  FaceCanvasLayerShuffleModal,
+  CanvasLayerId,
+  DEFAULT_CANVAS_LAYER_ORDER,
+} from './FaceCanvasLayerShuffleModal';
 
 interface FieldMappingModeWorkspaceProps {
   onBackToWelcome?: () => void;
@@ -858,6 +863,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   }, []);
 
 
+
+  // Face Canvas Layer Shuffle & Visibility States
+  const [canvasLayerOrder, setCanvasLayerOrder] = useState<CanvasLayerId[]>(DEFAULT_CANVAS_LAYER_ORDER);
+  const [canvasLayerVisibility, setCanvasLayerVisibility] = useState<Record<CanvasLayerId, boolean>>({
+    photo: true,
+    grid: true,
+    lithology: true,
+    dip_surfaces: true,
+    features: true,
+    water: true,
+    joints: true,
+    active_draw: true,
+  });
+  const [isLayerShuffleModalOpen, setIsLayerShuffleModalOpen] = useState<boolean>(false);
 
   // Stage 4: Field Mapping Canvas State (Single Panel in Stage 4; Full 4-Panel in Stage 5 Group Joints; or 3D Tunnel Mode)
   const [activePanel, setActivePanel] = useState<FieldPanelId>(() =>
@@ -7868,6 +7887,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     Colour
                   </button>
                 </div>
+
+                {/* Face Canvas Layers Shuffle / Reorder Button */}
+                {stage === 'field_canvas' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsLayerShuffleModalOpen(true)}
+                    className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800"
+                    title="Shuffle and reorder canvas layers (Lithology, Joints, Dip Surfaces, Features, Water, Grid, Photo)"
+                  >
+                    <Layers className="w-3 h-3 text-amber-400" />
+                    <span>Layers</span>
+                  </button>
+                )}
               </div>
             </div>
             )}
@@ -8349,41 +8381,61 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           />
                         )}
 
-                        {/* Clipped Geological Mapping Layers + SPL & Center Line */}
+                        {/* Clipped Geological Mapping Layers (Reorderable via canvasLayerOrder & Shuffle Modal) */}
                         <g clipPath={`url(#${clipId})`}>
-                          {workflowMode === 'photo_mapping' && pPhoto && showPhotoUnderlay && (
-                            <FittedPanelPhotoSvgImage
-                              photoUrl={pPhoto.dataUrl}
-                              fitConfig={getFieldPhotoFitConfig(activeRound, panelId)}
-                              boxX={targetBox.x}
-                              boxY={targetBox.y}
-                              boxW={targetBox.w}
-                              boxH={targetBox.h}
-                              filterId={`fcanv-matlab-${panelId}`}
-                              overrideOpacity={
-                                activeRound.advanceCanvasEnabled
-                                  ? Math.max(0.15, Math.min(1, (getFieldPhotoFitConfig(activeRound, panelId).opacityPct ?? 78) / 100))
-                                  : 0.45
-                              }
-                            />
-                          )}
+                          {canvasLayerOrder.map((layerKey) => {
+                            if (canvasLayerVisibility[layerKey] === false) return null;
 
-                          {/* SPL (Springline) & Center Line (CL) Reference Overlay */}
-                          <FieldCanvasGeometryReferenceOverlay
-                            activePanel={panelId}
-                            location={activeLocation}
-                            round={activeRound}
-                            boxX={targetBox.x}
-                            boxY={targetBox.y}
-                            boxW={targetBox.w}
-                            boxH={targetBox.h}
-                            layer="underlay_grid"
-                            stageMode={activeStageTransformMode}
-                            mappingDomain={mappingDomain}
-                          />
+                            if (layerKey === 'photo') {
+                              return workflowMode === 'photo_mapping' && pPhoto && showPhotoUnderlay ? (
+                                <FittedPanelPhotoSvgImage
+                                  key="fcanv-layer-photo"
+                                  photoUrl={pPhoto.dataUrl}
+                                  fitConfig={getFieldPhotoFitConfig(activeRound, panelId)}
+                                  boxX={targetBox.x}
+                                  boxY={targetBox.y}
+                                  boxW={targetBox.w}
+                                  boxH={targetBox.h}
+                                  filterId={`fcanv-matlab-${panelId}`}
+                                  overrideOpacity={
+                                    activeRound.advanceCanvasEnabled
+                                      ? Math.max(
+                                          0.15,
+                                          Math.min(
+                                            1,
+                                            (getFieldPhotoFitConfig(activeRound, panelId)
+                                              .opacityPct ?? 78) / 100
+                                          )
+                                        )
+                                      : 0.45
+                                  }
+                                />
+                              ) : null;
+                            }
 
-                          {/* 1 & 2. Lithology Region Strokes & Unified Vein / Foliation Bands */}
-                          {pLithStrokes.map((st, stIdx) => {
+                            if (layerKey === 'grid') {
+                              return (
+                                <FieldCanvasGeometryReferenceOverlay
+                                  key="fcanv-layer-grid"
+                                  activePanel={panelId}
+                                  location={activeLocation}
+                                  round={activeRound}
+                                  boxX={targetBox.x}
+                                  boxY={targetBox.y}
+                                  boxW={targetBox.w}
+                                  boxH={targetBox.h}
+                                  layer="underlay_grid"
+                                  stageMode={activeStageTransformMode}
+                                  mappingDomain={mappingDomain}
+                                />
+                              );
+                            }
+
+                            if (layerKey === 'lithology') {
+                              return (
+                                <g key="fcanv-layer-lithology">
+                                  {/* 1 & 2. Lithology Region Strokes & Unified Vein / Foliation Bands */}
+                                  {pLithStrokes.map((st, stIdx) => {
                             if (st.mode === 'lithology_erase') return null;
                             const isBand =
                               st.mode === 'vein_band' || st.mode === 'foliation_plane';
@@ -8580,7 +8632,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               </g>
                             );
                           })}
+                        </g>
+                      );
+                    }
 
+                    if (layerKey === 'dip_surfaces') {
+                      return (
+                        <g key="fcanv-layer-dip-surfaces">
                           {/* 4. Dip Plane Surfaces */}
                           {pDipSurfaces.map((ds) => {
                             const mappedPts = ds.points.map(ptToBox);
@@ -8665,7 +8723,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               </g>
                             );
                           })}
+                        </g>
+                      );
+                    }
 
+                    if (layerKey === 'features') {
+                      return (
+                        <g key="fcanv-layer-features">
                           {/* 5. Geological / Structural Features */}
                           {pFeatures.map((feat) => (
                             <FieldStructuralFeatureSvgRenderer
@@ -8690,7 +8754,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               }}
                             />
                           ))}
+                        </g>
+                      );
+                    }
 
+                    if (layerKey === 'water') {
+                      return (
+                        <g key="fcanv-layer-water">
                           {/* 6. Water Condition Symbols */}
                           {pWaterMarks.map((wm) => (
                             <FieldWaterSymbolSvgRenderer
@@ -8703,7 +8773,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               colorMode={activeRound.reportColorMode ?? 'color'}
                             />
                           ))}
+                        </g>
+                      );
+                    }
 
+                    if (layerKey === 'joints') {
+                      return (
+                        <g key="fcanv-layer-joints">
                           {/* 3. Joint Traces */}
                           {pTraces.map((tr) => {
                             const mappedPts = tr.points.map(ptToBox);
@@ -8876,7 +8952,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               </g>
                             );
                           })}
+                        </g>
+                      );
+                    }
 
+                    if (layerKey === 'active_draw') {
+                      return (
+                        <g key="fcanv-layer-active-draw">
                           {/* Exact Outline Snap Target Ring when hovering or starting/ending near the tunnel outline */}
                           {outlineSnapPreviewPt &&
                             outlineSnapPreviewPt.panel === panelId &&
@@ -9188,6 +9270,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             );
                           })()}
                         </g>
+                      );
+                    }
+
+                    return null;
+                  })}
+                </g>
 
                         {/* Authoritative Master Tunnel Geometry Outline (omits wall stroke on open/unclosed custom shape portions) */}
                         {panelId === 'face' ? (
@@ -12425,6 +12513,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           }}
         />
       )}
+
+      {/* Face Canvas Layer Shuffle & Visibility Modal */}
+      <FaceCanvasLayerShuffleModal
+        isOpen={isLayerShuffleModalOpen}
+        onClose={() => setIsLayerShuffleModalOpen(false)}
+        layerOrder={canvasLayerOrder}
+        layerVisibility={canvasLayerVisibility}
+        onUpdateLayerOrder={setCanvasLayerOrder}
+        onToggleLayerVisibility={(layerId) =>
+          setCanvasLayerVisibility((prev) => ({
+            ...prev,
+            [layerId]: !prev[layerId],
+          }))
+        }
+      />
 
       </div>
     </div>

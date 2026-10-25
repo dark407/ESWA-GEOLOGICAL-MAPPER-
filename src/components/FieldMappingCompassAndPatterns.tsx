@@ -3131,9 +3131,9 @@ export function computeUnfoldedStripBoxes(
   // Give primary visual importance to the Tunnel Face Picture on Page 1 (large & adapted to tunnel shape & W:H ratio)
   // Generous margin around the tunnel outline:
   // - Top margin (strip to face outline) so crown overbreak line markings have clear headroom below top strip
-  // - Left & right side margins (at least 150px on both sides) for left and right wall overbreak line markings and height rulers
-  const maxFaceWidth = 600;
-  const maxFaceHeight = 285;
+  // - Left & right side margins (at least 200px on both sides) for left and right wall overbreak line markings and height rulers
+  const maxFaceWidth = 510;
+  const maxFaceHeight = 270;
   const facePxPerMeter = Math.min(
     maxFaceWidth / Math.max(1, faceGeom.tunnelW),
     maxFaceHeight / Math.max(1, faceGeom.tunnelH)
@@ -3141,10 +3141,10 @@ export function computeUnfoldedStripBoxes(
   const idealFaceW = Number((faceGeom.tunnelW * facePxPerMeter).toFixed(1));
   const idealFaceH = Number((faceGeom.tunnelH * facePxPerMeter).toFixed(1));
   const stripY = topStripOnly ? 38 : 24;
-  // Generous gap between top continuous unfolded strip and face tunnel outline (125px)
-  // providing 28px clearance below top strip for section title and 97px headroom above crown arch for overbreak lines & markings
-  const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 125);
-  const stripViewBoxH = topStripOnly ? Math.max(210, Math.round(stripY + stripH + 42)) : 760;
+  // Generous gap between top continuous unfolded strip and face tunnel outline (165px)
+  // providing 24px clearance below top strip for section title and 141px headroom above crown arch for overbreak lines & markings
+  const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 165);
+  const stripViewBoxH = topStripOnly ? Math.max(210, Math.round(stripY + stripH + 42)) : 790;
 
   return {
     faceGeom,
@@ -4288,8 +4288,8 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             let fillColor = 'rgba(16, 185, 129, 0.20)';
 
             if (hasOverbreakSurvey && round.surveyOverbreak?.surveyPoints) {
-              const W_m = Math.max(1, faceGeom.panelWidthM || faceGeom.tunnelW || Number(location.widthM) || 8);
-              const H_m = Math.max(1, faceGeom.panelHeightM || faceGeom.tunnelH || Number(location.heightM) || 7);
+              const W_m = Number(location.widthM) || faceGeom.tunnelW || 8;
+              const H_m = Number(location.heightM) || faceGeom.tunnelH || 7;
               const advMaxBoxW = 430;
               const advMaxBoxH = 350;
               const advScale = Math.min(advMaxBoxW / W_m, advMaxBoxH / H_m);
@@ -4304,6 +4304,16 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 if (typeof pt.xM === 'number' && typeof pt.yM === 'number' && !isNaN(pt.xM) && !isNaN(pt.yM)) {
                   xM = pt.xM;
                   yM = pt.yM;
+                } else if (
+                  typeof pt.x === 'number' &&
+                  typeof pt.y === 'number' &&
+                  pt.x >= faceGeom.boxX - 250 &&
+                  pt.x <= faceGeom.boxX + faceGeom.boxW + 250 &&
+                  pt.y >= faceGeom.boxY - 250 &&
+                  pt.y <= faceGeom.boxY + faceGeom.boxH + 250
+                ) {
+                  xM = ((pt.x - (faceGeom.boxX + faceGeom.boxW / 2)) / Math.max(1, faceGeom.boxW)) * W_m;
+                  yM = ((faceGeom.boxY + faceGeom.boxH - pt.y) / Math.max(1, faceGeom.boxH)) * H_m;
                 } else {
                   xM = ((pt.x - (advBoxX + advBoxW / 2)) / Math.max(1, advBoxW)) * W_m;
                   yM = ((advBoxY + advBoxH - pt.y) / Math.max(1, advBoxH)) * H_m;
@@ -4328,21 +4338,11 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   closedOverbreakPolygonPoints = mappedSurveyPoints;
                 } else {
                   const floorY = faceGeom.boxY + faceGeom.boxH;
-                  const rightX = faceGeom.boxX + faceGeom.boxW;
-                  const leftX = faceGeom.boxX;
-                  if (p0.x <= pEnd.x) {
-                    closedOverbreakPolygonPoints = [
-                      ...mappedSurveyPoints,
-                      { x: rightX, y: floorY },
-                      { x: leftX, y: floorY },
-                    ];
-                  } else {
-                    closedOverbreakPolygonPoints = [
-                      ...mappedSurveyPoints,
-                      { x: leftX, y: floorY },
-                      { x: rightX, y: floorY },
-                    ];
-                  }
+                  closedOverbreakPolygonPoints = [
+                    ...mappedSurveyPoints,
+                    { x: pEnd.x, y: floorY },
+                    { x: p0.x, y: floorY },
+                  ];
                 }
               }
 
@@ -4483,34 +4483,46 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                     ))}
 
                   {/* Survey Point Markers & Labels */}
-                  {mappedSurveyPoints.map((pt, pIdx) => (
-                    <g key={`rpt-ob-pt-${pIdx}`}>
-                      <circle
-                        cx={pt.x}
-                        cy={pt.y}
-                        r="4.5"
-                        fill={strokeColor}
-                        stroke="#ffffff"
-                        strokeWidth="1.8"
-                      />
-                      {(mappedSurveyPoints.length <= 8 || pIdx % 2 === 0 || pIdx === 0 || pIdx === mappedSurveyPoints.length - 1) && (
-                        <text
-                          x={pt.x + (pt.x < faceGeom.boxX + faceGeom.boxW / 2 ? -7 : 7)}
-                          y={pt.y - 6}
-                          textAnchor={pt.x < faceGeom.boxX + faceGeom.boxW / 2 ? 'end' : 'start'}
-                          fontSize="10"
-                          fontWeight="bold"
-                          fontFamily="monospace"
+                  {mappedSurveyPoints.map((pt, pIdx) => {
+                    const origPt = round.surveyOverbreak?.surveyPoints?.[pIdx];
+                    const devMm = origPt?.deviationMm;
+                    const devText =
+                      devMm !== undefined && devMm !== 0
+                        ? ` (${devMm > 0 ? '+' : ''}${devMm}mm)`
+                        : '';
+                    return (
+                      <g key={`rpt-ob-pt-${pIdx}`}>
+                        <circle
+                          cx={pt.x}
+                          cy={pt.y}
+                          r="4.5"
                           fill={strokeColor}
                           stroke="#ffffff"
-                          strokeWidth="2.5"
-                          paintOrder="stroke"
-                        >
-                          P{pIdx + 1}
-                        </text>
-                      )}
-                    </g>
-                  ))}
+                          strokeWidth="1.8"
+                        />
+                        {(mappedSurveyPoints.length <= 8 ||
+                          pIdx % 2 === 0 ||
+                          pIdx === 0 ||
+                          pIdx === mappedSurveyPoints.length - 1) && (
+                          <text
+                            x={pt.x + (pt.x < faceGeom.boxX + faceGeom.boxW / 2 ? -7 : 7)}
+                            y={pt.y - 6}
+                            textAnchor={pt.x < faceGeom.boxX + faceGeom.boxW / 2 ? 'end' : 'start'}
+                            fontSize="9.5"
+                            fontWeight="bold"
+                            fontFamily="monospace"
+                            fill={strokeColor}
+                            stroke="#ffffff"
+                            strokeWidth="2.5"
+                            paintOrder="stroke"
+                          >
+                            P{pIdx + 1}
+                            {devText}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
 
                   {/* Clear Overbreak Callout Box when overbreak exists */}
                   {round.surveyOverbreak && round.surveyOverbreak.overbreakAreaM2 > 0 && (

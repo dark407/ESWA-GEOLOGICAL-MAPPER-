@@ -6602,6 +6602,8 @@ export const FieldSurveyOverbreakStage: React.FC<{
   const [showTemplateEditor, setShowTemplateEditor] = useState<boolean>(false);
   const [draggingPointIdx, setDraggingPointIdx] = useState<number | null>(null);
   const [hoverCoord, setHoverCoord] = useState<{ x: number; y: number } | null>(null);
+  const [selectedPointIdx, setSelectedPointIdx] = useState<number | null>(null);
+  const [customDevMmInput, setCustomDevMmInput] = useState<string>('');
   const survey = useMemo(
     () => ({
       ...createDefaultSurveyOverbreak(activeLocation),
@@ -6910,6 +6912,63 @@ export const FieldSurveyOverbreakStage: React.FC<{
     });
   };
 
+  // Helper to find nearest point on design polygon and the outward normal vector
+  const getDesignNormalAtPoint = (pt: { x: number; y: number }) => {
+    const centerSvgX = boxX + boxW / 2;
+    const centerSvgY = boxY + boxH * 0.6;
+    let nearestDp = designPolyPts[0] || { x: centerSvgX, y: centerSvgY };
+    let minD = Infinity;
+    for (const dp of designPolyPts) {
+      const d = Math.hypot(pt.x - dp.x, pt.y - dp.y);
+      if (d < minD) {
+        minD = d;
+        nearestDp = dp;
+      }
+    }
+    const vX = nearestDp.x - centerSvgX;
+    const vY = nearestDp.y - centerSvgY;
+    const len = Math.hypot(vX, vY) || 1;
+    const nx = vX / len;
+    const ny = vY / len;
+    return { nearestDp, nx, ny };
+  };
+
+  const computePointDeviationMm = (pt: { x: number; y: number }): number => {
+    const centerSvgX = boxX + boxW / 2;
+    const centerSvgY = boxY + boxH * 0.6;
+    const { nearestDp } = getDesignNormalAtPoint(pt);
+    const rPt = Math.hypot(pt.x - centerSvgX, pt.y - centerSvgY);
+    const rDp = Math.hypot(nearestDp.x - centerSvgX, nearestDp.y - centerSvgY);
+    const isOutward = rPt >= rDp;
+    const distPx = Math.hypot(pt.x - nearestDp.x, pt.y - nearestDp.y);
+    const avgPxPerM = (scaleX + scaleY) / 2;
+    const distM = distPx / Math.max(0.1, avgPxPerM);
+    const mm = Math.round(distM * 1000);
+    return isOutward ? mm : -mm;
+  };
+
+  const handleSetPointDeviationMm = (pIdx: number, devMm: number) => {
+    if (!survey.surveyPoints || pIdx < 0 || pIdx >= survey.surveyPoints.length) return;
+    const pt = survey.surveyPoints[pIdx];
+    const { nearestDp, nx, ny } = getDesignNormalAtPoint(pt);
+    const avgPxPerM = (scaleX + scaleY) / 2;
+    const offsetPx = (devMm / 1000) * avgPxPerM;
+    const newX = Number((nearestDp.x + nx * offsetPx).toFixed(1));
+    const newY = Number((nearestDp.y + ny * offsetPx).toFixed(1));
+    const xM = Number((((newX - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
+    const yM = Number((((boxY + boxH - newY) / boxH) * H).toFixed(2));
+    const nextPts = [...survey.surveyPoints];
+    nextPts[pIdx] = {
+      ...pt,
+      x: newX,
+      y: newY,
+      xM,
+      yM,
+      deviationMm: devMm,
+    };
+    recomputeOverbreakMetrics(nextPts, 'completed');
+  };
+
   // Accurate SVG coordinate calculation using getScreenCTM().inverse()
   const getSvgCoordinatesFromPointer = (clientX: number, clientY: number): { x: number; y: number } | null => {
     const svg = faceSvgRef.current;
@@ -6935,8 +6994,10 @@ export const FieldSurveyOverbreakStage: React.FC<{
     if (!coords) return;
     const xM = Number((((coords.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
     const yM = Number((((boxY + boxH - coords.y) / boxH) * H).toFixed(2));
-    const nextPts = [...(survey.surveyPoints || []), { ...coords, xM, yM }];
+    const devMm = computePointDeviationMm(coords);
+    const nextPts = [...(survey.surveyPoints || []), { ...coords, xM, yM, deviationMm: devMm }];
     recomputeOverbreakMetrics(nextPts, 'completed');
+    setSelectedPointIdx(nextPts.length - 1);
   };
 
   const handleFaceCanvasPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -6948,7 +7009,8 @@ export const FieldSurveyOverbreakStage: React.FC<{
       const nextPts = [...survey.surveyPoints];
       const xM = Number((((coords.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
       const yM = Number((((boxY + boxH - coords.y) / boxH) * H).toFixed(2));
-      nextPts[draggingPointIdx] = { ...coords, xM, yM };
+      const devMm = computePointDeviationMm(coords);
+      nextPts[draggingPointIdx] = { ...coords, xM, yM, deviationMm: devMm };
       recomputeOverbreakMetrics(nextPts, 'completed');
     }
   };
@@ -6970,11 +7032,13 @@ export const FieldSurveyOverbreakStage: React.FC<{
       const yVal = Number((p.y + (dy / len) * extraPx).toFixed(1));
       const xM = Number((((xVal - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
       const yM = Number((((boxY + boxH - yVal) / boxH) * H).toFixed(2));
+      const devMm = computePointDeviationMm({ x: xVal, y: yVal });
       return {
         x: xVal,
         y: yVal,
         xM,
         yM,
+        deviationMm: devMm,
       };
     });
     recomputeOverbreakMetrics(samplePts, 'completed', {
@@ -7341,14 +7405,29 @@ export const FieldSurveyOverbreakStage: React.FC<{
                 </g>
               )}
 
-              {/* Plotted Survey Points with Touch Targets & Drag Support */}
+              {/* Plotted Survey Points with Touch Targets, Selection & Small Deviation Badge */}
               {(survey.surveyPoints || []).map((pt, idx) => {
                 const xM = (((pt.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2);
                 const yM = (((boxY + boxH - pt.y) / boxH) * H).toFixed(2);
                 const isDraggingThis = draggingPointIdx === idx;
+                const isSelectedThis = selectedPointIdx === idx;
+                const devMm =
+                  pt.deviationMm !== undefined
+                    ? pt.deviationMm
+                    : computePointDeviationMm(pt);
+                const isOverbreak = devMm > 0;
+                const isUndercut = devMm < 0;
+                const devSign = isOverbreak ? '+' : '';
+                const devBadgeText = `${devSign}${devMm}mm`;
+                const devBadgeColor = isOverbreak
+                  ? '#f59e0b'
+                  : isUndercut
+                  ? '#38bdf8'
+                  : '#94a3b8';
+
                 return (
                   <g key={`sv-pt-${idx}`} data-survey-point="true">
-                    {/* Generous touch target circle (18px radius) for fingers on mobile */}
+                    {/* Generous touch target circle (18px radius) for fingers on mobile & selection */}
                     <circle
                       cx={pt.x}
                       cy={pt.y}
@@ -7358,27 +7437,47 @@ export const FieldSurveyOverbreakStage: React.FC<{
                       onPointerDown={(e) => {
                         e.stopPropagation();
                         setDraggingPointIdx(idx);
+                        setSelectedPointIdx(idx);
                         try {
                           (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
                         } catch {
                           // Ignore
                         }
                       }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPointIdx(idx);
+                      }}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
                         const nextPts = (survey.surveyPoints || []).filter((_, i) => i !== idx);
+                        if (selectedPointIdx === idx) setSelectedPointIdx(null);
                         recomputeOverbreakMetrics(nextPts, survey.status);
                       }}
                     />
+                    {/* Subtle selection ring if point is selected */}
+                    {isSelectedThis && (
+                      <circle
+                        cx={pt.x}
+                        cy={pt.y}
+                        r="10"
+                        fill="none"
+                        stroke="#f59e0b"
+                        strokeWidth="2"
+                        strokeDasharray="3 2"
+                        className="pointer-events-none animate-pulse"
+                      />
+                    )}
                     <circle
                       cx={pt.x}
                       cy={pt.y}
                       r={isDraggingThis ? '7' : '5'}
-                      fill={isDraggingThis ? '#0284c7' : '#dc2626'}
+                      fill={isDraggingThis ? '#0284c7' : isSelectedThis ? '#f59e0b' : '#dc2626'}
                       stroke="#ffffff"
                       strokeWidth={isDraggingThis ? '2.4' : '1.6'}
                       className="pointer-events-none"
                     />
+                    {/* Primary Point Identifier */}
                     <text
                       x={pt.x + 7}
                       y={pt.y - 6}
@@ -7391,8 +7490,31 @@ export const FieldSurveyOverbreakStage: React.FC<{
                       paintOrder="stroke"
                       className="pointer-events-none"
                     >
-                      P{idx + 1} ({xM},{yM}m)
+                      P{idx + 1}
                     </text>
+                    {/* Small subtle mm Overbreak / Undercut badge near the point without disturbing anything */}
+                    <g className="pointer-events-none select-none">
+                      <rect
+                        x={pt.x + 7}
+                        y={pt.y + 1}
+                        width={devBadgeText.length * 5.8 + 6}
+                        height="12"
+                        rx="3"
+                        fill="#020617"
+                        stroke={devBadgeColor}
+                        strokeWidth="0.9"
+                      />
+                      <text
+                        x={pt.x + 10}
+                        y={pt.y + 10}
+                        fontSize="7.5"
+                        fontWeight="900"
+                        fontFamily="IBM Plex Mono, monospace"
+                        fill={devBadgeColor}
+                      >
+                        {devBadgeText}
+                      </text>
+                    </g>
                   </g>
                 );
               })}
@@ -7448,6 +7570,143 @@ export const FieldSurveyOverbreakStage: React.FC<{
               </p>
             </div>
           ) : null}
+
+          {/* Point Overbreak / Undercut (mm) Quick-Selector & Fine Tuning Panel */}
+          <div className="bg-slate-950 border border-amber-500/40 rounded-xl p-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Crosshair className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                  Point Overbreak / Undercut (mm)
+                </span>
+              </div>
+              {selectedPointIdx !== null && (
+                <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10.5px] font-bold">
+                  P{selectedPointIdx + 1} Selected
+                </span>
+              )}
+            </div>
+
+            <p className="text-[11px] text-slate-400 leading-tight">
+              Select any surveyed point to choose its exact offset in millimeters (Overbreak +mm / Undercut −mm). Shown as small, subtle badges near each point.
+            </p>
+
+            {/* Horizontal Point Selector Pills */}
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+              {(survey.surveyPoints || []).map((p, pIdx) => {
+                const devMm =
+                  p.deviationMm !== undefined
+                    ? p.deviationMm
+                    : computePointDeviationMm(p);
+                const isSel = selectedPointIdx === pIdx;
+                return (
+                  <button
+                    key={`pt-sel-btn-${pIdx}`}
+                    type="button"
+                    onClick={() => setSelectedPointIdx(pIdx)}
+                    className={`px-2 py-1 rounded-lg text-[10.5px] font-mono font-bold whitespace-nowrap border transition-all cursor-pointer ${
+                      isSel
+                        ? 'bg-amber-500 text-slate-950 border-amber-300 font-black shadow'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-amber-400/60'
+                    }`}
+                  >
+                    P{pIdx + 1} ({devMm > 0 ? '+' : ''}{devMm}mm)
+                  </button>
+                );
+              })}
+              {(survey.surveyPoints || []).length === 0 && (
+                <div className="text-[11px] text-slate-500 italic py-1">
+                  Click on face canvas to plot survey points
+                </div>
+              )}
+            </div>
+
+            {selectedPointIdx !== null &&
+              survey.surveyPoints &&
+              survey.surveyPoints[selectedPointIdx] && (
+                <div className="space-y-1.5 pt-1 border-t border-slate-800">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase">
+                    Choose offset for P{selectedPointIdx + 1}:
+                  </div>
+                  {/* Undercut Buttons */}
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[9.5px] font-bold text-cyan-400 mr-1">Undercut:</span>
+                    {[-200, -150, -100, -50].map((mm) => (
+                      <button
+                        key={`dev-btn-${mm}`}
+                        type="button"
+                        onClick={() => handleSetPointDeviationMm(selectedPointIdx, mm)}
+                        className="px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 cursor-pointer"
+                      >
+                        {mm}mm
+                      </button>
+                    ))}
+                    {/* Exact Design Profile */}
+                    <button
+                      type="button"
+                      onClick={() => handleSetPointDeviationMm(selectedPointIdx, 0)}
+                      className="px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white cursor-pointer"
+                    >
+                      0mm (Design)
+                    </button>
+                  </div>
+
+                  {/* Overbreak Buttons */}
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[9.5px] font-bold text-amber-400 mr-1">Overbreak:</span>
+                    {[50, 100, 150, 200, 300, 500].map((mm) => (
+                      <button
+                        key={`dev-btn-${mm}`}
+                        type="button"
+                        onClick={() => handleSetPointDeviationMm(selectedPointIdx, mm)}
+                        className="px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-amber-950/60 hover:bg-amber-900 border border-amber-500/50 text-amber-300 cursor-pointer"
+                      >
+                        +{mm}mm
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Custom Millimeter Input */}
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <span className="text-[10px] text-slate-400">Custom mm:</span>
+                    <input
+                      type="number"
+                      step={5}
+                      value={customDevMmInput}
+                      onChange={(e) => setCustomDevMmInput(e.target.value)}
+                      placeholder="+120 or -40"
+                      className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 font-mono text-xs text-amber-300"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = Number(customDevMmInput);
+                        if (!isNaN(val)) {
+                          handleSetPointDeviationMm(selectedPointIdx, val);
+                          setCustomDevMmInput('');
+                        }
+                      }}
+                      className="px-2.5 py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextPts = (survey.surveyPoints || []).filter(
+                          (_, i) => i !== selectedPointIdx
+                        );
+                        setSelectedPointIdx(null);
+                        recomputeOverbreakMetrics(nextPts, survey.status);
+                      }}
+                      className="ml-auto px-2 py-0.5 rounded bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-800/60 text-[10px] font-bold cursor-pointer"
+                    >
+                      Delete P{selectedPointIdx + 1}
+                    </button>
+                  </div>
+                </div>
+              )}
+          </div>
 
           {/* Payline Input & Real Overbreak Contract Calculator */}
           <div className="bg-slate-950 border border-emerald-500/40 rounded-xl p-2.5 space-y-2">
