@@ -3806,6 +3806,70 @@ export default function App({
     </div>
   ) : null;
 
+  // Main Window Bottom-Left 3 Small Toggles (Brunton Compass, Shift Reminder Alarms, Ground Support Reference)
+  const bottomThreeTogglesNode = (
+    <>
+      <div className="fixed bottom-3 left-3 sm:bottom-4 sm:left-4 z-50 flex items-center gap-1.5 bg-slate-950/95 backdrop-blur-md p-1.5 rounded-xl border border-slate-700/80 shadow-2xl pointer-events-auto">
+        {/* Toggle 1: Advanced Brunton Compass */}
+        <button
+          type="button"
+          onClick={() => setIsBruntonCompassOpen(true)}
+          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
+          title="Open Advanced Brunton Pocket Transit Compass (Strike, Dip Direction, Dip Angle, Clinometer, Declination)"
+        >
+          <Compass className="w-3.5 h-3.5 text-amber-400" />
+          <span className="hidden sm:inline">Brunton Transit</span>
+          <span className="sm:hidden">Compass</span>
+        </button>
+
+        {/* Toggle 2: Advance Reminder Alarm */}
+        <button
+          type="button"
+          onClick={() => setIsShiftReminderOpen(true)}
+          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 hover:text-cyan-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
+          title="Open Advance Shift Reminder & Safety Alarms (Shotcrete Re-Entry, Ventilation, Convergence, Bolt Torque)"
+        >
+          <AlarmClock className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="hidden sm:inline">Shift Alarms</span>
+          <span className="sm:hidden">Alarms</span>
+        </button>
+
+        {/* Toggle 3: Support Matrix & Geotechnical Reference */}
+        <button
+          type="button"
+          onClick={() => setIsSupportReferenceOpen(true)}
+          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
+          title="Open Geotechnical Support Reference (Project & Location Support Matcher, Grain Size Chart, RMR & Q-System Support Matrix)"
+        >
+          <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="hidden sm:inline">Support Matrix</span>
+          <span className="sm:hidden">Support</span>
+        </button>
+      </div>
+
+      <AdvancedBruntonCompassModal
+        isOpen={isBruntonCompassOpen}
+        onClose={() => setIsBruntonCompassOpen(false)}
+        onApplyOrientation={(dipDir, dipAngle) => {
+          setStatusMessage(`Field Brunton Reading Applied: Dip Direction ${dipDir}° / Dip ${dipAngle}°. Logged to geotechnical dataset.`);
+        }}
+      />
+
+      <AdvancedShiftReminderAlarmModal
+        isOpen={isShiftReminderOpen}
+        onClose={() => setIsShiftReminderOpen(false)}
+        industryMode={industryMode}
+      />
+
+      <SupportAndGeotechnicalReferenceModal
+        isOpen={isSupportReferenceOpen}
+        onClose={() => setIsSupportReferenceOpen(false)}
+        industryMode={industryMode}
+        savedProjects={savedProjects}
+      />
+    </>
+  );
+
   // ============================================================================
   // GEOTECHNICAL CORE LOGGING & BOREHOLE STRIP LOG REPORT WORKSPACE
   // ============================================================================
@@ -4465,6 +4529,7 @@ export default function App({
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
+        {bottomThreeTogglesNode}
       </main>
     );
   }
@@ -4508,6 +4573,7 @@ export default function App({
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
+        {bottomThreeTogglesNode}
       </>
     );
   }
@@ -4549,6 +4615,7 @@ export default function App({
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
+        {bottomThreeTogglesNode}
       </>
     );
   }
@@ -7623,61 +7690,7 @@ export default function App({
       {globalSettingsModalNode}
       {modeSwitchConfirmationModalNode}
 
-      {/* Main Window Bottom-Left 3 Small Toggles */}
-      <div className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-40 flex items-center gap-1.5 bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-700/80 shadow-2xl pointer-events-auto">
-        {/* Toggle 1: Advanced Brunton Compass */}
-        <button
-          type="button"
-          onClick={() => setIsBruntonCompassOpen(true)}
-          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
-          title="Open Advanced Brunton Pocket Transit Compass (Strike, Dip Direction, Dip Angle, Clinometer, Declination)"
-        >
-          <Compass className="w-3.5 h-3.5 text-amber-400" />
-          <span className="hidden sm:inline">Brunton Transit</span>
-          <span className="sm:hidden">Compass</span>
-        </button>
-
-        {/* Toggle 2: Advance Reminder Alarm */}
-        <button
-          type="button"
-          onClick={() => setIsShiftReminderOpen(true)}
-          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 hover:text-cyan-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
-          title="Open Advance Shift Reminder & Safety Alarms (Shotcrete Re-Entry, Ventilation, Convergence, Bolt Torque)"
-        >
-          <AlarmClock className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="hidden sm:inline">Shift Alarms</span>
-          <span className="sm:hidden">Alarms</span>
-        </button>
-
-        {/* Toggle 3: Support Matrix & Geotechnical Reference */}
-        <button
-          type="button"
-          onClick={() => setIsSupportReferenceOpen(true)}
-          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
-          title="Open Geotechnical Support Reference (Project & Location Support Matcher, Grain Size Chart, RMR & Q-System Support Matrix)"
-        >
-          <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="hidden sm:inline">Support Matrix</span>
-          <span className="sm:hidden">Support</span>
-        </button>
-      </div>
-
-      {/* 3 New Modals */}
-      <AdvancedBruntonCompassModal
-        isOpen={isBruntonCompassOpen}
-        onClose={() => setIsBruntonCompassOpen(false)}
-      />
-
-      <AdvancedShiftReminderAlarmModal
-        isOpen={isShiftReminderOpen}
-        onClose={() => setIsShiftReminderOpen(false)}
-      />
-
-      <SupportAndGeotechnicalReferenceModal
-        isOpen={isSupportReferenceOpen}
-        onClose={() => setIsSupportReferenceOpen(false)}
-        industryMode={industryMode}
-      />
+      {bottomThreeTogglesNode}
     </div>
   );
 }

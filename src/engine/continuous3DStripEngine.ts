@@ -128,6 +128,12 @@ export interface ContinuousStripTrace {
   foldElementRole?: 'crest' | 'limb_left' | 'limb_right' | 'axis';
   showFoldCrest?: boolean;
   showFoldLimbs?: boolean;
+  /** Custom label / text override for the trace on canvas (e.g. 'J1 - Main Joint', 'Fault Splay') */
+  customLabel?: string;
+  /** When true, hide the text / label on canvas (or deleted text) */
+  hideLabel?: boolean;
+  /** Custom notes or annotation text */
+  customText?: string;
 }
 
 export interface ContinuousStripLithologyZone {

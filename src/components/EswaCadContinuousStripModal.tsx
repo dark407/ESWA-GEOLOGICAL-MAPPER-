@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Box,
   Check,
   Compass,
   Copy,
@@ -16,10 +17,12 @@ import {
   Eye,
   GitMerge,
   Grid,
+  Hand,
   Hash,
   Layers,
   Maximize2,
   Minus,
+  Moon,
   Move,
   PenTool,
   Plus,
@@ -29,6 +32,7 @@ import {
   Shield,
   Sliders,
   Sparkles,
+  Sun,
   Terminal,
   Trash2,
   Type,
@@ -46,6 +50,7 @@ import {
   StripRockTypeId,
   StripStructureTypeId,
 } from '../engine/continuous3DStripEngine';
+import { ContinuousTunnel3DCanvas } from './ContinuousTunnel3DCanvas';
 
 export interface EswaCadContinuousStripModalProps {
   isOpen: boolean;
@@ -56,9 +61,11 @@ export interface EswaCadContinuousStripModalProps {
 
 export type CadToolType =
   | 'select'
+  | 'pan'
   | 'draw_joint'
   | 'move_joint'
   | 'edit_joint'
+  | 'edit_text'
   | 'merge_joint'
   | 'delete_joint'
   | 'add_lithology'
@@ -373,7 +380,14 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
   // CAD Environment settings
   const [activeTool, setActiveTool] = useState<CadToolType>('select');
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
+  // Pure white background requested by user
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+  const [cadViewMode, setCadViewMode] = useState<'2D_UNWRAPPED' | '3D_CONTINUOUS'>('2D_UNWRAPPED');
+  // Dedicated Canvas Text Editing state
+  const [editingTextTraceId, setEditingTextTraceId] = useState<string | null>(null);
+  const [editingTextValue, setEditingTextValue] = useState<string>('');
+  const [editingTextOrientation, setEditingTextOrientation] = useState<string>('');
+
   const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
   const [gridStepM, setGridStepM] = useState<number>(0.5);
   const [showSupportLayer, setShowSupportLayer] = useState<boolean>(true);
@@ -415,7 +429,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
   const [measureStartPoint, setMeasureStartPoint] = useState<Point2D | null>(null);
 
   // Sidebar Tab
-  const [sidebarTab, setSidebarTab] = useState<'properties' | 'lithology' | 'previous_joints' | 'features' | 'layers'>('properties');
+  const [isInspectorCollapsed, setIsInspectorCollapsed] = useState<boolean>(false);
+    const [sidebarTab, setSidebarTab] = useState<'properties' | 'lithology' | 'previous_joints' | 'features' | 'layers'>('properties');
   const [searchJointQuery, setSearchJointQuery] = useState<string>('');
   const [nudgeStepM, setNudgeStepM] = useState<number>(0.2);
 
@@ -453,7 +468,6 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
   const [cadOsnapEnabled, setCadOsnapEnabled] = useState<boolean>(true); // F3
   const [cadDynInputEnabled, setCadDynInputEnabled] = useState<boolean>(true); // F12
   const [lineWeightDisplay, setLineWeightDisplay] = useState<boolean>(true);
-  const [showCadViewCube] = useState<boolean>(true);
 
   // Live Cursor Coordinates & Object Snap (OSNAP - F3) Detection
   const [cursorCoords, setCursorCoords] = useState<{ ch: number; yPerim: number; screenX: number; screenY: number } | null>(null);
@@ -525,6 +539,134 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       y: 60,
     });
   }, [totalLengthM, totalPerimeterM]);
+
+  // Focal Point Zoom Helper (keeps focalX, focalY stationary in world space)
+  const handleZoomAtPoint = useCallback((factor: number, focalX: number, focalY: number) => {
+    setZoom((prevZoom) => {
+      const newZoom = Math.max(0.15, Math.min(10.0, prevZoom * factor));
+      if (Math.abs(newZoom - prevZoom) < 0.0001) return prevZoom;
+      const ratio = newZoom / prevZoom;
+      setPanOffset((prevPan) => ({
+        x: focalX - (focalX - prevPan.x) * ratio,
+        y: focalY - (focalY - prevPan.y) * ratio,
+      }));
+      return newZoom;
+    });
+  }, []);
+
+  // Spacebar pan listener
+  const [isSpaceHeld, setIsSpaceHeld] = useState<boolean>(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+        setIsSpaceHeld(true);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpaceHeld(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  // Native Wheel and Touch Listeners on Canvas for Zoom and Pinch Move
+  useEffect(() => {
+    if (!isOpen || cadViewMode !== '2D_UNWRAPPED') return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const factor = e.deltaY < 0 ? 1.15 : 0.87;
+      handleZoomAtPoint(factor, mouseX, mouseY);
+    };
+
+    let touchInitialDist = 0;
+    let touchPrevMid = { x: 0, y: 0 };
+    let singleTouchPrev = { x: 0, y: 0 };
+    let isSingleTouchPanning = false;
+
+    const onTouchStart = (e: TouchEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        touchInitialDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const midX = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const midY = (t1.clientY + t2.clientY) / 2 - rect.top;
+        touchPrevMid = { x: midX, y: midY };
+      } else if (e.touches.length === 1) {
+        const t = e.touches[0];
+        singleTouchPrev = { x: t.clientX - rect.left, y: t.clientY - rect.top };
+        isSingleTouchPanning = true;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      if (e.touches.length === 2 && touchInitialDist > 5) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const midX = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const midY = (t1.clientY + t2.clientY) / 2 - rect.top;
+
+        const factor = dist / touchInitialDist;
+        touchInitialDist = dist;
+        handleZoomAtPoint(factor, midX, midY);
+
+        const deltaX = midX - touchPrevMid.x;
+        const deltaY = midY - touchPrevMid.y;
+        if (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5) {
+          setPanOffset((prev) => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
+        }
+        touchPrevMid = { x: midX, y: midY };
+      } else if (e.touches.length === 1 && isSingleTouchPanning) {
+        if (activeTool === 'pan' || activeTool === 'select' || isSpaceHeld) {
+          e.preventDefault();
+          const t = e.touches[0];
+          const currX = t.clientX - rect.left;
+          const currY = t.clientY - rect.top;
+          const dx = currX - singleTouchPrev.x;
+          const dy = currY - singleTouchPrev.y;
+          setPanOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+          singleTouchPrev = { x: currX, y: currY };
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      touchInitialDist = 0;
+      isSingleTouchPanning = false;
+    };
+
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd);
+    canvas.addEventListener('touchcancel', onTouchEnd);
+
+    return () => {
+      canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('touchend', onTouchEnd);
+      canvas.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [isOpen, cadViewMode, handleZoomAtPoint, activeTool, isSpaceHeld]);
 
   // Initial Auto-Fit on open
   useEffect(() => {
@@ -675,8 +817,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     const w = rect.width;
     const h = rect.height;
 
-    // Background matching Underground Face Mapping
-    ctx.fillStyle = isDarkMode ? '#0a0d14' : '#f8fafc';
+    // Background matching Underground Face Mapping & CAD White Canvas
+    ctx.fillStyle = isDarkMode ? '#0a0d14' : '#ffffff';
     ctx.fillRect(0, 0, w, h);
 
     // 1. Draw CAD Engineering Grid
@@ -687,21 +829,23 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     const topY = worldToScreenY(0);
     const botY = worldToScreenY(totalPerimeterM);
 
-    // Subtle background for tunnel strip bounds
+    // Pure white background for tunnel strip bounds
     ctx.fillStyle = isDarkMode ? '#111726' : '#ffffff';
     ctx.fillRect(startX, topY, endX - startX, botY - topY);
 
-    // Strip perimeter bounding box
+    // Strip perimeter bounding box (subtle outer boundary, never disturbs inside drawings)
     ctx.strokeStyle = isDarkMode ? '#334155' : '#cbd5e1';
-    ctx.lineWidth = 1.8;
+    ctx.lineWidth = 1.5;
     ctx.strokeRect(startX, topY, endX - startX, botY - topY);
 
     // Horizontal Springlines (Left Wall Springline, Right Wall Springline)
+    // Rendered as light, unobtrusive reference lines so they never disturb inside canvas content
     const spg1Y = worldToScreenY(leftWallHeight);
     const spg2Y = worldToScreenY(leftWallHeight + crownWidth);
 
-    ctx.strokeStyle = isDarkMode ? '#0ea5e9' : '#0284c7';
-    ctx.setLineDash([8, 4]);
+    ctx.strokeStyle = isDarkMode ? 'rgba(14, 165, 233, 0.4)' : 'rgba(2, 132, 199, 0.28)';
+    ctx.lineWidth = 1.0;
+    ctx.setLineDash([6, 6]);
     ctx.beginPath();
     ctx.moveTo(startX, spg1Y);
     ctx.lineTo(endX, spg1Y);
@@ -710,13 +854,22 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Wall Label Annotations on left margin
-    ctx.font = 'bold 12px monospace';
-    ctx.fillStyle = isDarkMode ? '#38bdf8' : '#0369a1';
+    // Wall Label Annotations placed cleanly with safe clamping so text is never cut off
+    const leftTextX = Math.max(76, startX - 10);
+    ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText('LEFT WALL', startX - 8, topY + (spg1Y - topY) / 2);
-    ctx.fillText('CROWN ARCH', startX - 8, spg1Y + (spg2Y - spg1Y) / 2);
-    ctx.fillText('RIGHT WALL', startX - 8, spg2Y + (botY - spg2Y) / 2);
+    ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.95)';
+    ctx.lineWidth = 3.5;
+    ctx.fillStyle = isDarkMode ? '#38bdf8' : '#334155';
+    
+    ctx.strokeText('LEFT WALL', leftTextX, topY + (spg1Y - topY) / 2);
+    ctx.fillText('LEFT WALL', leftTextX, topY + (spg1Y - topY) / 2);
+
+    ctx.strokeText('CROWN ARCH', leftTextX, spg1Y + (spg2Y - spg1Y) / 2);
+    ctx.fillText('CROWN ARCH', leftTextX, spg1Y + (spg2Y - spg1Y) / 2);
+
+    ctx.strokeText('RIGHT WALL', leftTextX, spg2Y + (botY - spg2Y) / 2);
+    ctx.fillText('RIGHT WALL', leftTextX, spg2Y + (botY - spg2Y) / 2);
 
     // Vertical Chainage Grid Lines
     for (let ch = Math.ceil(fromRd); ch <= toRd; ch += gridMinorSpacingX) {
@@ -733,13 +886,19 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       ctx.lineTo(scrX, botY);
       ctx.stroke();
 
-      // Chainage Tick Marks & Numbers on top & bottom
+      // Chainage Tick Marks & Numbers on top & bottom with safe boundary clamping
       if (isMajor) {
+        const topChY = Math.max(16, topY - 10);
+        const botChY = Math.min(canvas.height - 10, botY + 18);
         ctx.fillStyle = isDarkMode ? '#f97316' : '#ea580c';
+        ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.95)';
+        ctx.lineWidth = 3;
         ctx.textAlign = 'center';
-        ctx.font = 'bold 12px monospace';
-        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, topY - 10);
-        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, botY + 18);
+        ctx.font = 'bold 9.5px monospace';
+        ctx.strokeText(`CH ${ch.toFixed(1)}m`, scrX, topChY);
+        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, topChY);
+        ctx.strokeText(`CH ${ch.toFixed(1)}m`, scrX, botChY);
+        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, botChY);
       }
     }
 
@@ -842,7 +1001,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         ctx.lineWidth = isSelected ? 2.5 : 1.2;
         ctx.stroke();
 
-        // Draw rock type label in centroid
+        // Draw rock type label in centroid - Clean text only (NO boxy design)
         if (zone.polygon.length > 0) {
           const avgX = zone.polygon.reduce((sum, p) => sum + p.x, 0) / zone.polygon.length;
           const avgY = zone.polygon.reduce((sum, p) => sum + p.y, 0) / zone.polygon.length;
@@ -850,23 +1009,20 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           const ly = worldToScreenY(avgY);
           const lbl = zone.label || rockDef.label;
 
-          ctx.font = 'bold 12px sans-serif';
-          const lw = ctx.measureText(lbl).width;
-          ctx.fillStyle = isDarkMode ? 'rgba(9, 9, 11, 0.88)' : 'rgba(255, 255, 255, 0.88)';
-          ctx.fillRect(lx - lw / 2 - 5, ly - 9, lw + 10, 18);
-          ctx.strokeStyle = rockDef.color;
-          ctx.lineWidth = 1.0;
-          ctx.strokeRect(lx - lw / 2 - 5, ly - 9, lw + 10, 18);
-
-          ctx.fillStyle = isDarkMode ? '#ffffff' : '#0f172a';
+          ctx.font = 'bold 11px sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
+          // Clean white halo for readability without any box card
+          ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
+          ctx.lineWidth = 3;
+          ctx.strokeText(lbl, lx, ly);
+          ctx.fillStyle = isDarkMode ? '#f8fafc' : '#1e293b';
           ctx.fillText(lbl, lx, ly);
         }
       }
     }
 
-    // 3. Render Excavation Pull Rounds Layer
+    // 3. Render Excavation Pull Rounds Layer - Clean text only (NO boxy design)
     if (showPullsLayer) {
       for (const pull of currentDataset.pulls || []) {
         const pullStartX = worldToScreenX(pull.fromRd);
@@ -883,16 +1039,14 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         ctx.setLineDash([]);
 
         const midX = (pullStartX + pullEndX) / 2;
-        ctx.fillStyle = isDarkMode ? '#1e293b' : '#f1f5f9';
-        ctx.fillRect(midX - 32, topY + 4, 64, 17);
-        ctx.strokeStyle = isDarkMode ? '#475569' : '#cbd5e1';
-        ctx.strokeRect(midX - 32, topY + 4, 64, 17);
-
-        ctx.fillStyle = isDarkMode ? '#fef08a' : '#854d0e';
-        ctx.font = 'bold 11.5px monospace';
+        ctx.font = 'bold 10px monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`PULL #${pull.id.replace('round-', '')}`, midX, topY + 12.5);
+        ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 2.5;
+        ctx.strokeText(`PULL #${pull.id.replace('round-', '')}`, midX, topY + 12);
+        ctx.fillStyle = isDarkMode ? '#fef08a' : '#b45309';
+        ctx.fillText(`PULL #${pull.id.replace('round-', '')}`, midX, topY + 12);
       }
     }
 
@@ -1037,28 +1191,36 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           ctx.lineTo(tx, ty);
           ctx.stroke();
 
-          // Dip angle numerical text badge e.g. "65°"
-          const lblX = tx + Math.cos(tickAngle) * 11;
-          const lblY = ty + Math.sin(tickAngle) * 11;
+          // Dip angle text - Clean pure text (NO boxy design)
+          const lblX = tx + Math.cos(tickAngle) * 12;
+          const lblY = ty + Math.sin(tickAngle) * 12;
 
-          ctx.font = 'bold 12px monospace';
-          ctx.fillStyle = isSelected ? '#fbbf24' : (isDarkMode ? '#ffffff' : '#0f172a');
+          ctx.font = 'bold 10px monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
+          ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
+          ctx.lineWidth = 2.5;
+          ctx.strokeText(`${trace.dipDeg}°`, lblX, lblY);
+          ctx.fillStyle = isSelected ? '#ea580c' : (isDarkMode ? '#ffffff' : '#0f172a');
           ctx.fillText(`${trace.dipDeg}°`, lblX, lblY);
 
-          // Joint Set label badge (e.g. J1)
-          const setBadgeX = mx - Math.cos(tickAngle) * 14;
-          const setBadgeY = my - Math.sin(tickAngle) * 14;
-          ctx.fillStyle = isDarkMode ? 'rgba(15, 23, 42, 0.90)' : 'rgba(255, 255, 255, 0.90)';
-          ctx.fillRect(setBadgeX - 15, setBadgeY - 8, 30, 16);
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 1.0;
-          ctx.strokeRect(setBadgeX - 15, setBadgeY - 8, 30, 16);
+          // Joint Set / Custom Text Label - Clean pure text (NO boxy design, respects hideLabel/deleted text)
+          if (!trace.hideLabel) {
+            const displayLabel = trace.customLabel !== undefined ? trace.customLabel : trace.setId;
+            if (displayLabel && displayLabel.trim() !== '') {
+              const setBadgeX = mx - Math.cos(tickAngle) * 15;
+              const setBadgeY = my - Math.sin(tickAngle) * 15;
 
-          ctx.fillStyle = color;
-          ctx.font = 'bold 11px monospace';
-          ctx.fillText(trace.setId, setBadgeX, setBadgeY);
+              ctx.font = 'bold 11px sans-serif';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.95)';
+              ctx.lineWidth = 3;
+              ctx.strokeText(displayLabel, setBadgeX, setBadgeY);
+              ctx.fillStyle = isSelected ? '#ea580c' : color;
+              ctx.fillText(displayLabel, setBadgeX, setBadgeY);
+            }
+          }
 
           // HW / FW markers for faults/shears
           if (trace.showHwFw) {
@@ -1414,6 +1576,26 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             } else {
               setMergeTargetTraceId(trace.id);
             }
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    // EDIT TEXT TOOL: Click on any trace or joint text to immediately open text editor modal
+    if (activeTool === 'edit_text') {
+      for (const trace of currentDataset.traces || []) {
+        const pts = trace.points || [];
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p1 = { x: worldToScreenX(pts[i].x), y: worldToScreenY(pts[i].y) };
+          const p2 = { x: worldToScreenX(pts[i + 1].x), y: worldToScreenY(pts[i + 1].y) };
+          if (distToSegment({ x: mouseX, y: mouseY }, p1, p2) < 18) {
+            setSelectedObjectId(trace.id);
+            setSelectedObjectType('trace');
+            setEditingTextTraceId(trace.id);
+            setEditingTextValue(trace.customLabel !== undefined ? trace.customLabel : trace.setId);
+            setEditingTextOrientation(trace.orientationLabel || `${trace.dipDirectionDeg}°/${trace.dipDeg}°`);
             return;
           }
         }
@@ -2116,133 +2298,172 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
   return (
     <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950 text-slate-100 select-none overflow-hidden font-sans">
-      {/* 1. TOP AUTOCAD 2026 HEADER BAR */}
-      <div className="h-12 bg-slate-950 border-b border-slate-800 px-3 flex items-center justify-between shrink-0 shadow-md">
-        <div className="flex items-center gap-3">
-          {/* Back / Return button */}
+      {/* 1. TOP AUTOCAD 2026 HEADER BAR - Harmonized, Perfectly Arranged & Aligned */}
+      <div className="h-13 bg-slate-950 border-b border-slate-800 px-3 sm:px-4 flex items-center justify-between shrink-0 shadow-md gap-3 z-30">
+        {/* Left Side: Brand, Identity, Project Metadata */}
+        <div className="flex items-center gap-2.5 min-w-0 shrink">
+          {/* Exit / Return button */}
           <button
             type="button"
             onClick={onClose}
-            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer font-mono"
+            className="h-8 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer font-mono shrink-0"
             title="Exit Continuous CAD Workspace and Return"
           >
-            <ArrowLeft className="w-4 h-4 text-sky-400" />
+            <ArrowLeft className="w-3.5 h-3.5 text-sky-400" />
             <span className="hidden sm:inline">Exit CAD</span>
           </button>
 
+          <div className="h-4 w-px bg-slate-800 shrink-0" />
+
           {/* AutoCAD 2026 Brand Badge & Title */}
-          <div className="flex items-center gap-2 pl-1">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-red-600 to-amber-600 border border-red-400 flex items-center justify-center text-white font-black text-xs shadow-md">
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-red-600 to-amber-600 border border-red-500/50 flex items-center justify-center text-white font-black text-xs shadow-sm font-mono tracking-tight shrink-0">
               CAD
             </div>
-            <div>
-              <h1 className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5 font-mono">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs sm:text-sm font-bold text-white font-mono tracking-tight whitespace-nowrap">
                 ESWACAD 2026
-                <span className="text-[10px] text-sky-400 font-semibold px-1.5 py-0.2 rounded bg-sky-950/70 border border-sky-500/30">
-                  CONTINUOUS 3D STRIP
-                </span>
-              </h1>
+              </span>
+              <span className="hidden sm:inline-block text-[10px] text-sky-400 font-semibold px-1.5 py-0.5 rounded bg-sky-950/80 border border-sky-500/30 font-mono whitespace-nowrap">
+                CONTINUOUS 3D STRIP
+              </span>
             </div>
           </div>
 
-          <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-800 text-[11px] text-slate-400 font-mono">
-            <span>Project: <strong className="text-slate-200">{currentDataset.projectName || 'Tunnel Drive'}</strong></span>
-            <span>•</span>
-            <span>Loc: <strong className="text-slate-200">{currentDataset.tunnelLocationName || 'Power Tunnel'}</strong></span>
-            <span>•</span>
-            <span className="text-amber-400 font-bold">
+          {/* Project & Scope Metadata (Aligned with subtle badges) */}
+          <div className="hidden xl:flex items-center gap-2 pl-2.5 border-l border-slate-800 text-xs text-slate-400 font-mono truncate">
+            <span className="truncate">
+              Proj: <strong className="text-slate-200">{currentDataset.projectName || 'Tunnel Drive'}</strong>
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="truncate">
+              Loc: <strong className="text-slate-200">{currentDataset.tunnelLocationName || 'Power Tunnel'}</strong>
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/40 text-amber-300 font-bold text-[11px] whitespace-nowrap">
               RD {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m ({totalLengthM.toFixed(1)}m)
             </span>
-            <span>•</span>
-            <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 text-[10px]">
+            <span className="px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-300 text-[10px] whitespace-nowrap">
               Horseshoe Arch
             </span>
           </div>
         </div>
 
-        {/* CAD Actions Right */}
-        <div className="flex items-center gap-2">
-          {/* Undo */}
-          <button
-            type="button"
-            onClick={handleUndo}
-            disabled={historyIndex < 0}
-            className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition ${
-              historyIndex >= 0
-                ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-750 cursor-pointer'
-                : 'bg-slate-950 text-slate-600 border-slate-850 cursor-not-allowed'
-            }`}
-            title="Undo (Ctrl+Z)"
-          >
-            <CornerUpLeft className="w-3.5 h-3.5" />
-            <span className="text-[10px] hidden sm:inline font-mono">Undo</span>
-          </button>
+        {/* Right Side: CAD Actions (All harmonized to exactly h-8 height with clear tool clusters) */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Cluster 1: History (Undo & Redo) */}
+          <div className="flex items-center bg-slate-900 border border-slate-750 rounded-lg p-0.5 h-8">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={historyIndex < 0}
+              className={`h-7 px-2 rounded-md text-xs flex items-center gap-1 transition ${
+                historyIndex >= 0
+                  ? 'hover:bg-slate-800 text-slate-200 cursor-pointer'
+                  : 'text-slate-600 cursor-not-allowed'
+              }`}
+              title="Undo (Ctrl+Z)"
+            >
+              <CornerUpLeft className="w-3.5 h-3.5" />
+              <span className="text-[11px] hidden md:inline font-mono">Undo</span>
+            </button>
+            <div className="h-3.5 w-px bg-slate-800 mx-0.5" />
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={historyIndex + 1 >= history.length}
+              className={`h-7 px-2 rounded-md text-xs flex items-center gap-1 transition ${
+                historyIndex + 1 < history.length
+                  ? 'hover:bg-slate-800 text-slate-200 cursor-pointer'
+                  : 'text-slate-600 cursor-not-allowed'
+              }`}
+              title="Redo (Ctrl+Y)"
+            >
+              <CornerUpRight className="w-3.5 h-3.5" />
+              <span className="text-[11px] hidden md:inline font-mono">Redo</span>
+            </button>
+          </div>
 
-          {/* Redo */}
-          <button
-            type="button"
-            onClick={handleRedo}
-            disabled={historyIndex + 1 >= history.length}
-            className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition ${
-              historyIndex + 1 < history.length
-                ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-750 cursor-pointer'
-                : 'bg-slate-950 text-slate-600 border-slate-850 cursor-not-allowed'
-            }`}
-            title="Redo (Ctrl+Y)"
-          >
-            <CornerUpRight className="w-3.5 h-3.5" />
-            <span className="text-[10px] hidden sm:inline font-mono">Redo</span>
-          </button>
+          {/* Cluster 2: Display Utilities (Fit Screen & Theme) */}
+          <div className="flex items-center bg-slate-900 border border-slate-750 rounded-lg p-0.5 h-8">
+            <button
+              type="button"
+              onClick={handleFitToScreen}
+              className="h-7 w-7 flex items-center justify-center rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              title="Fit to Screen (Zoom Extents)"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+            <div className="h-3.5 w-px bg-slate-800 mx-0.5" />
+            <button
+              type="button"
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="h-7 w-7 flex items-center justify-center rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              title={isDarkMode ? 'Switch to Light CAD' : 'Switch to Dark CAD'}
+            >
+              {isDarkMode ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-sky-400" />}
+            </button>
+          </div>
 
-          {/* AI Trend Alignment button */}
-          <button
-            type="button"
-            onClick={handleRunAiTrendAlignment}
-            className="px-2.5 py-1.5 rounded-lg bg-purple-950/70 hover:bg-purple-900/70 border border-purple-700 text-purple-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm font-mono"
-            title="AI Trend Alignment: Smoothly align and interpolate joint discontinuity trends across tunnel rounds"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-            <span className="hidden sm:inline">AI Trend Align</span>
-          </button>
+          <div className="h-4 w-px bg-slate-800 shrink-0 hidden sm:block" />
 
-          {/* Theme Switcher */}
-          <button
-            type="button"
-            onClick={() => setIsDarkMode(!isDarkMode)}
-            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-750 text-xs transition cursor-pointer"
-            title={isDarkMode ? 'Switch to Light CAD' : 'Switch to Dark CAD'}
-          >
-            {isDarkMode ? '🌙' : '☀️'}
-          </button>
+          {/* Cluster 3: View Mode Switcher (2D Unwrapped vs 3D Canvas) */}
+          <div className="flex items-center bg-slate-900 border border-slate-750 rounded-lg p-0.5 h-8">
+            <button
+              type="button"
+              onClick={() => {
+                setCadViewMode('2D_UNWRAPPED');
+                if (cadRibbonTab === 'EXPORT_3D') setCadRibbonTab('DISCONTINUITIES');
+              }}
+              className={`h-7 px-2.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                cadViewMode === '2D_UNWRAPPED'
+                  ? 'bg-sky-600 text-white shadow-xs font-bold'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+              title="2D Unwrapped Strip Canvas"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>2D Canvas</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCadViewMode('3D_CONTINUOUS');
+                setCadRibbonTab('EXPORT_3D');
+              }}
+              className={`h-7 px-2.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                cadViewMode === '3D_CONTINUOUS'
+                  ? 'bg-amber-600 text-white shadow-xs font-bold'
+                  : 'text-amber-400 hover:text-amber-300 hover:bg-slate-800/60'
+              }`}
+              title="3D Canvas Option — Inspect each joint in 3D continuous tunnel"
+            >
+              <Box className="w-3.5 h-3.5" />
+              <span>3D Canvas</span>
+            </button>
+          </div>
 
-          {/* Fit Screen */}
-          <button
-            type="button"
-            onClick={handleFitToScreen}
-            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-750 transition cursor-pointer"
-            title="Fit to Screen (Zoom Extents)"
-          >
-            <Maximize2 className="w-4 h-4" />
-          </button>
+          <div className="h-4 w-px bg-slate-800 shrink-0" />
 
-          {/* Done / Save & Commit to A3 Report Window */}
+          {/* Cluster 4: Primary Save & Commit Action */}
           <button
             type="button"
             onClick={handleSaveAndCommit}
-            className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/30 ring-1 ring-emerald-300/40 transition cursor-pointer font-mono"
+            className="h-8 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer font-mono shrink-0"
             title="Save CAD edits and update the A3 Continuous Tunnel Log Report window"
           >
-            <Check className="w-4 h-4" />
-            <span>Done / Save to A3</span>
+            <Check className="w-3.5 h-3.5" />
+            <span>Save to A3</span>
           </button>
 
-          {/* Close */}
+          {/* Cluster 5: Modal Dismiss */}
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900 transition cursor-pointer"
+            className="h-8 w-8 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer flex items-center justify-center shrink-0"
+            title="Close CAD Workspace"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -2255,7 +2476,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             { id: 'DISCONTINUITIES', step: '2', label: 'Joints', fullLabel: '2. Discontinuity Tracing' },
             { id: 'STRATA', step: '3', label: 'Strata', fullLabel: '3. Strata & Lithology' },
             { id: 'SUPPORT_WATER', step: '4', label: 'Support/Water', fullLabel: '4. Support & Water' },
-            { id: 'EXPORT_3D', step: '5', label: '3D & Export', fullLabel: '5. 3D Model & Export' },
+            { id: 'EXPORT_3D', step: '5', label: '3D Canvas', fullLabel: '5. 3D Canvas & Inspect' },
           ].map((tab) => {
             const isActive = cadRibbonTab === tab.id;
             return (
@@ -2265,35 +2486,40 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 onClick={() => {
                   setCadRibbonTab(tab.id as any);
                   if (tab.id === 'DISCONTINUITIES') {
+                    setCadViewMode('2D_UNWRAPPED');
                     setActiveTool('draw_joint');
                     setSidebarTab('properties');
                   } else if (tab.id === 'STRATA') {
+                    setCadViewMode('2D_UNWRAPPED');
                     setActiveTool('add_lithology');
                     setSidebarTab('lithology');
                   } else if (tab.id === 'SUPPORT_WATER') {
+                    setCadViewMode('2D_UNWRAPPED');
                     setActiveTool('place_water');
                     setSidebarTab('properties');
                   } else if (tab.id === 'EXPORT_3D') {
+                    setCadViewMode('3D_CONTINUOUS');
                     handleRunAiTrendAlignment();
                   } else if (tab.id === 'HOME') {
+                    setCadViewMode('2D_UNWRAPPED');
                     handleFitToScreen();
                   }
                 }}
-                className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg font-mono font-bold transition-all cursor-pointer min-w-0 ${
+                className={`h-8 flex items-center justify-center gap-1.5 px-2 rounded-lg font-mono font-bold text-xs transition-all cursor-pointer min-w-0 ${
                   isActive
-                    ? 'bg-gradient-to-r from-sky-500 to-sky-600 text-white shadow-md ring-2 ring-sky-300/50'
-                    : 'bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700/80'
+                    ? 'bg-gradient-to-r from-sky-500 to-sky-600 text-white shadow-sm ring-1 ring-sky-300/40'
+                    : 'bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700/70'
                 }`}
               >
                 <span
-                  className={`w-5 h-5 inline-flex items-center justify-center rounded-full text-xs font-extrabold shrink-0 ${
+                  className={`w-4 h-4 inline-flex items-center justify-center rounded-full text-[10px] font-extrabold shrink-0 ${
                     isActive ? 'bg-white text-sky-700' : 'bg-slate-700 text-amber-300'
                   }`}
                 >
                   {tab.step}
                 </span>
-                <span className="truncate sm:hidden text-xs">{tab.label}</span>
-                <span className="truncate hidden sm:inline text-xs">{tab.fullLabel}</span>
+                <span className="truncate sm:hidden">{tab.label}</span>
+                <span className="truncate hidden sm:inline">{tab.fullLabel}</span>
               </button>
             );
           })}
@@ -2385,17 +2611,38 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             )}
             {cadRibbonTab === 'EXPORT_3D' && (
               <div className="flex items-center gap-2">
+                <span className="text-amber-400 font-bold flex items-center gap-1">
+                  <Box className="w-3.5 h-3.5" />
+                  <span>3D Continuous Tunnel Canvas:</span>
+                </span>
                 <button
                   type="button"
-                  onClick={handleRunAiTrendAlignment}
-                  className="px-2.5 py-0.5 rounded bg-purple-900/60 hover:bg-purple-800 border border-purple-600 text-purple-200 text-xs font-bold cursor-pointer"
+                  onClick={() => setCadViewMode('3D_CONTINUOUS')}
+                  className={`px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition ${
+                    cadViewMode === '3D_CONTINUOUS'
+                      ? 'bg-orange-500 text-white shadow-xs'
+                      : 'bg-slate-800 text-slate-300 hover:text-white'
+                  }`}
                 >
-                  ✨ AI Trend Extrapolator
+                  <Eye className="w-3 h-3" />
+                  <span>3D Tunnel View</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCadViewMode('2D_UNWRAPPED')}
+                  className={`px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition ${
+                    cadViewMode === '2D_UNWRAPPED'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-800 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Sliders className="w-3 h-3" />
+                  <span>2D Unwrapped View</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleSaveAndCommit}
-                  className="px-2.5 py-0.5 rounded bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-600 text-emerald-200 text-xs font-bold cursor-pointer"
+                  className="px-2.5 py-1 rounded bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-600 text-emerald-200 text-xs font-bold cursor-pointer"
                 >
                   💾 Save to A3 Sheet Log
                 </button>
@@ -2476,6 +2723,21 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           >
             <Edit2 className="w-4 h-4" />
             <span className="text-[9px] font-mono">Edit</span>
+          </button>
+
+          {/* Edit / Change Canvas Text Tool */}
+          <button
+            type="button"
+            onClick={() => setActiveTool('edit_text')}
+            className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
+              activeTool === 'edit_text'
+                ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/40 ring-1 ring-blue-300'
+                : 'text-slate-400 hover:text-blue-400 hover:bg-slate-800'
+            }`}
+            title="Edit Canvas Text (Shortcut: TEXT / T) — Click any joint text to edit label, orientation text, or delete text"
+          >
+            <Type className="w-4 h-4" />
+            <span className="text-[9px] font-mono">Text</span>
           </button>
 
           {/* Merge Joints Tool */}
@@ -2593,369 +2855,23 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           </button>
         </div>
 
-        {/* Central CAD Canvas Container */}
-        <div className="flex-1 relative overflow-hidden bg-black flex flex-col">
-          {/* Top Quick Joint Presets Strip */}
-          <div className="bg-slate-900 border-b border-slate-800 px-3 py-1.5 flex items-center justify-between gap-2 overflow-x-auto shrink-0 z-20">
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[10px] uppercase font-bold text-slate-400 mr-1 hidden sm:inline font-mono">Joint Sets:</span>
-              {JOINT_SETS.map((js) => {
-                const isSelected = selectedJointSetId === js.id;
-                return (
-                  <button
-                    key={js.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedJointSetId(js.id);
-                      if (selectedObjectId && selectedObjectType === 'trace') {
-                        pushHistory(currentDataset);
-                        setCurrentDataset((prev) => ({
-                          ...prev,
-                          traces: prev.traces.map((t) =>
-                            t.id === selectedObjectId
-                              ? {
-                                  ...t,
-                                  setId: js.id,
-                                  colorHex: js.color,
-                                  structureType: js.structureType,
-                                  orientationLabel: `${js.defaultDipDir.toString().padStart(3, '0')}/${js.defaultDip.toString().padStart(2, '0')}`,
-                                  dipDirectionDeg: js.defaultDipDir,
-                                  dipDeg: js.defaultDip,
-                                }
-                              : t
-                          ),
-                        }));
-                      }
-                    }}
-                    className={`px-2 py-0.5 rounded-lg text-xs flex items-center gap-1.5 border transition cursor-pointer font-mono ${
-                      isSelected
-                        ? 'bg-slate-800 text-white border-sky-400 shadow-sm font-bold'
-                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
-                    }`}
-                    title={`${js.name}: ${js.defaultDipDir}°/${js.defaultDip}°`}
-                  >
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: js.color }} />
-                    <span>{js.id}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Current Active Mode Status Indicator */}
-            <div className="flex items-center gap-2 text-[11px] font-mono text-slate-300 shrink-0">
-              {activeTool === 'move_joint' && (
-                <span className="px-2 py-0.5 rounded bg-sky-950 border border-sky-500/50 text-sky-300 font-bold flex items-center gap-1">
-                  <Move className="w-3 h-3" />
-                  <span>MOVE JOINT: Drag trace on canvas</span>
-                </span>
-              )}
-              {activeTool === 'edit_joint' && (
-                <span className="px-2 py-0.5 rounded bg-sky-950 border border-sky-500/50 text-sky-300 font-bold flex items-center gap-1">
-                  <Edit2 className="w-3 h-3" />
-                  <span>EDIT VERTICES: Drag points or click line to add point</span>
-                </span>
-              )}
-              {activeTool === 'merge_joint' && (
-                <span className="px-2 py-0.5 rounded bg-amber-950 border border-amber-500/50 text-amber-300 font-bold flex items-center gap-1">
-                  <GitMerge className="w-3 h-3" />
-                  <span>
-                    {mergeSourceTraceId
-                      ? (mergeTargetTraceId ? 'MERGE: Ready to connect traces' : 'MERGE: Select second trace')
-                      : 'MERGE: Select first trace'}
-                  </span>
-                </span>
-              )}
-              {activeTool === 'measure' && (
-                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/50 text-cyan-300 font-bold flex items-center gap-1">
-                  <Ruler className="w-3 h-3" />
-                  <span>{measureStartPoint ? 'MEASURE: Click target point' : 'MEASURE: Click start point'}</span>
-                </span>
-              )}
-            </div>
+                {/* Left Shrinkable Property Inspector */}
+        {isInspectorCollapsed ? (
+          <div className="w-8 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-2 shrink-0 z-20">
+            <button
+              type="button"
+              onClick={() => setIsInspectorCollapsed(false)}
+              className="p-1 text-sky-400 hover:text-sky-200 hover:bg-slate-800 rounded transition cursor-pointer font-bold text-xs"
+              title="Expand Left Property Inspector"
+            >
+              ▶
+            </button>
+            <span className="text-[9px] font-mono font-bold text-slate-400 [writing-mode:vertical-rl] tracking-widest mt-3 select-none">
+              INSPECTOR
+            </span>
           </div>
-
-          {/* Floating Merge Action Banner */}
-          {activeTool === 'merge_joint' && mergeSourceTraceId && mergeTargetTraceId && (
-            <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-slate-900 border-2 border-amber-500 rounded-2xl p-3 shadow-2xl flex items-center gap-3 animate-in fade-in zoom-in-95 font-mono">
-              <div className="flex items-center gap-2">
-                <GitMerge className="w-5 h-5 text-amber-400" />
-                <div className="text-xs">
-                  <div className="font-bold text-white">Merge Discontinuity Joint Traces?</div>
-                  <div className="text-[11px] text-slate-400">
-                    <strong className="text-amber-400">{mergeSourceTraceId}</strong> + <strong className="text-cyan-400">{mergeTargetTraceId}</strong>
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleExecuteMergeTraces(mergeSourceTraceId, mergeTargetTraceId)}
-                className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md"
-              >
-                <Check className="w-4 h-4" />
-                <span>Confirm Merge</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMergeSourceTraceId(null);
-                  setMergeTargetTraceId(null);
-                }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* Active Drawing Banner */}
-          {activeDraftPoints.length > 0 && (
-            <div className="absolute top-12 left-4 z-30 bg-slate-900/95 border border-sky-500/60 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs shadow-xl backdrop-blur-md font-mono">
-              <span className="text-slate-300 font-medium">
-                Drafting {activeTool === 'draw_joint' ? 'Joint' : 'Lithology'} ({activeDraftPoints.length} pts)
-              </span>
-              <button
-                type="button"
-                onClick={handleCommitDraft}
-                className="px-2.5 py-1 rounded bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs transition cursor-pointer shadow-sm"
-              >
-                ✓ Commit (Enter)
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveDraftPoints([])}
-                className="px-2 py-1 rounded text-slate-400 hover:text-white text-xs cursor-pointer"
-              >
-                Clear
-              </button>
-            </div>
-          )}
-
-          {/* Interactive AutoCAD 3D ViewCube (Top-Right Corner) */}
-          {showCadViewCube && (
-            <div className="absolute top-12 right-4 z-30 select-none pointer-events-auto">
-              <div className="relative w-24 h-24 flex items-center justify-center">
-                {/* Compass Ring */}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="46" fill="#090d16" stroke="#334155" strokeWidth="1.5" opacity="0.85" />
-                  <circle cx="50" cy="50" r="42" fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="2 2" />
-                  <text x="50" y="12" fill="#38bdf8" fontSize="9" fontWeight="bold" textAnchor="middle">N</text>
-                  <text x="88" y="53" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="middle">E</text>
-                  <text x="50" y="93" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="middle">S</text>
-                  <text x="12" y="53" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="middle">W</text>
-                </svg>
-                {/* 3D Isometric ViewCube block */}
-                <div className="w-14 h-14 bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-sky-500/60 rounded shadow-xl flex flex-col items-center justify-center transform rotate-[-4deg] hover:rotate-0 hover:scale-105 transition-all cursor-pointer group">
-                  <button
-                    type="button"
-                    onClick={handleFitToScreen}
-                    className="w-full h-full flex flex-col items-center justify-center gap-0.5"
-                    title="Top View (Continuous Unwrapped Horseshoe Shell) - Click to Reset View"
-                  >
-                    <span className="text-[10px] font-black tracking-widest text-sky-400 group-hover:text-white transition-colors">TOP</span>
-                    <span className="text-[8px] font-mono text-slate-400">UNFOLD</span>
-                  </button>
-                </div>
-                {/* Home Button */}
-                <button
-                  type="button"
-                  onClick={handleFitToScreen}
-                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-slate-800 hover:bg-sky-500 hover:text-white border border-slate-600 text-slate-300 text-[10px] flex items-center justify-center shadow transition cursor-pointer"
-                  title="Home View (Fit All)"
-                >
-                  ⌂
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Vector Overlay for AutoCAD Object Snap (OSNAP - F3) & Dynamic Input (DYN - F12) */}
-          <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
-            {hoverOsnap && (
-              <div
-                className="absolute transform -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5"
-                style={{ left: hoverOsnap.x, top: hoverOsnap.y }}
-              >
-                {hoverOsnap.type === 'ENDPOINT' ? (
-                  <div className="w-3.5 h-3.5 border-2 border-emerald-400 bg-emerald-400/20" />
-                ) : (
-                  <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[10px] border-b-cyan-400" />
-                )}
-                <div className="bg-slate-900/90 text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded border border-slate-700 shadow-md">
-                  {hoverOsnap.label}
-                </div>
-              </div>
-            )}
-
-            {cadDynInputEnabled && cursorCoords && (
-              <div
-                className="absolute transform translate-x-3 translate-y-3 bg-slate-900/95 border border-sky-500/70 text-white font-mono text-[10px] px-2 py-0.5 rounded shadow-lg flex items-center gap-2"
-                style={{ left: cursorCoords.screenX, top: cursorCoords.screenY }}
-              >
-                <span className="text-sky-300 font-bold">CH {cursorCoords.ch.toFixed(2)}m</span>
-                <span className="text-slate-400">|</span>
-                <span className="text-amber-300 font-bold">Y {cursorCoords.yPerim >= 0 ? '+' : ''}{cursorCoords.yPerim.toFixed(2)}m</span>
-              </div>
-            )}
-          </div>
-
-          {/* Canvas Rendering Area */}
-          <canvas
-            ref={canvasRef}
-            onMouseMove={handleMouseMove}
-            onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            className={`w-full h-full ${
-              activeTool === 'move_joint'
-                ? 'cursor-move'
-                : activeTool === 'edit_joint'
-                ? 'cursor-crosshair'
-                : activeTool === 'merge_joint'
-                ? 'cursor-pointer'
-                : activeTool === 'draw_joint'
-                ? 'cursor-crosshair'
-                : 'cursor-default'
-            }`}
-          />
-
-          {/* AutoCAD 2026 Interactive Command Line Prompt Bar */}
-          <div className="bg-slate-950 border-t border-slate-800 px-3 py-1.5 flex items-center gap-2 font-mono text-xs z-20 shrink-0">
-            <div className="flex items-center gap-1.5 text-sky-400 font-bold shrink-0">
-              <Terminal className="w-3.5 h-3.5" />
-              <span className="tracking-wider">COMMAND:</span>
-            </div>
-            <input
-              type="text"
-              value={cadCommandInput}
-              onChange={(e) => setCadCommandInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleExecuteCadCommand(cadCommandInput);
-                } else if (e.key === 'Escape') {
-                  setCadCommandInput('');
-                  setActiveTool('select');
-                }
-              }}
-              placeholder="Type command (e.g. LINE, MOVE, EDIT, MERGE, ERASE, LITH, WATER, MEASURE, AI, ZOOM, OSNAP, DYN)..."
-              className="flex-1 bg-transparent border-none outline-none text-slate-100 placeholder:text-slate-600 text-xs font-mono"
-            />
-            <div className="hidden md:flex items-center gap-2 text-[10px] text-slate-400 shrink-0 border-l border-slate-800 pl-2">
-              <span className="truncate max-w-xs text-amber-300/90">{cadStatusMessage}</span>
-            </div>
-          </div>
-
-          {/* AutoCAD 2026 Status Bar (Bottom Status & Toggles) */}
-          <div className="h-7 bg-slate-900 border-t border-slate-800 px-2 sm:px-3 flex items-center justify-between text-[10.5px] font-mono text-slate-400 shrink-0 z-20 select-none">
-            {/* Left: Dynamic Coordinates & Surface Zone */}
-            <div className="flex items-center gap-2 sm:gap-3 text-slate-300 font-mono">
-              <span className="text-sky-400 font-bold">
-                CH: {cursorCoords ? `${cursorCoords.ch.toFixed(2)}m` : `${fromRd.toFixed(2)}m`}
-              </span>
-              <span>
-                Y: {cursorCoords ? `${cursorCoords.yPerim >= 0 ? '+' : ''}${cursorCoords.yPerim.toFixed(2)}m` : '+0.00m'}
-              </span>
-              <span className="hidden sm:inline px-1.5 py-0.2 rounded bg-slate-800 text-amber-400 text-[10px] font-sans font-semibold">
-                {cursorCoords ? getZoneLabelForY(cursorCoords.yPerim) : 'Crown Arch'}
-              </span>
-              <span className="hidden lg:inline text-slate-500">|</span>
-              <span className="hidden lg:inline text-slate-400">Scale: {Math.round(zoom * 100)}%</span>
-            </div>
-
-            {/* Right: AutoCAD Standard Status Toggles (MODEL, GRID, SNAP, ORTHO, POLAR, OSNAP, DYN, LWT) */}
-            <div className="flex items-center gap-1 font-mono text-[10px]">
-              <span className="px-1.5 py-0.5 rounded bg-sky-950 text-sky-300 font-bold border border-sky-700/50">
-                MODEL
-              </span>
-              <button
-                type="button"
-                onClick={() => setSnapToGrid(!snapToGrid)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  snapToGrid
-                    ? 'bg-sky-600 text-white font-bold'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-                title="GRID DISPLAY (F7)"
-              >
-                GRID
-              </button>
-              <button
-                type="button"
-                onClick={() => setSnapToGrid(!snapToGrid)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  snapToGrid
-                    ? 'bg-sky-600 text-white font-bold'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-                title="SNAP MODE (F9)"
-              >
-                SNAP
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrthoMode(!orthoMode)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  orthoMode
-                    ? 'bg-sky-600 text-white font-bold'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-                title="ORTHO MODE (F8)"
-              >
-                ORTHO
-              </button>
-              <button
-                type="button"
-                onClick={() => setPolarTracking(!polarTracking)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  polarTracking
-                    ? 'bg-sky-600 text-white font-bold'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-                title="POLAR TRACKING (F10)"
-              >
-                POLAR
-              </button>
-              <button
-                type="button"
-                onClick={() => setCadOsnapEnabled(!cadOsnapEnabled)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  cadOsnapEnabled
-                    ? 'bg-sky-600 text-white font-bold'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-                title="OBJECT SNAP (F3)"
-              >
-                OSNAP
-              </button>
-              <button
-                type="button"
-                onClick={() => setCadDynInputEnabled(!cadDynInputEnabled)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  cadDynInputEnabled
-                    ? 'bg-sky-600 text-white font-bold'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-                title="DYNAMIC INPUT (F12)"
-              >
-                DYN
-              </button>
-              <button
-                type="button"
-                onClick={() => setLineWeightDisplay(!lineWeightDisplay)}
-                className={`hidden sm:inline px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  lineWeightDisplay
-                    ? 'bg-sky-600 text-white font-bold'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-                title="LINEWEIGHT DISPLAY"
-              >
-                LWT
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* 3. RIGHT PROPERTY INSPECTOR PANEL (AutoCAD 2026 Dark Slate Theme) */}
-        <div className="w-72 sm:w-84 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 overflow-hidden shadow-2xl">
+        ) : (
+          <div className="w-72 sm:w-84 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 overflow-hidden shadow-2xl">
           {/* Sidebar Tabs */}
           <div className="flex items-center border-b border-slate-800 bg-slate-950 shrink-0 overflow-x-auto font-mono">
             <button
@@ -3083,12 +2999,105 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         </button>
                         <button
                           type="button"
-                          onClick={handleDuplicateTrace}
+                          onClick={() => {
+                            setEditingTextTraceId(selectedTrace.id);
+                            setEditingTextValue(selectedTrace.customLabel !== undefined ? selectedTrace.customLabel : selectedTrace.setId);
+                            setEditingTextOrientation(selectedTrace.orientationLabel || `${selectedTrace.dipDirectionDeg}°/${selectedTrace.dipDeg}°`);
+                          }}
                           className="p-1 rounded bg-stone-900 hover:bg-stone-800 text-stone-300 text-[10px] flex items-center justify-center gap-1 transition cursor-pointer"
-                          title="Duplicate Trace"
+                          title="Edit Joint Canvas Text & Orientation"
                         >
-                          <Copy className="w-3 h-3 text-emerald-400" />
-                          <span>Copy</span>
+                          <Type className="w-3 h-3 text-blue-400" />
+                          <span>Text</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Canvas Text / Label Editor (User requirement: delete and edit any texts inside the canvas) */}
+                    <div className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-stone-200 flex items-center gap-1.5">
+                          <Type className="w-3.5 h-3.5 text-blue-400" />
+                          <span>Canvas Text &amp; Label</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-stone-400">
+                          {selectedTrace.hideLabel ? 'Deleted/Hidden' : 'Visible'}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10.5px] text-stone-400 font-semibold block">Label Text on Canvas:</label>
+                        <input
+                          type="text"
+                          value={selectedTrace.customLabel !== undefined ? selectedTrace.customLabel : selectedTrace.setId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            pushHistory(currentDataset);
+                            setCurrentDataset((prev) => ({
+                              ...prev,
+                              traces: prev.traces.map((t) =>
+                                t.id === selectedTrace.id ? { ...t, customLabel: val, hideLabel: val.trim() === '' } : t
+                              ),
+                            }));
+                          }}
+                          placeholder="e.g. J1, JS1 Main Joint, Splay A..."
+                          className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-xs font-semibold text-white focus:outline-blue-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10.5px] text-stone-400 font-semibold block">Orientation Text:</label>
+                        <input
+                          type="text"
+                          value={selectedTrace.orientationLabel || `${selectedTrace.dipDirectionDeg}°/${selectedTrace.dipDeg}°`}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            pushHistory(currentDataset);
+                            setCurrentDataset((prev) => ({
+                              ...prev,
+                              traces: prev.traces.map((t) =>
+                                t.id === selectedTrace.id ? { ...t, orientationLabel: val } : t
+                              ),
+                            }));
+                          }}
+                          placeholder="e.g. 140°/65°"
+                          className="w-full bg-stone-900 border border-stone-700 rounded-lg p-1.5 text-xs font-mono font-semibold text-white focus:outline-blue-500"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            pushHistory(currentDataset);
+                            setCurrentDataset((prev) => ({
+                              ...prev,
+                              traces: prev.traces.map((t) =>
+                                t.id === selectedTrace.id ? { ...t, customLabel: '', hideLabel: true } : t
+                              ),
+                            }));
+                          }}
+                          className="flex-1 py-1 px-2 rounded-lg bg-red-950/70 hover:bg-red-900 border border-red-800 text-red-300 text-[10.5px] font-semibold flex items-center justify-center gap-1 transition cursor-pointer"
+                          title="Delete / Hide the text label from canvas"
+                        >
+                          <Trash2 className="w-3 h-3 text-red-400" />
+                          <span>Delete Text</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            pushHistory(currentDataset);
+                            setCurrentDataset((prev) => ({
+                              ...prev,
+                              traces: prev.traces.map((t) =>
+                                t.id === selectedTrace.id ? { ...t, customLabel: selectedTrace.setId, hideLabel: false } : t
+                              ),
+                            }));
+                          }}
+                          className="py-1 px-2.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10.5px] font-semibold transition cursor-pointer"
+                          title="Restore label to default joint set ID"
+                        >
+                          Restore Default
                         </button>
                       </div>
                     </div>
@@ -3575,22 +3584,9 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                 )}
 
                 {/* If Nothing Selected: Helpful Guide & Quick Navigation */}
+                {/* If Nothing Selected: Clean Action Tools */}
                 {!selectedObjectId && (
                   <div className="space-y-3 text-stone-400">
-                    <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-2 text-[11px]">
-                      <p className="font-bold text-stone-200 flex items-center gap-1.5">
-                        <Compass className="w-4 h-4 text-orange-400" />
-                        <span>Interactive Mapping Tools:</span>
-                      </p>
-                      <ul className="space-y-1.5 list-disc pl-4 text-stone-400">
-                        <li>Click any joint trace or water point on the canvas to inspect, move, and edit.</li>
-                        <li>Use the <strong>Move Tool (M)</strong> to grab and drag joints anywhere along the strip.</li>
-                        <li>Use the <strong>Edit Tool (E)</strong> to reposition vertices or click a line segment to add new points.</li>
-                        <li>Use the <strong>Merge Tool (G)</strong> to fuse two joint traces into one continuous trace.</li>
-                        <li>Use the live <strong>Compass &amp; Clinometer</strong> dials to adjust dip direction and amount.</li>
-                      </ul>
-                    </div>
-
                     <div className="space-y-2 pt-1">
                       <button
                         type="button"
@@ -4047,6 +4043,507 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             )}
           </div>
         </div>
+        )}
+
+        {/* Central CAD Canvas Container */}
+        <div className="flex-1 relative overflow-hidden bg-black flex flex-col">
+          {/* Top Quick Joint Presets Strip */}
+          <div className="bg-slate-900 border-b border-slate-800 px-3 py-1.5 flex items-center justify-between gap-2 overflow-x-auto shrink-0 z-20">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] uppercase font-bold text-slate-400 mr-1 hidden sm:inline font-mono">Joint Sets:</span>
+              {JOINT_SETS.map((js) => {
+                const isSelected = selectedJointSetId === js.id;
+                return (
+                  <button
+                    key={js.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedJointSetId(js.id);
+                      if (selectedObjectId && selectedObjectType === 'trace') {
+                        pushHistory(currentDataset);
+                        setCurrentDataset((prev) => ({
+                          ...prev,
+                          traces: prev.traces.map((t) =>
+                            t.id === selectedObjectId
+                              ? {
+                                  ...t,
+                                  setId: js.id,
+                                  colorHex: js.color,
+                                  structureType: js.structureType,
+                                  orientationLabel: `${js.defaultDipDir.toString().padStart(3, '0')}/${js.defaultDip.toString().padStart(2, '0')}`,
+                                  dipDirectionDeg: js.defaultDipDir,
+                                  dipDeg: js.defaultDip,
+                                }
+                              : t
+                          ),
+                        }));
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded-lg text-xs flex items-center gap-1.5 border transition cursor-pointer font-mono ${
+                      isSelected
+                        ? 'bg-slate-800 text-white border-sky-400 shadow-sm font-bold'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                    }`}
+                    title={`${js.name}: ${js.defaultDipDir}°/${js.defaultDip}°`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: js.color }} />
+                    <span>{js.id}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Current Active Mode Status Indicator */}
+            <div className="flex items-center gap-2 text-[11px] font-mono text-slate-300 shrink-0">
+              {activeTool === 'move_joint' && (
+                <span className="px-2 py-0.5 rounded bg-sky-950 border border-sky-500/50 text-sky-300 font-bold flex items-center gap-1">
+                  <Move className="w-3 h-3" />
+                  <span>MOVE JOINT: Drag trace on canvas</span>
+                </span>
+              )}
+              {activeTool === 'edit_joint' && (
+                <span className="px-2 py-0.5 rounded bg-sky-950 border border-sky-500/50 text-sky-300 font-bold flex items-center gap-1">
+                  <Edit2 className="w-3 h-3" />
+                  <span>EDIT VERTICES: Drag points or click line to add point</span>
+                </span>
+              )}
+              {activeTool === 'merge_joint' && (
+                <span className="px-2 py-0.5 rounded bg-amber-950 border border-amber-500/50 text-amber-300 font-bold flex items-center gap-1">
+                  <GitMerge className="w-3 h-3" />
+                  <span>
+                    {mergeSourceTraceId
+                      ? (mergeTargetTraceId ? 'MERGE: Ready to connect traces' : 'MERGE: Select second trace')
+                      : 'MERGE: Select first trace'}
+                  </span>
+                </span>
+              )}
+              {activeTool === 'measure' && (
+                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/50 text-cyan-300 font-bold flex items-center gap-1">
+                  <Ruler className="w-3 h-3" />
+                  <span>{measureStartPoint ? 'MEASURE: Click target point' : 'MEASURE: Click start point'}</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Floating Merge Action Banner */}
+          {activeTool === 'merge_joint' && mergeSourceTraceId && mergeTargetTraceId && (
+            <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-slate-900 border-2 border-amber-500 rounded-2xl p-3 shadow-2xl flex items-center gap-3 animate-in fade-in zoom-in-95 font-mono">
+              <div className="flex items-center gap-2">
+                <GitMerge className="w-5 h-5 text-amber-400" />
+                <div className="text-xs">
+                  <div className="font-bold text-white">Merge Discontinuity Joint Traces?</div>
+                  <div className="text-[11px] text-slate-400">
+                    <strong className="text-amber-400">{mergeSourceTraceId}</strong> + <strong className="text-cyan-400">{mergeTargetTraceId}</strong>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleExecuteMergeTraces(mergeSourceTraceId, mergeTargetTraceId)}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md"
+              >
+                <Check className="w-4 h-4" />
+                <span>Confirm Merge</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMergeSourceTraceId(null);
+                  setMergeTargetTraceId(null);
+                }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Active Drawing Banner */}
+          {activeDraftPoints.length > 0 && (
+            <div className="absolute top-12 left-4 z-30 bg-slate-900/95 border border-sky-500/60 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs shadow-xl backdrop-blur-md font-mono">
+              <span className="text-slate-300 font-medium">
+                Drafting {activeTool === 'draw_joint' ? 'Joint' : 'Lithology'} ({activeDraftPoints.length} pts)
+              </span>
+              <button
+                type="button"
+                onClick={handleCommitDraft}
+                className="px-2.5 py-1 rounded bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs transition cursor-pointer shadow-sm"
+              >
+                ✓ Commit (Enter)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveDraftPoints([])}
+                className="px-2 py-1 rounded text-slate-400 hover:text-white text-xs cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+
+
+          {/* Vector Overlay for AutoCAD Object Snap (OSNAP - F3) & Dynamic Input (DYN - F12) */}
+          <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+            {hoverOsnap && (
+              <div
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5"
+                style={{ left: hoverOsnap.x, top: hoverOsnap.y }}
+              >
+                {hoverOsnap.type === 'ENDPOINT' ? (
+                  <div className="w-3.5 h-3.5 border-2 border-emerald-400 bg-emerald-400/20" />
+                ) : (
+                  <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[10px] border-b-cyan-400" />
+                )}
+                <div className="bg-slate-900/90 text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded border border-slate-700 shadow-md">
+                  {hoverOsnap.label}
+                </div>
+              </div>
+            )}
+
+            {cadDynInputEnabled && cursorCoords && (
+              <div
+                className="absolute transform translate-x-3 translate-y-3 bg-slate-900/95 border border-sky-500/70 text-white font-mono text-[10px] px-2 py-0.5 rounded shadow-lg flex items-center gap-2"
+                style={{ left: cursorCoords.screenX, top: cursorCoords.screenY }}
+              >
+                <span className="text-sky-300 font-bold">CH {cursorCoords.ch.toFixed(2)}m</span>
+                <span className="text-slate-400">|</span>
+                <span className="text-amber-300 font-bold">Y {cursorCoords.yPerim >= 0 ? '+' : ''}{cursorCoords.yPerim.toFixed(2)}m</span>
+              </div>
+            )}
+          </div>
+
+          {/* Main Workspace Viewport: 2D Unwrapped Strip vs 3D Continuous Tunnel Canvas */}
+          {cadViewMode === '3D_CONTINUOUS' ? (
+            <div className="w-full h-full relative">
+              <ContinuousTunnel3DCanvas
+                dataset={currentDataset}
+                selectedTraceId={selectedObjectId}
+                onSelectTrace={(id) => {
+                  setSelectedObjectId(id);
+                  setSelectedObjectType(id ? 'trace' : null);
+                }}
+                onUpdateTrace={(updatedTrace) => {
+                  pushHistory(currentDataset);
+                  setCurrentDataset((prev) => ({
+                    ...prev,
+                    traces: (prev.traces || []).map((t) => (t.id === updatedTrace.id ? updatedTrace : t)),
+                    updatedAt: new Date().toISOString(),
+                  }));
+                }}
+                onDeleteTrace={(traceId) => {
+                  pushHistory(currentDataset);
+                  setCurrentDataset((prev) => ({
+                    ...prev,
+                    traces: (prev.traces || []).filter((t) => t.id !== traceId),
+                    updatedAt: new Date().toISOString(),
+                  }));
+                  setSelectedObjectId(null);
+                  setSelectedObjectType(null);
+                }}
+              />
+            </div>
+          ) : (
+            <canvas
+              ref={canvasRef}
+              onMouseMove={handleMouseMove}
+              onMouseDown={handleMouseDown}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              onDoubleClick={(e) => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                for (const trace of currentDataset.traces || []) {
+                  const pts = trace.points || [];
+                  for (let i = 0; i < pts.length - 1; i++) {
+                    const p1 = { x: worldToScreenX(pts[i].x), y: worldToScreenY(pts[i].y) };
+                    const p2 = { x: worldToScreenX(pts[i + 1].x), y: worldToScreenY(pts[i + 1].y) };
+                    if (distToSegment({ x: mouseX, y: mouseY }, p1, p2) < 18) {
+                      setSelectedObjectId(trace.id);
+                      setSelectedObjectType('trace');
+                      setEditingTextTraceId(trace.id);
+                      setEditingTextValue(trace.customLabel !== undefined ? trace.customLabel : trace.setId);
+                      setEditingTextOrientation(trace.orientationLabel || `${trace.dipDirectionDeg}°/${trace.dipDeg}°`);
+                      return;
+                    }
+                  }
+                }
+              }}
+              className={`w-full h-full ${
+                activeTool === 'move_joint'
+                  ? 'cursor-move'
+                  : activeTool === 'edit_joint'
+                  ? 'cursor-crosshair'
+                  : activeTool === 'edit_text'
+                  ? 'cursor-text'
+                  : activeTool === 'merge_joint'
+                  ? 'cursor-pointer'
+                  : activeTool === 'draw_joint'
+                  ? 'cursor-crosshair'
+                  : 'cursor-default'
+              }`}
+            />
+          )}
+
+          {/* Floating Canvas Text Editor Modal Overlay (User requirement: delete and edit any texts inside the canvas) */}
+          {editingTextTraceId && (
+            <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden text-slate-900 animate-in fade-in zoom-in-95 duration-150">
+                <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
+                      <Type className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">Edit Canvas Text / Label</h3>
+                      <p className="text-[11px] text-slate-500 font-mono">Trace ID: {editingTextTraceId}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditingTextTraceId(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-4 space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 block">
+                      Text to display on canvas:
+                    </label>
+                    <input
+                      type="text"
+                      value={editingTextValue}
+                      onChange={(e) => setEditingTextValue(e.target.value)}
+                      placeholder="e.g. J1, Fault Splay A, JS2..."
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold text-slate-900 focus:outline-blue-600 focus:bg-white"
+                      autoFocus
+                    />
+                    <p className="text-[10px] text-slate-500">
+                      Clean text only (no boxy borders or cards are drawn around text).
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 block">
+                      Orientation Label:
+                    </label>
+                    <input
+                      type="text"
+                      value={editingTextOrientation}
+                      onChange={(e) => setEditingTextOrientation(e.target.value)}
+                      placeholder="e.g. 140°/65°"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-semibold text-slate-900 focus:outline-blue-600 focus:bg-white"
+                    />
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center justify-between">
+                    <span>Delete text from canvas:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const trace = (currentDataset.traces || []).find((t) => t.id === editingTextTraceId);
+                        if (trace) {
+                          pushHistory(currentDataset);
+                          setCurrentDataset((prev) => ({
+                            ...prev,
+                            traces: prev.traces.map((t) =>
+                              t.id === editingTextTraceId ? { ...t, customLabel: '', hideLabel: true } : t
+                            ),
+                          }));
+                        }
+                        setEditingTextTraceId(null);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1 transition cursor-pointer shadow-xs"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Text</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingTextTraceId(null)}
+                    className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold text-xs cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const trace = (currentDataset.traces || []).find((t) => t.id === editingTextTraceId);
+                      if (trace) {
+                        pushHistory(currentDataset);
+                        setCurrentDataset((prev) => ({
+                          ...prev,
+                          traces: prev.traces.map((t) =>
+                            t.id === editingTextTraceId
+                              ? {
+                                  ...t,
+                                  customLabel: editingTextValue,
+                                  hideLabel: editingTextValue.trim() === '',
+                                  orientationLabel: editingTextOrientation,
+                                }
+                              : t
+                          ),
+                        }));
+                      }
+                      setEditingTextTraceId(null);
+                    }}
+                    className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                  >
+                    Save Text
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* AutoCAD 2026 Interactive Command Line Prompt Bar */}
+          <div className="bg-slate-950 border-t border-slate-800 px-3 py-1.5 flex items-center gap-2 font-mono text-xs z-20 shrink-0">
+            <div className="flex items-center gap-1.5 text-sky-400 font-bold shrink-0">
+              <Terminal className="w-3.5 h-3.5" />
+              <span className="tracking-wider">COMMAND:</span>
+            </div>
+            <input
+              type="text"
+              value={cadCommandInput}
+              onChange={(e) => setCadCommandInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleExecuteCadCommand(cadCommandInput);
+                } else if (e.key === 'Escape') {
+                  setCadCommandInput('');
+                  setActiveTool('select');
+                }
+              }}
+              placeholder="Type command (e.g. LINE, MOVE, EDIT, MERGE, ERASE, LITH, WATER, MEASURE, AI, ZOOM, OSNAP, DYN)..."
+              className="flex-1 bg-transparent border-none outline-none text-slate-100 placeholder:text-slate-600 text-xs font-mono"
+            />
+            <div className="hidden md:flex items-center gap-2 text-[10px] text-slate-400 shrink-0 border-l border-slate-800 pl-2">
+              <span className="truncate max-w-xs text-amber-300/90">{cadStatusMessage}</span>
+            </div>
+          </div>
+
+          {/* AutoCAD 2026 Status Bar (Bottom Status & Toggles) */}
+          <div className="h-7 bg-slate-900 border-t border-slate-800 px-2 sm:px-3 flex items-center justify-between text-[10.5px] font-mono text-slate-400 shrink-0 z-20 select-none">
+            {/* Left: Dynamic Coordinates & Surface Zone */}
+            <div className="flex items-center gap-2 sm:gap-3 text-slate-300 font-mono">
+              <span className="text-sky-400 font-bold">
+                CH: {cursorCoords ? `${cursorCoords.ch.toFixed(2)}m` : `${fromRd.toFixed(2)}m`}
+              </span>
+              <span>
+                Y: {cursorCoords ? `${cursorCoords.yPerim >= 0 ? '+' : ''}${cursorCoords.yPerim.toFixed(2)}m` : '+0.00m'}
+              </span>
+              <span className="hidden sm:inline px-1.5 py-0.2 rounded bg-slate-800 text-amber-400 text-[10px] font-sans font-semibold">
+                {cursorCoords ? getZoneLabelForY(cursorCoords.yPerim) : 'Crown Arch'}
+              </span>
+              <span className="hidden lg:inline text-slate-500">|</span>
+              <span className="hidden lg:inline text-slate-400">Scale: {Math.round(zoom * 100)}%</span>
+            </div>
+
+            {/* Right: AutoCAD Standard Status Toggles (MODEL, GRID, SNAP, ORTHO, POLAR, OSNAP, DYN, LWT) */}
+            <div className="flex items-center gap-1 font-mono text-[10px]">
+              <span className="px-1.5 py-0.5 rounded bg-sky-950 text-sky-300 font-bold border border-sky-700/50">
+                MODEL
+              </span>
+              <button
+                type="button"
+                onClick={() => setSnapToGrid(!snapToGrid)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  snapToGrid
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="GRID DISPLAY (F7)"
+              >
+                GRID
+              </button>
+              <button
+                type="button"
+                onClick={() => setSnapToGrid(!snapToGrid)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  snapToGrid
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="SNAP MODE (F9)"
+              >
+                SNAP
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrthoMode(!orthoMode)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  orthoMode
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="ORTHO MODE (F8)"
+              >
+                ORTHO
+              </button>
+              <button
+                type="button"
+                onClick={() => setPolarTracking(!polarTracking)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  polarTracking
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="POLAR TRACKING (F10)"
+              >
+                POLAR
+              </button>
+              <button
+                type="button"
+                onClick={() => setCadOsnapEnabled(!cadOsnapEnabled)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  cadOsnapEnabled
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="OBJECT SNAP (F3)"
+              >
+                OSNAP
+              </button>
+              <button
+                type="button"
+                onClick={() => setCadDynInputEnabled(!cadDynInputEnabled)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  cadDynInputEnabled
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="DYNAMIC INPUT (F12)"
+              >
+                DYN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLineWeightDisplay(!lineWeightDisplay)}
+                className={`hidden sm:inline px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  lineWeightDisplay
+                    ? 'bg-sky-600 text-white font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="LINEWEIGHT DISPLAY"
+              >
+                LWT
+              </button>
+            </div>
+          </div>
+        </div>
+
+        
       </div>
     </div>
   );

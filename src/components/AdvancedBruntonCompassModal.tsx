@@ -1,17 +1,23 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Compass,
   X,
   RotateCw,
   Copy,
   Check,
-  Sliders,
   Maximize2,
   Minimize2,
   Navigation,
   Info,
-  Layers,
   ArrowUpRight,
+  Pause,
+  Play,
+  Smartphone,
+  ShieldCheck,
+  Radio,
+  Sliders,
+  Layers,
+  Sparkles,
 } from 'lucide-react';
 
 interface AdvancedBruntonCompassModalProps {
@@ -29,13 +35,31 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
   initialDip = 55,
   onApplyOrientation,
 }) => {
+  // Compass reading state
   const [azimuthDeg, setAzimuthDeg] = useState<number>(initialAzimuth);
   const [dipDeg, setDipDeg] = useState<number>(initialDip);
   const [declinationDeg, setDeclinationDeg] = useState<number>(0); // Magnetic declination: +E, -W
   const [notationMode, setNotationMode] = useState<'dip_dir_dip' | 'strike_dip' | 'quadrant'>('dip_dir_dip');
+  const [dialStyle, setDialStyle] = useState<'authentic_brunton' | 'rotating_card'>('authentic_brunton');
   const [reverseBruntonDial, setReverseBruntonDial] = useState<boolean>(true); // Traditional Brunton reverses E and W on dial
+  const [measurementMode, setMeasurementMode] = useState<'sighting' | 'contact_plane'>('sighting');
+
+  // Real-time sensor state
+  const [isLiveActive, setIsLiveActive] = useState<boolean>(true);
+  const [isHoldActive, setIsHoldActive] = useState<boolean>(false);
+  const [sensorStatus, setSensorStatus] = useState<'listening' | 'active' | 'unsupported' | 'permission_needed' | 'denied'>('listening');
+  const [sensorAccuracy, setSensorAccuracy] = useState<number | null>(null);
+  const [pitchDeg, setPitchDeg] = useState<number>(0);
+  const [rollDeg, setRollDeg] = useState<number>(0);
+  const [isSimulatingLive, setIsSimulatingLive] = useState<boolean>(false);
+
+  // UI state
   const [copied, setCopied] = useState<boolean>(false);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  const [isDraggingDial, setIsDraggingDial] = useState<boolean>(false);
+
+  const dialRef = useRef<HTMLDivElement | null>(null);
+  const simulationTimerRef = useRef<any>(null);
 
   // Compute True Azimuth with Magnetic Declination
   const trueAzimuthDeg = useMemo(() => {
@@ -61,7 +85,6 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
       quad = `N ${(360 - az).toFixed(1)}° W`;
     }
 
-    // Dip direction quadrant
     const dipQuad =
       az >= 315 || az < 45 ? 'N' : az >= 45 && az < 135 ? 'E' : az >= 135 && az < 225 ? 'S' : 'W';
     return `${quad} / ${dipDeg}° ${dipQuad}`;
@@ -84,6 +107,195 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
     return `${Math.round(Math.tan((dipDeg * Math.PI) / 180) * 100)}%`;
   }, [dipDeg]);
 
+  // Geological Dip Classification
+  const dipClassification = useMemo(() => {
+    if (dipDeg <= 5) return 'Sub-Horizontal (0-5°)';
+    if (dipDeg <= 20) return 'Gently Dipping (5-20°)';
+    if (dipDeg <= 45) return 'Moderately Dipping (20-45°)';
+    if (dipDeg <= 80) return 'Steeply Dipping (45-80°)';
+    return 'Sub-Vertical to Vertical (80-90°)';
+  }, [dipDeg]);
+
+  // Request iOS permission if needed
+  const handleRequestSensorPermission = useCallback(async () => {
+    if (typeof (DeviceOrientationEvent as any)?.requestPermission === 'function') {
+      try {
+        const response = await (DeviceOrientationEvent as any).requestPermission();
+        if (response === 'granted') {
+          setSensorStatus('active');
+          setIsLiveActive(true);
+        } else {
+          setSensorStatus('denied');
+        }
+      } catch (err) {
+        console.warn('Sensor permission error:', err);
+        setSensorStatus('denied');
+      }
+    } else {
+      setIsLiveActive(true);
+      setSensorStatus('active');
+    }
+  }, []);
+
+  // REAL-TIME HARDWARE SENSOR LISTENER
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // Check if on iOS requiring explicit permission request
+    if (typeof (DeviceOrientationEvent as any)?.requestPermission === 'function') {
+      // Don't auto-request without user interaction on iOS, show permission prompt button
+      if (sensorStatus !== 'active') {
+        setSensorStatus('permission_needed');
+      }
+    }
+
+    if (!isLiveActive || isHoldActive) return;
+
+    let receivedEvents = 0;
+
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      receivedEvents++;
+      setSensorStatus('active');
+
+      // 1. Heading Extraction
+      let heading: number | null = null;
+
+      // iOS WebKit Compass Heading (direct magnetic azimuth 0-360°)
+      if (typeof (e as any).webkitCompassHeading === 'number') {
+        heading = (e as any).webkitCompassHeading;
+        if (typeof (e as any).webkitCompassAccuracy === 'number') {
+          setSensorAccuracy((e as any).webkitCompassAccuracy);
+        }
+      } else if (e.alpha != null) {
+        // Android / Chrome: alpha is rotation around Z axis
+        // In standard coordinate frame, heading clockwise from North is:
+        heading = (360 - e.alpha) % 360;
+      }
+
+      // 2. Pitch (beta: -180 to 180) & Roll (gamma: -90 to 90)
+      const beta = e.beta ?? 0;
+      const gamma = e.gamma ?? 0;
+      setPitchDeg(beta);
+      setRollDeg(gamma);
+
+      // 3. Clinometer: Dip Angle Calculation from Horizontal Ground Plane
+      // Tilt of normal vector from vertical Z:
+      const betaRad = (beta * Math.PI) / 180;
+      const gammaRad = (gamma * Math.PI) / 180;
+      const cosTilt = Math.min(1, Math.max(-1, Math.cos(betaRad) * Math.cos(gammaRad)));
+      const rawDip = Math.round(Math.acos(Math.abs(cosTilt)) * (180 / Math.PI));
+      const clampedDip = Math.min(90, Math.max(0, rawDip));
+      setDipDeg(clampedDip);
+
+      // 4. Update Azimuth
+      if (heading != null) {
+        let finalAzimuth = heading;
+        if (measurementMode === 'contact_plane') {
+          // In Contact Plane mode: Dip Direction is maximum downward gradient on the device plane
+          const downDipRelative = (Math.atan2(-Math.sin(gammaRad), Math.sin(betaRad)) * 180) / Math.PI;
+          finalAzimuth = ((heading + downDipRelative) % 360 + 360) % 360;
+        }
+        setAzimuthDeg(Math.round(finalAzimuth));
+      }
+    };
+
+    // Listen to deviceorientationabsolute first (modern Android geomagnetic orientation)
+    window.addEventListener('deviceorientationabsolute' as any, handleOrientation as any, true);
+    window.addEventListener('deviceorientation', handleOrientation, true);
+
+    // Timeout: if no orientation events received within 1.2s, device lacks magnetometer hardware
+    const checkTimer = setTimeout(() => {
+      if (receivedEvents === 0 && sensorStatus === 'listening') {
+        setSensorStatus('unsupported');
+      }
+    }, 1200);
+
+    return () => {
+      clearTimeout(checkTimer);
+      window.removeEventListener('deviceorientationabsolute' as any, handleOrientation as any, true);
+      window.removeEventListener('deviceorientation', handleOrientation, true);
+    };
+  }, [isOpen, isLiveActive, isHoldActive, measurementMode, sensorStatus]);
+
+  // LIVE GYRO SIMULATOR FOR DESKTOP / WORKSTATION TESTING
+  useEffect(() => {
+    if (!isSimulatingLive || isHoldActive) {
+      if (simulationTimerRef.current) clearInterval(simulationTimerRef.current);
+      return;
+    }
+
+    let currentSimAz = azimuthDeg;
+    let currentSimDip = dipDeg;
+    let step = 0;
+
+    simulationTimerRef.current = setInterval(() => {
+      step += 0.05;
+      // Smooth dynamic drift mimicking real-time field handling
+      const azDelta = Math.sin(step) * 1.5 + Math.cos(step * 0.5) * 0.8;
+      const dipDelta = Math.sin(step * 0.8) * 0.5;
+
+      currentSimAz = ((currentSimAz + azDelta) % 360 + 360) % 360;
+      currentSimDip = Math.min(90, Math.max(0, currentSimDip + dipDelta));
+
+      setAzimuthDeg(Math.round(currentSimAz * 10) / 10);
+      setDipDeg(Math.round(currentSimDip * 10) / 10);
+      setPitchDeg(Math.sin(step) * 15);
+      setRollDeg(Math.cos(step) * 12);
+    }, 50);
+
+    return () => {
+      if (simulationTimerRef.current) clearInterval(simulationTimerRef.current);
+    };
+  }, [isSimulatingLive, isHoldActive, azimuthDeg, dipDeg]);
+
+  // DIRECT DIAL TOUCH / MOUSE INTERACTION (DRAG TO ROTATE)
+  const handleDialPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isHoldActive) return;
+    setIsDraggingDial(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    updateAngleFromPointer(e.clientX, e.clientY);
+  };
+
+  const handleDialPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingDial || isHoldActive) return;
+    updateAngleFromPointer(e.clientX, e.clientY);
+  };
+
+  const handleDialPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDraggingDial(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
+  const updateAngleFromPointer = (clientX: number, clientY: number) => {
+    if (!dialRef.current) return;
+    const rect = dialRef.current.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const dx = clientX - centerX;
+    const dy = clientY - centerY;
+
+    // Angle clockwise from 12 o'clock (SIGHT line):
+    let angleRad = Math.atan2(dx, -dy);
+    let deg = (angleRad * 180) / Math.PI;
+    deg = (deg % 360 + 360) % 360;
+    setAzimuthDeg(Math.round(deg));
+  };
+
+  // Spirit Level Bubble displacement (clamped to spirit circle)
+  const bubbleX = useMemo(() => {
+    return Math.max(-12, Math.min(12, rollDeg * 0.4));
+  }, [rollDeg]);
+
+  const bubbleY = useMemo(() => {
+    return Math.max(-12, Math.min(12, -pitchDeg * 0.4));
+  }, [pitchDeg]);
+
+  const isLevel = Math.sqrt(bubbleX * bubbleX + bubbleY * bubbleY) < 3.5;
+
   if (!isOpen) return null;
 
   const handleCopy = () => {
@@ -97,7 +309,7 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
       <div
         className={`w-full ${
           isExpanded ? 'max-w-4xl' : 'max-w-2xl'
-        } bg-slate-900 border-2 border-amber-500/60 rounded-2xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden transition-all duration-200 text-slate-100`}
+        } bg-slate-900 border-2 border-amber-500/60 rounded-2xl shadow-2xl flex flex-col max-h-[96vh] overflow-hidden transition-all duration-200 text-slate-100`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-3.5 py-2.5 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-amber-500/30 shrink-0">
@@ -106,14 +318,16 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
               <Compass className="w-4 h-4 animate-spin-slow" />
             </div>
             <div>
-              <h3 className="font-extrabold text-sm sm:text-base text-amber-300 tracking-tight flex items-center gap-2">
-                <span>Advanced Digital Brunton Pocket Transit</span>
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-sm sm:text-base text-amber-300 tracking-tight">
+                  Advanced Brunton Pocket Transit
+                </h3>
                 <span className="text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30">
-                  GeoMaster 5006
+                  REAL-TIME SENSOR
                 </span>
-              </h3>
+              </div>
               <p className="text-[10.5px] text-slate-400 font-mono">
-                Precision Geological Compass, Clinometer &amp; True North Calculator
+                Geological Compass, True North Inclinometer &amp; Live Clinometer
               </p>
             </div>
           </div>
@@ -137,28 +351,140 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
           </div>
         </div>
 
+        {/* Real-Time Sensor Live Status Ribbon */}
+        <div className="px-3 py-1.5 bg-slate-950/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+          <div className="flex items-center gap-2">
+            {sensorStatus === 'active' ? (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/60 text-emerald-300 font-mono text-[10.5px] font-bold shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+                <span>REAL-TIME SENSOR ACTIVE</span>
+                {sensorAccuracy !== null && (
+                  <span className="text-emerald-400/80 text-[9.5px]">±{Math.round(sensorAccuracy)}°</span>
+                )}
+              </span>
+            ) : sensorStatus === 'permission_needed' ? (
+              <button
+                type="button"
+                onClick={handleRequestSensorPermission}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10.5px] cursor-pointer shadow animate-bounce"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Tap to Enable Real-Time Magnetic Sensor</span>
+              </button>
+            ) : sensorStatus === 'denied' ? (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-950/80 border border-rose-500/60 text-rose-300 font-mono text-[10.5px]">
+                <span>Sensor Permission Denied (Manual / Sim Mode)</span>
+              </span>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
+                  <Radio className="w-3 h-3 text-cyan-400" />
+                  <span>Desktop / Drag Mode</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsSimulatingLive((p) => !p)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer transition-all ${
+                    isSimulatingLive
+                      ? 'bg-cyan-500 text-slate-950 shadow'
+                      : 'bg-slate-800 text-cyan-300 hover:bg-slate-700'
+                  }`}
+                >
+                  {isSimulatingLive ? '● Live Gyro Simulating' : 'Start Gyro Simulation'}
+                </button>
+              </div>
+            )}
+
+            {/* Measurement Method Toggle: Sighting vs Contact Plane */}
+            <div className="hidden sm:flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-[10px] font-mono">
+              <button
+                type="button"
+                onClick={() => setMeasurementMode('sighting')}
+                className={`px-2 py-0.5 rounded cursor-pointer ${
+                  measurementMode === 'sighting'
+                    ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Sight with phone top towards tunnel face or strike line"
+              >
+                Sighting Mode
+              </button>
+              <button
+                type="button"
+                onClick={() => setMeasurementMode('contact_plane')}
+                className={`px-2 py-0.5 rounded cursor-pointer ${
+                  measurementMode === 'contact_plane'
+                    ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Hold phone back flat against rock joint plane to measure Dip & Dip Direction"
+              >
+                Rock Contact Plane Mode
+              </button>
+            </div>
+          </div>
+
+          {/* FREEZE / HOLD READING BUTTON */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsHoldActive((p) => !p)}
+              className={`px-2.5 py-1 rounded-lg font-mono font-black text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow ${
+                isHoldActive
+                  ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-300 animate-pulse'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+              }`}
+              title="Freeze / hold reading to comfortably inspect away from rock face"
+            >
+              {isHoldActive ? (
+                <>
+                  <Play className="w-3 h-3 fill-slate-950" />
+                  <span>RESUME LIVE</span>
+                </>
+              ) : (
+                <>
+                  <Pause className="w-3 h-3" />
+                  <span>HOLD / FREEZE</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
         {/* Modal Body */}
         <div className="p-3 sm:p-4 overflow-y-auto no-scrollbar space-y-3.5 flex-1">
           {/* Active Reading Callout Banner */}
-          <div className="bg-slate-950 border-2 border-amber-500/50 rounded-xl p-2.5 sm:p-3 flex flex-wrap items-center justify-between gap-2 shadow-inner">
+          <div
+            className={`bg-slate-950 border-2 rounded-xl p-2.5 sm:p-3 flex flex-wrap items-center justify-between gap-2 shadow-inner transition-colors ${
+              isHoldActive ? 'border-amber-400 bg-amber-950/20' : 'border-amber-500/50'
+            }`}
+          >
             <div className="flex items-center gap-3">
               <div className="px-2.5 py-1 bg-amber-500/20 border border-amber-400/50 rounded-lg text-center font-mono">
-                <span className="block text-[9px] uppercase font-bold text-amber-400">Dip Direction</span>
+                <span className="block text-[9px] uppercase font-bold text-amber-400">
+                  {measurementMode === 'contact_plane' ? 'Dip Direction' : 'Azimuth / Strike'}
+                </span>
                 <span className="text-xl sm:text-2xl font-black text-amber-300 font-mono">
                   {String(Math.round(trueAzimuthDeg)).padStart(3, '0')}°
                 </span>
               </div>
               <div className="text-xl font-bold text-slate-600">/</div>
               <div className="px-2.5 py-1 bg-cyan-500/20 border border-cyan-400/50 rounded-lg text-center font-mono">
-                <span className="block text-[9px] uppercase font-bold text-cyan-400">Dip Amount</span>
+                <span className="block text-[9px] uppercase font-bold text-cyan-400">Dip Angle</span>
                 <span className="text-xl sm:text-2xl font-black text-cyan-300 font-mono">
                   {Math.round(dipDeg)}°
                 </span>
               </div>
               <div className="hidden sm:block pl-2 border-l border-slate-800">
-                <div className="text-[10px] text-slate-400 font-mono">RHR Strike: <span className="font-bold text-slate-200">{String(Math.round(rhrStrikeDeg)).padStart(3, '0')}°</span></div>
-                <div className="text-[10px] text-slate-400 font-mono">Quadrant: <span className="font-bold text-slate-200">{quadrantStr}</span></div>
-                <div className="text-[10px] text-slate-400 font-mono">Gradient: <span className="font-bold text-slate-200">{percentGrade}</span></div>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  RHR Strike: <span className="font-bold text-slate-200">{String(Math.round(rhrStrikeDeg)).padStart(3, '0')}°</span>
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  Quadrant: <span className="font-bold text-slate-200">{quadrantStr}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  Classification: <span className="font-bold text-cyan-300">{dipClassification}</span>
+                </div>
               </div>
             </div>
 
@@ -190,24 +516,36 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
 
           {/* Main Visual: Two Columns (Compass Dial on Left, Precision Controls & Clinometer on Right) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-center">
-            {/* Left: Interactive Brunton Visual Dial */}
-            <div className="relative flex flex-col items-center justify-center p-3 bg-slate-950 border border-slate-800 rounded-2xl">
-              <div className="w-[260px] h-[260px] sm:w-[300px] sm:h-[300px] relative rounded-full bg-stone-900 border-4 border-stone-700 shadow-[inset_0_4px_12px_rgba(0,0,0,0.8),0_8px_20px_rgba(0,0,0,0.6)] flex items-center justify-center select-none overflow-hidden">
-                {/* Traditional Brunton Outer Bezel with Aluminum/Brass Ring */}
-                <div className="absolute inset-1 rounded-full border-2 border-amber-600/60 pointer-events-none" />
+            {/* Left: Authentic Brunton Dial with Interactive Pointer & Real-Time Needle */}
+            <div className="relative flex flex-col items-center justify-center p-3 bg-slate-950 border border-slate-800 rounded-2xl select-none">
+              <div
+                ref={dialRef}
+                onPointerDown={handleDialPointerDown}
+                onPointerMove={handleDialPointerMove}
+                onPointerUp={handleDialPointerUp}
+                className="w-[260px] h-[260px] sm:w-[300px] sm:h-[300px] relative rounded-full bg-stone-900 border-4 border-stone-700 shadow-[inset_0_4px_16px_rgba(0,0,0,0.9),0_8px_24px_rgba(0,0,0,0.7)] flex items-center justify-center select-none overflow-hidden cursor-crosshair touch-none"
+                title="Authentic Brunton Pocket Transit: Drag to manually set azimuth or move device for real-time tracking"
+              >
+                {/* Brass Bezel Ring */}
+                <div className="absolute inset-1 rounded-full border-2 border-amber-600/70 pointer-events-none" />
 
-                {/* Sighting Index / Sighting Line at Top (0° Index) */}
-                <div className="absolute top-0 w-1 h-3 bg-amber-400 rounded-b z-20" />
-                <div className="absolute top-3 text-[9px] font-black text-amber-400 font-mono z-20">SIGHT</div>
+                {/* SIGHT Index Line at Top 0° (12 o'clock) */}
+                <div className="absolute top-0 w-1.5 h-4 bg-amber-400 rounded-b shadow-[0_0_8px_#f59e0b] z-20 pointer-events-none" />
+                <div className="absolute top-4 text-[9px] font-black text-amber-400 font-mono z-20 pointer-events-none tracking-wider">
+                  SIGHT
+                </div>
 
-                {/* Rotating Azimuth Dial / Card */}
+                {/* Compass Dial Face */}
+                {/* In Authentic Brunton mode: The dial is fixed to housing; the needle rotates freely to Magnetic North.
+                    In Traditional Brunton, E is printed at 9 o'clock (left) and W at 3 o'clock (right).
+                    When sighting 90° East, the needle points to 9 o'clock, directly reading "E 90°"! */}
                 <div
-                  className="absolute inset-4 rounded-full transition-transform duration-75 ease-out flex items-center justify-center"
+                  className="absolute inset-4 rounded-full flex items-center justify-center pointer-events-none transition-transform duration-75 ease-out"
                   style={{
-                    transform: `rotate(${-azimuthDeg}deg)`,
+                    transform: dialStyle === 'rotating_card' ? `rotate(${-azimuthDeg}deg)` : 'none',
                   }}
                 >
-                  {/* Dial ticks */}
+                  {/* Dial Ticks (every 5° and 10°) */}
                   {Array.from({ length: 72 }).map((_, i) => {
                     const deg = i * 5;
                     const isMajor = deg % 30 === 0;
@@ -215,7 +553,7 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
                     return (
                       <div
                         key={deg}
-                        className="absolute top-0 left-1/2 -translate-x-1/2 origin-bottom"
+                        className="absolute top-0 left-1/2 -translate-x-1/2 origin-bottom pointer-events-none"
                         style={{
                           height: '50%',
                           transform: `rotate(${deg}deg)`,
@@ -223,28 +561,28 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
                       >
                         <div
                           className={`w-0.5 ${
-                            isCardinal ? 'h-3 bg-white' : isMajor ? 'h-2 bg-amber-400' : 'h-1.5 bg-slate-500'
+                            isCardinal ? 'h-3 bg-white' : isMajor ? 'h-2 bg-amber-400' : 'h-1.5 bg-slate-600'
                           }`}
                         />
                       </div>
                     );
                   })}
 
-                  {/* Cardinal Labels: Traditional Brunton has East and West reversed so needle directly points to sight direction */}
+                  {/* Cardinal Labels */}
                   <span className="absolute top-2.5 text-xs font-black text-rose-400 font-mono">N</span>
                   <span className="absolute bottom-2.5 text-xs font-black text-slate-300 font-mono">S</span>
                   <span className="absolute right-2.5 text-xs font-black text-slate-300 font-mono">
-                    {reverseBruntonDial ? 'E' : 'W'}
+                    {reverseBruntonDial ? 'W' : 'E'}
                   </span>
                   <span className="absolute left-2.5 text-xs font-black text-slate-300 font-mono">
-                    {reverseBruntonDial ? 'W' : 'E'}
+                    {reverseBruntonDial ? 'E' : 'W'}
                   </span>
 
                   {/* Degree Numbers around dial */}
                   {[30, 60, 120, 150, 210, 240, 300, 330].map((d) => (
                     <div
                       key={`num-${d}`}
-                      className="absolute text-[8px] font-mono text-slate-400 font-bold"
+                      className="absolute text-[8px] font-mono text-slate-400 font-bold pointer-events-none"
                       style={{
                         transform: `rotate(${d}deg) translateY(-100px) rotate(${-d}deg)`,
                       }}
@@ -253,50 +591,88 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
                     </div>
                   ))}
 
-                  {/* Clinometer Arc (0 to 90 degrees inside dial) */}
-                  <div className="absolute inset-10 rounded-full border border-dashed border-cyan-500/30 pointer-events-none" />
-
-                  {/* Center Pivot Jewel */}
-                  <div className="w-5 h-5 rounded-full bg-amber-500 border-2 border-white shadow-md z-10" />
-
-                  {/* Magnetic Needle: Red North pointer with arrow tip, White South counter-weight */}
-                  <div
-                    className="absolute w-2.5 h-[84%] pointer-events-none z-10 transition-transform duration-100 ease-out flex flex-col justify-between items-center"
-                    style={{
-                      transform: `rotate(${azimuthDeg}deg)`,
-                    }}
-                  >
-                    {/* North Needle Tip */}
-                    <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-b-[45px] border-b-rose-500 drop-shadow-[0_0_4px_rgba(244,63,94,0.8)]" />
-                    {/* South Needle Tip */}
-                    <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[45px] border-t-white drop-shadow-[0_0_3px_rgba(255,255,255,0.6)]" />
-                  </div>
+                  {/* Internal Clinometer Arc */}
+                  <div className="absolute inset-10 rounded-full border border-dashed border-cyan-500/20 pointer-events-none" />
                 </div>
 
-                {/* Bullseye Spirit Bubble Level (Fixed in housing) */}
-                <div className="absolute bottom-6 right-6 w-9 h-9 rounded-full bg-emerald-950/80 border-2 border-emerald-400/80 flex items-center justify-center shadow-inner z-20 pointer-events-none">
-                  <div className="w-4 h-4 rounded-full border border-dashed border-emerald-300/60 flex items-center justify-center">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400/80 shadow-[0_0_6px_#34d399] animate-pulse" />
-                  </div>
-                </div>
+                {/* Sapphire Pivot Jewel */}
+                <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-600 to-amber-300 border-2 border-white shadow-lg z-20 pointer-events-none" />
 
-                {/* Clinometer Indicator Bubble */}
+                {/* MAGNETIC NEEDLE:
+                    In Authentic Brunton mode: needle rotates by -azimuthDeg to point to Magnetic North!
+                    In Rotating Card mode: needle is aligned with sight index at 0° or points north */}
                 <div
-                  className="absolute bottom-6 left-6 px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-400/80 text-[8.5px] font-mono text-cyan-300 font-bold z-20 pointer-events-none"
+                  className="absolute w-3 h-[82%] pointer-events-none z-10 transition-transform duration-100 ease-out flex flex-col justify-between items-center"
+                  style={{
+                    transform:
+                      dialStyle === 'authentic_brunton'
+                        ? `rotate(${-azimuthDeg}deg)`
+                        : 'rotate(0deg)',
+                  }}
+                >
+                  {/* North Needle Tip: Red with fluorescent pointer */}
+                  <div className="flex flex-col items-center">
+                    <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[50px] border-b-rose-500 drop-shadow-[0_0_6px_rgba(244,63,94,0.9)]" />
+                    <span className="text-[7.5px] font-black text-rose-200 font-mono -mt-6">N</span>
+                  </div>
+                  {/* South Needle Tip: White / Silver counterweight */}
+                  <div className="flex flex-col items-center">
+                    <span className="text-[7.5px] font-black text-slate-800 font-mono -mb-6">S</span>
+                    <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[50px] border-t-slate-200 drop-shadow-[0_0_4px_rgba(255,255,255,0.7)]" />
+                  </div>
+                </div>
+
+                {/* Bullseye Spirit Level (Bottom-Right) - Live Bubble tracks pitch & roll */}
+                <div
+                  className="absolute bottom-5 right-5 w-10 h-10 rounded-full bg-emerald-950/90 border-2 border-emerald-400/80 flex items-center justify-center shadow-inner z-20 pointer-events-none"
+                  title="Bullseye Level: Keep bubble centered for precise horizontal azimuth"
+                >
+                  <div className="relative w-8 h-8 rounded-full border border-dashed border-emerald-300/40 flex items-center justify-center">
+                    {/* Target Crosshair */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-full h-[1px] bg-emerald-500/30" />
+                      <div className="h-full w-[1px] bg-emerald-500/30 absolute" />
+                    </div>
+                    {/* Center Ring */}
+                    <div className="w-3.5 h-3.5 rounded-full border border-emerald-300/70" />
+                    {/* Spirit Bubble */}
+                    <div
+                      className={`w-3 h-3 rounded-full transition-transform duration-75 ${
+                        isLevel
+                          ? 'bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse'
+                          : 'bg-emerald-500/80 shadow-[0_0_4px_#10b981]'
+                      }`}
+                      style={{
+                        transform: `translate(${bubbleX}px, ${bubbleY}px)`,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Clinometer Indicator (Bottom-Left) */}
+                <div
+                  className="absolute bottom-5 left-5 px-2 py-1 rounded bg-cyan-950/90 border border-cyan-400/80 text-[9px] font-mono text-cyan-300 font-bold z-20 pointer-events-none shadow"
                   title="Clinometer Dip Indicator"
                 >
-                  CLINO: {dipDeg}°
+                  CLINO: {Math.round(dipDeg)}°
                 </div>
               </div>
 
-              {/* Dial Notation Toggle under compass */}
-              <div className="mt-2.5 flex items-center gap-2">
+              {/* Dial Style Controls */}
+              <div className="mt-2.5 flex items-center justify-between w-full text-[10px] text-slate-400 font-mono px-1">
+                <button
+                  type="button"
+                  onClick={() => setDialStyle((s) => (s === 'authentic_brunton' ? 'rotating_card' : 'authentic_brunton'))}
+                  className="hover:text-amber-300 underline cursor-pointer"
+                >
+                  Dial: {dialStyle === 'authentic_brunton' ? 'Authentic Brunton (Floating Needle)' : 'Rotating Rose Card'}
+                </button>
                 <button
                   type="button"
                   onClick={() => setReverseBruntonDial((p) => !p)}
-                  className="text-[10px] text-slate-400 hover:text-amber-300 font-mono underline cursor-pointer"
+                  className="hover:text-amber-300 underline cursor-pointer"
                 >
-                  Dial Format: {reverseBruntonDial ? 'Authentic Brunton (Reversed E/W)' : 'Standard Geographic'}
+                  E/W: {reverseBruntonDial ? 'Brunton (Reversed)' : 'Geographic'}
                 </button>
               </div>
             </div>
@@ -490,7 +866,7 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
         <div className="px-4 py-2 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs shrink-0">
           <div className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
             <Info className="w-3.5 h-3.5 text-amber-400" />
-            <span>Right-Hand Rule (RHR) applies: Dip direction is 90° clockwise from strike.</span>
+            <span>Right-Hand Rule (RHR): Dip direction is 90° clockwise from strike.</span>
           </div>
           <button
             type="button"

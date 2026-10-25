@@ -723,6 +723,42 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
   );
   const [showAILearningDrawer, setShowAILearningDrawer] = useState<boolean>(false);
   const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
+  const [layerOrder, setLayerOrder] = useState<string[]>([
+    'photo',
+    'lithology',
+    'overbreakUndercut',
+    'bedding',
+    'faults',
+    'fractures',
+    'foliation',
+    'otherStructures',
+    'joints',
+    'controlPoints',
+    'annotations',
+  ]);
+
+  const handleMoveLayerUp = (idx: number) => {
+    if (idx <= 0) return;
+    setLayerOrder((prev) => {
+      const next = [...prev];
+      const temp = next[idx];
+      next[idx] = next[idx - 1];
+      next[idx - 1] = temp;
+      return next;
+    });
+  };
+
+  const handleMoveLayerDown = (idx: number) => {
+    if (idx >= layerOrder.length - 1) return;
+    setLayerOrder((prev) => {
+      const next = [...prev];
+      const temp = next[idx];
+      next[idx] = next[idx + 1];
+      next[idx + 1] = temp;
+      return next;
+    });
+  };
+
   const [layerVisibility, setLayerVisibility] = useState<VectorLayerVisibility>({
     photo: true,
     overbreakUndercut: false,
@@ -4203,40 +4239,97 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                             </button>
                           </div>
                         </div>
-                        <div className="space-y-1 max-h-72 overflow-y-auto pr-0.5">
-                          {(
-                            [
-                              { key: 'photo', label: 'Surface Photo' },
-                              { key: 'joints', label: 'Joint Sets (J1–J8)' },
-                              { key: 'annotations', label: 'Dip / Strike Callout Labels' },
-                              { key: 'bedding', label: 'Bedding / Shale (J0)' },
-                              { key: 'faults', label: 'Faults & Shears (F1)' },
-                              { key: 'fractures', label: 'Fractures' },
-                              { key: 'foliation', label: 'Foliation & Lineation' },
-                              { key: 'otherStructures', label: 'Veins, Clay & Water' },
-                              { key: 'lithology', label: 'Lithology Zones' },
-                              { key: 'overbreakUndercut', label: 'Overbreak / Survey Profile' },
-                              { key: 'controlPoints', label: 'Survey Control Points' },
-                            ] as { key: keyof VectorLayerVisibility; label: string }[]
-                          ).map((item) => (
-                            <label
-                              key={item.key}
-                              className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-slate-50 text-[10.5px] text-slate-800 cursor-pointer"
+                        <div className="space-y-1 max-h-80 overflow-y-auto pr-0.5">
+                          <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 px-1 uppercase tracking-wider pb-0.5 border-b border-slate-100">
+                            <span>Layer Stack (Z-Order)</span>
+                            <span>Visible</span>
+                          </div>
+                          {layerOrder.map((key, idx) => {
+                            const labelMap: Record<string, string> = {
+                              photo: 'Surface Photo',
+                              joints: 'Joint Sets (J1–J8)',
+                              annotations: 'Dip / Strike Callout Labels',
+                              bedding: 'Bedding / Shale (J0)',
+                              faults: 'Faults & Shears (F1)',
+                              fractures: 'Fractures',
+                              foliation: 'Foliation & Lineation',
+                              otherStructures: 'Veins, Clay & Water',
+                              lithology: 'Lithology Zones',
+                              overbreakUndercut: 'Overbreak / Survey Profile',
+                              controlPoints: 'Survey Control Points',
+                            };
+                            const k = key as keyof VectorLayerVisibility;
+                            return (
+                              <div
+                                key={key}
+                                className="flex items-center justify-between py-1 px-1 rounded hover:bg-slate-50 text-[10.5px] text-slate-800 gap-1.5 group"
+                              >
+                                <div className="flex items-center gap-1 min-w-0">
+                                  {/* Shuffle Up / Down buttons */}
+                                  <div className="flex flex-col gap-0.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      disabled={idx === 0}
+                                      onClick={() => handleMoveLayerUp(idx)}
+                                      className="p-0.5 text-[8px] leading-none text-slate-400 hover:text-sky-600 hover:bg-slate-100 rounded disabled:opacity-20 cursor-pointer"
+                                      title="Bring Layer Forward (Shuffle Up)"
+                                    >
+                                      ▲
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={idx === layerOrder.length - 1}
+                                      onClick={() => handleMoveLayerDown(idx)}
+                                      className="p-0.5 text-[8px] leading-none text-slate-400 hover:text-sky-600 hover:bg-slate-100 rounded disabled:opacity-20 cursor-pointer"
+                                      title="Send Layer Backward (Shuffle Down)"
+                                    >
+                                      ▼
+                                    </button>
+                                  </div>
+                                  <span className="truncate text-slate-700 font-medium">
+                                    {labelMap[key] || key}
+                                  </span>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={layerVisibility[k] !== false}
+                                  onChange={(e) =>
+                                    setLayerVisibility((prev) => ({
+                                      ...prev,
+                                      [k]: e.target.checked,
+                                    }))
+                                  }
+                                  className="w-3.5 h-3.5 rounded-xs border-slate-300 text-sky-600 cursor-pointer shrink-0"
+                                />
+                              </div>
+                            );
+                          })}
+                          <div className="pt-1 border-t border-slate-100 flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setLayerOrder([
+                                  'photo',
+                                  'lithology',
+                                  'overbreakUndercut',
+                                  'bedding',
+                                  'faults',
+                                  'fractures',
+                                  'foliation',
+                                  'otherStructures',
+                                  'joints',
+                                  'controlPoints',
+                                  'annotations',
+                                ])
+                              }
+                              className="text-[9px] text-slate-500 hover:text-slate-800 font-semibold cursor-pointer"
                             >
-                              <span>{item.label}</span>
-                              <input
-                                type="checkbox"
-                                checked={layerVisibility[item.key]}
-                                onChange={(e) =>
-                                  setLayerVisibility((prev) => ({
-                                    ...prev,
-                                    [item.key]: e.target.checked,
-                                  }))
-                                }
-                                className="w-3.5 h-3.5 rounded-xs border-slate-300 text-sky-600 cursor-pointer"
-                              />
-                            </label>
-                          ))}
+                              Reset Layer Order
+                            </button>
+                            <span className="text-[9px] font-mono text-slate-400">
+                              Top = Front
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </>
@@ -7854,6 +7947,49 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                       >
                         {cp.label}
                       </text>
+                      {/* Small, non-disturbing deviation mm badge near point */}
+                      {(() => {
+                        let devMm = cp.deviationMm;
+                        if (devMm === undefined && activeSurface === 'face' && (geometry.crossSectionPoints?.length || 0) >= 2) {
+                          let minD = Infinity;
+                          const bPts = geometry.crossSectionPoints;
+                          for (let i = 0; i < bPts.length; i++) {
+                            const pA = bPts[i];
+                            const pB = bPts[(i + 1) % bPts.length];
+                            const segLenSq = (pB.x - pA.x) ** 2 + (pB.y - pA.y) ** 2;
+                            let d = 0;
+                            if (segLenSq === 0) {
+                              d = Math.hypot(cp.point.x - pA.x, cp.point.y - pA.y);
+                            } else {
+                              const t = Math.max(0, Math.min(1, ((cp.point.x - pA.x) * (pB.x - pA.x) + (cp.point.y - pA.y) * (pB.y - pA.y)) / segLenSq));
+                              const projX = pA.x + t * (pB.x - pA.x);
+                              const projY = pA.y + t * (pB.y - pA.y);
+                              d = Math.hypot(cp.point.x - projX, cp.point.y - projY);
+                            }
+                            if (d < minD) minD = d;
+                          }
+                          devMm = Math.round(minD * 1000) * (isOutsideOutline ? 1 : -1);
+                        }
+                        if (devMm === undefined || Math.abs(devMm) === 0) return null;
+                        const isPos = devMm > 0;
+                        return (
+                          <text
+                            x={cx + 9}
+                            y={cy + 7}
+                            textAnchor="start"
+                            fontSize="7.5"
+                            fontWeight="800"
+                            fontFamily="IBM Plex Mono, monospace"
+                            fill={isPos ? (isLight ? '#047857' : '#34D399') : (isLight ? '#B45309' : '#FBBF24')}
+                            stroke={isLight ? 'rgba(255,255,255,0.95)' : 'rgba(11,14,20,0.95)'}
+                            strokeWidth="2.2"
+                            paintOrder="stroke"
+                            className="pointer-events-none select-none"
+                          >
+                            {isPos ? `+${devMm}mm` : `${devMm}mm`}
+                          </text>
+                        );
+                      })()}
                     </g>
                   );
                 })}
@@ -11096,6 +11232,137 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
                           className="w-full px-1.5 py-1 bg-slate-50 border border-slate-300 rounded text-slate-900"
                         />
                       </label>
+                    </div>
+                    {/* Deviation (mm) / Overbreak / Undercut Selector */}
+                    <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-700">Radial Deviation (mm)</span>
+                        <span
+                          className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                            (selectedControlPoint.deviationMm ?? 0) > 0
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : (selectedControlPoint.deviationMm ?? 0) < 0
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                              : 'bg-slate-100 text-slate-700 border border-slate-300'
+                          }`}
+                        >
+                          {(selectedControlPoint.deviationMm ?? 0) > 0
+                            ? `+${selectedControlPoint.deviationMm}mm (Overbreak)`
+                            : (selectedControlPoint.deviationMm ?? 0) < 0
+                            ? `${selectedControlPoint.deviationMm}mm (Undercut)`
+                            : '0mm (On Design)'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          step="5"
+                          placeholder="e.g. 120 or -45"
+                          value={selectedControlPoint.deviationMm ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? undefined : parseInt(e.target.value, 10);
+                            handleUpdateControlPointsWithHistory((prev) =>
+                              prev.map((cp) =>
+                                cp.id === selectedControlPoint.id
+                                  ? {
+                                      ...cp,
+                                      deviationMm: val,
+                                      deviationType:
+                                        val === undefined
+                                          ? undefined
+                                          : val > 0
+                                          ? 'overbreak'
+                                          : val < 0
+                                          ? 'undercut'
+                                          : 'on_design',
+                                    }
+                                  : cp
+                              )
+                            );
+                          }}
+                          className="flex-1 px-2 py-1 bg-slate-50 border border-slate-300 rounded font-mono text-xs text-slate-900 font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const bPts = geometry.crossSectionPoints || [];
+                            if (bPts.length >= 2) {
+                              let minD = Infinity;
+                              for (let i = 0; i < bPts.length; i++) {
+                                const pA = bPts[i];
+                                const pB = bPts[(i + 1) % bPts.length];
+                                const segLenSq = (pB.x - pA.x) ** 2 + (pB.y - pA.y) ** 2;
+                                let d = 0;
+                                if (segLenSq === 0) {
+                                  d = Math.hypot(selectedControlPoint.point.x - pA.x, selectedControlPoint.point.y - pA.y);
+                                } else {
+                                  const t = Math.max(0, Math.min(1, ((selectedControlPoint.point.x - pA.x) * (pB.x - pA.x) + (selectedControlPoint.point.y - pA.y) * (pB.y - pA.y)) / segLenSq));
+                                  const projX = pA.x + t * (pB.x - pA.x);
+                                  const projY = pA.y + t * (pB.y - pA.y);
+                                  d = Math.hypot(selectedControlPoint.point.x - projX, selectedControlPoint.point.y - projY);
+                                }
+                                if (d < minD) minD = d;
+                              }
+                              const isOutside = !isPointInsideSurface(selectedControlPoint.point, activeSurface, geometry, settings);
+                              const mmVal = Math.round(minD * 1000) * (isOutside ? 1 : -1);
+                              handleUpdateControlPointsWithHistory((prev) =>
+                                prev.map((cp) =>
+                                  cp.id === selectedControlPoint.id
+                                    ? {
+                                        ...cp,
+                                        deviationMm: mmVal,
+                                        deviationType: mmVal > 0 ? 'overbreak' : mmVal < 0 ? 'undercut' : 'on_design',
+                                      }
+                                    : cp
+                                )
+                              );
+                            }
+                          }}
+                          className="px-2 py-1 bg-sky-100 hover:bg-sky-200 text-sky-800 border border-sky-300 rounded text-[9.5px] font-bold cursor-pointer transition shrink-0"
+                          title="Auto calculate exact radial mm from tunnel design outline"
+                        >
+                          Auto Calc mm
+                        </button>
+                      </div>
+
+                      {/* Quick Presets Chips */}
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                        <span className="text-[9px] text-slate-400 mr-0.5">Presets:</span>
+                        {[
+                          { label: '+50mm', val: 50, col: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300' },
+                          { label: '+100mm', val: 100, col: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300' },
+                          { label: '+150mm', val: 150, col: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300' },
+                          { label: '+200mm', val: 200, col: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300' },
+                          { label: '0mm', val: 0, col: 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-300' },
+                          { label: '-30mm', val: -30, col: 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-300' },
+                          { label: '-50mm', val: -50, col: 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-300' },
+                          { label: '-100mm', val: -100, col: 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-300' },
+                        ].map((preset) => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              handleUpdateControlPointsWithHistory((prev) =>
+                                prev.map((cp) =>
+                                  cp.id === selectedControlPoint.id
+                                    ? {
+                                        ...cp,
+                                        deviationMm: preset.val,
+                                        deviationType: preset.val > 0 ? 'overbreak' : preset.val < 0 ? 'undercut' : 'on_design',
+                                      }
+                                    : cp
+                                )
+                              );
+                            }}
+                            className={`px-1.5 py-0.5 rounded border text-[9px] font-mono font-bold cursor-pointer transition ${preset.col} ${
+                              selectedControlPoint.deviationMm === preset.val ? 'ring-1 ring-slate-800 font-extrabold' : ''
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}

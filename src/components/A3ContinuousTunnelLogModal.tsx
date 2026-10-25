@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import {
+  Box,
   Check,
   CheckCircle2,
   Download,
@@ -15,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  ContinuousStripTrace,
   ContinuousTunnelStripDataset,
   createPowerTunnelReferenceDataset,
   exportContinuousStripToDXF,
@@ -26,6 +28,7 @@ import { exportContinuousTunnelLogAsA3Pdf } from '../engine/fieldMappingEngine';
 import {
   EswaCadContinuousStripModal,
 } from './EswaCadContinuousStripModal';
+import { ContinuousTunnel3DCanvas } from './ContinuousTunnel3DCanvas';
 
 export interface A3ContinuousTunnelLogModalProps {
   isOpen: boolean;
@@ -58,6 +61,8 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
 
   // CAD Modal state - opens immediately if initialCadOpen is set
   const [isCadModalOpen, setIsCadModalOpen] = useState<boolean>(Boolean(initialCadOpen));
+  const [is3DCanvasOpen, setIs3DCanvasOpen] = useState<boolean>(false);
+  const [selected3DTraceId, setSelected3DTraceId] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialCadOpen) {
@@ -115,13 +120,9 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
   const rightWallHeight = dataset.rightWallHeightM || dataset.rightWallArcLengthM || 4.5;
   const totalPerimeterM = leftWallHeight + crownWidth + rightWallHeight;
 
-  // Active pulls (use dataset pulls or fallback to power tunnel template pulls so template is never empty)
+  // Active pulls strictly based on available dataset (no fake auto-data)
   const displayPulls = useMemo(() => {
-    if (dataset.pulls && dataset.pulls.length > 0) {
-      return dataset.pulls;
-    }
-    // Fallback to Power Tunnel pulls
-    return createPowerTunnelReferenceDataset().pulls;
+    return dataset.pulls || [];
   }, [dataset.pulls]);
 
   // Save changes from CAD back to state & memory
@@ -221,22 +222,22 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
   return (
     <>
       <div className="fixed inset-0 z-[9992] flex flex-col bg-stone-950 text-stone-100 overflow-hidden animate-in fade-in duration-200">
-        {/* Top Control Header Bar */}
-        <div className="h-14 bg-stone-900 border-b border-stone-800 px-4 flex items-center justify-between shrink-0 shadow-lg print:hidden gap-3">
+        {/* Top Control Header Bar - Harmonized & Cleanly Grouped */}
+        <div className="h-14 bg-stone-900 border-b border-stone-800 px-3 sm:px-4 flex items-center justify-between shrink-0 shadow-lg print:hidden gap-3 z-30">
           {/* Left: Info */}
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="w-8 h-8 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400">
+          <div className="flex items-center gap-3 shrink min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400 shrink-0">
               <FileSpreadsheet className="w-4 h-4" />
             </div>
-            <div>
-              <h1 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                A3 Continuous Tunnel Log Window
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">
+            <div className="min-w-0">
+              <h1 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2 truncate">
+                <span className="truncate">A3 Continuous Tunnel Log</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30 shrink-0">
                   CH {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m
                 </span>
                 {dataset.reviewStatus && (
                   <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded border shrink-0 ${
                       dataset.reviewStatus === 'APPROVED'
                         ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
                         : dataset.reviewStatus === 'SUBMITTED_FOR_REVIEW'
@@ -255,54 +256,67 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
           </div>
 
           {/* Center: Sheet Zoom & Scale Info */}
-          <div className="flex items-center gap-2 bg-stone-950 px-3 py-1.5 rounded-xl border border-stone-800 text-xs">
-            <span className="font-semibold text-stone-300 hidden sm:inline">A3 Technical Drawing</span>
-            <div className="flex items-center gap-1 border-l border-stone-800 pl-2">
-              <button
-                type="button"
-                onClick={() => setSheetZoom(1.0)}
-                className="px-2 py-0.5 rounded font-mono text-[11px] text-stone-200 hover:text-white bg-stone-900 border border-stone-800 cursor-pointer"
-                title="Mouse Wheel / 2-Finger Pinch to Zoom. Click to reset to 100%."
-              >
-                {Math.round(sheetZoom * 100)}% (1:1)
-              </button>
-            </div>
+          <div className="hidden md:flex items-center gap-2 bg-stone-950 px-3 py-1 rounded-lg border border-stone-800 text-xs h-8">
+            <span className="font-semibold text-stone-300">A3 Technical Drawing</span>
+            <div className="h-3.5 w-px bg-stone-800" />
+            <button
+              type="button"
+              onClick={() => setSheetZoom(1.0)}
+              className="px-2 py-0.5 rounded font-mono text-[11px] text-stone-200 hover:text-white bg-stone-900 border border-stone-800 cursor-pointer"
+              title="Mouse Wheel / 2-Finger Pinch to Zoom. Click to reset to 100%."
+            >
+              {Math.round(sheetZoom * 100)}% (1:1)
+            </button>
           </div>
 
-          {/* Right Action Buttons */}
+          {/* Right Action Buttons: All unified to h-8 */}
           <div className="flex items-center gap-2 shrink-0">
-            {/* Step-by-Step Customizer Button */}
+            {/* Cluster 1: Edit & Model */}
+            <div className="flex items-center bg-stone-800 border border-stone-700 rounded-lg p-0.5 h-8">
+              <button
+                type="button"
+                onClick={() => setIsCadModalOpen(true)}
+                className="h-7 px-2.5 rounded-md bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                title="Open ESWA CAD to edit the continuous strip canvas, move joints, add discontinuities, and lithology"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-white" />
+                <span>Edit CAD Canvas</span>
+              </button>
+              <div className="h-3.5 w-px bg-stone-700 mx-0.5" />
+              <button
+                type="button"
+                onClick={() => setIs3DCanvasOpen(true)}
+                className="h-7 px-2.5 rounded-md text-stone-200 hover:text-white hover:bg-stone-700/80 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                title="Open 3D Continuous Tunnel Canvas to inspect each joint in 3D"
+              >
+                <Box className="w-3.5 h-3.5 text-amber-300" />
+                <span>3D Canvas</span>
+              </button>
+            </div>
+
+            {/* Cluster 2: Customizer Drawer Toggle */}
             <button
               type="button"
               onClick={() => setIsCustomizerOpen(!isCustomizerOpen)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer border ${
+              className={`h-8 px-2.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border ${
                 isCustomizerOpen
-                  ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-md'
-                  : 'bg-stone-800 hover:bg-stone-700 text-stone-200 border-stone-700'
+                  ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-xs font-bold'
+                  : 'bg-stone-800 hover:bg-stone-750 text-stone-200 border-stone-700'
               }`}
               title="Open step-by-step customizer to adjust title block, bands, and formatting"
             >
               <Sliders className="w-3.5 h-3.5 text-amber-400" />
-              <span>Step-by-Step Edit</span>
+              <span className="hidden sm:inline">Customize Report</span>
             </button>
 
-            {/* Edit Canvas -> Opens ESWA CAD */}
-            <button
-              type="button"
-              onClick={() => setIsCadModalOpen(true)}
-              className="px-3.5 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-orange-600/25 transition cursor-pointer"
-              title="Open ESWA CAD to edit the continuous strip canvas, move joints, add discontinuities, and lithology"
-            >
-              <Edit3 className="w-3.5 h-3.5 text-white" />
-              <span>Edit Canvas (ESWA CAD)</span>
-            </button>
+            <div className="h-4 w-px bg-stone-800 shrink-0 hidden sm:block" />
 
-            {/* Download A3 Landscape PDF */}
+            {/* Cluster 3: Output Actions */}
             <button
               type="button"
               disabled={isExportingA3}
               onClick={handleExportA3Pdf}
-              className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer ${
+              className={`h-8 px-3 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer ${
                 isExportingA3
                   ? 'bg-orange-400 text-stone-950 opacity-75 cursor-wait'
                   : 'bg-orange-600 hover:bg-orange-500 text-white shadow-orange-600/20'
@@ -310,38 +324,38 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
               title="Download high-resolution A3 Landscape PDF (420×297mm)"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{isExportingA3 ? 'Exporting A3...' : 'Download A3 PDF'}</span>
+              <span>{isExportingA3 ? 'Exporting...' : 'A3 PDF'}</span>
             </button>
 
-            {/* Print A3 */}
             <button
               type="button"
               onClick={handlePrintA3}
-              className="px-2.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs flex items-center gap-1.5 border border-stone-700 transition cursor-pointer"
+              className="h-8 px-2.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium text-xs flex items-center gap-1.5 border border-stone-700 transition cursor-pointer hidden md:flex"
               title="Print A3 Drawing Sheet"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print A3</span>
+              <span>Print</span>
             </button>
 
-            {/* Export DXF */}
             <button
               type="button"
               onClick={handleExportDxf}
-              className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition cursor-pointer"
+              className="h-8 w-8 rounded-lg text-stone-300 hover:text-white hover:bg-stone-800 border border-stone-700 transition cursor-pointer flex items-center justify-center shrink-0"
               title="Export AutoCAD DXF"
             >
               <FileCode2 className="w-4 h-4" />
             </button>
 
+            <div className="h-4 w-px bg-stone-800 shrink-0" />
+
             {/* Close */}
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition cursor-pointer ml-1"
+              className="h-8 w-8 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition cursor-pointer flex items-center justify-center shrink-0"
               title="Close Window"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -1485,6 +1499,78 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Full-Screen 3D Continuous Tunnel Canvas Modal */}
+      {is3DCanvasOpen && (
+        <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950 text-slate-100 overflow-hidden animate-in fade-in duration-200">
+          <div className="h-12 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between shrink-0 shadow-lg">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400">
+                <Box className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                  3D Continuous Tunnel Canvas &amp; Joint Inspector
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                    CH {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m
+                  </span>
+                </h2>
+                <p className="text-[10.5px] text-slate-400">
+                  Interactive 3D tunnel cylinder • Click any joint to inspect orientation &amp; text • Rotate, pan &amp; zoom
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIs3DCanvasOpen(false);
+                  setIsCadModalOpen(true);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer border border-slate-700"
+              >
+                <Sliders className="w-3.5 h-3.5 text-blue-400" />
+                <span>Open in 2D ESWA CAD</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIs3DCanvasOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 w-full h-full relative overflow-hidden bg-white">
+            <ContinuousTunnel3DCanvas
+              dataset={dataset}
+              selectedTraceId={selected3DTraceId}
+              onSelectTrace={(id) => setSelected3DTraceId(id)}
+              onUpdateTrace={(updatedTrace) => {
+                const updated: ContinuousTunnelStripDataset = {
+                  ...dataset,
+                  traces: (dataset.traces || []).map((t) => (t.id === updatedTrace.id ? updatedTrace : t)),
+                  updatedAt: new Date().toISOString(),
+                };
+                setDataset(updated);
+                onUpdateDataset(updated);
+              }}
+              onDeleteTrace={(traceId) => {
+                const updated: ContinuousTunnelStripDataset = {
+                  ...dataset,
+                  traces: (dataset.traces || []).filter((t) => t.id !== traceId),
+                  updatedAt: new Date().toISOString(),
+                };
+                setDataset(updated);
+                onUpdateDataset(updated);
+                setSelected3DTraceId(null);
+              }}
+            />
           </div>
         </div>
       )}

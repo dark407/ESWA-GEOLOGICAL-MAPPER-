@@ -365,7 +365,7 @@ export const SupportAndGeotechnicalReferenceModal: React.FC<SupportAndGeotechnic
                   >
                     {savedProjects.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.projectName} ({p.projectCode})
+                        {p.projectName || p.tunnelName} ({p.location || 'Heading 01'})
                       </option>
                     ))}
                   </select>
@@ -376,14 +376,14 @@ export const SupportAndGeotechnicalReferenceModal: React.FC<SupportAndGeotechnic
                 <div className="space-y-3">
                   <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-sm text-emerald-400">{activeProject.projectName}</span>
-                      <span className="text-[10.5px] font-mono text-slate-400">Code: {activeProject.projectCode}</span>
+                      <span className="font-extrabold text-sm text-emerald-400">{activeProject.projectName || activeProject.tunnelName}</span>
+                      <span className="text-[10.5px] font-mono text-slate-400">ID: {activeProject.id.slice(-6).toUpperCase()}</span>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-slate-300 pt-1">
-                      <div><span className="text-slate-500 font-bold">Client:</span> {activeProject.clientName || 'N/A'}</div>
-                      <div><span className="text-slate-500 font-bold">Consultant:</span> {activeProject.consultantName || 'N/A'}</div>
-                      <div><span className="text-slate-500 font-bold">Contractor:</span> {activeProject.contractorName || 'N/A'}</div>
-                      <div><span className="text-slate-500 font-bold">Locations:</span> {activeProject.tunnelLocations?.length || 1} Headings</div>
+                      <div><span className="text-slate-500 font-bold">Client:</span> {activeProject.settings?.sheetConfig?.clientSignName || 'N/A'}</div>
+                      <div><span className="text-slate-500 font-bold">Consultant:</span> {activeProject.settings?.sheetConfig?.consultantSignName || 'N/A'}</div>
+                      <div><span className="text-slate-500 font-bold">Contractor:</span> {activeProject.settings?.sheetConfig?.contractorSignName || 'N/A'}</div>
+                      <div><span className="text-slate-500 font-bold">Location:</span> {activeProject.location || 'Main Heading'}</div>
                     </div>
                   </div>
 
@@ -400,17 +400,16 @@ export const SupportAndGeotechnicalReferenceModal: React.FC<SupportAndGeotechnic
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800 font-mono text-[11px]">
-                        {(activeProject.tunnelLocations || [
+                        {[
                           {
-                            id: 'loc_main',
-                            name: 'Main Drive Heading 01',
-                            shape: 'horseshoe',
-                            widthM: 8.5,
-                            heightM: 7.2,
-                            chainageStartM: 100,
-                            chainageEndM: 450,
+                            id: activeProject.id,
+                            name: activeProject.location || activeProject.settings?.location || 'Main Heading 01',
+                            shape: activeProject.geometry?.profileType || 'horseshoe',
+                            widthM: activeProject.geometry?.width || 8.5,
+                            heightM: activeProject.geometry?.height || 7.2,
+                            chainageLabel: `${activeProject.chainage || activeProject.faceChainage || 'CH 0+00.0m'}`,
                           },
-                        ]).map((loc, idx) => (
+                        ].map((loc, idx) => (
                           <tr key={loc.id || idx} className="hover:bg-slate-850">
                             <td className="p-2.5 font-bold text-slate-100 flex items-center gap-1.5">
                               <MapPin className="w-3.5 h-3.5 text-emerald-400" />
@@ -420,7 +419,7 @@ export const SupportAndGeotechnicalReferenceModal: React.FC<SupportAndGeotechnic
                               {loc.shape?.toUpperCase() || 'HORSESHOE'} ({loc.widthM}m × {loc.heightM}m)
                             </td>
                             <td className="p-2.5 text-slate-300">
-                              CH {loc.chainageStartM ?? 0}m – {loc.chainageEndM ?? 500}m
+                              {loc.chainageLabel}
                             </td>
                             <td className="p-2.5">
                               <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600 font-bold text-[10px]">

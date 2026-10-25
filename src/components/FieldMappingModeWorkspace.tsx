@@ -868,13 +868,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [canvasLayerOrder, setCanvasLayerOrder] = useState<CanvasLayerId[]>(DEFAULT_CANVAS_LAYER_ORDER);
   const [canvasLayerVisibility, setCanvasLayerVisibility] = useState<Record<CanvasLayerId, boolean>>({
     photo: true,
-    grid: true,
+    underlay_grid: true,
     lithology: true,
     dip_surfaces: true,
     features: true,
     water: true,
     joints: true,
-    active_draw: true,
+    channels: true,
+    design_outline: true,
   });
   const [isLayerShuffleModalOpen, setIsLayerShuffleModalOpen] = useState<boolean>(false);
 
@@ -8413,7 +8414,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               ) : null;
                             }
 
-                            if (layerKey === 'grid') {
+                            if (layerKey === 'underlay_grid') {
                               return (
                                 <FieldCanvasGeometryReferenceOverlay
                                   key="fcanv-layer-grid"
@@ -8956,7 +8957,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       );
                     }
 
-                    if (layerKey === 'active_draw') {
+                    if (layerKey === 'design_outline') {
                       return (
                         <g key="fcanv-layer-active-draw">
                           {/* Exact Outline Snap Target Ring when hovering or starting/ending near the tunnel outline */}
@@ -12520,13 +12521,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         onClose={() => setIsLayerShuffleModalOpen(false)}
         layerOrder={canvasLayerOrder}
         layerVisibility={canvasLayerVisibility}
-        onUpdateLayerOrder={setCanvasLayerOrder}
+        onChangeLayerOrder={setCanvasLayerOrder}
         onToggleLayerVisibility={(layerId) =>
           setCanvasLayerVisibility((prev) => ({
             ...prev,
             [layerId]: !prev[layerId],
           }))
         }
+        onResetDefault={() => setCanvasLayerOrder(DEFAULT_CANVAS_LAYER_ORDER)}
       />
 
       </div>

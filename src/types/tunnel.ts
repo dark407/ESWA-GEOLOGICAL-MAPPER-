@@ -1308,6 +1308,8 @@ export interface SurveyControlPoint {
   color?: string;
   visible?: boolean; // Hide/show support (default true)
   locked?: boolean;  // Lock/unlock support (default false)
+  deviationMm?: number; // mm overbreak (positive e.g. +120) or undercut (negative e.g. -45)
+  deviationType?: 'overbreak' | 'undercut' | 'on_design';
 }
 
 export type OverbreakReasonCategory = 'GEOLOGICAL' | 'MECHANICAL_EXCAVATION';

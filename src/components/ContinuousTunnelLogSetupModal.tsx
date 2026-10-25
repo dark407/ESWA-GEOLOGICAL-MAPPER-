@@ -169,132 +169,8 @@ export const ContinuousTunnelLogSetupModal: React.FC<ContinuousTunnelLogSetupMod
       return items.sort((a, b) => a.fromRd - b.fromRd);
     }
 
-    // Benchmark synthesized rounds if none exist yet for instant demonstration
-    const baseCh = selectedProject.toLowerCase().includes('power tunnel') ? 250 : 0;
-    const sampleFaces: ExcavationFaceItem[] = [
-      {
-        id: 'bench-f1',
-        roundNumber: 84,
-        title: `Face Round #84 (Ch ${baseCh}.0m - ${baseCh + 3}.0m)`,
-        fromRd: baseCh,
-        toRd: baseCh + 3,
-        advanceM: 3.0,
-        date: '18/03/24',
-        rockType: 'Quartzite (Medium Grained)',
-        rockClass: 'Class II',
-        qValue: 7.8,
-        rmrValue: 63,
-        geologist: 'S. Sharma',
-        isBenchmark: true,
-      },
-      {
-        id: 'bench-f2',
-        roundNumber: 85,
-        title: `Face Round #85 (Ch ${baseCh + 3}.0m - ${baseCh + 6}.0m)`,
-        fromRd: baseCh + 3,
-        toRd: baseCh + 6,
-        advanceM: 3.0,
-        date: '19/03/24',
-        rockType: 'Quartzitic Phyllite (Silvery)',
-        rockClass: 'Class III',
-        qValue: 4.1,
-        rmrValue: 52,
-        geologist: 'S. Sharma',
-        isBenchmark: true,
-      },
-      {
-        id: 'bench-f3',
-        roundNumber: 86,
-        title: `Face Round #86 (Ch ${baseCh + 6}.0m - ${baseCh + 9}.0m)`,
-        fromRd: baseCh + 6,
-        toRd: baseCh + 9,
-        advanceM: 3.0,
-        date: '20/03/24',
-        rockType: 'Phyllite with Shear Zone',
-        rockClass: 'Class IV',
-        qValue: 1.2,
-        rmrValue: 38,
-        geologist: 'S. Sharma',
-        isBenchmark: true,
-      },
-      {
-        id: 'bench-f4',
-        roundNumber: 87,
-        title: `Face Round #87 (Ch ${baseCh + 9}.0m - ${baseCh + 12}.0m)`,
-        fromRd: baseCh + 9,
-        toRd: baseCh + 12,
-        advanceM: 3.0,
-        date: '21/03/24',
-        rockType: 'Quartzite (Massive)',
-        rockClass: 'Class II',
-        qValue: 9.4,
-        rmrValue: 68,
-        geologist: 'S. Sharma',
-        isBenchmark: true,
-      },
-      {
-        id: 'bench-f5',
-        roundNumber: 88,
-        title: `Face Round #88 (Ch ${baseCh + 12}.0m - ${baseCh + 15}.0m)`,
-        fromRd: baseCh + 12,
-        toRd: baseCh + 15,
-        advanceM: 3.0,
-        date: '22/03/24',
-        rockType: 'Quartzite with Veins',
-        rockClass: 'Class I',
-        qValue: 12.0,
-        rmrValue: 74,
-        geologist: 'S. Sharma',
-        isBenchmark: true,
-      },
-      {
-        id: 'bench-f6',
-        roundNumber: 89,
-        title: `Face Round #89 (Ch ${baseCh + 15}.0m - ${baseCh + 18}.0m)`,
-        fromRd: baseCh + 15,
-        toRd: baseCh + 18,
-        advanceM: 3.0,
-        date: '23/03/24',
-        rockType: 'Siltstone Intercalated',
-        rockClass: 'Class III',
-        qValue: 5.2,
-        rmrValue: 56,
-        geologist: 'A. K. Verma',
-        isBenchmark: true,
-      },
-      {
-        id: 'bench-f7',
-        roundNumber: 90,
-        title: `Face Round #90 (Ch ${baseCh + 18}.0m - ${baseCh + 21}.0m)`,
-        fromRd: baseCh + 18,
-        toRd: baseCh + 21,
-        advanceM: 3.0,
-        date: '24/03/24',
-        rockType: 'Quartzite Hard Bed',
-        rockClass: 'Class II',
-        qValue: 8.1,
-        rmrValue: 65,
-        geologist: 'A. K. Verma',
-        isBenchmark: true,
-      },
-      {
-        id: 'bench-f8',
-        roundNumber: 91,
-        title: `Face Round #91 (Ch ${baseCh + 21}.0m - ${baseCh + 24}.0m)`,
-        fromRd: baseCh + 21,
-        toRd: baseCh + 24,
-        advanceM: 3.0,
-        date: '25/03/24',
-        rockType: 'Mica Schist Band',
-        rockClass: 'Class IV',
-        qValue: 2.0,
-        rmrValue: 42,
-        geologist: 'A. K. Verma',
-        isBenchmark: true,
-      },
-    ];
-
-    return sampleFaces;
+    // If no matching face records logged yet, strictly keep empty without auto-feeding fake data
+    return [];
   }, [matchingFaceRounds, selectedProject, selectedLocation]);
 
   // Selected face IDs state
@@ -355,13 +231,7 @@ export const ContinuousTunnelLogSetupModal: React.FC<ContinuousTunnelLogSetupMod
   const prepareTargetDataset = (): ContinuousTunnelStripDataset => {
     let dataset: ContinuousTunnelStripDataset;
 
-    if (selectedProject.toLowerCase().includes('power tunnel') || matchingFaceRounds.length === 0) {
-      dataset = createPowerTunnelReferenceDataset();
-      dataset.projectName = selectedProject;
-      dataset.tunnelLocationName = selectedLocation;
-      dataset.viewFromRd = fromChainage;
-      dataset.viewToRd = toChainage;
-    } else if (matchingFaceRounds.length > 0) {
+    if (matchingFaceRounds.length > 0) {
       const existingDatasets = loadAllContinuousStripDatasets();
       const synced = syncSavedProjectsIntoStripDatasets(existingDatasets, matchingFaceRounds);
 
@@ -383,11 +253,15 @@ export const ContinuousTunnelLogSetupModal: React.FC<ContinuousTunnelLogSetupMod
       }
       dataset = target;
     } else {
-      dataset = createPowerTunnelReferenceDataset();
+      // Data not available: keep empty without auto-feeding fake data
+      dataset = createFreshDefaultStripDataset();
       dataset.projectName = selectedProject;
       dataset.tunnelLocationName = selectedLocation;
       dataset.viewFromRd = fromChainage;
       dataset.viewToRd = toChainage;
+      dataset.pulls = [];
+      dataset.traces = [];
+      dataset.lithologyZones = [];
     }
 
     const all = loadAllContinuousStripDatasets();
@@ -533,7 +407,15 @@ export const ContinuousTunnelLogSetupModal: React.FC<ContinuousTunnelLogSetupMod
 
             {/* Scrollable Faces List */}
             <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
-              {allAvailableFaces.map((face) => {
+              {allAvailableFaces.length === 0 ? (
+                <div className="p-5 text-center border-2 border-dashed border-stone-200 rounded-xl bg-stone-50/50 text-stone-500 my-2">
+                  <div className="text-xs font-bold text-stone-700">No Face Rounds Logged for this Location</div>
+                  <p className="text-[11px] text-stone-500 mt-1 max-w-md mx-auto">
+                    Only mapped data from Underground Face Mapping is synced here. Map excavation faces to see continuous 3D tunnel logs.
+                  </p>
+                </div>
+              ) : (
+                allAvailableFaces.map((face) => {
                 const isSelected = selectedFaceIds.includes(face.id);
                 const isStart = fromChainage === face.fromRd;
                 const isEnd = toChainage === face.toRd;
@@ -622,7 +504,7 @@ export const ContinuousTunnelLogSetupModal: React.FC<ContinuousTunnelLogSetupMod
                     </div>
                   </div>
                 );
-              })}
+              }))}
             </div>
           </div>
 
