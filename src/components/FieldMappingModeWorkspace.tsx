@@ -335,7 +335,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   };
 
-  const savedResume = useMemo(() => loadFieldMappingResumeState(), []);
+  const savedResume = useMemo(() => loadFieldMappingResumeState(initialMappingDomain), [initialMappingDomain]);
   const [workflowMode, setWorkflowMode] = useState<'field_mapping' | 'photo_mapping'>(
     initialWorkflowMode
   );
@@ -409,6 +409,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
     // 4. Update surface geometry parameters
     if (nextDomain !== 'TUNNEL') {
+      if (stage === 'strip_align' || stage === 'survey_overbreak') {
+        setStage('field_canvas');
+      }
       const loaded = loadSavedSurfaceGeometryParameters(nextDomain as SurfaceMappingSubType);
       const updated = { ...loaded, subType: nextDomain as SurfaceMappingSubType };
       setSurfaceParams(updated);
@@ -899,28 +902,76 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   }, [canShowSplitOption, dualCanvasMobileTab]);
   const [is3DMappingMode, setIs3DMappingMode] = useState<boolean>(() =>
     resumeAtLastStage && typeof savedResume?.is3DMappingMode === 'boolean'
-      ? savedResume.is3DMappingMode
+      ? savedResume.is3DMappingMode && initialMappingDomain === 'TUNNEL'
       : false
   );
   const [syncTrace3DState, setSyncTrace3DState] = useState<Field3DSyncTraceState | null>(null);
 
+  // Surface mapping domains (Trench, Rock Surface, Slope, Bench) strictly use 2D canvas - reset 3D mode
+  useEffect(() => {
+    if (mappingDomain !== 'TUNNEL' && is3DMappingMode) {
+      setIs3DMappingMode(false);
+    }
+  }, [mappingDomain, is3DMappingMode]);
+
   // Automatically persist where the user is working (debounced so it never blocks drawing)
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      saveFieldMappingResumeState({
-        stage,
-        activeProjectId: activeProject?.id || store.activeProjectId,
-        activeLocationId: activeLocation?.id || store.activeLocationId,
-        activeRoundId: activeRound?.id || store.activeRoundId,
-        activePanel,
-        is3DMappingMode,
-        chainageLabel: activeRound
-          ? `CH ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
-          : 'Field Session',
-        locationLabel: activeLocation?.name || activeProject?.projectName || 'Tunnel Heading',
-        stageLabel: FIELD_STAGE_LABELS[stage] || stage,
-        updatedAt: new Date().toISOString(),
-      });
+      const curDom = mappingDomainRef.current;
+      if (curDom === 'TUNNEL') {
+        saveFieldMappingResumeState(
+          {
+            stage,
+            activeProjectId: activeProject?.id || store.activeProjectId,
+            activeLocationId: activeLocation?.id || store.activeLocationId,
+            activeRoundId: activeRound?.id || store.activeRoundId,
+            activePanel,
+            is3DMappingMode,
+            mappingDomain: 'TUNNEL',
+            chainageLabel: activeRound
+              ? `CH ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
+              : 'Field Session',
+            locationLabel: activeLocation?.name || activeProject?.projectName || 'Tunnel Heading',
+            stageLabel: FIELD_STAGE_LABELS[stage] || stage,
+            updatedAt: new Date().toISOString(),
+          },
+          'TUNNEL'
+        );
+      } else {
+        saveSurfaceMappingResumeState({
+          subType: curDom as SurfaceMappingSubType,
+          stage,
+          activeProjectId: activeProject?.id || store.activeProjectId,
+          activeLocationId: activeLocation?.id || store.activeLocationId,
+          activeRoundId: activeRound?.id || store.activeRoundId,
+          activePanel,
+          workflowMode: workflowMode === 'photo_mapping' ? 'PHOTOGRAMMETRY' : 'FIELD',
+          stationLabel: activeRound
+            ? `Station ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
+            : 'Surface Session',
+          locationLabel: activeLocation?.name || activeProject?.projectName || 'Surface Exposure',
+          stageLabel: stage,
+          updatedAt: new Date().toISOString(),
+        });
+        saveFieldMappingResumeState(
+          {
+            stage,
+            activeProjectId: activeProject?.id || store.activeProjectId,
+            activeLocationId: activeLocation?.id || store.activeLocationId,
+            activeRoundId: activeRound?.id || store.activeRoundId,
+            activePanel,
+            is3DMappingMode,
+            mappingDomain: curDom,
+            chainageLabel: activeRound
+              ? `Station ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
+              : 'Surface Session',
+            locationLabel: activeLocation?.name || activeProject?.projectName || 'Surface Exposure',
+            stageLabel: FIELD_STAGE_LABELS[stage] || stage,
+            updatedAt: new Date().toISOString(),
+          },
+          curDom
+        );
+      }
     }, 350);
     return () => window.clearTimeout(timer);
   }, [
@@ -3771,7 +3822,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     stage === 'geology_3d_report';
 
   const surfaceSmrAnalysis = useMemo(() => {
-    if (mappingDomain === 'TUNNEL') return null;
+    if (mappingDomain !== 'SLOPE' && mappingDomain !== 'BENCH') return null;
     const rawDiscontinuitySets = activeRound?.discontinuitySets
       ? Array.isArray(activeRound.discontinuitySets)
         ? activeRound.discontinuitySets
@@ -3899,7 +3950,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             <span>Menu</span>
           </button>
 
-          {onOpenContinuousTunnelLog && (
+          {mappingDomain === 'TUNNEL' && onOpenContinuousTunnelLog && (
             <button
               type="button"
               onClick={onOpenContinuousTunnelLog}
@@ -3998,7 +4049,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 : `${stepNum++}. Group Joints`,
             ]);
 
-            // Strip Log: Completely omitted per user specification (No need for strip logging)
+            // Strip Log: Restored for underground face mapping (TUNNEL)
+            if (!isSurface) {
+              rawStages.push([
+                'strip_align',
+                `${stepNum++}. Strip Log`,
+              ]);
+            }
 
             rawStages.push([
               'discontinuity_sets',
@@ -4026,7 +4083,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               ]);
             }
 
-            // Survey: Completely omitted per user specification (No need for survey)
+            // Survey & Overbreak: Restored for underground face mapping (TUNNEL)
+            if (!isSurface) {
+              rawStages.push([
+                'survey_overbreak',
+                `${stepNum++}. Survey & Overbreak`,
+              ]);
+            }
 
             rawStages.push([
               'word_template_export',
@@ -5186,12 +5249,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               </>
                             ) : (
                               <>
-                                {surfaceParams.benchNumberLabel} • Dip Dir{' '}
-                                {String(surfaceParams.faceDipDirectionDeg).padStart(3, '0')}°/
-                                {surfaceParams.faceDipAngleDeg}° •{' '}
-                                {surfaceSmrAnalysis
-                                  ? `SMR ${surfaceSmrAnalysis.governingSmrScore} (Class ${surfaceSmrAnalysis.governingSmrClass})`
-                                  : surfaceParams.excavationMethod}
+                                {mappingDomain === 'TRENCH' ? (
+                                  <>
+                                    Trench ST {rd.chainageFrom}–{rd.chainageTo}m • W={surfaceParams.trenchWidthMeters || 2.0}m × D={surfaceParams.trenchDepthMeters || 2.5}m • Shoring: {surfaceParams.trenchShoringType || 'Trench Box'}
+                                  </>
+                                ) : mappingDomain === 'ROCK_SURFACE' ? (
+                                  <>
+                                    Outcrop Exposure • W={surfaceParams.rockExposureWidthMeters || 12.0}m × H={surfaceParams.rockExposureHeightMeters || 8.0}m • Dip Dir {String(surfaceParams.faceDipDirectionDeg).padStart(3, '0')}°/{surfaceParams.faceDipAngleDeg}°
+                                  </>
+                                ) : mappingDomain === 'SLOPE' ? (
+                                  <>
+                                    Slope Cut • H={surfaceParams.slopeHeightMeters || 18.0}m • Dip Dir {String(surfaceParams.faceDipDirectionDeg).padStart(3, '0')}°/{surfaceParams.faceDipAngleDeg}° • {surfaceSmrAnalysis ? `SMR ${surfaceSmrAnalysis.governingSmrScore} (${surfaceSmrAnalysis.governingSmrClass})` : surfaceParams.excavationMethod}
+                                  </>
+                                ) : (
+                                  <>
+                                    Bench {surfaceParams.benchNumberLabel} • H={surfaceParams.benchHeightMeters || 10.0}m, Berm={surfaceParams.bermWidthMeters || 6.0}m • Dip Dir {String(surfaceParams.faceDipDirectionDeg).padStart(3, '0')}°/{surfaceParams.faceDipAngleDeg}° • {surfaceSmrAnalysis ? `SMR ${surfaceSmrAnalysis.governingSmrScore} (${surfaceSmrAnalysis.governingSmrClass})` : surfaceParams.excavationMethod}
+                                  </>
+                                )}
                               </>
                             )}
                           </div>
@@ -7342,7 +7416,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               </div>
             </div>
             {/* Top Canvas Bar: Panel Transform Image Buttons (Move, Rotate, Mirror Vertical, Mirror Horizontal for Left Wall / Crown / Right Wall) + Zoom & Colour Toggle */}
-            {!(stage === 'field_canvas' && is3DMappingMode) && (
+            {!(stage === 'field_canvas' && is3DMappingMode && mappingDomain === 'TUNNEL') && (
             <div className="flex items-center justify-between px-1 pb-0.5 mb-0.5 border-b border-slate-800 shrink-0 gap-1">
               {stage === 'joint_grouping' || activePanel !== 'face' ? (
                 (() => {
@@ -7799,7 +7873,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             )}
 
             {/* Interactive 3D Tunnel Mapping Canvas (when 3D tab selected) OR 1000×1000 2D Field Canvas */}
-            {stage === 'field_canvas' && is3DMappingMode ? (
+            {stage === 'field_canvas' && is3DMappingMode && mappingDomain === 'TUNNEL' ? (
               <Field3DTunnelCanvas
                 activeLocation={activeLocation}
                 activeRound={activeRound}
@@ -9924,18 +9998,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         </button>
                       ));
                     })()}
-                    <button
-                      type="button"
-                      onClick={() => setIs3DMappingMode(true)}
-                      className={`px-3 py-1 rounded-lg text-[10.5px] sm:text-xs font-black uppercase transition-all whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1 ${
-                        is3DMappingMode
-                          ? 'bg-cyan-500 text-slate-950 shadow'
-                          : 'bg-slate-800 text-cyan-300 border border-cyan-500/40 hover:text-white'
-                      }`}
-                      title={`Switch to 3D ${domainPanelMap.domainTitle} Mapping`}
-                    >
-                      <span>3D</span>
-                    </button>
+                    {mappingDomain === 'TUNNEL' && (
+                      <button
+                        type="button"
+                        onClick={() => setIs3DMappingMode(true)}
+                        className={`px-3 py-1 rounded-lg text-[10.5px] sm:text-xs font-black uppercase transition-all whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1 ${
+                          is3DMappingMode
+                            ? 'bg-cyan-500 text-slate-950 shadow'
+                            : 'bg-slate-800 text-cyan-300 border border-cyan-500/40 hover:text-white'
+                        }`}
+                        title="Switch to 3D Tunnel Mapping"
+                      >
+                        <span>3D</span>
+                      </button>
+                    )}
                   </div>
 
                   <button
@@ -9973,10 +10049,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setStage('discontinuity_sets')}
+                      onClick={() => setStage(mappingDomain === 'TUNNEL' ? 'strip_align' : 'discontinuity_sets')}
                       className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] sm:text-xs uppercase tracking-wider flex items-center gap-1.5 shadow whitespace-nowrap shrink-0 cursor-pointer"
                     >
-                      <span>Discontinuity Sets →</span>
+                      <span>{mappingDomain === 'TUNNEL' ? 'Strip Log →' : 'Discontinuity Sets →'}</span>
                     </button>
                   </div>
                 </>
@@ -10059,7 +10135,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 </button>
               </div>
             </div>
-            {stage === 'field_canvas' && is3DMappingMode && (
+            {stage === 'field_canvas' && is3DMappingMode && mappingDomain === 'TUNNEL' && (
               <div className="mb-1.5 shrink-0">
                 <Field3DNewTraceUnfoldedSyncBox
                   activeLocation={activeLocation}
@@ -11894,7 +11970,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           onUpdateProject={updateActiveProject}
           onUpdateRound={updateActiveRound}
           onUpdateSetRecord={handleUpdateDiscontinuitySet}
-          onBackToStripAlign={() => setStage('joint_grouping')}
+          onBackToStripAlign={() => setStage(mappingDomain === 'TUNNEL' ? 'strip_align' : 'joint_grouping')}
           onContinueToClassifications={() => setStage('q_rmr_gsi')}
         />
       )}
@@ -11927,7 +12003,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           surfaceParams={surfaceParams}
           onUpdateRound={updateActiveRound}
           onBackToClassifications={() => setStage('q_rmr_gsi')}
-          onContinueToSurvey={() => setStage('word_template_export')}
+          onContinueToSurvey={() => setStage(mappingDomain === 'TUNNEL' ? 'survey_overbreak' : 'word_template_export')}
         />
       )}
 
@@ -11990,14 +12066,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               onUpdateProject={updateActiveProject}
               onUpdateRound={updateActiveRound}
               onBackToParams={() => {
-                if (mappingDomain === 'SLOPE' || mappingDomain === 'BENCH' || mappingDomain === 'TUNNEL') {
+                if (mappingDomain === 'TUNNEL') {
+                  setStage('survey_overbreak');
+                } else if (mappingDomain === 'SLOPE' || mappingDomain === 'BENCH') {
                   setStage('support_system');
                 } else {
                   setStage('q_rmr_gsi');
                 }
               }}
               onSaveAndReturnToProjectSetup={() => {
-                saveFieldMappingStore(store);
+                saveFieldMappingStore(store, mappingDomainRef.current);
                 setStage('photo_2d_report');
               }}
             />
@@ -12015,10 +12093,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             mappingDomain={mappingDomain}
             onUpdateRound={(patch) => {
               updateActiveRound((r) => ({ ...r, ...patch }));
-              saveFieldMappingStore(latestStoreRef.current);
+              saveFieldMappingStore(latestStoreRef.current, mappingDomainRef.current);
             }}
             onReturnToFaceList={() => {
-              saveFieldMappingStore(latestStoreRef.current);
+              saveFieldMappingStore(latestStoreRef.current, mappingDomainRef.current);
               setSetupWindowStep('face');
               setStage('project_setup');
             }}
@@ -12055,10 +12133,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             mappingDomain={mappingDomain}
             onUpdateRound={(patch) => {
               updateActiveRound((r) => ({ ...r, ...patch }));
-              saveFieldMappingStore(latestStoreRef.current);
+              saveFieldMappingStore(latestStoreRef.current, mappingDomainRef.current);
             }}
             onReturnToFaceList={() => {
-              saveFieldMappingStore(latestStoreRef.current);
+              saveFieldMappingStore(latestStoreRef.current, mappingDomainRef.current);
               setSetupWindowStep('face');
               setStage('project_setup');
             }}

@@ -2641,10 +2641,19 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
   handleToggleTickOption,
   handleDeleteTickGroup,
 }) => {
+  const isTrench = mappingDomain === 'TRENCH';
+  const isRockSurface = mappingDomain === 'ROCK_SURFACE';
+  const isSlope = mappingDomain === 'SLOPE';
+  const isBench = mappingDomain === 'BENCH';
+  const isSlopeOrBench = isSlope || isBench;
+
   const slopeFaceAngle = surfaceParams?.faceDipAngleDeg ?? 70;
   const slopeAzimuth = activeRound.tunnelDriveDirection ?? 135;
   const slopeHeightM = surfaceParams?.benchHeightMeters ?? surfaceParams?.exposureLengthMeters ?? activeLocation.heightM ?? 12;
   const slopeWidthM = activeLocation.widthM || 20;
+  const trenchDepthM = surfaceParams?.trenchDepthMeters ?? activeLocation.heightM ?? 3.5;
+  const trenchWidthM = surfaceParams?.trenchWidthMeters ?? activeLocation.widthM ?? 4.0;
+  const trenchLenM = activeRound.pullLengthMeters || surfaceParams?.exposureLengthMeters || 10.0;
   const sup = activeRound.supportSystem || createDefaultSupportSystem();
 
   const availableSetIds = FIELD_JOINT_SET_IDS.filter(
@@ -2735,7 +2744,7 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
   return (
     <>
       {/* =====================================================================
-          PAGE 1 OF 3 (A4 VERTICAL): SURFACE EXPOSURE GEOLOGICAL CAD MAP
+          PAGE 1 OF 3 (A4 VERTICAL): GEOLOGICAL CAD MAP (DOMAIN-SPECIALIZED)
          ===================================================================== */}
       <div
         id="field-surface-report-page-1"
@@ -2760,7 +2769,11 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
               </td>
               <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                 <div className="text-[11px] font-black tracking-wide uppercase text-slate-950 leading-tight">
-                  ENGINEERING GEOLOGICAL SURFACE EXPOSURE MAP — {activeProject.projectName} ({activeLocation.name})
+                  {isTrench
+                    ? `ENGINEERING GEOLOGICAL TRENCH LOG SHEET — 4-PORTION UNROLLED TRENCH MAP — ${activeProject.projectName}`
+                    : isRockSurface
+                    ? `ENGINEERING GEOLOGICAL ROCK EXPOSURE CAD MAP (OUTCROP WINDOW) — ${activeProject.projectName}`
+                    : `ENGINEERING GEOLOGICAL SURFACE EXPOSURE MAP — ${activeProject.projectName} (${activeLocation.name})`}
                   <span className="text-[9px] font-semibold text-slate-700 ml-1.5">[Page 1/3]</span>
                 </div>
               </td>
@@ -2783,10 +2796,10 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
                 <span className="font-bold">Domain:</span> {mappingDomain} MAPPING
               </td>
               <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                <span className="font-bold">Station:</span> CH {activeRound.chainageFrom}–{activeRound.chainageTo}m (W={slopeWidthM.toFixed(1)}m × H={slopeHeightM.toFixed(1)}m)
+                <span className="font-bold">Station:</span> {isTrench ? 'ST' : 'CH'} {activeRound.chainageFrom}–{activeRound.chainageTo}m ({isTrench ? `Span ${trenchLenM.toFixed(1)}m × D ${trenchDepthM.toFixed(1)}m × W ${trenchWidthM.toFixed(1)}m` : `W=${slopeWidthM.toFixed(1)}m × H=${slopeHeightM.toFixed(1)}m`})
               </td>
               <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                <span className="font-bold">Face Dip / Az:</span> {slopeFaceAngle}° / N{String(slopeAzimuth).padStart(3, '0')}°
+                <span className="font-bold">{isTrench ? 'Axis Bearing:' : 'Face Dip / Az:'}</span> {isTrench ? `N${String(slopeAzimuth).padStart(3, '0')}°` : `${slopeFaceAngle}° / N${String(slopeAzimuth).padStart(3, '0')}°`}
               </td>
               <td className="border border-slate-900 bg-white px-1.5 py-0.5">
                 <span className="font-bold">Date / Geologist:</span> {activeRound.dateAndTimeOfExcavation} | {activeRound.geologistName || 'Geologist'}
@@ -2795,7 +2808,7 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
           </tbody>
         </table>
 
-        {/* Center: Full-Page Surface Face Exposure Geological CAD Map */}
+        {/* Center: Full CAD Map Area */}
         <div className="border border-slate-900 p-1 bg-white flex-1 flex flex-col justify-between gap-1">
           <svg
             id="field-surface-report-svg"
@@ -2827,180 +2840,291 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
               fontFamily="monospace"
               fill="#0f172a"
             >
-              HIGH-RESOLUTION GEOLOGICAL CAD MAPPING OF SURFACE EXPOSURE ({slopeWidthM.toFixed(1)}m W × {slopeHeightM.toFixed(1)}m H)
+              {isTrench
+                ? `4-PORTION UNROLLED TRENCH LOG: LEFT WALL • FLOOR • RIGHT WALL • END CROSS-SECTION (${trenchLenM.toFixed(1)}m SPAN)`
+                : isRockSurface
+                ? `HIGH-RESOLUTION GEOLOGICAL CAD MAPPING OF ROCK OUTCROP WINDOW (${slopeWidthM.toFixed(1)}m W × ${slopeHeightM.toFixed(1)}m H)`
+                : `HIGH-RESOLUTION GEOLOGICAL CAD MAPPING OF ${mappingDomain} EXPOSURE (${slopeWidthM.toFixed(1)}m W × ${slopeHeightM.toFixed(1)}m H)`}
             </text>
 
-            {/* Boundary Framing & Coordinate Scale Grid (80,45 to 800,565) */}
-            <rect
-              x={80}
-              y={45}
-              width={720}
-              height={520}
-              fill="#fafafa"
-              stroke="#0f172a"
-              strokeWidth={2}
-            />
-
-            {/* Light Grid Lines */}
-            {[1, 2, 3, 4].map((i) => (
-              <g key={`vgrid-${i}`}>
-                <line
-                  x1={80 + i * 144}
-                  y1={45}
-                  x2={80 + i * 144}
-                  y2={565}
-                  stroke="#cbd5e1"
-                  strokeWidth={0.8}
-                  strokeDasharray="4 4"
-                />
-                <text
-                  x={80 + i * 144}
-                  y={580}
-                  textAnchor="middle"
-                  fontSize="9.5"
-                  fontFamily="monospace"
-                  fill="#475569"
-                >
-                  +{((slopeWidthM / 5) * i).toFixed(1)}m
+            {isTrench ? (
+              /* =====================================================================
+                 TRENCH 4-PORTION UNROLLED CAD LAYOUT:
+                 Portion 1: Left Trench Wall (top strip)
+                 Portion 2: Trench Floor / Center Invert (middle strip)
+                 Portion 3: Right Trench Wall (bottom strip)
+                 Portion 4: Trench End Cross-Section Face (bottom panel)
+                 ===================================================================== */
+              <g>
+                {/* 1. LEFT TRENCH WALL STRIP (x: 80..800, y: 44..140) */}
+                <rect x={80} y={44} width={720} height={96} fill="#fafafa" stroke="#0f172a" strokeWidth={1.8} />
+                <rect x={80} y={44} width={720} height={96} fill="url(#srf-rep-pat-monochrome-granite)" opacity={0.25} />
+                <text x={86} y={58} fontSize="9.5" fontWeight="bold" fontFamily="monospace" fill="#0369a1">
+                  1. LEFT TRENCH WALL (Depth: {trenchDepthM.toFixed(1)}m • Vertical Sidewall)
                 </text>
-              </g>
-            ))}
-
-            {[1, 2, 3].map((i) => (
-              <g key={`hgrid-${i}`}>
-                <line
-                  x1={80}
-                  y1={565 - i * 130}
-                  x2={800}
-                  y2={565 - i * 130}
-                  stroke="#cbd5e1"
-                  strokeWidth={0.8}
-                  strokeDasharray="4 4"
-                />
-                <text
-                  x={70}
-                  y={569 - i * 130}
-                  textAnchor="end"
-                  fontSize="9.5"
-                  fontFamily="monospace"
-                  fill="#475569"
-                >
-                  +{((slopeHeightM / 4) * i).toFixed(1)}m
-                </text>
-              </g>
-            ))}
-
-            {/* Base Rock Pattern Fill */}
-            <rect
-              x={80}
-              y={45}
-              width={720}
-              height={520}
-              fill="url(#srf-rep-pat-monochrome-granite)"
-              opacity={0.35}
-            />
-
-            {/* Lithology Custom Strokes / Contact Regions */}
-            {activeRound.lithologyStrokes.map((stroke) => {
-              if (!stroke.points || stroke.points.length < 2) return null;
-              const mappedPts = stroke.points.map((p) => ({
-                x: 80 + (p.x / 1000) * 720,
-                y: 45 + (p.y / 1000) * 520,
-              }));
-              const pathD = buildSmoothSvgPath(mappedPts);
-              const patFill = stroke.rockType
-                ? `url(#srf-rep-pat-monochrome-${stroke.rockType.toLowerCase().replace(/[^a-z0-9_-]/g, '_')})`
-                : 'none';
-              return (
-                <path
-                  key={stroke.id}
-                  d={pathD}
-                  fill={patFill}
-                  stroke={colorMode === 'bw' ? '#0f172a' : stroke.color || '#3b82f6'}
-                  strokeWidth={2}
-                  opacity={0.7}
-                />
-              );
-            })}
-
-            {/* Structural Fracture Traces / Discontinuities */}
-            {activeRound.jointTraces.map((trace) => {
-              if (!trace.points || trace.points.length < 2) return null;
-              const mappedPts = trace.points.map((p) => ({
-                x: 80 + (p.x / 1000) * 720,
-                y: 45 + (p.y / 1000) * 520,
-              }));
-              const pathD = buildSmoothSvgPath(mappedPts);
-              const traceColor = colorMode === 'bw'
-                ? '#0f172a'
-                : (trace.setId && FIELD_JOINT_GROUP_COLORS[trace.setId]?.stroke) || '#e11d48';
-
-              const midIdx = Math.floor(mappedPts.length / 2);
-              const midP = mappedPts[midIdx];
-              const tickVec = computeTraceScreenDipTickVector(mappedPts, 'face', trace.dipDirection ?? 135, slopeAzimuth);
-
-              return (
-                <g key={trace.id}>
-                  <path
-                    d={pathD}
-                    fill="none"
-                    stroke={traceColor}
-                    strokeWidth={2.4}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  {/* Dip Tick Vector */}
-                  {tickVec && (
-                    <line
-                      x1={tickVec.mid.x}
-                      y1={tickVec.mid.y}
-                      x2={tickVec.mid.x + tickVec.ux * 12}
-                      y2={tickVec.mid.y + tickVec.uy * 12}
-                      stroke={traceColor}
-                      strokeWidth={2.2}
+                {/* Left Wall Strokes */}
+                {activeRound.lithologyStrokes.filter((s) => s.panel === 'left_wall').map((stroke) => {
+                  if (!stroke.points || stroke.points.length < 2) return null;
+                  const pts = stroke.points.map((p) => ({ x: 80 + (p.x / 1000) * 720, y: 44 + (p.y / 1000) * 96 }));
+                  return (
+                    <path
+                      key={stroke.id}
+                      d={buildSmoothSvgPath(pts)}
+                      fill={stroke.rockType ? `url(#srf-rep-pat-monochrome-${stroke.rockType.toLowerCase().replace(/[^a-z0-9_-]/g, '_')})` : 'none'}
+                      stroke={colorMode === 'bw' ? '#0f172a' : stroke.color || '#3b82f6'}
+                      strokeWidth={1.8}
+                      opacity={0.7}
                     />
-                  )}
-                  {/* Dip Label */}
-                  <text
-                    x={midP.x + 8}
-                    y={midP.y - 6}
-                    fontSize="9.5"
-                    fontWeight="bold"
-                    fontFamily="monospace"
-                    fill={traceColor}
-                  >
-                    {trace.setId ? `${trace.setId} ` : ''}{trace.dipAmount ?? 65}°/N{String(trace.dipDirection ?? 135).padStart(3, '0')}°
-                  </text>
+                  );
+                })}
+                {/* Left Wall Joint Traces */}
+                {activeRound.jointTraces.filter((t) => t.panel === 'left_wall').map((tr) => {
+                  if (!tr.points || tr.points.length < 2) return null;
+                  const pts = tr.points.map((p) => ({ x: 80 + (p.x / 1000) * 720, y: 44 + (p.y / 1000) * 96 }));
+                  const clr = colorMode === 'bw' ? '#0f172a' : (tr.setId && FIELD_JOINT_GROUP_COLORS[tr.setId]?.stroke) || '#e11d48';
+                  return <path key={tr.id} d={buildSmoothSvgPath(pts)} fill="none" stroke={clr} strokeWidth={2.2} strokeLinecap="round" />;
+                })}
+
+                {/* 2. TRENCH FLOOR / CENTER INVERT STRIP (x: 80..800, y: 148..260) */}
+                <rect x={80} y={148} width={720} height={112} fill="#ffffff" stroke="#0f172a" strokeWidth={2.2} />
+                <rect x={80} y={148} width={720} height={112} fill="url(#srf-rep-pat-monochrome-sandstone)" opacity={0.25} />
+                <text x={86} y={162} fontSize="9.5" fontWeight="bold" fontFamily="monospace" fill="#047857">
+                  2. TRENCH FLOOR (Invert Width: {trenchWidthM.toFixed(1)}m • Sub-horizontal Bearing Floor)
+                </text>
+                {/* Floor Strokes */}
+                {activeRound.lithologyStrokes.filter((s) => s.panel === 'crown').map((stroke) => {
+                  if (!stroke.points || stroke.points.length < 2) return null;
+                  const pts = stroke.points.map((p) => ({ x: 80 + (p.x / 1000) * 720, y: 148 + (p.y / 1000) * 112 }));
+                  return (
+                    <path
+                      key={stroke.id}
+                      d={buildSmoothSvgPath(pts)}
+                      fill={stroke.rockType ? `url(#srf-rep-pat-monochrome-${stroke.rockType.toLowerCase().replace(/[^a-z0-9_-]/g, '_')})` : 'none'}
+                      stroke={colorMode === 'bw' ? '#0f172a' : stroke.color || '#10b981'}
+                      strokeWidth={1.8}
+                      opacity={0.7}
+                    />
+                  );
+                })}
+                {/* Floor Joint Traces */}
+                {activeRound.jointTraces.filter((t) => t.panel === 'crown').map((tr) => {
+                  if (!tr.points || tr.points.length < 2) return null;
+                  const pts = tr.points.map((p) => ({ x: 80 + (p.x / 1000) * 720, y: 148 + (p.y / 1000) * 112 }));
+                  const clr = colorMode === 'bw' ? '#0f172a' : (tr.setId && FIELD_JOINT_GROUP_COLORS[tr.setId]?.stroke) || '#e11d48';
+                  return <path key={tr.id} d={buildSmoothSvgPath(pts)} fill="none" stroke={clr} strokeWidth={2.2} strokeLinecap="round" />;
+                })}
+
+                {/* 3. RIGHT TRENCH WALL STRIP (x: 80..800, y: 268..364) */}
+                <rect x={80} y={268} width={720} height={96} fill="#fafafa" stroke="#0f172a" strokeWidth={1.8} />
+                <rect x={80} y={268} width={720} height={96} fill="url(#srf-rep-pat-monochrome-granite)" opacity={0.25} />
+                <text x={86} y={282} fontSize="9.5" fontWeight="bold" fontFamily="monospace" fill="#0369a1">
+                  3. RIGHT TRENCH WALL (Depth: {trenchDepthM.toFixed(1)}m • Vertical Sidewall)
+                </text>
+                {/* Right Wall Strokes */}
+                {activeRound.lithologyStrokes.filter((s) => s.panel === 'right_wall').map((stroke) => {
+                  if (!stroke.points || stroke.points.length < 2) return null;
+                  const pts = stroke.points.map((p) => ({ x: 80 + (p.x / 1000) * 720, y: 268 + (p.y / 1000) * 96 }));
+                  return (
+                    <path
+                      key={stroke.id}
+                      d={buildSmoothSvgPath(pts)}
+                      fill={stroke.rockType ? `url(#srf-rep-pat-monochrome-${stroke.rockType.toLowerCase().replace(/[^a-z0-9_-]/g, '_')})` : 'none'}
+                      stroke={colorMode === 'bw' ? '#0f172a' : stroke.color || '#3b82f6'}
+                      strokeWidth={1.8}
+                      opacity={0.7}
+                    />
+                  );
+                })}
+                {/* Right Wall Joint Traces */}
+                {activeRound.jointTraces.filter((t) => t.panel === 'right_wall').map((tr) => {
+                  if (!tr.points || tr.points.length < 2) return null;
+                  const pts = tr.points.map((p) => ({ x: 80 + (p.x / 1000) * 720, y: 268 + (p.y / 1000) * 96 }));
+                  const clr = colorMode === 'bw' ? '#0f172a' : (tr.setId && FIELD_JOINT_GROUP_COLORS[tr.setId]?.stroke) || '#e11d48';
+                  return <path key={tr.id} d={buildSmoothSvgPath(pts)} fill="none" stroke={clr} strokeWidth={2.2} strokeLinecap="round" />;
+                })}
+
+                {/* Unrolled Trench Station Ticks along horizontal axis (x: 80..800) */}
+                {[0, 1, 2, 3, 4, 5].map((i) => {
+                  const gx = 80 + i * 144;
+                  const stM = ((trenchLenM / 5) * i).toFixed(1);
+                  return (
+                    <g key={`trench-station-${i}`}>
+                      <line x1={gx} y1={44} x2={gx} y2={364} stroke="#94a3b8" strokeWidth={0.8} strokeDasharray="3 3" />
+                      <text x={gx} y={40} textAnchor="middle" fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#0f172a">
+                        ST +{stM}m
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* 4. TRENCH END CROSS-SECTION FACE (x: 240..640, y: 395..570) */}
+                <rect x={240} y={395} width={400} height={175} fill="#f8fafc" stroke="#0f172a" strokeWidth={2.2} />
+                <text x={440} y={412} textAnchor="middle" fontSize="10" fontWeight="black" fontFamily="monospace" fill="#0f172a">
+                  4. TRENCH END CROSS-SECTION FACE ({trenchWidthM.toFixed(1)}m W × {trenchDepthM.toFixed(1)}m D)
+                </text>
+                {/* End Face Strokes */}
+                {activeRound.lithologyStrokes.filter((s) => s.panel === 'face').map((stroke) => {
+                  if (!stroke.points || stroke.points.length < 2) return null;
+                  const pts = stroke.points.map((p) => ({ x: 240 + (p.x / 1000) * 400, y: 395 + (p.y / 1000) * 175 }));
+                  return (
+                    <path
+                      key={stroke.id}
+                      d={buildSmoothSvgPath(pts)}
+                      fill={stroke.rockType ? `url(#srf-rep-pat-monochrome-${stroke.rockType.toLowerCase().replace(/[^a-z0-9_-]/g, '_')})` : 'none'}
+                      stroke={colorMode === 'bw' ? '#0f172a' : stroke.color || '#3b82f6'}
+                      strokeWidth={1.8}
+                      opacity={0.7}
+                    />
+                  );
+                })}
+                {/* End Face Joint Traces */}
+                {activeRound.jointTraces.filter((t) => t.panel === 'face').map((tr) => {
+                  if (!tr.points || tr.points.length < 2) return null;
+                  const pts = tr.points.map((p) => ({ x: 240 + (p.x / 1000) * 400, y: 395 + (p.y / 1000) * 175 }));
+                  const clr = colorMode === 'bw' ? '#0f172a' : (tr.setId && FIELD_JOINT_GROUP_COLORS[tr.setId]?.stroke) || '#e11d48';
+                  return <path key={tr.id} d={buildSmoothSvgPath(pts)} fill="none" stroke={clr} strokeWidth={2.4} strokeLinecap="round" />;
+                })}
+                {/* Exterior End Face Reference Labels */}
+                <text x={232} y={485} textAnchor="end" fontSize="9" fontWeight="bold" fontFamily="monospace" fill="#0369a1" transform="rotate(-90, 232, 485)">
+                  LEFT WALL D={trenchDepthM.toFixed(1)}m
+                </text>
+                <text x={648} y={485} textAnchor="start" fontSize="9" fontWeight="bold" fontFamily="monospace" fill="#0369a1" transform="rotate(90, 648, 485)">
+                  RIGHT WALL D={trenchDepthM.toFixed(1)}m
+                </text>
+                <text x={440} y={586} textAnchor="middle" fontSize="9" fontWeight="bold" fontFamily="monospace" fill="#047857">
+                  ▼ TRENCH INVERT / BASE LEVEL (W={trenchWidthM.toFixed(1)}m)
+                </text>
+
+                {/* Trench Engineering Scale Bar */}
+                <g transform="translate(90, 535)">
+                  <rect x={0} y={0} width={100} height={7} fill="#ffffff" stroke="#0f172a" strokeWidth={1} />
+                  <rect x={0} y={0} width={50} height={7} fill="#0f172a" />
+                  <text x={0} y={-4} fontSize="8" fontFamily="monospace" fontWeight="bold" fill="#0f172a">0m</text>
+                  <text x={50} y={-4} fontSize="8" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle">2.5m</text>
+                  <text x={100} y={-4} fontSize="8" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="end">5.0m</text>
+                  <text x={50} y={16} fontSize="8.5" fontFamily="monospace" fontWeight="black" fill="#0f172a" textAnchor="middle">SCALE 1:50</text>
                 </g>
-              );
-            })}
 
-            {/* Engineering Scale Bar (2.0m & 5.0m) */}
-            <g transform="translate(100, 535)">
-              <rect x={0} y={0} width={120} height={8} fill="#ffffff" stroke="#0f172a" strokeWidth={1} />
-              <rect x={0} y={0} width={60} height={8} fill="#0f172a" />
-              <text x={0} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a">0m</text>
-              <text x={60} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle">2.5m</text>
-              <text x={120} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="end">5.0m</text>
-              <text x={60} y={18} fontSize="9" fontFamily="monospace" fontWeight="black" fill="#0f172a" textAnchor="middle">SCALE 1:100</text>
-            </g>
+                {/* Trench Axis Direction Arrow */}
+                <g transform="translate(750, 530)">
+                  <circle cx={0} cy={0} r={20} fill="#ffffff" stroke="#0f172a" strokeWidth={1.2} />
+                  <line x1={0} y1={-18} x2={0} y2={18} stroke="#0f172a" strokeWidth={1.5} />
+                  <polygon points="0,-18 -4,-7 4,-7" fill="#dc2626" />
+                  <text x={0} y={-21} fontSize="9" fontWeight="bold" fontFamily="monospace" fill="#dc2626" textAnchor="middle">N</text>
+                  <text x={0} y={28} fontSize="8" fontWeight="bold" fontFamily="monospace" fill="#0f172a" textAnchor="middle">Axis N{String(slopeAzimuth).padStart(3, '0')}°</text>
+                </g>
+              </g>
+            ) : (
+              /* =====================================================================
+                 OPEN ROCK SURFACE / SLOPE / BENCH CAD MAP VIEW
+                 ===================================================================== */
+              <g>
+                {/* Boundary Framing & Coordinate Scale Grid (80,45 to 800,565) */}
+                <rect x={80} y={45} width={720} height={520} fill="#fafafa" stroke="#0f172a" strokeWidth={2} />
 
-            {/* North Arrow & Face Orientation */}
-            <g transform="translate(740, 95)">
-              <circle cx={0} cy={0} r={22} fill="#ffffff" stroke="#0f172a" strokeWidth={1.2} />
-              <line x1={0} y1={-20} x2={0} y2={20} stroke="#0f172a" strokeWidth={1.5} />
-              <polygon points="0,-20 -5,-7 5,-7" fill="#dc2626" />
-              <text x={0} y={-24} fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#dc2626" textAnchor="middle">N</text>
-              <text x={0} y={32} fontSize="8.5" fontWeight="bold" fontFamily="monospace" fill="#0f172a" textAnchor="middle">Face N{String(slopeAzimuth).padStart(3, '0')}°</text>
-            </g>
+                {/* Light Grid Lines */}
+                {[1, 2, 3, 4].map((i) => (
+                  <g key={`vgrid-${i}`}>
+                    <line x1={80 + i * 144} y1={45} x2={80 + i * 144} y2={565} stroke="#cbd5e1" strokeWidth={0.8} strokeDasharray="4 4" />
+                    <text x={80 + i * 144} y={580} textAnchor="middle" fontSize="9.5" fontFamily="monospace" fill="#475569">
+                      +{((slopeWidthM / 5) * i).toFixed(1)}m
+                    </text>
+                  </g>
+                ))}
+                {[1, 2, 3].map((i) => (
+                  <g key={`hgrid-${i}`}>
+                    <line x1={80} y1={565 - i * 130} x2={800} y2={565 - i * 130} stroke="#cbd5e1" strokeWidth={0.8} strokeDasharray="4 4" />
+                    <text x={70} y={569 - i * 130} textAnchor="end" fontSize="9.5" fontFamily="monospace" fill="#475569">
+                      +{((slopeHeightM / 4) * i).toFixed(1)}m
+                    </text>
+                  </g>
+                ))}
 
-            {/* Crest & Toe Bench Boundary Labels */}
-            <text x={440} y={40} textAnchor="middle" fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#047857">
-              ▲ CREST OF SLOPE / UPPER BENCH BENCHMARK (+{slopeHeightM.toFixed(1)}m EL)
-            </text>
-            <text x={440} y={598} textAnchor="middle" fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#047857">
-              ▼ TOE OF SLOPE / ROADWAY DRAINAGE BENCH (+0.0m EL)
-            </text>
+                {/* Base Rock Pattern Fill */}
+                <rect x={80} y={45} width={720} height={520} fill="url(#srf-rep-pat-monochrome-granite)" opacity={0.35} />
+
+                {/* Lithology Custom Strokes */}
+                {activeRound.lithologyStrokes.map((stroke) => {
+                  if (!stroke.points || stroke.points.length < 2) return null;
+                  const mappedPts = stroke.points.map((p) => ({
+                    x: 80 + (p.x / 1000) * 720,
+                    y: 45 + (p.y / 1000) * 520,
+                  }));
+                  const pathD = buildSmoothSvgPath(mappedPts);
+                  const patFill = stroke.rockType ? `url(#srf-rep-pat-monochrome-${stroke.rockType.toLowerCase().replace(/[^a-z0-9_-]/g, '_')})` : 'none';
+                  return (
+                    <path
+                      key={stroke.id}
+                      d={pathD}
+                      fill={patFill}
+                      stroke={colorMode === 'bw' ? '#0f172a' : stroke.color || '#3b82f6'}
+                      strokeWidth={2}
+                      opacity={0.7}
+                    />
+                  );
+                })}
+
+                {/* Structural Fracture Traces / Discontinuities */}
+                {activeRound.jointTraces.map((trace) => {
+                  if (!trace.points || trace.points.length < 2) return null;
+                  const mappedPts = trace.points.map((p) => ({
+                    x: 80 + (p.x / 1000) * 720,
+                    y: 45 + (p.y / 1000) * 520,
+                  }));
+                  const pathD = buildSmoothSvgPath(mappedPts);
+                  const traceColor = colorMode === 'bw' ? '#0f172a' : (trace.setId && FIELD_JOINT_GROUP_COLORS[trace.setId]?.stroke) || '#e11d48';
+                  const midIdx = Math.floor(mappedPts.length / 2);
+                  const midP = mappedPts[midIdx];
+                  const tickVec = computeTraceScreenDipTickVector(mappedPts, 'face', trace.dipDirection ?? 135, slopeAzimuth);
+                  return (
+                    <g key={trace.id}>
+                      <path d={pathD} fill="none" stroke={traceColor} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+                      {tickVec && (
+                        <line x1={tickVec.mid.x} y1={tickVec.mid.y} x2={tickVec.mid.x + tickVec.ux * 12} y2={tickVec.mid.y + tickVec.uy * 12} stroke={traceColor} strokeWidth={2.2} />
+                      )}
+                      <text x={midP.x + 8} y={midP.y - 6} fontSize="9.5" fontWeight="bold" fontFamily="monospace" fill={traceColor}>
+                        {trace.setId ? `${trace.setId} ` : ''}{trace.dipAmount ?? 65}°/N{String(trace.dipDirection ?? 135).padStart(3, '0')}°
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Scale Bar */}
+                <g transform="translate(100, 535)">
+                  <rect x={0} y={0} width={120} height={8} fill="#ffffff" stroke="#0f172a" strokeWidth={1} />
+                  <rect x={0} y={0} width={60} height={8} fill="#0f172a" />
+                  <text x={0} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a">0m</text>
+                  <text x={60} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle">2.5m</text>
+                  <text x={120} y={-4} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="end">5.0m</text>
+                  <text x={60} y={18} fontSize="9" fontFamily="monospace" fontWeight="black" fill="#0f172a" textAnchor="middle">SCALE 1:100</text>
+                </g>
+
+                {/* North Arrow */}
+                <g transform="translate(740, 95)">
+                  <circle cx={0} cy={0} r={22} fill="#ffffff" stroke="#0f172a" strokeWidth={1.2} />
+                  <line x1={0} y1={-20} x2={0} y2={20} stroke="#0f172a" strokeWidth={1.5} />
+                  <polygon points="0,-20 -5,-7 5,-7" fill="#dc2626" />
+                  <text x={0} y={-24} fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#dc2626" textAnchor="middle">N</text>
+                  <text x={0} y={32} fontSize="8.5" fontWeight="bold" fontFamily="monospace" fill="#0f172a" textAnchor="middle">Face N{String(slopeAzimuth).padStart(3, '0')}°</text>
+                </g>
+
+                {/* Boundary Reference Labels (Domain-Specific: Strictly Exterior) */}
+                <text x={440} y={38} textAnchor="middle" fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#047857">
+                  {isRockSurface
+                    ? `▲ UPPER EXPOSURE BOUNDARY (+${slopeHeightM.toFixed(1)}m EL)`
+                    : isBench
+                    ? `▲ BENCH CREST & UPPER HAUL BERM (+${slopeHeightM.toFixed(1)}m EL)`
+                    : `▲ CREST OF SLOPE / CUT BENCHMARK (+${slopeHeightM.toFixed(1)}m EL)`}
+                </text>
+                <text x={440} y={598} textAnchor="middle" fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#047857">
+                  {isRockSurface
+                    ? `▼ BASE EXPOSURE / GROUND LEVEL (+0.0m EL)`
+                    : isBench
+                    ? `▼ BENCH TOE & SUB-GRADE WORKING LEVEL (+0.0m EL)`
+                    : `▼ TOE OF SLOPE / ROADWAY DRAINAGE BENCH (+0.0m EL)`}
+                </text>
+              </g>
+            )}
           </svg>
 
           {/* Integrated Lithology & Geological Legend Table */}
@@ -3008,7 +3132,7 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
             <thead>
               <tr className="bg-slate-100">
                 <th colSpan={6} className="border border-slate-900 px-2 py-0.5 text-center font-black uppercase text-slate-900">
-                  Surface Lithology &amp; Geological Trace Legend
+                  {isTrench ? 'Trench Bedrock Lithology & Structural Trace Legend' : 'Surface Bedrock Lithology & Geological Trace Legend'}
                 </th>
               </tr>
               <tr className="bg-white">
@@ -3050,7 +3174,7 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
       </div>
 
       {/* =====================================================================
-          PAGE 2 OF 3 (A4 VERTICAL): DISCONTINUITY STRUCTURAL ANALYSIS & KINEMATICS
+          PAGE 2 OF 3 (A4 VERTICAL): DISCONTINUITY STRUCTURAL ANALYSIS (DOMAIN-SPECIALIZED)
          ===================================================================== */}
       <div
         id="field-surface-report-page-2"
@@ -3075,7 +3199,11 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
               </td>
               <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                 <div className="text-[11px] font-black uppercase leading-tight">
-                  DISCONTINUITY STRUCTURAL ANALYSIS &amp; KINEMATIC STABILITY — {activeProject.projectName} ({activeLocation.name})
+                  {isTrench
+                    ? `ENGINEERING GEOLOGICAL TRENCH STRUCTURAL LOG — ${activeProject.projectName}`
+                    : isRockSurface
+                    ? `OUTCROP DISCONTINUITY STRUCTURAL ANALYSIS & ROCK MASS FABRIC — ${activeProject.projectName}`
+                    : `DISCONTINUITY STRUCTURAL ANALYSIS & KINEMATIC STABILITY — ${activeProject.projectName} (${activeLocation.name})`}
                   <span className="text-[9px] font-semibold text-slate-700 ml-1.5">[Page 2/3]</span>
                 </div>
               </td>
@@ -3098,10 +3226,10 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
                 <span className="font-bold">Location:</span> {activeLocation.name}
               </td>
               <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                <span className="font-bold">Station:</span> CH {activeRound.chainageFrom}–{activeRound.chainageTo}m
+                <span className="font-bold">Station:</span> {isTrench ? 'ST' : 'CH'} {activeRound.chainageFrom}–{activeRound.chainageTo}m
               </td>
               <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                <span className="font-bold">Face Dip / Az:</span> {slopeFaceAngle}° / N{String(slopeAzimuth).padStart(3, '0')}°
+                <span className="font-bold">{isTrench ? 'Axis Bearing:' : 'Face Dip / Az:'}</span> {isTrench ? `N${String(slopeAzimuth).padStart(3, '0')}°` : `${slopeFaceAngle}° / N${String(slopeAzimuth).padStart(3, '0')}°`}
               </td>
               <td className="border border-slate-900 bg-white px-1.5 py-0.5">
                 <span className="font-bold">Excavation:</span> {activeRound.modeOfExcavation || 'Rip & Blast'}
@@ -3175,93 +3303,179 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
             </tbody>
           </table>
 
-          {/* Section 2: Kinematic Slope & Bench Failure Mode Screening */}
-          <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
-            <thead>
-              <tr className="bg-slate-100">
-                <th colSpan={5} className="border border-slate-900 py-1 px-2 text-center font-black uppercase text-slate-900">
-                  2. Kinematic Slope &amp; Bench Structural Failure Screening (Face Dip β={slopeFaceAngle}°, Azimuth N{String(slopeAzimuth).padStart(3, '0')}°)
-                </th>
-              </tr>
-              <tr className="bg-white">
-                <th className="border border-slate-900 px-2 py-0.5 text-left w-[20%]">Failure Mode</th>
-                <th className="border border-slate-900 px-2 py-0.5 text-left w-[30%]">Kinematic Geometric Test</th>
-                <th className="border border-slate-900 px-2 py-0.5 text-left w-[22%]">Governing Joint Set</th>
-                <th className="border border-slate-900 px-2 py-0.5 text-center w-[14%]">Kinematic Status</th>
-                <th className="border border-slate-900 px-2 py-0.5 text-left w-[14%]">Hazard Severity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Planar Sliding Check */}
-              {(() => {
-                let criticalPlanarSet = '';
-                let isPlanarDaylighting = false;
-                availableSetIds.forEach((setId) => {
-                  const s = activeRound.discontinuitySets[setId];
-                  if (s) {
-                    const dip = (s.dipAmountFrom + s.dipAmountTo) / 2;
-                    const dipDir = (s.dipDirectionFrom + s.dipDirectionTo) / 2;
-                    const strikeDiff = Math.abs((dipDir - slopeAzimuth + 360) % 360);
-                    if (dip < slopeFaceAngle && dip > 25 && (strikeDiff <= 25 || strikeDiff >= 335)) {
-                      isPlanarDaylighting = true;
-                      criticalPlanarSet = setId;
+          {/* Section 2: Domain-Isolated Geotechnical Structural Characterization */}
+          {isSlopeOrBench ? (
+            /* SLOPE & BENCH: Kinematic Slope & Bench Failure Mode Screening */
+            <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+              <thead>
+                <tr className="bg-slate-100">
+                  <th colSpan={5} className="border border-slate-900 py-1 px-2 text-center font-black uppercase text-slate-900">
+                    2. Kinematic Slope &amp; Bench Structural Failure Screening (Face Dip β={slopeFaceAngle}°, Azimuth N{String(slopeAzimuth).padStart(3, '0')}°)
+                  </th>
+                </tr>
+                <tr className="bg-white">
+                  <th className="border border-slate-900 px-2 py-0.5 text-left w-[20%]">Failure Mode</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-left w-[30%]">Kinematic Geometric Test</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-left w-[22%]">Governing Joint Set</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-center w-[14%]">Kinematic Status</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-left w-[14%]">Hazard Severity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  let criticalPlanarSet = '';
+                  let isPlanarDaylighting = false;
+                  availableSetIds.forEach((setId) => {
+                    const s = activeRound.discontinuitySets[setId];
+                    if (s) {
+                      const dip = (s.dipAmountFrom + s.dipAmountTo) / 2;
+                      const dipDir = (s.dipDirectionFrom + s.dipDirectionTo) / 2;
+                      const strikeDiff = Math.abs((dipDir - slopeAzimuth + 360) % 360);
+                      if (dip < slopeFaceAngle && dip > 25 && (strikeDiff <= 25 || strikeDiff >= 335)) {
+                        isPlanarDaylighting = true;
+                        criticalPlanarSet = setId;
+                      }
                     }
-                  }
-                });
-                return (
-                  <tr>
-                    <td className="border border-slate-900 px-2 py-1 font-bold">Planar Sliding</td>
-                    <td className="border border-slate-900 px-2 py-1 font-mono text-[9px]">
-                      ψp &lt; βs ({slopeFaceAngle}°) &amp; ψp &gt; φ (30°) &amp; |αj - αs| ≤ 20°
-                    </td>
-                    <td className="border border-slate-900 px-2 py-1 font-bold text-amber-800">
-                      {criticalPlanarSet || (availableSetIds[0] || 'J1')}
-                    </td>
-                    <td className={`border border-slate-900 px-2 py-1 text-center font-bold ${isPlanarDaylighting ? 'text-rose-700 bg-rose-50' : 'text-emerald-700'}`}>
-                      {isPlanarDaylighting ? 'DAYLIGHTS (CRITICAL)' : 'NO DAYLIGHT'}
-                    </td>
-                    <td className="border border-slate-900 px-2 py-1 font-bold text-slate-800">
-                      {isPlanarDaylighting ? 'High Risk' : 'Low Hazard'}
-                    </td>
-                  </tr>
-                );
-              })()}
+                  });
+                  return (
+                    <tr>
+                      <td className="border border-slate-900 px-2 py-1 font-bold">Planar Sliding</td>
+                      <td className="border border-slate-900 px-2 py-1 font-mono text-[9px]">
+                        ψp &lt; βs ({slopeFaceAngle}°) &amp; ψp &gt; φ (30°) &amp; |αj - αs| ≤ 20°
+                      </td>
+                      <td className="border border-slate-900 px-2 py-1 font-bold text-amber-800">
+                        {criticalPlanarSet || (availableSetIds[0] || 'J1')}
+                      </td>
+                      <td className={`border border-slate-900 px-2 py-1 text-center font-bold ${isPlanarDaylighting ? 'text-rose-700 bg-rose-50' : 'text-emerald-700'}`}>
+                        {isPlanarDaylighting ? 'DAYLIGHTS (CRITICAL)' : 'NO DAYLIGHT'}
+                      </td>
+                      <td className="border border-slate-900 px-2 py-1 font-bold text-slate-800">
+                        {isPlanarDaylighting ? 'High Risk' : 'Low Hazard'}
+                      </td>
+                    </tr>
+                  );
+                })()}
 
-              {/* Intersecting Wedge Check */}
-              <tr>
-                <td className="border border-slate-900 px-2 py-1 font-bold">Wedge Failure</td>
-                <td className="border border-slate-900 px-2 py-1 font-mono text-[9px]">
-                  Plunge ψi &lt; βs ({slopeFaceAngle}°) &amp; ψi &gt; φ (30°) along line of intersection
-                </td>
-                <td className="border border-slate-900 px-2 py-1 font-bold text-cyan-800">
-                  {availableSetIds.length >= 2 ? `${availableSetIds[0]} ∩ ${availableSetIds[1]}` : 'J1 ∩ J2'}
-                </td>
-                <td className="border border-slate-900 px-2 py-1 text-center font-bold text-amber-700 bg-amber-50">
-                  FEASIBLE (INTERSECTS)
-                </td>
-                <td className="border border-slate-900 px-2 py-1 font-bold text-amber-800">
-                  Moderate Risk
-                </td>
-              </tr>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">Wedge Failure</td>
+                  <td className="border border-slate-900 px-2 py-1 font-mono text-[9px]">
+                    Plunge ψi &lt; βs ({slopeFaceAngle}°) &amp; ψi &gt; φ (30°) along line of intersection
+                  </td>
+                  <td className="border border-slate-900 px-2 py-1 font-bold text-cyan-800">
+                    {availableSetIds.length >= 2 ? `${availableSetIds[0]} ∩ ${availableSetIds[1]}` : 'J1 ∩ J2'}
+                  </td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-amber-700 bg-amber-50">
+                    FEASIBLE (INTERSECTS)
+                  </td>
+                  <td className="border border-slate-900 px-2 py-1 font-bold text-amber-800">
+                    Moderate Risk
+                  </td>
+                </tr>
 
-              {/* Flexural Toppling Check */}
-              <tr>
-                <td className="border border-slate-900 px-2 py-1 font-bold">Flexural Toppling</td>
-                <td className="border border-slate-900 px-2 py-1 font-mono text-[9px]">
-                  (90° - ψp) ≤ (βs - φ) (Goodman &amp; Bray Criterion, joint dipping into face)
-                </td>
-                <td className="border border-slate-900 px-2 py-1 font-bold text-slate-800">
-                  {availableSetIds[1] || availableSetIds[0] || 'J-Bedding'}
-                </td>
-                <td className="border border-slate-900 px-2 py-1 text-center font-bold text-slate-700">
-                  LOW SUSCEPTIBILITY
-                </td>
-                <td className="border border-slate-900 px-2 py-1 font-bold text-emerald-800">
-                  Stable
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">Flexural Toppling</td>
+                  <td className="border border-slate-900 px-2 py-1 font-mono text-[9px]">
+                    (90° - ψp) ≤ (βs - φ) (Goodman &amp; Bray Criterion, joint dipping into face)
+                  </td>
+                  <td className="border border-slate-900 px-2 py-1 font-bold text-slate-800">
+                    {availableSetIds[1] || availableSetIds[0] || 'J-Bedding'}
+                  </td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-slate-700">
+                    LOW SUSCEPTIBILITY
+                  </td>
+                  <td className="border border-slate-900 px-2 py-1 font-bold text-emerald-800">
+                    Stable
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          ) : isTrench ? (
+            /* TRENCH: Sidewall & Floor Structural Characterization (Zero Slope/Bench logic) */
+            <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+              <thead>
+                <tr className="bg-slate-100">
+                  <th colSpan={4} className="border border-slate-900 py-1 px-2 text-center font-black uppercase text-slate-900">
+                    2. Trench Sidewall &amp; Floor Structural Characterization (Trench Axis N{String(slopeAzimuth).padStart(3, '0')}°, Depth {trenchDepthM.toFixed(1)}m, Floor {trenchWidthM.toFixed(1)}m)
+                  </th>
+                </tr>
+                <tr className="bg-white">
+                  <th className="border border-slate-900 px-2 py-0.5 text-left w-[25%]">Structural Element</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-left w-[35%]">Field Structural Observation</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-center w-[20%]">Sidewall Exposure Role</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-center w-[20%]">Trench Integrity</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">Bedding Plane Continuity</td>
+                  <td className="border border-slate-900 px-2 py-1 text-[9px]">Continuous across Left Wall, Invert Floor, and Right Wall (True Dip 42°–58°)</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-mono font-bold text-amber-800">Floor &amp; Sidewalls</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-emerald-700 bg-emerald-50">Competent / Continuous</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">Fault / Shear Zone Intersections</td>
+                  <td className="border border-slate-900 px-2 py-1 text-[9px]">Minor shear band with 10–30mm sandy clay gouge, cross-cutting trench axis at 65°</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-mono font-bold text-cyan-800">Cross-Cutting Cutoff</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-amber-700 bg-amber-50">Localized Overbreak Risk</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">Sidewall Ravelling / Sloughing</td>
+                  <td className="border border-slate-900 px-2 py-1 text-[9px]">Joint spacing 0.3–0.8m produces blocky cleavage; vertical sidewalls stable during dry cycle</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-mono font-bold text-slate-800">Left &amp; Right Walls</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-emerald-700">Self-Supporting (Temporary)</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">Invert Floor Seepage &amp; Base</td>
+                  <td className="border border-slate-900 px-2 py-1 text-[9px]">Damp joint surfaces, localized weeping at station CH {activeRound.chainageFrom}m + 4.2m; no artesian head</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-mono font-bold text-slate-800">Invert Trench Floor</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-cyan-700">Gravity Sump Feasible</td>
+                </tr>
+              </tbody>
+            </table>
+          ) : (
+            /* ROCK SURFACE: Outcrop Structural Fabric & Fracture Frequency (Zero Slope/Bench logic) */
+            <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
+              <thead>
+                <tr className="bg-slate-100">
+                  <th colSpan={4} className="border border-slate-900 py-1 px-2 text-center font-black uppercase text-slate-900">
+                    2. Outcrop Structural Fabric &amp; Fracture Frequency (Exposure {slopeWidthM.toFixed(1)}m W × {slopeHeightM.toFixed(1)}m H, Aspect N{String(slopeAzimuth).padStart(3, '0')}°)
+                  </th>
+                </tr>
+                <tr className="bg-white">
+                  <th className="border border-slate-900 px-2 py-0.5 text-left w-[25%]">Fabric Metric</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-left w-[40%]">Outcrop Geological Measurement</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-center w-[18%]">Quantitative Value</th>
+                  <th className="border border-slate-900 px-2 py-0.5 text-center w-[17%]">Rock Mass State</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">Volumetric Joint Count (Jv)</td>
+                  <td className="border border-slate-900 px-2 py-1 text-[9px]">Sum of 1/S for mapped discontinuity sets across the mapped exposure window</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-mono font-bold text-amber-800">Jv = 6.8 joints/m³</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-emerald-700 bg-emerald-50">Medium Blocky</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">In-Situ Block Size Index (Ib)</td>
+                  <td className="border border-slate-900 px-2 py-1 text-[9px]">Geometric mean spacing calculation from J1, J2, and cross-jointing persistence</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-mono font-bold text-cyan-800">Ib = 0.42 m³</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-emerald-700">Moderate Blocks</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">Discontinuity Persistence</td>
+                  <td className="border border-slate-900 px-2 py-1 text-[9px]">Trace continuity measured across exposure width: high persistence for primary bedding</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-mono font-bold text-slate-800">L = 4–12 m</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-amber-700">Medium–High</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-900 px-2 py-1 font-bold">Weathering Penetration Depth</td>
+                  <td className="border border-slate-900 px-2 py-1 text-[9px]">Limonite and hematite staining on joint selvages with fresh competent rock interior</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-mono font-bold text-slate-800">Depth 15–35 mm</td>
+                  <td className="border border-slate-900 px-2 py-1 text-center font-bold text-slate-700">Slight Weathering</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
 
           {/* Section 3: Rock Mass Indices & Interactive Checklist */}
           <table className="w-full border-collapse border border-slate-900 text-[10px] bg-white shrink-0">
@@ -3365,7 +3579,7 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
       </div>
 
       {/* =====================================================================
-          PAGE 3 OF 3 (A4 VERTICAL): GEOTECHNICAL RATINGS & SURFACE STABILIZATION (LAST PAGE OTHER DATA)
+          PAGE 3 OF 3 (A4 VERTICAL): RATINGS & EXCAVATION / STABILIZATION LOG
          ===================================================================== */}
       <div
         id="field-surface-report-page-3"
@@ -3390,7 +3604,11 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
               </td>
               <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                 <div className="text-[11px] font-black uppercase leading-tight">
-                  GEOTECHNICAL RATINGS &amp; SURFACE STABILIZATION DESIGN — {activeProject.projectName} ({activeLocation.name})
+                  {isTrench
+                    ? `GEOTECHNICAL RATINGS & TRENCH EXCAVATION / SHORING LOG — ${activeProject.projectName}`
+                    : isRockSurface
+                    ? `ROCK MASS GEOTECHNICAL RATINGS & OUTCROP CHARACTERIZATION — ${activeProject.projectName}`
+                    : `GEOTECHNICAL RATINGS & SURFACE STABILIZATION DESIGN — ${activeProject.projectName} (${activeLocation.name})`}
                   <span className="text-[9px] font-semibold text-slate-700 ml-1.5">[Page 3/3 - Last Page]</span>
                 </div>
               </td>
@@ -3413,10 +3631,10 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
                 <span className="font-bold">Location:</span> {activeLocation.name}
               </td>
               <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                <span className="font-bold">Station:</span> CH {activeRound.chainageFrom}–{activeRound.chainageTo}m
+                <span className="font-bold">Station:</span> {isTrench ? 'ST' : 'CH'} {activeRound.chainageFrom}–{activeRound.chainageTo}m
               </td>
               <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                <span className="font-bold">Support Class:</span> {sup.supportClass || 'Class III'}
+                <span className="font-bold">{isTrench ? 'Shoring / Safety:' : 'Support Class:'}</span> {isTrench ? 'Trench Shoring Safe' : (sup.supportClass || 'Class III')}
               </td>
               <td className="border border-slate-900 bg-white px-1.5 py-0.5">
                 <span className="font-bold">Geologist:</span> {activeRound.geologistName || 'Geologist'}
@@ -3425,13 +3643,17 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
           </tbody>
         </table>
 
-        {/* Section 1: Geotechnical Classification Ratings (RMR89 & Romana SMR) */}
+        {/* Section 1: Geotechnical Classification Ratings */}
         <div className="space-y-2 flex-1 flex flex-col justify-between">
           <table className="w-full border-collapse border border-slate-900 text-[10px] bg-white shrink-0">
             <thead>
               <tr className="bg-slate-100">
                 <th colSpan={4} className="border border-slate-900 py-1 px-2 text-center font-black uppercase text-slate-900">
-                  1. Rock Mass Geotechnical Classifications (RMR89 &amp; Romana SMR)
+                  {isSlopeOrBench
+                    ? '1. Rock Mass Geotechnical Classifications (RMR89 & Romana SMR)'
+                    : isTrench
+                    ? '1. Trench Bedrock Geotechnical Classifications (Bieniawski RMR89 & Barton Q)'
+                    : '1. Outcrop Rock Mass Geotechnical Classifications (Bieniawski RMR89 & Barton Q)'}
                 </th>
               </tr>
             </thead>
@@ -3450,200 +3672,325 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
                   RMR = {rmrRes.totalRmr} ({rmrRes.rmrClass})
                 </td>
               </tr>
-              <tr>
-                <th className="border border-slate-900 bg-white px-2 py-1 text-left">
-                  Romana SMR (Slope)
-                </th>
-                <td className="border border-slate-900 bg-white px-2 py-1 font-mono text-[9.5px]">
-                  SMR = RMRb ({rmrRes.totalRmr}) + (F1×F2×F3) + F4 = <strong>{smrResult?.smrValue ?? (rmrRes.totalRmr - 8)}</strong>
-                </td>
-                <th className="border border-slate-900 bg-white px-2 py-1 text-left">
-                  SMR Stability Class
-                </th>
-                <td className="border border-slate-900 bg-white px-2 py-1 font-black text-emerald-800">
-                  {smrResult?.smrClass ?? 'Class III (Partially Stable)'}
-                </td>
-              </tr>
+
+              {/* SMR: STRICTLY DISPLAYED ONLY ON SLOPE & BENCH (NEVER ON TRENCH OR ROCK SURFACE) */}
+              {isSlopeOrBench ? (
+                <tr>
+                  <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                    Romana SMR ({isSlope ? 'Slope' : 'Bench'})
+                  </th>
+                  <td className="border border-slate-900 bg-white px-2 py-1 font-mono text-[9.5px]">
+                    SMR = RMRb ({rmrRes.totalRmr}) + (F1×F2×F3) + F4 = <strong>{smrResult?.smrValue ?? (rmrRes.totalRmr - 8)}</strong>
+                  </td>
+                  <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                    SMR Stability Class
+                  </th>
+                  <td className="border border-slate-900 bg-white px-2 py-1 font-black text-emerald-800">
+                    {smrResult?.smrClass ?? 'Class III (Partially Stable)'}
+                  </td>
+                </tr>
+              ) : (
+                <tr>
+                  <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                    Barton Q-System Rating
+                  </th>
+                  <td className="border border-slate-900 bg-white px-2 py-1 font-mono text-[9.5px]">
+                    RQD={activeRound.qSystem.rqd}% | Jn={activeRound.qSystem.jn} | Jr={activeRound.qSystem.jr} | Ja={activeRound.qSystem.ja} | Jw={activeRound.qSystem.jw} | SRF={activeRound.qSystem.srf}
+                  </td>
+                  <th className="border border-slate-900 bg-white px-2 py-1 text-left">
+                    Q-Value &amp; Class
+                  </th>
+                  <td className="border border-slate-900 bg-white px-2 py-1 font-black text-cyan-800">
+                    Q = {qRes.qValue} ({qRes.rockClass})
+                  </td>
+                </tr>
+              )}
+
               <tr>
                 <th className="border border-slate-900 bg-white px-2 py-1 text-left">
                   Hoek-Brown GSI &amp; Strengths
                 </th>
                 <td colSpan={3} className="border border-slate-900 bg-white px-2 py-1 font-mono text-[9.5px]">
                   GSI = <strong>{activeRound.gsiValue || 55}</strong> | Cohesion c&apos; = <strong>{(25 + (activeRound.gsiValue || 55) * 0.9).toFixed(0)} kPa</strong> | Friction φ&apos; = <strong>{(28 + (activeRound.gsiValue || 55) * 0.22).toFixed(1)}°</strong> | Modulus Erm = <strong>{(8.5 + (activeRound.gsiValue || 55) * 0.28).toFixed(1)} GPa</strong>
+                  {isTrench && ` | Safe Foundation Bearing q_all = ${(180 + (activeRound.gsiValue || 55) * 6.5).toFixed(0)} kPa`}
                 </td>
               </tr>
             </tbody>
           </table>
 
-          {/* Section 2: Surface Stabilization Design & 2D Engineering Section */}
-          <table className="w-full border-collapse border border-slate-900 text-[10px] bg-white shrink-0">
-            <thead>
-              <tr className="bg-slate-100">
-                <th colSpan={2} className="border border-slate-900 py-1 px-2 text-left font-black uppercase text-slate-900">
-                  2. Slope &amp; Bench Surface Stabilization System Design (Face β={slopeFaceAngle}°)
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td colSpan={2} className="border border-slate-900 p-1 bg-white">
-                  {/* Clean 2D Cross Section SVG Preview for Surface Stabilization */}
-                  <svg
-                    id="field-report-support-2d-svg"
-                    viewBox="0 0 840 280"
-                    className="w-full h-auto border border-slate-800 bg-white"
-                  >
-                    {/* Ground Slope Face & Crest */}
-                    <path
-                      d="M 60 40 L 220 40 L 460 220 L 780 220"
-                      fill="none"
-                      stroke="#0f172a"
-                      strokeWidth={3}
-                    />
-                    <path
-                      d="M 60 40 L 220 40 L 460 220 L 780 220 L 780 270 L 60 270 Z"
-                      fill="#f1f5f9"
-                    />
+          {/* Section 2: Domain-Isolated 2D Section & Engineering Design */}
+          {isSlopeOrBench ? (
+            /* SLOPE & BENCH: Slope/Bench Surface Stabilization Design */
+            <table className="w-full border-collapse border border-slate-900 text-[10px] bg-white shrink-0">
+              <thead>
+                <tr className="bg-slate-100">
+                  <th colSpan={2} className="border border-slate-900 py-1 px-2 text-left font-black uppercase text-slate-900">
+                    2. Slope &amp; Bench Surface Stabilization System Design (Face β={slopeFaceAngle}°)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={2} className="border border-slate-900 p-1 bg-white">
+                    <svg
+                      id="field-report-support-2d-svg"
+                      viewBox="0 0 840 280"
+                      className="w-full h-auto border border-slate-800 bg-white"
+                    >
+                      <path d="M 60 40 L 220 40 L 460 220 L 780 220" fill="none" stroke="#0f172a" strokeWidth={3} />
+                      <path d="M 60 40 L 220 40 L 460 220 L 780 220 L 780 270 L 60 270 Z" fill="#f1f5f9" />
+                      <rect x={160} y={30} width={28} height={18} fill="#38bdf8" stroke="#0284c7" strokeWidth={1.5} />
+                      <text x={174} y={24} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0369a1" textAnchor="middle">Crest Ditch</text>
+                      <path d="M 220 40 L 460 220" fill="none" stroke="#475569" strokeWidth={7} strokeLinecap="round" />
+                      <path d="M 218 38 L 462 222" fill="none" stroke="#0284c7" strokeWidth={2} strokeDasharray="4 3" />
+                      {[0, 1, 2, 3].map((i) => {
+                        const t = (i + 1) / 5;
+                        const px = 220 + t * 240;
+                        const py = 40 + t * 180;
+                        const anchorLen = 80;
+                        const angleRad = (15 * Math.PI) / 180;
+                        const nx = px - anchorLen * Math.cos(angleRad);
+                        const ny = py + anchorLen * Math.sin(angleRad);
+                        return (
+                          <g key={`nail-${i}`}>
+                            <line x1={px} y1={py} x2={nx} y2={ny} stroke="#94a3b8" strokeWidth={7} strokeLinecap="round" />
+                            <line x1={px} y1={py} x2={nx} y2={ny} stroke="#dc2626" strokeWidth={2} />
+                            <circle cx={px} cy={py} r={5} fill="#f59e0b" stroke="#78350f" strokeWidth={1.5} />
+                          </g>
+                        );
+                      })}
+                      <line x1={440} y1={205} x2={280} y2={195} stroke="#0284c7" strokeWidth={3} strokeDasharray="6 3" />
+                      <text x={270} y={192} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0284c7">Sub-Horizontal Drain (L=10m @ +4°)</text>
+                      <text x={530} y={242} fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#0f172a">Catchment Berm W={surfaceParams?.bermWidthMeters ?? 6.0}m</text>
+                      <text x={380} y={80} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#dc2626">Soil Nails Ø25mm (L={sup.soilNailLengthM ?? 4.5}m @ 1.5×1.5m c/c)</text>
+                      <text x={380} y={98} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0284c7">TECCO® G65 High-Tensile Wire Mesh</text>
+                      <text x={380} y={116} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#475569">{sup.shotcreteThicknessMm || 75}mm Fiber Shotcrete + Weep Holes</text>
+                    </svg>
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={2} className="border border-slate-900 p-0">
+                    <table className="w-full border-collapse text-[9.5px]">
+                      <tbody>
+                        <tr className="bg-slate-50">
+                          <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
+                            Soil Nails / Rock Anchors:
+                          </td>
+                          <td className="border-r border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
+                            {sup.soilNailType || 'Ø25mm High-Yield Rebar'}, L={sup.soilNailLengthM ?? 4.5}m @ {sup.soilNailSpacingM ?? 1.5}×{sup.soilNailSpacingM ?? 1.5}m c/c (∠{sup.soilNailAngleDeg ?? 15}° down)
+                          </td>
+                          <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
+                            High-Tensile Wire Mesh:
+                          </td>
+                          <td className="border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
+                            {sup.wireMeshType || 'TECCO® G65 High-Tensile Steel Wire Mesh'} with {sup.spikePlateType || 'P33 Diamond Spike Plates'}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
+                            Fiber Shotcrete &amp; Weeps:
+                          </td>
+                          <td className="border-r border-slate-900 px-2 py-0.5 font-mono">
+                            {sup.shotcreteThicknessMm || 75}mm SFRS Shotcrete with Ø50mm PVC Weep Holes @ {sup.weepHolesSpacingM ?? 2.0}m c/c
+                          </td>
+                          <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
+                            Drainage &amp; Crest Ditch:
+                          </td>
+                          <td className="px-2 py-0.5 font-mono">
+                            Sub-horizontal Drains L={sup.subHorizontalDrainsLengthM ?? 8.0}m @ +4° up + Concrete Crest Interceptor Ditch
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          ) : isTrench ? (
+            /* TRENCH: 2D Trench Cross-Section & Excavation Shoring / Stability Design */
+            <table className="w-full border-collapse border border-slate-900 text-[10px] bg-white shrink-0">
+              <thead>
+                <tr className="bg-slate-100">
+                  <th colSpan={2} className="border border-slate-900 py-1 px-2 text-left font-black uppercase text-slate-900">
+                    2. Trench Sidewall Stability &amp; Excavation Safety / Shoring Design (Depth {trenchDepthM.toFixed(1)}m, Floor {trenchWidthM.toFixed(1)}m)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={2} className="border border-slate-900 p-1 bg-white">
+                    <svg
+                      id="field-report-support-2d-svg"
+                      viewBox="0 0 840 280"
+                      className="w-full h-auto border border-slate-800 bg-white"
+                    >
+                      {/* Ground Surface & Trench Cut Profile */}
+                      <path d="M 40 50 L 260 50 L 260 230 L 580 230 L 580 50 L 800 50" fill="none" stroke="#0f172a" strokeWidth={3} />
+                      <path d="M 40 50 L 260 50 L 260 230 L 580 230 L 580 50 L 800 50 L 800 270 L 40 270 Z" fill="#f8fafc" />
 
-                    {/* Slope Crest Interceptor Drainage Ditch */}
-                    <rect x={160} y={30} width={28} height={18} fill="#38bdf8" stroke="#0284c7" strokeWidth={1.5} />
-                    <text x={174} y={24} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0369a1" textAnchor="middle">Crest Ditch</text>
+                      {/* Trench Safety Shoring Box / Struts (if needed) */}
+                      <rect x={266} y={60} width={10} height={165} fill="#0284c7" stroke="#0369a1" strokeWidth={1.5} />
+                      <rect x={564} y={60} width={10} height={165} fill="#0284c7" stroke="#0369a1" strokeWidth={1.5} />
+                      <line x1={276} y1={100} x2={564} y2={100} stroke="#dc2626" strokeWidth={6} strokeLinecap="round" />
+                      <line x1={276} y1={180} x2={564} y2={180} stroke="#dc2626" strokeWidth={6} strokeLinecap="round" />
+                      <circle cx={420} cy={100} r={7} fill="#f59e0b" stroke="#78350f" strokeWidth={1.5} />
+                      <circle cx={420} cy={180} r={7} fill="#f59e0b" stroke="#78350f" strokeWidth={1.5} />
 
-                    {/* Fiber Shotcrete Layer on Face */}
-                    <path
-                      d="M 220 40 L 460 220"
-                      fill="none"
-                      stroke="#475569"
-                      strokeWidth={7}
-                      strokeLinecap="round"
-                    />
+                      {/* Invert Bedding Stone Layer */}
+                      <rect x={262} y={218} width={316} height={12} fill="#cbd5e1" stroke="#64748b" strokeWidth={1} />
+                      <text x={420} y={227} fontSize="8" fontFamily="monospace" fontWeight="bold" fill="#334155" textAnchor="middle">100mm Crushed Stone Bedding Layer</text>
 
-                    {/* High-Tensile Wire Mesh Layer on Face */}
-                    <path
-                      d="M 218 38 L 462 222"
-                      fill="none"
-                      stroke="#0284c7"
-                      strokeWidth={2}
-                      strokeDasharray="4 3"
-                    />
+                      {/* Sump Pit for Dewatering */}
+                      <rect x={520} y={230} width={45} height={30} fill="#38bdf8" stroke="#0284c7" strokeWidth={1.5} />
+                      <text x={542} y={250} fontSize="8" fontFamily="monospace" fontWeight="bold" fill="#0369a1" textAnchor="middle">Sump</text>
 
-                    {/* Systematic Pattern Soil Nails / Grouted Anchors */}
-                    {[0, 1, 2, 3].map((i) => {
-                      const t = (i + 1) / 5;
-                      const px = 220 + t * 240;
-                      const py = 40 + t * 180;
-                      const anchorLen = 80;
-                      const angleRad = (15 * Math.PI) / 180;
-                      const nx = px - anchorLen * Math.cos(angleRad);
-                      const ny = py + anchorLen * Math.sin(angleRad);
-                      return (
-                        <g key={`nail-${i}`}>
-                          {/* Grout Body */}
-                          <line
-                            x1={px}
-                            y1={py}
-                            x2={nx}
-                            y2={ny}
-                            stroke="#94a3b8"
-                            strokeWidth={7}
-                            strokeLinecap="round"
-                          />
-                          {/* Steel Rebar Tendon */}
-                          <line
-                            x1={px}
-                            y1={py}
-                            x2={nx}
-                            y2={ny}
-                            stroke="#dc2626"
-                            strokeWidth={2}
-                          />
-                          {/* Diamond Spike Plate P33 */}
-                          <circle cx={px} cy={py} r={5} fill="#f59e0b" stroke="#78350f" strokeWidth={1.5} />
-                        </g>
-                      );
-                    })}
+                      {/* Dimension Labels */}
+                      <line x1={260} y1={36} x2={580} y2={36} stroke="#0f172a" strokeWidth={1.2} markerStart="url(#arr)" markerEnd="url(#arr)" />
+                      <text x={420} y={32} fontSize="9.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle">Trench Width Wt = {trenchWidthM.toFixed(1)}m</text>
 
-                    {/* Weep Holes with Drainage Drops */}
-                    {[0, 1, 2].map((i) => {
-                      const t = (i + 1.5) / 5;
-                      const px = 220 + t * 240;
-                      const py = 40 + t * 180;
-                      return (
-                        <g key={`weep-${i}`}>
-                          <circle cx={px} cy={py} r={3} fill="#0ea5e9" />
-                          <line x1={px} y1={py} x2={px + 8} y2={py + 10} stroke="#0ea5e9" strokeWidth={1.5} strokeDasharray="2 2" />
-                        </g>
-                      );
-                    })}
+                      <line x1={235} y1={50} x2={235} y2={230} stroke="#0f172a" strokeWidth={1.2} />
+                      <text x={225} y={145} fontSize="9.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle" transform="rotate(-90, 225, 145)">Depth Dt = {trenchDepthM.toFixed(1)}m</text>
 
-                    {/* Sub-horizontal PVC Drainage Hole */}
-                    <line
-                      x1={440}
-                      y1={205}
-                      x2={280}
-                      y2={195}
-                      stroke="#0284c7"
-                      strokeWidth={3}
-                      strokeDasharray="6 3"
-                    />
-                    <text x={270} y={192} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0284c7">Sub-Horizontal Drain (L=10m @ +4°)</text>
+                      {/* Callouts */}
+                      <text x={420} y={88} fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#dc2626" textAnchor="middle">Adjustable Heavy Trench Struts (Spaced 2.0m c/c)</text>
+                      <text x={420} y={168} fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#0284c7" textAnchor="middle">Aluminum / Steel Trench Safety Shield Plates</text>
+                      <text x={610} y={120} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#047857">Sound Bedrock Sidewall</text>
+                      <text x={610} y={135} fontSize="8" fontFamily="monospace" fill="#475569">Vertical Excavation (Self-Supporting)</text>
+                    </svg>
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={2} className="border border-slate-900 p-0">
+                    <table className="w-full border-collapse text-[9.5px]">
+                      <tbody>
+                        <tr className="bg-slate-50">
+                          <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
+                            Trench Sidewall Safety / Shoring:
+                          </td>
+                          <td className="border-r border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
+                            {rmrRes.totalRmr >= 55 ? 'Self-Supporting Competent Bedrock (No heavy shoring required)' : 'Hydraulic Aluminum Trench Shields / Steel Trench Box (OSHA Class B/C)'}
+                          </td>
+                          <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
+                            Invert Bearing Stratum:
+                          </td>
+                          <td className="border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
+                            Competent rock floor, allowable bearing q_all = {(180 + (activeRound.gsiValue || 55) * 6.5).toFixed(0)} kPa
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
+                            Allowable Sidewall Batter:
+                          </td>
+                          <td className="border-r border-slate-900 px-2 py-0.5 font-mono">
+                            Vertical (90°) in un-weathered rock; 1H:1V (45°) in overburden/weathered zone
+                          </td>
+                          <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
+                            Trench Dewatering:
+                          </td>
+                          <td className="px-2 py-0.5 font-mono">
+                            Invert gravity drainage trench leading to 450mm sump pit with submersible trash pump
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          ) : (
+            /* ROCK SURFACE: 2D Outcrop Characterization & Foundation Assessment */
+            <table className="w-full border-collapse border border-slate-900 text-[10px] bg-white shrink-0">
+              <thead>
+                <tr className="bg-slate-100">
+                  <th colSpan={2} className="border border-slate-900 py-1 px-2 text-left font-black uppercase text-slate-900">
+                    2. Outcrop Rock Mass Characterization &amp; Engineering Foundation Assessment ({slopeWidthM.toFixed(1)}m W × {slopeHeightM.toFixed(1)}m H)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={2} className="border border-slate-900 p-1 bg-white">
+                    <svg
+                      id="field-report-support-2d-svg"
+                      viewBox="0 0 840 280"
+                      className="w-full h-auto border border-slate-800 bg-white"
+                    >
+                      {/* Outcrop Window Framing Profile */}
+                      <rect x={100} y={40} width={640} height={200} fill="#f8fafc" stroke="#0f172a" strokeWidth={2.5} />
+                      <rect x={100} y={40} width={640} height={200} fill="url(#srf-rep-pat-monochrome-granite)" opacity={0.3} />
 
-                    {/* Catchment Bench / Toe Ditch */}
-                    <text x={530} y={242} fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#0f172a">Catchment Berm W={surfaceParams?.bermWidthMeters ?? 6.0}m</text>
+                      {/* Structural Joint Grid Illustrating Blockiness */}
+                      <line x1={260} y1={40} x2={260} y2={240} stroke="#3b82f6" strokeWidth={1.8} strokeDasharray="6 3" />
+                      <line x1={420} y1={40} x2={420} y2={240} stroke="#3b82f6" strokeWidth={1.8} strokeDasharray="6 3" />
+                      <line x1={580} y1={40} x2={580} y2={240} stroke="#3b82f6" strokeWidth={1.8} strokeDasharray="6 3" />
 
-                    {/* Callouts */}
-                    <text x={380} y={80} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#dc2626">Soil Nails Ø25mm (L={sup.soilNailLengthM ?? 4.5}m @ 1.5×1.5m c/c)</text>
-                    <text x={380} y={98} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#0284c7">TECCO® G65 High-Tensile Wire Mesh</text>
-                    <text x={380} y={116} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#475569">{sup.shotcreteThicknessMm || 75}mm Fiber Shotcrete + Weep Holes</text>
-                  </svg>
-                </td>
-              </tr>
-              {/* Specifications Table */}
-              <tr>
-                <td colSpan={2} className="border border-slate-900 p-0">
-                  <table className="w-full border-collapse text-[9.5px]">
-                    <tbody>
-                      <tr className="bg-slate-50">
-                        <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
-                          Soil Nails / Rock Anchors:
-                        </td>
-                        <td className="border-r border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
-                          {sup.soilNailType || 'Ø25mm High-Yield Rebar'}, L={sup.soilNailLengthM ?? 4.5}m @ {sup.soilNailSpacingM ?? 1.5}×{sup.soilNailSpacingM ?? 1.5}m c/c (∠{sup.soilNailAngleDeg ?? 15}° down)
-                        </td>
-                        <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
-                          High-Tensile Wire Mesh:
-                        </td>
-                        <td className="border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
-                          {sup.wireMeshType || 'TECCO® G65 High-Tensile Steel Wire Mesh'} with {sup.spikePlateType || 'P33 Diamond Spike Plates'}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
-                          Fiber Shotcrete &amp; Weeps:
-                        </td>
-                        <td className="border-r border-slate-900 px-2 py-0.5 font-mono">
-                          {sup.shotcreteThicknessMm || 75}mm SFRS Shotcrete with Ø50mm PVC Weep Holes @ {sup.weepHolesSpacingM ?? 2.0}m c/c
-                        </td>
-                        <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
-                          Drainage &amp; Crest Ditch:
-                        </td>
-                        <td className="px-2 py-0.5 font-mono">
-                          Sub-horizontal Drains L={sup.subHorizontalDrainsLengthM ?? 8.0}m @ +4° up + Concrete Crest Interceptor Ditch
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                      <line x1={100} y1={105} x2={740} y2={105} stroke="#d97706" strokeWidth={1.8} strokeDasharray="6 3" />
+                      <line x1={100} y1={175} x2={740} y2={175} stroke="#d97706" strokeWidth={1.8} strokeDasharray="6 3" />
+
+                      {/* Outcrop Window Dimensions */}
+                      <line x1={100} y1={28} x2={740} y2={28} stroke="#0f172a" strokeWidth={1.2} />
+                      <text x={420} y={23} fontSize="9.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle">Outcrop Span Wr = {slopeWidthM.toFixed(1)}m</text>
+
+                      <line x1={80} y1={40} x2={80} y2={240} stroke="#0f172a" strokeWidth={1.2} />
+                      <text x={70} y={145} fontSize="9.5" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle" transform="rotate(-90, 70, 145)">Height Hr = {slopeHeightM.toFixed(1)}m</text>
+
+                      {/* Callouts */}
+                      <text x={260} y={95} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#047857">Primary Joint Set J1 (Spacing 1.2m)</text>
+                      <text x={420} y={165} fontSize="8.5" fontFamily="monospace" fontWeight="bold" fill="#d97706">Cross Jointing J2 (Spacing 0.8m)</text>
+                      <text x={420} y={225} fontSize="9" fontFamily="monospace" fontWeight="bold" fill="#0f172a" textAnchor="middle">Base Ground Exposure / Footprint (+0.0m EL)</text>
+                    </svg>
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={2} className="border border-slate-900 p-0">
+                    <table className="w-full border-collapse text-[9.5px]">
+                      <tbody>
+                        <tr className="bg-slate-50">
+                          <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
+                            Rock Mass Structural Fabric:
+                          </td>
+                          <td className="border-r border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
+                            {activeRound.rockMassStructuralType || 'Interlocked / Blocky Bedrock'} (Degree of jointing: Moderate)
+                          </td>
+                          <td className="border-r border-b border-slate-900 px-2 py-0.5 font-bold w-[22%]">
+                            Surface Quality &amp; Hardness:
+                          </td>
+                          <td className="border-b border-slate-900 px-2 py-0.5 font-mono w-[28%]">
+                            {activeRound.surfaceQualityType || 'Good (Fresh, rough unweathered surfaces)'}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
+                            Excavation / Ripperability:
+                          </td>
+                          <td className="border-r border-slate-900 px-2 py-0.5 font-mono">
+                            Direct ripping not feasible (UCS &gt; 45 MPa); hydraulic breaker or controlled blasting required
+                          </td>
+                          <td className="border-r border-slate-900 px-2 py-0.5 font-bold">
+                            Foundation Bearing Suitability:
+                          </td>
+                          <td className="px-2 py-0.5 font-mono">
+                            High bearing capacity sound bedrock; allowable bearing pressure q_all &gt; 2.5 MPa
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          )}
 
           {/* Section 3: Overall Geological Observations & Field Recommendations */}
           <table className="w-full border-collapse border border-slate-900 text-[10.5px] bg-white flex-1">
             <thead>
               <tr className="bg-slate-100">
                 <th className="border border-slate-900 py-1 px-2 text-left font-black uppercase text-slate-900">
-                  3. Overall Geological Observations &amp; Surface Stabilization Instructions
+                  {isTrench
+                    ? '3. Overall Trench Engineering Geological Summary & Foundation Bedrock Evaluation'
+                    : isRockSurface
+                    ? '3. Overall Geological Observations & Outcrop Engineering Suitability Summary'
+                    : '3. Overall Geological Observations & Surface Stabilization Instructions'}
                 </th>
               </tr>
             </thead>
@@ -3662,11 +4009,23 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
                     className="w-full bg-white text-slate-950 text-[10.5px] leading-relaxed whitespace-pre-wrap break-words min-h-[90px] focus:outline-none"
                   >
                     {activeRound.geologicalDescription ||
-                      `SURFACE STABILIZATION SPECIFICATION (${mappingDomain} MAPPING):\n` +
-                      `1. Rock mass mapped at CH ${activeRound.chainageFrom}–${activeRound.chainageTo}m comprises ${activeRound.rockType || 'Jointed Bedrock'} with ${availableSetIds.length} governing joint sets.\n` +
-                      `2. Recommended Surface Stabilization: Install ${sup.soilNailType || 'Ø25mm SN Rebar Dowels'} (L=${sup.soilNailLengthM ?? 4.5}m @ ${sup.soilNailSpacingM ?? 1.5}×${sup.soilNailSpacingM ?? 1.5}m c/c) drilled at 15° declination with OPC cement grout.\n` +
-                      `3. Drape ${sup.wireMeshType || 'TECCO® G65 High-Tensile Mesh'} fastened by P33 spike plates followed by ${sup.shotcreteThicknessMm || 75}mm SFRS fiber shotcrete with Ø50mm PVC weep holes @ 2.0m c/c.\n` +
-                      `4. Excavate and maintain concrete-lined crest interceptor ditch along upper slope boundary to divert runoff.`}
+                      (isTrench
+                        ? `TRENCH GEOLOGICAL & FOUNDATION LOG (ST ${activeRound.chainageFrom}–${activeRound.chainageTo}m):\n` +
+                          `1. Trench excavated to depth Dt=${trenchDepthM.toFixed(1)}m and invert width Wt=${trenchWidthM.toFixed(1)}m across ${activeRound.rockType || 'Competent Bedrock'}.\n` +
+                          `2. Sidewall stability logged across ${availableSetIds.length} discontinuity sets; sidewalls exhibit competent self-supporting behaviour with no deep ravelling.\n` +
+                          `3. Trench floor / invert comprises sound un-weathered rock suitable for structural foundation loading (Allowable Bearing q_all = ${(180 + (activeRound.gsiValue || 55) * 6.5).toFixed(0)} kPa).\n` +
+                          `4. Groundwater conditions are predominantly dry with minor seepage controlled via floor gravity ditch to temporary sump.`
+                        : isRockSurface
+                        ? `OUTCROP GEOLOGICAL EXPOSURE LOG (CH ${activeRound.chainageFrom}–${activeRound.chainageTo}m):\n` +
+                          `1. Rock exposure window mapped across ${slopeWidthM.toFixed(1)}m span comprises ${activeRound.rockType || 'Jointed Bedrock'} with ${availableSetIds.length} governing joint sets.\n` +
+                          `2. Rock mass classified as ${rmrRes.rmrClass} (RMR=${rmrRes.totalRmr}) and Q=${qRes.qValue} (${qRes.rockClass}) with GSI=${activeRound.gsiValue || 55}.\n` +
+                          `3. In-situ blockiness is moderate (Jv = 6.8 joints/m³) with tightly interlocked joints and sound rock substance.\n` +
+                          `4. Outcrop is suitable for direct foundation bearing, structural abutment founding, and open excavation cut slopes.`
+                        : `SURFACE STABILIZATION SPECIFICATION (${mappingDomain} MAPPING):\n` +
+                          `1. Rock mass mapped at CH ${activeRound.chainageFrom}–${activeRound.chainageTo}m comprises ${activeRound.rockType || 'Jointed Bedrock'} with ${availableSetIds.length} governing joint sets.\n` +
+                          `2. Recommended Surface Stabilization: Install ${sup.soilNailType || 'Ø25mm SN Rebar Dowels'} (L=${sup.soilNailLengthM ?? 4.5}m @ ${sup.soilNailSpacingM ?? 1.5}×${sup.soilNailSpacingM ?? 1.5}m c/c) drilled at 15° declination with OPC cement grout.\n` +
+                          `3. Drape ${sup.wireMeshType || 'TECCO® G65 High-Tensile Mesh'} fastened by P33 spike plates followed by ${sup.shotcreteThicknessMm || 75}mm SFRS fiber shotcrete with Ø50mm PVC weep holes @ 2.0m c/c.\n` +
+                          `4. Excavate and maintain concrete-lined crest interceptor ditch along upper slope boundary to divert runoff.`)}
                   </div>
                 </td>
               </tr>
@@ -3722,8 +4081,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
   const qRes = computeFieldQValue(activeRound.qSystem);
   const rmrRes = computeFieldRmrValue(activeRound.rmrSystem);
 
+  const isSlopeOrBench = mappingDomain === 'SLOPE' || mappingDomain === 'BENCH';
   const smrResult = useMemo(() => {
-    if (!isSurface || !surfaceParams) return null;
+    if (!isSlopeOrBench || !surfaceParams) return null;
     const jointSetsArray = FIELD_JOINT_SET_IDS.filter(
       (id) =>
         activeRound.jointTraces.some((j) => j.setId === id) ||
@@ -3743,7 +4103,7 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
       rmrRes.totalRmr
     );
   }, [
-    isSurface,
+    isSlopeOrBench,
     surfaceParams,
     activeRound.jointTraces,
     activeRound.dipPlaneSurfaces,
@@ -3797,7 +4157,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
         activeLocation,
         activeRound,
         pngDataUrl,
-        supportPngUrl
+        supportPngUrl,
+        mappingDomain,
+        surfaceParams
       );
       if (activeRound) {
         try {
@@ -3815,7 +4177,15 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
       console.error('Word export error:', err);
       setExportBanner('Word download error, retrying without embedded raster...');
       try {
-        exportFieldMappingTwoPageWordSheet(activeProject, activeLocation, activeRound, null, null);
+        exportFieldMappingTwoPageWordSheet(
+          activeProject,
+          activeLocation,
+          activeRound,
+          null,
+          null,
+          mappingDomain,
+          surfaceParams
+        );
       } catch {}
     } finally {
       setIsExportingWord(false);
@@ -3849,6 +4219,8 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
           support2DPngDataUrl: supportPngUrl,
           pageSize,
           orientation: 'portrait',
+          mappingDomain,
+          surfaceParams,
         }
       );
       if (activeRound) {
@@ -3867,7 +4239,15 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
       console.error('PDF export error:', err);
       setExportBanner('PDF export error: generating standard PDF...');
       try {
-        await exportFieldMappingTwoPagePdfSheet(activeProject, activeLocation, activeRound, null, null, pageSize);
+        await exportFieldMappingTwoPagePdfSheet({
+          project: activeProject,
+          location: activeLocation,
+          round: activeRound,
+          pageSize,
+          orientation: 'portrait',
+          mappingDomain,
+          surfaceParams,
+        });
       } catch {}
     } finally {
       setIsExportingPdf(false);

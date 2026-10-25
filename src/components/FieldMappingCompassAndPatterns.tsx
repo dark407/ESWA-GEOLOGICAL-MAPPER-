@@ -3255,9 +3255,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       }
       if (panel === 'right_wall') {
         // Horizontal X = Right Springline (v=0 -> sx=0) to Right Invert floor (v=1 -> sx=1)
-        // Vertical Y = Face (u=1 -> sy=0 at top) to Start of Pull (u=0 -> sy=1 at bottom)
+        // Vertical Y = Face (u=0 -> sy=0 at top) to Start of Pull (u=1 -> sy=1 at bottom)
         const sx = v;
-        const sy = 1 - u;
+        const sy = u;
         return {
           x: Number((targetBoxX + sx * targetBoxW).toFixed(1)),
           y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
@@ -4901,19 +4901,23 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
 
     return (
       <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
-        {/* Shape-Adaptive 1m Reference Ticks following the actual outline */}
+        {/* Shape-Adaptive 1m Reference Ticks following the actual outline (Strictly Exterior) */}
         {faceDetails.ticks.map((tk, idx) => {
           const faceFontScale = Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480));
           const isInvert = tk.zone === 'invert';
           const isZeroInvert = isInvert && tk.m === 0;
-          const tickLen = isZeroInvert ? 13 : 9;
+          const tickLen = isZeroInvert ? 14 : 10;
+          // Ticks point purely outwards along unit normal (nx, ny)
+          const x1 = tk.x;
+          const y1 = tk.y;
           const x2 = tk.x + tk.nx * tickLen;
           const y2 = tk.y + tk.ny * tickLen;
-          const lblDist = tk.labelOffsetDist * 0.92;
+          // Generous exterior offset distance so numbers never touch or intrude inside the outline
+          const lblDist = Math.max(26, tk.labelOffsetDist + 12);
           const lx = tk.x + tk.nx * lblDist;
-          const ly = tk.y + tk.ny * lblDist + (isInvert ? 4 : 3.5);
+          const ly = tk.y + tk.ny * lblDist + (isInvert ? 6 : 4);
           const anchor =
-            Math.abs(tk.nx) > 0.65
+            Math.abs(tk.nx) > 0.4
               ? tk.nx < 0
                 ? 'end'
                 : 'start'
@@ -4929,12 +4933,12 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           return (
             <g key={`face-tk-${tk.zone}-${tk.m}-${idx}`}>
               <line
-                x1={tk.x}
-                y1={tk.y}
+                x1={x1}
+                y1={y1}
                 x2={x2}
                 y2={y2}
                 stroke={isZeroInvert ? accentCenterColor : tickColor}
-                strokeWidth={isZeroInvert ? '2.2' : '1.8'}
+                strokeWidth={isZeroInvert ? '2.4' : '1.8'}
               />
               <text
                 x={lx}
@@ -4953,25 +4957,28 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           );
         })}
 
-        {/* LEFT SPL / CREST Marker & Label */}
+        {/* LEFT SPL / CREST Marker & Label - Strictly OUTSIDE the perimeter */}
         {faceDetails.hasLeftWall && effectiveLocation.shape !== 'circular' && (
           <g>
             <line
-              x1={faceDetails.splLeftPt.x - 18}
+              x1={faceDetails.splLeftPt.x - 24}
               y1={faceDetails.splLeftPt.y}
-              x2={faceDetails.splLeftPt.x + 5}
+              x2={faceDetails.splLeftPt.x}
               y2={faceDetails.splLeftPt.y}
               stroke={accentSplColor}
               strokeWidth="2.5"
             />
+            {/* Control Point Circle placed strictly exterior to outline */}
             <circle
-              cx={faceDetails.splLeftPt.x}
+              cx={faceDetails.splLeftPt.x - 6}
               cy={faceDetails.splLeftPt.y}
-              r="4"
+              r="4.5"
               fill={accentSplColor}
+              stroke="#ffffff"
+              strokeWidth="1.5"
             />
             <text
-              x={faceDetails.splLeftPt.x - 21}
+              x={faceDetails.splLeftPt.x - 28}
               y={faceDetails.splLeftPt.y + 3.5}
               textAnchor="end"
               fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
@@ -4988,25 +4995,28 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           </g>
         )}
 
-        {/* RIGHT SPL / CREST Marker & Label */}
+        {/* RIGHT SPL / CREST Marker & Label - Strictly OUTSIDE the perimeter */}
         {faceDetails.hasRightWall && effectiveLocation.shape !== 'circular' && (
           <g>
             <line
-              x1={faceDetails.splRightPt.x - 5}
+              x1={faceDetails.splRightPt.x}
               y1={faceDetails.splRightPt.y}
-              x2={faceDetails.splRightPt.x + 18}
+              x2={faceDetails.splRightPt.x + 24}
               y2={faceDetails.splRightPt.y}
               stroke={accentSplColor}
               strokeWidth="2.5"
             />
+            {/* Control Point Circle placed strictly exterior to outline */}
             <circle
-              cx={faceDetails.splRightPt.x}
+              cx={faceDetails.splRightPt.x + 6}
               cy={faceDetails.splRightPt.y}
-              r="4"
+              r="4.5"
               fill={accentSplColor}
+              stroke="#ffffff"
+              strokeWidth="1.5"
             />
             <text
-              x={faceDetails.splRightPt.x + 21}
+              x={faceDetails.splRightPt.x + 28}
               y={faceDetails.splRightPt.y + 3.5}
               textAnchor="start"
               fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
@@ -5023,26 +5033,29 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           </g>
         )}
 
-        {/* CROWN / CREST CENTER (CL) Outer Marker */}
+        {/* CROWN / CREST CENTER (CL) Outer Marker - Strictly OUTSIDE top apex */}
         {faceDetails.hasCrown && (
           <g>
             <line
               x1={faceDetails.clTopPt.x}
-              y1={faceDetails.clTopPt.y - 20}
+              y1={faceDetails.clTopPt.y - 24}
               x2={faceDetails.clTopPt.x}
-              y2={faceDetails.clTopPt.y + 5}
+              y2={faceDetails.clTopPt.y}
               stroke={accentCenterColor}
               strokeWidth="2.5"
             />
+            {/* Control Point Circle placed strictly exterior above outline */}
             <circle
               cx={faceDetails.clTopPt.x}
-              cy={faceDetails.clTopPt.y}
-              r="4"
+              cy={faceDetails.clTopPt.y - 7}
+              r="4.5"
               fill={accentCenterColor}
+              stroke="#ffffff"
+              strokeWidth="1.5"
             />
             <text
               x={cx}
-              y={top - 25}
+              y={top - 30}
               textAnchor="middle"
               fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
               fontWeight="800"
@@ -5058,10 +5071,10 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           </g>
         )}
 
-        {/* Left Wall / Batter Height Label */}
+        {/* Left Wall / Batter Height Label - Positioned with generous exterior clearance */}
         {faceDetails.hasLeftWall ? (
           <text
-            x={left - 32}
+            x={left - 42}
             y={leftWallMidY}
             textAnchor="middle"
             fontSize={(11.0 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
@@ -5093,10 +5106,10 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           </text>
         )}
 
-        {/* Right Wall / Batter Height Label */}
+        {/* Right Wall / Batter Height Label - Positioned with generous exterior clearance */}
         {faceDetails.hasRightWall ? (
           <text
-            x={right + 32}
+            x={right + 42}
             y={rightWallMidY}
             textAnchor="middle"
             fontSize={(11.0 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
@@ -5105,7 +5118,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             stroke={haloColor}
             strokeWidth="3"
             paintOrder="stroke"
-            transform={`rotate(90, ${right + 32}, ${rightWallMidY})`}
+            transform={`rotate(90, ${right + 42}, ${rightWallMidY})`}
           >
             {isSurface
               ? `${mappingDomain} HEIGHT (R) = ${rightWallLenM.toFixed(2)}m`
@@ -5113,7 +5126,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           </text>
         ) : (
           <text
-            x={right + 22}
+            x={right + 30}
             y={cy}
             textAnchor="middle"
             fontSize={(11.0 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
@@ -5122,16 +5135,16 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             stroke={haloColor}
             strokeWidth="3"
             paintOrder="stroke"
-            transform={`rotate(90, ${right + 22}, ${cy})`}
+            transform={`rotate(90, ${right + 30}, ${cy})`}
           >
             RIGHT PORTION OPEN (NO WALL)
           </text>
         )}
 
-        {/* Bottom Total Span & Toe Label */}
+        {/* Bottom Total Span & Toe Label - Strictly OUTSIDE bottom invert */}
         <text
           x={cx}
-          y={bottom + 42}
+          y={bottom + 48}
           textAnchor="middle"
           fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
           fontWeight="800"

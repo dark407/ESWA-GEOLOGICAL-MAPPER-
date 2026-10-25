@@ -2579,19 +2579,23 @@ export const ProjectMemoryModal: React.FC<ProjectMemoryModalProps> = ({
                                       activeLocationId: rd.locationId,
                                       activeRoundId: rd.id,
                                     };
-                                    saveFieldMappingStore(nextStore);
-                                    saveFieldMappingResumeState({
-                                      stage: 'field_canvas',
-                                      activeProjectId: rd.projectId,
-                                      activeLocationId: rd.locationId,
-                                      activeRoundId: rd.id,
-                                      activePanel: 'face',
-                                      is3DMappingMode: false,
-                                      chainageLabel: `CH ${rd.chainageFrom}m–${rd.chainageTo}m`,
-                                      locationLabel: loc?.name || domainMeta.cleanName,
-                                      stageLabel: 'Face Canvas',
-                                      updatedAt: new Date().toISOString(),
-                                    });
+                                    saveFieldMappingStore(nextStore, rd.mappingDomain);
+                                    saveFieldMappingResumeState(
+                                      {
+                                        stage: 'field_canvas',
+                                        mappingDomain: rd.mappingDomain,
+                                        activeProjectId: rd.projectId,
+                                        activeLocationId: rd.locationId,
+                                        activeRoundId: rd.id,
+                                        activePanel: 'face',
+                                        is3DMappingMode: false,
+                                        chainageLabel: `CH ${rd.chainageFrom}m–${rd.chainageTo}m`,
+                                        locationLabel: loc?.name || domainMeta.cleanName,
+                                        stageLabel: 'Face Canvas',
+                                        updatedAt: new Date().toISOString(),
+                                      },
+                                      rd.mappingDomain
+                                    );
                                     onOpenFieldRoundInWorkspace?.(
                                       rd.id,
                                       rd.projectId,

@@ -71,6 +71,7 @@ export interface GoogleUserAccountInfo {
 
 export interface FieldMappingResumeState {
   stage: string;
+  mappingDomain?: MappingDomainType;
   activeProjectId?: string | null;
   activeLocationId?: string | null;
   activeRoundId?: string | null;
@@ -155,29 +156,54 @@ export const PHOTOGRAMMETRY_SCREEN_LABELS: Record<string, string> = {
 // 1. RESUME STATE TRACKERS (FIELD FACE MAPPING & PHOTOGRAMMETRY FACE MAPPING)
 // ============================================================================
 
-export function saveFieldMappingResumeState(state: FieldMappingResumeState): void {
+export function saveFieldMappingResumeState(state: FieldMappingResumeState, domain?: MappingDomainType): void {
   try {
+    const effDomain = (domain || state.mappingDomain || 'TUNNEL').toUpperCase() as MappingDomainType;
     const normalized: FieldMappingResumeState = {
       ...state,
+      mappingDomain: effDomain,
       activeProjectId: state.activeProjectId ?? state.projectId ?? null,
       activeLocationId: state.activeLocationId ?? state.locationId ?? null,
       activeRoundId: state.activeRoundId ?? state.roundId ?? null,
       stageLabel: state.stageLabel || FIELD_STAGE_LABELS[state.stage] || state.stage,
       updatedAt: state.updatedAt || state.savedAt || new Date().toISOString(),
     };
-    localStorage.setItem(FIELD_RESUME_STORAGE_KEY, JSON.stringify(normalized));
+    const domainKey = `eswa_field_mapping_resume_state_${effDomain.toLowerCase()}_v2`;
+    localStorage.setItem(domainKey, JSON.stringify(normalized));
+    if (effDomain === 'TUNNEL') {
+      localStorage.setItem(FIELD_RESUME_STORAGE_KEY, JSON.stringify(normalized));
+    }
   } catch {
     // Ignore storage errors
   }
 }
 
-export function loadFieldMappingResumeState(): FieldMappingResumeState | null {
+export function loadFieldMappingResumeState(domain?: MappingDomainType): FieldMappingResumeState | null {
   try {
-    const raw = localStorage.getItem(FIELD_RESUME_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as FieldMappingResumeState;
-    if (!parsed || typeof parsed !== 'object' || !parsed.stage) return null;
-    return parsed;
+    const effDomain = (domain || 'TUNNEL').toUpperCase() as MappingDomainType;
+    const domainKey = `eswa_field_mapping_resume_state_${effDomain.toLowerCase()}_v2`;
+    const raw = localStorage.getItem(domainKey);
+    if (raw) {
+      const parsed = JSON.parse(raw) as FieldMappingResumeState;
+      if (parsed && typeof parsed === 'object' && parsed.stage) {
+        if (!parsed.mappingDomain || parsed.mappingDomain === effDomain) {
+          return parsed;
+        }
+      }
+    }
+    // Fallback to legacy key only if asking for TUNNEL
+    if (effDomain === 'TUNNEL') {
+      const legacyRaw = localStorage.getItem(FIELD_RESUME_STORAGE_KEY);
+      if (legacyRaw) {
+        const parsed = JSON.parse(legacyRaw) as FieldMappingResumeState;
+        if (parsed && typeof parsed === 'object' && parsed.stage) {
+          if (!parsed.mappingDomain || parsed.mappingDomain === 'TUNNEL') {
+            return parsed;
+          }
+        }
+      }
+    }
+    return null;
   } catch {
     return null;
   }

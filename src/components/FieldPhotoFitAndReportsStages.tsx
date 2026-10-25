@@ -2622,34 +2622,42 @@ export const FieldPhotoFitStage: React.FC<{
                   />
                 )}
 
-                {/* Crown Canonical Annotation: 0m at Bottom, 3m Advance on Top */}
+                {/* Crown Canonical Annotation: Placed Strictly OUTSIDE the Outline (Top & Bottom) */}
                 {selectedPanel === 'crown' && (
                   <g pointerEvents="none" fontFamily="IBM Plex Mono, monospace" fontSize="11" fontWeight="bold">
+                    {/* Bottom Annotation (Previous Round Start 0.00m) - Strictly Below Outline */}
                     <rect
                       x={pGeom.boxX}
-                      y={pGeom.boxY + pGeom.boxH - 22}
+                      y={pGeom.boxY + pGeom.boxH + 8}
                       width={pGeom.boxW}
-                      height="20"
-                      fill="rgba(15, 23, 42, 0.85)"
+                      height="22"
+                      rx="4"
+                      fill="rgba(15, 23, 42, 0.92)"
+                      stroke="#0284c7"
+                      strokeWidth="1"
                     />
                     <text
                       x={pGeom.boxX + pGeom.boxW / 2}
-                      y={pGeom.boxY + pGeom.boxH - 7}
+                      y={pGeom.boxY + pGeom.boxH + 23}
                       textAnchor="middle"
                       fill="#38bdf8"
                     >
                       ▲ ADVANCE START 0.00m (BOTTOM • PREVIOUS ROUND)
                     </text>
+                    {/* Top Annotation (Excavation Face Advance Pull) - Strictly Above Outline */}
                     <rect
                       x={pGeom.boxX}
-                      y={pGeom.boxY + 2}
+                      y={Math.max(4, pGeom.boxY - 32)}
                       width={pGeom.boxW}
-                      height="20"
-                      fill="rgba(15, 23, 42, 0.85)"
+                      height="22"
+                      rx="4"
+                      fill="rgba(15, 23, 42, 0.92)"
+                      stroke="#d97706"
+                      strokeWidth="1"
                     />
                     <text
                       x={pGeom.boxX + pGeom.boxW / 2}
-                      y={pGeom.boxY + 16}
+                      y={Math.max(4, pGeom.boxY - 32) + 15}
                       textAnchor="middle"
                       fill="#fbbf24"
                     >
@@ -2658,7 +2666,7 @@ export const FieldPhotoFitStage: React.FC<{
                   </g>
                 )}
 
-                {/* Interactive Crop & Extent Boundary Visualizer */}
+                {/* Interactive Crop & Extent Boundary Visualizer - Strictly Outside Perimeter */}
                 {showCropHandles && activePhoto && (
                   <g>
                     <rect
@@ -2671,54 +2679,62 @@ export const FieldPhotoFitStage: React.FC<{
                       strokeWidth="2"
                       strokeDasharray="6 3"
                     />
-                    {/* Left edge handle */}
+                    {/* Left edge handle - Outside left */}
                     <rect
-                      x={cropL - 5}
+                      x={cropL - 14}
                       y={pGeom.boxY + pGeom.boxH / 2 - 25}
-                      width="10"
+                      width="12"
                       height="50"
                       rx="4"
                       fill="#a855f7"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
                       className="cursor-ew-resize"
                       onPointerDown={(e) => handlePointerDown('extent_left', e)}
                     />
-                    {/* Right edge handle */}
+                    {/* Right edge handle - Outside right */}
                     <rect
-                      x={cropR - 5}
+                      x={cropR + 2}
                       y={pGeom.boxY + pGeom.boxH / 2 - 25}
-                      width="10"
+                      width="12"
                       height="50"
                       rx="4"
                       fill="#a855f7"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
                       className="cursor-ew-resize"
                       onPointerDown={(e) => handlePointerDown('extent_right', e)}
                     />
-                    {/* Top edge handle */}
+                    {/* Top edge handle - Outside top */}
                     <rect
                       x={pGeom.boxX + pGeom.boxW / 2 - 25}
-                      y={cropT - 5}
+                      y={cropT - 14}
                       width="50"
-                      height="10"
+                      height="12"
                       rx="4"
                       fill="#a855f7"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
                       className="cursor-ns-resize"
                       onPointerDown={(e) => handlePointerDown('extent_top', e)}
                     />
-                    {/* Bottom edge handle */}
+                    {/* Bottom edge handle - Outside bottom */}
                     <rect
                       x={pGeom.boxX + pGeom.boxW / 2 - 25}
-                      y={cropB - 5}
+                      y={cropB + 2}
                       width="50"
-                      height="10"
+                      height="12"
                       rx="4"
                       fill="#a855f7"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
                       className="cursor-ns-resize"
                       onPointerDown={(e) => handlePointerDown('extent_bottom', e)}
                     />
                   </g>
                 )}
 
-                {/* 4-Point Mesh Pins Overlay on Canvas */}
+                {/* 4-Point Mesh Pins Overlay on Canvas - Placed Strictly OUTSIDE Outline Corners */}
                 {showMeshPins && activePhoto && (
                   <g>
                     {/* Perspective mesh quad boundary */}
@@ -2730,9 +2746,15 @@ export const FieldPhotoFitStage: React.FC<{
                       strokeDasharray="5 3"
                     />
 
-                    {/* Top-Left Pin */}
+                    {/* Corner Guide Stems connecting outline corner to outside pin */}
+                    <line x1={pinTL.x} y1={pinTL.y} x2={pinTL.x - 14} y2={pinTL.y - 14} stroke="#06b6d4" strokeWidth="1.5" strokeDasharray="3 2" />
+                    <line x1={pinTR.x} y1={pinTR.y} x2={pinTR.x + 14} y2={pinTR.y - 14} stroke="#06b6d4" strokeWidth="1.5" strokeDasharray="3 2" />
+                    <line x1={pinBR.x} y1={pinBR.y} x2={pinBR.x + 14} y2={pinBR.y + 14} stroke="#06b6d4" strokeWidth="1.5" strokeDasharray="3 2" />
+                    <line x1={pinBL.x} y1={pinBL.y} x2={pinBL.x - 14} y2={pinBL.y + 14} stroke="#06b6d4" strokeWidth="1.5" strokeDasharray="3 2" />
+
+                    {/* Top-Left Pin - Strictly Outside Corner */}
                     <g
-                      transform={`translate(${pinTL.x}, ${pinTL.y})`}
+                      transform={`translate(${pinTL.x - 16}, ${pinTL.y - 16})`}
                       className="cursor-move"
                       onPointerDown={(e) => handlePointerDown('mesh_tl', e)}
                     >
@@ -2740,9 +2762,9 @@ export const FieldPhotoFitStage: React.FC<{
                       <text textAnchor="middle" dy="4" fill="#080c14" fontSize="10" fontWeight="bold">TL</text>
                     </g>
 
-                    {/* Top-Right Pin */}
+                    {/* Top-Right Pin - Strictly Outside Corner */}
                     <g
-                      transform={`translate(${pinTR.x}, ${pinTR.y})`}
+                      transform={`translate(${pinTR.x + 16}, ${pinTR.y - 16})`}
                       className="cursor-move"
                       onPointerDown={(e) => handlePointerDown('mesh_tr', e)}
                     >
@@ -2750,9 +2772,9 @@ export const FieldPhotoFitStage: React.FC<{
                       <text textAnchor="middle" dy="4" fill="#080c14" fontSize="10" fontWeight="bold">TR</text>
                     </g>
 
-                    {/* Bottom-Right Pin */}
+                    {/* Bottom-Right Pin - Strictly Outside Corner */}
                     <g
-                      transform={`translate(${pinBR.x}, ${pinBR.y})`}
+                      transform={`translate(${pinBR.x + 16}, ${pinBR.y + 16})`}
                       className="cursor-move"
                       onPointerDown={(e) => handlePointerDown('mesh_br', e)}
                     >
@@ -2760,9 +2782,9 @@ export const FieldPhotoFitStage: React.FC<{
                       <text textAnchor="middle" dy="4" fill="#080c14" fontSize="10" fontWeight="bold">BR</text>
                     </g>
 
-                    {/* Bottom-Left Pin */}
+                    {/* Bottom-Left Pin - Strictly Outside Corner */}
                     <g
-                      transform={`translate(${pinBL.x}, ${pinBL.y})`}
+                      transform={`translate(${pinBL.x - 16}, ${pinBL.y + 16})`}
                       className="cursor-move"
                       onPointerDown={(e) => handlePointerDown('mesh_bl', e)}
                     >
@@ -2770,17 +2792,17 @@ export const FieldPhotoFitStage: React.FC<{
                       <text textAnchor="middle" dy="4" fill="#080c14" fontSize="10" fontWeight="bold">BL</text>
                     </g>
 
-                    {/* Interactive Top Rotation Stem & Handle */}
+                    {/* Interactive Top Rotation Stem & Handle - Strictly Above Outline */}
                     <line
                       x1={pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}
                       y1={pGeom.boxY + activeFit.offsetY}
                       x2={pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}
-                      y2={pGeom.boxY + activeFit.offsetY - 45}
+                      y2={pGeom.boxY + activeFit.offsetY - 48}
                       stroke="#10b981"
                       strokeWidth="2.5"
                     />
                     <g
-                      transform={`translate(${pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}, ${pGeom.boxY + activeFit.offsetY - 45})`}
+                      transform={`translate(${pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}, ${pGeom.boxY + activeFit.offsetY - 48})`}
                       className="cursor-crosshair"
                       onPointerDown={(e) => handlePointerDown('rotate_handle', e)}
                     >
@@ -2790,13 +2812,13 @@ export const FieldPhotoFitStage: React.FC<{
                   </g>
                 )}
 
-                {/* Dimension Callout Header */}
+                {/* Dimension Callout Header - Strictly Above Outline */}
                 <text
                   x={pGeom.boxX + pGeom.boxW / 2}
-                  y={Math.max(26, pGeom.boxY - 14)}
+                  y={Math.max(22, pGeom.boxY - 38)}
                   textAnchor="middle"
                   fill="#f8fafc"
-                  fontSize="17"
+                  fontSize="16"
                   fontWeight="bold"
                   fontFamily="IBM Plex Mono, monospace"
                 >

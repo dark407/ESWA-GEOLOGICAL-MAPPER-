@@ -1,64 +1,52 @@
-# Implementation Plan — NATM Joint Trace Orientation: True Dip, Apparent Dip & Multi-Surface Projection Matrix
+# Implementation Plan & Execution Summary — Surface Mapping Clean Reports, Domain Isolation & Boundary Geometry
 
-## 1. Geological Background & User Problem Statement
+## 1. Objectives & Resolution Matrix
 
-In NATM tunnel face mapping, geologists frequently experience confusion when correlating a 3D joint plane with its 2D surface traces:
-- **Tunnel Geometry Reference**:
-  - The **Excavation Face** is a vertical plane oriented perpendicular to the tunnel drive axis.
-  - The **Sidewalls** (Left & Right) are vertical planes running parallel to the tunnel drive axis.
-  - The **Crown / Back** is an overhead curved surface whose apex tangent is horizontal.
-- **The Core Geometric Truths**:
-  1. **Crown Arch Trace = Strike Line**: An intersection between any plane and a horizontal reference surface (the crown apex) is strictly the **Strike direction** of the joint.
-  2. **Face & Sidewall Traces = Apparent Dips**:
-     - The true dip angle is visible on a vertical surface *only* if that surface is perpendicular to the strike of the joint ($\beta = 90^\circ$).
-     - On any wall oriented at an oblique angle $\beta$ to the strike, the visible trace inclination is the **Apparent Dip** ($\alpha_{\text{app}}$), governed by:
-       $$\tan(\alpha_{\text{app}}) = \tan(\alpha_{\text{true}}) \cdot \sin(\beta)$$
-     - When the joint strike is parallel to the wall ($\beta = 0^\circ$), the apparent dip is $0^\circ$, producing a **horizontal trace**.
-  3. **User Scenarios Explained**:
-     - *Drive $000^\circ$, Joint $090^\circ / 75^\circ$*: Strike is $000^\circ$ (parallel to sidewalls, perpendicular to face). On the Face, you observe the true dip ($75^\circ$ E). On the sidewalls, the apparent dip is $0^\circ$ (horizontal line). On the crown, the trace runs straight along the drive axis ($000^\circ$).
-     - *Joint $045^\circ / 45^\circ$*: Oblique to both face and sidewalls. Both face and sidewalls show apparent dips flatter than $45^\circ$, while the crown trace crosses obliquely at $135^\circ$.
+### A. Surface Mapping Clean Report — All Portions Unrolled & Accessible
+- **Problem**: In surface mapping (`TRENCH`, `ROCK_SURFACE`), only one portion was appearing in the report; the other portions were inaccessible.
+- **Resolution**:
+  - `TRENCH` now has a dedicated 3-page engineering report layout displaying all 4 unrolled portions: **Left Trench Wall**, **Trench Floor / Invert**, **Right Trench Wall**, and **End Cross-Section Face**.
+  - `ROCK_SURFACE` displays the full outcrop mapping window and high-resolution CAD map without truncation.
+  - Page 2 renders discontinuity sets with domain-tailored structural characterization.
+  - Page 3 renders RMR89/Q-system, 2D cross-section with trench shoring/foundation bearing, and engineering recommendations.
 
----
+### B. Strict Domain Isolation — Zero Slope/Bench Contamination in Trench and Open Surface
+- **Problem**: Slope stability (Romana SMR, kinematic planar/wedge/toppling slope checks) and benching parameters were erroneously appearing on `TRENCH` and `ROCK_SURFACE` reports.
+- **Resolution**:
+  - `SLOPE` and `BENCH`: Sole domains displaying Romana SMR, planar/wedge/toppling kinematic checks, bench berm width, crest drainage ditch, catchment berm, and slope stabilization (soil nails/mesh/shotcrete).
+  - `TRENCH`: Displays trench sidewall & floor structural characterization, RMR89, Q-system, safe stand-up time, hydraulic trench box shoring, sump dewatering, and foundation allowable bearing capacity ($q_{\text{all}}$). Zero SMR, Zero Benching, Zero Overbreak Payline.
+  - `ROCK_SURFACE`: Displays outcrop structural fabric ($J_v$, $I_b$), rock mass rating, ripperability/blasting suitability, and foundation bearing capacity. Zero SMR, Zero Benching, Zero Overbreak Payline.
+  - `TUNNEL`: Completely preserved and isolated underground face mapping with strip log, survey overbreak, and support working windows.
+  - Both `.doc` (Word) and `.pdf` export engines domain-isolated with custom titles, rows, Section 4 cross-sections, and file naming.
 
-## 2. Proposed Architecture & Component Updates
+### C. Reference Texts & Control Points Strictly Exterior to Outlines
+- **Problem**: In shape and size outlines (including Photo Fit, panel frames, and station previews), reference texts, scale ticks, and control handles were coming inside the outline.
+- **Resolution**:
+  - **Photo Fit Stage** (`FieldPhotoFitAndReportsStages.tsx`):
+    - Crown canonical annotation banners (`0.00m Previous Round Start` and `Advance Pull Face`) positioned strictly exterior to the box perimeter (`boxY + boxH + 8` and `boxY - 32`).
+    - 4-corner mesh control pins (`TL`, `TR`, `BR`, `BL`) offset strictly outside corners by 16px with connecting dashed guide stems ($r=12$ pins never intrude into outline).
+    - Crop extent handles offset strictly outside crop perimeter.
+    - Dimension header callout moved strictly outside outline at $y = \max(22, \text{boxY} - 38)$.
+  - **Field Adaptive Panel Frame** (`FieldMappingCompassAndPatterns.tsx`):
+    - All 1m meter ticks along outline point purely outwards ($n_x, n_y$), with increased label clearance ($\max(26, \text{labelOffsetDist} + 12)$).
+    - Left SPL / Crest markers: control point circles and text placed strictly exterior to the left (circle at -6px, text at -28px).
+    - Right SPL / Crest markers: control point circles and text placed strictly exterior to the right (circle at +6px, text at +28px).
+    - Crown C/L apex marker: line extends upward (-24px), circle at -7px, text at -30px.
+    - Left Wall, Right Wall, and Bottom Span labels: increased exterior margins.
 
-### Phase A: Calculation Engine Extension (`joint3DInspectorEngine.ts`)
-- Add dedicated apparent dip calculation functions:
-  - `calculateApparentDipOnVerticalWall(trueDipDeg, trueDipDirDeg, wallAzimuthDeg)`
-  - `calculateSurfaceApparentTraceAngles(strikeInfo, tunnelGeometry)`
-  - Return exact metric and angular trace data for all 4 surfaces:
-    - **Face Panel** ($90^\circ$ to drive): Apparent dip angle and dip direction (Left/Right across face).
-    - **Left Sidewall** ($0^\circ$ to drive): Apparent dip angle and plunge direction (Toward Face / Toward Portal).
-    - **Right Sidewall** ($0^\circ$ to drive): Apparent dip angle and plunge direction.
-    - **Crown Arch**: Strike trend and offset from tunnel centerline.
-    - **Geological Explanation String**: Natural-language explanation clarifying whether the trace represents True Dip, Apparent Dip, or Strike, and the exact angular reason.
-
-### Phase B: 3D Joint Inspector Modal (`NatmJoint3DInspectorModal.tsx`)
-1. **Live Apparent vs. True Dip Matrix Panel**:
-   - Add a dedicated visual card in the inspector parameter sidebar:
-     - `True 3D Orientation`: $\alpha_{\text{dir}} / \delta_{\text{dip}}$ (e.g. $090^\circ / 75^\circ$)
-     - `Face Apparent Dip`: angle and direction across face
-     - `Left Wall Apparent Dip`: angle and plunge direction
-     - `Right Wall Apparent Dip`: angle and plunge direction
-     - `Crown Trace Angle`: strike angle relative to advance axis
-2. **Interactive 2D Surface Projection Tabs**:
-   - On the Face, Left Wall, Right Wall, and Crown tabs:
-     - Clearly label the displayed line with both **Observed Trace** and **Calculated Apparent Dip**.
-     - Display a concise geotechnical note: *"This wall is oblique to strike by $\beta = XX^\circ$. Visible inclination is Apparent Dip ($XX^\circ$), corresponding to True Dip $XX^\circ$ in 3D."*
-3. **Multi-Surface 3D Spatial Visualization**:
-   - In the pure white 3D CAD canvas, highlight the calculated intersection lines on all surfaces with distinct colored dashed traces, demonstrating in real 3D how a single plane creates a tilted line on the face, horizontal or inclined lines on the walls, and a strike line on the roof.
-
-### Phase C: Field Mapping Workspace Compass & Panels (`FieldMappingCompassAndPatterns.tsx` & `FieldMappingModeWorkspace.tsx`)
-- Enhance the `FieldLiveCompassInclinometer` widget:
-  - When the mapper enters or drags True Dip & Dip Direction, display the real-time calculated Apparent Dip badge for the active mapping panel (Face, Left Wall, Right Wall, or Crown).
-  - Add an inline tooltip/indicator explaining: *"Face Trace: XX° apparent dip | Crown: XX° strike"*.
+### D. Canvas Window 2D Mode & 3D Joint Inspection in Surface Mapping
+- **Canvas View**: The `3D` tunnel model tab in the canvas panel bar and the 3D mesh canvas mode are strictly disabled in surface mapping (`TRENCH`, `ROCK_SURFACE`, `BENCH`, `SLOPE`), keeping the surface drawing canvas window purely in 2D.
+- **3D Joint Inspection (Restored)**:
+  - The **`3D Joint Inspector`** button in the canvas window header is fully restored and active in surface mapping.
+  - The **`3D`** inspect buttons on individual joint trace cards in the canvas drawers and lists are fully restored.
+  - The interactive **NATM 3D Joint Inspector Modal** (true dip, apparent dip calculation, multi-surface projection matrix, and 3D spatial CAD visualization) opens and operates seamlessly on all surface mapping joint traces.
 
 ---
 
-## 3. Verification & Testing Checklist
-- [ ] Test mathematical engine against analytical geological stereonet standards:
-  - Dip Direction $090^\circ$, Dip $75^\circ$ on Heading $000^\circ$: Face apparent dip must equal $75^\circ$; sidewall apparent dip must equal $0^\circ$.
-  - Dip Direction $000^\circ$, Dip $45^\circ$ on Heading $000^\circ$: Face apparent dip must equal $0^\circ$; sidewall apparent dip must equal $45^\circ$.
-  - Dip Direction $045^\circ$, Dip $45^\circ$ on Heading $000^\circ$: Face and sidewalls must show exact calculated apparent dip ($\approx 35.3^\circ$).
-- [ ] Verify clean, responsive rendering without lag in the 3D CAD canvas.
-- [ ] Verify `npm run lint` and `npm run build` pass with zero errors.
+## 2. Verification Checklist
+- [x] `tsc --noEmit` / `lint_applet` passed with zero errors.
+- [x] `compile_applet` passed with clean build.
+- [x] Surface mapping reports verified for `TRENCH`, `ROCK_SURFACE`, `SLOPE`, and `BENCH`.
+- [x] Underground face mapping (`TUNNEL`) verified untouched and fully operational.
+- [x] Canvas window drawing in surface mapping operates purely in 2D mode (tunnel 3D cylindrical canvas tab removed).
+- [x] 3D Joint Inspection restored and fully accessible on all surface mapping joint traces.

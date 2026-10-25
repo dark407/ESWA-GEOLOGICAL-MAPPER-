@@ -3874,7 +3874,7 @@ export default function App({
   // Strictly renders ONLY when industryMode === 'NATM'
   // ============================================================================
   if (screen === 'welcome' && industryMode === 'NATM') {
-    const fieldResumeMeta = loadFieldMappingResumeState();
+    const fieldResumeMeta = loadFieldMappingResumeState('TUNNEL');
     const photoResumeMeta = loadPhotogrammetryResumeState();
     const surfaceResumeMeta = loadSurfaceMappingResumeState();
 

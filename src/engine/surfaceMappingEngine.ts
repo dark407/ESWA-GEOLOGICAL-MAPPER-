@@ -28,6 +28,14 @@ export interface SurfaceGeometryParameters {
   overburdenThicknessMeters: number;
   groundwaterDepthMeters: number;
   trenchIdLabel?: string;
+  trenchShoringType?: string;
+  trenchShoringRequired?: boolean;
+  trenchSafeStandupHours?: number;
+  trenchInvertCondition?: string;
+  trenchWaterInflowRate?: string;
+  trenchLengthM?: number;
+  trenchWidthM?: number;
+  trenchDepthM?: number;
 
   // Slope Mapping Specific
   slopeHeightMeters: number;
@@ -35,6 +43,10 @@ export interface SurfaceGeometryParameters {
   numberOfBenches: number;
   slopeCondition: 'DRY' | 'DAMP' | 'WET' | 'SEEPAGE';
   slopeIdLabel?: string;
+  slopeAngleDeg?: number;
+  slopeFaceAngleDeg?: number;
+  slopeDipDirDeg?: number;
+  slopeHeightM?: number;
 
   // Rock Surface Mapping Specific
   rockSurfaceLayout?: 'SINGLE_PANEL' | 'MULTI_PANEL';
@@ -43,6 +55,10 @@ export interface SurfaceGeometryParameters {
   rockSurfaceIdLabel?: string;
   rockExposureWidthMeters?: number;
   rockExposureHeightMeters?: number;
+  exposureLengthM?: number;
+  exposureHeightM?: number;
+  outcropDipDeg?: number;
+  outcropDipDirDeg?: number;
 }
 
 export interface SurfacePanelLabelMap {
@@ -126,11 +142,14 @@ export interface SurfaceMappingResumeState {
   workflowMode?: 'FIELD' | 'PHOTOGRAMMETRY' | 'field_mapping' | 'photo_mapping';
   stageOrScreen?: string;
   stage?: string;
+  activePanel?: string;
+  stageLabel?: string;
   activeProjectId?: string;
   activeLocationId?: string;
   activeRoundId?: string;
   projectName?: string;
   locationName?: string;
+  locationLabel?: string;
   stationLabel?: string;
   updatedAt: string;
 }

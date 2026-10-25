@@ -2347,9 +2347,9 @@ export function mapUnwrappedSurfacePointTo3DStrip(
   }
 
   if (surface === 'rightWall') {
-    // u is fraction along pull (0 = start of pull, 1 = face)
-    // v is fraction from right springline (0) down to invert floor (1)
-    const pullX = u * pullSpan;
+    // Canvas u: 0 = Face advance (pullSpan), 1 = start of pull (0m)
+    // Canvas v: 0 = right springline, 1 = invert floor
+    const pullX = (1 - u) * pullSpan;
     const rdX = interval.fromRd + pullX;
     const perimY = leftWallArc + crownArc + v * rightWallArc;
     return { x: Number(rdX.toFixed(3)), y: Number(perimY.toFixed(3)) };
