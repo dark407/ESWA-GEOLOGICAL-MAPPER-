@@ -95,6 +95,8 @@ export interface MiningGeologicalFeature {
   infill?: string;
   waterInflow?: 'DRY' | 'DAMP' | 'DRIPPING' | 'FLOWING';
   visible: boolean;
+  isSpline?: boolean;
+  drawTool?: 'PENCIL' | 'SPL' | 'POLYLINE';
   author?: string;
   createdAt?: string;
 }

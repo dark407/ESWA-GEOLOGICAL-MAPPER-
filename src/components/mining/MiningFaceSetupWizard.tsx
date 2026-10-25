@@ -35,6 +35,9 @@ import {
   Trash2,
   Check,
   Calendar,
+  Sliders,
+  Wrench,
+  FileText,
 } from 'lucide-react';
 import {
   MiningProjectItem,
@@ -115,13 +118,62 @@ const MINING_METHODS: { id: MiningMethodType; label: string }[] = [
   { id: 'VCR', label: 'Vertical Crater Retreat (VCR)' },
 ];
 
+const SAMPLE_MINE_DXF = `0
+SECTION
+2
+ENTITIES
+0
+LWPOLYLINE
+8
+MINE_STOPE_BOUNDARY
+90
+9
+70
+1
+10
+0.0
+20
+0.0
+10
+0.0
+20
+2.8
+10
+0.6
+20
+3.8
+10
+2.4
+20
+4.2
+10
+4.2
+20
+3.8
+10
+4.8
+20
+2.8
+10
+4.8
+20
+0.0
+10
+0.0
+20
+0.0
+0
+ENDSEC
+0
+EOF`;
+
 const SHAPE_PRESETS: { id: MiningStopeShape; label: string; desc: string }[] = [
   { id: 'd_arch', label: 'D-Arch (Arched Roof)', desc: 'Standard production drift' },
   { id: 'horseshoe', label: 'Horseshoe Arch', desc: 'Deep high-stress drive' },
   { id: 'rectangular_flat', label: 'Rectangular Flat-Roof', desc: 'Room & pillar / flat back' },
   { id: 'shanty', label: 'Shanty (Asymmetric)', desc: 'Offset crown for dipping shears' },
   { id: 'gothic_arch', label: 'Gothic Ogive Arch', desc: 'Pointed arch for vertical stress' },
-  { id: 'custom_parametric', label: 'Custom Parametric', desc: 'Custom W, H & wall height' },
+  { id: 'custom_parametric', label: 'Custom Shape Builder', desc: 'Custom shape & size builder' },
   { id: 'dxf_import', label: 'Import Mine DXF', desc: 'Load boundary polyline from CAD' },
 ];
 
@@ -195,18 +247,22 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
   const [locAzimuthDeg, setLocAzimuthDeg] = useState<number>(activeLoc?.headingDriveAzimuthDeg ?? 45);
   const [dxfImportedPoints, setDxfImportedPoints] = useState<any[]>(activeLoc?.customProfilePoints || []);
   const [dxfFileName, setDxfFileName] = useState('');
+  const [customRoofShape, setCustomRoofShape] = useState<MiningStopeShape>('d_arch');
+  const [dxfError, setDxfError] = useState<string | null>(null);
+  const [dxfFileSizeKb, setDxfFileSizeKb] = useState<number | null>(null);
 
   // Live Location Profile Metrics
   const profileMetrics = useMemo(() => {
+    const effectiveShape = locShape === 'custom_parametric' ? customRoofShape : locShape;
     return generateMiningStopePolygon(
-      locShape,
+      effectiveShape,
       locWidthM,
       locHeightM,
       locWallHeightM,
       locWidthM / 2,
       locShape === 'dxf_import' ? dxfImportedPoints : undefined
     );
-  }, [locShape, locWidthM, locHeightM, locWallHeightM, dxfImportedPoints]);
+  }, [locShape, customRoofShape, locWidthM, locHeightM, locWallHeightM, dxfImportedPoints]);
 
   // -------------------------------------------------------------------------
   // STAGE 3: FACE & ADVANCE STATE (Pull & Chainage)
@@ -255,6 +311,8 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
   // DXF File Handler
   const handleDxfUpload = (file: File) => {
     setDxfFileName(file.name);
+    setDxfFileSizeKb(Math.max(1, Math.round(file.size / 1024)));
+    setDxfError(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = String(e.target?.result || '');
@@ -262,11 +320,42 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
       if (pts.length >= 3) {
         setDxfImportedPoints(pts);
         setLocShape('dxf_import');
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        pts.forEach((p) => {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        });
+        const w = Number((maxX - minX).toFixed(2));
+        const h = Number((maxY - minY).toFixed(2));
+        if (w > 0.5 && h > 0.5) {
+          setLocWidthM(Math.min(30, Math.max(1.5, w)));
+          setLocHeightM(Math.min(30, Math.max(1.5, h)));
+          setLocWallHeightM(Math.min(h - 0.2, Math.max(0.5, Number((h * 0.65).toFixed(2)))));
+        }
       } else {
-        alert('Could not detect a closed polygon in DXF. Please verify LWPOLYLINE entities.');
+        setDxfError('Could not detect a closed polygon in DXF. Please verify LWPOLYLINE entities in your CAD file.');
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleLoadSampleDxf = () => {
+    setDxfFileName('Sample_HW_Drift_4.8x4.2.dxf');
+    setDxfFileSizeKb(2);
+    setDxfError(null);
+    const pts = parseDxfStopeBoundary(SAMPLE_MINE_DXF);
+    if (pts.length >= 3) {
+      setDxfImportedPoints(pts);
+      setLocShape('dxf_import');
+      setLocWidthM(4.8);
+      setLocHeightM(4.2);
+      setLocWallHeightM(2.8);
+    }
   };
 
   // -------------------------------------------------------------------------
@@ -754,14 +843,35 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
                           <button
                             key={p.id}
                             type="button"
-                            onClick={() => setLocShape(p.id)}
+                            onClick={() => {
+                              setLocShape(p.id);
+                              if (p.id === 'dxf_import' && dxfImportedPoints.length === 0) {
+                                setDxfError(null);
+                              }
+                            }}
                             className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
                               isSel
-                                ? 'bg-amber-500/20 text-amber-300 border-amber-400 shadow-md'
+                                ? p.id === 'dxf_import'
+                                  ? 'bg-cyan-500/25 text-cyan-300 border-cyan-400 ring-1 ring-cyan-400 shadow-md'
+                                  : p.id === 'custom_parametric'
+                                  ? 'bg-amber-500/25 text-amber-300 border-amber-400 ring-1 ring-amber-400 shadow-md'
+                                  : 'bg-amber-500/20 text-amber-300 border-amber-400 shadow-md'
                                 : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
                             }`}
                           >
-                            <div className="font-bold text-xs truncate">{p.label}</div>
+                            <div className="font-bold text-xs truncate flex items-center justify-between gap-1">
+                              <span>{p.label}</span>
+                              {p.id === 'dxf_import' && (
+                                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold">
+                                  CAD File
+                                </span>
+                              )}
+                              {p.id === 'custom_parametric' && (
+                                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+                                  Builder
+                                </span>
+                              )}
+                            </div>
                             <div className="text-[10px] text-slate-500 truncate mt-0.5">{p.desc}</div>
                           </button>
                         );
@@ -769,53 +879,41 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
                     </div>
                   </div>
 
-                  {/* Parametric Size Dimensions */}
-                  <div className="grid grid-cols-3 gap-2.5 pt-1">
-                    <label className="space-y-1">
-                      <span className="text-slate-300 font-bold">Span / Width (m):</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="1.5"
-                        max="25.0"
-                        value={locWidthM}
-                        onChange={(e) => setLocWidthM(parseFloat(e.target.value) || 4.8)}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 font-bold"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-slate-300 font-bold">Total Height (m):</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="1.5"
-                        max="25.0"
-                        value={locHeightM}
-                        onChange={(e) => setLocHeightM(parseFloat(e.target.value) || 4.2)}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 font-bold"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-slate-300 font-bold">Wall Height (m):</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.5"
-                        max={locHeightM - 0.2}
-                        value={locWallHeightM}
-                        onChange={(e) => setLocWallHeightM(parseFloat(e.target.value) || 2.8)}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 font-bold"
-                      />
-                    </label>
-                  </div>
-
-                  {/* DXF Import UI */}
+                  {/* =========================================================================
+                      VIEW 1: DEDICATED IMPORT MINE DXF FILE OPTION
+                      ========================================================================= */}
                   {locShape === 'dxf_import' && (
-                    <div className="p-3 rounded-xl bg-slate-950 border border-cyan-500/40 space-y-2">
-                      <span className="font-bold text-cyan-400 block text-xs">Import Stope Profile DXF</span>
-                      <label className="w-full py-2 px-3 rounded-lg bg-slate-900 border border-dashed border-cyan-500/60 hover:bg-slate-850 text-cyan-300 font-bold flex items-center justify-center gap-2 cursor-pointer text-xs">
-                        <Upload className="w-4 h-4" />
-                        <span>{dxfFileName || 'Choose .DXF AutoCAD File'}</span>
+                    <div className="p-3.5 rounded-xl bg-slate-950 border border-cyan-500/40 space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400">
+                            <FileCode className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="font-bold text-cyan-400 text-xs block">
+                              Import Mine CAD / DXF Stope Boundary
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              Directly load 2D closed heading polyline from AutoCAD, Surpac, Deswik, or Datamine
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono text-cyan-400 font-bold bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded">
+                          File Import
+                        </span>
+                      </div>
+
+                      {/* File Upload Drop Area */}
+                      <label className="w-full py-5 px-4 rounded-xl bg-slate-900 hover:bg-slate-850 border-2 border-dashed border-cyan-500/60 hover:border-cyan-400 text-cyan-300 font-bold flex flex-col items-center justify-center gap-2 cursor-pointer transition-all group">
+                        <Upload className="w-6 h-6 text-cyan-400 group-hover:scale-110 transition-transform" />
+                        <div className="text-center font-mono">
+                          <div className="text-xs text-slate-100">
+                            {dxfFileName ? dxfFileName : 'Click or Drag & Drop .DXF File Here'}
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-0.5 font-normal">
+                            Supports ASCII DXF with closed LWPOLYLINE stope perimeter
+                          </div>
+                        </div>
                         <input
                           type="file"
                           accept=".dxf"
@@ -826,11 +924,384 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
                           }}
                         />
                       </label>
-                      {dxfImportedPoints.length > 0 && (
-                        <p className="text-[11px] text-emerald-400 font-bold">
-                          ✓ Successfully parsed {dxfImportedPoints.length} vertices from DXF.
-                        </p>
+
+                      {/* Sample DXF button for instant testing */}
+                      <div className="flex items-center justify-between pt-0.5">
+                        <span className="text-[10px] text-slate-400">Need a test template?</span>
+                        <button
+                          type="button"
+                          onClick={handleLoadSampleDxf}
+                          className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 font-mono text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Load Sample 4.8×4.2m Mine DXF</span>
+                        </button>
+                      </div>
+
+                      {/* Error Banner */}
+                      {dxfError && (
+                        <div className="p-2.5 rounded-lg bg-rose-500/20 border border-rose-500/50 text-rose-300 text-xs flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                          <span>{dxfError}</span>
+                        </div>
                       )}
+
+                      {/* Loaded DXF Summary Card */}
+                      {dxfImportedPoints.length > 0 && (
+                        <div className="p-2.5 rounded-lg bg-slate-900 border border-emerald-500/40 space-y-2 font-mono text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>DXF Successfully Loaded</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {dxfFileSizeKb ? `${dxfFileSizeKb} KB · ` : ''}{dxfImportedPoints.length} vertices
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 text-center text-[10px] pt-1 border-t border-slate-800">
+                            <div>
+                              <span className="text-slate-400 block">Parsed Span (W)</span>
+                              <strong className="text-slate-100">{locWidthM} m</strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">Parsed Height (H)</span>
+                              <strong className="text-slate-100">{locHeightM} m</strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">Stope Area</span>
+                              <strong className="text-amber-400">{profileMetrics.areaM2} m²</strong>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+                            <span className="text-[10px] text-slate-400">
+                              Ready for underground face mapping
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDxfImportedPoints([]);
+                                setDxfFileName('');
+                                setDxfFileSizeKb(null);
+                                setDxfError(null);
+                              }}
+                              className="text-[10px] text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Clear File</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* =========================================================================
+                      VIEW 2: DEDICATED CUSTOM SHAPE & SIZE BUILDER (SIMPLE & EFFECTIVE)
+                      ========================================================================= */}
+                  {locShape === 'custom_parametric' && (
+                    <div className="p-3.5 rounded-xl bg-slate-950 border border-amber-500/40 space-y-3.5">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+                            <Sliders className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="font-bold text-amber-400 text-xs block">
+                              Custom Shape &amp; Size Builder
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              Simple, fast &amp; effective parametric stope geometry builder
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded">
+                          Active Builder
+                        </span>
+                      </div>
+
+                      {/* Quick Standard Mining Dimension Presets */}
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                          Quick Mining Size Presets:
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[
+                            { label: '3.2×3.0m Sublevel', w: 3.2, h: 3.0, wh: 2.0, roof: 'd_arch' as const },
+                            { label: '4.2×3.8m Ore Drive', w: 4.2, h: 3.8, wh: 2.6, roof: 'd_arch' as const },
+                            { label: '4.8×4.2m Stope Drift', w: 4.8, h: 4.2, wh: 2.8, roof: 'd_arch' as const },
+                            { label: '5.5×4.8m Haulage Ramp', w: 5.5, h: 4.8, wh: 3.2, roof: 'horseshoe' as const },
+                            { label: '6.5×5.5m Truck Decline', w: 6.5, h: 5.5, wh: 3.8, roof: 'gothic_arch' as const },
+                            { label: '8.0×6.5m Crusher Station', w: 8.0, h: 6.5, wh: 4.5, roof: 'rectangular_flat' as const },
+                          ].map((p) => (
+                            <button
+                              key={p.label}
+                              type="button"
+                              onClick={() => {
+                                setLocWidthM(p.w);
+                                setLocHeightM(p.h);
+                                setLocWallHeightM(p.wh);
+                                setCustomRoofShape(p.roof);
+                              }}
+                              className="px-2 py-1 rounded-md text-[10.5px] font-mono bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-amber-400 text-slate-300 hover:text-amber-300 transition-all cursor-pointer"
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Roof Style Architecture Selector */}
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                          Roof / Back Geometry Style:
+                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                          {[
+                            { id: 'd_arch' as const, label: 'Arched Back', desc: 'Semi-circular' },
+                            { id: 'gothic_arch' as const, label: 'Gothic Ogive', desc: 'Pointed peak' },
+                            { id: 'rectangular_flat' as const, label: 'Flat Back', desc: 'Horizontal roof' },
+                            { id: 'shanty' as const, label: 'Shanty Offset', desc: 'Dipping shears' },
+                            { id: 'horseshoe' as const, label: 'Horseshoe', desc: 'Curved walls' },
+                          ].map((r) => {
+                            const isAct = customRoofShape === r.id;
+                            return (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => setCustomRoofShape(r.id)}
+                                className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                                  isAct
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-400 font-bold'
+                                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700'
+                                }`}
+                              >
+                                <div className="text-[11px] truncate font-bold">{r.label}</div>
+                                <div className="text-[9px] text-slate-500 truncate">{r.desc}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Precision Sliders and Steppers */}
+                      <div className="space-y-3 pt-1">
+                        {/* Span / Width */}
+                        <div className="space-y-1 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-300 font-bold text-xs">
+                              1. Stope Span / Width (m):
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setLocWidthM((w) => Math.max(1.5, Number((w - 0.2).toFixed(1))))}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono cursor-pointer"
+                              >
+                                -0.2
+                              </button>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="1.5"
+                                max="25"
+                                value={locWidthM}
+                                onChange={(e) => setLocWidthM(parseFloat(e.target.value) || 4.8)}
+                                className="w-16 px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700 text-amber-300 font-mono font-bold text-center text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setLocWidthM((w) => Math.min(25, Number((w + 0.2).toFixed(1))))}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono cursor-pointer"
+                              >
+                                +0.2
+                              </button>
+                              <span className="text-[10px] text-slate-400 font-mono">m</span>
+                            </div>
+                          </div>
+                          <input
+                            type="range"
+                            min="1.5"
+                            max="20"
+                            step="0.1"
+                            value={locWidthM}
+                            onChange={(e) => setLocWidthM(parseFloat(e.target.value) || 4.8)}
+                            className="w-full accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded"
+                          />
+                        </div>
+
+                        {/* Total Back Height */}
+                        <div className="space-y-1 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-300 font-bold text-xs">
+                              2. Total Back / Crown Height (m):
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nh = Math.max(1.5, Number((locHeightM - 0.2).toFixed(1)));
+                                  setLocHeightM(nh);
+                                  if (locWallHeightM >= nh) setLocWallHeightM(Number((nh * 0.65).toFixed(1)));
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono cursor-pointer"
+                              >
+                                -0.2
+                              </button>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="1.5"
+                                max="25"
+                                value={locHeightM}
+                                onChange={(e) => {
+                                  const nh = parseFloat(e.target.value) || 4.2;
+                                  setLocHeightM(nh);
+                                  if (locWallHeightM >= nh) setLocWallHeightM(Number((nh * 0.65).toFixed(1)));
+                                }}
+                                className="w-16 px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700 text-amber-300 font-mono font-bold text-center text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setLocHeightM((h) => Math.min(25, Number((h + 0.2).toFixed(1))))}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono cursor-pointer"
+                              >
+                                +0.2
+                              </button>
+                              <span className="text-[10px] text-slate-400 font-mono">m</span>
+                            </div>
+                          </div>
+                          <input
+                            type="range"
+                            min="1.5"
+                            max="20"
+                            step="0.1"
+                            value={locHeightM}
+                            onChange={(e) => {
+                              const nh = parseFloat(e.target.value) || 4.2;
+                              setLocHeightM(nh);
+                              if (locWallHeightM >= nh) setLocWallHeightM(Number((nh * 0.65).toFixed(1)));
+                            }}
+                            className="w-full accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded"
+                          />
+                        </div>
+
+                        {/* Sidewall Height */}
+                        <div className="space-y-1 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-300 font-bold text-xs">
+                              3. Sidewall / Springline Height (m):
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setLocWallHeightM((wh) => Math.max(0.5, Number((wh - 0.2).toFixed(1))))}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono cursor-pointer"
+                              >
+                                -0.2
+                              </button>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0.5"
+                                max={Math.max(1, locHeightM - 0.2)}
+                                value={locWallHeightM}
+                                onChange={(e) => setLocWallHeightM(Math.min(locHeightM - 0.1, parseFloat(e.target.value) || 2.8))}
+                                className="w-16 px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700 text-amber-300 font-mono font-bold text-center text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setLocWallHeightM((wh) => Math.min(locHeightM - 0.2, Number((wh + 0.2).toFixed(1))))}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono cursor-pointer"
+                              >
+                                +0.2
+                              </button>
+                              <span className="text-[10px] text-slate-400 font-mono">m</span>
+                            </div>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.5"
+                            max={Math.max(1.0, locHeightM - 0.2)}
+                            step="0.1"
+                            value={locWallHeightM}
+                            onChange={(e) => setLocWallHeightM(Math.min(locHeightM - 0.1, parseFloat(e.target.value) || 2.8))}
+                            className="w-full accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Live Calculated Stope Metrics */}
+                      <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-slate-800 text-center font-mono">
+                        <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+                          <span className="text-[9px] text-slate-400 uppercase block">Area</span>
+                          <span className="text-xs font-bold text-amber-400">{profileMetrics.areaM2} m²</span>
+                        </div>
+                        <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+                          <span className="text-[9px] text-slate-400 uppercase block">Perimeter</span>
+                          <span className="text-xs font-bold text-slate-200">{profileMetrics.perimeterM} m</span>
+                        </div>
+                        <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+                          <span className="text-[9px] text-slate-400 uppercase block">Hydraulic Rad.</span>
+                          <span className="text-xs font-bold text-cyan-300">{profileMetrics.hydraulicRadiusM} m</span>
+                        </div>
+                        <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+                          <span className="text-[9px] text-slate-400 uppercase block">W / H Ratio</span>
+                          <span className="text-xs font-bold text-emerald-400">
+                            {(locWidthM / Math.max(0.1, locHeightM)).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* =========================================================================
+                      VIEW 3: STANDARD DIMENSIONS (FOR D-ARCH, HORSESHOE, FLAT, SHANTY, GOTHIC)
+                      ========================================================================= */}
+                  {locShape !== 'custom_parametric' && locShape !== 'dxf_import' && (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">
+                        Stope Dimensions (Meters):
+                      </span>
+                      <div className="grid grid-cols-3 gap-2.5">
+                        <label className="space-y-1">
+                          <span className="text-slate-300 font-bold text-xs">Span / Width (m):</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="1.5"
+                            max="25.0"
+                            value={locWidthM}
+                            onChange={(e) => setLocWidthM(parseFloat(e.target.value) || 4.8)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-bold"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-slate-300 font-bold text-xs">Total Height (m):</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="1.5"
+                            max="25.0"
+                            value={locHeightM}
+                            onChange={(e) => setLocHeightM(parseFloat(e.target.value) || 4.2)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-bold"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-slate-300 font-bold text-xs">Wall Height (m):</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.5"
+                            max={locHeightM - 0.2}
+                            value={locWallHeightM}
+                            onChange={(e) => setLocWallHeightM(parseFloat(e.target.value) || 2.8)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-bold"
+                          />
+                        </label>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1022,76 +1493,24 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
                     </label>
                   </div>
 
-                  {/* Mapping Mode Selection */}
+                  {/* Mapping Mode Selection: Dedicated Field Digital Sketch in Mining */}
                   <div className="space-y-2 pt-2 border-t border-slate-800">
                     <span className="text-slate-300 font-bold block">Mapping Mode:</span>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div
-                        onClick={() => setMappingMode('FIELD_SKETCH')}
-                        className={`p-3 rounded-xl border-2 transition-all cursor-pointer ${
-                          mappingMode === 'FIELD_SKETCH'
-                            ? 'bg-amber-500/20 border-amber-400'
-                            : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 font-bold text-slate-100">
+                    <div className="p-3 rounded-xl border-2 bg-amber-500/20 border-amber-400">
+                      <div className="flex items-center justify-between font-bold text-slate-100">
+                        <div className="flex items-center gap-2">
                           <PenTool className="w-4 h-4 text-amber-400" />
                           <span>Field Digital Sketch</span>
                         </div>
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          Calibrated metric canvas with scale grid, digital drafting pens, veins, and channel cuts.
-                        </p>
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          Active Mode
+                        </span>
                       </div>
-
-                      <div
-                        onClick={() => setMappingMode('PHOTOGRAMMETRY')}
-                        className={`p-3 rounded-xl border-2 transition-all cursor-pointer ${
-                          mappingMode === 'PHOTOGRAMMETRY'
-                            ? 'bg-cyan-500/20 border-cyan-400'
-                            : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 font-bold text-slate-100">
-                          <Camera className="w-4 h-4 text-cyan-400" />
-                          <span>Photogrammetry Orthophoto</span>
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          Upload face photography, calibrate 1:1 scale, and trace features directly on imagery.
-                        </p>
-                      </div>
+                      <p className="text-[10px] text-slate-300 mt-1">
+                        Calibrated metric canvas with scale grid, digital drafting pens, veins, and channel cuts.
+                      </p>
                     </div>
                   </div>
-
-                  {mappingMode === 'PHOTOGRAMMETRY' && (
-                    <div className="pt-2">
-                      <label className="w-full py-2.5 px-4 rounded-xl bg-slate-900 border border-cyan-500/40 hover:bg-slate-850 text-cyan-300 font-bold flex items-center justify-center gap-2 cursor-pointer text-xs transition-colors">
-                        <Upload className="w-4 h-4" />
-                        <span>Choose Face Photograph</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (event) => {
-                                if (event.target?.result) {
-                                  setFacePhotoUrl(String(event.target.result));
-                                }
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                        />
-                      </label>
-                      {facePhotoUrl && (
-                        <p className="text-[11px] text-emerald-400 font-bold mt-1 text-center">
-                          ✓ Face photograph loaded successfully
-                        </p>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
             </div>

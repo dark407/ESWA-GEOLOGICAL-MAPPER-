@@ -260,18 +260,9 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
           <EswaTunnelLogo size="xl" variant="emblem" animated showBadge={false} />
         </div>
 
-        <div className="space-y-1">
-          <h1 className="text-base sm:text-lg font-black tracking-wide font-mono text-amber-400 uppercase">
-            ESWA UNDERGROUND MINING &amp; EXPLORATION SUITE
-          </h1>
-          <p className="text-xs text-slate-400 font-mono">
-            {currentProject?.projectName || 'Kolar Deep Underground Gold-Copper Mine'}
-          </p>
-        </div>
-
         {/* 3 PRIMARY MAIN OPTIONS */}
         <div className="w-full space-y-2.5 pt-1">
-          {/* OPTION 1: Underground Mining Face Mapping (Project -> Location & Shape -> Face Advance) */}
+          {/* OPTION 1: Underground Mining Face Mapping */}
           <div className="w-full">
             <button
               type="button"
@@ -283,14 +274,8 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
                   <Pickaxe className="w-5 h-5" />
                 </div>
                 <div className="text-left font-mono">
-                  <div className="font-black text-slate-100 text-sm sm:text-base flex items-center gap-2">
-                    <span>1. Underground Mining Face Mapping</span>
-                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                      Step-by-Step
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-normal mt-0.5">
-                    1. Project (Add/Edit) → 2. Location (Shape &amp; Size) → 3. Face Advance (From-To Pull)
+                  <div className="font-black text-slate-100 text-sm sm:text-base">
+                    1. Underground Mining Face Mapping
                   </div>
                 </div>
               </span>
@@ -315,9 +300,6 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
                 <div className="text-left font-mono">
                   <div className="font-bold text-slate-100">
                     2. Exploration &amp; Production Core Logging
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-normal">
-                    Diamond drill holes (DDH), RC, RQD %, assays &amp; composites
                   </div>
                 </div>
               </span>
@@ -354,9 +336,6 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
                 <div className="text-left font-mono">
                   <div className="font-bold text-slate-200">
                     3. Mining Data &amp; Storage / Vault
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-normal">
-                    Isolated vault · {stopes.length} Stopes · {drillHoles.length} Drill Holes · Backups &amp; CSV
                   </div>
                 </div>
               </span>

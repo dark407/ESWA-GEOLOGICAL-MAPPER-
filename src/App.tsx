@@ -3835,16 +3835,18 @@ export default function App({
         </button>
 
         {/* Toggle 3: Support Matrix & Geotechnical Reference */}
-        <button
-          type="button"
-          onClick={() => setIsSupportReferenceOpen(true)}
-          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
-          title="Open Geotechnical Support Reference (Project & Location Support Matcher, Grain Size Chart, RMR & Q-System Support Matrix)"
-        >
-          <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="hidden sm:inline">Support Matrix</span>
-          <span className="sm:hidden">Support</span>
-        </button>
+        {industryMode !== 'MINING' && (
+          <button
+            type="button"
+            onClick={() => setIsSupportReferenceOpen(true)}
+            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
+            title="Open Geotechnical Support Reference (Project & Location Support Matcher, Grain Size Chart, RMR & Q-System Support Matrix)"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Support Matrix</span>
+            <span className="sm:hidden">Support</span>
+          </button>
+        )}
       </div>
 
       <AdvancedBruntonCompassModal

@@ -31,6 +31,7 @@ import {
   Sparkles,
   Compass,
   Maximize2,
+  Minimize2,
   Eye,
   EyeOff,
   Edit3,
@@ -59,6 +60,15 @@ import {
   PenTool,
   Settings,
   Scale,
+  Pencil,
+  Eraser,
+  MousePointer,
+  Hand,
+  TrendingUp,
+  BarChart3,
+  ChevronRight,
+  ArrowUpRight,
+  FileText,
 } from 'lucide-react';
 import { EswaAppBackgroundWatermark, EswaTunnelLogo } from '../EswaBrandIdentity';
 import { IndustryMode, FaceChannelSampleRecord } from '../../types/tunnel';
@@ -90,6 +100,62 @@ import {
 } from '../../engine/miningFaceEngine';
 import { MiningFaceSetupWizard } from './MiningFaceSetupWizard';
 import { MiningDataStorageModal } from './MiningDataStorageModal';
+import { MiningGradesWindow } from './MiningGradesWindow';
+import { MiningChannelsWindow } from './MiningChannelsWindow';
+import { MiningStructureWindow } from './MiningStructureWindow';
+import { MiningGeotechWindow } from './MiningGeotechWindow';
+import { MiningExportsWindow } from './MiningExportsWindow';
+
+export type MiningCanvasTool =
+  | 'PENCIL'
+  | 'SPL'
+  | 'POLYLINE'
+  | 'ERASE'
+  | 'PAN'
+  | 'SELECT'
+  | 'CHANNEL_CUT'
+  | 'ORE_BOUNDARY'
+  | 'FAULT'
+  | 'JOINT';
+
+export function pointsToSplinePath(
+  pts: { px: number; py: number }[],
+  isClosed = false
+): string {
+  if (pts.length === 0) return '';
+  if (pts.length === 1) return `M ${pts[0].px.toFixed(1)} ${pts[0].py.toFixed(1)}`;
+  if (pts.length === 2) {
+    return `M ${pts[0].px.toFixed(1)} ${pts[0].py.toFixed(1)} L ${pts[1].px.toFixed(1)} ${pts[1].py.toFixed(1)}${isClosed ? ' Z' : ''}`;
+  }
+
+  let d = `M ${pts[0].px.toFixed(1)} ${pts[0].py.toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = i > 0 ? pts[i - 1] : pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = i < pts.length - 2 ? pts[i + 2] : p2;
+
+    const cp1x = p1.px + (p2.px - p0.px) / 6;
+    const cp1y = p1.py + (p2.py - p0.py) / 6;
+    const cp2x = p2.px - (p3.px - p1.px) / 6;
+    const cp2y = p2.py - (p3.py - p1.py) / 6;
+
+    d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.px.toFixed(1)} ${p2.py.toFixed(1)}`;
+  }
+
+  if (isClosed) {
+    const p0 = pts[pts.length - 2];
+    const p1 = pts[pts.length - 1];
+    const p2 = pts[0];
+    const p3 = pts[1];
+    const cp1x = p1.px + (p2.px - p0.px) / 6;
+    const cp1y = p1.py + (p2.py - p0.py) / 6;
+    const cp2x = p2.px - (p3.px - p1.px) / 6;
+    const cp2y = p2.py - (p3.py - p1.py) / 6;
+    d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.px.toFixed(1)} ${p2.py.toFixed(1)} Z`;
+  }
+  return d;
+}
 
 export interface MiningMappingWorkspaceProps {
   onBackToMainWindow: () => void;
@@ -97,11 +163,15 @@ export interface MiningMappingWorkspaceProps {
 }
 
 export type RightPanelTab = 'GRADES' | 'CHANNELS' | 'STRUCTURE' | 'GEOTECH' | 'EXPORTS';
+export type MiningWorkingWindow = 'CANVAS' | 'GRADES' | 'CHANNELS' | 'STRUCTURE' | 'GEOTECH' | 'EXPORTS';
 
 export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   onBackToMainWindow,
   onChangeIndustryMode,
 }) => {
+  // Working Window State (Canvas vs Dedicated Module Windows)
+  const [activeWorkingWindow, setActiveWorkingWindow] = useState<MiningWorkingWindow>('CANVAS');
+
   // Modal states
   const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
   const [isSetupWizardOpen, setIsSetupWizardOpen] = useState(false);
@@ -148,14 +218,23 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   const [isRightPanelOpen, setIsRightPanelOpen] = useState<boolean>(true);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('GRADES');
 
-  // Tools: SELECT, PAN, ORE_BOUNDARY, FAULT, JOINT, CHANNEL_CUT, ERASE
-  const [activeTool, setActiveTool] = useState<
-    MiningGeologicalFeatureType | 'SELECT' | 'PAN' | 'CHANNEL_CUT' | 'ERASE'
-  >('SELECT');
-  const [activeGeometryMode, setActiveGeometryMode] = useState<'POLYLINE' | 'POLYGON'>('POLYGON');
+  // Tools: PENCIL, SPL, POLYLINE, ERASE, PAN, SELECT, CHANNEL_CUT
+  const [activeTool, setActiveTool] = useState<MiningCanvasTool>('PENCIL');
+  const [featureClassification, setFeatureClassification] = useState<MiningGeologicalFeatureType>('ORE_BOUNDARY');
+  const [strokeWidthSetting, setStrokeWidthSetting] = useState<number>(3.0);
+  const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
+  const [activeGeometryMode, setActiveGeometryMode] = useState<'POLYLINE' | 'POLYGON'>('POLYLINE');
   const [selectedOreCategory, setSelectedOreCategory] = useState<
     'HIGH_GRADE' | 'MEDIUM_GRADE' | 'LOW_GRADE' | 'INTERNAL_WASTE'
   >('HIGH_GRADE');
+
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const touchStartRef = useRef<{
+    dist: number;
+    zoom: number;
+    center: { x: number; y: number };
+    pan: { x: number; y: number };
+  } | null>(null);
 
   // Vector Features & Channel Samples
   const [features, setFeatures] = useState<MiningGeologicalFeature[]>(currentStope?.features || []);
@@ -405,14 +484,96 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     return { mx, my, px, py };
   };
 
+  // Touch Coordinate Transformation via Matrix Inversion
+  const getSvgTouchPoint = (t: React.Touch): { mx: number; my: number; px: number; py: number } => {
+    const svg = svgRef.current;
+    if (!svg) return { mx: 0, my: 0, px: 0, py: 0 };
+    let px = 0;
+    let py = 0;
+    try {
+      const pt = svg.createSVGPoint();
+      pt.x = t.clientX;
+      pt.y = t.clientY;
+      const ctm = svg.getScreenCTM();
+      if (ctm) {
+        const transformed = pt.matrixTransform(ctm.inverse());
+        px = transformed.x;
+        py = transformed.y;
+      } else {
+        const rect = svg.getBoundingClientRect();
+        px = ((t.clientX - rect.left) / rect.width) * canvasWidth;
+        py = ((t.clientY - rect.top) / rect.height) * canvasHeight;
+      }
+    } catch {
+      const rect = svg.getBoundingClientRect();
+      px = ((t.clientX - rect.left) / rect.width) * canvasWidth;
+      py = ((t.clientY - rect.top) / rect.height) * canvasHeight;
+    }
+    const { mx, my } = canvasToMeter(px, py);
+    return { mx, my, px, py };
+  };
+
+  // Erase items within radius of (mx, my)
+  const handleEraseAtPoint = (mx: number, my: number) => {
+    const threshold = 0.35; // meters
+    const remainingFeatures = features.filter((f) => {
+      return !f.points.some((p) => Math.hypot(p.x - mx, p.y - my) <= threshold);
+    });
+    const remainingSamples = channelSamples.filter((s) => {
+      const inX = mx >= s.fromMeter - 0.25 && mx <= s.toMeter + 0.25;
+      const inY = Math.abs(my - 1.5) <= 0.45;
+      return !(inX && inY);
+    });
+
+    if (
+      remainingFeatures.length !== features.length ||
+      remainingSamples.length !== channelSamples.length
+    ) {
+      pushUndo(remainingFeatures, remainingSamples);
+    }
+  };
+
+  // Spacebar pan listener
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.code === 'Space' &&
+        (e.target as HTMLElement)?.tagName !== 'INPUT' &&
+        (e.target as HTMLElement)?.tagName !== 'TEXTAREA'
+      ) {
+        setIsSpacePressed(true);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
   // Complete Feature Action
   const handleCompleteCurrentFeature = (pointsToCommit?: MiningGeologicalPoint[]) => {
     const pts = pointsToCommit || currentDraftPoints;
     if (pts.length < 2) return;
     if (activeGeometryMode === 'POLYGON' && pts.length < 3) return;
 
-    let color = '#38BDF8';
-    if (activeTool === 'ORE_BOUNDARY') {
+    const isSpl = activeTool === 'SPL';
+    let targetType: MiningGeologicalFeatureType = 'ORE_BOUNDARY';
+    if (activeTool === 'FAULT') targetType = 'FAULT';
+    else if (activeTool === 'JOINT') targetType = 'JOINT';
+    else if (activeTool === 'ORE_BOUNDARY') targetType = 'ORE_BOUNDARY';
+    else {
+      targetType = featureClassification;
+    }
+
+    let color = '#F59E0B';
+    if (targetType === 'ORE_BOUNDARY') {
       color =
         selectedOreCategory === 'HIGH_GRADE'
           ? '#EF4444'
@@ -421,31 +582,36 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
           : selectedOreCategory === 'LOW_GRADE'
           ? '#EAB308'
           : '#64748B';
-    } else if (activeTool === 'FAULT') {
+    } else if (targetType === 'FAULT') {
       color = '#DC2626';
-    } else if (activeTool === 'JOINT') {
+    } else if (targetType === 'JOINT') {
       color = '#A855F7';
+    } else if (targetType === 'LITH_CONTACT') {
+      color = '#38BDF8';
     }
 
     const newFeat: MiningGeologicalFeature = {
       id: `FT-${Date.now().toString(36).toUpperCase()}`,
       surfaceType: 'DEVELOPMENT_FACE',
-      featureType:
-        activeTool === 'SELECT' || activeTool === 'PAN' || activeTool === 'ERASE' || activeTool === 'CHANNEL_CUT'
-          ? 'ORE_BOUNDARY'
-          : activeTool,
+      featureType: targetType,
       geometryType: activeGeometryMode,
       points: pts,
       name:
-        activeTool === 'ORE_BOUNDARY'
+        targetType === 'ORE_BOUNDARY'
           ? `${selectedOreCategory.replace('_', ' ')} Lode`
-          : `${activeTool} Structure`,
+          : targetType === 'FAULT'
+          ? 'Fault / Shear'
+          : targetType === 'JOINT'
+          ? 'Structural Joint'
+          : `${activeTool} Sketch`,
       colorHex: color,
-      strokeWidth: 2.5,
-      fillOpacity: 0.35,
+      strokeWidth: strokeWidthSetting,
+      fillOpacity: activeGeometryMode === 'POLYGON' ? 0.35 : 0,
       dipDeg: 75,
       dipDirectionDeg: (headingAzimuth + 90) % 360,
       visible: true,
+      isSpline: isSpl,
+      drawTool: activeTool === 'PENCIL' ? 'PENCIL' : activeTool === 'SPL' ? 'SPL' : 'POLYLINE',
     };
     pushUndo([...features, newFeat], channelSamples);
     setCurrentDraftPoints([]);
@@ -478,15 +644,174 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDrawing, currentDraftPoints, activeGeometryMode, activeTool, selectedOreCategory, headingAzimuth]);
+  }, [isDrawing, currentDraftPoints, activeGeometryMode, activeTool, selectedOreCategory, headingAzimuth, featureClassification, strokeWidthSetting]);
+
+  // Canvas Wheel Zoom Handler (Mouse Scroll)
+  const handleCanvasWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+    setZoom((z) => Math.min(4.5, Math.max(0.35, Number((z * zoomFactor).toFixed(3)))));
+  };
+
+  // Touch Start (Pinch Zoom & Touch Draw)
+  const handleTouchStart = (e: React.TouchEvent<SVGSVGElement>) => {
+    if (e.touches.length === 2) {
+      // 2-finger pinch & pan
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      const center = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2,
+      };
+      touchStartRef.current = {
+        dist,
+        zoom,
+        center,
+        pan: { ...panOffset },
+      };
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0];
+      if (activeTool === 'PAN') {
+        setIsPanning(true);
+        setPanStart({ x: t.clientX - panOffset.x, y: t.clientY - panOffset.y });
+      } else if (activeTool === 'ERASE') {
+        const { mx, my } = getSvgTouchPoint(t);
+        handleEraseAtPoint(mx, my);
+      } else if (activeTool === 'PENCIL') {
+        const { mx, my } = getSvgTouchPoint(t);
+        setIsDrawing(true);
+        setCurrentDraftPoints([{ x: mx, y: my }]);
+      } else if (activeTool === 'CHANNEL_CUT') {
+        const { mx } = getSvgTouchPoint(t);
+        const fromM = Math.max(0, Number((mx - 0.5).toFixed(2)));
+        const toM = Math.min(stopeWidth, Number((mx + 0.5).toFixed(2)));
+        const sampleNum = `CS-${String(channelSamples.length + 1).padStart(2, '0')}`;
+        const newSample: FaceChannelSampleRecord = {
+          id: `CS-${Date.now().toString(36).toUpperCase()}`,
+          sampleNumber: sampleNum,
+          fromMeter: fromM,
+          toMeter: toM,
+          sampleLengthMeters: Number((toM - fromM).toFixed(2)),
+          trueThicknessMeters: Number((toM - fromM).toFixed(2)),
+          assayGrade: 4.85,
+          gradeValue: '4.85',
+          sampledBy: 'Mine Geologist',
+          date: new Date().toISOString().split('T')[0],
+          specificGravity: oreSg,
+          zoneCategory: 'ORE',
+          lithologyOrVein: 'Quartz Vein + Sulfides',
+          notes: 'Mapped channel cut across face',
+        };
+        pushUndo(features, [...channelSamples, newSample]);
+        setSelectedSampleId(newSample.id);
+        setRightPanelTab('CHANNELS');
+      } else if (
+        activeTool === 'SPL' ||
+        activeTool === 'POLYLINE' ||
+        activeTool === 'ORE_BOUNDARY' ||
+        activeTool === 'FAULT' ||
+        activeTool === 'JOINT'
+      ) {
+        const { mx, my, px, py } = getSvgTouchPoint(t);
+        if (activeGeometryMode === 'POLYGON' && currentDraftPoints.length >= 3) {
+          const p0 = currentDraftPoints[0];
+          const p0Canvas = meterToCanvas(p0.x, p0.y);
+          if (Math.hypot(px - p0Canvas.px, py - p0Canvas.py) < 25) {
+            handleCompleteCurrentFeature();
+            return;
+          }
+        }
+        setIsDrawing(true);
+        setCurrentDraftPoints((prev) => [...prev, { x: mx, y: my }]);
+      }
+    }
+  };
+
+  // Touch Move (Pinch Zoom & Drag Draw)
+  const handleTouchMove = (e: React.TouchEvent<SVGSVGElement>) => {
+    if (e.touches.length === 2 && touchStartRef.current) {
+      e.preventDefault();
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      const ratio = dist / Math.max(1, touchStartRef.current.dist);
+      const nextZoom = Math.min(4.5, Math.max(0.35, Number((touchStartRef.current.zoom * ratio).toFixed(3))));
+      setZoom(nextZoom);
+
+      const center = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2,
+      };
+      setPanOffset({
+        x: touchStartRef.current.pan.x + (center.x - touchStartRef.current.center.x),
+        y: touchStartRef.current.pan.y + (center.y - touchStartRef.current.center.y),
+      });
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0];
+      if (isPanning) {
+        setPanOffset({
+          x: t.clientX - panStart.x,
+          y: t.clientY - panStart.y,
+        });
+      } else if (activeTool === 'ERASE') {
+        const { mx, my } = getSvgTouchPoint(t);
+        handleEraseAtPoint(mx, my);
+      } else if (activeTool === 'PENCIL' && isDrawing) {
+        const { mx, my } = getSvgTouchPoint(t);
+        setCursorPos({ x: mx, y: my });
+        setCurrentDraftPoints((prev) => {
+          if (prev.length === 0) return [{ x: mx, y: my }];
+          const last = prev[prev.length - 1];
+          if (Math.hypot(mx - last.x, my - last.y) >= 0.04) {
+            return [...prev, { x: mx, y: my }];
+          }
+          return prev;
+        });
+      }
+    }
+  };
+
+  // Touch End
+  const handleTouchEnd = (e: React.TouchEvent<SVGSVGElement>) => {
+    if (e.touches.length < 2) {
+      touchStartRef.current = null;
+    }
+    if (isPanning) {
+      setIsPanning(false);
+    }
+    if (activeTool === 'PENCIL' && isDrawing) {
+      if (currentDraftPoints.length >= 2) {
+        handleCompleteCurrentFeature(currentDraftPoints);
+      }
+      setIsDrawing(false);
+      setCurrentDraftPoints([]);
+    }
+  };
 
   // Canvas Mouse Events
   const handleCanvasMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    const { mx, my, px, py } = getSvgPoint(e);
-
-    if (activeTool === 'PAN') {
+    // Middle mouse button (button 1) or spacebar or PAN tool
+    if (e.button === 1 || isSpacePressed || activeTool === 'PAN') {
       setIsPanning(true);
       setPanStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+      return;
+    }
+
+    if (e.button !== 0) return; // Only process left click for drawing/selection
+
+    const { mx, my, px, py } = getSvgPoint(e);
+
+    if (activeTool === 'SELECT') {
+      // Background click clears selection
+      setSelectedFeatureId(null);
+      setSelectedSampleId(null);
+      return;
+    }
+
+    if (activeTool === 'ERASE') {
+      handleEraseAtPoint(mx, my);
       return;
     }
 
@@ -517,13 +842,21 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       return;
     }
 
-    if (activeTool === 'ERASE') {
-      // Handled in individual element click
+    if (activeTool === 'PENCIL') {
+      // Freehand drawing starts
+      setIsDrawing(true);
+      setCurrentDraftPoints([{ x: mx, y: my }]);
       return;
     }
 
-    if (activeTool !== 'SELECT') {
-      // If clicking near point 0 for polygon (within 18 canvas px), close and complete polygon!
+    if (
+      activeTool === 'SPL' ||
+      activeTool === 'POLYLINE' ||
+      activeTool === 'ORE_BOUNDARY' ||
+      activeTool === 'FAULT' ||
+      activeTool === 'JOINT'
+    ) {
+      // If clicking near point 0 for polygon (within 20 canvas px), close and complete polygon!
       if (activeGeometryMode === 'POLYGON' && currentDraftPoints.length >= 3) {
         const p0 = currentDraftPoints[0];
         const p0Canvas = meterToCanvas(p0.x, p0.y);
@@ -548,11 +881,37 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         x: e.clientX - panStart.x,
         y: e.clientY - panStart.y,
       });
+      return;
+    }
+
+    if (activeTool === 'ERASE' && e.buttons === 1) {
+      handleEraseAtPoint(mx, my);
+      return;
+    }
+
+    if (activeTool === 'PENCIL' && isDrawing && e.buttons === 1) {
+      setCurrentDraftPoints((prev) => {
+        if (prev.length === 0) return [{ x: mx, y: my }];
+        const last = prev[prev.length - 1];
+        if (Math.hypot(mx - last.x, my - last.y) >= 0.04) {
+          return [...prev, { x: mx, y: my }];
+        }
+        return prev;
+      });
     }
   };
 
   const handleCanvasMouseUp = () => {
-    setIsPanning(false);
+    if (isPanning) {
+      setIsPanning(false);
+    }
+    if (activeTool === 'PENCIL' && isDrawing) {
+      if (currentDraftPoints.length >= 2) {
+        handleCompleteCurrentFeature(currentDraftPoints);
+      }
+      setIsDrawing(false);
+      setCurrentDraftPoints([]);
+    }
   };
 
   // Clear Canvas to empty state
@@ -597,7 +956,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       <EswaAppBackgroundWatermark visible showLogoWatermark={false} />
 
       {/* TOP HEADER BAR */}
-      <header className="flex-none h-13 px-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between z-20">
+      <header className="flex-none min-h-13 py-1.5 px-3 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 z-20">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -621,43 +980,78 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
                   {chainage}
                 </span>
-                <span className="text-slate-400 font-normal hidden md:inline">
-                  · {mineLevel} · {oreBodyName}
+                <span className="text-slate-400 font-normal hidden lg:inline">
+                  · {mineLevel}
                 </span>
-              </div>
-              <div className="text-[10px] text-slate-400 font-normal hidden sm:block">
-                ESWA Underground Face Mapping (Face Only · Single-Panel Calibrated Workspace)
               </div>
             </div>
           </div>
         </div>
 
-        {/* Center Muck Verdict Banner */}
-        <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-950 border border-slate-800 text-xs">
-          <Truck className="w-4 h-4 text-amber-400" />
-          <span className="text-slate-400">Verdict:</span>
-          <span
-            className={`font-black px-2 py-0.5 rounded text-[11px] ${
-              composites.verdict === 'MILL'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                : composites.verdict === 'LOW_GRADE_STOCKPILE'
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-            }`}
-          >
-            {composites.verdict === 'MILL'
-              ? 'ROUTE TO MILL'
-              : composites.verdict === 'LOW_GRADE_STOCKPILE'
-              ? 'LOW-GRADE STOCKPILE'
-              : 'WASTE DUMP'}
-          </span>
-          <span className="text-slate-400 text-[10px]">
-            ({composites.weightedGrade} g/t · {composites.dilutionPercentByMass}% Dil.)
-          </span>
+        {/* TOP WORKING WINDOW SELECTOR TABS */}
+        <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 overflow-x-auto max-w-full">
+          {[
+            { id: 'CANVAS' as MiningWorkingWindow, label: 'Face Canvas', icon: PenTool, badge: null, color: 'text-amber-400' },
+            { id: 'GRADES' as MiningWorkingWindow, label: 'Grades & Dilution', icon: TrendingUp, badge: `${composites.weightedGrade}g/t`, color: 'text-emerald-400' },
+            { id: 'CHANNELS' as MiningWorkingWindow, label: 'Channel Assays', icon: Scissors, badge: `${channelSamples.length}`, color: 'text-cyan-400' },
+            { id: 'STRUCTURE' as MiningWorkingWindow, label: 'Structural Geology', icon: Compass, badge: `${features.filter(f => f.featureType === 'FAULT' || f.featureType === 'JOINT').length}`, color: 'text-purple-400' },
+            { id: 'GEOTECH' as MiningWorkingWindow, label: 'Geotech Stability', icon: Shield, badge: `${mrmrResult.designMrmr} MRMR`, color: 'text-amber-300' },
+            { id: 'EXPORTS' as MiningWorkingWindow, label: 'Mine Exports', icon: FileDown, badge: 'DXF/CSV', color: 'text-rose-400' },
+          ].map((win) => {
+            const isAct = activeWorkingWindow === win.id;
+            const Icon = win.icon;
+            return (
+              <button
+                key={win.id}
+                type="button"
+                onClick={() => {
+                  setActiveWorkingWindow(win.id);
+                  if (win.id !== 'CANVAS') {
+                    setRightPanelTab(win.id as RightPanelTab);
+                  }
+                }}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                  isAct
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-md ring-1 ring-amber-400'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-850'
+                }`}
+                title={`Open ${win.label} Working Window`}
+              >
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${isAct ? 'text-slate-950' : win.color}`} />
+                <span>{win.label}</span>
+                {win.badge && (
+                  <span
+                    className={`text-[9.5px] px-1.5 py-0.2 rounded font-mono ${
+                      isAct
+                        ? 'bg-slate-950/25 text-slate-950 font-black'
+                        : 'bg-slate-900 text-slate-400 border border-slate-800'
+                    }`}
+                  >
+                    {win.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Top Right Actions */}
         <div className="flex items-center gap-2">
+          {/* Muck Verdict Pill */}
+          <div
+            className={`hidden 2xl:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold border ${
+              composites.verdict === 'MILL'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : composites.verdict === 'LOW_GRADE_STOCKPILE'
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+            }`}
+            title={`Verdict: ${composites.verdictDescription}`}
+          >
+            <Truck className="w-3.5 h-3.5" />
+            <span>{composites.verdict === 'MILL' ? 'MILL' : composites.verdict === 'LOW_GRADE_STOCKPILE' ? 'STOCKPILE' : 'WASTE'}</span>
+          </div>
+
           {/* Stope Setup Wizard Button */}
           <button
             type="button"
@@ -698,8 +1092,10 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
 
       {/* MAIN WORKSPACE BODY */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* LEFT TOOLBAR & DRAWING PENCILS */}
-        <aside
+        {activeWorkingWindow === 'CANVAS' && (
+          <>
+            {/* LEFT TOOLBAR & DRAWING PENCILS */}
+            <aside
           className={`flex-none bg-slate-900 border-r border-slate-800 flex flex-col transition-all duration-200 z-20 ${
             isLeftPanelOpen ? 'w-64' : 'w-12'
           }`}
@@ -734,91 +1130,178 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
           {/* Left Panel Body */}
           {isLeftPanelOpen ? (
             <div className="flex-1 overflow-y-auto p-3 space-y-4 font-mono text-xs">
-              {/* Primary Tools */}
+              {/* PRIMARY DRAWING TOOLS */}
               <div className="space-y-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Interactive Tools
+                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
+                  Drawing &amp; Sketch Tools
                 </span>
-                {[
-                  { id: 'SELECT' as const, label: 'Select & Inspect', icon: Eye, color: 'text-slate-200' },
-                  { id: 'PAN' as const, label: 'Pan Canvas', icon: Move, color: 'text-slate-200' },
-                  { id: 'ORE_BOUNDARY' as const, label: 'Ore Vein / Lode', icon: Sparkles, color: 'text-amber-400' },
-                  { id: 'CHANNEL_CUT' as const, label: 'Channel Sample Cut', icon: Scissors, color: 'text-emerald-400' },
-                  { id: 'FAULT' as const, label: 'Fault / Shear Zone', icon: AlertTriangle, color: 'text-rose-400' },
-                  { id: 'JOINT' as const, label: 'Structural Joint', icon: Compass, color: 'text-purple-400' },
-                  { id: 'ERASE' as const, label: 'Eraser Tool', icon: Trash2, color: 'text-rose-400' },
-                ].map((t) => {
-                  const isAct = activeTool === t.id;
-                  const Icon = t.icon;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setActiveTool(t.id)}
-                      className={`w-full py-2 px-2.5 rounded-xl flex items-center gap-2 text-left font-bold transition-all cursor-pointer ${
-                        isAct
-                          ? 'bg-amber-500 text-slate-950 shadow-md font-black'
-                          : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800/80'
-                      }`}
-                    >
-                      <Icon className={`w-3.5 h-3.5 shrink-0 ${isAct ? 'text-slate-950' : t.color}`} />
-                      <span className="truncate">{t.label}</span>
-                    </button>
-                  );
-                })}
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: 'PENCIL' as const, label: 'Pencil', sub: 'Freehand', icon: Pencil, color: 'text-amber-400' },
+                    { id: 'SPL' as const, label: 'SPL', sub: 'Spline Curve', icon: PenTool, color: 'text-cyan-400' },
+                    { id: 'POLYLINE' as const, label: 'Polyline', sub: 'Multi-Point', icon: Ruler, color: 'text-emerald-400' },
+                    { id: 'ERASE' as const, label: 'Eraser', sub: 'Erase Items', icon: Eraser, color: 'text-rose-400' },
+                  ].map((t) => {
+                    const isAct = activeTool === t.id;
+                    const Icon = t.icon;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setActiveTool(t.id)}
+                        className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
+                          isAct
+                            ? 'bg-amber-500 text-slate-950 font-black border-amber-400 shadow-md ring-1 ring-amber-400'
+                            : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <Icon className={`w-3.5 h-3.5 shrink-0 ${isAct ? 'text-slate-950' : t.color}`} />
+                          <span className="font-bold text-xs truncate">{t.label}</span>
+                        </div>
+                        <span className={`text-[9.5px] block truncate mt-0.5 ${isAct ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                          {t.sub}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Navigation & Face Sampling */}
+                <div className="grid grid-cols-3 gap-1 pt-1">
+                  {[
+                    { id: 'PAN' as const, label: 'Move / Pan', icon: Move },
+                    { id: 'SELECT' as const, label: 'Select', icon: MousePointer },
+                    { id: 'CHANNEL_CUT' as const, label: 'Channel', icon: Scissors },
+                  ].map((t) => {
+                    const isAct = activeTool === t.id;
+                    const Icon = t.icon;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setActiveTool(t.id)}
+                        className={`py-1.5 px-1 rounded-lg text-center font-bold text-[10px] border transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                          isAct
+                            ? 'bg-cyan-500 text-slate-950 font-black border-cyan-400 shadow'
+                            : 'bg-slate-950 hover:bg-slate-850 text-slate-400 border-slate-800'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        <span className="truncate">{t.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* If ORE_BOUNDARY tool is active: Grade Category Selection */}
-              {activeTool === 'ORE_BOUNDARY' && (
-                <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-500/40 space-y-2">
-                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
-                    Mineralization Category:
+              {/* Geological Feature Class Settings (Active when drawing with Pencil, SPL, Polyline) */}
+              {(activeTool === 'PENCIL' || activeTool === 'SPL' || activeTool === 'POLYLINE' || activeTool === 'ORE_BOUNDARY' || activeTool === 'FAULT' || activeTool === 'JOINT') && (
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                  <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                    Geological Feature Class:
                   </span>
                   <div className="grid grid-cols-2 gap-1.5">
                     {[
-                      { id: 'HIGH_GRADE' as const, label: 'High Grade', color: 'bg-rose-500' },
-                      { id: 'MEDIUM_GRADE' as const, label: 'Med Grade', color: 'bg-amber-500' },
-                      { id: 'LOW_GRADE' as const, label: 'Low Grade', color: 'bg-yellow-500' },
-                      { id: 'INTERNAL_WASTE' as const, label: 'Waste Dyke', color: 'bg-slate-600' },
-                    ].map((c) => (
+                      { id: 'ORE_BOUNDARY' as const, label: 'Ore Vein / Lode', color: 'bg-amber-500' },
+                      { id: 'FAULT' as const, label: 'Fault / Shear', color: 'bg-rose-500' },
+                      { id: 'JOINT' as const, label: 'Structural Joint', color: 'bg-purple-500' },
+                      { id: 'LITH_CONTACT' as const, label: 'Contact / Marker', color: 'bg-cyan-500' },
+                    ].map((g) => (
                       <button
-                        key={c.id}
+                        key={g.id}
                         type="button"
-                        onClick={() => setSelectedOreCategory(c.id)}
-                        className={`py-1 px-1.5 rounded text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                          selectedOreCategory === c.id
+                        onClick={() => setFeatureClassification(g.id)}
+                        className={`py-1 px-1.5 rounded text-[10.5px] font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                          featureClassification === g.id
                             ? 'bg-amber-500/20 text-amber-300 border-amber-400'
-                            : 'bg-slate-900 text-slate-400 border-slate-800'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700'
                         }`}
                       >
-                        <span className={`w-2 h-2 rounded-full ${c.color}`} />
-                        <span className="truncate">{c.label}</span>
+                        <span className={`w-2 h-2 rounded-full ${g.color}`} />
+                        <span className="truncate">{g.label}</span>
                       </button>
                     ))}
                   </div>
 
-                  <div className="pt-1.5 border-t border-slate-800 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setActiveGeometryMode('POLYGON')}
-                      className={`flex-1 py-1 rounded text-[10px] font-bold ${
-                        activeGeometryMode === 'POLYGON'
-                          ? 'bg-amber-500 text-slate-950'
-                          : 'bg-slate-900 text-slate-400'
-                      }`}
-                    >
-                      Polygon
-                    </button>
+                  {/* If Ore Vein is selected: Grade Category */}
+                  {featureClassification === 'ORE_BOUNDARY' && (
+                    <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                      <span className="text-[9.5px] font-bold text-amber-400 uppercase tracking-wider block">
+                        Ore Grade Category:
+                      </span>
+                      <div className="grid grid-cols-2 gap-1">
+                        {[
+                          { id: 'HIGH_GRADE' as const, label: 'High Grade', color: 'bg-rose-500' },
+                          { id: 'MEDIUM_GRADE' as const, label: 'Med Grade', color: 'bg-amber-500' },
+                          { id: 'LOW_GRADE' as const, label: 'Low Grade', color: 'bg-yellow-500' },
+                          { id: 'INTERNAL_WASTE' as const, label: 'Waste Dyke', color: 'bg-slate-500' },
+                        ].map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setSelectedOreCategory(c.id)}
+                            className={`py-1 px-1 rounded text-[9.5px] font-bold border transition-all cursor-pointer flex items-center gap-1 ${
+                              selectedOreCategory === c.id
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-400'
+                                : 'bg-slate-900 text-slate-400 border-slate-800'
+                            }`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${c.color}`} />
+                            <span className="truncate">{c.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stroke Width Selector */}
+                  <div className="pt-2 border-t border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Stroke Thickness:</span>
+                      <strong className="text-amber-400">{strokeWidthSetting} px</strong>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {[1.5, 2.5, 3.5, 5.0].map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => setStrokeWidthSetting(w)}
+                          className={`flex-1 py-1 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                            strokeWidthSetting === w
+                              ? 'bg-amber-500 text-slate-950 border-amber-400'
+                              : 'bg-slate-900 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          {w}px
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Geometry Style: Polyline vs Closed Polygon */}
+                  <div className="pt-2 border-t border-slate-800 flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => setActiveGeometryMode('POLYLINE')}
-                      className={`flex-1 py-1 rounded text-[10px] font-bold ${
+                      className={`flex-1 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors ${
                         activeGeometryMode === 'POLYLINE'
-                          ? 'bg-amber-500 text-slate-950'
-                          : 'bg-slate-900 text-slate-400'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'bg-slate-900 text-slate-400 border border-slate-800'
                       }`}
                     >
-                      Polyline
+                      Open Line
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveGeometryMode('POLYGON')}
+                      className={`flex-1 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors ${
+                        activeGeometryMode === 'POLYGON'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'bg-slate-900 text-slate-400 border border-slate-800'
+                      }`}
+                    >
+                      Closed Polygon
                     </button>
                   </div>
                 </div>
@@ -883,7 +1366,72 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
               </div>
             </div>
           ) : (
-            <div className="py-3 flex flex-col items-center gap-3">
+            <div className="py-3 flex flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLeftPanelOpen(true);
+                  setActiveTool('PENCIL');
+                }}
+                className={`p-2 rounded-lg cursor-pointer ${
+                  activeTool === 'PENCIL' ? 'bg-amber-500 text-slate-950' : 'text-amber-400 hover:text-white'
+                }`}
+                title="Pencil (Freehand)"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLeftPanelOpen(true);
+                  setActiveTool('SPL');
+                }}
+                className={`p-2 rounded-lg cursor-pointer ${
+                  activeTool === 'SPL' ? 'bg-amber-500 text-slate-950' : 'text-cyan-400 hover:text-white'
+                }`}
+                title="SPL (Spline)"
+              >
+                <PenTool className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLeftPanelOpen(true);
+                  setActiveTool('POLYLINE');
+                }}
+                className={`p-2 rounded-lg cursor-pointer ${
+                  activeTool === 'POLYLINE' ? 'bg-amber-500 text-slate-950' : 'text-emerald-400 hover:text-white'
+                }`}
+                title="Polyline"
+              >
+                <Ruler className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLeftPanelOpen(true);
+                  setActiveTool('ERASE');
+                }}
+                className={`p-2 rounded-lg cursor-pointer ${
+                  activeTool === 'ERASE' ? 'bg-rose-500 text-white' : 'text-rose-400 hover:text-white'
+                }`}
+                title="Eraser"
+              >
+                <Eraser className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLeftPanelOpen(true);
+                  setActiveTool('PAN');
+                }}
+                className={`p-2 rounded-lg cursor-pointer ${
+                  activeTool === 'PAN' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+                title="Move / Pan"
+              >
+                <Move className="w-4 h-4" />
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -895,20 +1443,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                 }`}
                 title="Select"
               >
-                <Eye className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLeftPanelOpen(true);
-                  setActiveTool('ORE_BOUNDARY');
-                }}
-                className={`p-2 rounded-lg cursor-pointer ${
-                  activeTool === 'ORE_BOUNDARY' ? 'bg-amber-500 text-slate-950' : 'text-amber-400 hover:text-white'
-                }`}
-                title="Ore Vein"
-              >
-                <Sparkles className="w-4 h-4" />
+                <MousePointer className="w-4 h-4" />
               </button>
               <button
                 type="button"
@@ -1063,24 +1598,43 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
             )}
 
             <svg
+              ref={svgRef}
               viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
-              className="w-full h-full max-w-[1280px] max-h-[760px] rounded-xl bg-slate-900/90 shadow-2xl border border-slate-800 cursor-crosshair select-none"
+              className={`w-full h-full max-w-[1280px] max-h-[760px] rounded-xl bg-slate-900/90 shadow-2xl border border-slate-800 select-none ${
+                isPanning || isSpacePressed || activeTool === 'PAN'
+                  ? 'cursor-grab active:cursor-grabbing'
+                  : activeTool === 'ERASE'
+                  ? 'cursor-pointer'
+                  : activeTool === 'PENCIL'
+                  ? 'cursor-crosshair'
+                  : 'cursor-crosshair'
+              }`}
+              onWheel={handleCanvasWheel}
               onMouseDown={handleCanvasMouseDown}
               onMouseMove={handleCanvasMouseMove}
               onMouseUp={handleCanvasMouseUp}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                handleCompleteCurrentFeature();
+                if (
+                  activeTool === 'SPL' ||
+                  activeTool === 'POLYLINE' ||
+                  activeTool === 'ORE_BOUNDARY' ||
+                  activeTool === 'FAULT' ||
+                  activeTool === 'JOINT'
+                ) {
+                  handleCompleteCurrentFeature();
+                }
               }}
               style={{
-                transform: `scale(${zoom}) translate(${panOffset.x}px, ${panOffset.y}px)`,
+                transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`,
                 transformOrigin: 'center center',
+                touchAction: 'none',
               }}
             >
               <defs>
-                <pattern id="wasteRockPattern" width="16" height="16" patternUnits="userSpaceOnUse">
-                  <path d="M 0,16 l 16,-16 M 0,0 l 16,16" stroke="#1E293B" strokeWidth="0.8" />
-                </pattern>
                 <pattern id="oreVeinPattern" width="12" height="12" patternUnits="userSpaceOnUse">
                   <circle cx="6" cy="6" r="1.5" fill="#F59E0B" opacity="0.6" />
                 </pattern>
@@ -1098,12 +1652,12 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                 </clipPath>
               </defs>
 
-              {/* Outside Country Rock */}
-              <rect x="0" y="0" width={canvasWidth} height={canvasHeight} fill="#050811" />
+              {/* Outside Country Rock (Unexcavated) */}
+              <rect x="0" y="0" width={canvasWidth} height={canvasHeight} fill="#03060D" />
 
               {/* Metric Grid */}
               {showGrid && (
-                <g opacity="0.15">
+                <g opacity="0.12">
                   {Array.from({ length: Math.ceil(stopeWidth) + 1 }).map((_, i) => {
                     const pBottom = meterToCanvas(i, 0);
                     const pTop = meterToCanvas(i, stopeHeight);
@@ -1137,11 +1691,10 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                 </g>
               )}
 
-              {/* Face Inside Mapped Boundary (Clipped to Stope Shape) */}
+              {/* Face Inside Mapped Boundary (Clipped to Stope Shape) — COMPLETELY BLANK (NO HATCHING) */}
               <g clipPath="url(#stopeProfileClip)">
-                {/* Background Waste Rock */}
-                <rect x="0" y="0" width={canvasWidth} height={canvasHeight} fill="#0F172A" />
-                <rect x="0" y="0" width={canvasWidth} height={canvasHeight} fill="url(#wasteRockPattern)" />
+                {/* Clean, completely blank face drawing surface */}
+                <rect x="0" y="0" width={canvasWidth} height={canvasHeight} fill="#070B18" />
 
                 {/* Calibrated Orthophoto (if loaded) */}
                 {photoCalibration.imageUrl && showPhoto && (
@@ -1156,18 +1709,18 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                   />
                 )}
 
-                {/* Mapped Vector Features (Ore Veins, Faults, Contacts) */}
+                {/* Mapped Vector Features (Ore Veins, Faults, Contacts, Splines, Sketches) */}
                 {features
                   .filter((f) => f.visible)
                   .map((f) => {
                     const isSelected = selectedFeatureId === f.id;
+                    const canvasPts = f.points.map((pt) => meterToCanvas(pt.x, pt.y));
+                    const isSpl = Boolean(f.isSpline);
+
                     if (f.geometryType === 'POLYGON' && f.points.length >= 3) {
-                      const ptsString = f.points
-                        .map((pt) => {
-                          const { px, py } = meterToCanvas(pt.x, pt.y);
-                          return `${px},${py}`;
-                        })
-                        .join(' ');
+                      const dPath = isSpl
+                        ? pointsToSplinePath(canvasPts, true)
+                        : canvasPts.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.px},${p.py}`).join(' ') + ' Z';
 
                       return (
                         <g
@@ -1182,28 +1735,22 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                             }
                           }}
                         >
-                          <polygon
-                            points={ptsString}
+                          <path
+                            d={dPath}
                             fill={f.colorHex}
-                            fillOpacity={f.fillOpacity || 0.4}
+                            fillOpacity={isSelected ? 0.6 : f.fillOpacity ?? 0.35}
                             stroke={isSelected ? '#FFFFFF' : f.colorHex}
-                            strokeWidth={isSelected ? 3.5 : f.strokeWidth || 2}
-                            className="cursor-pointer transition-colors"
+                            strokeWidth={isSelected ? (f.strokeWidth || 2.5) + 2 : f.strokeWidth || 2.5}
+                            className="cursor-pointer transition-all"
                           />
-                          {f.featureType === 'ORE_BOUNDARY' && (
-                            <polygon points={ptsString} fill="url(#oreVeinPattern)" />
-                          )}
                         </g>
                       );
                     }
 
-                    if (f.geometryType === 'POLYLINE' && f.points.length >= 2) {
-                      const ptsString = f.points
-                        .map((pt) => {
-                          const { px, py } = meterToCanvas(pt.x, pt.y);
-                          return `${px},${py}`;
-                        })
-                        .join(' ');
+                    if (f.points.length >= 2) {
+                      const dPath = isSpl
+                        ? pointsToSplinePath(canvasPts, false)
+                        : canvasPts.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.px},${p.py}`).join(' ');
 
                       return (
                         <g
@@ -1218,13 +1765,15 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                             }
                           }}
                         >
-                          <polyline
-                            points={ptsString}
+                          <path
+                            d={dPath}
                             fill="none"
                             stroke={isSelected ? '#FFFFFF' : f.colorHex}
-                            strokeWidth={isSelected ? 4 : f.strokeWidth || 2.5}
+                            strokeWidth={isSelected ? (f.strokeWidth || 2.5) + 2 : f.strokeWidth || 2.5}
                             strokeDasharray={f.featureType === 'FAULT' ? '6 3' : undefined}
-                            className="cursor-pointer"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="cursor-pointer transition-all"
                           />
                         </g>
                       );
@@ -1234,91 +1783,67 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
 
                 {/* Draft Line, Rubberband & Vertex Handles when Drawing */}
                 {isDrawing && currentDraftPoints.length > 0 && (() => {
-                  const lastPt = currentDraftPoints[currentDraftPoints.length - 1];
-                  const lastCanvas = meterToCanvas(lastPt.x, lastPt.y);
+                  const draftCanvasPts = currentDraftPoints.map((p) => meterToCanvas(p.x, p.y));
                   const curCanvas = meterToCanvas(cursorPos.x, cursorPos.y);
-                  const p0Canvas = meterToCanvas(currentDraftPoints[0].x, currentDraftPoints[0].y);
+                  const isSpl = activeTool === 'SPL';
 
                   return (
                     <g className="pointer-events-none">
-                      {/* Confirmed segments polyline */}
-                      <polyline
-                        points={currentDraftPoints
-                          .map((p) => {
-                            const { px, py } = meterToCanvas(p.x, p.y);
-                            return `${px},${py}`;
-                          })
-                          .join(' ')}
-                        fill="none"
-                        stroke="#F59E0B"
-                        strokeWidth="3"
-                        strokeDasharray="5 3"
-                      />
-
-                      {/* Live rubberband line from last vertex to pointer */}
-                      <line
-                        x1={lastCanvas.px}
-                        y1={lastCanvas.py}
-                        x2={curCanvas.px}
-                        y2={curCanvas.py}
-                        stroke="#38BDF8"
-                        strokeWidth="2.5"
-                        strokeDasharray="4 2"
-                      />
-
-                      {/* Dotted return preview line to first vertex (for closed polygon) */}
-                      {activeGeometryMode === 'POLYGON' && currentDraftPoints.length >= 2 && (
-                        <line
-                          x1={curCanvas.px}
-                          y1={curCanvas.py}
-                          x2={p0Canvas.px}
-                          y2={p0Canvas.py}
-                          stroke="#94A3B8"
-                          strokeWidth="1.5"
-                          strokeDasharray="3 3"
-                          opacity="0.6"
+                      {/* Live line or spline preview */}
+                      {isSpl && draftCanvasPts.length >= 2 ? (
+                        <path
+                          d={pointsToSplinePath(
+                            [...draftCanvasPts, curCanvas],
+                            activeGeometryMode === 'POLYGON'
+                          )}
+                          fill={activeGeometryMode === 'POLYGON' ? 'rgba(245, 158, 11, 0.2)' : 'none'}
+                          stroke="#F59E0B"
+                          strokeWidth={strokeWidthSetting}
+                          strokeDasharray="4 2"
                         />
+                      ) : (
+                        <>
+                          <polyline
+                            points={draftCanvasPts.map((p) => `${p.px},${p.py}`).join(' ')}
+                            fill="none"
+                            stroke="#F59E0B"
+                            strokeWidth={strokeWidthSetting}
+                            strokeDasharray={activeTool === 'PENCIL' ? undefined : '5 3'}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          {activeTool !== 'PENCIL' && (
+                            <line
+                              x1={draftCanvasPts[draftCanvasPts.length - 1].px}
+                              y1={draftCanvasPts[draftCanvasPts.length - 1].py}
+                              x2={curCanvas.px}
+                              y2={curCanvas.py}
+                              stroke="#38BDF8"
+                              strokeWidth="2.5"
+                              strokeDasharray="4 2"
+                            />
+                          )}
+                        </>
                       )}
 
-                      {/* Numbered Vertex Handles */}
-                      {currentDraftPoints.map((p, idx) => {
-                        const { px, py } = meterToCanvas(p.x, p.y);
-                        const isFirst = idx === 0;
-                        return (
-                          <g key={`draft-handle-${idx}`}>
-                            <circle
-                              cx={px}
-                              cy={py}
-                              r={isFirst ? 8 : 6}
-                              fill={isFirst ? '#EF4444' : '#F59E0B'}
-                              stroke="#FFFFFF"
-                              strokeWidth="2"
-                            />
-                            {isFirst && activeGeometryMode === 'POLYGON' && currentDraftPoints.length >= 3 && (
-                              <text
-                                x={px}
-                                y={py - 12}
-                                fill="#FDE047"
-                                fontSize="10"
-                                fontWeight="bold"
-                                textAnchor="middle"
-                              >
-                                Click here to Close
-                              </text>
-                            )}
-                            <text
-                              x={px}
-                              y={py + 3.5}
-                              fill="#020617"
-                              fontSize="8"
-                              fontWeight="bold"
-                              textAnchor="middle"
-                            >
-                              {idx + 1}
-                            </text>
-                          </g>
-                        );
-                      })}
+                      {/* Vertex Handles for SPL and Polyline */}
+                      {activeTool !== 'PENCIL' &&
+                        currentDraftPoints.map((p, idx) => {
+                          const { px, py } = meterToCanvas(p.x, p.y);
+                          const isFirst = idx === 0;
+                          return (
+                            <g key={`draft-handle-${idx}`}>
+                              <circle
+                                cx={px}
+                                cy={py}
+                                r={isFirst ? 7 : 5}
+                                fill={isFirst ? '#EF4444' : '#F59E0B'}
+                                stroke="#FFFFFF"
+                                strokeWidth="2"
+                              />
+                            </g>
+                          );
+                        })}
                     </g>
                   );
                 })()}
@@ -1486,6 +2011,50 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                 );
               })()}
             </svg>
+
+            {/* Floating Navigation & Zoom HUD (Bottom-Right) */}
+            <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-900/95 border border-slate-700/80 shadow-2xl backdrop-blur-md text-xs font-mono">
+              <button
+                type="button"
+                onClick={() => setZoom((z) => Math.min(4.5, Number((z + 0.2).toFixed(2))))}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                title="Zoom In (or Mouse Wheel Up)"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoom((z) => Math.max(0.35, Number((z - 0.2).toFixed(2))))}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                title="Zoom Out (or Mouse Wheel Down)"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setZoom(1.0);
+                  setPanOffset({ x: 0, y: 0 });
+                }}
+                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] cursor-pointer"
+                title="Reset Zoom & Pan (100%)"
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <div className="h-4 w-px bg-slate-700" />
+              <button
+                type="button"
+                onClick={() => setActiveTool((curr) => (curr === 'PAN' ? 'PENCIL' : 'PAN'))}
+                className={`p-1.5 rounded-lg cursor-pointer transition-colors ${
+                  activeTool === 'PAN'
+                    ? 'bg-amber-500 text-slate-950 font-black'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                }`}
+                title="Move / Pan Canvas (or hold Spacebar / Middle-click drag)"
+              >
+                <Move className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1528,6 +2097,14 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                     </button>
                   ))}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveWorkingWindow(rightPanelTab)}
+                  className="p-1 rounded hover:bg-slate-800 text-amber-400 hover:text-amber-300 cursor-pointer"
+                  title={`Open ${rightPanelTab} in Full Working Window`}
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </button>
               </>
             ) : (
               <button
@@ -1543,6 +2120,18 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
           {/* Right Panel Body */}
           {isRightPanelOpen && (
             <div className="flex-1 overflow-y-auto p-3.5 space-y-4 font-mono text-xs">
+              {/* Working Window Quick Banner */}
+              <div className="flex items-center justify-between p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[10.5px]">
+                <span className="text-amber-300 font-bold">Side Inspector Mode</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveWorkingWindow(rightPanelTab)}
+                  className="flex items-center gap-1 font-black text-amber-400 hover:text-amber-300 cursor-pointer"
+                >
+                  <span>Full Window</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
               {/* TAB 1: GRADES & DILUTION RECONCILIATION */}
               {rightPanelTab === 'GRADES' && (
                 <div className="space-y-3.5">
@@ -1952,6 +2541,137 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
             </div>
           )}
         </aside>
+          </>
+        )}
+
+        {/* DEDICATED WORKING WINDOW 1: FACE GRADES & DILUTION RECONCILIATION */}
+        {activeWorkingWindow === 'GRADES' && (
+          <MiningGradesWindow
+            driftId={driftId}
+            chainage={chainage}
+            mineLevel={mineLevel}
+            oreBodyName={oreBodyName}
+            stopeWidth={stopeWidth}
+            stopeHeight={stopeHeight}
+            stopeShape={stopeShape}
+            blastPull={blastPull}
+            setBlastPull={setBlastPull}
+            cutoffGrade={cutoffGrade}
+            setCutoffGrade={setCutoffGrade}
+            oreSg={oreSg}
+            setOreSg={setOreSg}
+            wasteSg={wasteSg}
+            setWasteSg={setWasteSg}
+            metalPriceAuOz={metalPriceAuOz}
+            setMetalPriceAuOz={setMetalPriceAuOz}
+            miningCostPerTonne={miningCostPerTonne}
+            setMiningCostPerTonne={setMiningCostPerTonne}
+            millingCostPerTonne={millingCostPerTonne}
+            setMillingCostPerTonne={setMillingCostPerTonne}
+            features={features}
+            channelSamples={channelSamples}
+            composites={composites}
+            onReturnToCanvas={() => setActiveWorkingWindow('CANVAS')}
+            onOpenChannels={() => {
+              setActiveWorkingWindow('CHANNELS');
+              setRightPanelTab('CHANNELS');
+            }}
+          />
+        )}
+
+        {/* DEDICATED WORKING WINDOW 2: CHANNEL SAMPLING & ASSAY REGISTRY */}
+        {activeWorkingWindow === 'CHANNELS' && (
+          <MiningChannelsWindow
+            driftId={driftId}
+            chainage={chainage}
+            mineLevel={mineLevel}
+            stopeWidth={stopeWidth}
+            stopeHeight={stopeHeight}
+            oreSg={oreSg}
+            channelSamples={channelSamples}
+            setChannelSamples={setChannelSamples}
+            pushUndo={pushUndo}
+            composites={composites}
+            onExportCsv={handleExportCsv}
+            onReturnToCanvas={() => setActiveWorkingWindow('CANVAS')}
+          />
+        )}
+
+        {/* DEDICATED WORKING WINDOW 3: STRUCTURAL GEOLOGY & STEREONET */}
+        {activeWorkingWindow === 'STRUCTURE' && (
+          <MiningStructureWindow
+            driftId={driftId}
+            chainage={chainage}
+            mineLevel={mineLevel}
+            headingAzimuth={headingAzimuth}
+            setHeadingAzimuth={setHeadingAzimuth}
+            features={features}
+            setFeatures={setFeatures}
+            pushUndo={pushUndo}
+            selectedFeatureId={selectedFeatureId}
+            setSelectedFeatureId={setSelectedFeatureId}
+            onReturnToCanvas={() => setActiveWorkingWindow('CANVAS')}
+          />
+        )}
+
+        {/* DEDICATED WORKING WINDOW 4: GEOTECH & MATHEWS STABILITY */}
+        {activeWorkingWindow === 'GEOTECH' && (
+          <MiningGeotechWindow
+            driftId={driftId}
+            chainage={chainage}
+            mineLevel={mineLevel}
+            stopeWidth={stopeWidth}
+            stopeHeight={stopeHeight}
+            mrmrBaseRmr={mrmrBaseRmr}
+            setMrmrBaseRmr={setMrmrBaseRmr}
+            mrmrWeatheringPct={mrmrWeatheringPct}
+            setMrmrWeatheringPct={setMrmrWeatheringPct}
+            mrmrStressPct={mrmrStressPct}
+            setMrmrStressPct={setMrmrStressPct}
+            mrmrOrientationPct={mrmrOrientationPct}
+            setMrmrOrientationPct={setMrmrOrientationPct}
+            mrmrBlastingPct={mrmrBlastingPct}
+            setMrmrBlastingPct={setMrmrBlastingPct}
+            mrmrResult={mrmrResult}
+            miningRqd={miningRqd}
+            setMiningRqd={setMiningRqd}
+            miningJn={miningJn}
+            setMiningJn={setMiningJn}
+            miningJr={miningJr}
+            setMiningJr={setMiningJr}
+            miningJa={miningJa}
+            setMiningJa={setMiningJa}
+            stressFactorA={stressFactorA}
+            setStressFactorA={setStressFactorA}
+            jointFactorB={jointFactorB}
+            setJointFactorB={setJointFactorB}
+            gravityFactorC={gravityFactorC}
+            setGravityFactorC={setGravityFactorC}
+            mathewsResult={mathewsResult}
+            hydraulicRadiusM={profileMetrics.hydraulicRadiusM}
+            onReturnToCanvas={() => setActiveWorkingWindow('CANVAS')}
+          />
+        )}
+
+        {/* DEDICATED WORKING WINDOW 5: CAD & GEOLOGICAL DELIVERABLES EXPORT */}
+        {activeWorkingWindow === 'EXPORTS' && (
+          <MiningExportsWindow
+            driftId={driftId}
+            chainage={chainage}
+            mineLevel={mineLevel}
+            currentStope={currentStope}
+            currentProject={currentProject}
+            features={features}
+            channelSamples={channelSamples}
+            composites={composites}
+            mrmrResult={mrmrResult}
+            mathewsResult={mathewsResult}
+            onExportDxf={handleExportDxf}
+            onExportCsv={handleExportCsv}
+            onOpenPrintModal={() => setIsPrintModalOpen(true)}
+            onReturnToCanvas={() => setActiveWorkingWindow('CANVAS')}
+          />
+        )}
       </div>
 
       {/* STOPE SETUP WIZARD MODAL */}
