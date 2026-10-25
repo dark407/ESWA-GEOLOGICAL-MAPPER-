@@ -44,6 +44,7 @@ import {
 import { MiningDataStorageModal } from './MiningDataStorageModal';
 import { MiningMappingWorkspace } from './MiningMappingWorkspace';
 import { MiningCoreLoggingWorkspace } from './MiningCoreLoggingWorkspace';
+import { MiningFaceSetupWizard } from './MiningFaceSetupWizard';
 
 export interface MiningMainWindowProps {
   industryMode: IndustryMode;
@@ -72,6 +73,7 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
 }) => {
   const [activeMiningView, setActiveMiningView] = useState<'MAIN' | 'MAPPING' | 'CORE_LOGGING'>('MAIN');
   const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
+  const [isFaceWizardOpen, setIsFaceWizardOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const { palette } = useTheme();
 
@@ -269,42 +271,33 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
 
         {/* 3 PRIMARY MAIN OPTIONS */}
         <div className="w-full space-y-2.5 pt-1">
-          {/* OPTION 1: Underground Mining Mapping */}
-          <div className="flex items-stretch gap-2 w-full">
+          {/* OPTION 1: Underground Mining Face Mapping (Project -> Location & Shape -> Face Advance) */}
+          <div className="w-full">
             <button
               type="button"
-              onClick={() => setActiveMiningView('MAPPING')}
-              className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-slate-900 hover:bg-slate-850 border-2 border-amber-500/50 hover:border-amber-400 transition-all cursor-pointer group shadow-lg shadow-amber-500/10 text-amber-300"
+              onClick={() => setIsFaceWizardOpen(true)}
+              className="w-full py-3.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-3 bg-slate-900 hover:bg-slate-850 border-2 border-amber-500/60 hover:border-amber-400 transition-all cursor-pointer group shadow-lg shadow-amber-500/10 text-amber-300 active:scale-[0.99]"
             >
-              <span className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
-                  <Pickaxe className="w-4 h-4" />
+              <span className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <Pickaxe className="w-5 h-5" />
                 </div>
                 <div className="text-left font-mono">
-                  <div className="font-bold text-slate-100">
-                    1. Underground Mining Mapping
+                  <div className="font-black text-slate-100 text-sm sm:text-base flex items-center gap-2">
+                    <span>1. Underground Mining Face Mapping</span>
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                      Step-by-Step
+                    </span>
                   </div>
-                  <div className="text-[10px] text-slate-400 font-normal">
-                    Stopes, ore veins, channel assays, dilution &amp; Mathews stability
+                  <div className="text-[11px] text-slate-400 font-normal mt-0.5">
+                    1. Project (Add/Edit) → 2. Location (Shape &amp; Size) → 3. Face Advance (From-To Pull)
                   </div>
                 </div>
               </span>
-              <ArrowRight className="w-4 h-4 shrink-0 text-amber-400 group-hover:translate-x-1 transition-transform" />
-            </button>
-
-            {/* Resume Button to jump right where left off */}
-            <button
-              type="button"
-              onClick={() => setActiveMiningView('MAPPING')}
-              className="px-4 py-2.5 rounded-xl font-black text-xs font-mono flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 active:scale-95 bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 hover:bg-amber-400"
-              title={
-                currentStope
-                  ? `Resume stope mapping at ${currentStope.stopeOrDriftId} (${currentStope.mineLevel})`
-                  : 'Resume Stope Mapping'
-              }
-            >
-              <Play className="w-3.5 h-3.5 fill-slate-950 shrink-0" />
-              <span>Resume</span>
+              <div className="flex items-center gap-2 bg-amber-500 text-slate-950 font-black px-3.5 py-1.5 rounded-lg text-xs shadow-md group-hover:bg-amber-400 transition-colors shrink-0">
+                <span>Start / Select Face</span>
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+              </div>
             </button>
           </div>
 
@@ -373,37 +366,20 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
               </span>
             </button>
           </div>
-
-          {/* OPTION 4: Continuous 3D Tunnel Mapping / 3D CAD Strip Logging */}
-          {onOpenContinuousTunnelLog && (
-            <div className="w-full">
-              <button
-                type="button"
-                onClick={onOpenContinuousTunnelLog}
-                className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-slate-900/90 hover:bg-slate-850 border-2 border-emerald-500/40 hover:border-emerald-400 transition-all cursor-pointer group shadow-lg shadow-emerald-500/10 text-emerald-300"
-              >
-                <span className="flex items-center gap-2.5">
-                  <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
-                    <Box className="w-4 h-4" />
-                  </div>
-                  <div className="text-left font-mono">
-                    <div className="font-bold text-slate-100">
-                      4. Continuous 3D Tunnel Mapping &amp; Strip CAD Log
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-normal">
-                      Multi-round longitudinal 3D tunnel strip log, unrolled crown &amp; walls CAD
-                    </div>
-                  </div>
-                </span>
-                <span className="text-[11px] font-mono text-emerald-400 font-bold group-hover:underline flex items-center gap-1">
-                  <span>Launch 3D Log</span>
-                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                </span>
-              </button>
-            </div>
-          )}
         </div>
       </div>
+
+      {/* Mining Face Setup Wizard */}
+      {isFaceWizardOpen && (
+        <MiningFaceSetupWizard
+          onCancel={() => setIsFaceWizardOpen(false)}
+          onEnterFaceMapping={(newStope) => {
+            setIsFaceWizardOpen(false);
+            setActiveMiningView('MAPPING');
+          }}
+          initialStope={currentStope}
+        />
+      )}
 
       {/* Mining Data & Storage Modal */}
       <MiningDataStorageModal

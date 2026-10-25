@@ -70,6 +70,12 @@ import {
   Vec3D,
   getTunnelRelativeDirectionLabel,
   getCrownStrikePair,
+  calculateJointFractureIntensityAndArea,
+  constructPlaneFromFaceTraceHinge,
+  constructPlaneFromTraceHinge,
+  FaceTraceHingePlaneResult,
+  TraceHingePlaneResult,
+  JointFractureIntensityAndAreaResult,
 } from '../engine/joint3DInspectorEngine';
 import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
 import { createTunnelGeometry } from '../engine/geometryEngine';
@@ -328,6 +334,16 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   const [dipDirection, setDipDirection] = useState<number>(currentJoint.dipDirection ?? 135);
   const [dipAmount, setDipAmount] = useState<number>(resolvedInitialDip);
   const [jointSetId, setJointSetId] = useState<FieldJointGroupingId>(currentJoint.setId || 'unassigned');
+
+  // Hinge Axis of Rotation State (For face & wall traces, plane pivots strictly around the traced line; for crown, dip amount tilts plane)
+  const isFaceTrace = currentJoint.panel === 'face';
+  const isWallTrace = currentJoint.panel === 'left_wall' || currentJoint.panel === 'right_wall';
+  const isCrownTrace = currentJoint.panel === 'crown';
+  const [isHingeRotationActive, setIsHingeRotationActive] = useState<boolean>(true);
+  const [hingeDipDeg, setHingeDipDeg] = useState<number>(resolvedInitialDip || 60);
+  const [hingeDipSide, setHingeDipSide] = useState<'heading' | 'collar'>('heading');
+  const [showIntensityMethodModal, setShowIntensityMethodModal] = useState<boolean>(false);
+
   const [measurementSource, setMeasurementSource] = useState<'MANUAL_COMPASS' | 'GEOMETRIC_FIT' | 'PHOTOGRAMMETRY_MULTIVIEW'>(
     currentJoint.inspection3D?.measurementSource || (currentJoint.editedByCompass ? 'MANUAL_COMPASS' : 'GEOMETRIC_FIT')
   );
@@ -347,6 +363,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         : (currentJoint.dipAmount ?? (isCr ? 90 : 65));
     setDipDirection(currentJoint.dipDirection ?? 135);
     setDipAmount(resolvedDip);
+    setHingeDipDeg(resolvedDip);
+    setIsHingeRotationActive(currentJoint.panel === 'face');
     setJointSetId(currentJoint.setId || 'unassigned');
     setMeasurementSource(
       currentJoint.inspection3D?.measurementSource || (currentJoint.editedByCompass ? 'MANUAL_COMPASS' : 'GEOMETRIC_FIT')
@@ -490,15 +508,48 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     return derived;
   }, [plotPlaneAnchorType, plotPlaneAdvanceM, currentJoint.points, currentJoint.panel, tunnelGeometry]);
 
+  // 3a. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on Face, Walls & Crown)
+  const hingePlaneResult = useMemo<TraceHingePlaneResult | null>(() => {
+    if (!isHingeRotationActive || currentJoint.points.length < 2) return null;
+    return constructPlaneFromTraceHinge(
+      currentJoint.points,
+      currentJoint.panel || 'face',
+      hingeDipDeg,
+      hingeDipSide,
+      tunnelGeometry
+    );
+  }, [isHingeRotationActive, currentJoint.points, currentJoint.panel, hingeDipDeg, hingeDipSide, tunnelGeometry]);
+
+  // 3b. ISRM & Rock Mechanics Fracture Intensity & Occupied Area Calculation
+  const fractureIntensityResult = useMemo<JointFractureIntensityAndAreaResult>(() => {
+    return calculateJointFractureIntensityAndArea(
+      currentJoint.points,
+      allRoundJoints,
+      tunnelGeometry,
+      currentJoint.panel || 'face'
+    );
+  }, [currentJoint.points, currentJoint.panel, allRoundJoints, tunnelGeometry]);
+
+  // Synchronize derived dip and dip direction when hinge rotation changes
+  useEffect(() => {
+    if (hingePlaneResult) {
+      setDipAmount(hingePlaneResult.derivedDipDeg);
+      setDipDirection(hingePlaneResult.derivedDipDirectionDeg);
+    }
+  }, [hingePlaneResult]);
+
   // 3. Mathematical Plane Equation
   const plane = useMemo(() => {
+    if (hingePlaneResult) {
+      return hingePlaneResult;
+    }
     return constructJointPlane(
       dipDirection,
       dipAmount,
       anchorPoint,
       tunnelGeometry.driveAzimuthDeg
     );
-  }, [dipDirection, dipAmount, anchorPoint, tunnelGeometry.driveAzimuthDeg]);
+  }, [hingePlaneResult, dipDirection, dipAmount, anchorPoint, tunnelGeometry.driveAzimuthDeg]);
 
   // 4. Clipped Plane Polygon to Tunnel Bounding Box
   const clippedVertices = useMemo(() => {
@@ -1370,8 +1421,72 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       group.add(haloMesh);
     }
 
+    // 5a. Dedicated Glowing Golden Hinge Axis along Mapped Joint Trace (Face, Walls & Crown)
+    if (hingePlaneResult) {
+      const p1 = hingePlaneResult.traceStartPoint;
+      const p2 = hingePlaneResult.traceEndPoint;
+      // Coordinates in Three.js: X = Y_geom (width), Y = Z_geom (elevation), Z = X_geom (advance)
+      const v1 = new THREE.Vector3(p1.y, p1.z, p1.x);
+      const v2 = new THREE.Vector3(p2.y, p2.z, p2.x);
+      const hVec = new THREE.Vector3().subVectors(v2, v1);
+      const hLen = hVec.length();
+
+      if (hLen > 0.02) {
+        // Glowing gold cylinder along the mapped trace line
+        const hingeCylGeo = new THREE.CylinderGeometry(0.045, 0.045, hLen, 16);
+        const hingeCylMat = new THREE.MeshStandardMaterial({
+          color: 0xfbbf24,
+          emissive: 0xd97706,
+          emissiveIntensity: 0.85,
+          metalness: 0.7,
+          roughness: 0.2,
+        });
+        const hingeCyl = new THREE.Mesh(hingeCylGeo, hingeCylMat);
+        hingeCyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), hVec.clone().normalize());
+        hingeCyl.position.copy(v1.clone().add(v2).multiplyScalar(0.5));
+        group.add(hingeCyl);
+
+        // Terminal Gold Spheres
+        const hingeSphereGeo = new THREE.SphereGeometry(0.1, 16, 16);
+        const hingeSphereMat = new THREE.MeshStandardMaterial({
+          color: 0xfde047,
+          emissive: 0xf59e0b,
+          emissiveIntensity: 0.9,
+        });
+        const sp1 = new THREE.Mesh(hingeSphereGeo, hingeSphereMat);
+        sp1.position.copy(v1);
+        group.add(sp1);
+
+        const sp2 = new THREE.Mesh(hingeSphereGeo, hingeSphereMat);
+        sp2.position.copy(v2);
+        group.add(sp2);
+
+        // Billboard tag along hinge axis
+        const hMid = v1.clone().add(v2).multiplyScalar(0.5);
+        const panelName = currentJoint.panel === 'crown'
+          ? 'CROWN ARCH AXIS'
+          : currentJoint.panel === 'left_wall'
+          ? 'LEFT WALL HINGE'
+          : currentJoint.panel === 'right_wall'
+          ? 'RIGHT WALL HINGE'
+          : 'FACE HINGE AXIS';
+        const tagAction = currentJoint.panel === 'crown' ? 'DIP TILT' : 'ROTATION';
+        const hLabel = createBillboardLabel(
+          `★ ${panelName}: ${hingePlaneResult.traceLengthM.toFixed(2)}m (${hingeDipDeg}° ${tagAction})`,
+          '#78350F',
+          '#FEF08A',
+          3.8,
+          0.65
+        );
+        hLabel.position.set(hMid.x, hMid.y + 0.38, hMid.z + 0.06);
+        group.add(hLabel);
+      }
+    }
+
     // 5b. Billboard directly at Anchor / Crown Strike Cut Point
-    const billboardLabelText = isCrownJoint
+    const billboardLabelText = isHingeRotationActive && hingePlaneResult
+      ? `DIP: ${hingePlaneResult.derivedDipDeg}° ➔ ${hingePlaneResult.derivedDipDirectionDeg}° (${currentJoint.panel === 'crown' ? 'CROWN TILTED' : 'HINGED'})`
+      : isCrownJoint
       ? `CROWN STRIKE: ${strikeInfo.strikePairLabel}`
       : `DIP: ${dipAmount}° ➔ ${dipDirection}°`;
     const planeDipSprite = createBillboardLabel(
@@ -1444,7 +1559,22 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.5 });
       group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
     }
-  }, [activeTab, clippedVertices, plane, anchorPoint, jointSetId, surfaceIntersections, tunnelGeometry, showInteriorPlane, planeDisplayMode, planeExtensionM, currentJoint]);
+  }, [
+    activeTab,
+    clippedVertices,
+    plane,
+    anchorPoint,
+    jointSetId,
+    surfaceIntersections,
+    tunnelGeometry,
+    showInteriorPlane,
+    planeDisplayMode,
+    planeExtensionM,
+    currentJoint,
+    currentJoint.panel,
+    hingePlaneResult,
+    hingeDipDeg,
+  ]);
 
   // -------------------------------------------------------------------------
   // SAVE HANDLER
@@ -1797,97 +1927,530 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 </span>
               </div>
 
-              {/* High-Responsiveness Inputs for Dip Direction & Dip Angle */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <NumericStepperInput
-                    label="Dip Direction (α)"
-                    value={dipDirection}
-                    min={0}
-                    max={359}
-                    step={1}
-                    unit="°"
-                    isCircular={true}
-                    isLight={isLight}
-                    onChange={(val) => setDipDirection(val)}
-                  />
-                  <input
-                    type="range"
-                    min="0"
-                    max="359"
-                    value={dipDirection}
-                    onChange={(e) => setDipDirection(Number(e.target.value))}
-                    className="w-full accent-amber-500 cursor-pointer"
-                  />
-                  {/* Quick Preset Buttons in Tunnel Coordinates */}
-                  <div className="flex items-center justify-between gap-1 pt-0.5">
-                    {[
-                      { d: 0, label: 'FWD' },
-                      { d: 90, label: 'R' },
-                      { d: 180, label: 'BACK' },
-                      { d: 270, label: 'L' },
-                    ].map((btn) => (
+              {/* FACE TRACE HINGE ROTATION CONTROL (Pinned strictly to mapped joint trace) */}
+              {isFaceTrace && isHingeRotationActive && (
+                <div className="p-3 rounded-lg bg-gradient-to-br from-amber-500/15 via-slate-900 to-amber-950/20 border border-amber-500/40 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-[11px] font-bold text-amber-300">
+                        Face Trace Hinge Axis:
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold border border-amber-500/40 text-[10px]">
+                      Trace: {hingePlaneResult?.traceLengthM.toFixed(2) ?? '0.00'}m
+                    </span>
+                  </div>
+
+                  <p className="text-[10px] text-slate-300 leading-snug">
+                    The traced joint line on the face canvas is locked as the <strong className="text-amber-300">stationary hinge axis</strong>. Sliding the angle rotates the 3D plane strictly around this line without drifting.
+                  </p>
+
+                  {/* Live Dip Angle Slider around Traced Line */}
+                  <div className="space-y-1.5 bg-slate-950/70 p-2.5 rounded-lg border border-amber-500/20">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-slate-200">Rotation Angle Around Trace (Dip δ):</span>
+                      <span className="font-mono font-black text-amber-400 bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/50 text-xs shadow-sm">
+                        {hingeDipDeg}°
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={90}
+                      value={hingeDipDeg}
+                      onChange={(e) => setHingeDipDeg(Number(e.target.value))}
+                      className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
+                    />
+                    {/* Quick Preset Angles */}
+                    <div className="flex items-center justify-between gap-1 pt-1">
+                      {[90, 75, 60, 45, 30, 15].map((deg) => (
+                        <button
+                          key={deg}
+                          type="button"
+                          onClick={() => setHingeDipDeg(deg)}
+                          className={`flex-1 py-1 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
+                            hingeDipDeg === deg
+                              ? 'bg-amber-500 text-slate-950 border-amber-300 font-bold shadow-sm'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {deg}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Dipping Direction Side Toggle */}
+                  <div className="space-y-1 pt-0.5">
+                    <div className="flex items-center justify-between text-[10px] text-slate-300">
+                      <span>Dipping Side relative to Face:</span>
+                      <span className="font-mono font-bold text-amber-300">
+                        {hingeDipSide === 'heading' ? 'Ahead (+Z Advance)' : 'Back (-Z Portal)'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
                       <button
-                        key={btn.d}
                         type="button"
-                        onClick={() => setDipDirection(btn.d)}
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
-                          dipDirection === btn.d
-                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                        onClick={() => setHingeDipSide('heading')}
+                        className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                          hingeDipSide === 'heading'
+                            ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-sm'
                             : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                         }`}
                       >
-                        {btn.label}
+                        Dip Ahead into Heading (+Z)
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => setHingeDipSide('collar')}
+                        className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                          hingeDipSide === 'collar'
+                            ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-sm'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        Dip Back to Collar (-Z)
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Live Derived Geological Orientation */}
+                  <div className="p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px] font-mono">
+                    <div>
+                      <span className="text-slate-400">Derived Dip: </span>
+                      <strong className="text-amber-400 font-bold">{hingePlaneResult?.derivedDipDeg ?? dipAmount}°</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Dip Dir: </span>
+                      <strong className="text-cyan-400 font-bold">
+                        {hingePlaneResult?.derivedDipDirectionDeg ?? dipDirection}°
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Strike: </span>
+                      <strong className="text-emerald-400 font-bold">
+                        {hingePlaneResult?.strikeRhrDeg ?? strikeInfo.strikeRhrDeg}°
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Toggle */}
+                  <label className="flex items-center gap-2 cursor-pointer pt-0.5 text-[9.5px] text-slate-400 hover:text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={isHingeRotationActive}
+                      onChange={(e) => setIsHingeRotationActive(e.target.checked)}
+                      className="accent-amber-500 rounded"
+                    />
+                    <span>Strictly lock rotation axis to mapped trace on face (Recommended)</span>
+                  </label>
+                </div>
+              )}
+
+              {/* WALL TRACE HINGE ROTATION CONTROL (Left Wall & Right Wall) */}
+              {isWallTrace && isHingeRotationActive && (
+                <div className="p-3 rounded-lg bg-gradient-to-br from-emerald-500/15 via-slate-900 to-emerald-950/20 border border-emerald-500/40 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-[11px] font-bold text-emerald-300">
+                        {currentJoint.panel === 'left_wall' ? 'Left Wall' : 'Right Wall'} Trace Hinge Axis:
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold border border-emerald-500/40 text-[10px]">
+                      Trace: {hingePlaneResult?.traceLengthM.toFixed(2) ?? '0.00'}m
+                    </span>
+                  </div>
+
+                  <p className="text-[10px] text-slate-300 leading-snug">
+                    The traced joint line on the {currentJoint.panel === 'left_wall' ? 'left sidewall' : 'right sidewall'} is locked as the <strong className="text-emerald-300">stationary hinge axis</strong>. Sliding the angle rotates the 3D plane into the rock mass or tunnel opening without drifting.
+                  </p>
+
+                  {/* Live Dip Angle Slider around Sidewall Traced Line */}
+                  <div className="space-y-1.5 bg-slate-950/70 p-2.5 rounded-lg border border-emerald-500/20">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-slate-200">Rotation Angle Around Wall Trace (Dip δ):</span>
+                      <span className="font-mono font-black text-emerald-400 bg-emerald-950/90 px-2 py-0.5 rounded border border-emerald-500/50 text-xs shadow-sm">
+                        {hingeDipDeg}°
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={90}
+                      value={hingeDipDeg}
+                      onChange={(e) => setHingeDipDeg(Number(e.target.value))}
+                      className="w-full accent-emerald-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
+                    />
+                    {/* Quick Preset Angles */}
+                    <div className="flex items-center justify-between gap-1 pt-1">
+                      {[90, 75, 60, 45, 30, 15].map((deg) => (
+                        <button
+                          key={deg}
+                          type="button"
+                          onClick={() => setHingeDipDeg(deg)}
+                          className={`flex-1 py-1 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
+                            hingeDipDeg === deg
+                              ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-bold shadow-sm'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {deg}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Dipping Direction Side Toggle for Wall */}
+                  <div className="space-y-1 pt-0.5">
+                    <div className="flex items-center justify-between text-[10px] text-slate-300">
+                      <span>Dipping Side relative to Wall:</span>
+                      <span className="font-mono font-bold text-emerald-300">
+                        {hingeDipSide === 'heading'
+                          ? (currentJoint.panel === 'left_wall' ? 'Into Left Rock (+Y)' : 'Into Right Rock (-Y)')
+                          : 'Into Tunnel Opening'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setHingeDipSide('heading')}
+                        className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                          hingeDipSide === 'heading'
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-sm'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        {currentJoint.panel === 'left_wall' ? 'Dip into Left Rock (+Y)' : 'Dip into Right Rock (-Y)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHingeDipSide('collar')}
+                        className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                          hingeDipSide === 'collar'
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-sm'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        Dip into Tunnel Cavity
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Live Derived Geological Orientation */}
+                  <div className="p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px] font-mono">
+                    <div>
+                      <span className="text-slate-400">Derived Dip: </span>
+                      <strong className="text-emerald-400 font-bold">{hingePlaneResult?.derivedDipDeg ?? dipAmount}°</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Dip Dir: </span>
+                      <strong className="text-cyan-400 font-bold">
+                        {hingePlaneResult?.derivedDipDirectionDeg ?? dipDirection}°
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Strike: </span>
+                      <strong className="text-amber-400 font-bold">
+                        {hingePlaneResult?.strikeRhrDeg ?? strikeInfo.strikeRhrDeg}°
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Toggle */}
+                  <label className="flex items-center gap-2 cursor-pointer pt-0.5 text-[9.5px] text-slate-400 hover:text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={isHingeRotationActive}
+                      onChange={(e) => setIsHingeRotationActive(e.target.checked)}
+                      className="accent-emerald-500 rounded"
+                    />
+                    <span>Strictly lock rotation axis to mapped trace on sidewall (Recommended)</span>
+                  </label>
+                </div>
+              )}
+
+              {/* CROWN TRACE DIP AMOUNT & PLANE TILT CONTROL */}
+              {isCrownTrace && isHingeRotationActive && (
+                <div className="p-3 rounded-lg bg-gradient-to-br from-sky-500/15 via-slate-900 to-sky-950/20 border border-sky-500/40 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                      <span className="text-[11px] font-bold text-sky-300">
+                        Crown Trace Axis &amp; Dip Amount Tilt:
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono font-bold border border-sky-500/40 text-[10px]">
+                      Arch Trace: {hingePlaneResult?.traceLengthM.toFixed(2) ?? '0.00'}m
+                    </span>
+                  </div>
+
+                  <p className="text-[10px] text-slate-300 leading-snug">
+                    The mapped crown trace forms the hinge axis along the arch. Choosing the <strong className="text-sky-300">dip amount</strong> directly tilts the 3D plane overhead without drifting off the mapped strike line.
+                  </p>
+
+                  {/* Live Dip Amount Slider */}
+                  <div className="space-y-1.5 bg-slate-950/70 p-2.5 rounded-lg border border-sky-500/20">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-slate-200">Crown Discontinuity Dip Amount (Tilt δ):</span>
+                      <span className="font-mono font-black text-sky-400 bg-sky-950/90 px-2 py-0.5 rounded border border-sky-500/50 text-xs shadow-sm">
+                        {hingeDipDeg}°
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={89}
+                      value={hingeDipDeg}
+                      onChange={(e) => setHingeDipDeg(Number(e.target.value))}
+                      className="w-full accent-sky-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
+                    />
+                    {/* Quick Preset Angles */}
+                    <div className="flex items-center justify-between gap-1 pt-1">
+                      {[85, 75, 60, 45, 30, 15].map((deg) => (
+                        <button
+                          key={deg}
+                          type="button"
+                          onClick={() => setHingeDipDeg(deg)}
+                          className={`flex-1 py-1 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
+                            hingeDipDeg === deg
+                              ? 'bg-sky-500 text-slate-950 border-sky-300 font-bold shadow-sm'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {deg}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Tilt Direction Side (Heading vs Collar) */}
+                  <div className="space-y-1 pt-0.5">
+                    <div className="flex items-center justify-between text-[10px] text-slate-300">
+                      <span>Crown Plane Tilt Direction:</span>
+                      <span className="font-mono font-bold text-sky-300">
+                        {hingeDipSide === 'heading' ? 'Dip Ahead (+X Heading)' : 'Dip Back (-X Collar)'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setHingeDipSide('heading')}
+                        className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                          hingeDipSide === 'heading'
+                            ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-sm'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        Tilt Ahead into Heading (+X)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHingeDipSide('collar')}
+                        className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                          hingeDipSide === 'collar'
+                            ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-sm'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        Tilt Back to Collar (-X)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Live Derived Orientation */}
+                  <div className="p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px] font-mono">
+                    <div>
+                      <span className="text-slate-400">Dip Amount: </span>
+                      <strong className="text-sky-400 font-bold">{hingePlaneResult?.derivedDipDeg ?? dipAmount}°</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Dip Dir: </span>
+                      <strong className="text-cyan-400 font-bold">
+                        {hingePlaneResult?.derivedDipDirectionDeg ?? dipDirection}°
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Strike (RHR): </span>
+                      <strong className="text-emerald-400 font-bold">
+                        {hingePlaneResult?.strikeRhrDeg ?? strikeInfo.strikeRhrDeg}°
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Toggle */}
+                  <label className="flex items-center gap-2 cursor-pointer pt-0.5 text-[9.5px] text-slate-400 hover:text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={isHingeRotationActive}
+                      onChange={(e) => setIsHingeRotationActive(e.target.checked)}
+                      className="accent-sky-500 rounded"
+                    />
+                    <span>Tilt plane strictly based on crown trace &amp; chosen dip amount (Recommended)</span>
+                  </label>
+                </div>
+              )}
+
+              {/* ROCKMASS FRACTURE INTENSITY & OCCUPIED AREA CARD (For Face, Walls, and Crown) */}
+              <div className="p-3 rounded-lg bg-gradient-to-br from-cyan-950/30 via-slate-900 to-slate-950 border border-cyan-500/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-cyan-300 flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>
+                      ISRM Fracture Intensity &amp; Occupied Area ({currentJoint.panel === 'crown' ? 'Crown Arch' : currentJoint.panel === 'left_wall' ? 'Left Wall' : currentJoint.panel === 'right_wall' ? 'Right Wall' : 'Face Heading'})
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowIntensityMethodModal(true)}
+                    className="px-1.5 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[9px] font-bold cursor-pointer transition-colors"
+                  >
+                    Science &amp; Formulas ➔
+                  </button>
                 </div>
 
-                <div className="space-y-1.5">
-                  <NumericStepperInput
-                    label="Dip Angle (δ)"
-                    value={dipAmount}
-                    min={currentJoint.panel === 'crown' ? 1 : 0}
-                    max={90}
-                    step={1}
-                    unit="°"
-                    isLight={isLight}
-                    onChange={(val) => {
-                      const clamped = currentJoint.panel === 'crown' ? Math.max(1, Math.min(90, val)) : val;
-                      setDipAmount(clamped);
-                    }}
-                  />
-                  <input
-                    type="range"
-                    min={currentJoint.panel === 'crown' ? 1 : 0}
-                    max={90}
-                    value={dipAmount}
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      const clamped = currentJoint.panel === 'crown' ? Math.max(1, Math.min(90, val)) : val;
-                      setDipAmount(clamped);
-                    }}
-                    className="w-full accent-amber-500 cursor-pointer"
-                  />
-                  {/* Quick Preset Angles */}
-                  <div className="flex items-center justify-between gap-1 pt-0.5">
-                    {(currentJoint.panel === 'crown' ? [90, 80, 70, 60, 45, 30] : [90, 75, 60, 45, 30, 0]).map((a) => (
-                      <button
-                        key={a}
-                        type="button"
-                        onClick={() => setDipAmount(a)}
-                        className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
-                          dipAmount === a
-                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-sm'
-                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                        }`}
-                      >
-                        {a === 90 ? '90°' : `${a}°`}
-                      </button>
-                    ))}
+                {/* 4 Core Metrics Grid */}
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                  {/* Metric 1: P21 Trace Intensity */}
+                  <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+                    <div className="text-[9px] text-slate-400">P21 Surface Intensity:</div>
+                    <div className="text-xs font-bold text-cyan-300 pt-0.5">
+                      {fractureIntensityResult.p21TraceLengthIntensity.toFixed(2)} m/m²
+                    </div>
+                    <div className="text-[8.5px] text-slate-400">
+                      Panel Area: {fractureIntensityResult.faceAreaM2.toFixed(1)}m²
+                    </div>
+                  </div>
+
+                  {/* Metric 2: Discontinuity Occupied Area */}
+                  <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+                    <div className="text-[9px] text-slate-400">Occupied Area (Adisc):</div>
+                    <div className="text-xs font-bold text-amber-300 pt-0.5">
+                      {fractureIntensityResult.occupiedAreaM2.toFixed(2)} m²
+                    </div>
+                    <div className="text-[8.5px] text-slate-400">
+                      Baecher Dia: {fractureIntensityResult.equivalentBaecherDiscDiameterM.toFixed(2)}m
+                    </div>
+                  </div>
+
+                  {/* Metric 3: P32 Volumetric Intensity */}
+                  <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+                    <div className="text-[9px] text-slate-400">P32 Volume Intensity:</div>
+                    <div className="text-xs font-bold text-emerald-300 pt-0.5">
+                      {fractureIntensityResult.p32VolumetricAreaIntensity.toFixed(2)} m²/m³
+                    </div>
+                    <div className="text-[8.5px] text-slate-400">
+                      Pull Vol: {fractureIntensityResult.tunnelExcavationVolumeM3.toFixed(1)}m³
+                    </div>
+                  </div>
+
+                  {/* Metric 4: Palmström Jv & RQD */}
+                  <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+                    <div className="text-[9px] text-slate-400">Palmström Jv &amp; RQD:</div>
+                    <div className="text-xs font-bold text-amber-400 pt-0.5">
+                      {fractureIntensityResult.palmstromJv.toFixed(1)} j/m³
+                    </div>
+                    <div className="text-[8.5px] text-slate-400">
+                      Est. RQD: <strong className="text-emerald-400 font-bold">{fractureIntensityResult.palmstromRqdPct}%</strong>
+                    </div>
                   </div>
                 </div>
               </div>
+
+              {/* Standard Inputs (shown if hinge rotation is manually deactivated) */}
+              {!isHingeRotationActive && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <NumericStepperInput
+                      label="Dip Direction (α)"
+                      value={dipDirection}
+                      min={0}
+                      max={359}
+                      step={1}
+                      unit="°"
+                      isCircular={true}
+                      isLight={isLight}
+                      onChange={(val) => setDipDirection(val)}
+                    />
+                    <input
+                      type="range"
+                      min="0"
+                      max="359"
+                      value={dipDirection}
+                      onChange={(e) => setDipDirection(Number(e.target.value))}
+                      className="w-full accent-amber-500 cursor-pointer"
+                    />
+                    {/* Quick Preset Buttons in Tunnel Coordinates */}
+                    <div className="flex items-center justify-between gap-1 pt-0.5">
+                      {[
+                        { d: 0, label: 'FWD' },
+                        { d: 90, label: 'R' },
+                        { d: 180, label: 'BACK' },
+                        { d: 270, label: 'L' },
+                      ].map((btn) => (
+                        <button
+                          key={btn.d}
+                          type="button"
+                          onClick={() => setDipDirection(btn.d)}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
+                            dipDirection === btn.d
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <NumericStepperInput
+                      label="Dip Angle (δ)"
+                      value={dipAmount}
+                      min={currentJoint.panel === 'crown' ? 1 : 0}
+                      max={90}
+                      step={1}
+                      unit="°"
+                      isLight={isLight}
+                      onChange={(val) => {
+                        const clamped = currentJoint.panel === 'crown' ? Math.max(1, Math.min(90, val)) : val;
+                        setDipAmount(clamped);
+                      }}
+                    />
+                    <input
+                      type="range"
+                      min={currentJoint.panel === 'crown' ? 1 : 0}
+                      max={90}
+                      value={dipAmount}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        const clamped = currentJoint.panel === 'crown' ? Math.max(1, Math.min(90, val)) : val;
+                        setDipAmount(clamped);
+                      }}
+                      className="w-full accent-amber-500 cursor-pointer"
+                    />
+                    {/* Quick Preset Angles */}
+                    <div className="flex items-center justify-between gap-1 pt-0.5">
+                      {(currentJoint.panel === 'crown' ? [90, 80, 70, 60, 45, 30] : [90, 75, 60, 45, 30, 0]).map((a) => (
+                        <button
+                          key={a}
+                          type="button"
+                          onClick={() => setDipAmount(a)}
+                          className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
+                            dipAmount === a
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-sm'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {a === 90 ? '90°' : `${a}°`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Crown Joint 3D Orientation & Dip Control (Strike-Derived) */}
               {currentJoint.panel === 'crown' && (
@@ -3497,6 +4060,131 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-md cursor-pointer"
               >
                 Save &amp; Reflect on Canvas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* METHODOLOGY & SCIENCE REFERENCE MODAL FOR FRACTURE INTENSITY & HINGE ROTATION */}
+      {showIntensityMethodModal && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 rounded-2xl bg-slate-900 border border-cyan-500/50 shadow-2xl font-mono text-xs text-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-cyan-400 font-bold text-sm">
+                <Activity className="w-5 h-5 shrink-0" />
+                <span>Geotechnical Methodology: Fracture Intensity, Occupied Area &amp; Hinge Axis</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowIntensityMethodModal(false)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Section 1: Hinge Axis Mechanics */}
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <h4 className="font-bold text-amber-400 flex items-center gap-2 text-xs">
+                <span>1. Face Trace Hinge-Axis 3D Rotation Kinematics</span>
+              </h4>
+              <p className="text-slate-300 leading-relaxed text-[11px]">
+                In geological face mapping, the observed trace line on the face canvas has coordinates (X_pull, Y1, Z1) to (X_pull, Y2, Z2). Because both endpoints lie on the face plane (X = const), the trace vector u = (0, ΔY, ΔZ) constitutes a stationary hinge axis.
+              </p>
+              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 text-[10.5px] text-amber-200">
+                <div>• Hinge Unit Vector: u_hat = (0, ΔY/L, ΔZ/L) where L = √(ΔY² + ΔZ²)</div>
+                <div>• In-Face Orthogonal: w_hat = (0, -u_z, u_y)</div>
+                <div>• Rotated Dip Vector: v(θ) = w_hat · cos(θ) ± x_hat · sin(θ)</div>
+                <div>• Plane Normal: n(θ) = u_hat × v(θ)</div>
+              </div>
+              <p className="text-slate-400 text-[10px]">
+                Because n(θ) · u_hat ≡ 0 for all rotation angles θ in [0°, 90°], the mapped joint line is mathematically guaranteed to remain strictly in the plane during 3D rotation, never drifting away from the face canvas trace.
+              </p>
+            </div>
+
+            {/* Section 2: Dershowitz P21 and P32 Intensity */}
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <h4 className="font-bold text-cyan-400 flex items-center gap-2 text-xs">
+                <span>2. ISRM &amp; Dershowitz (1984/1988) Fracture Intensity (P_ij)</span>
+              </h4>
+              <p className="text-slate-300 leading-relaxed text-[11px]">
+                Discontinuity intensity follows the international standardized P_ij notation proposed by Dershowitz (1984) and recommended by ISRM:
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-[10.5px]">
+                <div className="p-2 rounded bg-slate-900 border border-slate-800 text-cyan-200">
+                  <div className="font-bold text-cyan-300">P21 Area Trace Intensity (m/m²):</div>
+                  <div className="pt-1">P21 = ∑L_face / A_face</div>
+                  <div className="text-[9.5px] text-slate-400 pt-1">Total trace length observed per unit area of excavation face.</div>
+                </div>
+                <div className="p-2 rounded bg-slate-900 border border-slate-800 text-emerald-200">
+                  <div className="font-bold text-emerald-300">P32 Volumetric Intensity (m²/m³):</div>
+                  <div className="pt-1">P32 = ∑A_occupied / V_excavation</div>
+                  <div className="text-[9.5px] text-slate-400 pt-1">Total fracture surface area per unit volume of rock mass.</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Warburton & Baecher Disc Occupied Area Model */}
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <h4 className="font-bold text-amber-400 flex items-center gap-2 text-xs">
+                <span>3. Warburton (1980) &amp; Baecher (1977) Discontinuity Occupied Area</span>
+              </h4>
+              <p className="text-slate-300 leading-relaxed text-[11px]">
+                Visible joint traces represent chords of 3D discontinuity planes intersecting the excavation boundary. Under the standard circular disc model (Baecher et al., 1977; Warburton, 1980):
+              </p>
+              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 text-[10.5px] text-slate-200 space-y-1">
+                <div>• Expected Discontinuity Diameter: E[D] = (4/π) × L_trace ≈ 1.273 × L_trace</div>
+                <div>• Discontinuity Occupied Area: A_disc = (π/4) × E[D]² = (4/π) × L_trace² ≈ 1.273 × L_trace²</div>
+              </div>
+              <p className="text-slate-400 text-[10px]">
+                This formulation provides an objective, mathematically rigorous conversion from 1D/2D mapped surface chords to 3D persistence and occupied rock mass area.
+              </p>
+            </div>
+
+            {/* Section 4: Palmström Volumetric Joint Count (Jv) and RQD */}
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <h4 className="font-bold text-emerald-400 flex items-center gap-2 text-xs">
+                <span>4. Palmström (1995/2005) Volumetric Joint Count ($J_v$) &amp; RQD Correlation</span>
+              </h4>
+              <p className="text-slate-300 leading-relaxed text-[11px]">
+                Palmström established that 2D trace intensity correlates directly to 3D volumetric joint count $J_v$ (joints/m³), which provides an empirical estimate of Rock Quality Designation (RQD):
+              </p>
+              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 text-[10.5px] text-emerald-200 space-y-1">
+                <div>• Volumetric Joint Count: J_v ≈ 1.15 × P21 (joints/m³)</div>
+                <div>• Empirical RQD: RQD = 115 - 3.3 × J_v (bounded in range 0% – 100%)</div>
+              </div>
+              <div className="grid grid-cols-5 gap-1 text-[9px] text-center pt-1 font-mono">
+                <div className="p-1 rounded bg-emerald-950 border border-emerald-700/50 text-emerald-300">
+                  <div>Jv &lt; 1</div>
+                  <div className="font-bold">Massive (90-100%)</div>
+                </div>
+                <div className="p-1 rounded bg-teal-950 border border-teal-700/50 text-teal-300">
+                  <div>Jv 1–3</div>
+                  <div className="font-bold">Good (75-90%)</div>
+                </div>
+                <div className="p-1 rounded bg-amber-950 border border-amber-700/50 text-amber-300">
+                  <div>Jv 3–10</div>
+                  <div className="font-bold">Fair (50-75%)</div>
+                </div>
+                <div className="p-1 rounded bg-orange-950 border border-orange-700/50 text-orange-300">
+                  <div>Jv 10–30</div>
+                  <div className="font-bold">Poor (25-50%)</div>
+                </div>
+                <div className="p-1 rounded bg-rose-950 border border-rose-700/50 text-rose-300">
+                  <div>Jv &gt; 30</div>
+                  <div className="font-bold">Crushed (0-25%)</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowIntensityMethodModal(false)}
+                className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold cursor-pointer transition-colors shadow-md"
+              >
+                Close Methodology Reference
               </button>
             </div>
           </div>

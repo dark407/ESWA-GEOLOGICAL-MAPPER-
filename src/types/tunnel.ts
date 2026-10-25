@@ -64,6 +64,8 @@ export interface FaceChannelSampleRecord {
   metalAccumulation?: number;
   startPoint?: { x: number; y: number };
   endPoint?: { x: number; y: number };
+  trueThicknessMeters?: number;
+  notes?: string;
 }
 
 export interface LaubscherMrmrParameters {

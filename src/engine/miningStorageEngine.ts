@@ -5,6 +5,7 @@
 
 import {
   MiningProjectItem,
+  MiningLocationItem,
   MiningStopeItem,
   MiningDrillHoleRecord,
   MiningCoreRun,
@@ -13,15 +14,33 @@ import {
 
 export const MINING_VAULT_KEY = 'eswa_strict_vault_MINING';
 export const MINING_PROJECTS_KEY = 'eswa_mining_projects_v2';
+export const MINING_LOCATIONS_KEY = 'eswa_mining_locations_v2';
 export const MINING_STOPES_KEY = 'eswa_mining_stopes_v2';
 export const MINING_DRILLHOLES_KEY = 'eswa_mining_drillholes_v2';
 export const MINING_ACTIVE_PROJECT_KEY = 'eswa_mining_active_project_id_v2';
+export const MINING_ACTIVE_LOCATION_KEY = 'eswa_mining_active_location_id_v2';
 export const MINING_ACTIVE_STOPE_KEY = 'eswa_mining_active_stope_id_v2';
 export const MINING_ACTIVE_DRILLHOLE_KEY = 'eswa_mining_active_drillhole_id_v2';
 
 // ---------------------------------------------------------------------------
 // ACTIVE STATE IDS
 // ---------------------------------------------------------------------------
+
+export function getActiveMiningLocationId(): string | null {
+  try {
+    return localStorage.getItem(MINING_ACTIVE_LOCATION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setActiveMiningLocationId(id: string): void {
+  try {
+    localStorage.setItem(MINING_ACTIVE_LOCATION_KEY, id);
+  } catch {
+    // ignore
+  }
+}
 
 export function getActiveMiningProjectId(): string | null {
   try {
@@ -151,7 +170,114 @@ export function deleteMiningProject(id: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// STOPES & UNDERGROUND HEADINGS CRUD
+// LOCATIONS & HEADINGS (CROSS-SECTION SHAPE & SIZE) CRUD
+// ---------------------------------------------------------------------------
+
+export function loadMiningLocations(): MiningLocationItem[] {
+  try {
+    const raw = localStorage.getItem(MINING_LOCATIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // fallback
+  }
+
+  // Derive initial locations from stopes or seed
+  const seeded = seedInitialMiningData();
+  const initLocs: MiningLocationItem[] = seeded.stopes.map((s, idx) => ({
+    id: `LOC-${s.stopeOrDriftId.replace(/[^a-zA-Z0-9]/g, '_')}-${idx}`,
+    projectId: s.projectId,
+    locationName: s.stopeOrDriftId,
+    mineLevel: s.mineLevel,
+    levelElevationMrl: s.levelElevationMrl,
+    excavationType: s.excavationType,
+    miningMethod: s.miningMethod,
+    oreBodyName: s.oreBodyName,
+    targetCutoffGrade: s.targetCutoffGrade,
+    stopeShape: s.stopeShape || 'd_arch',
+    stopeWidthM: s.stopeWidthM,
+    stopeHeightM: s.stopeHeightM,
+    wallHeightM: s.wallHeightM || s.stopeHeightM * 0.65,
+    crownRadiusM: s.crownRadiusM || s.stopeWidthM / 2,
+    headingDriveAzimuthDeg: s.headingDriveAzimuthDeg || 45,
+    customProfilePoints: s.customProfilePoints,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt,
+  }));
+
+  saveMiningLocations(initLocs);
+  return initLocs;
+}
+
+export function saveMiningLocations(locations: MiningLocationItem[]): void {
+  try {
+    localStorage.setItem(MINING_LOCATIONS_KEY, JSON.stringify(locations));
+  } catch (err) {
+    console.warn('Storage quota warning saving Mining locations', err);
+  }
+}
+
+export function createMiningLocation(partial: Partial<MiningLocationItem>): MiningLocationItem {
+  const all = loadMiningLocations();
+  const id = partial.id?.trim() || `LOC-${Date.now().toString(36).toUpperCase()}`;
+  const now = new Date().toISOString();
+
+  const newLoc: MiningLocationItem = {
+    id,
+    projectId: partial.projectId || getActiveMiningProjectId() || 'PRJ-MIN-001',
+    locationName: partial.locationName?.trim() || 'HW-DRV-06',
+    mineLevel: partial.mineLevel?.trim() || 'Level 620 mRL',
+    levelElevationMrl: partial.levelElevationMrl ?? 620,
+    excavationType: partial.excavationType || 'ORE_DRIVE',
+    miningMethod: partial.miningMethod || 'SUBLEVEL_OPEN_STOPING',
+    oreBodyName: partial.oreBodyName?.trim() || 'Champion Quartz Lode',
+    targetCutoffGrade: partial.targetCutoffGrade ?? 2.50,
+    stopeShape: partial.stopeShape || 'd_arch',
+    stopeWidthM: partial.stopeWidthM ?? 4.8,
+    stopeHeightM: partial.stopeHeightM ?? 4.2,
+    wallHeightM: partial.wallHeightM ?? 2.8,
+    crownRadiusM: partial.crownRadiusM ?? 2.4,
+    headingDriveAzimuthDeg: partial.headingDriveAzimuthDeg ?? 45,
+    customProfilePoints: partial.customProfilePoints,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const updated = [newLoc, ...all];
+  saveMiningLocations(updated);
+  setActiveMiningLocationId(newLoc.id);
+  return newLoc;
+}
+
+export function updateMiningLocation(id: string, updates: Partial<MiningLocationItem>): MiningLocationItem | null {
+  const all = loadMiningLocations();
+  const idx = all.findIndex((l) => l.id === id);
+  if (idx < 0) return null;
+
+  const updatedItem: MiningLocationItem = {
+    ...all[idx],
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+  all[idx] = updatedItem;
+  saveMiningLocations(all);
+  return updatedItem;
+}
+
+export function deleteMiningLocation(id: string): void {
+  const all = loadMiningLocations();
+  const filtered = all.filter((l) => l.id !== id);
+  saveMiningLocations(filtered);
+  if (getActiveMiningLocationId() === id) {
+    if (filtered.length > 0) setActiveMiningLocationId(filtered[0].id);
+    else localStorage.removeItem(MINING_ACTIVE_LOCATION_KEY);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FACES & BLAST ROUNDS CRUD
 // ---------------------------------------------------------------------------
 
 export function loadMiningStopes(): MiningStopeItem[] {
@@ -377,86 +503,9 @@ export function seedInitialMiningData(): {
     footwallDipDeg: 68,
     oreSpecificGravity: 3.35,
     wasteSpecificGravity: 2.72,
-    veins: [
-      {
-        id: 'VN-01',
-        name: 'Champion Quartz-Sulfide Main Ribbon',
-        oreZone: 'HIGH_GRADE_ORE',
-        strikeDeg: 15,
-        dipDeg: 74,
-        dipDirectionDeg: 285,
-        trueThicknessMeters: 1.45,
-        apparentThicknessMeters: 1.55,
-        estimatedGrade: '6.85 g/t Au',
-        mineralogyNotes: 'Quartz-Pyrite-Arsenopyrite-Native Gold Ribbon Vein',
-        veinStyle: 'Massive',
-        alterationType: 'Silicified',
-      },
-      {
-        id: 'VN-02',
-        name: 'Hangingwall Stringer Stockwork',
-        oreZone: 'MEDIUM_GRADE_ORE',
-        strikeDeg: 12,
-        dipDeg: 65,
-        dipDirectionDeg: 275,
-        trueThicknessMeters: 0.65,
-        apparentThicknessMeters: 0.72,
-        estimatedGrade: '2.15 g/t Au',
-        mineralogyNotes: 'Quartz-Carbonate-Chalcopyrite Stockwork',
-        veinStyle: 'Stockwork',
-        alterationType: 'Chloritic',
-      },
-    ],
-    channelSamples: [
-      {
-        id: 'CH-01',
-        sampleNumber: 'CH-01-HW',
-        fromMeter: 0.0,
-        toMeter: 1.2,
-        sampleLengthMeters: 1.2,
-        assayGrade: 1.15,
-        gradeValue: '1.15',
-        specificGravity: 2.72,
-        zoneCategory: 'WASTE',
-        lithologyOrVein: 'Amphibolite Country Rock (Waste Dilution)',
-        sampledBy: 'Dr. V. Raghavan',
-        date: '2025-02-18',
-        startPoint: { x: 0.2, y: 2.1 },
-        endPoint: { x: 1.4, y: 2.1 },
-      },
-      {
-        id: 'CH-02',
-        sampleNumber: 'CH-02-ORE-HIGH',
-        fromMeter: 1.2,
-        toMeter: 2.9,
-        sampleLengthMeters: 1.7,
-        assayGrade: 8.42,
-        gradeValue: '8.42',
-        specificGravity: 3.35,
-        zoneCategory: 'ORE',
-        lithologyOrVein: 'Laminated Ribbon Quartz with Coarse Visible Gold',
-        sampledBy: 'Dr. V. Raghavan',
-        date: '2025-02-18',
-        startPoint: { x: 1.4, y: 2.1 },
-        endPoint: { x: 3.1, y: 2.1 },
-      },
-      {
-        id: 'CH-03',
-        sampleNumber: 'CH-03-FW',
-        fromMeter: 2.9,
-        toMeter: 4.4,
-        sampleLengthMeters: 1.5,
-        assayGrade: 3.20,
-        gradeValue: '3.20',
-        specificGravity: 3.10,
-        zoneCategory: 'LOW_GRADE',
-        lithologyOrVein: 'Silicified Footwall Basalt with Pyrite Stringers',
-        sampledBy: 'Dr. V. Raghavan',
-        date: '2025-02-18',
-        startPoint: { x: 3.1, y: 2.1 },
-        endPoint: { x: 4.6, y: 2.1 },
-      },
-    ],
+    veins: [],
+    channelSamples: [],
+    features: [],
     muckDestinationVerdict: 'MILL',
     dilutedGradeCalculated: 4.92,
     dilutionPercentCalculated: 14.2,

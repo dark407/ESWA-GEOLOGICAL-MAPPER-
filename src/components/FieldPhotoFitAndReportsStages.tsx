@@ -5076,7 +5076,99 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
   const [cropModalPanel, setCropModalPanel] = useState<FieldPanelId | null>(null);
   const [stationFrom, setStationFrom] = useState(activeRound.chainageFrom || '0.00');
   const [stationTo, setStationTo] = useState(activeRound.chainageTo || '3.00');
-  const [splitPhotoMode, setSplitPhotoMode] = useState<'standard' | 'split_trace' | 'split_panoramic' | 'before_after'>('standard');
+  const [splitPhotoMode, setSplitPhotoMode] = useState<'standard' | 'split_trace' | 'split_panoramic' | 'before_after' | 'split_segments'>('standard');
+  const [splitSegmentIntervalM, setSplitSegmentIntervalM] = useState<number>(2.0);
+  const [customSplitSegments, setCustomSplitSegments] = useState<Array<{
+    id: string;
+    fromM: number;
+    toM: number;
+    title: string;
+    photoDataUrl?: string;
+    notes?: string;
+    lithology?: string;
+  }>>(() => {
+    const f = parseFloat(activeRound.chainageFrom || '0') || 0;
+    const t = parseFloat(activeRound.chainageTo || '10') || 10;
+    const interval = 2.0;
+    const segs = [];
+    let cur = f;
+    let idx = 1;
+    while (cur < t - 0.01) {
+      const next = Math.min(t, Number((cur + interval).toFixed(2)));
+      segs.push({
+        id: `split-seg-${idx}-${Date.now()}`,
+        fromM: cur,
+        toM: next,
+        title: `Segment #${idx} (${cur.toFixed(1)}m – ${next.toFixed(1)}m)`,
+        photoDataUrl: activeRound.collectedPhotos[idx - 1]?.dataUrl || activeRound.collectedPhotos[0]?.dataUrl || undefined,
+        notes: `Surface exposure continuous trace from ${cur.toFixed(1)}m to ${next.toFixed(1)}m`,
+      });
+      cur = next;
+      idx++;
+    }
+    return segs.length > 0 ? segs : [
+      { id: 'split-seg-1', fromM: f, toM: t, title: `Segment #1 (${f}m – ${t}m)` }
+    ];
+  });
+
+  const handleGenerateSplitSegments = (interval: number) => {
+    setSplitSegmentIntervalM(interval);
+    const f = parseFloat(stationFrom) || 0;
+    const t = parseFloat(stationTo) || (f + 10);
+    const segs = [];
+    let cur = f;
+    let idx = 1;
+    while (cur < t - 0.01) {
+      const next = Math.min(t, Number((cur + interval).toFixed(2)));
+      segs.push({
+        id: `split-seg-${idx}-${Date.now()}`,
+        fromM: cur,
+        toM: next,
+        title: `Segment #${idx} (${cur.toFixed(1)}m – ${next.toFixed(1)}m)`,
+        photoDataUrl: activeRound.collectedPhotos[idx - 1]?.dataUrl || activeRound.collectedPhotos[0]?.dataUrl || undefined,
+        notes: `Continuous exposure joint trace from station ${cur.toFixed(1)}m to ${next.toFixed(1)}m`,
+      });
+      cur = next;
+      idx++;
+    }
+    setCustomSplitSegments(segs);
+  };
+
+  const handleAddCustomSegment = () => {
+    const lastSeg = customSplitSegments[customSplitSegments.length - 1];
+    const newFrom = lastSeg ? lastSeg.toM : (parseFloat(stationFrom) || 0);
+    const newTo = Number((newFrom + splitSegmentIntervalM).toFixed(2));
+    const newIdx = customSplitSegments.length + 1;
+    setCustomSplitSegments((prev) => [
+      ...prev,
+      {
+        id: `split-seg-${newIdx}-${Date.now()}`,
+        fromM: newFrom,
+        toM: newTo,
+        title: `Segment #${newIdx} (${newFrom.toFixed(1)}m – ${newTo.toFixed(1)}m)`,
+        photoDataUrl: activeRound.collectedPhotos[0]?.dataUrl || undefined,
+        notes: `Additional split exposure segment (${newFrom.toFixed(1)}m – ${newTo.toFixed(1)}m)`,
+      },
+    ]);
+  };
+
+  const handleUpdateSegment = (id: string, patch: Partial<(typeof customSplitSegments)[number]>) => {
+    setCustomSplitSegments((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
+    );
+  };
+
+  const handleDeleteSegment = (id: string) => {
+    setCustomSplitSegments((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const handleUploadSegmentPhoto = (id: string, file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      handleUpdateSegment(id, { photoDataUrl: String(reader.result) });
+    };
+    reader.readAsDataURL(file);
+  };
   const [selectedPhotoId, setSelectedPhotoId] = useState<string>(activeRound.collectedPhotos[0]?.id || '');
   const [page2Mode, setPage2Mode] = useState<'photo_2' | 'cad_overlay' | 'before_after'>('cad_overlay');
   const [page1PhotoId, setPage1PhotoId] = useState<string>(activeRound.collectedPhotos[0]?.id || '');
@@ -5758,13 +5850,14 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
           </div>
 
           {/* Split Photos View Selector */}
-          <div className="flex items-center gap-1 bg-slate-950 border border-slate-700 rounded-lg p-0.5">
+          <div className="flex flex-wrap items-center gap-1 bg-slate-950 border border-slate-700 rounded-lg p-0.5">
             <span className="text-[10.5px] text-slate-400 font-bold px-1.5">Photo View:</span>
             {[
               { id: 'standard', label: '1. Standard Full' },
               { id: 'split_trace', label: '2. Split Photo + CAD Trace' },
               { id: 'split_panoramic', label: '3. Split Left / Right' },
               { id: 'before_after', label: '4. Before & After Support' },
+              { id: 'split_segments', label: '5. Split Exposure Segments (e.g. 2m×5)' },
             ].map((sm) => (
               <button
                 key={sm.id}
@@ -5781,6 +5874,56 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
             ))}
           </div>
         </div>
+
+        {/* Multi-Split Segment Configuration Toolbar (When Split Exposure Segments is Active) */}
+        {splitPhotoMode === 'split_segments' && (
+          <div className="bg-slate-900 border border-cyan-800/80 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs font-mono print:hidden shadow-lg animate-in fade-in duration-200">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold text-cyan-300 flex items-center gap-1 uppercase">
+                <Crop className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Divide Station Span Into Segments:</span>
+              </span>
+              <div className="flex items-center gap-1 bg-slate-950 border border-slate-700 rounded p-0.5">
+                {[1.0, 2.0, 2.5, 3.0, 5.0].map((intVal) => (
+                  <button
+                    key={intVal}
+                    type="button"
+                    onClick={() => handleGenerateSplitSegments(intVal)}
+                    className={`px-2 py-0.5 rounded text-[10.5px] font-bold cursor-pointer transition-all ${
+                      splitSegmentIntervalM === intVal
+                        ? 'bg-cyan-500 text-slate-950 font-black'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    {intVal.toFixed(1)}m
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => handleGenerateSplitSegments(splitSegmentIntervalM)}
+                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[10.5px] font-bold cursor-pointer flex items-center gap-1"
+                title="Regenerate segments based on current From & To station inputs"
+              >
+                <RefreshCw className="w-3 h-3 text-cyan-400" />
+                <span>Auto-Split {stationFrom}m–{stationTo}m</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 text-[11px]">
+                Total: <strong className="text-cyan-300">{customSplitSegments.length} Segments</strong>
+              </span>
+              <button
+                type="button"
+                onClick={handleAddCustomSegment}
+                className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer shadow flex items-center gap-1"
+              >
+                <span>+ Add Split Segment</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* =====================================================================
             PAGE 1 OF 2: COMPACT TOP BASIC DETAILS + FULL ADAPTED TUNNEL FACE PHOTO + COMPACT BOTTOM GEOLOGIST SIGN
@@ -5893,6 +6036,117 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
                       <span>Lithology: <strong>{activeRound.rockType || 'Bedrock'}</strong></span>
                     </div>
                   </div>
+                </div>
+              </div>
+            ) : splitPhotoMode === 'split_segments' ? (
+              <div className="flex-1 border border-slate-900 p-2.5 bg-slate-50 flex flex-col justify-between overflow-y-auto">
+                <div className="flex items-center justify-between border-b border-slate-300 pb-1.5 mb-2 text-[11px] font-mono font-bold text-slate-900">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-cyan-800 uppercase tracking-wide">
+                      MULTI-SPLIT EXPOSURE SEGMENTS LOG (Station {stationFrom}m – {stationTo}m)
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-800 border border-cyan-300">
+                      {customSplitSegments.length} Segments • {splitSegmentIntervalM.toFixed(1)}m Interval
+                    </span>
+                  </div>
+                  <span className="text-slate-600 text-[10px]">
+                    Domain: <strong>{domainMap.domainTitle}</strong>
+                  </span>
+                </div>
+
+                {/* Grid of Split Segment Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 flex-1">
+                  {customSplitSegments.map((seg) => (
+                    <div
+                      key={seg.id}
+                      className="border border-slate-400 rounded-lg p-2 bg-white shadow-xs flex flex-col justify-between gap-1.5"
+                    >
+                      {/* Segment Header */}
+                      <div className="flex items-center justify-between border-b border-slate-200 pb-1 text-[10px] font-mono">
+                        <span className="font-bold text-cyan-900">{seg.title}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="bg-slate-100 px-1.5 py-0.5 text-[9px] rounded font-bold text-slate-700">
+                            Span: {(seg.toM - seg.fromM).toFixed(1)}m
+                          </span>
+                          {customSplitSegments.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSegment(seg.id)}
+                              className="text-rose-500 hover:text-rose-700 p-0.5 cursor-pointer print:hidden"
+                              title="Delete this segment"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Segment Photo Box */}
+                      <div className="relative w-full h-36 bg-slate-900 rounded border border-slate-300 overflow-hidden flex items-center justify-center">
+                        {seg.photoDataUrl ? (
+                          <img
+                            src={seg.photoDataUrl}
+                            alt={seg.title}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="text-center p-2 text-slate-400">
+                            <Camera className="w-6 h-6 mx-auto mb-1 text-slate-500" />
+                            <span className="text-[10px] font-mono">No photo attached</span>
+                          </div>
+                        )}
+
+                        {/* Print/Screen Scale Overlay */}
+                        <div className="absolute bottom-1 right-1 bg-black/75 px-1.5 py-0.5 rounded text-[8.5px] font-mono text-white flex items-center gap-1 border border-white/20">
+                          <div className="w-4 h-1 bg-white inline-block"></div>
+                          <span>Scale 1.0m</span>
+                        </div>
+
+                        {/* Station Overlay Tag */}
+                        <div className="absolute top-1 left-1 bg-cyan-950/85 text-cyan-200 px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold border border-cyan-500/40">
+                          {seg.fromM.toFixed(1)}m → {seg.toM.toFixed(1)}m
+                        </div>
+
+                        {/* Screen-only Upload Button */}
+                        <label className="absolute inset-0 bg-transparent hover:bg-slate-950/40 transition-colors flex items-center justify-center cursor-pointer group print:hidden">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleUploadSegmentPhoto(seg.id, file);
+                              e.target.value = '';
+                            }}
+                          />
+                          <span className="opacity-0 group-hover:opacity-100 bg-slate-950/85 text-white text-[10px] font-bold px-2 py-1 rounded shadow">
+                            Upload / Replace Photo
+                          </span>
+                        </label>
+                      </div>
+
+                      {/* Geological Notes / Trace Observation */}
+                      <div className="text-[9.5px] font-mono">
+                        <input
+                          type="text"
+                          value={seg.notes || ''}
+                          onChange={(e) => handleUpdateSegment(seg.id, { notes: e.target.value })}
+                          placeholder="Geological notes, joint traces, rock type..."
+                          className="w-full bg-slate-50 border border-slate-300 rounded px-1.5 py-0.5 text-slate-900 focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Bottom Segment Summary Footer */}
+                <div className="border-t border-slate-300 pt-1.5 mt-2 flex items-center justify-between text-[10px] font-mono text-slate-700">
+                  <span>
+                    Continuous Trace: <strong>CH {stationFrom}m to {stationTo}m</strong> ({customSplitSegments.length} contiguous exposure segments)
+                  </span>
+                  <span>
+                    Quality: <strong>{activeRound.rmrRockClass || 'Class II/III Rock'}</strong> (RMR {activeRound.rmrTotal ?? 62})
+                  </span>
                 </div>
               </div>
             ) : splitPhotoMode === 'before_after' ? (

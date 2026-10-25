@@ -121,9 +121,40 @@ export interface MiningSurfaceRecord {
   surveyDate?: string;
 }
 
+export type MiningStopeShape =
+  | 'd_arch'
+  | 'horseshoe'
+  | 'rectangular_flat'
+  | 'shanty'
+  | 'gothic_arch'
+  | 'custom_parametric'
+  | 'dxf_import';
+
+export interface MiningLocationItem {
+  id: string; // e.g. "LOC-HW-DRV-04"
+  projectId: string;
+  locationName: string; // e.g. "HW-DRV-04"
+  mineLevel: string; // e.g. "Level 620 mRL"
+  levelElevationMrl: number;
+  excavationType: MiningExcavationType;
+  miningMethod: MiningMethodType;
+  oreBodyName: string;
+  targetCutoffGrade: number;
+  stopeShape: MiningStopeShape;
+  stopeWidthM: number;
+  stopeHeightM: number;
+  wallHeightM: number;
+  crownRadiusM?: number;
+  headingDriveAzimuthDeg: number;
+  customProfilePoints?: MiningGeologicalPoint[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MiningStopeItem {
   id: string; // e.g. "STP-620-HW-04"
   projectId: string;
+  locationId?: string;
   stopeOrDriftId: string; // e.g. "HW-DRV-04"
   mineLevel: string; // e.g. "Level 620 mRL"
   levelElevationMrl: number;
@@ -131,10 +162,21 @@ export interface MiningStopeItem {
   miningMethod: MiningMethodType;
   oreBodyName: string;
   targetCutoffGrade: number; // e.g. 2.50 g/t
+  faceName?: string; // e.g. "Cut #15" or "Face CH 125.4m"
+  chainageFromM?: number; // e.g. 122.2m
+  chainageToM?: number; // e.g. 125.4m
   currentHeadingRdChainage: string; // e.g. "Cut #14" or "CH 125.4m"
   blastPullMeters: number;
   stopeWidthM: number;
   stopeHeightM: number;
+  stopeShape?: MiningStopeShape;
+  wallHeightM?: number;
+  crownRadiusM?: number;
+  headingDriveAzimuthDeg?: number;
+  faceInclinationDeg?: number;
+  customProfilePoints?: MiningGeologicalPoint[];
+  mappingMode?: 'FIELD_SKETCH' | 'PHOTOGRAMMETRY';
+  dxfRawData?: string;
   hangingwallDipDeg: number;
   footwallDipDeg: number;
   oreSpecificGravity: number;

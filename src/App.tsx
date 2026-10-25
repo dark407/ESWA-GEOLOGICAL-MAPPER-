@@ -4315,7 +4315,7 @@ export default function App({
               </button>
             </div>
 
-            {/* 2. Continuous 3D Tunnel Logging (Added Second per user specification) */}
+            {/* 2. 3D Continuous Tunnel Logging */}
             <div className="flex items-stretch gap-2 w-full">
               <button
                 type="button"
@@ -4336,9 +4336,14 @@ export default function App({
                       color: palette.accentIconColor,
                     }}
                   >
-                    <Layers className="w-4 h-4 shrink-0" />
+                    <Box className="w-4 h-4 shrink-0" />
                   </span>
-                  <span className="text-black font-extrabold text-sm sm:text-base">Continuous 3D Tunnel Logging</span>
+                  <span className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+                    <span className="text-black font-extrabold text-sm sm:text-base">3D Continuous Tunnel Logging</span>
+                    <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 w-fit">
+                      Multi-Round Chainage &amp; CAD
+                    </span>
+                  </span>
                 </span>
                 <ArrowRight
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
@@ -4350,7 +4355,10 @@ export default function App({
                 type="button"
                 onClick={() => {
                   setIsFirstOpening(false);
-                  setIsContinuousLogSetupOpen(true);
+                  const all = loadAllContinuousStripDatasets();
+                  const targetDataset = all.length > 0 ? all[0] : createPowerTunnelReferenceDataset();
+                  setActiveContinuousDataset(targetDataset);
+                  setIsA3ContinuousLogOpen(true);
                 }}
                 className="px-3.5 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
                 style={{
@@ -4358,7 +4366,7 @@ export default function App({
                   borderColor: palette.accentHex,
                   color: palette.isLightBg ? '#FFFFFF' : '#000000',
                 }}
-                title="Open Continuous 3D Tunnel Strip Log & Multi-Round Unfolded Shell"
+                title="Resume / Open Latest 3D Continuous Tunnel Log & A3 Multi-Round Unfolded Strip"
               >
                 <Play
                   className="w-3.5 h-3.5 shrink-0"
@@ -4367,7 +4375,7 @@ export default function App({
                     fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
                   }}
                 />
-                <span>Log 3D</span>
+                <span>Resume</span>
               </button>
             </div>
 

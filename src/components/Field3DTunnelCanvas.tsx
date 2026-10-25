@@ -2325,13 +2325,107 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     const nZ = -sinDip * Math.cos(relAzRad);
     const nY = -cosDip;
 
-    const uX = Math.cos(relAzRad);
-    const uY = 0;
-    const uZ = Math.sin(relAzRad);
+    let uX = Math.cos(relAzRad);
+    let uY = 0;
+    let uZ = Math.sin(relAzRad);
 
-    const vX = nY * uZ - nZ * uY;
-    const vY = nZ * uX - nX * uZ;
-    const vZ = nX * uY - nY * uX;
+    let vX = nY * uZ - nZ * uY;
+    let vY = nZ * uX - nX * uZ;
+    let vZ = nX * uY - nY * uX;
+
+    // Hinge-based joint plane rotation for Face and Walls; dip-amount-based tilt for Crown:
+    if (joint.points && joint.points.length >= 2) {
+      const p1 = joint.points[0];
+      const p2 = joint.points[joint.points.length - 1];
+      const du = p2.x - p1.x;
+      const dv = p2.y - p1.y;
+      const len = Math.hypot(du, dv);
+
+      if (len > 0.001) {
+        if (joint.panel === 'face') {
+          // Face trace hinge:
+          const huX = du / len;
+          const huY = -dv / len;
+          const huZ = 0;
+
+          const hwX = dv / len;
+          const hwY = du / len;
+
+          const isHeading = Math.cos(relAzRad) >= 0;
+          const zSign = isHeading ? 1 : -1;
+
+          uX = huX;
+          uY = huY;
+          uZ = huZ;
+
+          vX = hwX * Math.cos(dipRad);
+          vY = hwY * Math.cos(dipRad);
+          vZ = zSign * Math.sin(dipRad);
+        } else if (joint.panel === 'left_wall') {
+          // Left wall: hinge axis in (Z, Y) wall plane
+          const huZ = du / len;
+          const huY = -dv / len;
+          const huX = 0;
+
+          const hwZ = dv / len;
+          const hwY = du / len;
+
+          const isRockSide = Math.sin(relAzRad) <= 0;
+          const xSign = isRockSide ? -1 : 1;
+
+          uX = huX;
+          uY = huY;
+          uZ = huZ;
+
+          vX = xSign * Math.sin(dipRad);
+          vY = hwY * Math.cos(dipRad);
+          vZ = hwZ * Math.cos(dipRad);
+        } else if (joint.panel === 'right_wall') {
+          // Right wall: hinge axis in (Z, Y) wall plane
+          const huZ = -du / len;
+          const huY = -dv / len;
+          const huX = 0;
+
+          const hwZ = dv / len;
+          const hwY = -du / len;
+
+          const isRockSide = Math.sin(relAzRad) >= 0;
+          const xSign = isRockSide ? 1 : -1;
+
+          uX = huX;
+          uY = huY;
+          uZ = huZ;
+
+          vX = xSign * Math.sin(dipRad);
+          vY = hwY * Math.cos(dipRad);
+          vZ = hwZ * Math.cos(dipRad);
+        } else if (joint.panel === 'crown') {
+          // Crown: plane tilts around the crown trace axis based directly on chosen dip amount (dipRad)
+          const huX = du / len;
+          const huZ = -dv / len;
+          const huY = 0;
+
+          const hwX = dv / len;
+          const hwZ = du / len;
+
+          const isHeading = Math.cos(relAzRad) >= 0;
+          const ySign = -1;
+          const zSign = isHeading ? 1 : -1;
+
+          uX = huX;
+          uY = huY;
+          uZ = huZ;
+
+          vX = hwX * Math.cos(dipRad);
+          vY = ySign * Math.sin(dipRad);
+          vZ = hwZ * Math.cos(dipRad) + zSign * Math.sin(dipRad) * 0.5;
+          const vNorm = Math.hypot(vX, vY, vZ) || 1;
+          vX /= vNorm;
+          vY /= vNorm;
+          vZ /= vNorm;
+        }
+      }
+    }
 
     const radius = 0.32;
     const discSvgPts: FieldPoint2D[] = [];

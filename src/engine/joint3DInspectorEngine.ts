@@ -15,7 +15,7 @@
 // - 270° = LEFT (-Y)
 // ============================================================================
 
-import { FieldPanelId, FieldPoint2D } from './fieldMappingEngine';
+import { FieldPanelId, FieldPoint2D, FieldJointTrace } from './fieldMappingEngine';
 
 export interface Vec3D {
   x: number; // Tunnel-relative X: Longitudinal drive axis (0..pullLengthM, positive forward)
@@ -1199,3 +1199,390 @@ export function runJointEngineValidationTests(): EngineValidationReport {
   const allTestsPassed = tests.every((t) => t.passed);
   return { allTestsPassed, tests };
 }
+
+// ----------------------------------------------------------------------------
+// 6. TRACE HINGE-AXIS ROTATION & FRACTURE INTENSITY / OCCUPIED AREA SOLVER
+// ----------------------------------------------------------------------------
+
+export interface JointFractureIntensityAndAreaResult {
+  traceLengthM: number;
+  activeTraceLengthM: number;
+  expectedDiameterM: number;
+  equivalentBaecherDiscDiameterM: number;
+  occupiedAreaM2: number;
+  faceAreaM2: number;
+  p21TraceIntensityM_M2: number;
+  p21TraceLengthIntensity: number;
+  excavationVolumeM3: number;
+  tunnelExcavationVolumeM3: number;
+  p32VolumetricIntensityM2_M3: number;
+  p32VolumetricAreaIntensity: number;
+  palmstromJv: number;
+  estimatedRqd: number;
+  palmstromRqdPct: number;
+  allFaceTracesCount: number;
+  totalFaceTracesLengthM: number;
+  totalOccupiedAreaM2: number;
+}
+
+/**
+ * Calculates 2D Fracture Trace Length Intensity (P21, ISRM / Dershowitz 1984),
+ * Discontinuity Disc Occupied Area (Warburton 1980 / Baecher Disc Model),
+ * Volumetric Fracture Intensity (P32, Dershowitz & Herda 1992),
+ * and Palmström (1995) Volumetric Joint Count (Jv) and empirical RQD.
+ */
+export function calculateJointFractureIntensityAndArea(
+  activeJointPoints: FieldPoint2D[],
+  allJoints: FieldJointTrace[],
+  geom: TunnelSpatialGeometry,
+  activePanel: FieldPanelId = 'face'
+): JointFractureIntensityAndAreaResult {
+  const w = Math.max(1, geom.widthM || 8.0);
+  const h = Math.max(1, geom.heightM || 6.5);
+  const pullM = Math.max(0.5, geom.pullLengthM || 3.0);
+
+  // Surface exposure area for current panel
+  let exposureAreaM2 = Number((w * h * 0.88).toFixed(2));
+  if (activePanel === 'left_wall' || activePanel === 'right_wall') {
+    exposureAreaM2 = Number(((geom.wallHeightM || 3.8) * pullM).toFixed(2));
+  } else if (activePanel === 'crown') {
+    // Arch perimeter * pullM
+    const archPerimM = w * 1.35;
+    exposureAreaM2 = Number((archPerimM * pullM).toFixed(2));
+  }
+
+  const excavationVolumeM3 = Number(((w * h * 0.88) * pullM).toFixed(2));
+
+  // Compute active joint trace length
+  const activeLengthM = calculatePolylineLengthM(activeJointPoints, activePanel, geom);
+  // Warburton (1980) & Baecher Disc Model: E[D] = (4 / pi) * L_trace
+  const activeExpectedDiameterM = Number(((4 / Math.PI) * activeLengthM).toFixed(2));
+  // Disc area: A = (pi/4) * D^2 = (4 / pi) * L_trace^2
+  const activeOccupiedAreaM2 = Number(((4 / Math.PI) * activeLengthM * activeLengthM).toFixed(2));
+
+  // Traces on active panel
+  const panelTraces = allJoints.filter((j) => (j.panel || 'face') === activePanel && j.points.length >= 2);
+  let totalPanelLengthM = 0;
+  let totalOccupiedAreaM2 = 0;
+
+  panelTraces.forEach((t) => {
+    const lM = calculatePolylineLengthM(t.points, activePanel, geom);
+    totalPanelLengthM += lM;
+    totalOccupiedAreaM2 += (4 / Math.PI) * lM * lM;
+  });
+
+  if (panelTraces.length === 0 && activeLengthM > 0) {
+    totalPanelLengthM = activeLengthM;
+    totalOccupiedAreaM2 = activeOccupiedAreaM2;
+  }
+
+  // P21: Trace length per unit area of panel surface (m/m2)
+  const p21TraceIntensityM_M2 = Number(
+    (totalPanelLengthM / Math.max(0.1, exposureAreaM2)).toFixed(3)
+  );
+
+  // P32: Fracture area per unit volume of rock mass (m2/m3)
+  const p32VolumetricIntensityM2_M3 = Number(
+    (totalOccupiedAreaM2 / Math.max(0.1, excavationVolumeM3)).toFixed(3)
+  );
+
+  // Palmström (1995) Volumetric Joint Count Jv = 1.15 * P21
+  const palmstromJv = Number((1.15 * p21TraceIntensityM_M2).toFixed(2));
+  const estimatedRqd = Math.max(10, Math.min(100, Math.round(115 - 3.3 * palmstromJv)));
+
+  return {
+    traceLengthM: Number(activeLengthM.toFixed(2)),
+    activeTraceLengthM: Number(activeLengthM.toFixed(2)),
+    expectedDiameterM: activeExpectedDiameterM,
+    equivalentBaecherDiscDiameterM: activeExpectedDiameterM,
+    occupiedAreaM2: activeOccupiedAreaM2,
+    faceAreaM2: exposureAreaM2,
+    p21TraceIntensityM_M2,
+    p21TraceLengthIntensity: p21TraceIntensityM_M2,
+    excavationVolumeM3,
+    tunnelExcavationVolumeM3: excavationVolumeM3,
+    p32VolumetricIntensityM2_M3,
+    p32VolumetricAreaIntensity: p32VolumetricIntensityM2_M3,
+    palmstromJv,
+    estimatedRqd,
+    palmstromRqdPct: estimatedRqd,
+    allFaceTracesCount: Math.max(panelTraces.length, activeLengthM > 0 ? 1 : 0),
+    totalFaceTracesLengthM: Number(totalPanelLengthM.toFixed(2)),
+    totalOccupiedAreaM2: Number(totalOccupiedAreaM2.toFixed(2)),
+  };
+}
+
+export interface FaceTraceHingePlaneResult extends PlaneEquation {
+  panel?: FieldPanelId;
+  hingeAxis: Vec3D;
+  traceStartPoint: Vec3D;
+  traceEndPoint: Vec3D;
+  traceMidPoint: Vec3D;
+  traceLengthM: number;
+  hingeDipDeg: number;
+  derivedDipDeg: number;
+  derivedDipDirectionDeg: number;
+  strikeRhrDeg: number;
+  directionSide: 'heading' | 'collar';
+}
+
+export type TraceHingePlaneResult = FaceTraceHingePlaneResult;
+
+/**
+ * Converts 2D canvas point on any tunnel panel to 3D metric coordinates.
+ */
+export function pointToTunnel3DMetric(
+  pt: FieldPoint2D,
+  panel: FieldPanelId,
+  geom: TunnelSpatialGeometry
+): Vec3D {
+  let panelW = geom.widthM || 8.0;
+  let panelH = geom.heightM || 6.5;
+  if (panel === 'crown') {
+    panelW = geom.widthM || 8.0;
+    panelH = geom.pullLengthM || 3.0;
+  } else if (panel === 'left_wall' || panel === 'right_wall') {
+    panelW = geom.pullLengthM || 3.0;
+    panelH = geom.wallHeightM || 3.8;
+  }
+  const maxBoxW = 845;
+  const maxBoxH = 810;
+  const pxPerMeter = Math.min(maxBoxW / Math.max(0.5, panelW), maxBoxH / Math.max(0.5, panelH));
+  const boxW = panelW * pxPerMeter;
+  const boxH = panelH * pxPerMeter;
+  const boxX = 500 - boxW / 2;
+  const boxY = 495 - boxH / 2;
+
+  const uNorm = Math.max(0, Math.min(1, (pt.x - boxX) / Math.max(1, boxW)));
+  const vNorm = Math.max(0, Math.min(1, (pt.y - boxY) / Math.max(1, boxH)));
+
+  switch (panel) {
+    case 'face': {
+      return {
+        x: geom.pullLengthM || 3.0,
+        y: Math.max(0.05, Math.min((geom.widthM || 8.0) - 0.05, uNorm * (geom.widthM || 8.0))),
+        z: Math.max(0.05, Math.min((geom.heightM || 6.5) - 0.05, (1 - vNorm) * (geom.heightM || 6.5))),
+      };
+    }
+    case 'left_wall': {
+      return {
+        x: Math.max(0, Math.min(geom.pullLengthM || 3.0, uNorm * (geom.pullLengthM || 3.0))),
+        y: 0,
+        z: Math.max(0.05, Math.min(geom.wallHeightM || 3.8, (1 - vNorm) * (geom.wallHeightM || 3.8))),
+      };
+    }
+    case 'right_wall': {
+      return {
+        x: Math.max(0, Math.min(geom.pullLengthM || 3.0, uNorm * (geom.pullLengthM || 3.0))),
+        y: geom.widthM || 8.0,
+        z: Math.max(0.05, Math.min(geom.wallHeightM || 3.8, (1 - vNorm) * (geom.wallHeightM || 3.8))),
+      };
+    }
+    case 'crown': {
+      const w = geom.widthM || 8.0;
+      const pull = geom.pullLengthM || 3.0;
+      const my = Math.max(0.05, Math.min(w - 0.05, uNorm * w));
+      const mx = Math.max(0, Math.min(pull, (1 - vNorm) * pull));
+      const cx = w / 2;
+      const hw = geom.wallHeightM || ((geom.heightM || 6.5) * 0.55);
+      const archRise = Math.max(0.5, (geom.heightM || 6.5) - hw);
+      const dy = (my - cx) / Math.max(0.1, w / 2);
+      const clampedDy = Math.max(-1, Math.min(1, dy));
+      const trueArchZ = hw + archRise * Math.sqrt(Math.max(0, 1 - clampedDy * clampedDy));
+      return {
+        x: Number(mx.toFixed(3)),
+        y: Number(my.toFixed(3)),
+        z: Number(trueArchZ.toFixed(3)),
+      };
+    }
+    default:
+      return {
+        x: geom.pullLengthM || 3.0,
+        y: (geom.widthM || 8.0) / 2,
+        z: (geom.heightM || 6.5) / 2,
+      };
+  }
+}
+
+/**
+ * Constructs a 3D discontinuity plane strictly passing through the 2D traced line
+ * on any mapped panel (face, left_wall, right_wall, or crown).
+ * - For Face: The traced line acts as the stationary hinge on the advance face.
+ * - For Walls: The traced line acts as the stationary hinge on the sidewall, pivoting into rock mass or tunnel.
+ * - For Crown: Tilts based directly on chosen dip amount around the crown trace axis.
+ */
+export function constructPlaneFromTraceHinge(
+  points: FieldPoint2D[],
+  panel: FieldPanelId,
+  hingeDipDeg: number,
+  directionSide: 'heading' | 'collar' = 'heading',
+  geom: TunnelSpatialGeometry
+): TraceHingePlaneResult {
+  const pFirst = points[0] || { x: 300, y: 300 };
+  const pLast = points[points.length - 1] || { x: 700, y: 500 };
+
+  const p1 = pointToTunnel3DMetric(pFirst, panel, geom);
+  const p2 = pointToTunnel3DMetric(pLast, panel, geom);
+
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const dz = p2.z - p1.z;
+  const traceLen = Math.hypot(dx, dy, dz) || 1e-4;
+
+  const ux = dx / traceLen;
+  const uy = dy / traceLen;
+  const uz = dz / traceLen;
+  const hingeAxis: Vec3D = { x: ux, y: uy, z: uz };
+
+  const midPoint: Vec3D = {
+    x: (p1.x + p2.x) / 2,
+    y: (p1.y + p2.y) / 2,
+    z: (p1.z + p2.z) / 2,
+  };
+
+  const dipAngle = Math.max(0.5, Math.min(89.5, hingeDipDeg));
+  const thetaRad = degToRad(dipAngle);
+  const cosT = Math.cos(thetaRad);
+  const sinT = Math.sin(thetaRad);
+
+  let nx = 0;
+  let ny = 0;
+  let nz = 1;
+  let vx = 0;
+  let vy = 0;
+  let vz = 0;
+
+  if (panel === 'face') {
+    // Face (X = pullM): Hinge vector (0, uy, uz)
+    const wy = -uz;
+    const wz = uy;
+    const sgnX = directionSide === 'heading' ? 1 : -1;
+    vx = sgnX * sinT;
+    vy = wy * cosT;
+    vz = wz * cosT;
+
+    // Normal = hingeAxis x v
+    nx = uy * vz - uz * vy;
+    ny = uz * vx;
+    nz = -uy * vx;
+  } else if (panel === 'left_wall') {
+    // Left Wall (Y = 0): Hinge vector (ux, 0, uz)
+    const wx = -uz;
+    const wz = ux;
+    // directionSide: 'heading' -> dips into rock mass (+Y away from tunnel)
+    // 'collar' -> dips into tunnel cavity (-Y)
+    const sgnY = directionSide === 'heading' ? 1 : -1;
+    vx = wx * cosT;
+    vy = sgnY * sinT;
+    vz = wz * cosT;
+
+    // Normal = hingeAxis x v
+    nx = -uz * vy;
+    ny = uz * vx - ux * vz;
+    nz = ux * vy;
+  } else if (panel === 'right_wall') {
+    // Right Wall (Y = widthM): Hinge vector (ux, 0, uz)
+    const wx = -uz;
+    const wz = ux;
+    // directionSide: 'heading' -> dips into rock mass (-Y away from tunnel)
+    // 'collar' -> dips into tunnel cavity (+Y)
+    const sgnY = directionSide === 'heading' ? -1 : 1;
+    vx = wx * cosT;
+    vy = sgnY * sinT;
+    vz = wz * cosT;
+
+    // Normal = hingeAxis x v
+    nx = -uz * vy;
+    ny = uz * vx - ux * vz;
+    nz = ux * vy;
+  } else {
+    // Crown (ceiling arch):
+    // The user selects the dip amount directly. The plane tilts around the crown trace axis by dipAngle.
+    // Build an orthonormal basis perpendicular to hingeAxis:
+    const horizLen = Math.hypot(ux, uy);
+    let e1: Vec3D;
+    let e2: Vec3D;
+    if (horizLen > 1e-4) {
+      // e1 is horizontal and orthogonal to hingeAxis
+      e1 = { x: uy / horizLen, y: -ux / horizLen, z: 0 };
+      // e2 = hingeAxis x e1
+      e2 = {
+        x: (uy * 0 - uz * -ux / horizLen),
+        y: (uz * uy / horizLen - ux * 0),
+        z: (ux * -ux / horizLen - uy * uy / horizLen),
+      };
+    } else {
+      e1 = { x: 1, y: 0, z: 0 };
+      e2 = { x: 0, y: 1, z: 0 };
+    }
+
+    // Dip angle determines tilt relative to horizontal.
+    // directionSide: 'heading' tilts towards heading (+X), 'collar' tilts backwards towards collar (-X)
+    const sgnSide = directionSide === 'heading' ? 1 : -1;
+    const normAngle = thetaRad * sgnSide;
+
+    // Construct unit normal orthogonal to hingeAxis:
+    nx = e1.x * Math.cos(normAngle) + e2.x * Math.sin(normAngle);
+    ny = e1.y * Math.cos(normAngle) + e2.y * Math.sin(normAngle);
+    nz = e1.z * Math.cos(normAngle) + e2.z * Math.sin(normAngle);
+
+    // v vector = normal x hingeAxis
+    vx = ny * uz - nz * uy;
+    vy = nz * ux - nx * uz;
+    vz = nx * uy - ny * ux;
+  }
+
+  const nLen = Math.hypot(nx, ny, nz) || 1;
+  const na = nx / nLen;
+  const nb = ny / nLen;
+  const nc = nz / nLen;
+
+  const d = -(na * midPoint.x + nb * midPoint.y + nc * midPoint.z);
+
+  // Geological Dip Angle: angle between normal and vertical Z
+  const derivedDipDeg = clampDip(radToDeg(Math.acos(Math.abs(nc))));
+
+  // Dip direction azimuth in tunnel-relative coordinates:
+  const signZ = nc >= 0 ? 1 : -1;
+  const gradX = -na * signZ;
+  const gradY = -nb * signZ;
+  let relAz = radToDeg(Math.atan2(gradY, gradX));
+  if (relAz < 0) relAz += 360;
+  const derivedDipDirectionDeg = normalizeAngle360(relAz + (geom.driveAzimuthDeg || 0));
+  const strikeRhrDeg = normalizeAngle360(derivedDipDirectionDeg - 90);
+
+  return {
+    panel,
+    a: na,
+    b: nb,
+    c: nc,
+    d,
+    normal: { x: na, y: nb, z: nc },
+    dipVector: { x: vx, y: vy, z: vz },
+    strikeVector: hingeAxis,
+    hingeAxis,
+    traceStartPoint: p1,
+    traceEndPoint: p2,
+    traceMidPoint: midPoint,
+    traceLengthM: Number(traceLen.toFixed(2)),
+    hingeDipDeg: dipAngle,
+    derivedDipDeg,
+    derivedDipDirectionDeg,
+    strikeRhrDeg,
+    directionSide,
+  };
+}
+
+/**
+ * Backwards-compatible wrapper for face traces.
+ */
+export function constructPlaneFromFaceTraceHinge(
+  points: FieldPoint2D[],
+  hingeDipDeg: number,
+  directionSide: 'heading' | 'collar' = 'heading',
+  geom: TunnelSpatialGeometry
+): FaceTraceHingePlaneResult {
+  return constructPlaneFromTraceHinge(points, 'face', hingeDipDeg, directionSide, geom);
+}
+
+

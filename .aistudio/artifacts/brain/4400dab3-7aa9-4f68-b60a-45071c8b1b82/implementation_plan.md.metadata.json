@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation completed: Domain-specific engineering dimensions, terminologies, excavation methods, and panel layouts for Bench, Trench, Slope, and Rock Surface mapping. All underground tunnel terms have been completely replaced in surface mapping modes.",
-  "updatedAt":  "2026-10-24T20:09:03.611884767Z",
+  "summary":  "Complete architectural and implementation plan for the isolated Underground Mining & Exploration suite in ESWA. Features the 3-pillar Main Window (Underground Face Mapping, Exploration Core Logging, Data Storage), the multi-step face mapping setup wizard (Project, Location, Face/Chainage, Custom Stope Profile with presets/parametric/DXF, and Field vs Photogrammetry mode choice), a dedicated single-face mining canvas (no crown/walls, no joint sets/strip logs) with vein/ore boundary tracing, interactive channel sampling lines with weighted assay calculation, Laubscher MRMR & Mathews Potvin stope stability (N = Q' * A * B * C), and professional mine planning exports (Surpac/Deswik DXF, PDF Face Sheet, CSV channel samples), strictly isolated from NATM and TBM.",
+  "updatedAt":  "2026-10-25T18:34:23.180385211Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
