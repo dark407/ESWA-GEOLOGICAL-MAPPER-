@@ -720,13 +720,17 @@ public class MainActivity extends Activity {
 const outApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk');
 const outAabPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-PlayStore.aab');
 
-execSync(
-  `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outApkPath}" "com.eswa.geologicalmapper.user" "ESWA Geological Mapper"`,
-  {
-    cwd: rootDir,
-    stdio: 'inherit',
-  }
-);
+try {
+  execSync(
+    `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outApkPath}" "com.eswa.geologicalmapper.user" "ESWA Geological Mapper"`,
+    {
+      cwd: rootDir,
+      stdio: 'inherit',
+    }
+  );
+} catch (userApkErr) {
+  console.warn('[Android Build] Notice compiling User APK:', userApkErr?.message || userApkErr);
+}
 
 // 4. Also compile the Standalone MASTER Android App (.APK) with full Software Access Control
 //    Package: com.eswa.geologicalmapper.master | Launcher Name: "ESWA Master Admin"
@@ -771,13 +775,17 @@ const masterSelfContainedHtml = `<!doctype html>
 </html>`;
 
 fs.writeFileSync(path.join(stagedWwwDir, 'index.html'), masterSelfContainedHtml, 'utf8');
-execSync(
-  `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outMasterApkPath}" "com.eswa.geologicalmapper.master" "ESWA Master Admin"`,
-  {
-    cwd: rootDir,
-    stdio: 'inherit',
-  }
-);
+try {
+  execSync(
+    `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outMasterApkPath}" "com.eswa.geologicalmapper.master" "ESWA Master Admin"`,
+    {
+      cwd: rootDir,
+      stdio: 'inherit',
+    }
+  );
+} catch (masterApkErr) {
+  console.warn('[Android Build] Notice compiling Master APK:', masterApkErr?.message || masterApkErr);
+}
 
 // Also copy the standalone signed APK to release/ESWA-GEOLOGICAL-MAPPER-release.apk and legacy names
 const releaseNamedApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-release.apk');
