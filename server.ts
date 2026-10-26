@@ -18,7 +18,9 @@ process.on('unhandledRejection', (reason) => {
   console.warn('[Server Warning] unhandledRejection suppressed:', reason);
 });
 
-const PORT = 3000;
+const cliPortIdx = process.argv.indexOf('--port');
+const cliPort = cliPortIdx !== -1 && process.argv[cliPortIdx + 1] ? Number(process.argv[cliPortIdx + 1]) : null;
+const PORT = Number(process.env.PORT) || cliPort || 3000;
 const ESWA_GATEWAY_SALT = 'ESWA_GATEWAY_API_SIG_2026';
 
 function validateEswaGatewaySignature(hwId: string, sig: string): boolean {
