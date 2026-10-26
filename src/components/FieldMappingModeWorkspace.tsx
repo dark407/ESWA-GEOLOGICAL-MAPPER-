@@ -300,7 +300,7 @@ type FieldCanvasTool =
   | '6_water_mark'
   | 'eraser';
 
-export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps> = ({
+export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps> = React.memo(({
   onBackToWelcome,
   onExitToWelcome,
   onOpenDataStorage,
@@ -12548,4 +12548,5 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       </div>
     </div>
   );
-};
+});
+FieldMappingModeWorkspace.displayName = 'FieldMappingModeWorkspace';

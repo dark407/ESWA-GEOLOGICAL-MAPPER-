@@ -243,9 +243,6 @@ export const AdvancedShiftReminderAlarmModal: React.FC<AdvancedShiftReminderAlar
                   {industryMode} Mode
                 </span>
               </h3>
-              <p className="text-[10.5px] text-slate-400 font-mono">
-                Automated Excavation Cycles, Shotcrete Re-Entry &amp; Monitoring Alarms
-              </p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -283,150 +280,9 @@ export const AdvancedShiftReminderAlarmModal: React.FC<AdvancedShiftReminderAlar
                 </div>
               </div>
             </div>
-
-            {/* Shift Identifier */}
-            <div className="flex items-center gap-2 text-xs">
-              <div className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-right">
-                <span className="block text-[9px] text-slate-400 uppercase font-bold">Current Shift</span>
-                <span className="font-mono font-bold text-amber-300">
-                  {currentTime.getHours() >= 6 && currentTime.getHours() < 14
-                    ? 'Shift 1 (Day: 06:00–14:00)'
-                    : currentTime.getHours() >= 14 && currentTime.getHours() < 22
-                    ? 'Shift 2 (Evening: 14:00–22:00)'
-                    : 'Shift 3 (Night: 22:00–06:00)'}
-                </span>
-              </div>
-            </div>
           </div>
 
-          {/* Quick-Start Operational Presets */}
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Timer className="w-3.5 h-3.5 text-amber-400" />
-              <span>Standard Operational Reminders (1-Tap Launch):</span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  handleCreateQuickPreset(
-                    'Shotcrete Early Re-Entry Window',
-                    120,
-                    'shotcrete',
-                    'critical',
-                    'Mandatory 2h minimum curing window. Verify J2 compressive strength > 1.2 MPa before worker entry.'
-                  )
-                }
-                className="p-2 rounded-xl bg-slate-950 hover:bg-slate-850 border border-emerald-500/40 hover:border-emerald-400 text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center justify-between text-xs font-bold text-emerald-300">
-                  <span>Shotcrete Re-Entry</span>
-                  <span className="text-[10px] font-mono font-bold bg-emerald-950 px-1.5 py-0.2 rounded border border-emerald-600">2h 00m</span>
-                </div>
-                <p className="text-[9.5px] text-slate-400 mt-0.5 line-clamp-1">Safety curing window</p>
-              </button>
 
-              <button
-                type="button"
-                onClick={() =>
-                  handleCreateQuickPreset(
-                    'Ventilation & Fume Clearance',
-                    45,
-                    'ventilation',
-                    'critical',
-                    'Post-blast clearing window. Ensure NOx & CO gases have reached safe threshold (< 25 ppm).'
-                  )
-                }
-                className="p-2 rounded-xl bg-slate-950 hover:bg-slate-850 border border-cyan-500/40 hover:border-cyan-400 text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center justify-between text-xs font-bold text-cyan-300">
-                  <span>Post-Blast Ventilation</span>
-                  <span className="text-[10px] font-mono font-bold bg-cyan-950 px-1.5 py-0.2 rounded border border-cyan-600">45m</span>
-                </div>
-                <p className="text-[9.5px] text-slate-400 mt-0.5 line-clamp-1">Gas clearing check</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  handleCreateQuickPreset(
-                    'Convergence & Extensometer Pin Reading',
-                    240,
-                    'convergence',
-                    'normal',
-                    'Daily NATM convergence monitoring profile reading (tape extensometer or optical total station targets).'
-                  )
-                }
-                className="p-2 rounded-xl bg-slate-950 hover:bg-slate-850 border border-amber-500/40 hover:border-amber-400 text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center justify-between text-xs font-bold text-amber-300">
-                  <span>Convergence Check</span>
-                  <span className="text-[10px] font-mono font-bold bg-amber-950 px-1.5 py-0.2 rounded border border-amber-600">4h 00m</span>
-                </div>
-                <p className="text-[9.5px] text-slate-400 mt-0.5 line-clamp-1">Extensometer pin read</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  handleCreateQuickPreset(
-                    'Face Geology & Rockbolt Torque Inspection',
-                    180,
-                    'safety',
-                    'normal',
-                    'Random pullout / torque check on Swellex / SN bolts in crown (minimum 85 kN target).'
-                  )
-                }
-                className="p-2 rounded-xl bg-slate-950 hover:bg-slate-850 border border-indigo-500/40 hover:border-indigo-400 text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center justify-between text-xs font-bold text-indigo-300">
-                  <span>Rockbolt Torque Check</span>
-                  <span className="text-[10px] font-mono font-bold bg-indigo-950 px-1.5 py-0.2 rounded border border-indigo-600">3h 00m</span>
-                </div>
-                <p className="text-[9.5px] text-slate-400 mt-0.5 line-clamp-1">Torque &amp; anchor verification</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  handleCreateQuickPreset(
-                    'Water Inflow Rate Gauge Recording',
-                    60,
-                    'safety',
-                    'normal',
-                    'Record V-notch weir flow (L/min) at portal and check face probe hole pressures.'
-                  )
-                }
-                className="p-2 rounded-xl bg-slate-950 hover:bg-slate-850 border border-blue-500/40 hover:border-blue-400 text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center justify-between text-xs font-bold text-blue-300">
-                  <span>Water Inflow Check</span>
-                  <span className="text-[10px] font-mono font-bold bg-blue-950 px-1.5 py-0.2 rounded border border-blue-600">1h 00m</span>
-                </div>
-                <p className="text-[9.5px] text-slate-400 mt-0.5 line-clamp-1">Weir box flow rate</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  handleCreateQuickPreset(
-                    'Shift Handover Report Due',
-                    30,
-                    'general',
-                    'normal',
-                    'Compile round chainage, GSI/Q logs, and overbreak survey for incoming shift superintendent.'
-                  )
-                }
-                className="p-2 rounded-xl bg-slate-950 hover:bg-slate-850 border border-slate-700 hover:border-slate-500 text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center justify-between text-xs font-bold text-slate-200">
-                  <span>Shift Handover Log</span>
-                  <span className="text-[10px] font-mono font-bold bg-slate-800 px-1.5 py-0.2 rounded border border-slate-700">30m</span>
-                </div>
-                <p className="text-[9.5px] text-slate-400 mt-0.5 line-clamp-1">Face handover packet</p>
-              </button>
-            </div>
-          </div>
 
           {/* Custom Reminder / Timer Creator */}
           <form onSubmit={handleCreateCustom} className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800 space-y-2">
@@ -590,21 +446,6 @@ export const AdvancedShiftReminderAlarmModal: React.FC<AdvancedShiftReminderAlar
               </div>
             )}
           </div>
-        </div>
-
-        {/* Modal Footer */}
-        <div className="px-4 py-2 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs shrink-0">
-          <div className="text-[11px] text-slate-400 font-mono flex items-center gap-1">
-            <ShieldAlert className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Alarms run locally in the browser background and trigger synthesized audio chimes.</span>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs cursor-pointer transition-colors"
-          >
-            Close
-          </button>
         </div>
       </div>
     </div>

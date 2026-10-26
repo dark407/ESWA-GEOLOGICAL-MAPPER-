@@ -59,7 +59,7 @@ export interface MiningMainWindowProps {
   onGoogleSignOut?: () => void;
 }
 
-export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
+export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
   industryMode,
   onChangeIndustryMode,
   googleUser,
@@ -367,4 +367,5 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = ({
       />
     </main>
   );
-};
+});
+MiningMainWindow.displayName = 'MiningMainWindow';

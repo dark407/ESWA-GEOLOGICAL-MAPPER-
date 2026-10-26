@@ -1194,5 +1194,41 @@ button:not(:disabled):active {
   transform: scale(0.975);
 }
 
+/* ============================================================================
+   GLOBAL SPEED & ZERO-LAG OVERHAUL: TOUCH-ACTION & HARDWARE COMPOSITING
+   ============================================================================ */
+button,
+input,
+select,
+textarea,
+a,
+[role="button"],
+.cursor-pointer {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
 
+/* Hardware compositing layer for heavy canvas, stereonets, and SVGs */
+.hardware-accelerated,
+canvas,
+svg:not([aria-hidden="true"]) {
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+}
 
+/* Content visibility auto for long tables, schedules, logs, and history lists */
+.content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 42px;
+}
+
+/* GPU-friendly solid fallback for expensive backdrop-filter on touch / mobile devices */
+@media (hover: none) and (pointer: coarse) {
+  .backdrop-blur-md,
+  .backdrop-blur-xl,
+  .backdrop-blur-lg {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}

@@ -58,7 +58,7 @@ interface TbmMainWindowProps {
   onGoogleSignOut?: () => void;
 }
 
-export const TbmMainWindow: React.FC<TbmMainWindowProps> = ({
+export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
   industryMode,
   onChangeIndustryMode,
   googleUser,
@@ -431,4 +431,5 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = ({
       />
     </main>
   );
-};
+});
+TbmMainWindow.displayName = 'TbmMainWindow';

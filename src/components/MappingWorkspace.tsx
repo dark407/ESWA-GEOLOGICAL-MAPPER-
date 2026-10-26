@@ -320,7 +320,7 @@ type JointDrawMode =
   | 'freehand'
   | 'smooth_curve';
 
-export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
+export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
   geometry,
   settings,
   photos,
@@ -12596,4 +12596,5 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = ({
 
     </div>
   );
-};
+});
+MappingWorkspace.displayName = 'MappingWorkspace';

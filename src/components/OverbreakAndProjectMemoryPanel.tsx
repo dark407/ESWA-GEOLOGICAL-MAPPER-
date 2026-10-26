@@ -2032,7 +2032,7 @@ interface ProjectMemoryModalProps {
   googleUser?: FirebaseGoogleUser | null;
 }
 
-export const ProjectMemoryModal: React.FC<ProjectMemoryModalProps> = ({
+const ProjectMemoryModalContent: React.FC<ProjectMemoryModalProps> = ({
   isOpen,
   onClose,
   savedProjects,

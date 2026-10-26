@@ -326,9 +326,6 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
                   REAL-TIME SENSOR
                 </span>
               </div>
-              <p className="text-[10.5px] text-slate-400 font-mono">
-                Geological Compass, True North Inclinometer &amp; Live Clinometer
-              </p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -377,10 +374,6 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
               </span>
             ) : (
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
-                  <Radio className="w-3 h-3 text-cyan-400" />
-                  <span>Desktop / Drag Mode</span>
-                </span>
                 <button
                   type="button"
                   onClick={() => setIsSimulatingLive((p) => !p)}
@@ -657,24 +650,6 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
                   CLINO: {Math.round(dipDeg)}°
                 </div>
               </div>
-
-              {/* Dial Style Controls */}
-              <div className="mt-2.5 flex items-center justify-between w-full text-[10px] text-slate-400 font-mono px-1">
-                <button
-                  type="button"
-                  onClick={() => setDialStyle((s) => (s === 'authentic_brunton' ? 'rotating_card' : 'authentic_brunton'))}
-                  className="hover:text-amber-300 underline cursor-pointer"
-                >
-                  Dial: {dialStyle === 'authentic_brunton' ? 'Authentic Brunton (Floating Needle)' : 'Rotating Rose Card'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReverseBruntonDial((p) => !p)}
-                  className="hover:text-amber-300 underline cursor-pointer"
-                >
-                  E/W: {reverseBruntonDial ? 'Brunton (Reversed)' : 'Geographic'}
-                </button>
-              </div>
             </div>
 
             {/* Right: Fine Sliders, Clinometer Angle, Declination & Presets */}
@@ -831,43 +806,12 @@ export const AdvancedBruntonCompassModal: React.FC<AdvancedBruntonCompassModalPr
                 </div>
               </div>
 
-              {/* Common Geological Discontinuity Presets */}
-              <div className="pt-1 border-t border-slate-800/80 space-y-1">
-                <div className="text-[10px] font-bold text-slate-400 uppercase">Quick Geological Presets:</div>
-                <div className="grid grid-cols-3 gap-1 text-[10.5px]">
-                  {[
-                    { label: 'Sub-Horiz Bedding', dir: 180, dip: 12 },
-                    { label: 'Steep Major Fault', dir: 125, dip: 78 },
-                    { label: 'Regional Foliation', dir: 310, dip: 62 },
-                    { label: 'Cross-Joint J1', dir: 45, dip: 70 },
-                    { label: 'Conjugate Joint J2', dir: 225, dip: 65 },
-                    { label: 'Flat Stress Relief', dir: 0, dip: 5 },
-                  ].map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => {
-                        setAzimuthDeg(preset.dir);
-                        setDipDeg(preset.dip);
-                      }}
-                      className="px-1.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/40 text-slate-300 text-left cursor-pointer transition-all"
-                    >
-                      <div className="font-bold text-[10px] text-slate-200 truncate">{preset.label}</div>
-                      <div className="font-mono text-[9px] text-amber-400">{preset.dir}° / {preset.dip}°</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
         </div>
 
         {/* Modal Footer */}
-        <div className="px-4 py-2 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs shrink-0">
-          <div className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
-            <Info className="w-3.5 h-3.5 text-amber-400" />
-            <span>Right-Hand Rule (RHR): Dip direction is 90° clockwise from strike.</span>
-          </div>
+        <div className="px-4 py-2 bg-slate-950 border-t border-slate-800 flex items-center justify-end text-xs shrink-0">
           <button
             type="button"
             onClick={onClose}

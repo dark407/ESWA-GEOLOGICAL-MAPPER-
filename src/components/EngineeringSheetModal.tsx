@@ -154,7 +154,7 @@ interface EngineeringSheetModalProps {
   industryMode?: 'NATM' | 'TBM' | 'MINING';
 }
 
-export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = ({
+export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React.memo(({
   isOpen,
   onClose,
   geometry: propGeometry,
@@ -7220,4 +7220,5 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = ({
       )}
     </div>
   );
-};
+});
+EngineeringSheetModal.displayName = 'EngineeringSheetModal';

@@ -608,7 +608,7 @@ interface CoreLoggingWorkspaceProps {
   industryMode?: IndustryMode;
 }
 
-export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
+export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.memo(({
   onBackToMain,
   onOpenGlobalSettings,
   activeGeologistProfile,
@@ -1145,22 +1145,22 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
             <button
               type="button"
               onClick={handleOpenCreateBorehole}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-orange-600 hover:bg-orange-700 text-white shadow-xs transition-all cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-amber-300 hover:bg-amber-400 text-black border-2 border-black shadow-xs transition-all cursor-pointer"
               title="Create New Borehole Log"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Create Hole</span>
+              <Plus className="w-3.5 h-3.5 text-black" />
+              <span className="text-black font-extrabold">Create Hole</span>
             </button>
 
             <button
               type="button"
               onClick={handleLoadExampleCoreLog}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-cyan-700 hover:bg-cyan-800 text-white shadow-xs transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-cyan-200 hover:bg-cyan-300 text-black border-2 border-cyan-800 shadow-xs transition-all cursor-pointer"
               title={`Load authentic example borehole dataset for ${activeIndustryMode}`}
             >
-              <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
-              <span className="hidden sm:inline">Load Example Core Log</span>
-              <span className="sm:hidden">Example</span>
+              <Sparkles className="w-3.5 h-3.5 text-cyan-900" />
+              <span className="hidden sm:inline text-black font-extrabold">Load Example Core Log</span>
+              <span className="sm:hidden text-black font-extrabold">Example</span>
             </button>
 
             <button
@@ -1233,11 +1233,11 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => setIsReportOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-black bg-orange-600 hover:bg-orange-700 text-white shadow-md transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-black bg-amber-400 hover:bg-amber-500 text-black border-2 border-black shadow-md transition-all cursor-pointer"
             title="Generate &amp; Print Full Geotechnical Core Strip Log Report (A4)"
           >
-            <Printer className="w-4 h-4" />
-            <span>Generate Report (A4)</span>
+            <Printer className="w-4 h-4 text-black" />
+            <span className="text-black font-extrabold">Generate Report (A4)</span>
           </button>
         </div>
       </header>
@@ -1392,10 +1392,10 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={handleOpenAddRun}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black bg-orange-600 hover:bg-orange-700 text-white shadow-sm transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black bg-amber-300 hover:bg-amber-400 text-black border-2 border-black shadow-sm transition-all cursor-pointer"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Run #{currentBorehole.runs.length + 1}</span>
+                  <Plus className="w-4 h-4 text-black" />
+                  <span className="text-black font-extrabold">Add Run #{currentBorehole.runs.length + 1}</span>
                 </button>
               </div>
             </div>
@@ -3408,4 +3408,5 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = ({
       )}
     </div>
   );
-};
+});
+CoreLoggingWorkspace.displayName = 'CoreLoggingWorkspace';
