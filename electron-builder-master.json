@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "com.akash.tunnelmapper.master",
-  "productName": "AKASH TUNNEL MAPPER (Master)",
-  "copyright": "Copyright © 2026 AKASH TUNNEL MAPPER Engineering Suite",
+  "appId": "com.eswa.geologicalmapper.master",
+  "productName": "ESWA GEOLOGICAL MAPPER (Master)",
+  "copyright": "Copyright © 2026 ESWA GEOLOGICAL MAPPER Engineering Suite",
   "npmRebuild": false,
   "directories": {
     "output": "release",
@@ -18,12 +18,13 @@
   "fileAssociations": [
     {
       "ext": [
+        "eswa",
         "akash",
         "atmp",
         "json"
       ],
-      "name": "AKASH Tunnel Mapping Project",
-      "description": "AKASH TUNNEL MAPPER Geological Project File",
+      "name": "ESWA Geological Mapping Project",
+      "description": "ESWA GEOLOGICAL MAPPER Project File",
       "role": "Editor",
       "icon": "build/icon.ico"
     },
@@ -48,8 +49,8 @@
       }
     ],
     "icon": "build/icon.ico",
-    "artifactName": "AKASH-TUNNEL-MAPPER-Master-Setup.exe",
-    "executableName": "AKASH TUNNEL MAPPER (Master)"
+    "artifactName": "ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe",
+    "executableName": "ESWA GEOLOGICAL MAPPER (Master)"
   },
   "nsis": {
     "oneClick": false,
@@ -58,8 +59,8 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "AKASH TUNNEL MAPPER (Master)",
-    "uninstallDisplayName": "AKASH TUNNEL MAPPER (Master)",
+    "shortcutName": "ESWA GEOLOGICAL MAPPER (Master)",
+    "uninstallDisplayName": "ESWA GEOLOGICAL MAPPER (Master)",
     "deleteAppDataOnUninstall": false,
     "installerIcon": "build/icon.ico",
     "uninstallerIcon": "build/icon.ico",

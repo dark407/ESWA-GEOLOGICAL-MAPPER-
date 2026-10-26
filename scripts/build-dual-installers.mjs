@@ -55,18 +55,18 @@ try {
   run('node scripts/generate-win-icon.mjs');
 
   // 2. Build Executable #1: MASTER SOFTWARE (Only for Master Owner — No Login Required)
-  console.log('\n[1/2] Building MASTER SOFTWARE Executable (AKASH-TUNNEL-MAPPER-Master-Setup.exe)...');
+  console.log('\n[1/2] Building MASTER SOFTWARE Executable (ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe)...');
   writeEditionConfig('master');
   run('npx vite build', { VITE_SOFTWARE_EDITION: 'master' });
   run('npx electron-builder --config electron-builder-master.json --win nsis --publish never');
 
   // 3. Build Executable #2: USER SOFTWARE (For Normal Users — 1-PC 1-Time Login & Updates)
-  console.log('\n[2/3] Building USER SOFTWARE Executable (AKASH-TUNNEL-MAPPER-User-Setup.exe)...');
+  console.log('\n[2/3] Building USER SOFTWARE Executable (ESWA-GEOLOGICAL-MAPPER-User-Setup.exe)...');
   writeEditionConfig('user');
   run('npx vite build', { VITE_SOFTWARE_EDITION: 'user' });
   run('npx electron-builder --config electron-builder-user.json --win nsis --publish never');
 
-  // 3b. Build Standalone Master & User Android APKs (ESWA-TUNNEL-MAPPER-Master-Android.apk & ESWA-TUNNEL-MAPPER-User-Android.apk)
+  // 3b. Build Standalone Master & User Android APKs (ESWA-GEOLOGICAL-MAPPER-Master-Android.apk & ESWA-GEOLOGICAL-MAPPER-User-Android.apk)
   console.log('\n[3/3] Building Standalone MASTER & USER Android APKs (.APK)...');
   try {
     run('node scripts/build-android-apk.mjs', { GITHUB_ACTIONS: 'true' });
@@ -81,9 +81,9 @@ try {
 
   // Ensure compiled APKs are copied into release/
   for (const apkName of [
-    'ESWA-TUNNEL-MAPPER-User-Android.apk',
-    'ESWA-TUNNEL-MAPPER-Master-Android.apk',
-    'ESWA-TUNNEL-MAPPER-release.apk',
+    'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
+    'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
+    'ESWA-GEOLOGICAL-MAPPER-release.apk',
   ]) {
     const targetApk = path.join(releaseDir, apkName);
     const tmpApk = path.join('/tmp', 'akash-release-cache', apkName);
@@ -97,17 +97,17 @@ try {
   }
 
   const userExeUrl = githubRepo
-    ? `https://github.com/${githubRepo}/releases/download/latest/AKASH-TUNNEL-MAPPER-User-Setup.exe`
-    : 'AKASH-TUNNEL-MAPPER-User-Setup.exe';
+    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
+    : 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe';
   const masterExeUrl = githubRepo
-    ? `https://github.com/${githubRepo}/releases/download/latest/AKASH-TUNNEL-MAPPER-Master-Setup.exe`
-    : 'AKASH-TUNNEL-MAPPER-Master-Setup.exe';
+    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`
+    : 'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe';
   const userAndroidApkUrl = githubRepo
-    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-TUNNEL-MAPPER-User-Android.apk`
-    : 'ESWA-TUNNEL-MAPPER-User-Android.apk';
+    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Android.apk`
+    : 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk';
   const masterAndroidApkUrl = githubRepo
-    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-TUNNEL-MAPPER-Master-Android.apk`
-    : 'ESWA-TUNNEL-MAPPER-Master-Android.apk';
+    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk`
+    : 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk';
   const userOtaBundleUrl = githubRepo
     ? `https://github.com/${githubRepo}/releases/download/latest/user-ota-bundle.json`
     : 'user-ota-bundle.json';
@@ -166,10 +166,10 @@ try {
         version: buildVersion,
         githubRepo,
         publishedAtIso: new Date().toISOString(),
-        userSoftwareExe: 'AKASH-TUNNEL-MAPPER-User-Setup.exe',
-        masterSoftwareExe: 'AKASH-TUNNEL-MAPPER-Master-Setup.exe',
-        userAndroidApk: 'ESWA-TUNNEL-MAPPER-User-Android.apk',
-        masterAndroidApk: 'ESWA-TUNNEL-MAPPER-Master-Android.apk',
+        userSoftwareExe: 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe',
+        masterSoftwareExe: 'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe',
+        userAndroidApk: 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
+        masterAndroidApk: 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
         userOtaBundle: 'user-ota-bundle.json',
         userDownloadUrl: userExeUrl,
         masterDownloadUrl: masterExeUrl,
@@ -186,8 +186,8 @@ try {
 
   console.log('\n====================================================================');
   console.log('  DUAL WINDOWS .EXE + OTA BUNDLE BUILD COMPLETE!');
-  console.log('  1. Master Software: release/AKASH-TUNNEL-MAPPER-Master-Setup.exe');
-  console.log('  2. User Software:   release/AKASH-TUNNEL-MAPPER-User-Setup.exe');
+  console.log('  1. Master Software: release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe');
+  console.log('  2. User Software:   release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe');
   console.log('  3. OTA Live Bundle: release/user-ota-bundle.json');
   console.log('====================================================================\n');
 } finally {

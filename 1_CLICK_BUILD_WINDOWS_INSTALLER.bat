@@ -1,12 +1,12 @@
 @echo off
-title AKASH TUNNEL MAPPER - 1-Click Dual Windows Installer Builder (.EXE)
+title ESWA GEOLOGICAL MAPPER - 1-Click Dual Windows Installer Builder (.EXE)
 color 0B
 echo.
 echo  =======================================================================================
-echo   AKASH TUNNEL MAPPER - 1-CLICK DUAL WINDOWS INSTALLER BUILDER (.EXE)
+echo   ESWA GEOLOGICAL MAPPER - 1-CLICK DUAL WINDOWS INSTALLER BUILDER (.EXE)
 echo   Builds TWO Executables:
-echo     1. AKASH-TUNNEL-MAPPER-Master-Setup.exe (Master Software - Only For You)
-echo     2. AKASH-TUNNEL-MAPPER-User-Setup.exe   (User Software - Share With Users)
+echo     1. ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe (Master Software - Only For You)
+echo     2. ESWA-GEOLOGICAL-MAPPER-User-Setup.exe   (User Software - Share With Users)
 echo  =======================================================================================
 echo.
 
@@ -45,8 +45,8 @@ echo.
 echo  =======================================================================================
 echo   [3/3] BUILD COMPLETE!
 echo   Your two Windows Desktop Installers (.EXE) are ready inside the "release" folder:
-echo     - release\AKASH-TUNNEL-MAPPER-Master-Setup.exe
-echo     - release\AKASH-TUNNEL-MAPPER-User-Setup.exe
+echo     - release\ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
+echo     - release\ESWA-GEOLOGICAL-MAPPER-User-Setup.exe
 echo  =======================================================================================
 echo.
 if exist "release" (

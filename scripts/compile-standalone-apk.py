@@ -69,7 +69,6 @@ def build_binary_axml(
         ("icon", 0x01010002),
         ("name", 0x01010003),
         ("exported", 0x01010010),
-        ("screenOrientation", 0x0101001E),
         ("configChanges", 0x0101001F),
         ("minSdkVersion", 0x0101020C),
         ("versionCode", 0x0101021B),
@@ -265,7 +264,6 @@ def build_binary_axml(
                 attr_int(ns_uri, "icon", 0x7F010000, 0x01),   # @drawable/ic_launcher
                 attr_str(ns_uri, "name", f"{pkg_name_str}.MainActivity"),
                 attr_int(ns_uri, "exported", 0xFFFFFFFF, 0x12),
-                attr_int(ns_uri, "screenOrientation", 6, 0x10),  # 6 = sensorLandscape (horizontal mode)
                 attr_int(ns_uri, "configChanges", 0x000004A0, 0x11),
                 attr_int(ns_uri, "roundIcon", 0x7F010000, 0x01),  # @drawable/ic_launcher
             ],

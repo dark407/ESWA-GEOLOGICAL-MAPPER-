@@ -81,51 +81,37 @@ if (fs.existsSync(distDir)) {
   copyDirRecursive(distDir, stagedWwwDir);
 }
 
-// 2. Prepare stagedWwwDir with a 100% self-contained offline index.html
+// 2. Prepare stagedWwwDir with a 100% self-contained offline bundle and index.html
 //    that works directly from file:///android_asset/www/index.html inside the APK
 let cssContent = '';
-let jsFilePath = '';
 
 if (fs.existsSync(assetsSubDir)) {
   for (const fn of fs.readdirSync(assetsSubDir)) {
     if (fn.endsWith('.css')) {
       cssContent += fs.readFileSync(path.join(assetsSubDir, fn), 'utf8') + '\n';
-    } else if (fn.endsWith('.js') && !jsFilePath) {
-      jsFilePath = path.join(assetsSubDir, fn);
     }
   }
 }
 
-const cachedIifePath = path.join(releaseDir, 'cached-app-iife.js');
-let iifeJsContent = '';
-if (jsFilePath) {
-  const jsStat = fs.statSync(jsFilePath);
-  const cacheValid =
-    fs.existsSync(cachedIifePath) &&
-    fs.statSync(cachedIifePath).mtimeMs >= jsStat.mtimeMs &&
-    fs.statSync(cachedIifePath).size > 100000;
-
-  if (cacheValid) {
-    iifeJsContent = fs.readFileSync(cachedIifePath, 'utf8');
-  } else {
-    try {
-      execSync(
-        `npx esbuild "${jsFilePath}" --bundle --format=iife --platform=browser --target=es2020 --minify --outfile="${cachedIifePath}"`,
-        { cwd: rootDir, stdio: 'pipe' }
-      );
-      iifeJsContent = fs.readFileSync(cachedIifePath, 'utf8');
-    } catch {
-      iifeJsContent = fs.readFileSync(jsFilePath, 'utf8');
-    }
-  }
+function compileStandaloneAppBundle(edition = 'user') {
+  const cachedBundlePath = path.join(releaseDir, `cached-app-${edition}-iife.js`);
+  console.log(`Compiling 100% self-contained standalone bundle for ${edition} edition...`);
+  execSync(
+    `npx esbuild src/main.tsx --bundle --format=iife --platform=browser --target=es2020 --minify --define:import.meta.env.DEV=false --define:import.meta.env.VITE_SOFTWARE_EDITION='"${edition}"' --define:import.meta.env.MODE='"production"' --loader:.css=empty --outfile="${cachedBundlePath}"`,
+    { cwd: rootDir, stdio: 'inherit' }
+  );
+  return fs.readFileSync(cachedBundlePath, 'utf8');
 }
+
+const userIifeJsContent = compileStandaloneAppBundle('user');
+fs.writeFileSync(path.join(stagedWwwDir, 'app-bundle.js'), userIifeJsContent, 'utf8');
 
 const buildVersion =
   process.env.VITE_APP_BUILD_VERSION ||
   (process.env.GITHUB_RUN_NUMBER ? `1.0.${process.env.GITHUB_RUN_NUMBER}` : '2.5.0');
 
 // Save user-ota-bundle.json in release/ so installed Android APKs & Windows EXEs can hot-update in-place without deleting user data
-if (iifeJsContent) {
+if (userIifeJsContent) {
   try {
     fs.writeFileSync(
       path.join(releaseDir, 'user-ota-bundle.json'),
@@ -135,7 +121,7 @@ if (iifeJsContent) {
         publishedAtIso: new Date().toISOString(),
         preserveUserData: true,
         cssContent,
-        jsContent: iifeJsContent,
+        jsContent: userIifeJsContent,
       }),
       'utf8'
     );
@@ -146,26 +132,8 @@ if (iifeJsContent) {
 
 const otaBootloaderScript = `
 (function() {
-  var hasBooted = false;
-  function bootBundledApp() {
-    if (hasBooted) return;
-    hasBooted = true;
-    var s = document.getElementById('eswa-bundled-app-payload');
-    if (s && s.textContent) {
-      var el = document.createElement('script');
-      el.textContent = s.textContent;
-      document.body.appendChild(el);
-    }
-  }
-  var safetyTimer = setTimeout(function() {
-    bootBundledApp();
-  }, 180);
   try {
-    if (!window.indexedDB) {
-      clearTimeout(safetyTimer);
-      bootBundledApp();
-      return;
-    }
+    if (!window.indexedDB) return;
     var req = window.indexedDB.open('eswa_ota_code_vault_v1', 1);
     req.onupgradeneeded = function(e) {
       var db = e.target.result;
@@ -173,35 +141,16 @@ const otaBootloaderScript = `
         db.createObjectStore('bundles');
       }
     };
-    req.onerror = function() {
-      clearTimeout(safetyTimer);
-      bootBundledApp();
-    };
-    req.onblocked = function() {
-      clearTimeout(safetyTimer);
-      bootBundledApp();
-    };
     req.onsuccess = function(e) {
       try {
         var db = e.target.result;
-        if (!db.objectStoreNames.contains('bundles')) {
-          clearTimeout(safetyTimer);
-          bootBundledApp();
-          return;
-        }
+        if (!db.objectStoreNames.contains('bundles')) return;
         var tx = db.transaction('bundles', 'readonly');
         var store = tx.objectStore('bundles');
         var getReq = store.get('active_ota_bundle');
-        getReq.onerror = function() {
-          clearTimeout(safetyTimer);
-          bootBundledApp();
-        };
         getReq.onsuccess = function() {
-          clearTimeout(safetyTimer);
           var ota = getReq.result;
           if (ota && ota.jsContent && ota.version && ota.version !== window.__ESWA_BUNDLED_VERSION__) {
-            if (hasBooted) return;
-            hasBooted = true;
             window.__ESWA_OTA_VERSION__ = ota.version;
             if (ota.cssContent) {
               var styleEl = document.getElementById('eswa-main-css');
@@ -210,19 +159,11 @@ const otaBootloaderScript = `
             var otaScript = document.createElement('script');
             otaScript.textContent = ota.jsContent;
             document.body.appendChild(otaScript);
-          } else {
-            bootBundledApp();
           }
         };
-      } catch (err) {
-        clearTimeout(safetyTimer);
-        bootBundledApp();
-      }
+      } catch (err) {}
     };
-  } catch (e) {
-    clearTimeout(safetyTimer);
-    bootBundledApp();
-  }
+  } catch (e) {}
 })();
 `;
 
@@ -230,7 +171,7 @@ const selfContainedHtml = `<!doctype html>
 <html lang="en" data-android-app="true">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
     <title>ESWA TUNNEL MAPPER — Android User App</title>
     <meta name="theme-color" content="#0B0E14" />
     <script>
@@ -253,9 +194,9 @@ const selfContainedHtml = `<!doctype html>
       }
     </style>
   </head>
-  <body class="bg-[#0B0E14] text-slate-100 antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+  <body class="bg-[#FFF9F4] text-slate-900 antialiased selection:bg-orange-500/25 selection:text-orange-950">
     <div id="root"></div>
-    <script id="eswa-bundled-app-payload" type="text/plain">${iifeJsContent.replace(/<\/script>/gi, '<\\/script>')}</script>
+    <script src="./app-bundle.js"></script>
     <script>${otaBootloaderScript}</script>
   </body>
 </html>`;
@@ -734,11 +675,11 @@ public class MainActivity extends Activity {
 `
 );
 
-const outApkPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-User-Android.apk');
-const outAabPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-User-PlayStore.aab');
+const outApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk');
+const outAabPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-PlayStore.aab');
 
 execSync(
-  `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outApkPath}" "com.eswa.tunnelmapper.user" "ESWA Tunnel Mapper"`,
+  `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outApkPath}" "com.eswa.geologicalmapper.user" "ESWA Geological Mapper"`,
   {
     cwd: rootDir,
     stdio: 'inherit',
@@ -746,15 +687,18 @@ execSync(
 );
 
 // 4. Also compile the Standalone MASTER Android App (.APK) with full Software Access Control
-//    Package: com.eswa.tunnelmapper.master | Launcher Name: "ESWA Master Admin"
-const outMasterApkPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-Master-Android.apk');
+//    Package: com.eswa.geologicalmapper.master | Launcher Name: "ESWA Master Admin"
+const outMasterApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk');
+
+const masterIifeJsContent = compileStandaloneAppBundle('master');
+fs.writeFileSync(path.join(stagedWwwDir, 'app-bundle.js'), masterIifeJsContent, 'utf8');
 
 const masterSelfContainedHtml = `<!doctype html>
 <html lang="en" data-android-app="true" data-master-android-app="true">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>ESWA MASTER ADMIN & TUNNEL MAPPER — Android Master App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+    <title>ESWA MASTER ADMIN & GEOLOGICAL MAPPER — Android Master App</title>
     <meta name="theme-color" content="#0B0E14" />
     <script>
       window.__ESWA_NATIVE_ANDROID_APK__ = true;
@@ -777,24 +721,24 @@ const masterSelfContainedHtml = `<!doctype html>
       }
     </style>
   </head>
-  <body class="bg-[#0B0E14] text-slate-100 antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+  <body class="bg-[#FFF9F4] text-slate-900 antialiased selection:bg-orange-500/25 selection:text-orange-950">
     <div id="root"></div>
-    <script id="eswa-bundled-app-payload" type="text/plain">${iifeJsContent.replace(/<\/script>/gi, '<\\/script>')}</script>
+    <script src="./app-bundle.js"></script>
     <script>${otaBootloaderScript}</script>
   </body>
 </html>`;
 
 fs.writeFileSync(path.join(stagedWwwDir, 'index.html'), masterSelfContainedHtml, 'utf8');
 execSync(
-  `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outMasterApkPath}" "com.eswa.tunnelmapper.master" "ESWA Master Admin"`,
+  `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outMasterApkPath}" "com.eswa.geologicalmapper.master" "ESWA Master Admin"`,
   {
     cwd: rootDir,
     stdio: 'inherit',
   }
 );
 
-// Also copy the standalone signed APK to release/ESWA-TUNNEL-MAPPER-release.apk
-const releaseNamedApkPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-release.apk');
+// Also copy the standalone signed APK to release/ESWA-GEOLOGICAL-MAPPER-release.apk
+const releaseNamedApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-release.apk');
 if (fs.existsSync(outApkPath)) {
   try {
     fs.copyFileSync(outApkPath, releaseNamedApkPath);

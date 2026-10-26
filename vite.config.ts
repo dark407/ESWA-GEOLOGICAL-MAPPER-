@@ -22,10 +22,10 @@ export default defineConfig(({command}) => {
         ],
         manifest: {
           id: '/',
-          name: 'ESWA TUNNEL MAPPER — Mobile & PC Engineering Suite',
-          short_name: 'EswaTunnel',
+          name: 'ESWA GEOLOGICAL MAPPER — Engineering Suite',
+          short_name: 'EswaGeology',
           description:
-            'Underground tunnel geological joint tracing, overbreak/undercut analysis, 3D structural orientation, and engineering mapping app for Android & PC.',
+            'Geological engineering suite for underground tunneling (NATM, TBM) and underground hard-rock mining grade control, structural orientation, photogrammetry, and core logging.',
           theme_color: '#0B0E14',
           background_color: '#0B0E14',
           display: 'standalone',

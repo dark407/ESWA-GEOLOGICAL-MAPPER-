@@ -658,7 +658,7 @@ ${safeJsContent}
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.setHeader(
           'Content-Disposition',
-          'attachment; filename="Akash_Tunnel_Tracer_Offline_PC.html"'
+          'attachment; filename="ESWA_Geological_Mapper_Offline_PC.html"'
         );
         res.send(standaloneHtml);
         return;
@@ -722,7 +722,7 @@ ${safeJsContent}
       res.setHeader('Content-Type', 'application/x-bat; charset=utf-8');
       res.setHeader(
         'Content-Disposition',
-        'attachment; filename="Install_Akash_Tunnel_Software_PC.bat"'
+        'attachment; filename="Install_ESWA_Geological_Mapper_PC.bat"'
       );
       res.send(batLines.join('\r\n'));
     } catch (err: unknown) {
@@ -897,10 +897,17 @@ ${safeJsContent}
       // 4. Collect workspace files + inject .github/workflows/build-installer.yml from scripts/github-action-build-exe.yml
       const rootDir = process.cwd();
       const runtimeReleaseDir = '/tmp/akash-release-cache';
-      const localApkPath = path.join(
+      const localApkCandidate1 = path.join(
+        runtimeReleaseDir,
+        'ESWA-GEOLOGICAL-MAPPER-User-Android.apk'
+      );
+      const localApkCandidate2 = path.join(
         runtimeReleaseDir,
         'ESWA-TUNNEL-MAPPER-User-Android.apk'
       );
+      const localApkPath = fs.existsSync(localApkCandidate1)
+        ? localApkCandidate1
+        : localApkCandidate2;
       const workflowTemplatePath = path.join(
         rootDir,
         'scripts',
@@ -1110,13 +1117,18 @@ ${safeJsContent}
             const cleanUploadBase = releaseData.upload_url.replace(/\{\?.*$/, '');
             const apkBytes = fs.readFileSync(localApkPath);
             for (const apkAssetName of [
+              'ESWA-GEOLOGICAL-MAPPER-release.apk',
+              'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
+              'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
               'ESWA-TUNNEL-MAPPER-release.apk',
               'ESWA-TUNNEL-MAPPER-User-Android.apk',
               'ESWA-TUNNEL-MAPPER-Master-Android.apk',
             ]) {
+              const specificCandidateMaster = path.join(runtimeReleaseDir, 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk');
+              const legacyCandidateMaster = path.join(runtimeReleaseDir, 'ESWA-TUNNEL-MAPPER-Master-Android.apk');
               const specificApkPath =
-                apkAssetName === 'ESWA-TUNNEL-MAPPER-Master-Android.apk'
-                  ? path.join(runtimeReleaseDir, 'ESWA-TUNNEL-MAPPER-Master-Android.apk')
+                apkAssetName.includes('Master')
+                  ? (fs.existsSync(specificCandidateMaster) ? specificCandidateMaster : legacyCandidateMaster)
                   : localApkPath;
               const specificBytes = fs.existsSync(specificApkPath)
                 ? fs.readFileSync(specificApkPath)
@@ -1139,7 +1151,7 @@ ${safeJsContent}
                     Accept: 'application/vnd.github+json',
                     'Content-Type': 'application/vnd.android.package-archive',
                     'Content-Length': String(specificBytes.length),
-                    'User-Agent': 'AKASH-Tunnel-Mapper-GitHub-Sync',
+                    'User-Agent': 'ESWA-Geological-Mapper-GitHub-Sync',
                   },
                   body: specificBytes,
                 }
@@ -1164,9 +1176,9 @@ ${safeJsContent}
         workflowTriggered,
         apkPushedToRepo: false,
         apkReleaseUploaded,
-        apkDownloadUrl: `https://github.com/${cleanRepo}/releases/download/latest/ESWA-TUNNEL-MAPPER-User-Android.apk`,
-        userExeDownloadUrl: `https://github.com/${cleanRepo}/releases/download/latest/AKASH-TUNNEL-MAPPER-User-Setup.exe`,
-        masterExeDownloadUrl: `https://github.com/${cleanRepo}/releases/download/latest/AKASH-TUNNEL-MAPPER-Master-Setup.exe`,
+        apkDownloadUrl: `https://github.com/${cleanRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Android.apk`,
+        userExeDownloadUrl: `https://github.com/${cleanRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`,
+        masterExeDownloadUrl: `https://github.com/${cleanRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`,
         actionsUrl: `https://github.com/${cleanRepo}/actions`,
         releasesUrl: `https://github.com/${cleanRepo}/releases/tag/latest`,
       });
@@ -1309,6 +1321,26 @@ ${safeJsContent}
     await apkBuildInFlightPromise;
   };
 
+  const resolveEffectiveApkPath = (isMaster: boolean): { fileName: string; filePath: string } => {
+    const geoName = isMaster
+      ? 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk'
+      : 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk';
+    const legacyName = isMaster
+      ? 'ESWA-TUNNEL-MAPPER-Master-Android.apk'
+      : 'ESWA-TUNNEL-MAPPER-User-Android.apk';
+
+    const geoPath = path.join(runtimeCacheDir, geoName);
+    const legacyPath = path.join(runtimeCacheDir, legacyName);
+
+    if (fs.existsSync(geoPath)) {
+      return { fileName: geoName, filePath: geoPath };
+    }
+    if (fs.existsSync(legacyPath)) {
+      return { fileName: legacyName, filePath: legacyPath };
+    }
+    return { fileName: geoName, filePath: geoPath };
+  };
+
   const serveStandaloneAndroidApk = async (
     req: express.Request,
     res: express.Response,
@@ -1317,22 +1349,19 @@ ${safeJsContent}
     res.setHeader('Access-Control-Allow-Origin', '*');
     const isMaster =
       forceMaster || String(req.query.edition || '').toLowerCase() === 'master';
-    const apkFileName = isMaster
-      ? 'ESWA-TUNNEL-MAPPER-Master-Android.apk'
-      : 'ESWA-TUNNEL-MAPPER-User-Android.apk';
-    const localApkPath = path.join(runtimeCacheDir, apkFileName);
+    const { fileName, filePath } = resolveEffectiveApkPath(isMaster);
 
-    await ensureAndroidApkBuiltAsync(localApkPath);
+    await ensureAndroidApkBuiltAsync(filePath);
 
-    if (fs.existsSync(localApkPath)) {
-      const stat = fs.statSync(localApkPath);
+    if (fs.existsSync(filePath)) {
+      const stat = fs.statSync(filePath);
       res.setHeader('Content-Type', 'application/vnd.android.package-archive');
       res.setHeader('Content-Length', String(stat.size));
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
-      res.setHeader('Content-Disposition', `attachment; filename="${apkFileName}"`);
-      res.sendFile(localApkPath);
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.sendFile(filePath);
       return;
     }
 
@@ -1347,6 +1376,12 @@ ${safeJsContent}
   });
   app.get('/api/android/download-master-apk', (req, res) => {
     void serveStandaloneAndroidApk(req, res, true);
+  });
+  app.get('/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk', (req, res) => {
+    void serveStandaloneAndroidApk(req, res, true);
+  });
+  app.get('/ESWA-GEOLOGICAL-MAPPER-User-Android.apk', (req, res) => {
+    void serveStandaloneAndroidApk(req, res, false);
   });
   app.get('/ESWA-TUNNEL-MAPPER-Master-Android.apk', (req, res) => {
     void serveStandaloneAndroidApk(req, res, true);
@@ -1369,20 +1404,17 @@ ${safeJsContent}
   app.get('/api/android/apk-binary', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     const isMaster = String(req.query.edition || '').toLowerCase() === 'master';
-    const apkFileName = isMaster
-      ? 'ESWA-TUNNEL-MAPPER-Master-Android.apk'
-      : 'ESWA-TUNNEL-MAPPER-User-Android.apk';
-    const localApkPath = path.join(runtimeCacheDir, apkFileName);
+    const { fileName, filePath } = resolveEffectiveApkPath(isMaster);
 
-    await ensureAndroidApkBuiltAsync(localApkPath);
+    await ensureAndroidApkBuiltAsync(filePath);
 
-    if (fs.existsSync(localApkPath)) {
-      const stat = fs.statSync(localApkPath);
+    if (fs.existsSync(filePath)) {
+      const stat = fs.statSync(filePath);
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Length', String(stat.size));
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-      res.setHeader('X-APK-Filename', apkFileName);
-      res.sendFile(localApkPath);
+      res.setHeader('X-APK-Filename', fileName);
+      res.sendFile(filePath);
       return;
     }
 
@@ -1400,19 +1432,16 @@ ${safeJsContent}
   app.get('/api/android/apk-bundle', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     const isMaster = String(req.query.edition || '').toLowerCase() === 'master';
-    const apkFileName = isMaster
-      ? 'ESWA-TUNNEL-MAPPER-Master-Android.apk'
-      : 'ESWA-TUNNEL-MAPPER-User-Android.apk';
-    const localApkPath = path.join(runtimeCacheDir, apkFileName);
+    const { fileName, filePath } = resolveEffectiveApkPath(isMaster);
 
-    await ensureAndroidApkBuiltAsync(localApkPath);
+    await ensureAndroidApkBuiltAsync(filePath);
 
-    if (fs.existsSync(localApkPath)) {
-      const buf = fs.readFileSync(localApkPath);
+    if (fs.existsSync(filePath)) {
+      const buf = fs.readFileSync(filePath);
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       res.json({
         ok: true,
-        fileName: apkFileName,
+        fileName,
         sizeBytes: buf.length,
         base64: buf.toString('base64'),
       });
