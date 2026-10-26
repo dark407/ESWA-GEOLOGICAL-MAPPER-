@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -79,20 +80,50 @@ try {
     fs.mkdirSync(releaseDir, { recursive: true });
   }
 
-  // Ensure compiled APKs are copied into release/
+  // Ensure compiled APKs are copied into release/ from all possible cache locations
+  const searchDirs = [
+    path.join(os.tmpdir(), 'akash-release-cache'),
+    path.join('/tmp', 'akash-release-cache'),
+  ];
   for (const apkName of [
     'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
     'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
     'ESWA-GEOLOGICAL-MAPPER-release.apk',
   ]) {
     const targetApk = path.join(releaseDir, apkName);
-    const tmpApk = path.join('/tmp', 'akash-release-cache', apkName);
-    if (!fs.existsSync(targetApk) && fs.existsSync(tmpApk)) {
-      try {
-        fs.copyFileSync(tmpApk, targetApk);
-      } catch {
-        // Ignore copy error
+    if (!fs.existsSync(targetApk)) {
+      for (const sDir of searchDirs) {
+        const candidate = path.join(sDir, apkName);
+        if (fs.existsSync(candidate)) {
+          try {
+            fs.copyFileSync(candidate, targetApk);
+            break;
+          } catch {
+            // Ignore copy error
+          }
+        }
       }
+    }
+  }
+
+  // Create bidirectional compatibility aliases so both ESWA-GEOLOGICAL-MAPPER and AKASH-TUNNEL-MAPPER / ESWA-TUNNEL-MAPPER exist
+  const aliasPairs = [
+    ['ESWA-GEOLOGICAL-MAPPER-User-Setup.exe', 'AKASH-TUNNEL-MAPPER-User-Setup.exe'],
+    ['ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe', 'AKASH-TUNNEL-MAPPER-Master-Setup.exe'],
+    ['ESWA-GEOLOGICAL-MAPPER-User-Android.apk', 'ESWA-TUNNEL-MAPPER-User-Android.apk'],
+    ['ESWA-GEOLOGICAL-MAPPER-Master-Android.apk', 'ESWA-TUNNEL-MAPPER-Master-Android.apk'],
+  ];
+  for (const [primary, legacy] of aliasPairs) {
+    const primaryPath = path.join(releaseDir, primary);
+    const legacyPath = path.join(releaseDir, legacy);
+    if (fs.existsSync(primaryPath) && !fs.existsSync(legacyPath)) {
+      try {
+        fs.copyFileSync(primaryPath, legacyPath);
+      } catch {}
+    } else if (fs.existsSync(legacyPath) && !fs.existsSync(primaryPath)) {
+      try {
+        fs.copyFileSync(legacyPath, primaryPath);
+      } catch {}
     }
   }
 

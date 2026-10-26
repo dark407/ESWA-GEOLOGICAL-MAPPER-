@@ -50,6 +50,10 @@ pkg.devDependencies = {
   'vite-plugin-pwa': existingDevDeps['vite-plugin-pwa'] || '^0.21.1',
 };
 
+pkg.name = 'eswa-geological-mapper';
+pkg.productName = 'ESWA GEOLOGICAL MAPPER';
+pkg.description = 'Geological & Geotechnical Engineering Suite for NATM, TBM & Underground Mining Grade Control';
+
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf8');
 
 for (const lockFile of ['package-lock.json', 'bun.lock']) {

@@ -779,18 +779,27 @@ execSync(
   }
 );
 
-// Also copy the standalone signed APK to release/ESWA-GEOLOGICAL-MAPPER-release.apk
+// Also copy the standalone signed APK to release/ESWA-GEOLOGICAL-MAPPER-release.apk and legacy names
 const releaseNamedApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-release.apk');
+const legacyUserApkPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-User-Android.apk');
+const legacyMasterApkPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-Master-Android.apk');
+
 if (fs.existsSync(outApkPath)) {
   try {
     fs.copyFileSync(outApkPath, releaseNamedApkPath);
-    console.log(`Synced User standalone APK: ${releaseNamedApkPath} & ${outApkPath}`);
+    fs.copyFileSync(outApkPath, legacyUserApkPath);
+    console.log(`Synced User standalone APK: ${outApkPath} -> ${releaseNamedApkPath} & ${legacyUserApkPath}`);
   } catch {
     // Ignore copy error
   }
 }
 if (fs.existsSync(outMasterApkPath)) {
-  console.log(`Synced Master standalone APK: ${outMasterApkPath}`);
+  try {
+    fs.copyFileSync(outMasterApkPath, legacyMasterApkPath);
+    console.log(`Synced Master standalone APK: ${outMasterApkPath} -> ${legacyMasterApkPath}`);
+  } catch {
+    // Ignore copy error
+  }
 }
 
 // Clean up temporary android-user-apk directory so workspace remains clean
