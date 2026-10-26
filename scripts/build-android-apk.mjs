@@ -441,7 +441,10 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
 import android.view.Window;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -556,6 +559,24 @@ public class MainActivity extends Activity {
             getWindow().setNavigationBarColor(Color.parseColor("#0B0E14"));
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            String[] perms = new String[]{
+                Manifest.permission.CAMERA,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            };
+            boolean needsPerm = false;
+            for (String p : perms) {
+                if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                    needsPerm = true;
+                    break;
+                }
+            }
+            if (needsPerm) {
+                requestPermissions(perms, 101);
+            }
+        }
+
         webView = new WebView(this);
         webView.setBackgroundColor(Color.parseColor("#0B0E14"));
         webView.setVerticalScrollBarEnabled(false);
@@ -585,6 +606,13 @@ public class MainActivity extends Activity {
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                try {
+                    request.grant(request.getResources());
+                } catch (Exception ignored) {}
+            }
+
             @Override
             public boolean onShowFileChooser(
                 WebView webView,
@@ -665,11 +693,25 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
+        if (webView != null) {
+            webView.evaluateJavascript(
+                "(function(){ if (window.__eswaHandleMobileBackStep) { return window.__eswaHandleMobileBackStep(); } return false; })()",
+                new ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String value) {
+                        if (!"true".equalsIgnoreCase(value)) {
+                            if (webView.canGoBack()) {
+                                webView.goBack();
+                            } else {
+                                MainActivity.super.onBackPressed();
+                            }
+                        }
+                    }
+                }
+            );
+            return;
         }
+        super.onBackPressed();
     }
 }
 `

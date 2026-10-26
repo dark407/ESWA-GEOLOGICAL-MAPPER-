@@ -206,12 +206,22 @@ import {
   Upload,
   User as UserIcon,
   X,
+  Keyboard,
+  RotateCcw,
 } from 'lucide-react';
 import { MiningStopeFaceInspectorModal } from './components/MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './components/TbmShieldInspectorModal';
 import { AdvancedBruntonCompassModal } from './components/AdvancedBruntonCompassModal';
 import { AdvancedShiftReminderAlarmModal } from './components/AdvancedShiftReminderAlarmModal';
 import { SupportAndGeotechnicalReferenceModal } from './components/SupportAndGeotechnicalReferenceModal';
+import { KeyboardShortcutsAndPermissionsModal } from './components/KeyboardShortcutsAndPermissionsModal';
+import {
+  initializeGlobalKeyboardShortcuts,
+  registerKeyboardShortcut,
+  registerStepBackHandler,
+  setBackToastListener,
+  triggerStepBack,
+} from './engine/stepBackNavigationEngine';
 type ScreenStep =
   | 'welcome'
   | 'start'
@@ -325,6 +335,9 @@ export default function App({
   const [isBruntonCompassOpen, setIsBruntonCompassOpen] = useState<boolean>(false);
   const [isShiftReminderOpen, setIsShiftReminderOpen] = useState<boolean>(false);
   const [isSupportReferenceOpen, setIsSupportReferenceOpen] = useState<boolean>(false);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
+  const [shortcutsModalDefaultTab, setShortcutsModalDefaultTab] = useState<'shortcuts' | 'permissions'>('shortcuts');
+  const [backToastMessage, setBackToastMessage] = useState<string | null>(null);
 
   // Google Email Login & Cloud Workspace Synchronization State
   const [googleUser, setGoogleUser] = useState<GoogleUserAccountInfo | null>(() =>
@@ -2848,6 +2861,258 @@ export default function App({
     setJoints(next);
   }, [historyFuture, joints]);
 
+  // Step-by-Step Back Navigation & Keyboard Shortcuts Handlers
+  useEffect(() => {
+    setBackToastListener((msg) => setBackToastMessage(msg));
+    return () => setBackToastListener(null);
+  }, []);
+
+  useEffect(() => {
+    if (isShortcutsModalOpen) {
+      return registerStepBackHandler('shortcuts_modal', () => setIsShortcutsModalOpen(false), 120, 'Close Shortcuts');
+    }
+  }, [isShortcutsModalOpen]);
+
+  useEffect(() => {
+    if (isExportModalOpen) {
+      return registerStepBackHandler('export_modal', () => setIsExportModalOpen(false), 110, 'Close Export Sheet');
+    }
+  }, [isExportModalOpen]);
+
+  useEffect(() => {
+    if (isMiningInspectorOpen) {
+      return registerStepBackHandler('mining_inspector', () => setIsMiningInspectorOpen(false), 100, 'Close Mining Inspector');
+    }
+  }, [isMiningInspectorOpen]);
+
+  useEffect(() => {
+    if (isTbmInspectorOpen) {
+      return registerStepBackHandler('tbm_inspector', () => setIsTbmInspectorOpen(false), 100, 'Close TBM Inspector');
+    }
+  }, [isTbmInspectorOpen]);
+
+  useEffect(() => {
+    if (isBruntonCompassOpen) {
+      return registerStepBackHandler('brunton_compass', () => setIsBruntonCompassOpen(false), 100, 'Close Brunton Compass');
+    }
+  }, [isBruntonCompassOpen]);
+
+  useEffect(() => {
+    if (isShiftReminderOpen) {
+      return registerStepBackHandler('shift_reminder', () => setIsShiftReminderOpen(false), 100, 'Close Shift Alarm');
+    }
+  }, [isShiftReminderOpen]);
+
+  useEffect(() => {
+    if (isSupportReferenceOpen) {
+      return registerStepBackHandler('support_reference', () => setIsSupportReferenceOpen(false), 100, 'Close Support Reference');
+    }
+  }, [isSupportReferenceOpen]);
+
+  useEffect(() => {
+    if (isNatmRockMechanicsModalOpen) {
+      return registerStepBackHandler('rock_mechanics', () => setIsNatmRockMechanicsModalOpen(false), 100, 'Close Rock Mechanics');
+    }
+  }, [isNatmRockMechanicsModalOpen]);
+
+  useEffect(() => {
+    if (showPhotoScreenAccuracyModal) {
+      return registerStepBackHandler('photo_accuracy', () => setShowPhotoScreenAccuracyModal(false), 100, 'Close Photo Accuracy');
+    }
+  }, [showPhotoScreenAccuracyModal]);
+
+  useEffect(() => {
+    if (isContinuousLogSetupOpen) {
+      return registerStepBackHandler('continuous_log_setup', () => setIsContinuousLogSetupOpen(false), 100, 'Close Continuous Log Setup');
+    }
+  }, [isContinuousLogSetupOpen]);
+
+  useEffect(() => {
+    if (isA3ContinuousLogOpen) {
+      return registerStepBackHandler('a3_log_modal', () => setIsA3ContinuousLogOpen(false), 100, 'Close Continuous A3 Log');
+    }
+  }, [isA3ContinuousLogOpen]);
+
+  useEffect(() => {
+    if (isAccountMenuOpen) {
+      return registerStepBackHandler('account_menu', () => setIsAccountMenuOpen(false), 95, 'Close Account Menu');
+    }
+  }, [isAccountMenuOpen]);
+
+  useEffect(() => {
+    if (isCoreLoggingOpen) {
+      return registerStepBackHandler('core_logging', () => setIsCoreLoggingOpen(false), 85, 'Exit Core Logging');
+    }
+  }, [isCoreLoggingOpen]);
+
+  useEffect(() => {
+    if (isFieldMappingModeOpen) {
+      return registerStepBackHandler('field_mapping', () => setIsFieldMappingModeOpen(false), 80, 'Exit Field Mapping');
+    }
+  }, [isFieldMappingModeOpen]);
+
+  useEffect(() => {
+    if (screen === 'mapping') {
+      return registerStepBackHandler('screen_mapping', () => {
+        navigateScreen('drive_and_photos');
+      }, 50, 'Return to Drive & Photos');
+    } else if (screen === 'drive_and_photos') {
+      return registerStepBackHandler('screen_drive', () => {
+        navigateScreen('start');
+      }, 50, 'Return to Project Setup');
+    } else if (
+      screen === 'geometry_manual' ||
+      screen === 'geometry_cad' ||
+      screen === 'geometry_custom'
+    ) {
+      return registerStepBackHandler('screen_geom', () => {
+        navigateScreen('start');
+      }, 50, 'Return to Start');
+    }
+  }, [screen, navigateScreen]);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const cleanupGlobalShortcuts = initializeGlobalKeyboardShortcuts();
+
+    const unreg1 = registerKeyboardShortcut({
+      id: 'show_cheatsheet',
+      keyCombo: '?',
+      label: 'Shortcuts Cheatsheet',
+      category: 'SYSTEM',
+      description: 'Open keyboard shortcuts and mobile permissions guide',
+      action: () => {
+        setShortcutsModalDefaultTab('shortcuts');
+        setIsShortcutsModalOpen((prev) => !prev);
+      },
+    });
+
+    const unreg2 = registerKeyboardShortcut({
+      id: 'quick_save',
+      keyCombo: 'ctrl+s',
+      label: 'Quick Save',
+      category: 'SYSTEM',
+      description: 'Quick save current tunnel draft',
+      action: () => {
+        handleSaveOfflineDraft();
+      },
+    });
+
+    const unreg3 = registerKeyboardShortcut({
+      id: 'undo',
+      keyCombo: 'ctrl+z',
+      label: 'Undo',
+      category: 'MAPPING',
+      description: 'Undo last joint trace or modification',
+      action: () => {
+        handleUndo();
+      },
+    });
+
+    const unreg4 = registerKeyboardShortcut({
+      id: 'redo',
+      keyCombo: 'ctrl+y',
+      label: 'Redo',
+      category: 'MAPPING',
+      description: 'Redo previously undone action',
+      action: () => {
+        handleRedo();
+      },
+    });
+
+    const unreg5 = registerKeyboardShortcut({
+      id: 'redo_alt',
+      keyCombo: 'ctrl+shift+z',
+      label: 'Redo (Alternate)',
+      category: 'MAPPING',
+      description: 'Redo previously undone action',
+      action: () => {
+        handleRedo();
+      },
+    });
+
+    const unreg6 = registerKeyboardShortcut({
+      id: 'toggle_field_mode',
+      keyCombo: 'f',
+      label: 'Field Mapping',
+      category: 'NAVIGATION',
+      description: 'Toggle rugged Field Mapping Workspace',
+      action: () => {
+        setIsFieldMappingModeOpen((prev) => !prev);
+      },
+    });
+
+    const unreg7 = registerKeyboardShortcut({
+      id: 'toggle_compass',
+      keyCombo: 'c',
+      label: 'Brunton Compass',
+      category: 'NAVIGATION',
+      description: 'Open full-screen digital Brunton Compass',
+      action: () => {
+        setIsBruntonCompassOpen((prev) => !prev);
+      },
+    });
+
+    const unreg8 = registerKeyboardShortcut({
+      id: 'toggle_rock_mechanics',
+      keyCombo: 'n',
+      label: 'Rock Mechanics',
+      category: 'NAVIGATION',
+      description: 'Open NATM Rock Mechanics & Joint 3D inspector',
+      action: () => {
+        setIsNatmRockMechanicsModalOpen((prev) => !prev);
+      },
+    });
+
+    const unreg9 = registerKeyboardShortcut({
+      id: 'mode_natm',
+      keyCombo: '1',
+      label: 'NATM Mode',
+      category: 'NAVIGATION',
+      description: 'Switch to NATM Conventional mode',
+      action: () => {
+        handleSwitchIndustryMode('NATM');
+      },
+    });
+
+    const unreg10 = registerKeyboardShortcut({
+      id: 'mode_tbm',
+      keyCombo: '2',
+      label: 'TBM Mode',
+      category: 'NAVIGATION',
+      description: 'Switch to TBM Mechanized mode',
+      action: () => {
+        handleSwitchIndustryMode('TBM');
+      },
+    });
+
+    const unreg11 = registerKeyboardShortcut({
+      id: 'mode_mining',
+      keyCombo: '3',
+      label: 'Mining Mode',
+      category: 'NAVIGATION',
+      description: 'Switch to Underground Mining mode',
+      action: () => {
+        handleSwitchIndustryMode('MINING');
+      },
+    });
+
+    return () => {
+      cleanupGlobalShortcuts();
+      unreg1();
+      unreg2();
+      unreg3();
+      unreg4();
+      unreg5();
+      unreg6();
+      unreg7();
+      unreg8();
+      unreg9();
+      unreg10();
+      unreg11();
+    };
+  }, [handleSaveOfflineDraft, handleUndo, handleRedo, handleSwitchIndustryMode]);
+
   // Apply manual tunnel geometry
   const handleApplyManualGeometry = (proceedToNext = true) => {
     const w = Math.max(1.5, parseFloat(manWidth) || 8.4);
@@ -5239,6 +5504,20 @@ export default function App({
                 <Shield className="w-3.5 h-3.5 text-cyan-400" />
                 <span>Rock Mechanics &amp; +3m/+6m/+9m Predictor</span>
                 <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-600">v2.6 LIVE</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShortcutsModalDefaultTab('shortcuts');
+                  setIsShortcutsModalOpen(true);
+                }}
+                className={layoutStyles.secondaryButton}
+                title="Keyboard Shortcuts Cheatsheet & Mobile Camera/Files Permissions (Press ?)"
+              >
+                <Keyboard className="w-3.5 h-3.5 text-sky-400" />
+                <span>Shortcuts &amp; Mobile</span>
+                <span className="px-1 py-0.2 rounded bg-slate-800 text-[10px] font-mono text-sky-300 border border-slate-700">?</span>
               </button>
             </div>
           </div>
@@ -7647,6 +7926,24 @@ export default function App({
       {continuousLoggingModalsNode}
       {globalSettingsModalNode}
       {modeSwitchConfirmationModalNode}
+
+      <KeyboardShortcutsAndPermissionsModal
+        isOpen={isShortcutsModalOpen}
+        onClose={() => setIsShortcutsModalOpen(false)}
+        defaultTab={shortcutsModalDefaultTab}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onSave={handleSaveOfflineDraft}
+        onToggleFieldMode={() => setIsFieldMappingModeOpen((p) => !p)}
+        onToggleCompass={() => setIsBruntonCompassOpen((p) => !p)}
+      />
+
+      {backToastMessage && (
+        <div className="fixed bottom-7 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-full bg-slate-900/95 border border-sky-500/40 text-slate-100 text-xs font-medium shadow-2xl backdrop-blur-md flex items-center gap-2 pointer-events-none animate-bounce">
+          <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
+          <span>{backToastMessage}</span>
+        </div>
+      )}
     </div>
   );
 }

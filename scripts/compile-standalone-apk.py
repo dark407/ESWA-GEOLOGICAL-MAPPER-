@@ -90,6 +90,14 @@ def build_binary_axml(
         "uses-permission",
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "uses-feature",
+        "android.hardware.camera",
+        "android.hardware.camera.autofocus",
         "application",
         app_label_str,
         "activity",
@@ -242,6 +250,55 @@ def build_binary_axml(
             [attr_str(ns_uri, "name", "android.permission.ACCESS_NETWORK_STATE")],
         ),
         end_el(9, "uses-permission"),
+        # <uses-permission android:name="android.permission.CAMERA" />
+        start_el(
+            10,
+            "uses-permission",
+            [attr_str(ns_uri, "name", "android.permission.CAMERA")],
+        ),
+        end_el(10, "uses-permission"),
+        # <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+        start_el(
+            11,
+            "uses-permission",
+            [attr_str(ns_uri, "name", "android.permission.READ_EXTERNAL_STORAGE")],
+        ),
+        end_el(11, "uses-permission"),
+        # <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+        start_el(
+            12,
+            "uses-permission",
+            [attr_str(ns_uri, "name", "android.permission.WRITE_EXTERNAL_STORAGE")],
+        ),
+        end_el(12, "uses-permission"),
+        # <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+        start_el(
+            13,
+            "uses-permission",
+            [attr_str(ns_uri, "name", "android.permission.READ_MEDIA_IMAGES")],
+        ),
+        end_el(13, "uses-permission"),
+        # <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+        start_el(
+            14,
+            "uses-permission",
+            [attr_str(ns_uri, "name", "android.permission.READ_MEDIA_VIDEO")],
+        ),
+        end_el(14, "uses-permission"),
+        # <uses-feature android:name="android.hardware.camera" />
+        start_el(
+            15,
+            "uses-feature",
+            [attr_str(ns_uri, "name", "android.hardware.camera")],
+        ),
+        end_el(15, "uses-feature"),
+        # <uses-feature android:name="android.hardware.camera.autofocus" />
+        start_el(
+            16,
+            "uses-feature",
+            [attr_str(ns_uri, "name", "android.hardware.camera.autofocus")],
+        ),
+        end_el(16, "uses-feature"),
         # <application android:theme="@android:style/Theme.NoTitleBar" android:label="..." android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:hardwareAccelerated="true" android:usesCleartextTraffic="true">
         start_el(
             12,

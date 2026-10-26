@@ -75,15 +75,13 @@ export const RootApplicationRouter: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // Request horizontal landscape orientation on Android APK / mobile touch screens when supported
+    // Allow dynamic rotation between vertical and horizontal orientations
     try {
       const scr = window.screen as unknown as {
-        orientation?: { lock?: (mode: string) => Promise<void> };
+        orientation?: { unlock?: () => void };
       };
-      if (scr?.orientation?.lock && ('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
-        scr.orientation.lock('landscape').catch(() => {
-          // Silently ignore if browser requires fullscreen first
-        });
+      if (scr?.orientation?.unlock) {
+        scr.orientation.unlock();
       }
     } catch {
       // Ignore
