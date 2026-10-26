@@ -1,258 +1,197 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  startTransition,
-  forwardRef,
-  InputHTMLAttributes,
-  TextareaHTMLAttributes,
-} from 'react';
-
-export interface UseFastBufferedInputOptions {
-  debounceMs?: number;
-  flushOnBlur?: boolean;
-  flushOnEnter?: boolean;
-}
-
-/**
- * Universal Zero-Lag Buffered Input Hook.
- * Maintains local micro-state inside the input so typing, deleting, and pressing backspace
- * update ONLY that single input node in < 0.2ms with ZERO parent re-renders!
- * Value propagates to parent via React.startTransition on blur, Enter, or after a 250ms pause.
- */
-export function useFastBufferedInput<T extends string | number | readonly string[] = string>(
-  propValue: T | undefined,
-  propOnChange?: (nextValue: string) => void,
-  options: UseFastBufferedInputOptions = {}
-) {
-  const { debounceMs = 250, flushOnBlur = true, flushOnEnter = true } = options;
-
-  const [localValue, setLocalValue] = useState<string>(
-    propValue !== undefined && propValue !== null ? String(propValue) : ''
-  );
-  const isFocusedRef = useRef(false);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestLocalValRef = useRef<string>(localValue);
-  latestLocalValRef.current = localValue;
-
-  // Sync from outside prop ONLY when user is NOT actively typing inside the input
-  useEffect(() => {
-    const stringified = propValue !== undefined && propValue !== null ? String(propValue) : '';
-    if (!isFocusedRef.current && stringified !== latestLocalValRef.current) {
-      setLocalValue(stringified);
-      latestLocalValRef.current = stringified;
-    }
-  }, [propValue]);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    };
-  }, []);
-
-  const flushToParent = useCallback(
-    (val: string) => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-      if (propOnChange) {
-        startTransition(() => {
-          propOnChange(val);
-        });
-      }
-    },
-    [propOnChange]
-  );
-
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const nextVal = e.target.value;
-      // Instant local DOM update: zero parent re-render delay
-      setLocalValue(nextVal);
-      latestLocalValRef.current = nextVal;
-
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-
-      if (debounceMs <= 0) {
-        flushToParent(nextVal);
-      } else {
-        debounceTimerRef.current = setTimeout(() => {
-          flushToParent(nextVal);
-        }, debounceMs);
-      }
-    },
-    [debounceMs, flushToParent]
-  );
-
-  const handleFocus = useCallback(() => {
-    isFocusedRef.current = true;
-  }, []);
-
-  const handleBlur = useCallback(
-    (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      isFocusedRef.current = false;
-      if (flushOnBlur) {
-        flushToParent(latestLocalValRef.current);
-      }
-    },
-    [flushOnBlur, flushToParent]
-  );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      if (flushOnEnter && e.key === 'Enter') {
-        flushToParent(latestLocalValRef.current);
-      }
-    },
-    [flushOnEnter, flushToParent]
-  );
-
-  return {
-    value: localValue,
-    onChange: handleChange,
-    onFocus: handleFocus,
-    onBlur: handleBlur,
-    onKeyDown: handleKeyDown,
-    flush: () => flushToParent(latestLocalValRef.current),
-  };
-}
+import React, { useEffect, useRef, useState, useTransition } from 'react';
 
 export interface FastInputProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
-  value?: string | number | readonly string[];
-  onChange?: (nextValue: string) => void;
-  onRawChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
+  value: string | number | undefined | null;
+  onChange?: (val: any) => void;
+  onChangeValue?: (val: any) => void;
   debounceMs?: number;
-  flushOnBlur?: boolean;
-  flushOnEnter?: boolean;
+  asNumber?: boolean;
 }
 
 /**
- * Drop-in <FastInput /> component that replaces standard <input />.
- * Buffers keystrokes locally for 0ms typing & backspace latency.
+ * Universal Zero-Lag Buffered Input Component
+ *
+ * Eliminates typing lag, backspace delays, and cursor jump bugs across complex CAD/GIS forms:
+ * 1. Maintains local state inside the input node so every keystroke (0-9, backspace, delete)
+ *    updates in < 0.2ms without triggering parent tree re-renders.
+ * 2. Propagates changes to the parent/global geotechnical state inside React.startTransition
+ *    after a 250ms typing pause, or IMMEDIATELY on onBlur / Enter key.
  */
-export const FastInput = forwardRef<HTMLInputElement, FastInputProps>(
+export const FastInput = React.forwardRef<HTMLInputElement, FastInputProps>(
   (
     {
-      value: propValue,
-      onChange: propOnChange,
-      onRawChange,
+      value,
+      onChange,
+      onChangeValue,
       debounceMs = 250,
-      flushOnBlur = true,
-      flushOnEnter = true,
-      onFocus,
+      asNumber = false,
       onBlur,
       onKeyDown,
       className,
-      ...restProps
+      ...rest
     },
     ref
   ) => {
-    const buffered = useFastBufferedInput(propValue, propOnChange, {
-      debounceMs,
-      flushOnBlur,
-      flushOnEnter,
-    });
+    const [localValue, setLocalValue] = useState<string>(() =>
+      value === undefined || value === null ? '' : String(value)
+    );
+    const isFocusedRef = useRef<boolean>(false);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [, startTransition] = useTransition();
+
+    // Sync external changes when the input is NOT actively being typed into by the user
+    useEffect(() => {
+      if (!isFocusedRef.current) {
+        const nextStr = value === undefined || value === null ? '' : String(value);
+        setLocalValue(nextStr);
+      }
+    }, [value]);
+
+    // Cleanup timer on unmount
+    useEffect(() => {
+      return () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+      };
+    }, []);
+
+    const commitChange = (currentStr: string) => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      let finalVal: string | number = currentStr;
+      if (asNumber) {
+        if (currentStr.trim() === '') {
+          finalVal = 0;
+        } else {
+          const num = Number(currentStr);
+          finalVal = isNaN(num) ? 0 : num;
+        }
+      }
+      startTransition(() => {
+        if (onChange) onChange(finalVal);
+        if (onChangeValue) onChangeValue(finalVal);
+      });
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const nextStr = e.target.value;
+      // Instant local update in < 0.2ms (zero parent re-render)
+      setLocalValue(nextStr);
+
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => {
+        commitChange(nextStr);
+      }, debounceMs);
+    };
+
+    const handleInputBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+      isFocusedRef.current = false;
+      commitChange(e.target.value);
+      if (onBlur) onBlur(e);
+    };
+
+    const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+      isFocusedRef.current = true;
+      if (rest.onFocus) rest.onFocus(e);
+    };
+
+    const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        commitChange((e.target as HTMLInputElement).value);
+      }
+      if (onKeyDown) onKeyDown(e);
+    };
 
     return (
       <input
         ref={ref}
-        value={buffered.value}
-        onChange={(e) => {
-          buffered.onChange(e);
-          onRawChange?.(e);
-        }}
-        onFocus={(e) => {
-          buffered.onFocus();
-          onFocus?.(e);
-        }}
-        onBlur={(e) => {
-          buffered.onBlur(e);
-          onBlur?.(e);
-        }}
-        onKeyDown={(e) => {
-          buffered.onKeyDown(e);
-          onKeyDown?.(e);
-        }}
+        {...rest}
+        value={localValue}
+        onChange={handleInputChange}
+        onFocus={handleInputFocus}
+        onBlur={handleInputBlur}
+        onKeyDown={handleInputKeyDown}
         className={className}
-        style={{
-          touchAction: 'manipulation',
-          ...restProps.style,
-        }}
-        {...restProps}
       />
     );
   }
 );
+
 FastInput.displayName = 'FastInput';
 
-export interface FastTextAreaProps
-  extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> {
-  value?: string | number | readonly string[];
-  onChange?: (nextValue: string) => void;
-  onRawChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-  debounceMs?: number;
-  flushOnBlur?: boolean;
-}
-
 /**
- * Drop-in <FastTextArea /> component that replaces standard <textarea />.
+ * Universal Zero-Lag Buffered Input Hook
  */
-export const FastTextArea = forwardRef<HTMLTextAreaElement, FastTextAreaProps>(
-  (
-    {
-      value: propValue,
-      onChange: propOnChange,
-      onRawChange,
-      debounceMs = 300,
-      flushOnBlur = true,
-      onFocus,
-      onBlur,
-      onKeyDown,
-      className,
-      ...restProps
-    },
-    ref
-  ) => {
-    const buffered = useFastBufferedInput(propValue, propOnChange, {
-      debounceMs,
-      flushOnBlur,
-      flushOnEnter: false,
-    });
+export function useFastBufferedInput<T extends string | number>(
+  externalValue: T,
+  onCommit: (val: T) => void,
+  debounceMs: number = 250,
+  asNumber: boolean = typeof externalValue === 'number'
+) {
+  const [localValue, setLocalValue] = useState<string>(String(externalValue ?? ''));
+  const isFocusedRef = useRef<boolean>(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [, startTransition] = useTransition();
 
-    return (
-      <textarea
-        ref={ref}
-        value={buffered.value}
-        onChange={(e) => {
-          buffered.onChange(e);
-          onRawChange?.(e);
-        }}
-        onFocus={(e) => {
-          buffered.onFocus();
-          onFocus?.(e);
-        }}
-        onBlur={(e) => {
-          buffered.onBlur(e);
-          onBlur?.(e);
-        }}
-        onKeyDown={(e) => {
-          buffered.onKeyDown(e);
-          onKeyDown?.(e);
-        }}
-        className={className}
-        style={{
-          touchAction: 'manipulation',
-          ...restProps.style,
-        }}
-        {...restProps}
-      />
-    );
-  }
-);
-FastTextArea.displayName = 'FastTextArea';
+  useEffect(() => {
+    if (!isFocusedRef.current) {
+      setLocalValue(String(externalValue ?? ''));
+    }
+  }, [externalValue]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const commit = (valStr: string) => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    let result: any = valStr;
+    if (asNumber) {
+      result = valStr.trim() === '' ? 0 : Number(valStr);
+      if (isNaN(result)) result = 0;
+    }
+    startTransition(() => {
+      onCommit(result as T);
+    });
+  };
+
+  const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const next = e.target.value;
+    setLocalValue(next);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      commit(next);
+    }, debounceMs);
+  };
+
+  const onBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    isFocusedRef.current = false;
+    commit(e.target.value);
+  };
+
+  const onFocus = () => {
+    isFocusedRef.current = true;
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      commit((e.target as HTMLInputElement).value);
+    }
+  };
+
+  return {
+    value: localValue,
+    onChange,
+    onBlur,
+    onFocus,
+    onKeyDown,
+    setValue: setLocalValue,
+  };
+}

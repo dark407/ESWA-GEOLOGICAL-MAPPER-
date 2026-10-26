@@ -10,6 +10,7 @@ import {
 import { getCrownStrikePair, type Joint3DInspectionData } from './joint3DInspectorEngine';
 import type { ContinuousTunnelStripDataset } from './continuous3DStripEngine';
 import type { SurfaceGeometryParameters } from './surfaceMappingEngine';
+import { scheduleIdleSave, flushIdleSaves } from './fastAsyncStorageEngine';
 
 export type FieldTunnelShapeType =
   | 'd_shaped'
@@ -2694,14 +2695,13 @@ export function createDefaultSurfaceMappingStore(domain: MappingDomainType = 'BE
   };
 }
 
-export function saveFieldMappingStore(state: FieldMappingStoreState, domain?: MappingDomainType): void {
+export function saveFieldMappingStoreImmediate(state: FieldMappingStoreState, domain?: MappingDomainType): void {
   const activeR = state.rounds.find((r) => r.id === state.activeRoundId);
   const effectiveDomain = domain || activeR?.mappingDomain || 'TUNNEL';
   const storageKey = getFieldMappingStorageKey(effectiveDomain);
   try {
     localStorage.setItem(storageKey, JSON.stringify(state));
   } catch {
-    // If photos exceed quota, strip bulky dataUrls from older rounds first
     try {
       const compact: FieldMappingStoreState = {
         ...state,
@@ -2719,6 +2719,25 @@ export function saveFieldMappingStore(state: FieldMappingStoreState, domain?: Ma
       // Ignore
     }
   }
+}
+
+export function saveFieldMappingStore(state: FieldMappingStoreState, domain?: MappingDomainType): void {
+  const activeR = state.rounds.find((r) => r.id === state.activeRoundId);
+  const effectiveDomain = domain || activeR?.mappingDomain || 'TUNNEL';
+  const storageKey = getFieldMappingStorageKey(effectiveDomain);
+  // Non-blocking 2000ms debounced save dispatched inside requestIdleCallback so typing & drawing never lag
+  scheduleIdleSave(
+    storageKey,
+    () => {
+      try {
+        return state;
+      } catch {
+        return undefined;
+      }
+    },
+    2000,
+    true
+  );
 }
 
 /**

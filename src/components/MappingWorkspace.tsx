@@ -39,6 +39,8 @@ import {
   TunnelGeometry,
   TunnelSettings,
   VectorLayerVisibility,
+  ActiveTool,
+  JointDrawMode,
 } from '../types/tunnel';
 import {
   computeNonOverlappingLabelPlacement,
@@ -153,6 +155,18 @@ import {
   PhotogrammetryJointConfirmModal,
   PendingJointConfirmation,
 } from './PhotogrammetryJointConfirmModal';
+import {
+  extractStylusTelemetry,
+  PalmRejectionController,
+  StylusTelemetry,
+  PalmRejectionMode,
+} from '../engine/tabletStylusAndZeroLagEngine';
+import { StylusHudAndQuickRadialMenu } from './StylusHudAndQuickRadialMenu';
+import {
+  CadRibbonAndCommandBar,
+  CadRibbonTab,
+} from './CadRibbonAndCommandBar';
+import { MappingCanvasFloatingPropertiesBar } from './MappingCanvasFloatingPropertiesBar';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -298,27 +312,7 @@ interface MappingWorkspaceProps {
   onOpenContinuousTunnelLog?: () => void;
 }
 
-type ActiveTool =
-  | 'select'
-  | 'pan'
-  | 'add_joint'
-  | 'redraw_joint'
-  | 'append_joint'
-  | 'measure'
-  | 'dip_probe'
-  | 'photo_fit'
-  | 'lithology'
-  | 'control_point'
-  | 'overbreak'
-  | 'geological_symbol';
-
-type JointDrawMode =
-  | 'two_point_line'
-  | 'magnetic_livewire'
-  | 'seed_autotrace'
-  | 'polyline'
-  | 'freehand'
-  | 'smooth_curve';
+export type { ActiveTool, JointDrawMode };
 
 export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
   geometry,
@@ -391,6 +385,18 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
   const [selectedJointId, setSelectedJointId] = useState<string | null>(null);
   const [selectedJointVertexIdx, setSelectedJointVertexIdx] = useState<number | null>(null);
   const [joinTargetMode, setJoinTargetMode] = useState<boolean>(false);
+
+  // Tablet Stylus & Palm Rejection Telemetry State
+  const [stylusTelemetry, setStylusTelemetry] = useState<StylusTelemetry | null>(null);
+  const [radialMenuPos, setRadialMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [applyStylusTiltToDip, setApplyStylusTiltToDip] = useState<boolean>(true);
+  const [palmRejectionMode, setPalmRejectionMode] = useState<PalmRejectionMode>('auto');
+  const palmRejectionRef = useRef<PalmRejectionController>(new PalmRejectionController('auto'));
+  const lastStylusTelemetryRef = useRef<StylusTelemetry | null>(null);
+
+  useEffect(() => {
+    palmRejectionRef.current.setMode(palmRejectionMode);
+  }, [palmRejectionMode]);
 
   // Extendable Left/Right Inspector Aside State (Dock Left or Right + Drag-Resize Width)
   const [inspectorDockSide, setInspectorDockSide] = useState<'left' | 'right'>('right');
@@ -758,6 +764,13 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
       return next;
     });
   };
+
+  const handleResetCalibrationToOutline = useCallback(() => {
+    onUpdatePhotoSurface(activeSurface, (prev) => ({
+      ...prev,
+      transform: createDefaultSurfaceTransform(),
+    }));
+  }, [activeSurface, onUpdatePhotoSurface]);
 
   const [layerVisibility, setLayerVisibility] = useState<VectorLayerVisibility>({
     photo: true,
@@ -1861,18 +1874,46 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
             )
           : null;
 
+      const tele = lastStylusTelemetryRef.current;
+      const effectiveDip =
+        applyStylusTiltToDip && tele?.hasHardwareTilt
+          ? tele.inferredDipAngle
+          : crownResolvedForNew
+          ? crownResolvedForNew.dipDeg
+          : orient.dip;
+      const effectiveDipDirection =
+        applyStylusTiltToDip && tele?.hasHardwareTilt
+          ? tele.inferredDipDirection
+          : crownResolvedForNew
+          ? crownResolvedForNew.dipDirectionDeg
+          : orient.dipDirection;
+      const effectiveStrike =
+        applyStylusTiltToDip && tele?.hasHardwareTilt
+          ? tele.strikeAzimuth
+          : crownResolvedForNew
+          ? crownResolvedForNew.strikeDeg
+          : orient.strike;
+      const effectiveAperture =
+        tele?.hasHardwarePressure
+          ? `${tele.inferredApertureMm} (${Math.round(tele.pressure * 100)}%)`
+          : 'Variable (0.5–3 mm)';
+      const effectiveRoughness =
+        tele?.hasHardwarePressure ? tele.inferredRoughness : 'Undulating / Rough';
+
       const newJoint: Joint = {
         id: newId,
         surface: activeSurface,
         geometry: finalPts,
         points3D: orient.points3D,
         vertexWidths: finalPts.map((_, idx) =>
-          Number(
-            (
-              0.45 +
-              0.22 * Math.sin((idx / Math.max(1, finalPts.length - 1)) * Math.PI)
-            ).toFixed(2)
-          )
+          tele?.hasHardwarePressure
+            ? tele.strokeWidthPx
+            : Number(
+                (
+                  0.45 +
+                  0.22 * Math.sin((idx / Math.max(1, finalPts.length - 1)) * Math.PI)
+                ).toFixed(2)
+              )
         ),
         traceAngle: orient.traceAngle,
         localAnglesDeg: orient.localAnglesDeg,
@@ -1880,11 +1921,9 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
         terminationStart: orient.terminationStart,
         terminationEnd: orient.terminationEnd,
         apparentDip: orient.apparentDip,
-        strike: crownResolvedForNew ? crownResolvedForNew.strikeDeg : orient.strike,
-        dip: crownResolvedForNew ? crownResolvedForNew.dipDeg : orient.dip,
-        dipDirection: crownResolvedForNew
-          ? crownResolvedForNew.dipDirectionDeg
-          : orient.dipDirection,
+        strike: effectiveStrike,
+        dip: effectiveDip,
+        dipDirection: effectiveDipDirection,
         orientationStatus: orient.orientationStatus,
         set: assignedSet,
         featureType: draftFeatureType,
@@ -1895,14 +1934,14 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
         accepted: true,
         persistenceMeters: orient.persistenceMeters,
         isCurved: jointDrawMode === 'smooth_curve' ? true : orient.isCurved,
-        roughness: 'Undulating / Rough',
+        roughness: effectiveRoughness,
         infilling:
           draftFeatureType === 'vein' || draftFeatureType === 'infilling'
             ? 'Quartz / Calcite Vein'
             : draftFeatureType === 'clay_band' || draftFeatureType === 'seam'
             ? 'Soft Clay Gouge'
             : 'Not determined',
-        apertureMm: 'Variable (0.5–3 mm)',
+        apertureMm: effectiveAperture,
         waterCondition: 'Dry',
       };
 
@@ -1946,6 +1985,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
       draftFeatureType,
       draftSetId,
       onUpdateStatusMessage,
+      applyStylusTiltToDip,
     ]
   );
 
@@ -2088,6 +2128,115 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
       return;
     }
     handleCanvasMouseUp();
+  };
+
+  // Hardware Tablet Stylus & Palm Rejection Pointer Event Dispatchers
+  const handleCanvasPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+
+    const palmDecision = palmRejectionRef.current.evaluatePointerEvent(e.nativeEvent);
+    if (!palmDecision.allow) {
+      return;
+    }
+
+    const driveAzimuth = settings.driveDirection ?? 0;
+    const telemetry = extractStylusTelemetry(e.nativeEvent, driveAzimuth);
+    lastStylusTelemetryRef.current = telemetry;
+    setStylusTelemetry(telemetry);
+
+    if (telemetry.isBarrelButton || e.button === 2) {
+      e.preventDefault();
+      setRadialMenuPos({ x: e.clientX, y: e.clientY });
+      return;
+    }
+
+    if (radialMenuPos) {
+      setRadialMenuPos(null);
+    }
+
+    if (telemetry.isEraserTip && selectedJointId) {
+      handleDeleteSelectedJoint();
+      return;
+    }
+
+    handleCanvasMouseDown(e as unknown as React.MouseEvent<SVGSVGElement>);
+  };
+
+  const handleCanvasPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const palmDecision = palmRejectionRef.current.evaluatePointerEvent(e.nativeEvent);
+    if (!palmDecision.allow) {
+      return;
+    }
+
+    const driveAzimuth = settings.driveDirection ?? 0;
+    const telemetry = extractStylusTelemetry(e.nativeEvent, driveAzimuth);
+    lastStylusTelemetryRef.current = telemetry;
+    if (telemetry.pointerType === 'pen') {
+      setStylusTelemetry(telemetry);
+    }
+
+    handleCanvasMouseMove(e as unknown as React.MouseEvent<SVGSVGElement>);
+  };
+
+  const handleCanvasPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    palmRejectionRef.current.evaluatePointerEvent(e.nativeEvent);
+    handleCanvasMouseUp();
+  };
+
+  const handleRadialAction = (actionId: string) => {
+    setRadialMenuPos(null);
+    switch (actionId) {
+      case 'joint_j1':
+        setActiveTool('add_joint');
+        setDraftSetId('J1');
+        setDraftFeatureType('joint');
+        break;
+      case 'joint_j2':
+        setActiveTool('add_joint');
+        setDraftSetId('J2');
+        setDraftFeatureType('joint');
+        break;
+      case 'fault_shear':
+        setActiveTool('add_joint');
+        setDraftSetId('Random');
+        setDraftFeatureType('fault');
+        break;
+      case 'lithology_contact':
+        setActiveTool('lithology');
+        break;
+      case 'lock_3d_dip':
+        if (lastStylusTelemetryRef.current?.hasHardwareTilt && selectedJointId) {
+          const t = lastStylusTelemetryRef.current;
+          onUpdateJointsWithHistory(
+            joints.map((j) =>
+              j.id === selectedJointId
+                ? {
+                    ...j,
+                    dip: t.inferredDipAngle,
+                    dipDirection: t.inferredDipDirection,
+                    strike: t.strikeAzimuth,
+                  }
+                : j
+            )
+          );
+          onUpdateStatusMessage?.(
+            `Locked 3D Stylus Tilt Dip to selected joint: ${t.inferredDipAngle}° → ${t.inferredDipDirection}°`
+          );
+        }
+        break;
+      case 'channel_sample':
+        setActiveTool('control_point');
+        break;
+      case 'eraser':
+        if (selectedJointId) {
+          handleDeleteSelectedJoint();
+        } else {
+          onUpdateStatusMessage?.('Select a joint on canvas first to erase it.');
+        }
+        break;
+    }
   };
 
   // Canvas Mouse Down (Unified Coordinate Pipeline via coordManager.screenToWorld)
@@ -3913,1685 +4062,100 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
       {/* ====================================================================
           LIGHT MODE CAD HEADER & PROMINENT 5-STEP WORKFLOW NAVIGATION BAR
          ==================================================================== */}
-      <header className="canvas-chrome relative z-40 flex flex-col bg-white border-b border-slate-200 shrink-0">
-        {/* ROW 1: FULL-WIDTH PROMINENT 6-STEP WORKFLOW BAR (Including Advance Analysis directly integrated) */}
-        <div className="w-full bg-slate-900 border-b border-slate-800 px-1.5 sm:px-2.5 py-1.5">
-          <div className="grid grid-cols-6 gap-1 sm:gap-1.5 w-full">
-            {(
-              [
-                { id: 'TUNNEL_PHOTO', step: '1', label: 'Face Fit', fullLabel: '1. Face Fit & Photo' },
-                { id: 'HOME', step: '2', label: 'Core Mapping', fullLabel: '2. Core Mapping' },
-                { id: 'GEOLOGY_3D', step: '3', label: 'Geology', fullLabel: '3. Geology & Rock' },
-                { id: 'ADVANCED_ANALYSIS', step: '4', label: 'Advance Modeling', fullLabel: '4. Advance Analysis & Modeling' },
-                { id: 'SURVEY_OVERBREAK', step: '5', label: 'Survey', fullLabel: '5. Survey & Overbreak' },
-                { id: 'CLASSIFICATION_SHEET', step: '6', label: 'Data Sheets', fullLabel: '6. Data Sheets & Export' },
-              ] as const
-            ).map((tab) => {
-              const isActiveStep = cadRibbonTab === tab.id && !cadRibbonCollapsed;
-              const isAdvanceAnalysis = tab.id === 'ADVANCED_ANALYSIS';
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    setCadRibbonTab(tab.id);
-                    setCadRibbonCollapsed(false);
-                  }}
-                  className={`step-workflow-btn flex items-center justify-center gap-1 sm:gap-2 px-1 py-1.5 sm:px-2.5 sm:py-2 rounded-lg font-mono font-bold transition-all cursor-pointer min-w-0 ${
-                    isActiveStep
-                      ? isAdvanceAnalysis
-                        ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md ring-2 ring-amber-300'
-                        : 'bg-sky-500 text-white shadow-md ring-2 ring-sky-300/90'
-                      : isAdvanceAnalysis
-                      ? 'bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-600/50'
-                      : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700/80'
-                  }`}
-                >
-                  <span
-                    className={`step-workflow-badge inline-flex items-center justify-center rounded-full font-extrabold shrink-0 ${
-                      isActiveStep
-                        ? isAdvanceAnalysis
-                          ? 'bg-slate-950 text-amber-300'
-                          : 'bg-white text-sky-700'
-                        : 'bg-slate-700 text-amber-300'
-                    }`}
-                  >
-                    {tab.step}
-                  </span>
-                  <span className="step-workflow-label truncate sm:hidden">{tab.label}</span>
-                  <span className="step-workflow-label truncate hidden sm:inline">{tab.fullLabel}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ROW 2: DEDICATED 4 TUNNEL PORTIONS BAR + QUICK ACTION CONTROLS */}
-        <div className="flex flex-nowrap overflow-x-auto no-scrollbar items-center justify-between gap-1.5 px-2 py-1 bg-slate-100 border-b border-slate-200">
-          {/* Left: Back to Setup + Save / Projects / Undo / Redo / Delete */}
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={onBackToSetup}
-              className="flex items-center gap-1 px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 font-mono text-[11px] font-bold rounded-lg border border-slate-200 transition-colors cursor-pointer"
-              title="Return to Project & Tunnel Photo Setup"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 text-sky-600" />
-              <span>Setup</span>
-            </button>
-
-            <div className="flex items-center gap-0.5 px-1 py-0.5 bg-white border border-slate-200 rounded-lg">
-              <button
-                onClick={onSaveOfflineDraft}
-                title="Save Field Draft Locally"
-                className="p-1 text-slate-600 hover:text-sky-700 hover:bg-slate-100 rounded cursor-pointer"
-              >
-                <Save className="w-3.5 h-3.5 text-sky-600" />
-              </button>
-              <button
-                onClick={() => onOpenProjectMemoryModal('projects')}
-                title="Saved Projects & Memory"
-                className="p-1 text-slate-600 hover:text-sky-700 hover:bg-slate-100 rounded cursor-pointer"
-              >
-                <Database className="w-3.5 h-3.5 text-sky-600" />
-              </button>
-              <div className="h-3 w-px bg-slate-200 mx-0.5" />
-              <button
-                onClick={handleUndoLithology}
-                disabled={
-                  lithologyPast.length === 0 &&
-                  controlPointPast.length === 0 &&
-                  symbolPast.length === 0 &&
-                  !canUndo
-                }
-                className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-25 rounded cursor-pointer"
-                title="Undo (Ctrl+Z)"
-              >
-                <Undo2 className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={handleRedoLithology}
-                disabled={
-                  lithologyFuture.length === 0 &&
-                  controlPointFuture.length === 0 &&
-                  symbolFuture.length === 0 &&
-                  !canRedo
-                }
-                className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-25 rounded cursor-pointer"
-                title="Redo (Ctrl+Y)"
-              >
-                <Redo2 className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => {
-                  if (selectedControlPointId) handleDeleteControlPoint(selectedControlPointId);
-                  else if (selectedSymbolId) handleDeletePlacedSymbol(selectedSymbolId);
-                  else if (selectedLithologyRegionId) {
-                    handleUpdateLithologyWithHistory(
-                      lithologyRegions.filter((r) => r.id !== selectedLithologyRegionId)
-                    );
-                    setSelectedLithologyRegionId(null);
-                  } else if (selectedJoint) handleDeleteSelectedJoint();
-                }}
-                disabled={
-                  !selectedJoint &&
-                  !selectedControlPointId &&
-                  !selectedSymbolId &&
-                  !selectedLithologyRegionId
-                }
-                className="p-1 text-slate-600 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-25 rounded cursor-pointer"
-                title="Delete Selected Object (Del)"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Center: Prominent 4 Tunnel Portions (Preserves Left Wall & Right Wall on Top Heading with Bench Portion Removed) */}
-          <div className="flex items-center gap-1.5 flex-1 min-w-[240px]">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600 font-bold shrink-0 hidden sm:inline">
-              Portion:
-            </span>
-            <div className="flex items-center gap-1 flex-1">
-              {(
-                [
-                  {
-                    id: 'face',
-                    shortLabel:
-                      geometry.excavationStage === 'TOP_HEADING' ||
-                      geometry.excavationStage === 'top_heading'
-                        ? '1. Face (Top Heading)'
-                        : '1. Face',
-                    enabled: true,
-                  },
-                  {
-                    id: 'crown',
-                    shortLabel:
-                      geometry.excavationStage === 'TOP_HEADING' ||
-                      geometry.excavationStage === 'top_heading'
-                        ? '2. Crown (Top Heading)'
-                        : '2. Crown',
-                    enabled: geometry.hasCrown !== false,
-                  },
-                  {
-                    id: 'leftWall',
-                    shortLabel:
-                      geometry.excavationStage === 'TOP_HEADING' ||
-                      geometry.excavationStage === 'top_heading'
-                        ? `3. L-Wall (${(geometry.leftWallHeight ?? geometry.wallHeight).toFixed(2)}m)`
-                        : '3. Left Wall',
-                    enabled: geometry.hasLeftWall !== false,
-                  },
-                  {
-                    id: 'rightWall',
-                    shortLabel:
-                      geometry.excavationStage === 'TOP_HEADING' ||
-                      geometry.excavationStage === 'top_heading'
-                        ? `4. R-Wall (${(geometry.rightWallHeight ?? geometry.wallHeight).toFixed(2)}m)`
-                        : '4. Right Wall',
-                    enabled: geometry.hasRightWall !== false,
-                  },
-                ] as { id: SurfaceType; shortLabel: string; enabled: boolean }[]
-              )
-                .filter((surf) => surf.enabled)
-                .map((surf) => {
-                  const hasImg = Boolean(photos[surf.id].image);
-                  const isActive = activeSurface === surf.id;
-                  return (
-                    <button
-                      key={surf.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectSurface(surf.id);
-                        setSelectedJointId(null);
-                        setDraftJointPoints([]);
-                      }}
-                      className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-mono font-bold rounded-md border transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
-                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          hasImg
-                            ? isActive
-                              ? 'bg-emerald-300'
-                              : 'bg-emerald-500'
-                            : isActive
-                            ? 'bg-white/60'
-                            : 'bg-slate-300'
-                        }`}
-                      />
-                      <span className="truncate">{surf.shortLabel}</span>
-                    </button>
-                  );
-                })}
-
-              {onOpenContinuousTunnelLog && (
-                <button
-                  type="button"
-                  onClick={onOpenContinuousTunnelLog}
-                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-bold rounded-md border border-amber-500/70 bg-gradient-to-r from-slate-900 to-slate-950 text-amber-300 hover:text-amber-200 transition-all cursor-pointer shadow-xs shrink-0"
-                  title="Open Continuous 3D Tunnel Logging (Unfolded 3D Shell Ch. 0+000 to Ch. 0+150 · A3 Strip · AutoCAD 2026)"
-                >
-                  <Layers className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="hidden md:inline">Continuous 3D Log</span>
-                  <span className="md:hidden">3D Log</span>
-                  <span className="px-1 py-0.2 rounded bg-amber-500 text-slate-950 text-[9px] font-extrabold">CAD</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Right: Layers + Advance Analysis & Modeling + Collapse Toggle */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Direct Advance Analysis & 3D Modeling Launcher */}
-            <button
-              type="button"
-              onClick={() => {
-                setCadRibbonTab('ADVANCED_ANALYSIS');
-                setCadRibbonCollapsed(false);
-              }}
-              className="flex items-center gap-1 px-2 py-1 text-[11px] font-mono font-bold rounded-lg transition-all cursor-pointer bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-xs ring-1 ring-amber-400"
-              title="Open Advance Analysis & 3D Geological Modeling (6 Full Capabilities: Excavation Logs, Weak Zone Projector, Sequential Face Recon, Apparent Thickness, Alignment Alternatives, Poor Rock Proportions)"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-slate-950" />
-              <span className="hidden sm:inline">Advance Analysis &amp; Modeling</span>
-              <span className="sm:hidden">Adv Modeling</span>
-              <span className="px-1 py-0.2 rounded bg-slate-950 text-amber-300 text-[9px] font-extrabold">6-in-1</span>
-            </button>
-
-            {cadRibbonTab !== 'CLASSIFICATION_SHEET' && (
-              <>
-                {/* Vector Layer Manager Dropdown */}
-                <div className="relative shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setShowLayerMenu((prev) => !prev)}
-                    className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-semibold rounded-lg border transition-colors cursor-pointer ${
-                      showLayerMenu
-                        ? 'bg-sky-600 text-white border-sky-500 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="Layer Visibility Manager"
-                  >
-                    <Layers className={`w-3.5 h-3.5 ${showLayerMenu ? 'text-white' : 'text-sky-600'}`} />
-                    <span>Layers</span>
-                  </button>
-                  {showLayerMenu && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-[110]"
-                        onClick={() => setShowLayerMenu(false)}
-                      />
-                      <div className="absolute right-0 top-full mt-1.5 w-64 p-3 bg-white border border-slate-300 rounded-xl shadow-2xl z-[120] text-xs font-mono space-y-2">
-                        <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 text-[10px] text-sky-700 font-bold">
-                          <span>LAYER VISIBILITY</span>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setLayerVisibility({
-                                  photo: true,
-                                  lithology: true,
-                                  overbreakUndercut: true,
-                                  controlPoints: true,
-                                  joints: true,
-                                  fractures: true,
-                                  faults: true,
-                                  bedding: true,
-                                  foliation: true,
-                                  otherStructures: true,
-                                  annotations: true,
-                                })
-                              }
-                              className="px-1.5 py-0.5 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[9px] cursor-pointer"
-                            >
-                              All On
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setLayerVisibility((prev) => ({
-                                  ...prev,
-                                  lithology: false,
-                                  overbreakUndercut: false,
-                                  controlPoints: false,
-                                  joints: false,
-                                  fractures: false,
-                                  faults: false,
-                                  bedding: false,
-                                  foliation: false,
-                                  otherStructures: false,
-                                  annotations: false,
-                                }))
-                              }
-                              className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[9px] cursor-pointer"
-                            >
-                              Photo Only
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setShowLayerMenu(false)}
-                              className="text-slate-400 hover:text-slate-700 px-1 cursor-pointer"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                        <div className="space-y-1 max-h-80 overflow-y-auto pr-0.5">
-                          <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 px-1 uppercase tracking-wider pb-0.5 border-b border-slate-100">
-                            <span>Layer Stack (Z-Order)</span>
-                            <span>Visible</span>
-                          </div>
-                          {layerOrder.map((key, idx) => {
-                            const labelMap: Record<string, string> = {
-                              photo: 'Surface Photo',
-                              joints: 'Joint Sets (J1–J8)',
-                              annotations: 'Dip / Strike Callout Labels',
-                              bedding: 'Bedding / Shale (J0)',
-                              faults: 'Faults & Shears (F1)',
-                              fractures: 'Fractures',
-                              foliation: 'Foliation & Lineation',
-                              otherStructures: 'Veins, Clay & Water',
-                              lithology: 'Lithology Zones',
-                              overbreakUndercut: 'Overbreak / Survey Profile',
-                              controlPoints: 'Survey Control Points',
-                            };
-                            const k = key as keyof VectorLayerVisibility;
-                            return (
-                              <div
-                                key={key}
-                                className="flex items-center justify-between py-1 px-1 rounded hover:bg-slate-50 text-[10.5px] text-slate-800 gap-1.5 group"
-                              >
-                                <div className="flex items-center gap-1 min-w-0">
-                                  {/* Shuffle Up / Down buttons */}
-                                  <div className="flex flex-col gap-0.5 shrink-0">
-                                    <button
-                                      type="button"
-                                      disabled={idx === 0}
-                                      onClick={() => handleMoveLayerUp(idx)}
-                                      className="p-0.5 text-[8px] leading-none text-slate-400 hover:text-sky-600 hover:bg-slate-100 rounded disabled:opacity-20 cursor-pointer"
-                                      title="Bring Layer Forward (Shuffle Up)"
-                                    >
-                                      ▲
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={idx === layerOrder.length - 1}
-                                      onClick={() => handleMoveLayerDown(idx)}
-                                      className="p-0.5 text-[8px] leading-none text-slate-400 hover:text-sky-600 hover:bg-slate-100 rounded disabled:opacity-20 cursor-pointer"
-                                      title="Send Layer Backward (Shuffle Down)"
-                                    >
-                                      ▼
-                                    </button>
-                                  </div>
-                                  <span className="truncate text-slate-700 font-medium">
-                                    {labelMap[key] || key}
-                                  </span>
-                                </div>
-                                <input
-                                  type="checkbox"
-                                  checked={layerVisibility[k] !== false}
-                                  onChange={(e) =>
-                                    setLayerVisibility((prev) => ({
-                                      ...prev,
-                                      [k]: e.target.checked,
-                                    }))
-                                  }
-                                  className="w-3.5 h-3.5 rounded-xs border-slate-300 text-sky-600 cursor-pointer shrink-0"
-                                />
-                              </div>
-                            );
-                          })}
-                          <div className="pt-1 border-t border-slate-100 flex items-center justify-between">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setLayerOrder([
-                                  'photo',
-                                  'lithology',
-                                  'overbreakUndercut',
-                                  'bedding',
-                                  'faults',
-                                  'fractures',
-                                  'foliation',
-                                  'otherStructures',
-                                  'joints',
-                                  'controlPoints',
-                                  'annotations',
-                                ])
-                              }
-                              className="text-[9px] text-slate-500 hover:text-slate-800 font-semibold cursor-pointer"
-                            >
-                              Reset Layer Order
-                            </button>
-                            <span className="text-[9px] font-mono text-slate-400">
-                              Top = Front
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCadRibbonTab('ADVANCED_ANALYSIS');
-                    setCadRibbonCollapsed(false);
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded-lg border transition-all cursor-pointer shrink-0 select-none ${
-                    cadRibbonTab === 'ADVANCED_ANALYSIS'
-                      ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black border-amber-300 shadow-md ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-100'
-                      : 'bg-gradient-to-r from-amber-50 to-amber-100/95 hover:from-amber-100 hover:to-amber-200 text-amber-950 border-amber-300 font-extrabold shadow-2xs hover:shadow-xs hover:border-amber-400'
-                  }`}
-                  title="Advance Geological Analytics: 3D Kinematic Wedge FoS, 4-Surface Apparent Dip, +3m/+6m/+9m Look-Ahead Extrapolation, Stand-up Time, Palmström Blocks, Hydro Inflow"
-                >
-                  <Zap
-                    className={`w-3.5 h-3.5 shrink-0 ${
-                      cadRibbonTab === 'ADVANCED_ANALYSIS'
-                        ? 'fill-slate-950 text-slate-950'
-                        : 'fill-amber-500 text-amber-700'
-                    }`}
-                  />
-                  <span className="hidden sm:inline">Advance Geological Analytics</span>
-                  <span className="sm:hidden">Adv Geological Analytics</span>
-                  {cadRibbonTab === 'ADVANCED_ANALYSIS' ? (
-                    <span className="w-2 h-2 rounded-full bg-slate-950 animate-pulse shrink-0 ml-0.5" />
-                  ) : (
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-200/90 text-amber-900 font-bold shrink-0">
-                      Step 4
-                    </span>
-                  )}
-                </button>
-
-                {/* DEDICATED TUNNEL JUNCTION FACTOR (Kj) CALCULATOR BUTTON */}
-                <button
-                  type="button"
-                  onClick={() => setShowJunctionFactorModal(true)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono rounded-lg border transition-all cursor-pointer shrink-0 select-none ${
-                    junctionFactorData
-                      ? 'bg-gradient-to-r from-violet-600 via-violet-500 to-indigo-600 text-white font-extrabold border-violet-400 shadow-md ring-2 ring-violet-400/50'
-                      : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 font-bold hover:border-slate-400 shadow-2xs'
-                  }`}
-                  title="Tunnel Junction Factor (Kj) Calculator: Intersections, T-Junctions, Adits & Bifurcations"
-                >
-                  <GitFork
-                    className={`w-3.5 h-3.5 shrink-0 ${
-                      junctionFactorData ? 'text-violet-200' : 'text-violet-600'
-                    }`}
-                  />
-                  <span className="hidden sm:inline">Junction Factor</span>
-                  <span className="sm:hidden">Junction</span>
-                  {junctionFactorData ? (
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-violet-900/80 text-violet-200 font-bold border border-violet-400/40 shrink-0">
-                      Kj={junctionFactorData.junctionFactorKj}×
-                    </span>
-                  ) : (
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-violet-100 text-violet-800 font-bold shrink-0">
-                      Calc
-                    </span>
-                  )}
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => setCadRibbonCollapsed((p) => !p)}
-              className="px-2 py-1 text-[11px] font-mono bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer shrink-0"
-              title="Collapse / Expand Active Step Toolbar"
-            >
-              {cadRibbonCollapsed ? '▼ Tools' : '▲'}
-            </button>
-          </div>
-        </div>
-
-        {/* ====================================================================
-            CLEAN CONTEXTUAL TOOLBAR FOR ACTIVE STEP (Plus Next-Step Guide Button)
-           ==================================================================== */}
-        {!cadRibbonCollapsed && (
-          <div
-            className={`flex items-center justify-between gap-1.5 bg-white max-w-full overflow-x-auto no-scrollbar touch-pan-x ${
-              cadRibbonTab !== 'CLASSIFICATION_SHEET'
-                ? 'px-2 py-1 text-[11px] flex-nowrap'
-                : 'px-3 py-1.5 text-[11px]'
-            }`}
-          >
-            <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
-              {/* STEP 1: PHOTO & PROFILE (First Step After Uploading Photos) */}
-              {cadRibbonTab === 'TUNNEL_PHOTO' && (
-                <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
-                  <label
-                    className="relative overflow-hidden flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold bg-sky-600 hover:bg-sky-500 text-white rounded-md shadow-2xs cursor-pointer"
-                    title="Upload or replace photograph for the active tunnel portion"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>{currentPhoto.image ? 'Replace Photo' : 'Upload Photo'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) onUploadPhotoFile(activeSurface, f);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
-
-                  <button
-                    onClick={() => {
-                      if (activeTool !== 'photo_fit') {
-                        setInitialTransformSnapshot(currentPhoto.transform);
-                        setTransformPast([]);
-                        setTransformFuture([]);
-                        setActiveTool('photo_fit');
-                      } else {
-                        setActiveTool('select');
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border transition-colors cursor-pointer ${
-                      activeTool === 'photo_fit'
-                        ? 'bg-sky-600 text-white border-sky-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                  >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                    Fit Photo to Profile
-                  </button>
-
-                  <button
-                    onClick={onAutoFitCurrentPhoto}
-                    disabled={!currentPhoto.image}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 rounded-md border border-slate-200 cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                    Auto-Fit
-                  </button>
-
-                  {/* 2-CLICK SPL SEAM LOCK & 1-CLICK AUTO SPL CROP (Solves Wall-Crown Photo Overlap) */}
-                  <button
-                    type="button"
-                    disabled={!currentPhoto.image}
-                    onClick={() => {
-                      if (splTwoClickMode) {
-                        setSplTwoClickMode(false);
-                        setSplFirstPointUV(null);
-                      } else {
-                        setSplFirstPointUV(null);
-                        setSplTwoClickMode(true);
-                        if (activeTool !== 'photo_fit') {
-                          setInitialTransformSnapshot(currentPhoto.transform);
-                          setActiveTool('photo_fit');
-                        }
-                        onUpdateStatusMessage?.(
-                          '2-Click SPL Seam Lock active: Click Point 1 (Left start) and Point 2 (Right end) along the Wall–Crown meet line (SPL) on the photo.'
-                        );
-                      }
-                    }}
-                    className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-bold rounded-md border transition-colors cursor-pointer disabled:opacity-40 ${
-                      splTwoClickMode
-                        ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse'
-                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-300'
-                    }`}
-                    title="2-Click Wall–Crown (SPL) Seam & Scale Lock: Click 2 points on the Wall–Crown meet line to auto-level, scale to true meters, and crop overlap"
-                  >
-                    <Crosshair className="w-3.5 h-3.5 text-emerald-700" />
-                    {splTwoClickMode
-                      ? splFirstPointUV
-                        ? 'Click 2nd SPL Pt →'
-                        : 'Click 1st SPL Pt →'
-                      : '2-Click SPL Seam Lock'}
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!currentPhoto.image}
-                    onClick={handleAutoDetectSplSeam}
-                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-mono font-semibold bg-cyan-50 hover:bg-cyan-100 disabled:opacity-40 text-cyan-900 rounded-md border border-cyan-300 cursor-pointer"
-                    title="1-Click Auto-Detect Wall–Crown (SPL) Seam: Automatically finds the horizontal Wall–Crown transition and crops overlap"
-                  >
-                    <Wand2 className="w-3.5 h-3.5 text-cyan-600" />
-                    Auto SPL Crop
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setSimpleAccuracyInitialTab('full_photo_1ft_scale');
-                      setShowSimpleAccuracyModal(true);
-                    }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md shadow-2xs cursor-pointer"
-                    title="Upload overall full tunnel picture with 1-Foot field scale to auto-extract tunnel Width, Height, and where Left Wall, Crown, and Right Wall start & end"
-                  >
-                    <Ruler className="w-3.5 h-3.5" />
-                    Full Photo + 1-Ft Scale
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShow3DPhotoTunnelModal(true)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold bg-sky-700 hover:bg-sky-600 text-white rounded-md shadow-2xs cursor-pointer"
-                    title="Open Interactive 3D Photo-Textured Tunnel Viewer (Wraps upscaled Face, Crown, Left Wall & Right Wall photos onto 3D tunnel mesh with 2.5D rock relief & inside walk-through)"
-                  >
-                    <Box className="w-3.5 h-3.5 text-amber-300" />
-                    3D Photo Tunnel
-                  </button>
-
-                  {onOpenCustomProfileEditor && (
-                    <button
-                      onClick={onOpenCustomProfileEditor}
-                      className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 cursor-pointer"
-                    >
-                      <Ruler className="w-3.5 h-3.5 text-sky-600" />
-                      Shape ({geometry.width.toFixed(1)}×{geometry.height.toFixed(1)}m)
-                    </button>
-                  )}
-
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 rounded-md border border-slate-200">
-                    <Eye className="w-3.5 h-3.5 text-slate-500" />
-                    <span className="text-[10px] font-mono text-slate-600">Opacity</span>
-                    <select
-                      value={currentPhoto.opacity}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        onUpdatePhotoSurface(activeSurface, (prev) => ({ ...prev, opacity: val }));
-                      }}
-                      className="bg-white text-slate-800 font-mono text-[10px] px-1.5 py-0.5 rounded border border-slate-200"
-                    >
-                      {[100, 75, 50, 25, 0].map((val) => (
-                        <option key={val} value={val}>
-                          {val}%
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-
-                  {/* ADVANCED PHOTO & VISION TOOLS (Shown when Advanced is active) */}
-                  {windowComplexityMode === 'advanced' && (
-                    <>
-                      <div className="h-4 w-px bg-slate-200 mx-0.5" />
-                      {currentPhoto.image && (currentPhoto.supportingPhotos?.length || 0) < 5 && (
-                        <button
-                          onClick={() => stereoFileInputRef.current?.click()}
-                          className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 cursor-pointer"
-                          title="Upload a second angle stereo photo to compute ZNCC 3D Depth Relief"
-                        >
-                          <Camera className="w-3.5 h-3.5 text-emerald-600" />
-                          +Stereo Photo ({currentPhoto.supportingPhotos?.length || 0}/5)
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => {
-                          setShowCrackXRayOverlay((prev) => {
-                            const next = !prev;
-                            if (next) setShowDepthReliefOverlay(false);
-                            return next;
-                          });
-                        }}
-                        disabled={!activePhotoRidgeField?.xrayOverlayDataUrl}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold rounded-md border transition-colors cursor-pointer disabled:opacity-40 ${
-                          showCrackXRayOverlay
-                            ? 'bg-cyan-600 text-white border-cyan-500 shadow-2xs'
-                            : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-900 border-cyan-200'
-                        }`}
-                        title="Toggle CLAHE + Frangi Hessian Crack X-Ray Vision Overlay"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        Crack X-Ray
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setShowDepthReliefOverlay((prev) => {
-                            const next = !prev;
-                            if (next) setShowCrackXRayOverlay(false);
-                            return next;
-                          });
-                        }}
-                        disabled={!activePhotoRidgeField?.depthReliefOverlayDataUrl}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold rounded-md border transition-colors cursor-pointer disabled:opacity-40 ${
-                          showDepthReliefOverlay
-                            ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xs'
-                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
-                        }`}
-                        title="Toggle 3D Photogrammetric Depth Relief & Phase Congruency Dip Facet Heatmap"
-                      >
-                        <Layers className="w-3.5 h-3.5" />
-                        3D Depth Relief
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setActiveTool(activeTool === 'measure' ? 'select' : 'measure');
-                          setMeasurePts([]);
-                        }}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                          activeTool === 'measure'
-                            ? 'bg-emerald-600 text-white border-emerald-500'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                        }`}
-                        title="2-Point Laser/Tape True-Scale Calibrator & Virtual Scanline RQD"
-                      >
-                        <Ruler className="w-3.5 h-3.5 text-emerald-600" />
-                        2-Pt Laser Scale
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* STEP 2: CORE MAPPING (Trace Joints, X-Ray Vision, Seed Auto-Propagate & Joint Sets) */}
-              {cadRibbonTab === 'HOME' && (
-                <div className="flex items-center gap-1 shrink-0 flex-nowrap">
-                  <button
-                    onClick={() => {
-                      if (draftJointPoints.length >= 2) {
-                        finishDraftJoint(draftJointPoints);
-                      } else {
-                        setDraftJointPoints([]);
-                      }
-                      setActiveTool('select');
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border transition-colors cursor-pointer ${
-                      activeTool === 'select'
-                        ? 'bg-sky-600 text-white border-sky-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                  >
-                    <MousePointer className="w-3.5 h-3.5" />
-                    Select / Edit
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (draftJointPoints.length >= 2) {
-                        finishDraftJoint(draftJointPoints);
-                      } else {
-                        setDraftJointPoints([]);
-                      }
-                      if (activeTool === 'add_joint' && jointDrawMode === 'two_point_line') {
-                        setActiveTool('select');
-                      } else {
-                        setSelectedJointId(null);
-                        setShowCadPropertiesAlways(false);
-                        setJointDrawMode('two_point_line');
-                        setActiveTool('add_joint');
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border transition-colors cursor-pointer ${
-                      activeTool === 'add_joint' && jointDrawMode === 'two_point_line'
-                        ? 'bg-amber-600 text-white border-amber-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                    title="2-Point Line: Click start point and end point to draw a straight trace"
-                  >
-                    <PenTool className="w-3.5 h-3.5" />
-                    2-Pt Line
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (draftJointPoints.length >= 2) {
-                        finishDraftJoint(draftJointPoints);
-                      } else {
-                        setDraftJointPoints([]);
-                      }
-                      if (activeTool === 'add_joint' && jointDrawMode === 'polyline') {
-                        setActiveTool('select');
-                      } else {
-                        setSelectedJointId(null);
-                        setShowCadPropertiesAlways(false);
-                        setJointDrawMode('polyline');
-                        setActiveTool('add_joint');
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border transition-colors cursor-pointer ${
-                      activeTool === 'add_joint' && jointDrawMode === 'polyline'
-                        ? 'bg-amber-600 text-white border-amber-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                    title="Polyline Tool: Click multiple points along a joint trace, then click Complete"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Polyline
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (draftJointPoints.length >= 2) {
-                        finishDraftJoint(draftJointPoints);
-                      } else {
-                        setDraftJointPoints([]);
-                      }
-                      if (activeTool === 'add_joint' && jointDrawMode === 'smooth_curve') {
-                        setActiveTool('select');
-                      } else {
-                        setSelectedJointId(null);
-                        setShowCadPropertiesAlways(false);
-                        setJointDrawMode('smooth_curve');
-                        setActiveTool('add_joint');
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border transition-colors cursor-pointer ${
-                      activeTool === 'add_joint' && jointDrawMode === 'smooth_curve'
-                        ? 'bg-amber-600 text-white border-amber-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                    title="Spline Tool: Click 3, 4, 5+ points to draw a smooth curve, then click Complete to view Properties"
-                  >
-                    <Wand2 className="w-3.5 h-3.5 text-amber-600" />
-                    Spline Tool
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (draftJointPoints.length >= 2) {
-                        finishDraftJoint(draftJointPoints);
-                      } else {
-                        setDraftJointPoints([]);
-                      }
-                      if (activeTool === 'add_joint' && jointDrawMode === 'freehand') {
-                        setActiveTool('select');
-                      } else {
-                        setSelectedJointId(null);
-                        setShowCadPropertiesAlways(false);
-                        setJointDrawMode('freehand');
-                        setActiveTool('add_joint');
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border transition-colors cursor-pointer ${
-                      activeTool === 'add_joint' && jointDrawMode === 'freehand'
-                        ? 'bg-amber-600 text-white border-amber-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                    title="Freehand Curve: Press and drag to sketch a continuous geological trace"
-                  >
-                    Freehand
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (activeTool === 'lithology') {
-                        setActiveTool('select');
-                        setIsDrawingLithologyPolygon(false);
-                        setDraftLithologyPoints([]);
-                      } else {
-                        setActiveTool('lithology');
-                        setShowCadPropertiesAlways(true);
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                      activeTool === 'lithology'
-                        ? 'bg-amber-600 text-white border-amber-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                    title="Lithology Zones & Rock Type Properties"
-                  >
-                    <Layers className="w-3.5 h-3.5 text-amber-600" />
-                    Lithology ({lithologyRegions.filter((r) => r.surface === activeSurface).length})
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (activeTool === 'geological_symbol') {
-                        setActiveTool('select');
-                      } else {
-                        setActiveTool('geological_symbol');
-                        setShowCadPropertiesAlways(true);
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                      activeTool === 'geological_symbol'
-                        ? 'bg-purple-600 text-white border-purple-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                    title="ISRM Geological Symbols & Orientation Properties"
-                  >
-                    <Compass className="w-3.5 h-3.5 text-purple-600" />
-                    Symbols ({surfacePlacedSymbols.length})
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (draftJointPoints.length >= 2) {
-                        finishDraftJoint(draftJointPoints);
-                      } else {
-                        setDraftJointPoints([]);
-                      }
-                      if (activeTool === 'add_joint' && jointDrawMode === 'magnetic_livewire') {
-                        setActiveTool('select');
-                      } else {
-                        setJointDrawMode('magnetic_livewire');
-                        setActiveTool('add_joint');
-                        setShowCadPropertiesAlways(true);
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border transition-colors cursor-pointer ${
-                      activeTool === 'add_joint' && jointDrawMode === 'magnetic_livewire'
-                        ? 'bg-sky-600 text-white border-sky-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                    title="Magnetic Live-Wire: Automatically hugs rock fracture valley between clicks"
-                  >
-                    <Wand2 className="w-3.5 h-3.5 text-sky-600" />
-                    Snap Crack
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (draftJointPoints.length >= 2) {
-                        finishDraftJoint(draftJointPoints);
-                      } else {
-                        setDraftJointPoints([]);
-                      }
-                      if (activeTool === 'add_joint' && jointDrawMode === 'seed_autotrace') {
-                        setActiveTool('select');
-                      } else {
-                        setJointDrawMode('seed_autotrace');
-                        setActiveTool('add_joint');
-                        setShowCadPropertiesAlways(true);
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold rounded-md border transition-colors cursor-pointer ${
-                      activeTool === 'add_joint' && jointDrawMode === 'seed_autotrace'
-                        ? 'bg-emerald-600 text-white border-emerald-500'
-                        : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border-emerald-200'
-                    }`}
-                    title="Real-Time MATLAB 1-Click Seed Auto-Propagate + ActiveContour Snake: Hover over any rock fracture for live trace lock & click once to extract"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                    1-Click MATLAB Seed
-                  </button>
-
-                  {/* MULTI-FILTER TRACE ANALYSIS SELECTOR IN CORE MAPPING */}
-                  <div className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 rounded-md border border-indigo-200">
-                    <span className="text-[10px] font-mono font-bold text-indigo-900">Filter:</span>
-                    <select
-                      value={
-                        showCrackXRayOverlay
-                          ? 'xray_ridge'
-                          : showDepthReliefOverlay
-                          ? 'depth_relief'
-                          : activePhotoFilterMode
-                      }
-                      onChange={(e) => {
-                        const mode = e.target.value as PhotoSpectralFilterMode;
-                        setActivePhotoFilterMode(mode);
-                        setShowCrackXRayOverlay(mode === 'xray_ridge');
-                        setShowDepthReliefOverlay(mode === 'depth_relief');
-                      }}
-                      disabled={!currentPhoto.image}
-                      className="bg-white text-indigo-950 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border border-indigo-300 cursor-pointer disabled:opacity-40"
-                      title="Switch Photo Filter for Visual & Automated Trace Analysis (Negative, False Color, Green-Red, Edge Relief)"
-                    >
-                      <option value="original">Original HD</option>
-                      <option value="negative">Negative (Hairline)</option>
-                      <option value="false_color">False Color (Aperture)</option>
-                      <option value="green_red">Green–Red (Clay/Vein)</option>
-                      <option value="edge_relief">Edge Relief (Step)</option>
-                      <option value="xray_ridge">Crack X-Ray</option>
-                      <option value="depth_relief">3D Depth Relief</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => handleExtractTracesFromPhotoFilter()}
-                      disabled={!activePhotoRidgeField}
-                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded cursor-pointer shadow-2xs"
-                      title="Extract geological traces using Multi-Filter Cross-Validation + ±10° Set-Steered Pass + SPL Overlap Deduplication"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      Filter Trace
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDeduplicateSplOverlaps}
-                      disabled={joints.length < 2}
-                      className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono font-bold bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded cursor-pointer"
-                      title="Deduplicate & Link Overlapping Traces across Left Wall ↔ Crown and Right Wall ↔ Crown (SPL Seam)"
-                    >
-                      SPL Dedup
-                    </button>
-                  </div>
-
-                  <button
-                    onClick={onRunAITrace}
-                    disabled={isTracingAI}
-                    title="Deep 6-Filter & MATLAB Cross-Verified AI Trace: Runs Negative, Green-Red, False Color, Edge Relief, MATLAB Phase Congruency & Steger Hessian + AI, cross-checks every vertex, trims drifted tails, and erases mistaken/shadow traces"
-                    className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-mono font-bold bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white rounded-md shadow-2xs transition-colors cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    {isTracingAI ? 'Verifying 6 Filters + MATLAB...' : 'AI Trace (6-Filter Verified)'}
-                  </button>
-
-                  {onFeedSampleData && (
-                    <button
-                      type="button"
-                      onClick={onFeedSampleData}
-                      className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-md shadow-2xs transition-colors cursor-pointer"
-                      title="Feed Complete Sample Field Dataset (4 Surface Photos + 16 Multi-Surface Joints + Lithology + Overbreak Survey + RMR/Q/GSI + 3D Strip Logs)"
-                    >
-                      <Database className="w-3.5 h-3.5" />
-                      Feed Sample Data
-                    </button>
-                  )}
-
-                  {/* ADVANCED CORE MAPPING TOOLS (Shown when Advanced is active) */}
-                  {windowComplexityMode === 'advanced' && (
-                    <>
-                      <div className="h-4 w-px bg-slate-200 mx-0.5" />
-
-                      <button
-                        onClick={onRunAITraceAllSurfaces}
-                        disabled={isTracingAI}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 border border-slate-200 rounded-md cursor-pointer"
-                      >
-                        Trace All 4 Surfaces
-                      </button>
-
-                      <button
-                        onClick={handleRefineAllActiveSurfaceTraces}
-                        disabled={!activePhotoRidgeField || surfaceJoints.length === 0}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold bg-cyan-50 hover:bg-cyan-100 disabled:opacity-40 text-cyan-900 border border-cyan-300 rounded-md cursor-pointer"
-                        title="Sub-Pixel Steger Parabolic Ridge Lock (0.12px) + 3D SVD + Barton JRC for all traces on this surface"
-                      >
-                        <Wand2 className="w-3.5 h-3.5 text-cyan-600" />
-                        Sub-Pixel Ridge Lock
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setShowDepthReliefOverlay((prev) => {
-                            const next = !prev;
-                            if (next) setShowCrackXRayOverlay(false);
-                            return next;
-                          });
-                        }}
-                        disabled={!activePhotoRidgeField?.depthReliefOverlayDataUrl}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold rounded-md border transition-colors cursor-pointer disabled:opacity-40 ${
-                          showDepthReliefOverlay
-                            ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xs'
-                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
-                        }`}
-                        title="Toggle 3D Depth Relief & Phase Congruency Dip Facet Heatmap"
-                      >
-                        <Layers className="w-3.5 h-3.5" />
-                        3D Dip Facet Relief
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setActiveTool(activeTool === 'measure' ? 'select' : 'measure');
-                          setMeasurePts([]);
-                        }}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                          activeTool === 'measure'
-                            ? 'bg-emerald-600 text-white border-emerald-500'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                        }`}
-                        title="Draw a virtual scanline across mapped joints to compute Scanline RQD (%), Priest-Hudson RQD, Fracture Frequency λ"
-                      >
-                        <Ruler className="w-3.5 h-3.5 text-emerald-600" />
-                        Scanline RQD
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setSimpleAccuracyInitialTab('four_part_accuracy');
-                          setShowSimpleAccuracyModal(true);
-                        }}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-md border border-emerald-200 cursor-pointer"
-                        title="Open 4-Part Simple Accuracy Booster (Corner Trace Linker, Field Compass, RMR/Q Auto-Sync, Wedge Check)"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                        4-Part Accuracy
-                      </button>
-
-                      <button
-                        onClick={() => setShow3DStrikeDipModal(true)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold bg-sky-600 hover:bg-sky-500 text-white rounded-md shadow-2xs cursor-pointer"
-                        title="Open Interactive 3D Joint Strike & Dip Visualizer relative to Tunnel Drive Direction"
-                      >
-                        <Box className="w-3.5 h-3.5" />
-                        3D Strike &amp; Dip
-                      </button>
-
-                      <button
-                        onClick={() => setShowAILearningDrawer((prev) => !prev)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                          showAILearningDrawer
-                            ? 'bg-amber-600 text-white border-amber-500'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                        }`}
-                        title="Open Self-Learning Geologist AI Memory & Verified Orientation Training"
-                      >
-                        AI Memory ({sessionMemory.verifiedExamplesCount ?? 0})
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* STEP 3: GEOLOGY (Dip Surface, 3D Facets, Lithology, Symbols, Stereonet, JRC & Wedges) */}
-              {cadRibbonTab === 'GEOLOGY_3D' && (
-                <div className="flex items-center gap-1 shrink-0 flex-nowrap">
-                  <button
-                    onClick={() => {
-                      if (activeTool === 'lithology') {
-                        setActiveTool('select');
-                        setIsDrawingLithologyPolygon(false);
-                        setDraftLithologyPoints([]);
-                      } else {
-                        setActiveTool('lithology');
-                        setShowCadPropertiesAlways(true);
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                      activeTool === 'lithology'
-                        ? 'bg-amber-600 text-white border-amber-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                  >
-                    <Layers className="w-3.5 h-3.5 text-amber-600" />
-                    Lithology Zones ({lithologyRegions.filter((r) => r.surface === activeSurface).length})
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (activeTool === 'geological_symbol') {
-                        setActiveTool('select');
-                      } else {
-                        setActiveTool('geological_symbol');
-                        setShowCadPropertiesAlways(true);
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                      activeTool === 'geological_symbol'
-                        ? 'bg-purple-600 text-white border-purple-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                  >
-                    <Compass className="w-3.5 h-3.5 text-purple-600" />
-                    Geological Symbols ({surfacePlacedSymbols.length})
-                  </button>
-
-                  <button
-                    onClick={() =>
-                      setActiveTool(activeTool === 'dip_probe' ? 'select' : 'dip_probe')
-                    }
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold rounded-md border cursor-pointer ${
-                      activeTool === 'dip_probe'
-                        ? 'bg-sky-600 text-white border-sky-500'
-                        : 'bg-sky-50 text-sky-900 hover:bg-sky-100 border-sky-200'
-                    }`}
-                    title="Interactive 3D Dip Surface & Facet Orientation Probe"
-                  >
-                    <Compass className="w-3.5 h-3.5 text-sky-600" />
-                    3D Dip Surface Probe
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setShowDepthReliefOverlay((prev) => {
-                        const next = !prev;
-                        if (next) setShowCrackXRayOverlay(false);
-                        return next;
-                      });
-                    }}
-                    disabled={!activePhotoRidgeField?.depthReliefOverlayDataUrl}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold rounded-md border transition-colors cursor-pointer disabled:opacity-40 ${
-                      showDepthReliefOverlay
-                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xs'
-                        : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-300'
-                    }`}
-                    title="Toggle 3D Depth Relief & Dip Surface Facet Heatmap (Shape-from-Shading + Stereo ZNCC)"
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    {showDepthReliefOverlay ? 'Dip Facet Map ON' : 'Dip Surface Relief Map'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCadRibbonTab('ADVANCED_ANALYSIS');
-                      setCadRibbonCollapsed(false);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-mono font-extrabold bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 text-slate-950 rounded-md shadow-md ring-1 ring-amber-300 cursor-pointer"
-                    title="Open Deep Advance Geological Analysis: Wedge FoS, 4-Surface Apparent Dip Solver, +3m/+6m/+9m Look-Ahead, Stand-up Time, Palmström Blocks, Hydro Inflow"
-                  >
-                    <Zap className="w-3.5 h-3.5 fill-slate-950" />
-                    ⚡ Advance Geological Analytics
-                  </button>
-
-                  <button
-                    onClick={() => setShow3DPhotoTunnelModal(true)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md shadow-2xs cursor-pointer"
-                    title="Open Interactive 3D Photo-Textured Tunnel Builder (2x Upscaled Photos + 2.5D Rock Relief + Walk-Through + 3D Planes)"
-                  >
-                    <Box className="w-3.5 h-3.5" />
-                    3D Photo Tunnel
-                  </button>
-
-                  <button
-                    onClick={() => setShow3DStrikeDipModal(true)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold bg-sky-600 hover:bg-sky-500 text-white rounded-md shadow-2xs cursor-pointer"
-                    title="Open Interactive 3D Joint Strike & Dip Visualizer relative to Tunnel Drive Direction"
-                  >
-                    <Box className="w-3.5 h-3.5" />
-                    3D Strike &amp; Dip vs. Drive
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setMatlabInitialTab('TRAIC_AI_SEGMENTATION');
-                      setShowMatlabAnalyzerModal(true);
-                    }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-md shadow-2xs cursor-pointer"
-                    title="Open TRaiC AI Fracture & Trace Segmentation (adapthisteq -> fibermetric -> bwmorph('skel') -> PCA Linking)"
-                  >
-                    <Wand2 className="w-3.5 h-3.5" />
-                    TRaiC AI Fracture &amp; Trace Segmentation
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setMatlabInitialTab('JOINT_NETWORK_3D_PCA_SVD');
-                      setShowMatlabAnalyzerModal(true);
-                    }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 rounded-md shadow-2xs cursor-pointer"
-                    title="3D Joint Network & Plane Fitting (PCA / SVD): Fits 3D planes to trace vertices to calculate Dip, Dip Direction, Trace Persistence, and True Normal Set Spacing"
-                  >
-                    <Box className="w-3.5 h-3.5" />
-                    3D Plane Fit: Dip, Persistence &amp; Spacing
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setMatlabInitialTab(
-                        activeSurface === 'face'
-                          ? 'FACE_JOIN_AND_BLOCKS'
-                          : 'WALL_CROWN_3D_SVD'
-                      );
-                      setShowMatlabAnalyzerModal(true);
-                    }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-md shadow-2xs cursor-pointer"
-                    title="Open MATLAB Matrix + AI Joint & Face/3D SVD Coplanarity Analyzer"
-                  >
-                    <Calculator className="w-3.5 h-3.5" />
-                    MATLAB + AI Joint &amp; Face/3D Analyzer
-                  </button>
-
-                  {/* ADVANCED GEOLOGY & STRUCTURAL TOOLS (Shown when Advanced is active) */}
-                  {windowComplexityMode === 'advanced' && (
-                    <>
-                      <div className="h-4 w-px bg-slate-200 mx-0.5" />
-
-                      <button
-                        onClick={() => openPhotogrammetryLab('kinematic')}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-md shadow-2xs cursor-pointer"
-                        title="Open Equal-Area / Equal-Angle Hemispherical Stereonet & 3D Tetrahedral Wedge Keyblock Detector"
-                      >
-                        <Compass className="w-3.5 h-3.5" />
-                        Stereonet &amp; 3D Wedges
-                      </button>
-
-                      <button
-                        onClick={() => openPhotogrammetryLab('jrc')}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-md cursor-pointer"
-                        title="Open Barton & Choubey (1977) / Tse & Cruden Z2 Empirical JRC Roughness Analyzer"
-                      >
-                        Barton JRC Roughness
-                      </button>
-
-                      <button
-                        onClick={() => openPhotogrammetryLab('seepage')}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold bg-cyan-50 hover:bg-cyan-100 text-cyan-900 border border-cyan-300 rounded-md cursor-pointer"
-                        title="Open Groundwater Seepage Zone Mapper & Automatic Jw / RMR Water Sync"
-                      >
-                        Seepage &amp; Water Lab
-                      </button>
-
-                      <button
-                        onClick={() => openPhotogrammetryLab('pointcloud')}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-md cursor-pointer"
-                        title="Open 3D Photogrammetric Point Cloud (.PLY) & Unfolded Perimeter Projections"
-                      >
-                        3D Point Cloud (.PLY)
-                      </button>
-
-                      <button
-                        onClick={() => setShowRockSupportModal(true)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-md cursor-pointer"
-                        title="Open Automated Rock Bolt & SFRS Shotcrete Support Pattern Designer"
-                      >
-                        Support Pattern (Bolts/SFRS)
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* STEP 4: SURVEY (Strictly Control Points, Overbreak & Distance Measurement) */}
-              {cadRibbonTab === 'SURVEY_OVERBREAK' && (
-                <div className="flex items-center gap-1 shrink-0 flex-nowrap">
-                  <button
-                    onClick={() =>
-                      setActiveTool(activeTool === 'control_point' ? 'select' : 'control_point')
-                    }
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                      activeTool === 'control_point'
-                        ? 'bg-emerald-600 text-white border-emerald-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                  >
-                    <Crosshair className="w-3.5 h-3.5 text-emerald-600" />
-                    Survey Control Points ({surfaceControlPoints.length})
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      const nextTool = activeTool === 'overbreak' ? 'select' : 'overbreak';
-                      setActiveTool(nextTool);
-                      if (nextTool === 'overbreak') {
-                        setLayerVisibility((prev) => ({ ...prev, overbreakUndercut: true }));
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                      activeTool === 'overbreak'
-                        ? 'bg-rose-600 text-white border-rose-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                  >
-                    <Layers className="w-3.5 h-3.5 text-rose-600" />
-                    Overbreak / Undercut
-                    {overbreakAnalysis.hasValidSurveyProfile && (
-                      <span className="px-1 py-0.2 bg-rose-100 text-rose-700 rounded text-[9px] font-mono">
-                        +{overbreakAnalysis.overbreakAreaSqMeters.toFixed(1)}m²
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setActiveTool(activeTool === 'measure' ? 'select' : 'measure');
-                      setMeasurePts([]);
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium rounded-md border cursor-pointer ${
-                      activeTool === 'measure'
-                        ? 'bg-sky-600 text-white border-sky-500'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'
-                    }`}
-                  >
-                    <Ruler className="w-3.5 h-3.5 text-sky-600" />
-                    Measure &amp; Scanline
-                  </button>
-
-                  {windowComplexityMode === 'advanced' && (
-                    <>
-                      <div className="h-4 w-px bg-slate-200 mx-0.5" />
-                      {onGenerateSampleAsBuiltProfile && (
-                        <button
-                          onClick={onGenerateSampleAsBuiltProfile}
-                          className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-md cursor-pointer"
-                        >
-                          Auto-Detect As-Built Profile
-                        </button>
-                      )}
-                      <button
-                        onClick={() => onOpenExportSheet('ENGINEERING_QUANTITY_SHEET')}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md cursor-pointer"
-                      >
-                        Overbreak Volume Sheet
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* STEP 4: ADVANCE ANALYSIS CONTEXTUAL BAR */}
-              {cadRibbonTab === 'ADVANCED_ANALYSIS' && (
-                <div className="flex items-center gap-2 shrink-0 sm:flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setCadRibbonTab('HOME')}
-                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-md cursor-pointer"
-                    title="Return to Core Mapping Canvas"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5 text-sky-600" />
-                    <span>Back to Canvas</span>
-                  </button>
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-md">
-                    <Zap className="w-3.5 h-3.5 fill-current text-amber-600" />
-                    <span>Step 4: Advance Geological Analytics Active</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowJunctionFactorModal(true)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-bold rounded-md border transition-all cursor-pointer ${
-                      junctionFactorData
-                        ? 'bg-violet-700 text-white border-violet-500 shadow-xs'
-                        : 'bg-violet-50 hover:bg-violet-100 text-violet-900 border-violet-300'
-                    }`}
-                    title="Calculate Tunnel Junction Factor (Kj), Diagonal Span & Extended Support"
-                  >
-                    <GitFork className="w-3.5 h-3.5 text-violet-500" />
-                    <span>Junction Factor Calculator</span>
-                    {junctionFactorData && (
-                      <span className="text-[9px] px-1 bg-violet-900 text-violet-200 rounded font-mono">
-                        Kj = {junctionFactorData.junctionFactorKj}×
-                      </span>
-                    )}
-                  </button>
-                </div>
-              )}
-
-              {/* STEP 5: TABLES & OUTPUT (Strictly Discontinuity Tables, Rock Classification & Final Output Sheet) */}
-              {cadRibbonTab === 'CLASSIFICATION_SHEET' && (
-                <div className="flex items-center gap-1.5 shrink-0 sm:flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setCadRibbonTab('HOME')}
-                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-md cursor-pointer"
-                    title="Back to Core Mapping Canvas"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5 text-sky-600" />
-                    <span>Back</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setGeologyDrawerTab('geology_tables');
-                      setShowAILearningDrawer(false);
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono rounded-md border cursor-pointer ${
-                      geologyDrawerTab === 'geology_tables'
-                        ? 'bg-sky-600 text-white border-sky-500'
-                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                    }`}
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-sky-600" />
-                    1. Discontinuity Set Tables ({jointSets.length})
-                  </button>
-
-                  <div className="flex items-center bg-slate-100 border border-slate-200 rounded-md overflow-hidden">
-                    <select
-                      value={selectedClassificationMethod}
-                      onChange={(e) => {
-                        onChangeSelectedClassificationMethod(
-                          e.target.value as RockMassClassificationMethodId
-                        );
-                        setGeologyDrawerTab('q_index');
-                        setShowAILearningDrawer(false);
-                      }}
-                      className="bg-white text-indigo-700 text-[10px] font-mono font-bold px-2 py-1 border-r border-slate-200 outline-none cursor-pointer"
-                    >
-                      <option value="RMR">RMR</option>
-                      <option value="Q_SYSTEM">Q-Sys</option>
-                      <option value="BOTH_RMR_AND_Q">RMR+Q</option>
-                      <option value="GSI">GSI</option>
-                    </select>
-                    <button
-                      onClick={() => {
-                        setGeologyDrawerTab('q_index');
-                        setShowAILearningDrawer(false);
-                      }}
-                      className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono cursor-pointer ${
-                        geologyDrawerTab === 'q_index'
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      <Calculator className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>2.</span>
-                      {(() => {
-                        const rmrEval = calculateBieniawskiRmr(rmrParams);
-                        const qEval = evaluateQSystemWithValidation(
-                          qIndexParams,
-                          geometry.width,
-                          qParamStatus
-                        );
-                        const gsiEval = calculateHoekGsi(gsiParams);
-                        if (selectedClassificationMethod === 'RMR') {
-                          return rmrEval.isComplete && rmrEval.finalRmr !== null
-                            ? `RMR=${rmrEval.finalRmr}`
-                            : 'RMR';
-                        }
-                        if (selectedClassificationMethod === 'Q_SYSTEM') {
-                          return qEval.isComplete ? `Q=${qEval.qValue.toFixed(1)}` : 'Q-System';
-                        }
-                        if (selectedClassificationMethod === 'BOTH_RMR_AND_Q') {
-                          return `RMR=${rmrEval.finalRmr ?? 'N/A'}|Q=${
-                            qEval.isComplete ? qEval.qValue.toFixed(1) : 'N/A'
-                          }`;
-                        }
-                        return `GSI=${gsiEval.gsiValue ?? 'N/A'}`;
-                      })()}
-                    </button>
-                  </div>
-
-                  <button
-                    onClick={() =>
-                      onOpenExportSheet(
-                        activeTool === 'overbreak'
-                          ? 'ENGINEERING_QUANTITY_SHEET'
-                          : 'FINAL_ENGINEERING_SHEET'
-                      )
-                    }
-                    className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    3. Final Output Sheet
-                  </button>
-
-                  {onOpenContinuousTunnelLog && (
-                    <button
-                      type="button"
-                      onClick={onOpenContinuousTunnelLog}
-                      className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-mono font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-md shadow-2xs cursor-pointer"
-                      title="Open Continuous 3D Tunnel Logging, Multi-Pull Unfolded Shell & AutoCAD 2026 Strip"
-                    >
-                      <Layers className="w-3.5 h-3.5" />
-                      4. Continuous 3D Log &amp; CAD
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void downloadEngineeringSheetAsPDF({
-                        geometry,
-                        settings,
-                        joints,
-                        jointSets,
-                        qIndexParams,
-                        qParamStatus,
-                        rmrParams,
-                        gsiParams,
-                        selectedMethod: selectedClassificationMethod,
-                        rockMassSummary,
-                        overbreakAnalysis,
-                        controlPoints,
-                      })
-                    }
-                    className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-mono font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-md shadow-2xs cursor-pointer"
-                    title="Download Geological Mapping Data Sheet as a Standalone .PDF File"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Download PDF (.pdf)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void downloadEngineeringSheetAsWordDoc({
-                        geometry,
-                        settings,
-                        joints,
-                        jointSets,
-                        qIndexParams,
-                        qParamStatus,
-                        rmrParams,
-                        gsiParams,
-                        selectedMethod: selectedClassificationMethod,
-                        rockMassSummary,
-                        overbreakAnalysis,
-                        controlPoints,
-                      })
-                    }
-                    className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-mono font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-md shadow-2xs cursor-pointer"
-                    title="Download Editable Geological & Rock Mass Report in Microsoft Word (.doc) Format"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Download Word (.doc)
-                  </button>
-
-                  {windowComplexityMode === 'advanced' && (
-                    <>
-                      <div className="h-4 w-px bg-slate-200 mx-0.5" />
-                      <button
-                        onClick={() => openPhotogrammetryLab('kinematic')}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 rounded-md cursor-pointer"
-                      >
-                        Stereonet &amp; Wedges
-                      </button>
-                      <button
-                        onClick={() => setShowSheetSetModal(true)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-md cursor-pointer"
-                      >
-                        CAD Sheet Set
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* NEXT STEP GUIDE BUTTON + SIMPLE | ADVANCED WINDOW MODE SWITCHER */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              {cadRibbonTab !== 'CLASSIFICATION_SHEET' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const order = [
-                      'TUNNEL_PHOTO',
-                      'HOME',
-                      'GEOLOGY_3D',
-                      'ADVANCED_ANALYSIS',
-                      'SURVEY_OVERBREAK',
-                      'CLASSIFICATION_SHEET',
-                    ] as const;
-                    const idx = order.indexOf(cadRibbonTab as any);
-                    if (idx >= 0 && idx < order.length - 1) {
-                      setCadRibbonTab(order[idx + 1]);
-                      setCadRibbonCollapsed(false);
-                    }
-                  }}
-                  className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[11px] font-bold shadow-2xs cursor-pointer whitespace-nowrap"
-                  title="Proceed to Next Workflow Step"
-                >
-                  {cadRibbonTab === 'TUNNEL_PHOTO'
-                    ? 'Next: 2. Core Mapping →'
-                    : cadRibbonTab === 'HOME'
-                    ? 'Next: 3. Geology →'
-                    : cadRibbonTab === 'GEOLOGY_3D'
-                    ? 'Next: 4. Advance Geological Analytics →'
-                    : cadRibbonTab === 'ADVANCED_ANALYSIS'
-                    ? 'Next: 5. Survey →'
-                    : 'Next: 6. Data Sheets →'}
-                </button>
-              )}
-              <div className="flex items-center gap-0.5 p-0.5 bg-slate-100 border border-slate-200 rounded-lg shrink-0 font-mono text-[10px]">
-                <button
-                  type="button"
-                  onClick={() => setWindowComplexityMode('simple')}
-                  className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
-                    windowComplexityMode === 'simple'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="Simple Mode: Clean essential tools for this window"
-                >
-                  Simple
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setWindowComplexityMode('advanced')}
-                  className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
-                    windowComplexityMode === 'advanced'
-                      ? 'bg-sky-600 text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="Advanced Mode: Unlock full X-Ray, 3D Relief, Sub-Pixel Steger Lock, JRC & Stereonet tools for this window"
-                >
-                  Advanced
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </header>
+      <CadRibbonAndCommandBar
+        cadRibbonTab={cadRibbonTab}
+        setCadRibbonTab={setCadRibbonTab}
+        cadRibbonCollapsed={cadRibbonCollapsed}
+        setCadRibbonCollapsed={setCadRibbonCollapsed}
+        cadCommandInput={cadCommandInput}
+        setCadCommandInput={setCadCommandInput}
+        onExecuteCadCommand={handleExecuteCadCommand}
+        activeSurface={activeSurface}
+        onChangeActiveSurface={onSelectSurface}
+        geometry={geometry}
+        settings={settings}
+        currentPhoto={currentPhoto}
+        activeTool={activeTool}
+        setActiveTool={setActiveTool}
+        jointDrawMode={jointDrawMode}
+        setJointDrawMode={setJointDrawMode}
+        windowComplexityMode={windowComplexityMode}
+        setWindowComplexityMode={setWindowComplexityMode}
+        onBackToSetup={onBackToSetup}
+        onSaveOfflineDraft={onSaveOfflineDraft}
+        onOpenProjectMemoryModal={onOpenProjectMemoryModal}
+        onOpenCustomProfileEditor={onOpenCustomProfileEditor}
+        onOpenContinuousTunnelLog={onOpenContinuousTunnelLog}
+        onOpenExportSheet={onOpenExportSheet}
+        canUndo={Boolean(lithologyPast.length || controlPointPast.length || symbolPast.length || canUndo)}
+        canRedo={Boolean(lithologyFuture.length || controlPointFuture.length || symbolFuture.length || canRedo)}
+        onUndo={handleUndoLithology}
+        onRedo={handleRedoLithology}
+        canDelete={Boolean(selectedJoint || selectedControlPointId || selectedSymbolId || selectedLithologyRegionId)}
+        onDeleteSelected={() => {
+          if (selectedControlPointId) handleDeleteControlPoint(selectedControlPointId);
+          else if (selectedSymbolId) handleDeletePlacedSymbol(selectedSymbolId);
+          else if (selectedLithologyRegionId) {
+            handleUpdateLithologyWithHistory(
+              lithologyRegions.filter((r) => r.id !== selectedLithologyRegionId)
+            );
+            setSelectedLithologyRegionId(null);
+          } else if (selectedJoint) handleDeleteSelectedJoint();
+        }}
+        joints={joints}
+        jointSets={jointSets}
+        lithologyRegions={lithologyRegions}
+        placedSymbols={placedSymbols}
+        controlPoints={controlPoints}
+        qIndexParams={qIndexParams}
+        qParamStatus={qParamStatus}
+        rmrParams={rmrParams}
+        gsiParams={gsiParams}
+        selectedClassificationMethod={selectedClassificationMethod}
+        rockMassSummary={rockMassSummary}
+        overbreakAnalysis={overbreakAnalysis}
+        junctionFactorData={junctionFactorData}
+        surfaceJointsCount={surfaceJoints.length}
+        layerVisibility={layerVisibility}
+        setLayerVisibility={setLayerVisibility}
+        layerOrder={layerOrder}
+        setLayerOrder={setLayerOrder}
+        onMoveLayerUp={handleMoveLayerUp}
+        onMoveLayerDown={handleMoveLayerDown}
+        showCrackXRayOverlay={showCrackXRayOverlay}
+        setShowCrackXRayOverlay={setShowCrackXRayOverlay}
+        showDepthReliefOverlay={showDepthReliefOverlay}
+        setShowDepthReliefOverlay={setShowDepthReliefOverlay}
+        activePhotoFilterMode={activePhotoFilterMode}
+        setActivePhotoFilterMode={setActivePhotoFilterMode}
+        activePhotoRidgeField={activePhotoRidgeField}
+        onExtractTracesFromPhotoFilter={handleExtractTracesFromPhotoFilter}
+        onUpdatePhotoSurface={onUpdatePhotoSurface}
+        onTriggerFileInput={() => fileInputRef.current?.click()}
+        onTriggerStereoFileInput={() => stereoFileInputRef.current?.click()}
+        onFinishDraftJoint={() => {
+          if (draftJointPoints.length >= 2) {
+            finishDraftJoint(draftJointPoints);
+          } else {
+            setDraftJointPoints([]);
+          }
+        }}
+        draftJointPointsLength={draftJointPoints.length}
+        setShowPhotogrammetryModal={setShowPhotogrammetryModal}
+        setShowSetTableDrawer={setShowSetTableDrawer}
+        setShowAILearningDrawer={setShowAILearningDrawer}
+        setGeologyDrawerTab={setGeologyDrawerTab}
+        setShow3DPhotoTunnelModal={setShow3DPhotoTunnelModal}
+        setShow3DStrikeDipModal={setShow3DStrikeDipModal}
+        setShowMatlabAnalyzerModal={setShowMatlabAnalyzerModal}
+        setMatlabInitialTab={setMatlabInitialTab}
+        setShowSheetSetModal={setShowSheetSetModal}
+        setShowRockSupportModal={setShowRockSupportModal}
+        setShowJunctionFactorModal={setShowJunctionFactorModal}
+        setShowCadPropertiesAlways={setShowCadPropertiesAlways}
+        onOpenPhotogrammetryLab={openPhotogrammetryLab}
+        onResetCalibrationToOutline={handleResetCalibrationToOutline}
+      />
 
       {/* Hidden File Inputs for Main & Supporting Photos */}
       <input
@@ -8793,6 +7357,10 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                         touchAction: 'none',
                         backgroundColor: isLight ? '#E2E8F0' : '#090C12',
                       }}
+                      onPointerDown={handleCanvasPointerDown}
+                      onPointerMove={handleCanvasPointerMove}
+                      onPointerUp={handleCanvasPointerUp}
+                      onPointerCancel={handleCanvasPointerUp}
                       onMouseDown={handleCanvasMouseDown}
                       onMouseMove={handleCanvasMouseMove}
                       onMouseUp={handleCanvasMouseUp}
@@ -8860,6 +7428,10 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                         touchAction: 'none',
                         backgroundColor: isLight ? '#E2E8F0' : '#090C12',
                       }}
+                      onPointerDown={handleCanvasPointerDown}
+                      onPointerMove={handleCanvasPointerMove}
+                      onPointerUp={handleCanvasPointerUp}
+                      onPointerCancel={handleCanvasPointerUp}
                       onMouseDown={handleCanvasMouseDown}
                       onMouseMove={handleCanvasMouseMove}
                       onMouseUp={handleCanvasMouseUp}
@@ -8947,6 +7519,10 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                   touchAction: 'none',
                   backgroundColor: isLight ? '#E2E8F0' : '#090C12',
                 }}
+                onPointerDown={handleCanvasPointerDown}
+                onPointerMove={handleCanvasPointerMove}
+                onPointerUp={handleCanvasPointerUp}
+                onPointerCancel={handleCanvasPointerUp}
                 onMouseDown={handleCanvasMouseDown}
                 onMouseMove={handleCanvasMouseMove}
                 onMouseUp={handleCanvasMouseUp}
@@ -9000,140 +7576,37 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
         );
       })()}
 
-          {/* Interactive On-Canvas Floating Tool & Properties Bar when Drawing a Joint Trace (2-Pt Line / Polyline / Spline / Freehand) */}
-          {(activeTool === 'add_joint' ||
-            activeTool === 'redraw_joint' ||
-            activeTool === 'append_joint') && (
-            <div className="absolute top-2.5 left-2.5 right-12 max-w-fit flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 bg-white/95 border border-amber-400 rounded-lg shadow-lg text-xs z-20 font-mono">
-              <span className="font-bold text-amber-900 text-[11px] mr-0.5">
-                {activeTool === 'redraw_joint'
-                  ? `RE-DRAW ${selectedJoint?.set || ''}:`
-                  : activeTool === 'append_joint'
-                  ? `APPEND ${selectedJoint?.set || ''}:`
-                  : 'DRAW MODE:'}
-              </span>
-              {(
-                [
-                  { id: 'two_point_line', label: '2-Pt Line' },
-                  { id: 'polyline', label: 'Polyline' },
-                  { id: 'smooth_curve', label: 'Spline Curve' },
-                  { id: 'freehand', label: 'Freehand' },
-                  { id: 'magnetic_livewire', label: 'Snap Crack' },
-                  { id: 'seed_autotrace', label: '1-Click Seed' },
-                ] as { id: JointDrawMode; label: string }[]
-              ).map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => {
-                    if (draftJointPoints.length >= 2) {
-                      finishDraftJoint(draftJointPoints);
-                    }
-                    setJointDrawMode(m.id);
-                  }}
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
-                    jointDrawMode === m.id
-                      ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
+          {/* Tablet Stylus Geological HUD, Telemetry Pill & Quick Radial Menu */}
+          <StylusHudAndQuickRadialMenu
+            telemetry={stylusTelemetry}
+            radialMenuPos={radialMenuPos}
+            onCloseRadialMenu={() => setRadialMenuPos(null)}
+            onSelectRadialAction={handleRadialAction}
+            applyStylusTiltToDip={applyStylusTiltToDip}
+            onToggleApplyStylusTiltToDip={() => setApplyStylusTiltToDip((prev) => !prev)}
+            palmRejectionMode={palmRejectionMode}
+            onChangePalmRejectionMode={setPalmRejectionMode}
+          />
 
-              <div className="h-3.5 w-px bg-slate-300 mx-0.5" />
-
-              <select
-                value={draftSetId}
-                onChange={(e) => {
-                  const nextSet = e.target.value;
-                  setDraftSetId(nextSet);
-                  if (selectedJoint) {
-                    onUpdateJointsWithHistory(
-                      joints.map((j) =>
-                        j.id === selectedJoint.id ? { ...j, set: nextSet } : j
-                      )
-                    );
-                  }
-                }}
-                className="px-1.5 py-0.5 bg-slate-50 border border-slate-300 rounded text-[10px] font-bold text-slate-900 cursor-pointer"
-                title="Active Joint Set ID"
-              >
-                {['J1', 'J2', 'J3', 'J4', 'J5', 'F1', 'J0'].map((s) => (
-                  <option key={s} value={s}>
-                    Set {s}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={draftFeatureType}
-                onChange={(e) => {
-                  const nextType = e.target.value as GeologicalFeatureType;
-                  setDraftFeatureType(nextType);
-                  if (selectedJoint) {
-                    onUpdateJointsWithHistory(
-                      joints.map((j) =>
-                        j.id === selectedJoint.id ? { ...j, featureType: nextType } : j
-                      )
-                    );
-                  }
-                }}
-                className="px-1.5 py-0.5 bg-slate-50 border border-slate-300 rounded text-[10px] font-semibold text-slate-900 cursor-pointer"
-                title="Geological Feature Type"
-              >
-                <option value="joint">Joint</option>
-                <option value="open_joint">Open Joint</option>
-                <option value="fracture">Fracture</option>
-                <option value="fault">Fault</option>
-                <option value="shear">Shear Zone</option>
-                <option value="bedding">Bedding</option>
-                <option value="foliation">Foliation</option>
-                <option value="vein">Vein</option>
-                <option value="water_seepage">Water Seepage</option>
-              </select>
-
-              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold text-[10px]">
-                {draftJointPoints.length} pts
-              </span>
-
-              {draftJointPoints.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setDraftJointPoints((prev) => prev.slice(0, -1))}
-                  className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-300 text-[10px] font-bold cursor-pointer"
-                >
-                  Undo Pt
-                </button>
-              )}
-              {draftJointPoints.length >= 2 && (
-                <button
-                  type="button"
-                  onClick={() => finishDraftJoint()}
-                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-md cursor-pointer shadow-xs"
-                >
-                  ✓ Complete ({draftJointPoints.length} pts)
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowCadPropertiesAlways((p) => !p)}
-                className="px-2 py-0.5 bg-sky-600 hover:bg-sky-500 text-white font-bold text-[10px] rounded cursor-pointer"
-              >
-                {showCadPropertiesAlways ? 'Properties ✓' : 'Open Properties'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDraftJointPoints([]);
-                  setActiveTool('select');
-                }}
-                className="px-1.5 py-0.5 text-slate-500 hover:text-slate-900 text-[10px] font-bold cursor-pointer"
-              >
-                Done
-              </button>
-            </div>
-          )}
+          {/* Interactive On-Canvas Floating Tool & Properties Bar when Drawing a Joint Trace */}
+          <MappingCanvasFloatingPropertiesBar
+            activeTool={activeTool}
+            setActiveTool={setActiveTool}
+            selectedJoint={selectedJoint}
+            jointDrawMode={jointDrawMode}
+            setJointDrawMode={setJointDrawMode}
+            draftJointPoints={draftJointPoints}
+            setDraftJointPoints={setDraftJointPoints}
+            draftSetId={draftSetId}
+            setDraftSetId={setDraftSetId}
+            draftFeatureType={draftFeatureType}
+            setDraftFeatureType={setDraftFeatureType}
+            onFinishDraftJoint={finishDraftJoint}
+            showCadPropertiesAlways={showCadPropertiesAlways}
+            setShowCadPropertiesAlways={setShowCadPropertiesAlways}
+            joints={joints}
+            onUpdateJointsWithHistory={onUpdateJointsWithHistory}
+          />
 
           {/* Interactive On-Canvas Floating Lithology Properties & Area Bar */}
           {(activeTool === 'lithology' || Boolean(selectedLithologyRegionId)) && (

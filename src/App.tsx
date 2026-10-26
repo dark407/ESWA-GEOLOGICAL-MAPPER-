@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
   ChainageProfileSegmentRecord,
   ConnectedSurveyProfile,
@@ -164,6 +164,8 @@ import {
   SurfaceGeometryParameters,
   SurfaceMappingSubType,
 } from './engine/surfaceMappingEngine';
+import { scheduleIdleSave, flushIdleSaves } from './engine/fastAsyncStorageEngine';
+import { FastInput } from './components/FastInput';
 import {
   AlarmClock,
   AlertTriangle,
@@ -298,6 +300,11 @@ export default function App({
   const responsive = useResponsiveLayout();
   const initialDraft = useMemo(() => loadSavedOfflineDraftSync(), []);
   const [screen, setScreen] = useState<ScreenStep>('welcome');
+  const navigateScreen = useCallback((target: ScreenStep) => {
+    startTransition(() => {
+      setScreen(target);
+    });
+  }, []);
   const [isFirstOpening, setIsFirstOpening] = useState<boolean>(true);
   const [pendingRequestCount, setPendingRequestCount] = useState<number>(0);
   const [isBootLoading, setIsBootLoading] = useState<boolean>(true);
@@ -1675,37 +1682,42 @@ export default function App({
         mappingDomain: curDomain,
       };
       try {
-        localStorage.setItem(
+        scheduleIdleSave(
           getPhotogrammetryDraftStorageKey(curDomain),
-          JSON.stringify(currentDraftPayload)
+          () => currentDraftPayload,
+          2000,
+          true
         );
-        localStorage.setItem(
+        scheduleIdleSave(
           getPhotogrammetryPhotosStorageKey(curDomain),
-          JSON.stringify(photos)
+          () => photos,
+          2500,
+          true
         );
         if (curDomain === 'TUNNEL') {
-          localStorage.setItem(OFFLINE_DRAFT_STORAGE_KEY, JSON.stringify(currentDraftPayload));
-          localStorage.setItem(OFFLINE_DRAFT_PHOTOS_STORAGE_KEY, JSON.stringify(photos));
+          scheduleIdleSave(OFFLINE_DRAFT_STORAGE_KEY, () => currentDraftPayload, 2000, true);
+          scheduleIdleSave(OFFLINE_DRAFT_PHOTOS_STORAGE_KEY, () => photos, 2500, true);
         }
       } catch {
         // Ignore quota errors
       }
 
-      // 2. Switch domain ref and state
-      activeMappingDomainRef.current = nextDomain;
-      setActiveMappingDomain(nextDomain);
-      if (nextDomain !== 'TUNNEL') {
-        setSelectedSurfaceSubType(nextDomain as SurfaceMappingSubType);
-      }
+      startTransition(() => {
+        // 2. Switch domain ref and state
+        activeMappingDomainRef.current = nextDomain;
+        setActiveMappingDomain(nextDomain);
+        if (nextDomain !== 'TUNNEL') {
+          setSelectedSurfaceSubType(nextDomain as SurfaceMappingSubType);
+        }
 
-      // 3. Load target domain snapshot
-      const targetDraft = loadSavedOfflineDraftSync(nextDomain);
-      if (targetDraft) {
-        if (
-          targetDraft.geometry &&
-          typeof targetDraft.geometry.width === 'number' &&
-          Number.isFinite(targetDraft.geometry.width)
-        ) {
+        // 3. Load target domain snapshot
+        const targetDraft = loadSavedOfflineDraftSync(nextDomain);
+        if (targetDraft) {
+          if (
+            targetDraft.geometry &&
+            typeof targetDraft.geometry.width === 'number' &&
+            Number.isFinite(targetDraft.geometry.width)
+          ) {
           setGeometry(targetDraft.geometry);
         }
         if (targetDraft.manWidth) setManWidth(String(targetDraft.manWidth));
@@ -1806,7 +1818,8 @@ export default function App({
           setPlacedSymbols([]);
         }
       }
-    },
+    });
+  },
     [
       screen,
       isFirstOpening,
@@ -1997,9 +2010,9 @@ export default function App({
         photoSurfaceParams,
         mappingDomain: curDom,
       };
-      localStorage.setItem(draftKey, JSON.stringify(lightweightPayload));
+      scheduleIdleSave(draftKey, () => lightweightPayload, 2000, true);
       if (curDom === 'TUNNEL') {
-        localStorage.setItem(OFFLINE_DRAFT_STORAGE_KEY, JSON.stringify(lightweightPayload));
+        scheduleIdleSave(OFFLINE_DRAFT_STORAGE_KEY, () => lightweightPayload, 2000, true);
       }
       setHasSavedDraft(true);
 
@@ -2049,9 +2062,9 @@ export default function App({
     try {
       const curDom = activeMappingDomainRef.current || 'TUNNEL';
       const photosKey = getPhotogrammetryPhotosStorageKey(curDom);
-      localStorage.setItem(photosKey, JSON.stringify(photos));
+      scheduleIdleSave(photosKey, () => photos, 2500, true);
       if (curDom === 'TUNNEL') {
-        localStorage.setItem(OFFLINE_DRAFT_PHOTOS_STORAGE_KEY, JSON.stringify(photos));
+        scheduleIdleSave(OFFLINE_DRAFT_PHOTOS_STORAGE_KEY, () => photos, 2500, true);
       }
     } catch {
       // Handled by desktopBridge chunking + IndexedDB
@@ -2079,12 +2092,14 @@ export default function App({
 
   useEffect(() => {
     const onHideOrUnload = () => {
+      flushIdleSaves();
       persistWorkspaceStateNow();
     };
     window.addEventListener('pagehide', onHideOrUnload);
     window.addEventListener('beforeunload', onHideOrUnload);
     const onVisChange = () => {
       if (document.visibilityState === 'hidden') {
+        flushIdleSaves();
         persistWorkspaceStateNow();
       }
     };
@@ -5179,6 +5194,18 @@ export default function App({
                 <Plus className="w-3.5 h-3.5" />
                 <span>Fresh New</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsContinuousLogSetupOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold bg-slate-900 border border-amber-400 text-amber-300 hover:bg-slate-800 shadow-md cursor-pointer transition-all active:scale-95"
+                title="Open Continuous 3D Tunnel Logging, Multi-Pull Unfolded Shell & AutoCAD 2026 Strip"
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
+                <span>Continuous 3D Tunnel Log</span>
+                <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-400 text-[10px] font-bold border border-amber-600">A3 / CAD</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -5212,17 +5239,6 @@ export default function App({
                 <Shield className="w-3.5 h-3.5 text-cyan-400" />
                 <span>Rock Mechanics &amp; +3m/+6m/+9m Predictor</span>
                 <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-600">v2.6 LIVE</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsContinuousLogSetupOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold bg-slate-900 border border-amber-400 text-amber-300 hover:bg-slate-800 shadow-md cursor-pointer transition-all active:scale-95"
-                title="Open Continuous 3D Tunnel Logging, Multi-Pull Unfolded Shell & AutoCAD 2026 Strip"
-              >
-                <Layers className="w-3.5 h-3.5 text-amber-400" />
-                <span>Continuous 3D Tunnel Log</span>
-                <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-400 text-[10px] font-bold border border-amber-600">A3 / CAD</span>
               </button>
             </div>
           </div>
@@ -5371,7 +5387,7 @@ export default function App({
                   </select>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <input
+                    <FastInput
                       type="text"
                       placeholder={
                         activeMappingDomain === 'TUNNEL'
@@ -5383,8 +5399,7 @@ export default function App({
                           : 'Enter Slope Sector (e.g. Portal Cut Slope CS-01)...'
                       }
                       value={settings.locationName || ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
+                      onChangeValue={(val) => {
                         setSettings((prev) => ({
                           ...prev,
                           locationName: val,
@@ -5433,11 +5448,11 @@ export default function App({
                         ? 'Chainage / RD Interval'
                         : 'Station / Chainage Interval'}
                     </span>
-                    <input
+                    <FastInput
                       type="text"
                       placeholder="e.g. Ch 120.0m - 135.0m"
                       value={settings.chainage}
-                      onChange={(e) => setSettings((p) => ({ ...p, chainage: e.target.value }))}
+                      onChangeValue={(val) => setSettings((p) => ({ ...p, chainage: val }))}
                       className={layoutStyles.inputControl}
                     />
                   </label>
@@ -5452,7 +5467,7 @@ export default function App({
                         ? 'Trench Station ID'
                         : 'Slope Station / RL'}
                     </span>
-                    <input
+                    <FastInput
                       type="text"
                       placeholder={
                         activeMappingDomain === 'TUNNEL'
@@ -5462,8 +5477,7 @@ export default function App({
                           : 'e.g. Stn 0+020m'
                       }
                       value={settings.faceChainage}
-                      onChange={(e) => {
-                        const nextFace = e.target.value;
+                      onChangeValue={(nextFace) => {
                         const numMatch = nextFace.match(/(\d+(?:\.\d+)?)/);
                         const faceM = numMatch ? parseFloat(numMatch[1]) : null;
                         setSettings((p) => {
@@ -5489,13 +5503,14 @@ export default function App({
                         ? 'Pull / Round Length (m)'
                         : 'Mapped Span / Exposure Length (m)'}
                     </span>
-                    <input
+                    <FastInput
                       type="number"
                       step="0.5"
                       min="0.5"
+                      asNumber
                       value={settings.roundLength}
-                      onChange={(e) => {
-                        const nextPull = Math.max(0.5, parseFloat(e.target.value) || 3.5);
+                      onChangeValue={(val) => {
+                        const nextPull = Math.max(0.5, parseFloat(val) || 3.5);
                         setSettings((p) => ({
                           ...p,
                           roundLength: nextPull,
@@ -5519,12 +5534,11 @@ export default function App({
                         ? `Trench Axis Azimuth (${Math.round(settings.driveDirection)}°)`
                         : `Face Dip Direction Azimuth (${Math.round(settings.driveDirection)}°)`}
                     </span>
-                    <input
+                    <FastInput
                       type="text"
                       placeholder="e.g. N 135° or 135"
                       value={settings.driveDirectionInput}
-                      onChange={(e) => {
-                        const val = e.target.value;
+                      onChangeValue={(val) => {
                         const norm = parseDriveDirectionAzimuth(val);
                         setSettings((prev) => ({
                           ...prev,
@@ -5702,7 +5716,7 @@ export default function App({
                     onClick={() => {
                       setIsFirstOpening(false);
                       handleSaveProjectLocationPair(activeProjectName, activeLocationName);
-                      setScreen('drive_and_photos');
+                      navigateScreen('drive_and_photos');
                     }}
                     className={`py-2.5 px-5 text-xs sm:text-sm ${layoutStyles.primaryButton}`}
                   >
@@ -5734,12 +5748,13 @@ export default function App({
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Crest Elevation RL (m)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="0.5"
+                        asNumber
                         value={photoSurfaceParams.crestElevationRl}
-                        onChange={(e) => {
-                          const crest = parseFloat(e.target.value) || 0;
+                        onChangeValue={(val) => {
+                          const crest = parseFloat(val) || 0;
                           const next = {
                             ...photoSurfaceParams,
                             crestElevationRl: crest,
@@ -5757,12 +5772,13 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Toe Elevation RL (m)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="0.5"
+                        asNumber
                         value={photoSurfaceParams.toeElevationRl}
-                        onChange={(e) => {
-                          const toe = parseFloat(e.target.value) || 0;
+                        onChangeValue={(val) => {
+                          const toe = parseFloat(val) || 0;
                           const next = {
                             ...photoSurfaceParams,
                             toeElevationRl: toe,
@@ -5780,13 +5796,14 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Bench Height (m)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="0.5"
                         min="1"
+                        asNumber
                         value={photoSurfaceParams.benchHeightMeters}
-                        onChange={(e) => {
-                          const bh = Math.max(1, parseFloat(e.target.value) || 10);
+                        onChangeValue={(val) => {
+                          const bh = Math.max(1, parseFloat(val) || 10);
                           const next = {
                             ...photoSurfaceParams,
                             benchHeightMeters: bh,
@@ -5801,13 +5818,14 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Catch Berm Width (m)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="0.5"
                         min="0.5"
+                        asNumber
                         value={photoSurfaceParams.bermWidthMeters}
-                        onChange={(e) => {
-                          const bw = Math.max(0.5, parseFloat(e.target.value) || 6);
+                        onChangeValue={(val) => {
+                          const bw = Math.max(0.5, parseFloat(val) || 6);
                           const next = { ...photoSurfaceParams, bermWidthMeters: bw };
                           setPhotoSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -5818,14 +5836,15 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Bench Face Dip Angle (°)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="1"
                         min="15"
                         max="90"
+                        asNumber
                         value={photoSurfaceParams.faceDipAngleDeg}
-                        onChange={(e) => {
-                          const ang = Math.max(15, Math.min(90, parseFloat(e.target.value) || 75));
+                        onChangeValue={(val) => {
+                          const ang = Math.max(15, Math.min(90, parseFloat(val) || 75));
                           const next = { ...photoSurfaceParams, faceDipAngleDeg: ang };
                           setPhotoSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -5840,13 +5859,14 @@ export default function App({
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Trench Depth (m)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="0.2"
                         min="0.5"
+                        asNumber
                         value={photoSurfaceParams.trenchDepthMeters}
-                        onChange={(e) => {
-                          const td = Math.max(0.5, parseFloat(e.target.value) || 3.5);
+                        onChangeValue={(val) => {
+                          const td = Math.max(0.5, parseFloat(val) || 3.5);
                           const next = { ...photoSurfaceParams, trenchDepthMeters: td };
                           setPhotoSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -5857,13 +5877,14 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Trench Floor Width (m)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="0.2"
                         min="0.5"
+                        asNumber
                         value={photoSurfaceParams.trenchWidthMeters}
-                        onChange={(e) => {
-                          const tw = Math.max(0.5, parseFloat(e.target.value) || 2.0);
+                        onChangeValue={(val) => {
+                          const tw = Math.max(0.5, parseFloat(val) || 2.0);
                           const next = { ...photoSurfaceParams, trenchWidthMeters: tw };
                           setPhotoSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -5874,13 +5895,14 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Soil / Overburden Thickness (m)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="0.1"
                         min="0"
+                        asNumber
                         value={photoSurfaceParams.overburdenThicknessMeters}
-                        onChange={(e) => {
-                          const ob = Math.max(0, parseFloat(e.target.value) || 0.8);
+                        onChangeValue={(val) => {
+                          const ob = Math.max(0, parseFloat(val) || 0.8);
                           const next = { ...photoSurfaceParams, overburdenThicknessMeters: ob };
                           setPhotoSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -5890,14 +5912,15 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Wall Batter Angle (°)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="1"
                         min="30"
                         max="90"
+                        asNumber
                         value={photoSurfaceParams.faceDipAngleDeg}
-                        onChange={(e) => {
-                          const ang = Math.max(30, Math.min(90, parseFloat(e.target.value) || 85));
+                        onChangeValue={(val) => {
+                          const ang = Math.max(30, Math.min(90, parseFloat(val) || 85));
                           const next = { ...photoSurfaceParams, faceDipAngleDeg: ang };
                           setPhotoSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -5912,13 +5935,14 @@ export default function App({
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Overall Slope Height (m)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="1"
                         min="2"
+                        asNumber
                         value={photoSurfaceParams.slopeHeightMeters}
-                        onChange={(e) => {
-                          const sh = Math.max(2, parseFloat(e.target.value) || 24);
+                        onChangeValue={(val) => {
+                          const sh = Math.max(2, parseFloat(val) || 24);
                           const next = { ...photoSurfaceParams, slopeHeightMeters: sh };
                           setPhotoSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -5929,14 +5953,15 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Overall Slope Angle (°)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="1"
                         min="15"
                         max="90"
+                        asNumber
                         value={photoSurfaceParams.overallSlopeAngleDeg}
-                        onChange={(e) => {
-                          const ang = Math.max(15, Math.min(90, parseFloat(e.target.value) || 55));
+                        onChangeValue={(val) => {
+                          const ang = Math.max(15, Math.min(90, parseFloat(val) || 55));
                           const next = {
                             ...photoSurfaceParams,
                             overallSlopeAngleDeg: ang,
@@ -5950,14 +5975,15 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Number of Berms / Benches</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="1"
                         min="1"
                         max="12"
+                        asNumber
                         value={photoSurfaceParams.numberOfBenches}
-                        onChange={(e) => {
-                          const nb = Math.max(1, parseInt(e.target.value, 10) || 2);
+                        onChangeValue={(val) => {
+                          const nb = Math.max(1, parseInt(val, 10) || 2);
                           const next = { ...photoSurfaceParams, numberOfBenches: nb };
                           setPhotoSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -5967,13 +5993,14 @@ export default function App({
                     </label>
                     <label className="space-y-1">
                       <span className={layoutStyles.labelMuted}>Catch Berm Width (m)</span>
-                      <input
+                      <FastInput
                         type="number"
                         step="0.5"
                         min="0.5"
+                        asNumber
                         value={photoSurfaceParams.bermWidthMeters}
-                        onChange={(e) => {
-                          const bw = Math.max(0.5, parseFloat(e.target.value) || 4);
+                        onChangeValue={(val) => {
+                          const bw = Math.max(0.5, parseFloat(val) || 4);
                           const next = { ...photoSurfaceParams, bermWidthMeters: bw };
                           setPhotoSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -6003,7 +6030,7 @@ export default function App({
                     onClick={() => {
                       setIsFirstOpening(false);
                       handleSaveProjectLocationPair(activeProjectName, activeLocationName);
-                      setScreen('drive_and_photos');
+                      navigateScreen('drive_and_photos');
                     }}
                     className={`py-2.5 px-5 text-xs sm:text-sm ${layoutStyles.primaryButton}`}
                   >
@@ -6828,7 +6855,7 @@ export default function App({
         <div className={`${layoutStyles.majorPanel} max-w-[96vw] xl:max-w-[1440px]`}>
           <div className={layoutStyles.headerRow}>
             <button
-              onClick={() => setScreen('start')}
+              onClick={() => navigateScreen('start')}
               className={layoutStyles.backButton}
             >
               <ArrowLeft className="w-4 h-4" />
@@ -7276,7 +7303,7 @@ export default function App({
 
             <button
               onClick={() => {
-                setScreen('mapping');
+                navigateScreen('mapping');
               }}
               className={layoutStyles.primaryButton}
             >
@@ -7465,7 +7492,7 @@ export default function App({
           onRedo={handleRedo}
           canUndo={historyPast.length > 0}
           canRedo={historyFuture.length > 0}
-          onBackToSetup={() => setScreen('drive_and_photos')}
+          onBackToSetup={() => navigateScreen('drive_and_photos')}
           onOpenExportSheet={(mode = 'FINAL_ENGINEERING_SHEET') => {
             handleSaveCurrentProjectToMemory();
             setExportModalInitialMode(mode);

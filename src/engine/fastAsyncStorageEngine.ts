@@ -140,7 +140,7 @@ function runWhenIdle(callback: () => void, timeoutMs = 1500): number {
   if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
     return (window as any).requestIdleCallback(callback, { timeout: timeoutMs });
   }
-  return (window.setTimeout(callback, 50) as unknown) as number;
+  return (setTimeout(callback, 50) as unknown) as number;
 }
 
 function cancelIdle(handle: number | null) {

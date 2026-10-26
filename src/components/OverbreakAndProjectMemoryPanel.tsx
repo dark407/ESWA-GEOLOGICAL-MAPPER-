@@ -3090,4 +3090,6 @@ const ProjectMemoryModalContent: React.FC<ProjectMemoryModalProps> = ({
   );
 };
 
+export const ProjectMemoryModal = React.memo(ProjectMemoryModalContent);
+
 

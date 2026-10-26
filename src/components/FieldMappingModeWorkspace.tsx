@@ -231,6 +231,14 @@ import {
   CanvasLayerId,
   DEFAULT_CANVAS_LAYER_ORDER,
 } from './FaceCanvasLayerShuffleModal';
+import {
+  extractStylusTelemetry,
+  PalmRejectionController,
+  StylusTelemetry,
+  PalmRejectionMode,
+} from '../engine/tabletStylusAndZeroLagEngine';
+import { StylusHudAndQuickRadialMenu } from './StylusHudAndQuickRadialMenu';
+import { FieldCanvasFloatingControls } from './FieldCanvasFloatingControls';
 
 interface FieldMappingModeWorkspaceProps {
   onBackToWelcome?: () => void;
@@ -357,6 +365,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [activeGeologist, setActiveGeologist] = useState<GeologistUserProfile | null>(() =>
     getActiveGeologistProfile()
   );
+
+  // Tablet Stylus & Palm Rejection Telemetry State
+  const [stylusTelemetry, setStylusTelemetry] = useState<StylusTelemetry | null>(null);
+  const [radialMenuPos, setRadialMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [applyStylusTiltToDip, setApplyStylusTiltToDip] = useState<boolean>(true);
+  const [palmRejectionMode, setPalmRejectionMode] = useState<PalmRejectionMode>('auto');
+  const palmRejectionRef = useRef<PalmRejectionController>(new PalmRejectionController('auto'));
+  const lastStylusTelemetryRef = useRef<StylusTelemetry | null>(null);
+
+  useEffect(() => {
+    palmRejectionRef.current.setMode(palmRejectionMode);
+  }, [palmRejectionMode]);
 
   useEffect(() => {
     const handleProfileChange = () => {
@@ -1920,7 +1940,34 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   const handleCanvasPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!activeRound) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+
+    const palmDecision = palmRejectionRef.current.evaluatePointerEvent(e.nativeEvent);
+    if (!palmDecision.allow) {
+      return;
+    }
+
+    const driveAzimuth = activeRound.tunnelDriveDirection ?? 0;
+    const telemetry = extractStylusTelemetry(e.nativeEvent, driveAzimuth);
+    lastStylusTelemetryRef.current = telemetry;
+    setStylusTelemetry(telemetry);
+
+    if (telemetry.isBarrelButton || e.button === 2) {
+      e.preventDefault();
+      setRadialMenuPos({ x: e.clientX, y: e.clientY });
+      return;
+    }
+
+    if (radialMenuPos) {
+      setRadialMenuPos(null);
+    }
+
+    if (telemetry.isEraserTip && activeTool !== 'eraser') {
+      setActiveTool('eraser');
+    }
+
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     // 2-Finger Touch Pinch-to-Zoom & 2-Finger Pan
@@ -2176,6 +2223,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   };
 
   const handleCanvasPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const palmDecision = palmRejectionRef.current.evaluatePointerEvent(e.nativeEvent);
+    if (!palmDecision.allow) {
+      return;
+    }
+
+    if (activeRound) {
+      const driveAzimuth = activeRound.tunnelDriveDirection ?? 0;
+      const telemetry = extractStylusTelemetry(e.nativeEvent, driveAzimuth);
+      lastStylusTelemetryRef.current = telemetry;
+      if (telemetry.pointerType === 'pen') {
+        setStylusTelemetry(telemetry);
+      }
+    }
+
     if (activePointersRef.current.has(e.pointerId)) {
       activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
@@ -2619,20 +2680,28 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         lithologyStrokes: [...r.lithologyStrokes, stroke],
       }));
     } else if (pTool === '3_joint_trace') {
+      const tele = lastStylusTelemetryRef.current;
+      const effectiveDipDir =
+        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.inferredDipDirection : est.dipDirection;
+      const effectiveDipAmt =
+        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.inferredDipAngle : est.dipAmount;
+      const effectiveStrike =
+        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.strikeAzimuth : est.strike;
+
       const newTrace: FieldJointTrace = {
         id: `jtr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         label: 'J',
         panel: targetPanel,
         points: shapedPts,
-        dipDirection: est.dipDirection,
-        dipAmount: est.dipAmount,
-        strike: est.strike,
+        dipDirection: effectiveDipDir,
+        dipAmount: effectiveDipAmt,
+        strike: effectiveStrike,
         crownDipSign: liveCrownSign,
         setId: 'unassigned',
-        editedByCompass: false,
+        editedByCompass: Boolean(applyStylusTiltToDip && tele?.hasHardwareTilt),
         traceLengthM: est.traceLengthM,
         metricPoints: computePhysicalMetricPoints(shapedPts, targetPanel, activeLocation, activeRound),
-        strokeWidthPx: jointPencilSizePx,
+        strokeWidthPx: tele?.hasHardwarePressure ? tele.strokeWidthPx : jointPencilSizePx,
         lineMode: effectiveToolLineMode,
       };
       setSelectedTraceId(newTrace.id);
@@ -2734,7 +2803,58 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     setPending2DTrace(null);
   };
 
+  const handleRadialAction = (actionId: string) => {
+    setRadialMenuPos(null);
+    switch (actionId) {
+      case 'joint_j1':
+        setActiveTool('3_joint_trace');
+        setActiveGroupingSet('J1');
+        break;
+      case 'joint_j2':
+        setActiveTool('3_joint_trace');
+        setActiveGroupingSet('J2');
+        break;
+      case 'fault_shear':
+        setActiveTool('5_geo_feature');
+        setSelectedGeoFeatureType('fault');
+        break;
+      case 'lithology_contact':
+        setActiveTool('1_lithology');
+        break;
+      case 'lock_3d_dip':
+        if (lastStylusTelemetryRef.current?.hasHardwareTilt) {
+          const t = lastStylusTelemetryRef.current;
+          setLiveDipDirection(t.inferredDipDirection);
+          setLiveDipAmount(t.inferredDipAngle);
+          if (selectedTraceId) {
+            updateActiveRound((r) => ({
+              ...r,
+              jointTraces: r.jointTraces.map((tr) =>
+                tr.id === selectedTraceId
+                  ? {
+                      ...tr,
+                      dipDirection: t.inferredDipDirection,
+                      dipAmount: t.inferredDipAngle,
+                      strike: t.strikeAzimuth,
+                      editedByCompass: true,
+                    }
+                  : tr
+              ),
+            }));
+          }
+        }
+        break;
+      case 'channel_sample':
+        setActiveTool('2_vein_foliation');
+        break;
+      case 'eraser':
+        setActiveTool('eraser');
+        break;
+    }
+  };
+
   const handleCanvasPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    palmRejectionRef.current.evaluatePointerEvent(e.nativeEvent);
     activePointersRef.current.delete(e.pointerId);
     if (activePointersRef.current.size < 2) {
       pinchStateRef.current = null;
@@ -3089,21 +3209,31 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       setLiveDipDirection(est.dipDirection);
       setLiveDipAmount(est.dipAmount);
 
+      const tele = lastStylusTelemetryRef.current;
+      const effectiveDipDir =
+        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.inferredDipDirection : est.dipDirection;
+      const effectiveDipAmt =
+        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.inferredDipAngle : est.dipAmount;
+      const effectiveStrike =
+        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.strikeAzimuth : est.strike;
+
       const newTrace: FieldJointTrace = {
         id: `jtr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         label: 'J',
         panel: targetPanel,
         points: smoothed,
-        dipDirection: est.dipDirection,
-        dipAmount: est.dipAmount,
-        strike: est.strike,
+        dipDirection: effectiveDipDir,
+        dipAmount: effectiveDipAmt,
+        strike: effectiveStrike,
         crownDipSign: liveCrownSign,
         setId: 'unassigned',
-        editedByCompass: false,
+        editedByCompass: Boolean(applyStylusTiltToDip && tele?.hasHardwareTilt),
         traceLengthM: est.traceLengthM,
         metricPoints: computePhysicalMetricPoints(smoothed, targetPanel, activeLocation, activeRound),
         strokeWidthPx:
-          activeDrawSubTool === 'brush'
+          tele?.hasHardwarePressure
+            ? tele.strokeWidthPx
+            : activeDrawSubTool === 'brush'
             ? Math.max(2, Math.min(16, Number((brushRadius / 4).toFixed(1))))
             : jointPencilSizePx,
       };
@@ -9488,96 +9618,32 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 })()}
               </svg>
 
+              {/* Tablet Stylus Geological HUD, Telemetry Pill & Quick Radial Menu */}
+              <StylusHudAndQuickRadialMenu
+                telemetry={stylusTelemetry}
+                radialMenuPos={radialMenuPos}
+                onCloseRadialMenu={() => setRadialMenuPos(null)}
+                onSelectRadialAction={handleRadialAction}
+                applyStylusTiltToDip={applyStylusTiltToDip}
+                onToggleApplyStylusTiltToDip={() => setApplyStylusTiltToDip((prev) => !prev)}
+                palmRejectionMode={palmRejectionMode}
+                onChangePalmRejectionMode={setPalmRejectionMode}
+              />
+
               {/* Resumable 2D Trace Confirmation Bar for Pencil, Spline & Polyline */}
-              {isPencilTool && pending2DTrace && (
-                <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 bg-slate-950/95 border-2 border-emerald-400 rounded-xl px-3 py-1.5 shadow-2xl flex flex-wrap items-center gap-2">
-                  <div className="text-[11px] font-bold text-slate-200">
-                    <span className="text-emerald-400 font-black uppercase mr-1.5">
-                      {pending2DTrace.subTool === 'spline'
-                        ? 'Spline Trace'
-                        : pending2DTrace.subTool === 'polyline'
-                        ? 'Polyline Trace'
-                        : pending2DTrace.tool === '4_dip_surface'
-                        ? 'Dip Surface'
-                        : 'Pencil Trace'}
-                    </span>
-                    {pending2DTrace.points.length >= 2 ? (
-                      <span className="font-mono text-amber-300">
-                        {String(pending2DTrace.dipDirection).padStart(3, '0')}° /{' '}
-                        {pending2DTrace.dipAmount}°
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-cyan-300">
-                        Start anchored on outline — click/drag next point
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Pause / Move Canvas Toggle Button */}
-                  <button
-                    type="button"
-                    onClick={() => setIsCanvasPanMode((prev) => !prev)}
-                    className={`px-2.5 py-1 rounded-lg font-black text-xs flex items-center gap-1 cursor-pointer transition-all ${
-                      isCanvasPanMode
-                        ? 'bg-sky-500 text-slate-950 shadow ring-1 ring-sky-300'
-                        : 'bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/40'
-                    }`}
-                    title="Pause trace drawing to pan or move canvas without dropping points"
-                  >
-                    <Move className="w-3.5 h-3.5" />
-                    <span>{isCanvasPanMode ? 'Resume Draw' : 'Move Canvas'}</span>
-                  </button>
-
-                  {/* Move to Next Segment in Segmented Mode */}
-                  {mappingDomain !== 'TUNNEL' && isSurfaceSegmentedMode && surfaceActiveSegmentIdx < surfaceSegments.length - 1 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        jumpToSurfaceSegment(surfaceActiveSegmentIdx + 1);
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow cursor-pointer animate-pulse"
-                      title="Slide canvas forward to next segment while keeping trace active"
-                    >
-                      <span>Next ({surfaceSegments[surfaceActiveSegmentIdx + 1]?.label || 'Next'}) ▶</span>
-                    </button>
-                  )}
-
-                  {pending2DTrace.points.length >= 2 && (
-                    <button
-                      type="button"
-                      onClick={() => commitPending2DTraceToRound(pending2DTrace)}
-                      className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow cursor-pointer"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      Confirm
-                    </button>
-                  )}
-                  {(pending2DTrace.subTool === 'spline' ||
-                    pending2DTrace.subTool === 'polyline') &&
-                    pending2DTrace.points.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPending2DTrace((prev) =>
-                            prev && prev.points.length > 1
-                              ? { ...prev, points: prev.points.slice(0, -1) }
-                              : null
-                          )
-                        }
-                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold text-xs cursor-pointer"
-                      >
-                        Undo Pt
-                      </button>
-                    )}
-                  <button
-                    type="button"
-                    onClick={() => setPending2DTrace(null)}
-                    className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 font-bold text-xs cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
+              <FieldCanvasFloatingControls
+                isPencilTool={isPencilTool}
+                pending2DTrace={pending2DTrace}
+                setPending2DTrace={setPending2DTrace}
+                isCanvasPanMode={isCanvasPanMode}
+                setIsCanvasPanMode={setIsCanvasPanMode}
+                mappingDomain={mappingDomain}
+                isSurfaceSegmentedMode={isSurfaceSegmentedMode}
+                surfaceActiveSegmentIdx={surfaceActiveSegmentIdx}
+                surfaceSegments={surfaceSegments}
+                onJumpToSurfaceSegment={jumpToSurfaceSegment}
+                onCommitPending2DTrace={commitPending2DTraceToRound}
+              />
             </div>
           </div>
 

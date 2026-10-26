@@ -1818,3 +1818,25 @@ export interface AiTrainingTelemetryRecord {
     clientPlatform?: string;
   };
 }
+
+export type ActiveTool =
+  | 'select'
+  | 'pan'
+  | 'add_joint'
+  | 'redraw_joint'
+  | 'append_joint'
+  | 'measure'
+  | 'dip_probe'
+  | 'photo_fit'
+  | 'lithology'
+  | 'control_point'
+  | 'overbreak'
+  | 'geological_symbol';
+
+export type JointDrawMode =
+  | 'two_point_line'
+  | 'magnetic_livewire'
+  | 'seed_autotrace'
+  | 'polyline'
+  | 'freehand'
+  | 'smooth_curve';
