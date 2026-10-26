@@ -21,7 +21,7 @@ pkg.dependencies = {
   '@vitejs/plugin-react': existingDeps['@vitejs/plugin-react'] || '^4.3.4',
   firebase: existingDeps['firebase'] || '^11.4.0',
   'lucide-react': existingDeps['lucide-react'] || '^0.475.0',
-  nodemailer: existingDeps['nodemailer'] || '^10.0.14',
+  nodemailer: existingDeps['nodemailer'] || '^6.10.0',
   react: existingDeps['react'] || '^19.0.0',
   'react-dom': existingDeps['react-dom'] || '^19.0.0',
   three: existingDeps['three'] || '^0.186.1',
@@ -35,7 +35,7 @@ pkg.devDependencies = {
   ...existingDevDeps,
   '@types/express': existingDevDeps['@types/express'] || '^4.17.21',
   '@types/node': existingDevDeps['@types/node'] || '^22.13.5',
-  '@types/nodemailer': existingDevDeps['@types/nodemailer'] || '^8.0.2',
+  '@types/nodemailer': existingDevDeps['@types/nodemailer'] || '^6.4.17',
   '@types/react': existingDevDeps['@types/react'] || '^19.0.10',
   '@types/react-dom': existingDevDeps['@types/react-dom'] || '^19.0.4',
   '@types/three': existingDevDeps['@types/three'] || '^0.186.0',
@@ -56,11 +56,9 @@ pkg.description = 'Geological & Geotechnical Engineering Suite for NATM, TBM & U
 
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf8');
 
-for (const lockFile of ['package-lock.json', 'bun.lock']) {
-  const fullLock = path.join(rootDir, lockFile);
-  if (fs.existsSync(fullLock)) {
-    fs.unlinkSync(fullLock);
-  }
+const bunLock = path.join(rootDir, 'bun.lock');
+if (fs.existsSync(bunLock)) {
+  fs.unlinkSync(bunLock);
 }
 
 console.log('[CI] Normalized package.json with full 3D and native dependencies preserved.');
