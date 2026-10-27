@@ -4113,6 +4113,18 @@ export default function App({
           <span className="hidden sm:inline">Shift Alarms</span>
           <span className="sm:hidden">Alarms</span>
         </button>
+
+        {/* Toggle 3: Ground Support & Geotechnical Reference */}
+        <button
+          type="button"
+          onClick={() => setIsSupportReferenceOpen(true)}
+          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
+          title="Open Ground Support & Geotechnical Reference Library (Grimstad & Barton Support Chart, Q-System, RMR89, GSI Rock Mass Tables)"
+        >
+          <Shield className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="hidden sm:inline">Support Reference</span>
+          <span className="sm:hidden">Support</span>
+        </button>
       </div>
 
       <AdvancedBruntonCompassModal
@@ -4700,7 +4712,42 @@ export default function App({
               </div>
             </div>
 
-            {/* 4. Data Storage, Import & Export */}
+            {/* 4. Continuous 3D Tunnel Mapping & Strip CAD Log */}
+            <div className="w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFirstOpening(false);
+                  setIsContinuousLogSetupOpen(true);
+                }}
+                className="w-full py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
+                style={{
+                  borderColor: palette.primaryHex,
+                }}
+              >
+                <span className="flex items-center gap-2.5 text-left">
+                  <span
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                    style={{
+                      backgroundColor: palette.primaryHex + '20',
+                      color: palette.accentIconColor,
+                    }}
+                  >
+                    <Layers className="w-4 h-4 shrink-0" />
+                  </span>
+                  <div>
+                    <span className="text-black font-extrabold text-sm sm:text-base block">Continuous 3D Tunnel Log</span>
+                    <span className="text-[10px] font-mono text-stone-500 font-normal">Multi-pull 3D unfolded shell &amp; AutoCAD 2026 strip log</span>
+                  </div>
+                </span>
+                <span className="text-xs font-mono font-bold flex items-center gap-1" style={{ color: palette.accentIconColor }}>
+                  <span className="hidden sm:inline">Launch 3D Log</span>
+                  <ArrowRight className="w-3.5 h-3.5 shrink-0 transition-transform group-hover:translate-x-1" />
+                </span>
+              </button>
+            </div>
+
+            {/* 5. Data Storage, Import & Export */}
             <div className="grid grid-cols-1 gap-2.5 w-full">
               <button
                 type="button"
@@ -4741,6 +4788,7 @@ export default function App({
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
+        {bottomThreeTogglesNode}
       </main>
     );
   }
@@ -6612,8 +6660,12 @@ export default function App({
 
         {isBootLoading && <EswaLoadingScreen onComplete={() => setIsBootLoading(false)} />}
         {projectMemoryModalNode}
+        {natmRockMechanicsModalNode}
+        {welcomeAiChatbotNode}
+        {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
+        {bottomThreeTogglesNode}
       </main>
     );
   }

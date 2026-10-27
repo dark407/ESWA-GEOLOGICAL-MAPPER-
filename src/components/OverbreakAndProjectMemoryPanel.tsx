@@ -3090,6 +3090,11 @@ const ProjectMemoryModalContent: React.FC<ProjectMemoryModalProps> = ({
   );
 };
 
-export const ProjectMemoryModal = React.memo(ProjectMemoryModalContent);
+export const ProjectMemoryModal = React.memo<ProjectMemoryModalProps>((props) => {
+  if (!props.isOpen) return null;
+  return <ProjectMemoryModalContent {...props} />;
+});
+ProjectMemoryModal.displayName = 'ProjectMemoryModal';
+
 
 

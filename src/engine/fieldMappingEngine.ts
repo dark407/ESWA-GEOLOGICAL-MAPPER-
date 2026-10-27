@@ -137,6 +137,10 @@ export interface FieldLithologyStroke {
   lineMode?: 'smooth' | 'linear';
   foliationDipDirection?: number;
   foliationDipAmount?: number;
+  /** Whether the stroke forms a closed contour whose enclosed interior is filled with rock pattern/tint */
+  isClosed?: boolean;
+  /** Enclosed polygon points for closed contour lithology fill */
+  polygon?: FieldPoint2D[];
 }
 
 export interface FieldJointTrace {

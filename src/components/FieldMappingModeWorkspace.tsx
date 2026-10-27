@@ -306,7 +306,8 @@ type FieldCanvasTool =
   | '4_dip_surface'
   | '5_geo_feature'
   | '6_water_mark'
-  | 'eraser';
+  | 'eraser'
+  | 'litho_eraser';
 
 export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps> = React.memo(({
   onBackToWelcome,
@@ -352,6 +353,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [workflowMode, setWorkflowMode] = useState<'field_mapping' | 'photo_mapping'>(
     initialWorkflowMode
   );
+  const [cameraViewTab, setCameraViewTab] = useState<'live_camera' | 'upload_grid'>('live_camera');
   const [mappingDomain, setMappingDomain] = useState<MappingDomainType>(initialMappingDomain);
   const [surfaceParams, setSurfaceParams] = useState<SurfaceGeometryParameters>(() =>
     loadSavedSurfaceGeometryParameters(
@@ -1450,6 +1452,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     points: FieldPoint2D[];
     dipDirection: number;
     dipAmount: number;
+    isClosed?: boolean;
   } | null>(null);
 
   const setActiveDrawSubToolForCurrentFeature = (nextSubTool: FeatureDrawSubTool) => {
@@ -1871,8 +1874,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   }, [activeRound?.id, activeRound?.lithologyStrokes]);
 
-  // Eraser at point: Erases Joint Traces, Vein/Foliation Bands, Dip Surfaces, Structural Features & Water Marks,
-  // and if no overlay feature is hit at that point, also erases Rock Lithology ('region_fill') strokes!
+  // Helper to check if point is inside polygon for closed lithology contours
+  const isPtInPoly = (p: FieldPoint2D, poly: FieldPoint2D[]) => {
+    if (!poly || poly.length < 3) return false;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x;
+      const yi = poly[i].y;
+      const xj = poly[j].x;
+      const yj = poly[j].y;
+      const intersect =
+        yi > p.y !== yj > p.y && p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  };
+
+  // Normal Eraser: Erases ONLY Overlays (Joint Traces, Dip Surfaces, Structural Features & Water Marks).
+  // CRITICAL REQUIREMENT: Normal eraser NEVER erases Rock Mass Lithology ('region_fill') strokes!
   const eraseNearPoint = (pt: FieldPoint2D, targetPanel: FieldPanelId = activePanel) => {
     if (!activeRound) return;
     const hitRadius = Math.max(28, brushRadius);
@@ -1904,25 +1923,44 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       const nextWater = r.waterMarks.filter(
         (w) => w.panel !== targetPanel || !nearPointsOrSegments(w.points, 12)
       );
-      const hitOverlay =
-        nextTraces.length !== r.jointTraces.length ||
-        nextDipSurfaces.length !== r.dipPlaneSurfaces.length ||
-        nextFeatures.length !== (r.structuralFeatures || []).length ||
-        nextWater.length !== r.waterMarks.length ||
-        r.lithologyStrokes.some(
-          (s) =>
-            s.panel === targetPanel &&
-            (s.mode === 'vein_band' || s.mode === 'foliation_plane') &&
-            nearPointsOrSegments(s.points, s.brushRadius * 0.4)
-        );
 
+      // Normal eraser NEVER modifies rock mass lithology strokes!
+      return {
+        ...r,
+        jointTraces: nextTraces,
+        dipPlaneSurfaces: nextDipSurfaces,
+        structuralFeatures: nextFeatures,
+        waterMarks: nextWater,
+      };
+    });
+  };
+
+  // Dedicated Litho Eraser: ONLY erases Rock Lithology ('region_fill' or vein/foliation bands).
+  // Does NOT erase joint traces or structural overlays!
+  const eraseLithologyNearPoint = (pt: FieldPoint2D, targetPanel: FieldPanelId = activePanel) => {
+    if (!activeRound) return;
+    const hitRadius = Math.max(30, brushRadius);
+    const nearPointsOrSegments = (pts: FieldPoint2D[], extraRadius = 0) => {
+      if (!pts || pts.length === 0) return false;
+      const r = hitRadius + extraRadius;
+      if (pts.some((p) => Math.hypot(p.x - pt.x, p.y - pt.y) <= r)) return true;
+      for (let i = 0; i < pts.length - 1; i++) {
+        if (distToSegment(pt, pts[i], pts[i + 1]) <= r) return true;
+      }
+      return false;
+    };
+
+    updateActiveRound((r) => {
       const filteredLith = r.lithologyStrokes.filter((s) => {
         if (s.panel !== targetPanel) return true;
-        if (s.mode === 'vein_band' || s.mode === 'foliation_plane') {
-          return !nearPointsOrSegments(s.points, s.brushRadius * 0.4);
+        if (s.polygon && s.polygon.length >= 3) {
+          if (isPtInPoly(pt, s.polygon)) return false;
         }
-        if (s.mode === 'region_fill' && !hitOverlay) {
-          return !nearPointsOrSegments(s.points, s.brushRadius * 0.65);
+        if (s.mode === 'region_fill') {
+          return !nearPointsOrSegments(s.points, s.brushRadius * 0.7);
+        }
+        if (s.mode === 'vein_band' || s.mode === 'foliation_plane') {
+          return !nearPointsOrSegments(s.points, s.brushRadius * 0.5);
         }
         return true;
       });
@@ -1930,10 +1968,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       return {
         ...r,
         lithologyStrokes: pruneFullyErasedLithologyStrokes(filteredLith),
-        jointTraces: nextTraces,
-        dipPlaneSurfaces: nextDipSurfaces,
-        structuralFeatures: nextFeatures,
-        waterMarks: nextWater,
       };
     });
   };
@@ -2193,6 +2227,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       setOutlineSnapPreviewPt(null);
     }
 
+    const isLithoEraserActive =
+      activeTool === 'litho_eraser' ||
+      (activeTool === '1_lithology' && lithologySubMode === 'erase_area');
+
+    if (isLithoEraserActive) {
+      pushUndoSnapshot();
+      setIsDrawing(true);
+      eraseLithologyNearPoint(pt, targetPanel);
+      return;
+    }
+
     if (activeTool === 'eraser') {
       pushUndoSnapshot();
       setIsDrawing(true);
@@ -2402,6 +2447,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       0
     );
 
+    const isLithoEraserActive =
+      activeTool === 'litho_eraser' ||
+      (activeTool === '1_lithology' && lithologySubMode === 'erase_area');
+
+    if (isLithoEraserActive) {
+      if (isInside) {
+        eraseLithologyNearPoint(
+          clampPointToFieldPanelOutline(panelSpacePt, targetPanel, activeLocation, activeRound, 0),
+          targetPanel
+        );
+      }
+      return;
+    }
+
     if (activeTool === 'eraser') {
       if (isInside) {
         eraseNearPoint(
@@ -2579,6 +2638,22 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeRound.lithologyPatternAngle ??
         lithologyPatternAngle ??
         0;
+      const isShapeClosed =
+        Boolean((pendingItem as any).isClosed) ||
+        (shapedPts.length >= 3 &&
+          Math.hypot(
+            shapedPts[0].x - shapedPts[shapedPts.length - 1].x,
+            shapedPts[0].y - shapedPts[shapedPts.length - 1].y
+          ) < 32);
+      const finalPts = isShapeClosed
+        ? Math.hypot(
+            shapedPts[0].x - shapedPts[shapedPts.length - 1].x,
+            shapedPts[0].y - shapedPts[shapedPts.length - 1].y
+          ) > 0.1
+          ? [...shapedPts, shapedPts[0]]
+          : shapedPts
+        : shapedPts;
+
       const stroke: FieldLithologyStroke = {
         id: `lith-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         panel: targetPanel,
@@ -2591,7 +2666,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         patternId: rockInfo.patternId,
         patternAngleDeg: currentRockAngle,
         mode: 'region_fill',
-        points: shapedPts,
+        points: finalPts,
+        isClosed: isShapeClosed,
+        polygon: isShapeClosed ? finalPts : undefined,
         brushRadius,
         symbolDensity: currentDensity,
         lineMode: effectiveToolLineMode,
@@ -6312,7 +6389,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeRound &&
         activeProject &&
         activeLocation &&
-        (workflowMode === 'photo_mapping' ? (
+        (cameraViewTab === 'upload_grid' ? (
           <FieldFourPhotoUploadStage
             activeProject={activeProject}
             activeLocation={activeLocation}
@@ -6321,6 +6398,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             onUpdateRound={updateActiveRound}
             onBackToRoundDetails={() => setStage('excavation_round')}
             onProceedToPhotoFit={() => setStage('photo_fit')}
+            onSwitchToLiveCamera={() => setCameraViewTab('live_camera')}
           />
         ) : (
           <FieldInBuiltCameraStage
@@ -6328,9 +6406,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             activeLocation={activeLocation}
             activeRound={activeRound}
             mappingDomain={mappingDomain}
+            workflowMode={workflowMode}
             onUpdateRound={updateActiveRound}
             onBackToRoundDetails={() => setStage('excavation_round')}
-            onSkipOrProceedToCanvas={() => setStage('field_canvas')}
+            onSkipOrProceedToCanvas={() =>
+              workflowMode === 'photo_mapping'
+                ? setStage('photo_fit')
+                : setStage('field_canvas')
+            }
+            onProceedToPhotoFit={() => setStage('photo_fit')}
+            onSwitchToUploadGrid={() => setCameraViewTab('upload_grid')}
           />
         ))}
 
@@ -7409,13 +7494,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 </div>
               )}
 
-              {/* ==================== LEFT INSPECTOR: ERASER SIZE ==================== */}
+              {/* ==================== LEFT INSPECTOR: NORMAL ERASER (JOINTS / FEATURES) ==================== */}
               {activeTool === 'eraser' && (
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 space-y-2">
                   <div className="flex items-center justify-between text-xs text-slate-300">
-                    <span className="font-black uppercase text-rose-400">Eraser Size</span>
+                    <span className="font-black uppercase text-rose-400">Eraser (Joints &amp; Features)</span>
                     <span className="font-mono font-bold text-amber-400">{brushRadius} px</span>
                   </div>
+                  <p className="text-[10px] text-slate-400 leading-tight">
+                    Erases Joint Traces, Dip Surfaces, Structural Features, and Water Marks. <span className="text-amber-300 font-bold">Never erases rock lithology</span> (use dedicated Litho Eraser for rock layers).
+                  </p>
                   <input
                     type="range"
                     min={2}
@@ -7443,34 +7531,84 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </div>
                 </div>
               )}
+
+              {/* ==================== LEFT INSPECTOR: DEDICATED LITHO ERASER ==================== */}
+              {activeTool === 'litho_eraser' && (
+                <div className="bg-slate-950 border border-amber-500/40 rounded-xl p-2.5 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span className="font-black uppercase text-amber-400 flex items-center gap-1">
+                      <Pickaxe className="w-3.5 h-3.5" />
+                      Litho Eraser
+                    </span>
+                    <span className="font-mono font-bold text-amber-400">{brushRadius} px</span>
+                  </div>
+                  <p className="text-[10px] text-slate-300 leading-tight">
+                    Dedicated Lithology Eraser: <span className="text-emerald-400 font-bold">Erases only rock lithology layers &amp; fills</span>. Leaves all joint traces, structural features, and water marks completely intact.
+                  </p>
+                  <input
+                    type="range"
+                    min={2}
+                    max={120}
+                    step={1}
+                    value={brushRadius}
+                    onChange={(e) => setBrushRadius(Number(e.target.value))}
+                    className="w-full accent-amber-500 cursor-pointer"
+                  />
+                  <div className="grid grid-cols-5 gap-1">
+                    {[4, 12, 25, 50, 90].map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setBrushRadius(sz)}
+                        className={`py-1 rounded text-[10px] font-bold border cursor-pointer ${
+                          Math.abs(brushRadius - sz) <= 1
+                            ? 'bg-amber-500 text-slate-950 border-amber-300 font-black'
+                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        {sz}px
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             )}
 
-            {/* Photo Underlay Toggle in Photogrammetry Mode / Field Camera Storage Button in Field Mode */}
-            {workflowMode === 'photo_mapping' && panelPhoto && (
-              <div className="pt-1.5 mt-1 border-t border-slate-800 shrink-0">
+            {/* Photo Underlay Toggle & Field Camera Module Trigger */}
+            <div className="pt-1.5 mt-1 border-t border-slate-800 shrink-0 space-y-1">
+              {workflowMode === 'photo_mapping' && panelPhoto && (
                 <button
                   type="button"
                   onClick={() => setShowPhotoUnderlay(!showPhotoUnderlay)}
-                  className="w-full py-1.5 px-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-semibold text-slate-300 flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="w-full py-1.5 px-2 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 text-[11px] font-semibold text-slate-300 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Eye className="w-3.5 h-3.5 text-amber-400" />
                   {showPhotoUnderlay ? 'Hide Photo Underlay' : 'Show Photo Underlay'}
                 </button>
-              </div>
-            )}
-            {workflowMode === 'field_mapping' && (
-              <div className="pt-1.5 mt-1 border-t border-slate-800 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setStage('camera_prompt')}
-                  className="w-full py-1.5 px-2 rounded-lg bg-slate-950 border border-emerald-500/40 text-[11px] font-semibold text-emerald-300 flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                  Field Camera ({activeRound.collectedPhotos.length} Stored)
-                </button>
-              </div>
-            )}
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCameraViewTab('live_camera');
+                  setStage('camera_prompt');
+                }}
+                className={`w-full py-1.5 px-2 rounded-lg bg-slate-950 border ${
+                  workflowMode === 'photo_mapping'
+                    ? 'border-amber-500/40 text-amber-300 hover:bg-amber-950/20'
+                    : 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/20'
+                } text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm`}
+                title="Open Underground Field Camera module"
+              >
+                <Camera
+                  className={`w-3.5 h-3.5 ${
+                    workflowMode === 'photo_mapping' ? 'text-amber-400' : 'text-emerald-400'
+                  }`}
+                />
+                <span>Field Camera ({activeRound.collectedPhotos.length} Stored)</span>
+              </button>
+            </div>
           </div>
           )}
 
@@ -7522,7 +7660,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     ['4_dip_surface', '4. Dip Plane Surface', Pencil],
                     ['5_geo_feature', '5. Geological Features', Sparkles],
                     ['6_water_mark', '6. Mark Water', Droplets],
-                    ['eraser', 'Erase', Eraser],
+                    ['eraser', 'Erase Features', Eraser],
+                    ['litho_eraser', 'Litho Eraser', Pickaxe],
                   ] as [FieldCanvasTool, string, any][]
                 ).map(([tId, lbl, IconC]) => (
                   <button
@@ -7535,10 +7674,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     className={`px-2 py-1 rounded-lg text-[10.5px] font-black flex items-center gap-1 cursor-pointer transition-all ${
                       stage === 'field_canvas' && activeTool === tId
                         ? tId === 'eraser'
-                          ? 'bg-rose-500 text-white shadow'
+                          ? 'bg-rose-500 text-white shadow ring-1 ring-rose-300'
+                          : tId === 'litho_eraser'
+                          ? 'bg-amber-600 text-white shadow ring-1 ring-amber-300'
                           : 'bg-amber-500 text-slate-950 shadow'
+                        : tId === 'litho_eraser'
+                        ? 'bg-slate-900 text-amber-300 hover:text-white border border-amber-500/40'
                         : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
                     }`}
+                    title={
+                      tId === 'eraser'
+                        ? 'Feature & Joint Eraser: Erases joint traces, dip surfaces, features, and water marks (Will NOT erase rock lithology)'
+                        : tId === 'litho_eraser'
+                        ? 'Litho Eraser: Erases ONLY Rock Lithology layers and fills'
+                        : lbl
+                    }
                   >
                     <IconC className="w-3.5 h-3.5" />
                     <span>{lbl}</span>

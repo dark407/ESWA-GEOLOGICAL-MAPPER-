@@ -96,6 +96,24 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
             </button>
           )}
 
+        {pending2DTrace.tool === '1_lithology' && pending2DTrace.points.length >= 3 && (
+          <button
+            type="button"
+            onClick={() => {
+              const closedPts = [...pending2DTrace.points, pending2DTrace.points[0]];
+              onCommitPending2DTrace({
+                ...pending2DTrace,
+                points: closedPts,
+                isClosed: true,
+              });
+            }}
+            className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow cursor-pointer"
+            title="Close loop and fill inside space with selected rock lithology"
+          >
+            ⮌ Close &amp; Fill Lithology
+          </button>
+        )}
+
         {pending2DTrace.points.length >= 2 && (
           <button
             type="button"
@@ -103,7 +121,9 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
             className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow cursor-pointer"
           >
             <Check className="w-3.5 h-3.5" />
-            Confirm
+            {pending2DTrace.tool === '1_lithology' && (pending2DTrace as any).isClosed
+              ? 'Confirm Closed Fill'
+              : 'Confirm'}
           </button>
         )}
 

@@ -3472,8 +3472,20 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           const info = resolveRockDisplayInfo(st.rockType, rememberedRocks);
           const patId = st.patternId || info.patternId;
           const d = buildSmoothSvgPath(st.points);
-          const effectiveStrokeW =
+          const baseStrokeW =
             st.brushRadius <= 8 ? Math.max(2, st.brushRadius) : st.brushRadius * 2;
+          const effectiveStrokeW = useContinuousCadMapping
+            ? Math.max(12, baseStrokeW)
+            : Math.max(2, baseStrokeW);
+          const isClosed =
+            Boolean(st.isClosed) ||
+            Boolean(st.polygon && st.polygon.length >= 3) ||
+            (st.points.length >= 4 &&
+              Math.hypot(
+                st.points[0].x - st.points[st.points.length - 1].x,
+                st.points[0].y - st.points[st.points.length - 1].y
+              ) < 32);
+          const closedD = isClosed ? `${d} Z` : d;
           const indivLithDens = Math.round(
             st.symbolDensity ??
               round.lithologyDensityByRock?.[st.rockType] ??
@@ -3516,15 +3528,71 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   </mask>
                 </defs>
               )}
-              <path
-                d={d}
-                fill="none"
-                stroke={`url(#${patternUrlId})`}
-                strokeWidth={effectiveStrokeW}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                mask={maskId ? `url(#${maskId})` : undefined}
-              />
+              {isClosed ? (
+                <>
+                  {/* Rock color tint fill */}
+                  <path
+                    d={closedD}
+                    fill={
+                      colorMode === 'bw'
+                        ? '#ffffff'
+                        : st.customColor || info.fillColor || info.color || '#fef08a'
+                    }
+                    fillOpacity={colorMode === 'bw' ? 1 : 0.88}
+                    stroke="none"
+                    mask={maskId ? `url(#${maskId})` : undefined}
+                  />
+                  {/* Rock geological pattern fill */}
+                  <path
+                    d={closedD}
+                    fill={`url(#${patternUrlId})`}
+                    fillOpacity={0.92}
+                    stroke="none"
+                    mask={maskId ? `url(#${maskId})` : undefined}
+                  />
+                  {/* Boundary outline stroke */}
+                  <path
+                    d={closedD}
+                    fill="none"
+                    stroke={
+                      colorMode === 'bw'
+                        ? '#0f172a'
+                        : st.customColor || info.color || '#78350f'
+                    }
+                    strokeWidth={Math.max(1.8, Math.min(5, effectiveStrokeW))}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    mask={maskId ? `url(#${maskId})` : undefined}
+                  />
+                </>
+              ) : (
+                <>
+                  {/* Open brush / stroke rock background tint */}
+                  <path
+                    d={d}
+                    fill="none"
+                    stroke={
+                      colorMode === 'bw'
+                        ? '#ffffff'
+                        : st.customColor || info.fillColor || info.color || '#fef08a'
+                    }
+                    strokeWidth={effectiveStrokeW}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    mask={maskId ? `url(#${maskId})` : undefined}
+                  />
+                  {/* Rock pattern stroke */}
+                  <path
+                    d={d}
+                    fill="none"
+                    stroke={`url(#${patternUrlId})`}
+                    strokeWidth={effectiveStrokeW}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    mask={maskId ? `url(#${maskId})` : undefined}
+                  />
+                </>
+              )}
             </g>
           );
         })}
