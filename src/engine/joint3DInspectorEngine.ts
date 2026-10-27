@@ -115,11 +115,13 @@ export interface JointPairIntersectionResult {
 // ----------------------------------------------------------------------------
 
 export function normalizeAngle360(deg: number): number {
+  if (deg == null || isNaN(deg)) return 0;
   const norm = ((deg % 360) + 360) % 360;
   return Number(norm.toFixed(1));
 }
 
 export function clampDip(deg: number): number {
+  if (deg == null || isNaN(deg)) return 45;
   return Math.max(0, Math.min(90, Number(deg.toFixed(1))));
 }
 
@@ -421,8 +423,8 @@ export function constructJointPlane(
   anchorPoint: Vec3D,
   _driveAzimuthDeg?: number
 ): PlaneEquation {
-  const dd = normalizeAngle360(dipDirectionDeg);
-  const dip = clampDip(dipDeg);
+  const dd = normalizeAngle360(dipDirectionDeg ?? 135);
+  const dip = clampDip(dipDeg ?? 60);
 
   const alphaRad = degToRad(dd);
   const deltaRad = degToRad(dip);
@@ -450,8 +452,12 @@ export function constructJointPlane(
   const nb = b / len;
   const nc = c / len;
 
+  const ax = anchorPoint?.x != null && !isNaN(anchorPoint.x) ? anchorPoint.x : 3.0;
+  const ay = anchorPoint?.y != null && !isNaN(anchorPoint.y) ? anchorPoint.y : 4.25;
+  const az = anchorPoint?.z != null && !isNaN(anchorPoint.z) ? anchorPoint.z : 3.75;
+
   // Plane constant d = -(na * x0 + nb * y0 + nc * z0)
-  const d = -(na * anchorPoint.x + nb * anchorPoint.y + nc * anchorPoint.z);
+  const d = -(na * ax + nb * ay + nc * az);
 
   return {
     a: na,
@@ -1540,15 +1546,17 @@ export function constructPlaneFromTraceHinge(
   const d = -(na * midPoint.x + nb * midPoint.y + nc * midPoint.z);
 
   // Geological Dip Angle: angle between normal and vertical Z
-  const derivedDipDeg = clampDip(radToDeg(Math.acos(Math.abs(nc))));
+  const safeNc = Math.min(1, Math.max(-1, Math.abs(nc)));
+  const derivedDipDeg = clampDip(radToDeg(Math.acos(safeNc)));
 
   // Dip direction azimuth in tunnel-relative coordinates:
   const signZ = nc >= 0 ? 1 : -1;
   const gradX = -na * signZ;
   const gradY = -nb * signZ;
   let relAz = radToDeg(Math.atan2(gradY, gradX));
+  if (isNaN(relAz)) relAz = 0;
   if (relAz < 0) relAz += 360;
-  const derivedDipDirectionDeg = normalizeAngle360(relAz + (geom.driveAzimuthDeg || 0));
+  const derivedDipDirectionDeg = normalizeAngle360(relAz + (geom?.driveAzimuthDeg || 0));
   const strikeRhrDeg = normalizeAngle360(derivedDipDirectionDeg - 90);
 
   return {

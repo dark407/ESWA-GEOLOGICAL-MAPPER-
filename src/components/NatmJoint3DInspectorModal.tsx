@@ -175,19 +175,20 @@ const NumericStepperInput: React.FC<NumericStepperInputProps> = ({
   isLight = false,
   onChange,
 }) => {
-  const [localStr, setLocalStr] = useState<string>(String(value));
+  const safeVal = typeof value === 'number' && !isNaN(value) ? value : min;
+  const [localStr, setLocalStr] = useState<string>(String(safeVal));
   const isFocusedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!isFocusedRef.current) {
-      setLocalStr(String(value));
+      setLocalStr(String(safeVal));
     }
-  }, [value]);
+  }, [safeVal]);
 
   const commitValue = (raw: string) => {
     const trimmed = raw.trim();
     if (trimmed === '' || isNaN(Number(trimmed))) {
-      setLocalStr(String(value));
+      setLocalStr(String(safeVal));
       return;
     }
     let num = Number(trimmed);
@@ -469,23 +470,62 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     }
   }, [tunnelGeometry.pullLengthM]);
 
+  // Reliable aside sidebar ref and scrolling actions
+  const asideRef = useRef<HTMLElement | null>(null);
+
+  const scrollToAsideTop = () => {
+    asideRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const scrollToAsideBottom = () => {
+    if (asideRef.current) {
+      asideRef.current.scrollTo({ top: asideRef.current.scrollHeight, behavior: 'smooth' });
+    }
+  };
+  const scrollAsideBy = (delta: number) => {
+    if (asideRef.current) {
+      asideRef.current.scrollBy({ top: delta, behavior: 'smooth' });
+    }
+  };
+
+  // Adaptive Horizontal & Vertical Layout Engine
+  const [viewLayoutMode, setViewLayoutMode] = useState<'SPLIT' | 'CANVAS' | 'PARAMS'>('SPLIT');
+  const [verticalCanvasPosition, setVerticalCanvasPosition] = useState<'top' | 'bottom'>('top');
+  const [isVerticalMode, setIsVerticalMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 1024 || window.innerHeight > window.innerWidth;
+  });
+
+  useEffect(() => {
+    const handleCheckOrientation = () => {
+      const isVert = window.innerWidth < 1024 || window.innerHeight > window.innerWidth;
+      setIsVerticalMode(isVert);
+    };
+    handleCheckOrientation();
+    window.addEventListener('resize', handleCheckOrientation);
+    window.addEventListener('orientationchange', handleCheckOrientation);
+    return () => {
+      window.removeEventListener('resize', handleCheckOrientation);
+      window.removeEventListener('orientationchange', handleCheckOrientation);
+    };
+  }, []);
+
   // -------------------------------------------------------------------------
   // MATHEMATICAL CALCULATIONS (REAL & VALIDATED)
   // -------------------------------------------------------------------------
 
   // 1. Strike Convention & Angles
   const strikeInfo = useMemo(() => {
-    return calculateStrikeFromDipDirection(dipDirection, dipAmount);
+    return calculateStrikeFromDipDirection(dipDirection ?? 135, dipAmount ?? 60);
   }, [dipDirection, dipAmount]);
 
   // 1b. True Dip vs. Surface Apparent Dips Matrix (Analytical Geological Calculation)
   const apparentMatrix = useMemo<TunnelSurfacesApparentDipMatrix>(() => {
     return calculateSurfaceApparentTraceAngles(
-      dipDirection,
-      dipAmount,
-      tunnelGeometry.driveAzimuthDeg ?? 0
+      dipDirection ?? 135,
+      dipAmount ?? 60,
+      tunnelGeometry?.driveAzimuthDeg ?? 0
     );
-  }, [dipDirection, dipAmount, tunnelGeometry.driveAzimuthDeg]);
+  }, [dipDirection, dipAmount, tunnelGeometry?.driveAzimuthDeg]);
 
   // 2. Anchor Point Derived from actual mapped 2D polyline vertices or user-selected plot anchor
   // Coordinate frame: X = advance along pull (0..pullLengthM), Y = width (0..widthM), Z = height (0..heightM)
@@ -540,8 +580,12 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   // Synchronize derived dip and dip direction when hinge rotation changes
   useEffect(() => {
     if (hingePlaneResult) {
-      setDipAmount(hingePlaneResult.derivedDipDeg);
-      setDipDirection(hingePlaneResult.derivedDipDirectionDeg);
+      if (typeof hingePlaneResult.derivedDipDeg === 'number' && !isNaN(hingePlaneResult.derivedDipDeg)) {
+        setDipAmount(hingePlaneResult.derivedDipDeg);
+      }
+      if (typeof hingePlaneResult.derivedDipDirectionDeg === 'number' && !isNaN(hingePlaneResult.derivedDipDirectionDeg)) {
+        setDipDirection(hingePlaneResult.derivedDipDirectionDeg);
+      }
     }
   }, [hingePlaneResult]);
 
@@ -551,12 +595,12 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       return hingePlaneResult;
     }
     return constructJointPlane(
-      dipDirection,
-      dipAmount,
+      dipDirection ?? 135,
+      dipAmount ?? 60,
       anchorPoint,
-      tunnelGeometry.driveAzimuthDeg
+      tunnelGeometry?.driveAzimuthDeg ?? 0
     );
-  }, [hingePlaneResult, dipDirection, dipAmount, anchorPoint, tunnelGeometry.driveAzimuthDeg]);
+  }, [hingePlaneResult, dipDirection, dipAmount, anchorPoint, tunnelGeometry?.driveAzimuthDeg]);
 
   // 4. Clipped Plane Polygon to Tunnel Bounding Box
   const clippedVertices = useMemo(() => {
@@ -627,12 +671,12 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     if (!target) return null;
     const targetAnchor = deriveAnchorPointFromPoints(target.points, target.panel, tunnelGeometry);
     const targetPlane = constructJointPlane(
-      target.dipDirection,
-      target.dipAmount,
+      target.dipDirection ?? 135,
+      target.dipAmount ?? 65,
       targetAnchor,
-      tunnelGeometry.driveAzimuthDeg
+      tunnelGeometry?.driveAzimuthDeg ?? 0
     );
-    return calculateJointPairIntersection(plane, targetPlane, tunnelGeometry.driveAzimuthDeg);
+    return calculateJointPairIntersection(plane, targetPlane, tunnelGeometry?.driveAzimuthDeg ?? 0);
   }, [compareTargetJointId, otherJoints, plane, tunnelGeometry]);
 
   // 8. Automated Engine Validation Test Report
@@ -1074,6 +1118,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      if (touchMode === 'NONE') return;
       if (e.cancelable) e.preventDefault();
       const cam = camSphericalRef.current;
       const target = targetOffsetRef.current;
@@ -1115,6 +1160,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      if (touchMode === 'NONE') return;
       if (e.touches.length === 1) {
         touchMode = 'ORBIT';
         prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -1127,10 +1173,20 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       if (!threeMountRef.current || !rendererRef.current || !cameraRef.current) return;
       const wNow = threeMountRef.current.clientWidth || 600;
       const hNow = threeMountRef.current.clientHeight || 450;
-      cameraRef.current.aspect = wNow / hNow;
-      cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(wNow, hNow);
+      if (wNow > 0 && hNow > 0) {
+        cameraRef.current.aspect = wNow / hNow;
+        cameraRef.current.updateProjectionMatrix();
+        rendererRef.current.setSize(wNow, hNow);
+      }
     };
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && threeMountRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        handleResize();
+      });
+      resizeObserver.observe(threeMountRef.current);
+    }
 
     container.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
@@ -1145,6 +1201,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
     return () => {
       if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+      if (resizeObserver) resizeObserver.disconnect();
       container.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
@@ -1164,6 +1221,21 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       railsMat.dispose();
     };
   }, [activeTab, tunnelGeometry]);
+
+  // Handle immediate Three.js canvas re-layout when switching orientation or layout mode
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!threeMountRef.current || !rendererRef.current || !cameraRef.current) return;
+      const wNow = threeMountRef.current.clientWidth || 600;
+      const hNow = threeMountRef.current.clientHeight || 450;
+      if (wNow > 0 && hNow > 0) {
+        cameraRef.current.aspect = wNow / hNow;
+        cameraRef.current.updateProjectionMatrix();
+        rendererRef.current.setSize(wNow, hNow);
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [viewLayoutMode, isVerticalMode, verticalCanvasPosition, isAsideCollapsed]);
 
   // -------------------------------------------------------------------------
   // UPDATE ONLY JOINT MESH IN 3D SCENE WHEN ORIENTATION OR CLIPPING CHANGES
@@ -1400,22 +1472,32 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     group.add(new THREE.LineSegments(sGeo, sMat));
 
     // 3. Downward Dip Direction Arrow (Vibrant Amber / Gold)
-    const dipArrowDir = new THREE.Vector3(plane.dipVector.y, plane.dipVector.z, plane.dipVector.x).normalize();
-    const dipArrowOrigin = new THREE.Vector3(ax, ay, az);
-    const dipArrow = new THREE.ArrowHelper(dipArrowDir, dipArrowOrigin, 2.4, 0xd97706, 0.5, 0.28);
-    group.add(dipArrow);
+    const rawDipDir = new THREE.Vector3(plane.dipVector.y, plane.dipVector.z, plane.dipVector.x);
+    const dipArrowOrigin = new THREE.Vector3(
+      isNaN(ax) ? 4.25 : ax,
+      isNaN(ay) ? 3.75 : ay,
+      isNaN(az) ? 3.0 : az
+    );
+    if (rawDipDir.length() > 0.001 && !isNaN(rawDipDir.x) && !isNaN(rawDipDir.y) && !isNaN(rawDipDir.z)) {
+      const dipArrowDir = rawDipDir.clone().normalize();
+      const dipArrow = new THREE.ArrowHelper(dipArrowDir, dipArrowOrigin, 2.4, 0xd97706, 0.5, 0.28);
+      group.add(dipArrow);
+    }
 
     // 4. Plane Normal Vector Arrow (Forest Green)
-    const normalDir = new THREE.Vector3(plane.normal.y, plane.normal.z, plane.normal.x).normalize();
-    const normalArrow = new THREE.ArrowHelper(normalDir, dipArrowOrigin, 1.9, 0x15803d, 0.4, 0.22);
-    group.add(normalArrow);
+    const rawNormalDir = new THREE.Vector3(plane.normal.y, plane.normal.z, plane.normal.x);
+    if (rawNormalDir.length() > 0.001 && !isNaN(rawNormalDir.x) && !isNaN(rawNormalDir.y) && !isNaN(rawNormalDir.z)) {
+      const normalDir = rawNormalDir.clone().normalize();
+      const normalArrow = new THREE.ArrowHelper(normalDir, dipArrowOrigin, 1.9, 0x15803d, 0.4, 0.22);
+      group.add(normalArrow);
+    }
 
     // 5. Anchor Point Sphere directly on user trace location / crown strike cut point
     const isCrownJoint = currentJoint.panel === 'crown';
     const anchorGeo = new THREE.SphereGeometry(isCrownJoint ? 0.22 : 0.16, 20, 20);
     const anchorMat = new THREE.MeshBasicMaterial({ color: isCrownJoint ? 0xef4444 : 0xdc2626 });
     const anchorMesh = new THREE.Mesh(anchorGeo, anchorMat);
-    anchorMesh.position.set(ax, ay, az);
+    anchorMesh.position.copy(dipArrowOrigin);
     group.add(anchorMesh);
 
     if (isCrownJoint) {
@@ -1685,7 +1767,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 bg-slate-900 select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 bg-slate-900">
       <div
         className={`w-full max-w-full h-full h-[100dvh] flex flex-col rounded-none shadow-none overflow-hidden transition-colors border-0 ${
           isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-slate-100'
@@ -1720,83 +1802,66 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 >
                   NATM 3D JOINT INSPECTOR &amp; MULTI-SURFACE PERSISTENCE
                 </h2>
-                {/* CSS Selector 1 Target Span: Clean Light/Dark Theme Adoption */}
-                <span
-                  className={`px-2.5 py-0.5 rounded-md text-[11px] font-mono uppercase tracking-wide transition-all shadow-xs border ${
-                    isLight
-                      ? 'border-slate-900/25 ring-1 ring-slate-950/10 text-slate-950 font-black'
-                      : 'border-white/20 ring-1 ring-white/10 text-slate-950 font-bold'
-                  }`}
-                  style={{
-                    backgroundColor: FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#f59e0b',
-                    color: '#09090b',
-                  }}
-                >
-                  Joint {currentJoint.id} ({jointSetId})
-                </span>
-                <span
-                  className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border transition-colors ${
-                    isLight
-                      ? 'bg-cyan-50 border-cyan-300 text-cyan-900'
-                      : 'bg-cyan-950 border-cyan-800 text-cyan-300'
-                  }`}
-                >
-                  Observed on {currentJoint.panel.toUpperCase().replace('_', ' ')}
-                </span>
               </div>
-              <p
-                className={`text-[11px] font-mono flex items-center gap-2 mt-0.5 transition-colors ${
-                  isLight ? 'text-slate-600' : 'text-slate-400'
-                }`}
-              >
-                <span>
-                  Tunnel Section: {tunnelGeometry.widthM}m W × {tunnelGeometry.heightM}m H × {tunnelGeometry.pullLengthM || 3.0}m Pull
-                </span>
-                <span>·</span>
-                <span className={isLight ? 'text-amber-700 font-bold' : 'text-amber-300 font-bold'}>
-                  Heading: {tunnelGeometry.driveAzimuthDeg !== undefined ? `N ${Math.round(tunnelGeometry.driveAzimuthDeg)}° E` : 'Local Grid'}
-                </span>
-              </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowAdvanceAnalysis(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-black bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400 hover:brightness-110 cursor-pointer transition-all shrink-0"
-              title="Open Advance Geological Analytics: 3D Kinematic Wedge FoS, 4-Surface Apparent Dip, +3m/+6m/+9m Extrapolation, Stand-Up Time, Palmström Blocks, Hydro Inflow"
-            >
-              <Zap className="w-4 h-4 fill-slate-950 text-slate-950" />
-              <span>Advance Geological Analytics</span>
-            </button>
+            {/* Horizontal & Vertical Adaptive Mode Segmented Controls */}
+            <div className="flex items-center p-0.5 rounded-xl bg-slate-800/90 border border-slate-700/80 font-mono text-[11px] font-bold shadow-inner">
+              <button
+                type="button"
+                onClick={() => setViewLayoutMode('CANVAS')}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                  viewLayoutMode === 'CANVAS'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Show 3D Viewport Only (Full Canvas)"
+              >
+                <Box className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">3D Canvas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewLayoutMode('SPLIT')}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                  viewLayoutMode === 'SPLIT'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Split View (Show both 3D Viewport and Parameters)"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Split View</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewLayoutMode('PARAMS')}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                  viewLayoutMode === 'PARAMS'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Show Parameters & Audit Only (Full Aside)"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Parameters</span>
+              </button>
+            </div>
 
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-bold cursor-pointer transition-colors border ${
-                isLight
-                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-              }`}
-              title="Export complete 3D joint audit and coordinate tables to CSV"
-            >
-              <Download className={`w-4 h-4 ${isLight ? 'text-cyan-700' : 'text-cyan-400'}`} />
-              <span>Export CSV</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSaveInspection}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-mono text-xs font-black cursor-pointer transition-all shadow-md ${
-                saveStatus === 'SAVED'
-                  ? 'bg-emerald-500 text-slate-950'
-                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950 hover:shadow-amber-500/20'
-              }`}
-            >
-              {saveStatus === 'SAVED' ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-              <span>{saveStatus === 'SAVED' ? 'Reflected on Face Canvas!' : 'Save & Reflect on Face Canvas'}</span>
-            </button>
+            {/* In Vertical Mode: Quick Canvas Position Inverter (Top vs Bottom) */}
+            {isVerticalMode && viewLayoutMode === 'SPLIT' && (
+              <button
+                type="button"
+                onClick={() => setVerticalCanvasPosition((prev) => (prev === 'top' ? 'bottom' : 'top'))}
+                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white border border-slate-700 transition-colors cursor-pointer text-[10.5px] font-mono font-bold flex items-center gap-1 shadow-sm"
+                title="Swap vertical placement of 3D Canvas and Parameters"
+              >
+                <RotateCcw className="w-3 h-3 text-cyan-400" />
+                <span>{verticalCanvasPosition === 'top' ? '3D: Top' : '3D: Bottom'}</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -1814,61 +1879,91 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         </header>
 
         {/* ===================================================================
-            MAIN BODY: 2 COLUMNS (LEFT: EDITABLE PARAMETERS | RIGHT: 3D VIEWPORT)
+            MAIN BODY: ADAPTIVE 2-PANEL LAYOUT (WORKS IN BOTH HORIZONTAL & VERTICAL)
             =================================================================== */}
-        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0 relative">
+        <div
+          className={`flex-1 h-full min-h-0 max-h-full flex ${
+            isVerticalMode ? 'flex-col' : 'flex-col lg:flex-row'
+          } overflow-hidden relative`}
+        >
           {/* ---------------------------------------------------------------
-              LEFT PANEL: HIGH-RESPONSIVENESS INPUTS & GEOLOGICAL AUDIT
-              (COLLAPSIBLE & SHRINKABLE WITH THEME BACKGROUND)
+              LEFT/BOTTOM PANEL: HIGH-RESPONSIVENESS INPUTS & GEOLOGICAL AUDIT
+              (ADAPTS TO HORIZONTAL & VERTICAL MODES)
               --------------------------------------------------------------- */}
           {isAsideCollapsed ? (
-            /* COLLAPSED RAIL: MAXIMIZES 3D TUNNEL VIEWPORT */
+            /* COLLAPSED RAIL: ADAPTS TO HORIZONTAL (rail) OR VERTICAL (top/bottom bar) */
             <aside
-              className={`flex-none w-12 border-r flex flex-col items-center py-2.5 gap-2.5 z-20 select-none shadow-md transition-all ${
+              className={`${
+                isVerticalMode
+                  ? verticalCanvasPosition === 'top'
+                    ? 'order-2 w-full h-10 border-t'
+                    : 'order-1 w-full h-10 border-b'
+                  : 'order-1 flex-none w-12 border-r flex flex-col items-center py-2.5 gap-2.5'
+              } flex items-center justify-between px-3 z-20 select-none shadow-md transition-all ${
                 isLight
                   ? 'bg-slate-100 border-slate-300 text-slate-800'
                   : 'bg-slate-900 border-slate-700/80 text-slate-200'
               }`}
             >
-              <button
-                type="button"
-                onClick={() => setIsAsideCollapsed(false)}
-                className="w-8 h-8 rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center justify-center shadow-md cursor-pointer transition-colors"
-                title="Expand Audit & Parameters Aside Sidebar"
-              >
-                <PanelLeftOpen className="w-4 h-4" />
-              </button>
-
-              <div className="w-6 h-px bg-slate-700/60" />
-
-              <button
-                type="button"
-                onClick={() => setIsAsideCollapsed(false)}
-                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 flex items-center justify-center cursor-pointer transition-colors"
-                title="Parameters & Audit (Click to Expand)"
-              >
-                <Sliders className="w-4 h-4" />
-              </button>
-
-              <div
-                className="mt-3 [writing-mode:vertical-rl] rotate-180 text-[10px] font-mono font-bold tracking-wider text-slate-400 hover:text-sky-300 uppercase cursor-pointer"
-                onClick={() => setIsAsideCollapsed(false)}
-                title="Click to Expand Sidebar"
-              >
-                PARAMETERS · JOINT {currentJoint.id}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAsideCollapsed(false)}
+                  className="px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5 text-xs font-bold shadow-md cursor-pointer transition-colors"
+                  title="Expand Audit & Parameters Aside Sidebar"
+                >
+                  <PanelLeftOpen className="w-3.5 h-3.5" />
+                  <span>Show Parameters</span>
+                </button>
+                <span className="text-[11px] font-mono text-amber-300 font-bold">
+                  Joint {currentJoint.id} ({currentJoint.panel})
+                </span>
               </div>
+              <button
+                type="button"
+                onClick={() => setIsAsideCollapsed(false)}
+                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 cursor-pointer"
+                title="Expand"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+              </button>
             </aside>
           ) : (
             <aside
+              ref={asideRef as unknown as React.RefObject<HTMLElement>}
+              data-mouse-scrollable="true"
+              tabIndex={0}
+              onWheel={(e) => {
+                e.stopPropagation();
+              }}
+              style={{
+                overscrollBehaviorY: 'contain',
+                WebkitOverflowScrolling: 'touch',
+                touchAction: 'pan-y',
+              }}
               className={`${
-                asideWidthMode === 'compact' ? 'w-full lg:w-[340px]' : 'w-full lg:w-[460px]'
-              } flex-none h-full min-h-0 max-h-full border-r p-3 sm:p-4 overflow-y-auto touch-pan-y overscroll-contain space-y-3.5 font-mono text-xs transition-all duration-150 shadow-xl scrollbar-thin ${
+                isVerticalMode
+                  ? verticalCanvasPosition === 'top'
+                    ? 'order-2'
+                    : 'order-1'
+                  : 'order-1 lg:order-1'
+              } ${
+                viewLayoutMode === 'CANVAS'
+                  ? 'hidden'
+                  : viewLayoutMode === 'PARAMS'
+                  ? 'flex-1 h-full w-full'
+                  : isVerticalMode
+                  ? 'flex-1 h-[calc(54vh-48px)] sm:h-[calc(52vh-48px)] min-h-[200px] w-full border-t border-slate-700/80'
+                  : asideWidthMode === 'compact'
+                  ? 'w-full lg:w-[340px] flex-none h-full border-r'
+                  : 'w-full lg:w-[460px] flex-none h-full border-r'
+              } p-3 sm:p-4 overflow-y-scroll overscroll-y-contain space-y-3.5 font-mono text-xs transition-all duration-150 shadow-xl inspector-scrollable-aside select-text ${
                 isLight
                   ? 'bg-slate-100/95 border-slate-300 text-slate-900'
                   : 'bg-slate-900 border-slate-700/80 text-slate-100'
               }`}
             >
-              {/* ASIDE TOP HEADER BAR: COLLAPSE & SHRINK CONTROLS */}
+              {/* ASIDE TOP HEADER BAR: COLLAPSE, SCROLL & SHRINK CONTROLS */}
               <div
                 className={`flex items-center justify-between pb-2 border-b transition-colors ${
                   isLight ? 'border-slate-300' : 'border-slate-700/70'
@@ -1879,6 +1974,27 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   <span>Audit &amp; Parameters</span>
                 </div>
                 <div className="flex items-center gap-1.5">
+                  {/* Quick Scroll Stepper Buttons */}
+                  <div className="flex items-center rounded-lg bg-slate-800 border border-slate-700 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => scrollAsideBy(-320)}
+                      className="px-1.5 py-0.5 rounded hover:bg-slate-700 text-amber-300 hover:text-white transition-colors cursor-pointer flex items-center gap-0.5 text-[10px] font-bold"
+                      title="Scroll Up"
+                    >
+                      <ArrowUp className="w-3 h-3 text-amber-400" />
+                      <span>Up</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => scrollAsideBy(320)}
+                      className="px-1.5 py-0.5 rounded hover:bg-slate-700 text-amber-300 hover:text-white transition-colors cursor-pointer flex items-center gap-0.5 text-[10px] font-bold"
+                      title="Scroll Down"
+                    >
+                      <ArrowDown className="w-3 h-3 text-amber-400" />
+                      <span>Down</span>
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setAsideWidthMode((prev) => (prev === 'compact' ? 'standard' : 'compact'))}
@@ -2027,10 +2143,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     </span>
                   </div>
 
-                  <p className="text-[10px] text-slate-300 leading-snug">
-                    The traced joint line on the face canvas is locked as the <strong className="text-amber-300">stationary hinge axis</strong>. Sliding the angle rotates the 3D plane strictly around this line without drifting.
-                  </p>
-
                   {/* Live Dip Angle Slider around Traced Line */}
                   <div className="space-y-1.5 bg-slate-900/90 p-2.5 rounded-lg border border-amber-500/20">
                     <div className="flex items-center justify-between text-[11px]">
@@ -2119,17 +2231,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       </strong>
                     </div>
                   </div>
-
-                  {/* Toggle */}
-                  <label className="flex items-center gap-2 cursor-pointer pt-0.5 text-[9.5px] text-slate-400 hover:text-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={isHingeRotationActive}
-                      onChange={(e) => setIsHingeRotationActive(e.target.checked)}
-                      className="accent-amber-500 rounded"
-                    />
-                    <span>Strictly lock rotation axis to mapped trace on face (Recommended)</span>
-                  </label>
                 </div>
               )}
 
@@ -2244,12 +2345,18 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
 
                   {/* Toggle */}
-                  <label className="flex items-center gap-2 cursor-pointer pt-0.5 text-[9.5px] text-slate-400 hover:text-slate-200">
+                  <label
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center gap-2 cursor-pointer pt-0.5 text-[9.5px] text-slate-400 hover:text-slate-200"
+                  >
                     <input
                       type="checkbox"
                       checked={isHingeRotationActive}
-                      onChange={(e) => setIsHingeRotationActive(e.target.checked)}
-                      className="accent-emerald-500 rounded"
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        setIsHingeRotationActive(e.target.checked);
+                      }}
+                      className="accent-emerald-500 rounded cursor-pointer"
                     />
                     <span>Strictly lock rotation axis to mapped trace on sidewall (Recommended)</span>
                   </label>
@@ -2365,83 +2472,23 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
 
                   {/* Toggle */}
-                  <label className="flex items-center gap-2 cursor-pointer pt-0.5 text-[9.5px] text-slate-400 hover:text-slate-200">
+                  <label
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center gap-2 cursor-pointer pt-0.5 text-[9.5px] text-slate-400 hover:text-slate-200"
+                  >
                     <input
                       type="checkbox"
                       checked={isHingeRotationActive}
-                      onChange={(e) => setIsHingeRotationActive(e.target.checked)}
-                      className="accent-sky-500 rounded"
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        setIsHingeRotationActive(e.target.checked);
+                      }}
+                      className="accent-sky-500 rounded cursor-pointer"
                     />
                     <span>Tilt plane strictly based on crown trace &amp; chosen dip amount (Recommended)</span>
                   </label>
                 </div>
               )}
-
-              {/* ROCKMASS FRACTURE INTENSITY & OCCUPIED AREA CARD (For Face, Walls, and Crown) */}
-              <div className="p-3 rounded-lg bg-gradient-to-br from-cyan-950/30 via-slate-900 to-slate-950 border border-cyan-500/30 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-cyan-300 flex items-center gap-1.5">
-                    <Activity className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>
-                      ISRM Fracture Intensity &amp; Occupied Area ({currentJoint.panel === 'crown' ? 'Crown Arch' : currentJoint.panel === 'left_wall' ? 'Left Wall' : currentJoint.panel === 'right_wall' ? 'Right Wall' : 'Face Heading'})
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowIntensityMethodModal(true)}
-                    className="px-1.5 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[9px] font-bold cursor-pointer transition-colors"
-                  >
-                    Science &amp; Formulas ➔
-                  </button>
-                </div>
-
-                {/* 4 Core Metrics Grid */}
-                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
-                  {/* Metric 1: P21 Trace Intensity */}
-                  <div className="p-2 rounded bg-slate-900/90 border border-slate-700/80">
-                    <div className="text-[9px] text-slate-400">P21 Surface Intensity:</div>
-                    <div className="text-xs font-bold text-cyan-300 pt-0.5">
-                      {fractureIntensityResult.p21TraceLengthIntensity.toFixed(2)} m/m²
-                    </div>
-                    <div className="text-[8.5px] text-slate-400">
-                      Panel Area: {fractureIntensityResult.faceAreaM2.toFixed(1)}m²
-                    </div>
-                  </div>
-
-                  {/* Metric 2: Discontinuity Occupied Area */}
-                  <div className="p-2 rounded bg-slate-900/90 border border-slate-700/80">
-                    <div className="text-[9px] text-slate-400">Occupied Area (Adisc):</div>
-                    <div className="text-xs font-bold text-amber-300 pt-0.5">
-                      {fractureIntensityResult.occupiedAreaM2.toFixed(2)} m²
-                    </div>
-                    <div className="text-[8.5px] text-slate-400">
-                      Baecher Dia: {fractureIntensityResult.equivalentBaecherDiscDiameterM.toFixed(2)}m
-                    </div>
-                  </div>
-
-                  {/* Metric 3: P32 Volumetric Intensity */}
-                  <div className="p-2 rounded bg-slate-900/90 border border-slate-700/80">
-                    <div className="text-[9px] text-slate-400">P32 Volume Intensity:</div>
-                    <div className="text-xs font-bold text-emerald-300 pt-0.5">
-                      {fractureIntensityResult.p32VolumetricAreaIntensity.toFixed(2)} m²/m³
-                    </div>
-                    <div className="text-[8.5px] text-slate-400">
-                      Pull Vol: {fractureIntensityResult.tunnelExcavationVolumeM3.toFixed(1)}m³
-                    </div>
-                  </div>
-
-                  {/* Metric 4: Palmström Jv & RQD */}
-                  <div className="p-2 rounded bg-slate-900/90 border border-slate-700/80">
-                    <div className="text-[9px] text-slate-400">Palmström Jv &amp; RQD:</div>
-                    <div className="text-xs font-bold text-amber-400 pt-0.5">
-                      {fractureIntensityResult.palmstromJv.toFixed(1)} j/m³
-                    </div>
-                    <div className="text-[8.5px] text-slate-400">
-                      Est. RQD: <strong className="text-emerald-400 font-bold">{fractureIntensityResult.palmstromRqdPct}%</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               {/* Standard Inputs (shown if hinge rotation is manually deactivated) */}
               {!isHingeRotationActive && (
@@ -2449,7 +2496,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   <div className="space-y-1.5">
                     <NumericStepperInput
                       label="Dip Direction (α)"
-                      value={dipDirection}
+                      value={dipDirection ?? 135}
                       min={0}
                       max={359}
                       step={1}
@@ -2462,7 +2509,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       type="range"
                       min="0"
                       max="359"
-                      value={dipDirection}
+                      value={dipDirection ?? 135}
                       onChange={(e) => setDipDirection(Number(e.target.value))}
                       className="w-full accent-amber-500 cursor-pointer"
                     />
@@ -2479,7 +2526,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                           type="button"
                           onClick={() => setDipDirection(btn.d)}
                           className={`px-1.5 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
-                            dipDirection === btn.d
+                            (dipDirection ?? 135) === btn.d
                               ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                           }`}
@@ -2493,7 +2540,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   <div className="space-y-1.5">
                     <NumericStepperInput
                       label="Dip Angle (δ)"
-                      value={dipAmount}
+                      value={dipAmount ?? 60}
                       min={currentJoint.panel === 'crown' ? 1 : 0}
                       max={90}
                       step={1}
@@ -2508,7 +2555,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       type="range"
                       min={currentJoint.panel === 'crown' ? 1 : 0}
                       max={90}
-                      value={dipAmount}
+                      value={dipAmount ?? 60}
                       onChange={(e) => {
                         const val = Number(e.target.value);
                         const clamped = currentJoint.panel === 'crown' ? Math.max(1, Math.min(90, val)) : val;
@@ -2524,7 +2571,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                           type="button"
                           onClick={() => setDipAmount(a)}
                           className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
-                            dipAmount === a
+                            (dipAmount ?? 60) === a
                               ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-sm'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                           }`}
@@ -2533,6 +2580,25 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  {/* Re-enable Trace Hinge Lock */}
+                  <div className="col-span-2 pt-2 border-t border-slate-700/60">
+                    <label
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-2 cursor-pointer text-[9.5px] text-slate-400 hover:text-slate-200"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isHingeRotationActive}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setIsHingeRotationActive(e.target.checked);
+                        }}
+                        className="accent-amber-500 rounded cursor-pointer"
+                      />
+                      <span>Lock 3D orientation strictly to mapped trace on {currentJoint.panel.replace('_', ' ')} (Trace Hinge Mode)</span>
+                    </label>
                   </div>
                 </div>
               )}
@@ -2557,10 +2623,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       </span>
                     )}
                   </div>
-
-                  <p className="text-[10px] text-slate-300 leading-snug">
-                    Crown trace preserves mapped strike. In 3D, the plane cuts downward into the excavation (default <strong className="text-emerald-300">vertical 90° downward</strong>, not flat). Choose dip amount and dipping side:
-                  </p>
 
                   {/* Dipping Direction Buttons */}
                   <div className="grid grid-cols-3 gap-1.5 pt-0.5">
@@ -2682,9 +2744,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     </div>
                   </div>
                 )}
-                <p className="text-[9.5px] text-slate-400 leading-snug">
-                  Complete plane extends outward through the excavation and surrounding rock mass from the mapped cut line without being truncated by the tunnel outline.
-                </p>
               </div>
 
               {/* Strike Axis */}
@@ -2944,19 +3003,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
                 </div>
               </div>
-
-              {/* Explanatory Geotechnical Box */}
-              <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[10.5px] text-amber-200 leading-relaxed font-sans space-y-1.5">
-                <div className="font-bold flex items-center gap-1.5 text-amber-300">
-                  <Info className="w-3.5 h-3.5 shrink-0" />
-                  <span>Geological Orientation Rule:</span>
-                </div>
-                <p>{apparentMatrix.comprehensiveExplanation}</p>
-                <div className="border-t border-amber-500/20 pt-1 space-y-0.5 text-slate-300 text-[10px]">
-                  <p><strong>Face:</strong> {apparentMatrix.face.geologicalNote}</p>
-                  <p><strong>Sidewalls:</strong> {apparentMatrix.leftWall.geologicalNote}</p>
-                </div>
-              </div>
             </div>
 
             {/* 2. Surface Trace Lengths & Extent Audit */}
@@ -3011,6 +3057,19 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 </div>
               </div>
             </div>
+
+            {/* QUICK NAVIGATION / JUMP TO TOP HELPER */}
+            <div className="pt-2 pb-6 flex justify-center">
+              <button
+                type="button"
+                onClick={scrollToAsideTop}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 hover:border-amber-400/60 transition-all cursor-pointer flex items-center gap-2 font-mono text-xs font-bold shadow-lg active:scale-95"
+                title="Scroll back to top of audit parameters"
+              >
+                <ArrowUp className="w-3.5 h-3.5 text-amber-400" />
+                <span>Jump to Top ↑</span>
+              </button>
+            </div>
           </aside>
         )}
 
@@ -3018,7 +3077,21 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               RIGHT PANEL: PURE WHITE 3D CAD VIEWPORT & REAL-TIME COMPASS
               --------------------------------------------------------------- */}
           <main
-            className={`flex-1 flex flex-col overflow-hidden relative transition-colors ${
+            className={`${
+              isVerticalMode
+                ? verticalCanvasPosition === 'top'
+                  ? 'order-1'
+                  : 'order-2'
+                : 'order-2 lg:order-2'
+            } ${
+              viewLayoutMode === 'PARAMS'
+                ? 'hidden'
+                : viewLayoutMode === 'CANVAS'
+                ? 'flex-1 h-full w-full'
+                : isVerticalMode
+                ? 'h-[46vh] sm:h-[48vh] min-h-[220px] w-full flex-none'
+                : 'flex-1 h-full min-w-0'
+            } flex flex-col overflow-hidden relative transition-colors ${
               isLight ? 'bg-slate-100' : 'bg-slate-900'
             }`}
           >
@@ -3038,6 +3111,17 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   >
                     <PanelLeftOpen className="w-3.5 h-3.5" />
                     <span>Show Parameters</span>
+                  </button>
+                )}
+                {viewLayoutMode === 'CANVAS' && (
+                  <button
+                    type="button"
+                    onClick={() => setViewLayoutMode('SPLIT')}
+                    className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors shrink-0"
+                    title="Switch to Split View (Show Parameters & 3D)"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Split (Show Parameters)</span>
                   </button>
                 )}
                 <div
@@ -3088,23 +3172,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   >
                     <Compass className={`w-3.5 h-3.5 ${showCompass ? 'animate-spin-slow' : ''}`} />
                     <span>{showCompass ? 'Compass: ON' : 'Compass: OFF'}</span>
-                  </button>
-
-                  {/* PLOT PLANE DRAWER TOGGLE BUTTON */}
-                  <button
-                    type="button"
-                    onClick={() => setShowPlotPlaneDrawer(!showPlotPlaneDrawer)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                      showPlotPlaneDrawer
-                        ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow font-black'
-                        : isLight
-                        ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
-                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                    }`}
-                    title="Open Plot Plane tool to input custom strike & dip planes"
-                  >
-                    <PenTool className="w-3.5 h-3.5" />
-                    <span>Plot Plane</span>
                   </button>
 
                   {/* Toggle Interior Plane Mesh (Default: ON for vivid colored cut) */}
@@ -3372,14 +3439,14 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     <div className="flex items-center gap-1.5">
                       <span className="text-amber-400 font-black uppercase text-[11px]">Plane Dip:</span>
                       <span className="px-2.5 py-0.5 rounded-lg bg-amber-500 text-slate-950 font-black text-sm shadow">
-                        {dipAmount}°
+                        {dipAmount ?? 60}°
                       </span>
                     </div>
                     <span className="text-slate-600">|</span>
                     <div className="flex items-center gap-1.5">
                       <span className="text-cyan-400 font-bold uppercase text-[11px]">Direction:</span>
                       <span className="px-2 py-0.5 rounded-lg bg-cyan-950 border border-cyan-500/50 text-cyan-300 font-black">
-                        ∠ {String(dipDirection).padStart(3, '0')}° ({getTunnelRelativeDirectionLabel(dipDirection)})
+                        ∠ {String(dipDirection ?? 135).padStart(3, '0')}° ({getTunnelRelativeDirectionLabel(dipDirection ?? 135)})
                       </span>
                     </div>
                     <span className="text-slate-600">|</span>
@@ -3390,195 +3457,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       </strong>
                     </div>
                   </div>
-
-                  {/* =========================================================
-                      FLOATING "PLOT PLANE" CONTROLLER DRAWER
-                      ========================================================= */}
-                  {showPlotPlaneDrawer && (
-                    <div className="absolute top-14 left-3 z-30 font-mono w-80 select-none">
-                      <div className="p-3.5 rounded-2xl bg-slate-950/95 backdrop-blur-md border border-emerald-500/50 shadow-2xl space-y-3 text-xs">
-                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                          <span className="font-bold text-xs text-emerald-300 flex items-center gap-1.5">
-                            <PenTool className="w-4 h-4 text-emerald-400" />
-                            <span>Plot Geological Plane</span>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setShowPlotPlaneDrawer(false)}
-                            className="p-1 rounded text-slate-500 hover:text-white cursor-pointer"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-
-                        {/* Dip Direction Stepper & Quick Presets */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-slate-400 text-[10px]">Dip Direction (&alpha;)</span>
-                            <span className="text-emerald-400 font-bold">{dipDirection}° ({getTunnelRelativeDirectionLabel(dipDirection)})</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="359"
-                            value={dipDirection}
-                            onChange={(e) => setDipDirection(Number(e.target.value))}
-                            className="w-full accent-emerald-500 cursor-pointer"
-                          />
-                          <div className="grid grid-cols-4 gap-1">
-                            {[
-                              { d: 0, l: 'FWD (0°)' },
-                              { d: 90, l: 'R (90°)' },
-                              { d: 180, l: 'BACK (180°)' },
-                              { d: 270, l: 'L (270°)' },
-                            ].map((p) => (
-                              <button
-                                key={p.d}
-                                type="button"
-                                onClick={() => setDipDirection(p.d)}
-                                className={`px-1 py-0.5 rounded text-[9px] font-bold cursor-pointer border ${
-                                  dipDirection === p.d
-                                    ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-                                }`}
-                              >
-                                {p.l}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Dip Angle Stepper & Quick Presets */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-slate-400 text-[10px]">Dip Angle (&delta;)</span>
-                            <span className="text-amber-400 font-bold">{dipAmount}°</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="90"
-                            value={dipAmount}
-                            onChange={(e) => setDipAmount(Number(e.target.value))}
-                            className="w-full accent-amber-500 cursor-pointer"
-                          />
-                          <div className="grid grid-cols-4 gap-1">
-                            {[
-                              { a: 15, l: 'Bedding 15°' },
-                              { a: 45, l: 'Shear 45°' },
-                              { a: 70, l: 'Steep 70°' },
-                              { a: 90, l: 'Vertical 90°' },
-                            ].map((p) => (
-                              <button
-                                key={p.a}
-                                type="button"
-                                onClick={() => setDipAmount(p.a)}
-                                className={`px-1 py-0.5 rounded text-[9px] font-bold cursor-pointer border ${
-                                  dipAmount === p.a
-                                    ? 'bg-amber-500 text-slate-950 border-amber-400'
-                                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-                                }`}
-                              >
-                                {p.l}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Anchor Point Location */}
-                        <div className="space-y-1">
-                          <span className="text-slate-400 text-[10px] block">Anchor Position (P0 Cut Origin):</span>
-                          <div className="grid grid-cols-3 gap-1 text-[9.5px]">
-                            {[
-                              { id: 'AUTO', l: 'Auto Trace' },
-                              { id: 'FACE_CENTER', l: 'Face Center' },
-                              { id: 'CROWN_APEX', l: 'Crown Apex' },
-                              { id: 'LEFT_WALL', l: 'Left Wall' },
-                              { id: 'RIGHT_WALL', l: 'Right Wall' },
-                              { id: 'INVERT', l: 'Invert' },
-                            ].map((a) => (
-                              <button
-                                key={a.id}
-                                type="button"
-                                onClick={() => setPlotPlaneAnchorType(a.id as any)}
-                                className={`px-1.5 py-1 rounded font-bold cursor-pointer border ${
-                                  plotPlaneAnchorType === a.id
-                                    ? 'bg-cyan-500 text-slate-950 border-cyan-400'
-                                    : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
-                                }`}
-                              >
-                                {a.l}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Advance Position (X Toward Tunnel Pull: defaults to 3.0m) */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-slate-400 text-[10px]">Advance Position X (Toward Pull):</span>
-                            <span className="text-cyan-400 font-bold font-mono text-[11px]">
-                              {plotPlaneAdvanceM.toFixed(2)}m
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max={Math.max(1, tunnelGeometry.pullLengthM || 3.0)}
-                            step="0.1"
-                            value={plotPlaneAdvanceM}
-                            onChange={(e) => setPlotPlaneAdvanceM(Number(e.target.value))}
-                            className="w-full accent-cyan-500 cursor-pointer"
-                          />
-                          <div className="grid grid-cols-3 gap-1 text-[9px]">
-                            {[
-                              { x: 0, l: 'Portal 0.0m' },
-                              {
-                                x: Number(((tunnelGeometry.pullLengthM || 3.0) / 2).toFixed(1)),
-                                l: `Mid ${((tunnelGeometry.pullLengthM || 3.0) / 2).toFixed(1)}m`,
-                              },
-                              {
-                                x: tunnelGeometry.pullLengthM || 3.0,
-                                l: `Pull ${tunnelGeometry.pullLengthM || 3.0}m`,
-                              },
-                            ].map((p) => (
-                              <button
-                                key={p.l}
-                                type="button"
-                                onClick={() => setPlotPlaneAdvanceM(p.x)}
-                                className={`px-1 py-0.5 rounded font-bold cursor-pointer border transition-colors ${
-                                  Math.abs(plotPlaneAdvanceM - p.x) < 0.08
-                                    ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-black'
-                                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-                                }`}
-                              >
-                                {p.l}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Strike Info */}
-                        <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-[10px] flex items-center justify-between">
-                          <span className="text-slate-400">Strike Axis:</span>
-                          <strong className="text-amber-400">{strikeInfo.strikePairLabel}</strong>
-                        </div>
-
-                        {/* Action: Apply Plane */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowInteriorPlane(true);
-                            handleSaveInspection();
-                          }}
-                          className="w-full py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer shadow transition-all flex items-center justify-center gap-1.5"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Apply &amp; Plot Plane</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   {/* HIGH-VISIBILITY 3D CUTTING PLANE HUD BADGE ALIGNED WITH THE PLANE */}
                   {showInteriorPlane && (
@@ -3594,12 +3472,12 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                           </span>
                           <span className="text-white font-extrabold">
                             {currentJoint.panel === 'crown'
-                              ? `STRIKE ${strikeInfo.strikePairLabel} (DIP ${dipAmount}° ➔ ${dipDirection}°)`
-                              : `DIP ${dipAmount}° ➔ ${dipDirection}°`}
+                              ? `STRIKE ${strikeInfo.strikePairLabel} (DIP ${dipAmount ?? 60}° ➔ ${dipDirection ?? 135}°)`
+                              : `DIP ${dipAmount ?? 60}° ➔ ${dipDirection ?? 135}°`}
                           </span>
                         </div>
                         <span className="text-[10px] text-slate-400">
-                          {currentJoint.panel === 'crown' ? 'Crown Cut Point' : 'Anchor Point'}: X {anchorPoint.x.toFixed(2)}m (Toward Pull), Y {anchorPoint.y.toFixed(2)}m, Z {anchorPoint.z.toFixed(2)}m
+                          {currentJoint.panel === 'crown' ? 'Crown Cut Point' : 'Anchor Point'}: X {(anchorPoint?.x != null && !isNaN(anchorPoint.x) ? anchorPoint.x : 3.0).toFixed(2)}m (Toward Pull), Y {(anchorPoint?.y != null && !isNaN(anchorPoint.y) ? anchorPoint.y : 4.25).toFixed(2)}m, Z {(anchorPoint?.z != null && !isNaN(anchorPoint.z) ? anchorPoint.z : 3.75).toFixed(2)}m
                         </span>
                       </div>
                     </div>
@@ -3637,85 +3515,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       </div>
                     </div>
                   )}
-
-                  {/* =========================================================
-                      ON-SCREEN NAVIGATION CONTROLS (PINCH ZOOM & MOVE OVERLAY)
-                      ========================================================= */}
-                  <div className="absolute bottom-3 right-3 z-20 flex flex-col items-end gap-1.5 font-mono select-none">
-                    {/* Navigation D-Pad & Zoom Controls */}
-                    <div className="p-2 rounded-2xl bg-slate-950/92 backdrop-blur-md border border-slate-800 shadow-2xl flex items-center gap-1.5">
-                      {/* Zoom Controls */}
-                      <button
-                        type="button"
-                        onClick={zoomIn}
-                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
-                        title="Zoom In (Pinch Out)"
-                      >
-                        <ZoomIn className="w-4 h-4 text-cyan-400" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={zoomOut}
-                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
-                        title="Zoom Out (Pinch In)"
-                      >
-                        <ZoomOut className="w-4 h-4 text-cyan-400" />
-                      </button>
-
-                      <div className="w-px h-5 bg-slate-800 mx-0.5" />
-
-                      {/* Pan / Move Controls */}
-                      <button
-                        type="button"
-                        onClick={() => panCamera(-0.8, 0)}
-                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
-                        title="Pan Left (2-finger drag left)"
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => panCamera(0, 0.8)}
-                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
-                        title="Pan Up (2-finger drag up)"
-                      >
-                        <ArrowUp className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => panCamera(0, -0.8)}
-                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
-                        title="Pan Down (2-finger drag down)"
-                      >
-                        <ArrowDown className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => panCamera(0.8, 0)}
-                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
-                        title="Pan Right (2-finger drag right)"
-                      >
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-
-                      <div className="w-px h-5 bg-slate-800 mx-0.5" />
-
-                      {/* Center Target Reset */}
-                      <button
-                        type="button"
-                        onClick={resetCameraTarget}
-                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 cursor-pointer transition-colors"
-                        title="Center Tunnel / Reset Pan Offset"
-                      >
-                        <Crosshair className="w-4 h-4 text-amber-400" />
-                      </button>
-                    </div>
-
-                    {/* Touch & Mouse Gesture Hint */}
-                    <div className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-[9px] text-slate-400 font-mono pointer-events-none">
-                      Touch: 1-finger orbit · 2-finger pinch zoom &amp; move · Mouse: Wheel / Right-drag
-                    </div>
-                  </div>
                 </div>
               )}
 

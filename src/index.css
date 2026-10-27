@@ -875,6 +875,41 @@ html[data-android-app="true"] *::-webkit-scrollbar {
   scrollbar-color: rgba(148, 163, 184, 0.22) transparent !important;
 }
 
+/* NATM 3D Joint Inspector Aside: Highly visible, prominent scrollbar & fluid scrolling */
+.inspector-scrollable-aside,
+aside.inspector-scrollable-aside {
+  overflow-y: scroll !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+  scrollbar-width: auto !important;
+  scrollbar-color: #f59e0b rgba(15, 23, 42, 0.7) !important;
+}
+
+.inspector-scrollable-aside::-webkit-scrollbar,
+aside.inspector-scrollable-aside::-webkit-scrollbar {
+  width: 9px !important;
+  height: 9px !important;
+  display: block !important;
+}
+
+.inspector-scrollable-aside::-webkit-scrollbar-track,
+aside.inspector-scrollable-aside::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border-radius: 6px !important;
+}
+
+.inspector-scrollable-aside::-webkit-scrollbar-thumb,
+aside.inspector-scrollable-aside::-webkit-scrollbar-thumb {
+  background: #f59e0b !important;
+  border-radius: 6px !important;
+  border: 1.5px solid rgba(15, 23, 42, 0.7) !important;
+}
+
+.inspector-scrollable-aside::-webkit-scrollbar-thumb:hover,
+aside.inspector-scrollable-aside::-webkit-scrollbar-thumb:hover {
+  background: #fbbf24 !important;
+}
+
 .mouse-scrollable {
   cursor: grab;
   user-select: none;

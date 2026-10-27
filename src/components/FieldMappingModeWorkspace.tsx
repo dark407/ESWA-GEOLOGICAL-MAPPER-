@@ -4242,43 +4242,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             <span>Menu</span>
           </button>
 
-          {mappingDomain === 'TUNNEL' && onOpenContinuousTunnelLog && (
-            <button
-              type="button"
-              onClick={onOpenContinuousTunnelLog}
-              className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold text-[11px] flex items-center gap-1 border border-emerald-500/40 cursor-pointer shrink-0"
-              title="Open Continuous 3D Tunnel Mapping & Strip CAD Log"
-            >
-              <Box className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden sm:inline">Continuous 3D Log</span>
-              <span className="sm:hidden">3D Log</span>
-            </button>
-          )}
-
-          {onOpenCoreLogging && (
-            <button
-              type="button"
-              onClick={onOpenCoreLogging}
-              className="px-2 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-bold text-[11px] flex items-center gap-1 border border-cyan-500/40 cursor-pointer shrink-0"
-              title="Open Geological & Geotechnical Core Logging Workspace"
-            >
-              <Layers className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden md:inline">Core Logging</span>
-            </button>
-          )}
-
-          {onOpenDataStorage && (
-            <button
-              type="button"
-              onClick={onOpenDataStorage}
-              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 border border-slate-700 cursor-pointer shrink-0"
-              title="Open Data & Storage Memory"
-            >
-              <Database className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden lg:inline">Data &amp; Memory</span>
-            </button>
-          )}
-
 
 
           {currentIndustryMode === 'MINING' && (
