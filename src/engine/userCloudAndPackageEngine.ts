@@ -986,24 +986,18 @@ export function applyImportedEswaPayload(
 // ============================================================================
 
 function buildCloudSafePayloadJson(fullPkg: EswaCompleteAppPackage): string {
-  const fullJson = JSON.stringify(fullPkg);
-  if (fullJson.length <= 820000) {
-    return fullJson;
-  }
-
-  // If high-res base64 photos push payload over Firestore's 1MB single-document limit,
-  // keep all project/round/joint/lithology/support/overbreak data intact and trim oversized dataUrls for cloud doc
-  // (while keeping 100% of photos in local storage & .eswa.json package exports).
+  // Photos and heavy image blobs are stored 100% locally in IndexedDB to prevent quota exhaustion.
+  // The cloud package syncs the complete structural metadata (projects, rounds, lithologies, joint traces, dip/strikes, RMR, Q, support specs).
   const compactPkg: EswaCompleteAppPackage = {
     ...fullPkg,
     photogrammetryActivePhotos: null,
     fieldMappingStore: {
       ...fullPkg.fieldMappingStore,
-      rounds: (fullPkg.fieldMappingStore.rounds || []).map((r) => ({
+      rounds: (fullPkg.fieldMappingStore?.rounds || []).map((r) => ({
         ...r,
-        collectedPhotos: (r.collectedPhotos || []).slice(0, 2).map((p) => ({
+        collectedPhotos: (r.collectedPhotos || []).map((p) => ({
           ...p,
-          dataUrl: p.dataUrl && p.dataUrl.length > 120000 ? '' : p.dataUrl,
+          dataUrl: '', // Retained 100% locally in IndexedDB
         })),
       })),
     },
@@ -1017,7 +1011,6 @@ function buildCloudSafePayloadJson(fullPkg: EswaCompleteAppPackage): string {
       },
     })),
   };
-
   return JSON.stringify(compactPkg).slice(0, 880000);
 }
 

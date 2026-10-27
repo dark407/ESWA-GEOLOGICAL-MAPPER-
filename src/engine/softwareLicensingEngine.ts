@@ -1749,7 +1749,7 @@ export function subscribeAccessRequestById(
   void pollRemoteStatus();
   const pollTimer = window.setInterval(() => {
     void pollRemoteStatus();
-  }, 4500);
+  }, 120000);
 
   const onLocalEvent = () => {
     void emitMirror();
@@ -2735,7 +2735,7 @@ export function subscribeUserAccountStatus(
   void checkStatus();
   const pollTimer = window.setInterval(() => {
     void checkStatus();
-  }, 4000);
+  }, 120000);
 
   const unsub = onSnapshot(
     doc(db, 'software_licenses', cleanUserId),
@@ -3026,7 +3026,7 @@ export function subscribeAdminLicensingData(callbacks: {
   void refreshAdminLicensingDataFromCloud();
   const restPollTimer = window.setInterval(() => {
     void refreshAdminLicensingDataFromCloud();
-  }, 4000);
+  }, 120000);
 
   const handleFocusOrVisible = () => {
     if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -3110,7 +3110,7 @@ export function subscribeClientSoftwareUpdates(
   void pollRemoteReleases();
   const relPollTimer = window.setInterval(() => {
     void pollRemoteReleases();
-  }, 6000);
+  }, 180000);
 
   const handleLocalChange = () => {
     evaluateReleases(readLocalMirror<SoftwareReleaseRecord>(LOCAL_MIRROR_RELEASES_KEY));

@@ -1468,7 +1468,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 p-5 overflow-y-auto">
           {/* Left 7 Cols: Variant Cards + Dimension Inputs */}
           <div className="lg:col-span-7 space-y-5">
-            <div className="p-4 rounded-xl bg-[#111827] border border-slate-800 space-y-3">
+            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
               <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 font-bold">
                 1. Choose Common Tunnel Variant
               </div>
@@ -1511,7 +1511,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
               </div>
             </div>
 
-            <div className="p-4 rounded-xl bg-[#111827] border border-slate-800 space-y-4">
+            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
               <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 font-bold">
                 2. Enter Exact Tunnel Size (1m Engineering Scale)
               </div>
@@ -1597,7 +1597,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
             </div>
 
             {/* STEP 3 (AFTER CHOOSING TUNNEL SHAPE & SIZE): ASK FULL FACE OR TOP HEADING + BENCHING DETAILS */}
-            <div className="p-4 rounded-xl bg-[#111827] border border-amber-500/50 space-y-3.5">
+            <div className="p-4 rounded-xl bg-slate-900 border border-amber-500/50 space-y-3.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-xs font-mono uppercase tracking-wider text-amber-400 font-bold">
@@ -1799,7 +1799,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
           </div>
 
           {/* Right 5 Cols: Scaled 1m Preview */}
-          <div className="lg:col-span-5 flex flex-col p-4 rounded-xl bg-[#111827] border border-slate-800">
+          <div className="lg:col-span-5 flex flex-col p-4 rounded-xl bg-slate-900 border border-slate-800">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <span className="text-xs font-mono font-bold text-cyan-300">
                 SCALED 1:1 CROSS-SECTION PREVIEW
@@ -1909,7 +1909,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
           {/* LEFT / CENTER: INTERACTIVE 1M ENGINEERING CANVAS */}
           <div className="flex-1 min-w-0 min-h-0 flex flex-col p-1.5 gap-1 overflow-hidden">
             {/* Simple Mode Bar Above Canvas */}
-            <div className="canvas-chrome flex flex-wrap items-center justify-between gap-1.5 px-2 py-1 rounded-lg bg-[#111827] border border-slate-800">
+            <div className="canvas-chrome flex flex-wrap items-center justify-between gap-1.5 px-2 py-1 rounded-lg bg-slate-900 border border-slate-800">
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
@@ -2756,7 +2756,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
             </div>
 
             {/* Bottom Status Bar */}
-            <div className="canvas-chrome px-2 py-1 rounded-md bg-[#111827] border border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-300">
+            <div className="canvas-chrome px-2 py-1 rounded-md bg-slate-900 border border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-300">
               <span className="truncate">{statusNote}</span>
               <span className="text-cyan-300 shrink-0 ml-2">
                 Points: {profile.controlPoints.length} · Status:{' '}
@@ -2770,7 +2770,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
               STRICTLY SHOWS ONLY CURRENT MODE'S TOOLS!
              ================================================================== */}
           {!showPropertySidebar ? (
-            <aside className="canvas-chrome w-7 shrink-0 bg-[#111827] border-l border-slate-800 flex flex-col items-center py-2 gap-2 select-none">
+            <aside className="canvas-chrome w-7 shrink-0 bg-slate-900 border-l border-slate-800 flex flex-col items-center py-2 gap-2 select-none">
               <button
                 type="button"
                 onClick={() => setShowPropertySidebar(true)}
@@ -2796,9 +2796,9 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
               </button>
             </aside>
           ) : (
-          <aside className="canvas-chrome w-full lg:w-[255px] shrink-0 bg-[#111827] border-l border-slate-800 flex flex-col overflow-hidden">
+          <aside className="canvas-chrome w-full lg:w-[255px] shrink-0 bg-slate-900 border-l border-slate-800 flex flex-col overflow-hidden">
             {/* Collapsible Sidebar Header */}
-            <div className="px-2.5 py-1.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-1.5 shrink-0">
+            <div className="px-2.5 py-1.5 bg-slate-900 border-b border-slate-700/80 flex items-center justify-between gap-1.5 shrink-0">
               <div className="flex items-center gap-1 font-mono text-[10px] font-bold text-cyan-300 truncate">
                 <Sliders className="w-3 h-3 text-cyan-400 shrink-0" />
                 <span>
@@ -4039,7 +4039,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
          ==================================================================== */}
       {mainTab === 'dxf_import' && (
         <div className="flex-1 min-h-0 flex items-center justify-center p-6 overflow-y-auto">
-          <div className="w-full max-w-2xl p-6 rounded-2xl bg-[#111827] border border-slate-800 space-y-5">
+          <div className="w-full max-w-2xl p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-5">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-white">

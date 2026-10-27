@@ -10,7 +10,12 @@ import {
 import { getCrownStrikePair, type Joint3DInspectionData } from './joint3DInspectorEngine';
 import type { ContinuousTunnelStripDataset } from './continuous3DStripEngine';
 import type { SurfaceGeometryParameters } from './surfaceMappingEngine';
-import { scheduleIdleSave, flushIdleSaves } from './fastAsyncStorageEngine';
+import {
+  scheduleIdleSave,
+  flushIdleSaves,
+  restorePhotosInFieldStore,
+  offloadPhotosFromFieldStore,
+} from './fastAsyncStorageEngine';
 
 export type FieldTunnelShapeType =
   | 'd_shaped'
@@ -2505,7 +2510,7 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
         }
         const finalIdeal = loadIdealPanelTransforms(effectiveDomain);
 
-        return {
+        return restorePhotosInFieldStore({
           ...parsed,
           idealPanelTransforms: finalIdeal.field_canvas,
           idealGroupJointPanelTransforms: finalIdeal.joint_grouping,
@@ -2572,7 +2577,7 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
           rememberedRocks: Array.isArray(parsed.rememberedRocks)
             ? parsed.rememberedRocks
             : [],
-        };
+        });
       }
     }
   } catch {
@@ -2704,12 +2709,14 @@ export function saveFieldMappingStoreImmediate(state: FieldMappingStoreState, do
   const effectiveDomain = domain || activeR?.mappingDomain || 'TUNNEL';
   const storageKey = getFieldMappingStorageKey(effectiveDomain);
   try {
-    localStorage.setItem(storageKey, JSON.stringify(state));
+    const cleanState = offloadPhotosFromFieldStore(state);
+    localStorage.setItem(storageKey, JSON.stringify(cleanState));
   } catch {
     try {
+      const cleanState = offloadPhotosFromFieldStore(state);
       const compact: FieldMappingStoreState = {
-        ...state,
-        rounds: state.rounds.map((r, idx) =>
+        ...cleanState,
+        rounds: cleanState.rounds.map((r, idx) =>
           idx === 0
             ? r
             : {

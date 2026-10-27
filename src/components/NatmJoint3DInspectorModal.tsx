@@ -28,6 +28,9 @@ import {
   EyeOff,
   Sliders,
   ChevronRight,
+  ChevronLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   Shield,
   Printer,
   Sparkles,
@@ -270,7 +273,7 @@ const NumericStepperInput: React.FC<NumericStepperInputProps> = ({
           className={`w-full text-center px-2 py-1 rounded border font-bold text-xs font-mono focus:outline-none transition-colors ${
             isLight
               ? 'bg-white border-slate-300 text-amber-800 focus:border-amber-500'
-              : 'bg-slate-950 border-slate-700 text-amber-300 focus:border-amber-400'
+              : 'bg-slate-900 border-slate-700 text-amber-300 focus:border-amber-400'
           }`}
         />
         <button
@@ -306,6 +309,10 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
   // Active View Tab
   const [activeTab, setActiveTab] = useState<InspectionViewTab>('VIEW_3D');
+
+  // Collapsible & Shrinkable Aside Sidebar State
+  const [isAsideCollapsed, setIsAsideCollapsed] = useState<boolean>(false);
+  const [asideWidthMode, setAsideWidthMode] = useState<'compact' | 'standard'>('standard');
 
   // Currently Selected Joint in Inspector (defaults to activeJoint.id, switchable to any joint in round)
   const [currentJointId, setCurrentJointId] = useState<string>(activeJoint.id);
@@ -1678,7 +1685,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 bg-slate-950 select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 bg-slate-900 select-none">
       <div
         className={`w-full max-w-full h-full h-[100dvh] flex flex-col rounded-none shadow-none overflow-hidden transition-colors border-0 ${
           isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-slate-100'
@@ -1691,7 +1698,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
           className={`flex-none px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 border-b transition-colors ${
             isLight
               ? 'bg-white/95 text-slate-900 border-slate-200 shadow-xs'
-              : 'bg-slate-950/90 text-slate-100 border-slate-800'
+              : 'bg-slate-900/95 text-slate-100 border-slate-700/80 shadow-xs'
           }`}
         >
           <div className="flex items-center gap-3">
@@ -1809,24 +1816,102 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         {/* ===================================================================
             MAIN BODY: 2 COLUMNS (LEFT: EDITABLE PARAMETERS | RIGHT: 3D VIEWPORT)
             =================================================================== */}
-        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0 relative">
           {/* ---------------------------------------------------------------
               LEFT PANEL: HIGH-RESPONSIVENESS INPUTS & GEOLOGICAL AUDIT
+              (COLLAPSIBLE & SHRINKABLE WITH THEME BACKGROUND)
               --------------------------------------------------------------- */}
-          <aside
-            className={`w-full lg:w-[450px] flex-none border-r p-3 sm:p-4 overflow-y-auto space-y-3.5 font-mono text-xs transition-colors ${
-              isLight ? 'bg-slate-100/95 border-slate-300 text-slate-900' : 'border-slate-800 bg-slate-950/70 text-slate-100'
-            }`}
-          >
-            {/* TOP CARD: OTHER TRACED JOINTS IN ROUND (Instant Switching & Editing) */}
-            <div className="p-3.5 rounded-xl bg-slate-900 border border-amber-400/60 shadow-lg space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                <span className="font-bold text-amber-300 uppercase flex items-center gap-1.5 text-xs">
-                  <Layers className="w-4 h-4 text-amber-400" />
-                  <span>Traced Joints in Round ({allRoundJoints.length})</span>
-                </span>
-                <span className="text-[10px] text-cyan-300 font-bold">Click to Switch &amp; Edit</span>
+          {isAsideCollapsed ? (
+            /* COLLAPSED RAIL: MAXIMIZES 3D TUNNEL VIEWPORT */
+            <aside
+              className={`flex-none w-12 border-r flex flex-col items-center py-2.5 gap-2.5 z-20 select-none shadow-md transition-all ${
+                isLight
+                  ? 'bg-slate-100 border-slate-300 text-slate-800'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-200'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setIsAsideCollapsed(false)}
+                className="w-8 h-8 rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center justify-center shadow-md cursor-pointer transition-colors"
+                title="Expand Audit & Parameters Aside Sidebar"
+              >
+                <PanelLeftOpen className="w-4 h-4" />
+              </button>
+
+              <div className="w-6 h-px bg-slate-700/60" />
+
+              <button
+                type="button"
+                onClick={() => setIsAsideCollapsed(false)}
+                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 flex items-center justify-center cursor-pointer transition-colors"
+                title="Parameters & Audit (Click to Expand)"
+              >
+                <Sliders className="w-4 h-4" />
+              </button>
+
+              <div
+                className="mt-3 [writing-mode:vertical-rl] rotate-180 text-[10px] font-mono font-bold tracking-wider text-slate-400 hover:text-sky-300 uppercase cursor-pointer"
+                onClick={() => setIsAsideCollapsed(false)}
+                title="Click to Expand Sidebar"
+              >
+                PARAMETERS · JOINT {currentJoint.id}
               </div>
+            </aside>
+          ) : (
+            <aside
+              className={`${
+                asideWidthMode === 'compact' ? 'w-full lg:w-[340px]' : 'w-full lg:w-[460px]'
+              } flex-none h-full min-h-0 max-h-full border-r p-3 sm:p-4 overflow-y-auto touch-pan-y overscroll-contain space-y-3.5 font-mono text-xs transition-all duration-150 shadow-xl scrollbar-thin ${
+                isLight
+                  ? 'bg-slate-100/95 border-slate-300 text-slate-900'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-100'
+              }`}
+            >
+              {/* ASIDE TOP HEADER BAR: COLLAPSE & SHRINK CONTROLS */}
+              <div
+                className={`flex items-center justify-between pb-2 border-b transition-colors ${
+                  isLight ? 'border-slate-300' : 'border-slate-700/70'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 font-bold text-sky-400 uppercase tracking-wide text-xs">
+                  <Sliders className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Audit &amp; Parameters</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAsideWidthMode((prev) => (prev === 'compact' ? 'standard' : 'compact'))}
+                    className="px-2 py-0.5 rounded text-[10.5px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                    title={
+                      asideWidthMode === 'compact'
+                        ? 'Expand to Standard Width (460px)'
+                        : 'Shrink to Compact Width (340px)'
+                    }
+                  >
+                    {asideWidthMode === 'compact' ? 'Standard (460px)' : 'Shrink (340px)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAsideCollapsed(true)}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors cursor-pointer flex items-center gap-1 text-[10.5px] font-bold"
+                    title="Collapse Sidebar to maximize 3D tunnel viewport"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Collapse</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* TOP CARD: OTHER TRACED JOINTS IN ROUND (Instant Switching & Editing) */}
+              <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-lg space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-700/70 pb-1.5">
+                  <span className="font-bold text-amber-300 uppercase flex items-center gap-1.5 text-xs">
+                    <Layers className="w-4 h-4 text-amber-400" />
+                    <span>Traced Joints in Round ({allRoundJoints.length})</span>
+                  </span>
+                  <span className="text-[10px] text-cyan-300 font-bold">Click to Switch &amp; Edit</span>
+                </div>
 
               {allRoundJoints.length === 0 ? (
                 <p className="text-[11px] text-slate-500 italic">No joints traced in this round.</p>
@@ -1842,7 +1927,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                         className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                           isCurrent
                             ? 'bg-amber-500/20 border-amber-400 shadow-md ring-2 ring-amber-400/50'
-                            : 'bg-slate-950/80 hover:bg-slate-800/80 border-slate-800 hover:border-slate-700 text-slate-300'
+                            : 'bg-slate-900/90 hover:bg-slate-700/80 border-slate-700 hover:border-slate-600 text-slate-300'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -1916,8 +2001,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               </div>
             </div>
             {/* 1. Orientation & Angle Conventions */}
-            <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-md space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-700/70 pb-2">
                 <span className="font-bold text-amber-400 uppercase flex items-center gap-1.5">
                   <Compass className="w-4 h-4" />
                   <span>3D Orientation &amp; Strike Conventions</span>
@@ -1947,7 +2032,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </p>
 
                   {/* Live Dip Angle Slider around Traced Line */}
-                  <div className="space-y-1.5 bg-slate-950/70 p-2.5 rounded-lg border border-amber-500/20">
+                  <div className="space-y-1.5 bg-slate-900/90 p-2.5 rounded-lg border border-amber-500/20">
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="font-bold text-slate-200">Rotation Angle Around Trace (Dip δ):</span>
                       <span className="font-mono font-black text-amber-400 bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/50 text-xs shadow-sm">
@@ -2016,7 +2101,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
 
                   {/* Live Derived Geological Orientation */}
-                  <div className="p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px] font-mono">
+                  <div className="p-2 rounded bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between text-[10px] font-mono">
                     <div>
                       <span className="text-slate-400">Derived Dip: </span>
                       <strong className="text-amber-400 font-bold">{hingePlaneResult?.derivedDipDeg ?? dipAmount}°</strong>
@@ -2068,7 +2153,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </p>
 
                   {/* Live Dip Angle Slider around Sidewall Traced Line */}
-                  <div className="space-y-1.5 bg-slate-950/70 p-2.5 rounded-lg border border-emerald-500/20">
+                  <div className="space-y-1.5 bg-slate-900/90 p-2.5 rounded-lg border border-emerald-500/20">
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="font-bold text-slate-200">Rotation Angle Around Wall Trace (Dip δ):</span>
                       <span className="font-mono font-black text-emerald-400 bg-emerald-950/90 px-2 py-0.5 rounded border border-emerald-500/50 text-xs shadow-sm">
@@ -2139,7 +2224,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
 
                   {/* Live Derived Geological Orientation */}
-                  <div className="p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px] font-mono">
+                  <div className="p-2 rounded bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between text-[10px] font-mono">
                     <div>
                       <span className="text-slate-400">Derived Dip: </span>
                       <strong className="text-emerald-400 font-bold">{hingePlaneResult?.derivedDipDeg ?? dipAmount}°</strong>
@@ -2191,7 +2276,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </p>
 
                   {/* Live Dip Amount Slider */}
-                  <div className="space-y-1.5 bg-slate-950/70 p-2.5 rounded-lg border border-sky-500/20">
+                  <div className="space-y-1.5 bg-slate-900/90 p-2.5 rounded-lg border border-sky-500/20">
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="font-bold text-slate-200">Crown Discontinuity Dip Amount (Tilt δ):</span>
                       <span className="font-mono font-black text-sky-400 bg-sky-950/90 px-2 py-0.5 rounded border border-sky-500/50 text-xs shadow-sm">
@@ -2260,7 +2345,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
 
                   {/* Live Derived Orientation */}
-                  <div className="p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px] font-mono">
+                  <div className="p-2 rounded bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between text-[10px] font-mono">
                     <div>
                       <span className="text-slate-400">Dip Amount: </span>
                       <strong className="text-sky-400 font-bold">{hingePlaneResult?.derivedDipDeg ?? dipAmount}°</strong>
@@ -2313,7 +2398,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 {/* 4 Core Metrics Grid */}
                 <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
                   {/* Metric 1: P21 Trace Intensity */}
-                  <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+                  <div className="p-2 rounded bg-slate-900/90 border border-slate-700/80">
                     <div className="text-[9px] text-slate-400">P21 Surface Intensity:</div>
                     <div className="text-xs font-bold text-cyan-300 pt-0.5">
                       {fractureIntensityResult.p21TraceLengthIntensity.toFixed(2)} m/m²
@@ -2324,7 +2409,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
 
                   {/* Metric 2: Discontinuity Occupied Area */}
-                  <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+                  <div className="p-2 rounded bg-slate-900/90 border border-slate-700/80">
                     <div className="text-[9px] text-slate-400">Occupied Area (Adisc):</div>
                     <div className="text-xs font-bold text-amber-300 pt-0.5">
                       {fractureIntensityResult.occupiedAreaM2.toFixed(2)} m²
@@ -2335,7 +2420,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
 
                   {/* Metric 3: P32 Volumetric Intensity */}
-                  <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+                  <div className="p-2 rounded bg-slate-900/90 border border-slate-700/80">
                     <div className="text-[9px] text-slate-400">P32 Volume Intensity:</div>
                     <div className="text-xs font-bold text-emerald-300 pt-0.5">
                       {fractureIntensityResult.p32VolumetricAreaIntensity.toFixed(2)} m²/m³
@@ -2346,7 +2431,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   </div>
 
                   {/* Metric 4: Palmström Jv & RQD */}
-                  <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+                  <div className="p-2 rounded bg-slate-900/90 border border-slate-700/80">
                     <div className="text-[9px] text-slate-400">Palmström Jv &amp; RQD:</div>
                     <div className="text-xs font-bold text-amber-400 pt-0.5">
                       {fractureIntensityResult.palmstromJv.toFixed(1)} j/m³
@@ -2539,7 +2624,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               )}
 
               {/* 3D Plane Extent & Rockmass Extension Controls */}
-              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
+              <div className="p-3 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md space-y-2">
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="font-bold text-slate-300 flex items-center gap-1.5">
                     <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
@@ -2556,7 +2641,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     className={`py-1 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
                       planeDisplayMode === 'EXTENDED'
                         ? 'bg-cyan-600 text-white border-cyan-400 shadow-sm shadow-cyan-950'
-                        : 'bg-slate-900 hover:bg-slate-850 text-slate-400 border-slate-800'
+                        : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
                     }`}
                   >
                     Complete Extended (Default)
@@ -2567,14 +2652,14 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     className={`py-1 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
                       planeDisplayMode === 'CLIPPED'
                         ? 'bg-amber-600 text-white border-amber-400 shadow-sm shadow-amber-950'
-                        : 'bg-slate-900 hover:bg-slate-850 text-slate-400 border-slate-800'
+                        : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
                     }`}
                   >
                     Clipped to Tunnel Box
                   </button>
                 </div>
                 {planeDisplayMode === 'EXTENDED' && (
-                  <div className="space-y-1 pt-1 border-t border-slate-800/80">
+                  <div className="space-y-1 pt-1 border-t border-slate-700/80">
                     <div className="flex items-center justify-between text-[9.5px] text-slate-400">
                       <span>Extension Radius from Cut Line:</span>
                       <span className="font-mono text-cyan-300 font-bold">{planeExtensionM}m</span>
@@ -2588,7 +2673,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                           className={`py-0.5 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
                             planeExtensionM === dist
                               ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold shadow-sm'
-                              : 'bg-slate-900 hover:bg-slate-850 text-slate-400 border-slate-800'
+                              : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
                           }`}
                         >
                           {dist}m
@@ -2603,7 +2688,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               </div>
 
               {/* Strike Axis */}
-              <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between text-[11px]">
+              <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 flex items-center justify-between text-[11px]">
                 <span className="text-slate-400">Strike Axis:</span>
                 <strong className="text-amber-400 font-mono">{strikeInfo.strikePairLabel}</strong>
               </div>
@@ -2615,7 +2700,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   <select
                     value={jointSetId}
                     onChange={(e) => setJointSetId(e.target.value as FieldJointGroupingId)}
-                    className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-amber-300 font-bold text-xs"
+                    className="w-full px-2 py-1 rounded bg-slate-800 border border-slate-700 text-amber-300 font-bold text-xs"
                   >
                     {[
                       'unassigned',
@@ -2639,7 +2724,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   <select
                     value={measurementSource}
                     onChange={(e) => setMeasurementSource(e.target.value as any)}
-                    className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-slate-200 text-xs"
+                    className="w-full px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-200 text-xs"
                   >
                     <option value="MANUAL_COMPASS">Compass &amp; Inclinometer</option>
                     <option value="GEOMETRIC_FIT">Polyline Geometry Fit</option>
@@ -2650,8 +2735,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
             </div>
 
             {/* WHERE THIS PLANE CUTS THE TUNNEL */}
-            <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2.5">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+            <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-md space-y-2.5">
+              <div className="flex items-center justify-between border-b border-slate-700/70 pb-1.5">
                 <span className="font-bold text-amber-400 uppercase flex items-center gap-1.5 text-xs">
                   <Activity className="w-4 h-4 text-cyan-400" />
                   <span>Where Plane Cuts Tunnel</span>
@@ -2667,7 +2752,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 <div className={`p-2 rounded-lg border flex items-center justify-between ${
                   surfaceIntersections.face
                     ? 'bg-cyan-950/40 border-cyan-700/60 text-cyan-200'
-                    : 'bg-slate-950 border-slate-800/80 text-slate-500'
+                    : 'bg-slate-900 border-slate-700/70 text-slate-500'
                 }`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs">{surfaceIntersections.face ? '✅' : '—'}</span>
@@ -2682,7 +2767,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 <div className={`p-2 rounded-lg border flex items-center justify-between ${
                   surfaceIntersections.crown
                     ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-200'
-                    : 'bg-slate-950 border-slate-800/80 text-slate-500'
+                    : 'bg-slate-900 border-slate-700/70 text-slate-500'
                 }`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs">{surfaceIntersections.crown ? '✅' : '—'}</span>
@@ -2697,7 +2782,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 <div className={`p-2 rounded-lg border flex items-center justify-between ${
                   surfaceIntersections.leftWall
                     ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
-                    : 'bg-slate-950 border-slate-800/80 text-slate-500'
+                    : 'bg-slate-900 border-slate-700/70 text-slate-500'
                 }`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs">{surfaceIntersections.leftWall ? '✅' : '—'}</span>
@@ -2712,7 +2797,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 <div className={`p-2 rounded-lg border flex items-center justify-between ${
                   surfaceIntersections.rightWall
                     ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
-                    : 'bg-slate-950 border-slate-800/80 text-slate-500'
+                    : 'bg-slate-900 border-slate-700/70 text-slate-500'
                 }`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs">{surfaceIntersections.rightWall ? '✅' : '—'}</span>
@@ -2726,8 +2811,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
             </div>
 
             {/* TRUE DIP VS. SURFACE APPARENT DIPS MATRIX (CLARIFIES GEOLOGICAL CONFUSION) */}
-            <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2.5">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+            <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-md space-y-2.5">
+              <div className="flex items-center justify-between border-b border-slate-700/80 pb-1.5">
                 <span className="font-bold text-amber-400 uppercase flex items-center gap-1.5 text-xs">
                   <Sliders className="w-4 h-4 text-cyan-400" />
                   <span>True Dip vs. Surface Apparent Dips</span>
@@ -2740,7 +2825,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               {/* Surface-by-surface Apparent Dip Breakdown */}
               <div className="space-y-1.5 text-[11px] font-mono">
                 {/* 1. Excavation Face */}
-                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
                       <strong className="text-cyan-400">Excavation Face</strong>
@@ -2773,7 +2858,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 </div>
 
                 {/* 2. Left Sidewall */}
-                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
                       <strong className="text-slate-300">Left Sidewall</strong>
@@ -2806,7 +2891,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 </div>
 
                 {/* 3. Right Sidewall */}
-                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
                       <strong className="text-slate-300">Right Sidewall</strong>
@@ -2839,7 +2924,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 </div>
 
                 {/* 4. Crown Arch */}
-                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
                       <strong className="text-sky-300">Crown Arch / Back</strong>
@@ -2875,8 +2960,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
             </div>
 
             {/* 2. Surface Trace Lengths & Extent Audit */}
-            <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2.5">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+            <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-md space-y-2.5">
+              <div className="flex items-center justify-between border-b border-slate-700/80 pb-1.5">
                 <span className="font-bold text-cyan-400 uppercase flex items-center gap-1.5">
                   <Activity className="w-4 h-4" />
                   <span>Surface Trace Lengths &amp; Extent (m)</span>
@@ -2885,25 +2970,25 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-center">
+                <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
                   <span className="text-[10px] text-slate-400 block">Face (m)</span>
                   <strong className="text-amber-300 text-sm font-mono">
                     {observedLengths.faceM > 0 ? `${observedLengths.faceM}m` : '—'}
                   </strong>
                 </div>
-                <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-center">
+                <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
                   <span className="text-[10px] text-slate-400 block">Left Wall (m)</span>
                   <strong className="text-amber-300 text-sm font-mono">
                     {observedLengths.leftWallM > 0 ? `${observedLengths.leftWallM}m` : '—'}
                   </strong>
                 </div>
-                <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-center">
+                <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
                   <span className="text-[10px] text-slate-400 block">Right Wall (m)</span>
                   <strong className="text-amber-300 text-sm font-mono">
                     {observedLengths.rightWallM > 0 ? `${observedLengths.rightWallM}m` : '—'}
                   </strong>
                 </div>
-                <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-center">
+                <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
                   <span className="text-[10px] text-slate-400 block">Crown (m)</span>
                   <strong className="text-amber-300 text-sm font-mono">
                     {observedLengths.crownM > 0 ? `${observedLengths.crownM}m` : '—'}
@@ -2911,7 +2996,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 </div>
               </div>
 
-              <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1.5">
+              <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-300 font-bold">Total Confirmed Visible Extent:</span>
                   <strong className="text-emerald-400 font-mono text-sm">
@@ -2927,6 +3012,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
               </div>
             </div>
           </aside>
+        )}
 
           {/* ---------------------------------------------------------------
               RIGHT PANEL: PURE WHITE 3D CAD VIEWPORT & REAL-TIME COMPASS
@@ -2939,14 +3025,26 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
             {/* View Switcher Bar */}
             <div
               className={`flex-none px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b z-10 transition-colors ${
-                isLight ? 'bg-white/95 border-slate-200' : 'bg-slate-950 border-slate-800'
+                isLight ? 'bg-white/95 border-slate-200' : 'bg-slate-900 border-slate-700/80 shadow-xs'
               }`}
             >
-              <div
-                className={`flex items-center gap-1 p-1 rounded-xl font-mono text-xs font-bold border transition-colors ${
-                  isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-slate-800'
-                }`}
-              >
+              <div className="flex items-center gap-2">
+                {isAsideCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAsideCollapsed(false)}
+                    className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-mono text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors shrink-0"
+                    title="Expand Parameters & Audit Sidebar"
+                  >
+                    <PanelLeftOpen className="w-3.5 h-3.5" />
+                    <span>Show Parameters</span>
+                  </button>
+                )}
+                <div
+                  className={`flex items-center gap-1 p-1 rounded-xl font-mono text-xs font-bold border transition-colors ${
+                    isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-800/90 border-slate-700/80'
+                  }`}
+                >
                 {[
                   { id: 'VIEW_3D' as InspectionViewTab, label: '1. 3D Tunnel View' },
                   { id: 'VIEW_UNROLLED_COMBINED' as InspectionViewTab, label: '2. Unrolled 2D Developed View' },
@@ -2970,6 +3068,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   );
                 })}
               </div>
+            </div>
 
               {/* 3D Camera Controls, Compass Toggle, Plot Plane Toggle & Legend */}
               {activeTab === 'VIEW_3D' && (

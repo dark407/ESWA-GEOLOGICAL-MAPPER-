@@ -3,6 +3,8 @@ import {
   Box,
   Camera,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Compass,
   Download,
   Eye,
@@ -296,6 +298,7 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
 
   const [displayMode, setDisplayMode] = useState<Tunnel3DDisplayMode>('PHOTO_ONLY');
   const [cameraMode, setCameraMode] = useState<Tunnel3DCameraMode>('ORBIT_CUTAWAY');
+  const [isControlsPanelCollapsed, setIsControlsPanelCollapsed] = useState<boolean>(false);
 
   // Camera state
   const [yawDeg, setYawDeg] = useState<number>(-28);
@@ -1623,237 +1626,264 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
         />
 
         {/* LEFT FLOATING HUD: Camera Choreography, Walk-Through & Surface Photo Controls */}
-        <aside className="absolute left-4 top-4 z-10 w-72 bg-black/55 backdrop-blur-md border border-white/10 rounded-xl p-3.5 space-y-3 text-xs font-mono shadow-xl">
-          <div className="flex items-center justify-between border-b border-white/10 pb-2">
-            <span className="font-bold text-sky-400 flex items-center gap-1.5">
-              <Camera className="w-3.5 h-3.5" />
-              3D Camera &amp; Walk-Through
-            </span>
+        {isControlsPanelCollapsed ? (
+          <aside className="absolute left-4 top-4 z-10 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl p-1.5 shadow-2xl flex items-center font-mono text-xs">
             <button
               type="button"
-              onClick={() => {
-                setYawDeg(cameraMode === 'INSIDE_WALKTHROUGH' ? 0 : -28);
-                setPitchDeg(cameraMode === 'INSIDE_WALKTHROUGH' ? 4 : 16);
-                setZoom(1.08);
-                setWalkProgress(0.15);
-              }}
-              className="flex items-center gap-1 px-2 py-0.5 bg-white/10 hover:bg-white/20 text-slate-200 rounded text-[10px] cursor-pointer"
+              onClick={() => setIsControlsPanelCollapsed(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-sm"
+              title="Expand 3D Camera & Controls"
             >
-              <RotateCcw className="w-3 h-3" />
-              Reset
+              <Camera className="w-3.5 h-3.5 text-sky-400" />
+              <span>3D Camera &amp; Controls</span>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
             </button>
-          </div>
-
-          {/* Camera Mode Switcher */}
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setCameraMode('ORBIT_CUTAWAY');
-                setYawDeg(-28);
-                setPitchDeg(16);
-              }}
-              className={`px-2.5 py-1.5 rounded-lg font-bold text-[11px] border transition-colors cursor-pointer ${
-                cameraMode === 'ORBIT_CUTAWAY'
-                  ? 'bg-sky-600 text-white border-sky-400'
-                  : 'bg-slate-900/80 text-slate-300 border-white/10 hover:bg-slate-800'
-              }`}
-            >
-              3D Orbit Cutaway
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCameraMode('INSIDE_WALKTHROUGH');
-                setYawDeg(0);
-                setPitchDeg(4);
-              }}
-              className={`px-2.5 py-1.5 rounded-lg font-bold text-[11px] border transition-colors cursor-pointer ${
-                cameraMode === 'INSIDE_WALKTHROUGH'
-                  ? 'bg-emerald-600 text-white border-emerald-400'
-                  : 'bg-slate-900/80 text-slate-300 border-white/10 hover:bg-slate-800'
-              }`}
-            >
-              Inside Walk-Through
-            </button>
-          </div>
-
-          {/* Walk-Through Chainage Position Slider (when in Inside Walk-Through mode) */}
-          {cameraMode === 'INSIDE_WALKTHROUGH' && (
-            <div className="p-2 bg-emerald-950/40 border border-emerald-500/30 rounded-lg space-y-1">
-              <div className="flex items-center justify-between text-[10.5px]">
-                <span className="text-emerald-300 font-semibold">Walk Toward Face (Z):</span>
-                <span className="text-white font-bold tabular-nums">
-                  +{(walkProgress * meshData.totalLength * 0.85).toFixed(2)} m
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="0.92"
-                step="0.02"
-                value={walkProgress}
-                onChange={(e) => setWalkProgress(Number(e.target.value))}
-                className="w-full accent-emerald-400 cursor-pointer"
-              />
-            </div>
-          )}
-
-          {/* 3D Rock Relief & Overbreak Sliders */}
-          <div className="space-y-2 pt-1 border-t border-white/10">
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-[10.5px]">
-                <span className="text-slate-300">2.5D Photo Rock Relief:</span>
-                <span className="text-amber-300 font-bold tabular-nums">
-                  ±{reliefExaggerationMm} mm
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="350"
-                step="10"
-                value={reliefExaggerationMm}
-                onChange={(e) => setReliefExaggerationMm(Number(e.target.value))}
-                className="w-full accent-amber-400 cursor-pointer"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-[10.5px]">
-                <span className="text-slate-300">Headlamp Illumination:</span>
-                <span className="text-sky-300 font-bold tabular-nums">
-                  {Math.round(headlampIntensity * 100)}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0.6"
-                max="1.4"
-                step="0.05"
-                value={headlampIntensity}
-                onChange={(e) => setHeadlampIntensity(Number(e.target.value))}
-                className="w-full accent-sky-400 cursor-pointer"
-              />
-            </div>
-
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-slate-300 text-[10.5px]">Corridor Length:</span>
+          </aside>
+        ) : (
+          <aside className="absolute left-4 top-4 z-10 w-72 max-h-[calc(100vh-8rem)] overflow-y-auto touch-pan-y overscroll-contain bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl p-3.5 space-y-3 text-xs font-mono shadow-2xl text-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="font-bold text-sky-400 flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5" />
+                3D Camera &amp; Walk-Through
+              </span>
               <div className="flex items-center gap-1">
-                {([1, 2, 3] as const).map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setCorridorPulls(n)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                      corridorPulls === n
-                        ? 'bg-sky-500 text-slate-950'
-                        : 'bg-white/10 text-slate-300 hover:bg-white/20'
-                    }`}
-                  >
-                    {n} Pull{n > 1 ? 's' : ''} ({(n * (settings.roundLength || 3.5)).toFixed(1)}m)
-                  </button>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setYawDeg(cameraMode === 'INSIDE_WALKTHROUGH' ? 0 : -28);
+                    setPitchDeg(cameraMode === 'INSIDE_WALKTHROUGH' ? 4 : 16);
+                    setZoom(1.08);
+                    setWalkProgress(0.15);
+                  }}
+                  className="flex items-center gap-1 px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-[10px] cursor-pointer"
+                  title="Reset 3D camera angles"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsControlsPanelCollapsed(true)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded text-[10px] cursor-pointer"
+                  title="Shrink / Collapse Panel"
+                >
+                  <ChevronLeft className="w-3 h-3" />
+                  <span>Shrink</span>
+                </button>
               </div>
             </div>
-          </div>
 
-          {/* 4 Tunnel Portions Visibility & Quick Photo Upload */}
-          <div className="space-y-1.5 pt-2 border-t border-white/10">
-            <div className="text-[10.5px] font-bold text-slate-300">
-              Tunnel Portions &amp; Upscaled Photos:
+            {/* Camera Mode Switcher */}
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setCameraMode('ORBIT_CUTAWAY');
+                  setYawDeg(-28);
+                  setPitchDeg(16);
+                }}
+                className={`px-2.5 py-1.5 rounded-lg font-bold text-[11px] border transition-colors cursor-pointer ${
+                  cameraMode === 'ORBIT_CUTAWAY'
+                    ? 'bg-sky-600 text-white border-sky-400 shadow-sm'
+                    : 'bg-slate-950/80 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                3D Orbit Cutaway
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCameraMode('INSIDE_WALKTHROUGH');
+                  setYawDeg(0);
+                  setPitchDeg(4);
+                }}
+                className={`px-2.5 py-1.5 rounded-lg font-bold text-[11px] border transition-colors cursor-pointer ${
+                  cameraMode === 'INSIDE_WALKTHROUGH'
+                    ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm'
+                    : 'bg-slate-950/80 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                Inside Walk-Through
+              </button>
             </div>
-            {(
-              [
-                { id: 'face', label: '1. Excavation Face' },
-                { id: 'crown', label: '2. Crown Arch' },
-                { id: 'leftWall', label: '3. Left Wall' },
-                { id: 'rightWall', label: '4. Right Wall' },
-              ] as { id: SurfaceType; label: string }[]
-            ).map((s) => {
-              const hasUserPhoto = Boolean(photos[s.id]?.image);
-              const isUpscaled = Boolean(upscaledOverrides[s.id]);
-              return (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between gap-1.5 py-1 px-2 bg-white/5 rounded-lg"
-                >
-                  <label className="flex items-center gap-1.5 cursor-pointer truncate">
-                    <input
-                      type="checkbox"
-                      checked={showSurface[s.id]}
-                      onChange={(e) =>
-                        setShowSurface((prev) => ({ ...prev, [s.id]: e.target.checked }))
-                      }
-                      className="rounded border-slate-600 text-sky-500 cursor-pointer"
-                    />
-                    <span className="text-slate-200 truncate">{s.label}</span>
-                  </label>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className="text-[9.5px] text-slate-400">
-                      {isUpscaled ? '2x HD' : hasUserPhoto ? 'User' : 'Sample'}
-                    </span>
-                    {onUploadPhotoFile && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          uploadSurfaceRef.current = s.id;
-                          fileInputRef.current?.click();
-                        }}
-                        className="px-1.5 py-0.5 bg-sky-500/20 hover:bg-sky-500/40 text-sky-300 border border-sky-500/30 rounded text-[9.5px] cursor-pointer"
-                        title={`Upload or replace ${s.label} photo`}
-                      >
-                        Upload
-                      </button>
-                    )}
-                  </div>
+
+            {/* Walk-Through Chainage Position Slider (when in Inside Walk-Through mode) */}
+            {cameraMode === 'INSIDE_WALKTHROUGH' && (
+              <div className="p-2 bg-emerald-950/50 border border-emerald-500/40 rounded-lg space-y-1">
+                <div className="flex items-center justify-between text-[10.5px]">
+                  <span className="text-emerald-300 font-semibold">Walk Toward Face (Z):</span>
+                  <span className="text-white font-bold tabular-nums">
+                    +{(walkProgress * meshData.totalLength * 0.85).toFixed(2)} m
+                  </span>
                 </div>
-              );
-            })}
+                <input
+                  type="range"
+                  min="0"
+                  max="0.92"
+                  step="0.02"
+                  value={walkProgress}
+                  onChange={(e) => setWalkProgress(Number(e.target.value))}
+                  className="w-full accent-emerald-400 cursor-pointer"
+                />
+              </div>
+            )}
 
-            <div className="grid grid-cols-2 gap-1.5 pt-1">
-              <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300 cursor-pointer">
+            {/* 3D Rock Relief & Overbreak Sliders */}
+            <div className="space-y-2 pt-1 border-t border-slate-800">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[10.5px]">
+                  <span className="text-slate-300">2.5D Photo Rock Relief:</span>
+                  <span className="text-amber-400 font-bold tabular-nums">
+                    ±{reliefExaggerationMm} mm
+                  </span>
+                </div>
                 <input
-                  type="checkbox"
-                  checked={autoCutawayNearWall}
-                  onChange={(e) => setAutoCutawayNearWall(e.target.checked)}
-                  className="rounded border-slate-600 text-sky-500 cursor-pointer"
+                  type="range"
+                  min="0"
+                  max="350"
+                  step="10"
+                  value={reliefExaggerationMm}
+                  onChange={(e) => setReliefExaggerationMm(Number(e.target.value))}
+                  className="w-full accent-amber-400 cursor-pointer"
                 />
-                <span>Auto-Cutaway Wall</span>
-              </label>
-              <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300 cursor-pointer">
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[10.5px]">
+                  <span className="text-slate-300">Headlamp Illumination:</span>
+                  <span className="text-sky-300 font-bold tabular-nums">
+                    {Math.round(headlampIntensity * 100)}%
+                  </span>
+                </div>
                 <input
-                  type="checkbox"
-                  checked={applyOverbreakDeformation}
-                  onChange={(e) => setApplyOverbreakDeformation(e.target.checked)}
-                  className="rounded border-slate-600 text-sky-500 cursor-pointer"
+                  type="range"
+                  min="0.6"
+                  max="1.4"
+                  step="0.05"
+                  value={headlampIntensity}
+                  onChange={(e) => setHeadlampIntensity(Number(e.target.value))}
+                  className="w-full accent-sky-400 cursor-pointer"
                 />
-                <span>3D Overbreak Cavity</span>
-              </label>
-              <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showWireframeMesh}
-                  onChange={(e) => setShowWireframeMesh(e.target.checked)}
-                  className="rounded border-slate-600 text-sky-500 cursor-pointer"
-                />
-                <span>3D Triangle Mesh</span>
-              </label>
-              <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showFloorGrid}
-                  onChange={(e) => setShowFloorGrid(e.target.checked)}
-                  className="rounded border-slate-600 text-sky-500 cursor-pointer"
-                />
-                <span>Invert Floor Grid</span>
-              </label>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-slate-300 text-[10.5px]">Corridor Length:</span>
+                <div className="flex items-center gap-1">
+                  {([1, 2, 3] as const).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setCorridorPulls(n)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                        corridorPulls === n
+                          ? 'bg-sky-500 text-slate-950 font-bold shadow-xs'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                      }`}
+                    >
+                      {n} Pull{n > 1 ? 's' : ''} ({(n * (settings.roundLength || 3.5)).toFixed(1)}m)
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-        </aside>
+
+            {/* 4 Tunnel Portions Visibility & Quick Photo Upload */}
+            <div className="space-y-1.5 pt-2 border-t border-slate-800">
+              <div className="text-[10.5px] font-bold text-slate-300">
+                Tunnel Portions &amp; Upscaled Photos:
+              </div>
+              {(
+                [
+                  { id: 'face', label: '1. Excavation Face' },
+                  { id: 'crown', label: '2. Crown Arch' },
+                  { id: 'leftWall', label: '3. Left Wall' },
+                  { id: 'rightWall', label: '4. Right Wall' },
+                ] as { id: SurfaceType; label: string }[]
+              ).map((s) => {
+                const hasUserPhoto = Boolean(photos[s.id]?.image);
+                const isUpscaled = Boolean(upscaledOverrides[s.id]);
+                return (
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between gap-1.5 py-1 px-2 bg-slate-950/70 border border-slate-800/80 rounded-lg"
+                  >
+                    <label className="flex items-center gap-1.5 cursor-pointer truncate">
+                      <input
+                        type="checkbox"
+                        checked={showSurface[s.id]}
+                        onChange={(e) =>
+                          setShowSurface((prev) => ({ ...prev, [s.id]: e.target.checked }))
+                        }
+                        className="rounded border-slate-700 bg-slate-900 text-sky-500 cursor-pointer"
+                      />
+                      <span className="text-slate-200 truncate">{s.label}</span>
+                    </label>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[9.5px] text-slate-400">
+                        {isUpscaled ? '2x HD' : hasUserPhoto ? 'User' : 'Sample'}
+                      </span>
+                      {onUploadPhotoFile && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            uploadSurfaceRef.current = s.id;
+                            fileInputRef.current?.click();
+                          }}
+                          className="px-1.5 py-0.5 bg-sky-500/20 hover:bg-sky-500/40 text-sky-300 border border-sky-500/40 rounded text-[9.5px] cursor-pointer"
+                          title={`Upload or replace ${s.label} photo`}
+                        >
+                          Upload
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="grid grid-cols-2 gap-1.5 pt-1">
+                <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoCutawayNearWall}
+                    onChange={(e) => setAutoCutawayNearWall(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-900 text-sky-500 cursor-pointer"
+                  />
+                  <span>Auto-Cutaway Wall</span>
+                </label>
+                <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={applyOverbreakDeformation}
+                    onChange={(e) => setApplyOverbreakDeformation(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-900 text-sky-500 cursor-pointer"
+                  />
+                  <span>3D Overbreak Cavity</span>
+                </label>
+                <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showWireframeMesh}
+                    onChange={(e) => setShowWireframeMesh(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-900 text-sky-500 cursor-pointer"
+                  />
+                  <span>3D Triangle Mesh</span>
+                </label>
+                <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showFloorGrid}
+                    onChange={(e) => setShowFloorGrid(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-900 text-sky-500 cursor-pointer"
+                  />
+                  <span>Invert Floor Grid</span>
+                </label>
+              </div>
+            </div>
+          </aside>
+        )}
 
         {/* BOTTOM FLOATING HELPER HUD */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 px-4 py-2 bg-black/55 backdrop-blur-md border border-white/10 rounded-xl text-xs font-mono text-slate-300 shadow-lg">
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 px-4 py-2 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl text-xs font-mono text-slate-300 shadow-xl">
           <span>Drag to Rotate 3D Tunnel</span>
           <span>·</span>
           <span>Scroll Wheel to Zoom ({Math.round(zoom * 100)}%)</span>
@@ -1866,7 +1896,7 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
                 setYawDeg(0);
                 setPitchDeg(8);
               }}
-              className="px-2 py-0.5 bg-white/10 hover:bg-white/20 text-white rounded text-[10.5px] cursor-pointer"
+              className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 rounded text-[10.5px] cursor-pointer"
             >
               Front Face
             </button>
@@ -1877,7 +1907,7 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
                 setYawDeg(-42);
                 setPitchDeg(18);
               }}
-              className="px-2 py-0.5 bg-white/10 hover:bg-white/20 text-white rounded text-[10.5px] cursor-pointer"
+              className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 rounded text-[10.5px] cursor-pointer"
             >
               Left Oblique
             </button>
@@ -1888,7 +1918,7 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
                 setYawDeg(42);
                 setPitchDeg(18);
               }}
-              className="px-2 py-0.5 bg-white/10 hover:bg-white/20 text-white rounded text-[10.5px] cursor-pointer"
+              className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 rounded text-[10.5px] cursor-pointer"
             >
               Right Oblique
             </button>
@@ -1899,7 +1929,7 @@ export const PhotoTextured3DTunnelModal: React.FC<PhotoTextured3DTunnelModalProp
                 setYawDeg(0);
                 setPitchDeg(28);
               }}
-              className="px-2 py-0.5 bg-emerald-500/30 hover:bg-emerald-500/50 text-emerald-200 rounded text-[10.5px] cursor-pointer"
+              className="px-2 py-0.5 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded text-[10.5px] cursor-pointer"
             >
               Look Up at Crown
             </button>

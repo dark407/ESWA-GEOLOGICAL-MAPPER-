@@ -2006,18 +2006,19 @@ function parseProjectDomainMeta(rawProjectName: string): {
 }
 
 interface ProjectMemoryModalProps {
+  [key: string]: any;
   isOpen: boolean;
   onClose: () => void;
   initialTab?: DataStorageTabId;
   geometry: TunnelGeometry;
   settings: TunnelSettings;
-  onUpdateSettings: React.Dispatch<React.SetStateAction<TunnelSettings>>;
+  onUpdateSettings?: React.Dispatch<React.SetStateAction<TunnelSettings>>;
   savedProjects: SavedProjectRecord[];
   onRefreshSavedProjects?: (nextRecords: SavedProjectRecord[]) => void;
   onRefreshProjectsState?: (nextRecords: SavedProjectRecord[]) => void;
-  onSaveCurrentProject: () => void;
-  onLoadProjectRecord: (record: SavedProjectRecord) => void;
-  onDeleteProjectRecord: (id: string) => void;
+  onSaveCurrentProject?: () => void;
+  onLoadProjectRecord?: (record: SavedProjectRecord) => void;
+  onDeleteProjectRecord?: (id: string) => void;
   onImportProjectRecordFile: (file: File) => void;
   onExportCurrentProjectFile: () => void;
   savedGeometries: SavedDesignGeometryRecord[];

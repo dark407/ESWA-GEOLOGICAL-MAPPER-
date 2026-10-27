@@ -6749,34 +6749,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   {/* 4 Drawing Tools: Pencil, Brush, Spline, Polyline */}
                   {renderFeatureDrawSubToolSelector()}
 
-                  {/* Paint Rock vs Litho Eraser Mode Toggle */}
-                  <div className="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setLithologySubMode('paint')}
-                      className={`py-1 px-1.5 rounded text-[10px] font-black flex items-center justify-center gap-1 border cursor-pointer ${
-                        lithologySubMode === 'paint'
-                          ? 'bg-amber-500 text-slate-950 border-amber-300'
-                          : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
-                      }`}
-                    >
-                      <Paintbrush className="w-3 h-3" />
-                      Paint Rock
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLithologySubMode('erase_area')}
-                      className={`py-1 px-1.5 rounded text-[10px] font-black flex items-center justify-center gap-1 border cursor-pointer ${
-                        lithologySubMode === 'erase_area'
-                          ? 'bg-rose-500 text-white border-rose-300'
-                          : 'bg-slate-900 text-rose-300 border-slate-800 hover:text-white'
-                      }`}
-                    >
-                      <Eraser className="w-3 h-3" />
-                      Litho Eraser
-                    </button>
-                  </div>
-
                   {/* Search & Location Suggestion Box */}
                   {showOtherRockSearch && (
                     <div className="bg-slate-950 border border-amber-500/50 rounded-xl p-2 space-y-1.5">
@@ -6885,13 +6857,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             >
                               {rock.code}
                             </span>
-                          </div>
-                          <div
-                            className={`text-[8.5px] truncate mt-0.5 ${
-                              isSel ? 'text-slate-900' : 'text-slate-500'
-                            }`}
-                          >
-                            {rock.description}
                           </div>
                         </button>
                       );
@@ -7009,13 +6974,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               >
                                 {vf.code}
                               </span>
-                            </div>
-                            <div
-                              className={`text-[8.5px] truncate mt-0.5 ${
-                                isSel ? 'text-slate-900' : 'text-slate-400'
-                              }`}
-                            >
-                              {vf.description}
                             </div>
                           </div>
                         </button>
@@ -7542,15 +7500,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             >
                               {w.symbol}
                             </span>
-                          </div>
-                          <div
-                            className={`text-[9.5px] truncate mt-0.5 ${
-                              selectedWaterCondition === w.condition
-                                ? 'text-slate-900'
-                                : 'text-slate-400'
-                            }`}
-                          >
-                            {w.description}
                           </div>
                         </div>
                       </button>
@@ -11056,9 +11005,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           <div className="text-[10px] font-black uppercase tracking-wider text-amber-400 truncate">
                             Symbol Angle — {activeRockMeta.name} ({activeRockMeta.code})
                           </div>
-                          <div className="text-[9px] text-slate-400">
-                            Rotates pattern symbols (bedding, foliation, cleavage)
-                          </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           {/* Mini interactive compass angle indicator */}
@@ -11253,9 +11199,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     <div>
                       <div className="text-[10px] font-black uppercase tracking-wider text-cyan-300">
                         Alternate Lithology Bands (2–3 Rocks)
-                      </div>
-                      <div className="text-[9px] text-slate-400">
-                        Sedimentary / Metamorphic interbedded alternating bands on canvas
                       </div>
                     </div>
                     <button
@@ -12354,15 +12297,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           >
                             {w.symbol}
                           </span>
-                        </div>
-                        <div
-                          className={`text-[10px] truncate mt-0.5 ${
-                            selectedWaterCondition === w.condition
-                              ? 'text-slate-900'
-                              : 'text-slate-400'
-                          }`}
-                        >
-                          {w.description}
                         </div>
                       </div>
                     </button>

@@ -2,9 +2,10 @@
  * FAST ASYNC STORAGE ENGINE
  * High-performance, non-blocking storage architecture for ESWA Geological Mapper.
  * 
- * 1. Offloads heavy Base64 photographs (face, crown, walls, core boxes) to IndexedDB.
- * 2. Strips multi-megabyte image payloads from synchronous localStorage JSON writes.
- * 3. Debounces background state saves (2000ms) and executes them on requestIdleCallback
+ * 1. Offloads heavy Base64 photographs (face, crown, walls, core boxes) to local IndexedDB.
+ * 2. In-memory hot cache for instant, 0ms synchronous photo rendering on canvas.
+ * 3. Strips multi-megabyte image payloads from state persistence to prevent quota exhaustion.
+ * 4. Debounces background state saves and executes them on requestIdleCallback
  *    so the main UI thread NEVER blocks during typing, backspacing, or drawing.
  */
 
@@ -13,6 +14,11 @@ const DB_NAME = 'eswa_geotech_async_storage_v1';
 const DB_VERSION = 1;
 const PHOTO_STORE = 'photo_blobs';
 const STATE_STORE = 'async_state';
+
+export const IDB_BLOB_PREFIX = '[IDB_BLOB]:';
+
+// In-memory hot cache so canvas and UI can synchronously access photos without promise delays
+const inMemoryPhotoCache = new Map<string, string>();
 
 let dbInstancePromise: Promise<IDBDatabase> | null = null;
 
@@ -44,10 +50,63 @@ function getDb(): Promise<IDBDatabase> {
 }
 
 /**
+ * Preload all stored photos from IndexedDB into in-memory hot cache on startup
+ */
+export async function preloadAllPhotosIntoMemoryAsync(): Promise<void> {
+  if (typeof window === 'undefined' || !window.indexedDB) return;
+  try {
+    const db = await getDb();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(PHOTO_STORE, 'readonly');
+      const store = tx.objectStore(PHOTO_STORE);
+      const req = store.getAll();
+      req.onsuccess = () => {
+        if (Array.isArray(req.result)) {
+          for (const item of req.result) {
+            if (item && item.id && item.data) {
+              inMemoryPhotoCache.set(item.id, item.data);
+            }
+          }
+        }
+        resolve();
+      };
+      req.onerror = () => resolve();
+    });
+  } catch {
+    // Ignore error
+  }
+}
+
+// Auto-run preload on start
+if (typeof window !== 'undefined') {
+  void preloadAllPhotosIntoMemoryAsync();
+}
+
+/**
+ * Synchronously retrieves a photo from in-memory cache or returns null
+ */
+export function getCachedPhotoBlob(id: string): string | null {
+  if (!id) return null;
+  const mem = inMemoryPhotoCache.get(id);
+  if (mem) return mem;
+  try {
+    const ls = localStorage.getItem(`eswa_photo_blob_${id}`);
+    if (ls) {
+      inMemoryPhotoCache.set(id, ls);
+      return ls;
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+/**
  * Save heavy base64 photo blob asynchronously into IndexedDB (zero main-thread blocking)
  */
 export async function savePhotoBlobAsync(id: string, base64Data: string): Promise<void> {
   if (!id || !base64Data) return;
+  inMemoryPhotoCache.set(id, base64Data);
   try {
     const db = await getDb();
     await new Promise<void>((resolve, reject) => {
@@ -57,7 +116,7 @@ export async function savePhotoBlobAsync(id: string, base64Data: string): Promis
       req.onsuccess = () => resolve();
       req.onerror = () => reject(req.error);
     });
-  } catch (err) {
+  } catch {
     // Fallback to separate localStorage key if IndexedDB fails
     try {
       localStorage.setItem(`eswa_photo_blob_${id}`, base64Data);
@@ -72,9 +131,11 @@ export async function savePhotoBlobAsync(id: string, base64Data: string): Promis
  */
 export async function getPhotoBlobAsync(id: string): Promise<string | null> {
   if (!id) return null;
+  const cached = inMemoryPhotoCache.get(id);
+  if (cached) return cached;
   try {
     const db = await getDb();
-    return await new Promise<string | null>((resolve) => {
+    const res = await new Promise<string | null>((resolve) => {
       const tx = db.transaction(PHOTO_STORE, 'readonly');
       const store = tx.objectStore(PHOTO_STORE);
       const req = store.get(id);
@@ -87,13 +148,23 @@ export async function getPhotoBlobAsync(id: string): Promise<string | null> {
       };
       req.onerror = () => resolve(null);
     });
-  } catch {
-    try {
-      return localStorage.getItem(`eswa_photo_blob_${id}`);
-    } catch {
-      return null;
+    if (res) {
+      inMemoryPhotoCache.set(id, res);
+      return res;
     }
+  } catch {
+    // Fallback to localStorage
   }
+  try {
+    const ls = localStorage.getItem(`eswa_photo_blob_${id}`);
+    if (ls) {
+      inMemoryPhotoCache.set(id, ls);
+      return ls;
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
 }
 
 /**
@@ -101,6 +172,7 @@ export async function getPhotoBlobAsync(id: string): Promise<string | null> {
  */
 export async function deletePhotoBlobAsync(id: string): Promise<void> {
   if (!id) return;
+  inMemoryPhotoCache.delete(id);
   try {
     const db = await getDb();
     await new Promise<void>((resolve) => {
@@ -117,6 +189,74 @@ export async function deletePhotoBlobAsync(id: string): Promise<void> {
       // Ignore
     }
   }
+}
+
+/**
+ * Strips heavy base64 strings from FieldMappingStoreState photos before persistence.
+ * Offloads them to IndexedDB asynchronously and sets dataUrl to lightweight identifier.
+ */
+export function offloadPhotosFromFieldStore<T extends Record<string, any>>(state: T): T {
+  if (!state || !Array.isArray((state as any).rounds)) return state;
+  const cloned = { ...state } as any;
+  cloned.rounds = (state as any).rounds.map((r: any) => {
+    if (!r || !Array.isArray(r.collectedPhotos)) return r;
+    return {
+      ...r,
+      collectedPhotos: r.collectedPhotos.map((photo: any) => {
+        if (!photo) return photo;
+        // If photo has a large dataUrl, offload to IndexedDB
+        if (typeof photo.dataUrl === 'string' && photo.dataUrl.length > 500) {
+          savePhotoBlobAsync(photo.id, photo.dataUrl);
+          return {
+            ...photo,
+            dataUrl: `${IDB_BLOB_PREFIX}${photo.id}`,
+          };
+        }
+        return photo;
+      }),
+    };
+  });
+  return cloned as T;
+}
+
+/**
+ * Restores photo dataUrls in FieldMappingStoreState from in-memory cache or IndexedDB
+ */
+export function restorePhotosInFieldStore<T extends Record<string, any>>(state: T): T {
+  if (!state || !Array.isArray((state as any).rounds)) return state;
+  const cloned = { ...state } as any;
+  cloned.rounds = (state as any).rounds.map((r: any) => {
+    if (!r || !Array.isArray(r.collectedPhotos)) return r;
+    return {
+      ...r,
+      collectedPhotos: r.collectedPhotos.map((photo: any) => {
+        if (!photo) return photo;
+        if (typeof photo.dataUrl === 'string' && photo.dataUrl.startsWith(IDB_BLOB_PREFIX)) {
+          const photoId = photo.dataUrl.slice(IDB_BLOB_PREFIX.length) || photo.id;
+          const cached = inMemoryPhotoCache.get(photoId);
+          if (cached) {
+            return { ...photo, dataUrl: cached };
+          }
+          // Trigger background async load into inMemoryPhotoCache
+          void getPhotoBlobAsync(photoId).then((blob) => {
+            if (blob) {
+              photo.dataUrl = blob;
+            }
+          });
+          return photo;
+        }
+        // Also check if dataUrl is empty or placeholder but we have cached blob
+        if ((!photo.dataUrl || photo.dataUrl.length < 100) && photo.id) {
+          const cached = inMemoryPhotoCache.get(photo.id);
+          if (cached) {
+            return { ...photo, dataUrl: cached };
+          }
+        }
+        return photo;
+      }),
+    };
+  });
+  return cloned as T;
 }
 
 // ============================================================================
@@ -194,23 +334,25 @@ function executeTaskSave(key: string) {
   pendingSaveTasks.delete(key);
 
   try {
-    const data = task.getData();
-    if (data === undefined) return;
+    const rawData = task.getData();
+    if (rawData === undefined) return;
 
-    const serialized = typeof data === 'string' ? data : JSON.stringify(data);
+    // Automatically strip heavy photos from field mapping store before persistence
+    const cleanData = offloadPhotosFromFieldStore(rawData);
+    const serialized = typeof cleanData === 'string' ? cleanData : JSON.stringify(cleanData);
 
     // Save to localStorage if requested
     if (task.useLocalStorage && typeof window !== 'undefined') {
       try {
         localStorage.setItem(key, serialized);
-      } catch (quotaErr) {
+      } catch {
         // Fallback: save to IndexedDB state store if localStorage quota exceeded
         saveToIndexedDbStateStore(key, serialized);
       }
     } else {
       saveToIndexedDbStateStore(key, serialized);
     }
-  } catch (err) {
+  } catch {
     // Non-blocking log
   }
 }
@@ -272,7 +414,6 @@ export function separatePhotosFromPayload<T extends Record<string, any>>(
           savePhotoBlobAsync(blobId, s.image);
           photoKeys.push(blobId);
           s.imageBlobId = blobId;
-          // Keep lightweight thumbnail/marker if needed or truncate
           s.image = s.image.slice(0, 300) + '...[IDB]';
         }
         if (typeof s.originalImage === 'string' && s.originalImage.length > 500) {
