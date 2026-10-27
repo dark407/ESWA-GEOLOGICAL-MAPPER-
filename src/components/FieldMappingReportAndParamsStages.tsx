@@ -467,7 +467,7 @@ export const FieldStripAlignmentStage: React.FC<{
   activeRound.lithologyStrokes.forEach((st) => {
     if (
       (st.panel === 'left_wall' || st.panel === 'crown' || st.panel === 'right_wall') &&
-      (st.mode === 'vein_band' || st.mode === 'foliation_plane') &&
+      (st.mode === 'vein_band' || st.mode === 'foliation_plane' || st.mode === 'region_fill') &&
       st.points.length >= 2
     ) {
       alignableItems.push({

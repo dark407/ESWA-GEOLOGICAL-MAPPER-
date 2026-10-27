@@ -1614,33 +1614,42 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     }
 
     // 0. Check if user clicked on an active vertex handle -> start vertex drag
-    if (selectedObjectId && selectedObjectType === 'trace') {
-      const selTrace = (currentDataset.traces || []).find((t) => t.id === selectedObjectId);
-      if (selTrace && selTrace.points) {
+    if (activeTool === 'edit_joint' || (selectedObjectId && selectedObjectType === 'trace')) {
+      const candidateTraces =
+        activeTool === 'edit_joint'
+          ? currentDataset.traces || []
+          : (currentDataset.traces || []).filter((t) => t.id === selectedObjectId);
+
+      for (const selTrace of candidateTraces) {
+        if (!selTrace.points) continue;
         for (let i = 0; i < selTrace.points.length; i++) {
           const vx = worldToScreenX(selTrace.points[i].x);
           const vy = worldToScreenY(selTrace.points[i].y);
-          if (Math.hypot(mouseX - vx, mouseY - vy) < 12) {
+          if (Math.hypot(mouseX - vx, mouseY - vy) < 14) {
             pushHistory(currentDataset);
+            setSelectedObjectId(selTrace.id);
+            setSelectedObjectType('trace');
             setDraggingVertexIdx(i);
             setDragStartWorld({ x: ch, y: yPerim });
             return;
           }
         }
 
-        // If in EDIT_JOINT mode and clicked on a segment, insert a new vertex!
+        // If in EDIT_JOINT mode and clicked on a segment, insert a new vertex or select trace!
         if (activeTool === 'edit_joint') {
           for (let i = 0; i < selTrace.points.length - 1; i++) {
-            const p1 = { x: worldToScreenX(selTrace.points[i].x), y: worldToScreenY(selTrace.points[i].y) };
+            const p1 = { x: worldToScreenX(selTrace.points[i].x), y: worldToScreenY(selTrace.points[i + 1].y) };
             const p2 = { x: worldToScreenX(selTrace.points[i + 1].x), y: worldToScreenY(selTrace.points[i + 1].y) };
-            if (distToSegment({ x: mouseX, y: mouseY }, p1, p2) < 8) {
+            if (distToSegment({ x: mouseX, y: mouseY }, p1, p2) < 10) {
               pushHistory(currentDataset);
               const newPts = [...selTrace.points];
               newPts.splice(i + 1, 0, { x: ch, y: yPerim });
+              setSelectedObjectId(selTrace.id);
+              setSelectedObjectType('trace');
               setCurrentDataset((prev) => ({
                 ...prev,
                 traces: (prev.traces || []).map((t) =>
-                  t.id === selectedObjectId ? { ...t, points: newPts, rawPoints: newPts } : t
+                  t.id === selTrace.id ? { ...t, points: newPts, rawPoints: newPts } : t
                 ),
                 updatedAt: new Date().toISOString(),
               }));
@@ -1836,6 +1845,62 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
     setActiveDraftPoints([]);
   };
+
+  // Global Keyboard shortcuts: Enter to commit drafting, Escape to cancel drafting, Delete/Backspace to delete selected object
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName);
+      if (isInput) return;
+
+      if (e.key === 'Enter') {
+        if (activeDraftPoints.length >= 2) {
+          e.preventDefault();
+          handleCommitDraft();
+        }
+      } else if (e.key === 'Escape') {
+        if (activeDraftPoints.length > 0) {
+          e.preventDefault();
+          setActiveDraftPoints([]);
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedObjectId) {
+          e.preventDefault();
+          pushHistory(currentDataset);
+          setCurrentDataset((prev) => {
+            if (selectedObjectType === 'trace') {
+              return {
+                ...prev,
+                traces: (prev.traces || []).filter((t) => t.id !== selectedObjectId),
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            if (selectedObjectType === 'water') {
+              return {
+                ...prev,
+                waterSymbols: (prev.waterSymbols || []).filter((w) => w.id !== selectedObjectId),
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            if (selectedObjectType === 'lithology') {
+              return {
+                ...prev,
+                lithologyZones: (prev.lithologyZones || []).filter((l) => l.id !== selectedObjectId),
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            return prev;
+          });
+          setSelectedObjectId(null);
+          setSelectedObjectType(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen, activeDraftPoints, selectedObjectId, selectedObjectType, currentDataset]);
 
   // Nudge selected joint trace across chainage (dx) or perimeter (dy)
   const handleNudgeTrace = (dx: number, dy: number) => {
@@ -4252,6 +4317,10 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
               onDoubleClick={(e) => {
+                if (activeDraftPoints.length >= 2) {
+                  handleCommitDraft();
+                  return;
+                }
                 const canvas = canvasRef.current;
                 if (!canvas) return;
                 const rect = canvas.getBoundingClientRect();

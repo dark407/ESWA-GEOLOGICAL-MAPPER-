@@ -721,94 +721,25 @@ export const FieldInBuiltCameraStage: React.FC<{
     const authenticDataUrl = generateSampleTunnelPhotograph(surf, dummyGeom);
     const img = new Image();
     img.onload = () => {
-      onUpdateRound((prev) => {
-        const shotNum = prev.collectedPhotos.filter((p) => p.panel === targetPanel).length + 1;
-        const { fileName, portionCode } = buildPhotoMetadata(targetPanel, shotNum);
-
-        const processed = processCleanFieldCameraFrame({
-          source: img,
-          panel: targetPanel,
-          projectName: activeProject.projectName,
-          locationName: activeLocation.name,
-          tunnelShapeLabel: shapeLabel,
-          widthM: locWidthM,
-          heightM: locHeightM,
-          chainageFrom: prev.chainageFrom,
-          chainageTo: prev.chainageTo,
-          shotNumber: shotNum,
-          enableAutoUpscale: true,
-          enableShadowRemove: true,
-        });
-
-        const newPhotoId = `fcam-sample-${targetPanel}-${Date.now()}-${shotNum}`;
-        const newPhoto: FieldCollectedPhoto = {
-          id: newPhotoId,
-          panel: targetPanel,
-          dataUrl: processed.dataUrl,
-          label: fileName,
-          fileName: fileName,
-          capturedAt: processed.dateTimeFormatted,
-          projectName: activeProject.projectName,
-          locationName: activeLocation.name,
-          rdChainage: rdChainageStr,
-          panelLabel: portionCode,
-          tunnelShapeLabel: `${shapeLabel} (${locWidthM}m × ${locHeightM}m)`,
-          dateTimeFormatted: processed.dateTimeFormatted,
-          autoUpscaled: true,
-          shadowRemoved: true,
-          resolutionLabel: '1600×1000 HD Authentic Rock Exposure',
-          referenceMarks: {},
-        };
-
-        setSelectedPhotoId(newPhotoId);
-        setLastNotification(`✓ Loaded Authentic ${portionCode} Photo: ${fileName}`);
-        setTimeout(() => setLastNotification(null), 3500);
-
-        return {
-          ...prev,
-          photoPromptHandled: true,
-          collectedPhotos: [newPhoto, ...prev.collectedPhotos],
-          photoFits: {
-            ...(prev.photoFits || {}),
-            [targetPanel]: prev.photoFits?.[targetPanel] || getFieldPhotoFitConfig(prev, targetPanel),
-          },
-        };
-      });
-    };
-    img.src = authenticDataUrl;
-  };
-
-  // Snap photo with auto-upscale, underground shadow lift, and automated renaming
-  // Gracefully generates authentic rock exposure if live stream is blocked
-  const handleSnapFieldPhoto = () => {
-    if (!liveCameraActive || !videoRef.current) {
-      handleLoadAuthenticSamplePhoto();
-      return;
-    }
-
-    setShutterFlash(true);
-    setTimeout(() => setShutterFlash(false), 200);
-
-    onUpdateRound((prev) => {
-      const shotNum = prev.collectedPhotos.filter((p) => p.panel === targetPanel).length + 1;
+      const shotNum = activeRound.collectedPhotos.filter((p) => p.panel === targetPanel).length + 1;
       const { fileName, portionCode } = buildPhotoMetadata(targetPanel, shotNum);
 
       const processed = processCleanFieldCameraFrame({
-        source: videoRef.current,
+        source: img,
         panel: targetPanel,
         projectName: activeProject.projectName,
         locationName: activeLocation.name,
         tunnelShapeLabel: shapeLabel,
         widthM: locWidthM,
         heightM: locHeightM,
-        chainageFrom: prev.chainageFrom,
-        chainageTo: prev.chainageTo,
+        chainageFrom: activeRound.chainageFrom,
+        chainageTo: activeRound.chainageTo,
         shotNumber: shotNum,
         enableAutoUpscale: true,
         enableShadowRemove: true,
       });
 
-      const newPhotoId = `fcam-${targetPanel}-${Date.now()}-${shotNum}`;
+      const newPhotoId = `fcam-sample-${targetPanel}-${Date.now()}-${shotNum}`;
       const newPhoto: FieldCollectedPhoto = {
         id: newPhotoId,
         panel: targetPanel,
@@ -824,15 +755,11 @@ export const FieldInBuiltCameraStage: React.FC<{
         dateTimeFormatted: processed.dateTimeFormatted,
         autoUpscaled: true,
         shadowRemoved: true,
-        resolutionLabel: '1600×1000 HD Live Capture',
+        resolutionLabel: '1600×1000 HD Authentic Rock Exposure',
         referenceMarks: {},
       };
 
-      setSelectedPhotoId(newPhotoId);
-      setLastNotification(`✓ Captured & Enhanced: ${fileName}`);
-      setTimeout(() => setLastNotification(null), 3500);
-
-      return {
+      onUpdateRound((prev) => ({
         ...prev,
         photoPromptHandled: true,
         collectedPhotos: [newPhoto, ...prev.collectedPhotos],
@@ -840,8 +767,77 @@ export const FieldInBuiltCameraStage: React.FC<{
           ...(prev.photoFits || {}),
           [targetPanel]: prev.photoFits?.[targetPanel] || getFieldPhotoFitConfig(prev, targetPanel),
         },
-      };
+      }));
+
+      setSelectedPhotoId(newPhotoId);
+      setLastNotification(`✓ Loaded Authentic ${portionCode} Photo: ${fileName}`);
+      setTimeout(() => setLastNotification(null), 3500);
+    };
+    img.src = authenticDataUrl;
+  };
+
+  // Snap photo with auto-upscale, underground shadow lift, and automated renaming
+  // Gracefully generates authentic rock exposure if live stream is blocked
+  const handleSnapFieldPhoto = () => {
+    if (!liveCameraActive || !videoRef.current) {
+      handleLoadAuthenticSamplePhoto();
+      return;
+    }
+
+    setShutterFlash(true);
+    setTimeout(() => setShutterFlash(false), 200);
+
+    const shotNum = activeRound.collectedPhotos.filter((p) => p.panel === targetPanel).length + 1;
+    const { fileName, portionCode } = buildPhotoMetadata(targetPanel, shotNum);
+
+    const processed = processCleanFieldCameraFrame({
+      source: videoRef.current,
+      panel: targetPanel,
+      projectName: activeProject.projectName,
+      locationName: activeLocation.name,
+      tunnelShapeLabel: shapeLabel,
+      widthM: locWidthM,
+      heightM: locHeightM,
+      chainageFrom: activeRound.chainageFrom,
+      chainageTo: activeRound.chainageTo,
+      shotNumber: shotNum,
+      enableAutoUpscale: true,
+      enableShadowRemove: true,
     });
+
+    const newPhotoId = `fcam-${targetPanel}-${Date.now()}-${shotNum}`;
+    const newPhoto: FieldCollectedPhoto = {
+      id: newPhotoId,
+      panel: targetPanel,
+      dataUrl: processed.dataUrl,
+      label: fileName,
+      fileName: fileName,
+      capturedAt: processed.dateTimeFormatted,
+      projectName: activeProject.projectName,
+      locationName: activeLocation.name,
+      rdChainage: rdChainageStr,
+      panelLabel: portionCode,
+      tunnelShapeLabel: `${shapeLabel} (${locWidthM}m × ${locHeightM}m)`,
+      dateTimeFormatted: processed.dateTimeFormatted,
+      autoUpscaled: true,
+      shadowRemoved: true,
+      resolutionLabel: '1600×1000 HD Live Capture',
+      referenceMarks: {},
+    };
+
+    onUpdateRound((prev) => ({
+      ...prev,
+      photoPromptHandled: true,
+      collectedPhotos: [newPhoto, ...prev.collectedPhotos],
+      photoFits: {
+        ...(prev.photoFits || {}),
+        [targetPanel]: prev.photoFits?.[targetPanel] || getFieldPhotoFitConfig(prev, targetPanel),
+      },
+    }));
+
+    setSelectedPhotoId(newPhotoId);
+    setLastNotification(`✓ Captured & Enhanced: ${fileName}`);
+    setTimeout(() => setLastNotification(null), 3500);
   };
 
   // Device file upload
@@ -852,60 +848,58 @@ export const FieldInBuiltCameraStage: React.FC<{
       reader.onload = () => {
         const img = new Image();
         img.onload = () => {
-          onUpdateRound((prev) => {
-            const shotNum =
-              prev.collectedPhotos.filter((p) => p.panel === targetPanel).length + 1 + idx;
-            const { fileName, portionCode } = buildPhotoMetadata(targetPanel, shotNum);
+          const shotNum =
+            activeRound.collectedPhotos.filter((p) => p.panel === targetPanel).length + 1 + idx;
+          const { fileName, portionCode } = buildPhotoMetadata(targetPanel, shotNum);
 
-            const processed = processCleanFieldCameraFrame({
-              source: img,
-              panel: targetPanel,
-              projectName: activeProject.projectName,
-              locationName: activeLocation.name,
-              tunnelShapeLabel: shapeLabel,
-              widthM: locWidthM,
-              heightM: locHeightM,
-              chainageFrom: prev.chainageFrom,
-              chainageTo: prev.chainageTo,
-              shotNumber: shotNum,
-              enableAutoUpscale: true,
-              enableShadowRemove: true,
-            });
-
-            const newPhotoId = `fcam-file-${targetPanel}-${Date.now()}-${idx}`;
-            const newPhoto: FieldCollectedPhoto = {
-              id: newPhotoId,
-              panel: targetPanel,
-              dataUrl: processed.dataUrl,
-              label: fileName,
-              fileName: fileName,
-              capturedAt: processed.dateTimeFormatted,
-              projectName: activeProject.projectName,
-              locationName: activeLocation.name,
-              rdChainage: rdChainageStr,
-              panelLabel: portionCode,
-              tunnelShapeLabel: `${shapeLabel} (${locWidthM}m × ${locHeightM}m)`,
-              dateTimeFormatted: processed.dateTimeFormatted,
-              autoUpscaled: true,
-              shadowRemoved: true,
-              resolutionLabel: '1600×1000 HD (Upscaled & Shadow Lifted)',
-              referenceMarks: {},
-            };
-
-            setSelectedPhotoId(newPhotoId);
-            setLastNotification(`✓ Uploaded & Enhanced: ${fileName}`);
-            setTimeout(() => setLastNotification(null), 3500);
-
-            return {
-              ...prev,
-              photoPromptHandled: true,
-              collectedPhotos: [newPhoto, ...prev.collectedPhotos],
-              photoFits: {
-                ...(prev.photoFits || {}),
-                [targetPanel]: prev.photoFits?.[targetPanel] || getFieldPhotoFitConfig(prev, targetPanel),
-              },
-            };
+          const processed = processCleanFieldCameraFrame({
+            source: img,
+            panel: targetPanel,
+            projectName: activeProject.projectName,
+            locationName: activeLocation.name,
+            tunnelShapeLabel: shapeLabel,
+            widthM: locWidthM,
+            heightM: locHeightM,
+            chainageFrom: activeRound.chainageFrom,
+            chainageTo: activeRound.chainageTo,
+            shotNumber: shotNum,
+            enableAutoUpscale: true,
+            enableShadowRemove: true,
           });
+
+          const newPhotoId = `fcam-file-${targetPanel}-${Date.now()}-${idx}`;
+          const newPhoto: FieldCollectedPhoto = {
+            id: newPhotoId,
+            panel: targetPanel,
+            dataUrl: processed.dataUrl,
+            label: fileName,
+            fileName: fileName,
+            capturedAt: processed.dateTimeFormatted,
+            projectName: activeProject.projectName,
+            locationName: activeLocation.name,
+            rdChainage: rdChainageStr,
+            panelLabel: portionCode,
+            tunnelShapeLabel: `${shapeLabel} (${locWidthM}m × ${locHeightM}m)`,
+            dateTimeFormatted: processed.dateTimeFormatted,
+            autoUpscaled: true,
+            shadowRemoved: true,
+            resolutionLabel: '1600×1000 HD (Upscaled & Shadow Lifted)',
+            referenceMarks: {},
+          };
+
+          onUpdateRound((prev) => ({
+            ...prev,
+            photoPromptHandled: true,
+            collectedPhotos: [newPhoto, ...prev.collectedPhotos],
+            photoFits: {
+              ...(prev.photoFits || {}),
+              [targetPanel]: prev.photoFits?.[targetPanel] || getFieldPhotoFitConfig(prev, targetPanel),
+            },
+          }));
+
+          setSelectedPhotoId(newPhotoId);
+          setLastNotification(`✓ Uploaded & Enhanced: ${fileName}`);
+          setTimeout(() => setLastNotification(null), 3500);
         };
         img.src = String(reader.result || '');
       };

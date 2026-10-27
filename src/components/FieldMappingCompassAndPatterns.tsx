@@ -3277,6 +3277,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           ? {
               ...s,
               points: s.points.map(mapPt),
+              polygon: s.polygon ? s.polygon.map(mapPt) : undefined,
               brushRadius: Math.max(2, Number((s.brushRadius * scaleRadius).toFixed(1))),
               bandThicknessPx: s.bandThicknessPx
                 ? Math.max(4, Number((s.bandThicknessPx * scaleRadius).toFixed(1)))
@@ -3471,21 +3472,23 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
 
           const info = resolveRockDisplayInfo(st.rockType, rememberedRocks);
           const patId = st.patternId || info.patternId;
-          const d = buildSmoothSvgPath(st.points);
+          const strokePoly =
+            st.polygon && st.polygon.length >= 3 ? st.polygon : st.points;
+          const d = buildSmoothSvgPath(strokePoly);
           const baseStrokeW =
             st.brushRadius <= 8 ? Math.max(2, st.brushRadius) : st.brushRadius * 2;
           const effectiveStrokeW = useContinuousCadMapping
-            ? Math.max(12, baseStrokeW)
+            ? Math.max(28, Math.round((st.brushRadius || 24) * 2))
             : Math.max(2, baseStrokeW);
           const isClosed =
             Boolean(st.isClosed) ||
             Boolean(st.polygon && st.polygon.length >= 3) ||
-            (st.points.length >= 4 &&
+            (st.points.length >= 3 &&
               Math.hypot(
                 st.points[0].x - st.points[st.points.length - 1].x,
                 st.points[0].y - st.points[st.points.length - 1].y
-              ) < 32);
-          const closedD = isClosed ? `${d} Z` : d;
+              ) < 48);
+          const closedD = isClosed ? (d.endsWith('Z') || d.endsWith('z') ? d : `${d} Z`) : d;
           const indivLithDens = Math.round(
             st.symbolDensity ??
               round.lithologyDensityByRock?.[st.rockType] ??

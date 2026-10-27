@@ -155,7 +155,8 @@ type FieldCanvasTool =
   | '4_dip_surface'
   | '5_geo_feature'
   | '6_water_mark'
-  | 'eraser';
+  | 'eraser'
+  | 'litho_eraser';
 
 /**
  * Generates an inline SVG cursor data URI for each active Field Mapping Tool
@@ -172,7 +173,9 @@ export function getFieldToolCursorDataUri(
   }
 ): string {
   const isErase =
-    activeTool === 'eraser' || (activeTool === '1_lithology' && lithologySubMode === 'erase_area');
+    activeTool === 'eraser' ||
+    activeTool === 'litho_eraser' ||
+    (activeTool === '1_lithology' && lithologySubMode === 'erase_area');
   if (isErase) {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="5" cy="27" r="4" fill="rgba(239,68,68,0.35)" stroke="#dc2626" stroke-width="1.6" stroke-dasharray="2 1.5"/><path d="M16 4 L28 16 L15 29 L4 29 L3 18 Z" fill="#fca5a5" stroke="#991b1b" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 10 L22 22 L15 29 L4 29 L3 18 Z" fill="#fee2e2" stroke="#991b1b" stroke-width="1.5" stroke-linejoin="round"/><circle cx="5" cy="27" r="1.5" fill="#dc2626"/></svg>`;
     return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") 5 27, crosshair`;
@@ -1281,7 +1284,21 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
         };
       }
 
-      // 5. Lithology / Vein / Foliation strokes (densify first so brush eraser carves smoothly!)
+      // Normal eraser NEVER erases rock mass lithology strokes! (Strictly reserved for Litho Eraser)
+      return r;
+    });
+  };
+
+  /**
+   * Dedicated 3D Litho Eraser:
+   * ONLY erases Rock Lithology ('region_fill' or vein/foliation bands).
+   * Leaves all Joint Traces, Structural Features, Dip Surfaces, and Water Marks completely untouched!
+   */
+  const eraseLithology3DNearPoint = (panel: FieldPanelId, panelPt: FieldPoint2D, svgPt: FieldPoint2D) => {
+    const hitSvgR = Math.max(16, brushRadius3D);
+    const hitPanelR = Math.max(24, brushRadius * 0.95);
+
+    onUpdateRound((r) => {
       let lithChanged = false;
       const updatedLithology: FieldLithologyStroke[] = [];
       for (const l of r.lithologyStrokes) {
@@ -1623,7 +1640,31 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       v: resolved.v,
     });
 
-    // Tool: Eraser (click & drag brush erasing across all 3D surfaces — linear raw points, no smoothing)
+    const isLithoEraser =
+      activeTool === 'litho_eraser' ||
+      (activeTool === '1_lithology' && lithologySubMode === 'erase_area');
+
+    // Tool: Dedicated Litho Eraser (erases ONLY rock mass lithology strokes, NEVER joints/features)
+    if (isLithoEraser) {
+      onPushUndo();
+      eraseLithology3DNearPoint(resolved.panel, resolved.panelPt, pt);
+      setIsDrawing3D(true);
+      setLiveStrokeSamples([
+        {
+          svgX: pt.x,
+          svgY: pt.y,
+          panel: resolved.panel,
+          panelPt: resolved.panelPt,
+          u: resolved.u,
+          v: resolved.v,
+          pullMeter: resolved.pullMeter,
+          perimMeter: resolved.perimMeter,
+        },
+      ]);
+      return;
+    }
+
+    // Tool: Normal Eraser (erases ONLY Joint Traces, Structural Features, Dip Surfaces & Water — NEVER Lithology!)
     if (activeTool === 'eraser') {
       onPushUndo();
       erase3DNearPoint(resolved.panel, resolved.panelPt, pt);
@@ -1722,6 +1763,28 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     });
 
     if (!isDrawing3D) return;
+
+    const isLithoEraserMove =
+      activeTool === 'litho_eraser' ||
+      (activeTool === '1_lithology' && lithologySubMode === 'erase_area');
+
+    if (isLithoEraserMove) {
+      eraseLithology3DNearPoint(resolved.panel, resolved.panelPt, pt);
+      setLiveStrokeSamples((prev) => [
+        ...prev.slice(-18),
+        {
+          svgX: pt.x,
+          svgY: pt.y,
+          panel: resolved.panel,
+          panelPt: resolved.panelPt,
+          u: resolved.u,
+          v: resolved.v,
+          pullMeter: resolved.pullMeter,
+          perimMeter: resolved.perimMeter,
+        },
+      ]);
+      return;
+    }
 
     if (activeTool === 'eraser') {
       erase3DNearPoint(resolved.panel, resolved.panelPt, pt);
@@ -1983,6 +2046,11 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
           const rockMeta = resolveRockDisplayInfo(selectedRockType, rememberedRocksList);
           const id = `lith-3d-${now}-${idx}`;
           newlyCreatedIds.push(id);
+          const pts = run.points;
+          const isClosedLoop =
+            pts.length >= 3 &&
+            Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 48;
+          const finalPolygon = isClosedLoop ? [...pts, pts[0]] : undefined;
           const stroke: FieldLithologyStroke = {
             id,
             panel: run.panel,
@@ -1994,6 +2062,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             patternId: rockMeta.patternId,
             mode: lithologySubMode === 'erase_area' ? 'lithology_erase' : 'region_fill',
             points: run.points,
+            isClosed: isClosedLoop,
+            polygon: finalPolygon,
             brushRadius,
             symbolDensity: r.lithologySymbolDensity ?? lithologySymbolDensity,
           };
@@ -3364,8 +3434,39 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
                   const isColorMode = (activeRound.reportColorMode ?? 'color') === 'color';
                   const bgStrokeCol = isColorMode ? rockMeta.colorTint || '#fef9c3' : '#ffffff';
 
+                  const isStrokeClosed = Boolean(
+                    st.isClosed ||
+                    (st.polygon && st.polygon.length >= 3) ||
+                    (mapped3D.length >= 3 &&
+                      Math.hypot(
+                        mapped3D[0].x - mapped3D[mapped3D.length - 1].x,
+                        mapped3D[0].y - mapped3D[mapped3D.length - 1].y
+                      ) < 48)
+                  );
+                  const closedD = isStrokeClosed
+                    ? dPath.endsWith('Z') || dPath.endsWith('z')
+                      ? dPath
+                      : `${dPath} Z`
+                    : dPath;
+
                   return (
                     <g key={`3d-lith-${st.id}`}>
+                      {isStrokeClosed && (
+                        <>
+                          <path
+                            d={closedD}
+                            fill={bgStrokeCol}
+                            fillOpacity={0.88}
+                            stroke="none"
+                          />
+                          <path
+                            d={closedD}
+                            fill={`url(#fpat-${patId})`}
+                            fillOpacity={0.92}
+                            stroke="none"
+                          />
+                        </>
+                      )}
                       <path
                         d={dPath}
                         fill="none"

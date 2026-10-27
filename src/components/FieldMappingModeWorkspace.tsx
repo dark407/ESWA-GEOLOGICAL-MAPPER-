@@ -37,7 +37,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { IndustryMode, JointSet, SurfaceType } from '../types/tunnel';
+import { IndustryMode, JointSet, SurfaceType, LithologyRegion, Point2D, LithologyPatternType } from '../types/tunnel';
 import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
 import { MiningStopeFaceInspectorModal } from './MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
@@ -680,6 +680,62 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         };
       });
 
+      const convertedLithology: LithologyRegion[] = (activeRound.lithologyStrokes || [])
+        .filter((st) => st.mode !== 'lithology_erase' && (st.panel === 'left_wall' || st.panel === 'crown' || st.panel === 'right_wall'))
+        .map((st) => {
+          const surf: SurfaceType =
+            st.panel === 'left_wall'
+              ? 'leftWall'
+              : st.panel === 'right_wall'
+              ? 'rightWall'
+              : 'crown';
+          const srcPts = st.polygon && st.polygon.length >= 3 ? st.polygon : st.points;
+          let metricPolygon: Point2D[];
+          if (srcPts.length >= 3 && (st.isClosed || (st.polygon && st.polygon.length >= 3))) {
+            metricPolygon = srcPts.map((p) => {
+              const [mPt] = computePhysicalMetricPoints([p], st.panel, activeLocation, activeRound);
+              return mPt;
+            });
+          } else {
+            // Open brush stroke: expand centerline with brush radius into ribbon polygon
+            const halfM = Math.max(0.25, (st.brushRadius || 24) * 0.02);
+            const mPts = srcPts.map((p) => {
+              const [mPt] = computePhysicalMetricPoints([p], st.panel, activeLocation, activeRound);
+              return mPt;
+            });
+            const leftSide: Point2D[] = [];
+            const rightSide: Point2D[] = [];
+            for (let i = 0; i < mPts.length; i++) {
+              const prev = mPts[Math.max(0, i - 1)];
+              const next = mPts[Math.min(mPts.length - 1, i + 1)];
+              const dx = next.x - prev.x;
+              const dy = next.y - prev.y;
+              const len = Math.hypot(dx, dy) || 1;
+              const nx = -dy / len;
+              const ny = dx / len;
+              leftSide.push({ x: mPts[i].x + nx * halfM, y: mPts[i].y + ny * halfM });
+              rightSide.push({ x: mPts[i].x - nx * halfM, y: mPts[i].y - ny * halfM });
+            }
+            metricPolygon = [...leftSide, ...rightSide.reverse(), leftSide[0]];
+          }
+          const pat = (st.patternId || st.rockType || 'quartzite') as LithologyPatternType;
+          return {
+            id: st.id,
+            surface: surf,
+            polygon: metricPolygon,
+            polygonPoints: metricPolygon,
+            lithologyName: st.rockName || 'Lithology',
+            lithologyType: st.rockType,
+            rockType: st.rockType,
+            patternType: pat,
+            colorHex: st.color || '#fef08a',
+            opacity: 0.35,
+            description: st.rockName || 'Rock Mass',
+            structuralFeatures: '',
+            userApproved: true,
+          };
+        });
+
       const defQ = createDefaultQIndexParameters();
       const syntheticRecord: SavedProjectRecord = {
         id: `auto-round-${activeRound.id}`,
@@ -719,6 +775,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           lithology: activeRound.lithologyStrokes?.[0]?.rockName || 'Rock Mass',
         },
         joints: convertedJoints,
+        lithologyRegions: convertedLithology,
         customJointSetOverrides: {},
         qIndexParams: {
           ...defQ,
@@ -748,6 +805,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   }, [
     activeRound?.jointTraces,
+    activeRound?.lithologyStrokes,
     activeRound?.chainageFrom,
     activeRound?.chainageTo,
     activeRound?.pullLengthMeters,
@@ -2644,7 +2702,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           Math.hypot(
             shapedPts[0].x - shapedPts[shapedPts.length - 1].x,
             shapedPts[0].y - shapedPts[shapedPts.length - 1].y
-          ) < 32);
+          ) < 48);
       const finalPts = isShapeClosed
         ? Math.hypot(
             shapedPts[0].x - shapedPts[shapedPts.length - 1].x,
@@ -3148,6 +3206,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeRound.lithologyPatternAngle ??
         lithologyPatternAngle ??
         0;
+      const isClosedLoop =
+        pts.length >= 3 &&
+        Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 48;
+      const finalPolygon = isClosedLoop ? [...pts, pts[0]] : undefined;
+
       const stroke: FieldLithologyStroke = {
         id: `lith-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         panel: targetPanel,
@@ -3161,6 +3224,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         patternAngleDeg: currentRockAngle,
         mode: 'region_fill',
         points: pts,
+        isClosed: isClosedLoop,
+        polygon: finalPolygon,
         brushRadius,
         symbolDensity: currentDensity,
         alternatingRockIds: isAltBands ? [...alternatingRockIds] : undefined,
@@ -8721,7 +8786,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             if (st.mode === 'lithology_erase') return null;
                             const isBand =
                               st.mode === 'vein_band' || st.mode === 'foliation_plane';
-                            const mappedPoints = st.points.map(ptToBox);
+                            const rawPtsToMap = st.polygon && st.polygon.length >= 3 ? st.polygon : st.points;
+                            const mappedPoints = rawPtsToMap.map(ptToBox);
 
                             if (isBand) {
                               const scaledBandStroke: FieldLithologyStroke = {
@@ -8890,27 +8956,69 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     </mask>
                                   </defs>
                                 )}
-                                {!isAltBandStroke &&
-                                  (activeRound.reportColorMode ?? 'color') === 'color' && (
-                                    <path
-                                      d={d}
-                                      fill="none"
-                                      stroke={customRockCol || rockMeta.colorTint || '#fef9c3'}
-                                      strokeWidth={effectiveStrokeWidth}
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      mask={maskId ? `url(#${maskId})` : undefined}
-                                    />
-                                  )}
-                                <path
-                                  d={d}
-                                  fill="none"
-                                  stroke={strokePatternUrl}
-                                  strokeWidth={effectiveStrokeWidth}
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  mask={maskId ? `url(#${maskId})` : undefined}
-                                />
+                                {(() => {
+                                  const isStrokeClosed = Boolean(
+                                    st.isClosed ||
+                                    (st.polygon && st.polygon.length >= 3) ||
+                                    (mappedPoints.length >= 3 &&
+                                      Math.hypot(
+                                        mappedPoints[0].x - mappedPoints[mappedPoints.length - 1].x,
+                                        mappedPoints[0].y - mappedPoints[mappedPoints.length - 1].y
+                                      ) < 48)
+                                  );
+                                  const closedD = isStrokeClosed
+                                    ? d.endsWith('Z') || d.endsWith('z')
+                                      ? d
+                                      : `${d} Z`
+                                    : d;
+                                  return (
+                                    <>
+                                      {isStrokeClosed && (
+                                        <>
+                                          <path
+                                            d={closedD}
+                                            fill={
+                                              (activeRound.reportColorMode ?? 'color') === 'bw'
+                                                ? '#ffffff'
+                                                : customRockCol || rockMeta.colorTint || '#fef9c3'
+                                            }
+                                            fillOpacity={0.88}
+                                            stroke="none"
+                                            mask={maskId ? `url(#${maskId})` : undefined}
+                                          />
+                                          <path
+                                            d={closedD}
+                                            fill={strokePatternUrl}
+                                            fillOpacity={0.92}
+                                            stroke="none"
+                                            mask={maskId ? `url(#${maskId})` : undefined}
+                                          />
+                                        </>
+                                      )}
+                                      {!isAltBandStroke &&
+                                        (activeRound.reportColorMode ?? 'color') === 'color' && (
+                                          <path
+                                            d={d}
+                                            fill="none"
+                                            stroke={customRockCol || rockMeta.colorTint || '#fef9c3'}
+                                            strokeWidth={effectiveStrokeWidth}
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            mask={maskId ? `url(#${maskId})` : undefined}
+                                          />
+                                        )}
+                                      <path
+                                        d={d}
+                                        fill="none"
+                                        stroke={strokePatternUrl}
+                                        strokeWidth={effectiveStrokeWidth}
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        mask={maskId ? `url(#${maskId})` : undefined}
+                                      />
+                                    </>
+                                  );
+                                })()}
                               </g>
                             );
                           })}
