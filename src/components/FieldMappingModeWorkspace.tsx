@@ -7663,73 +7663,74 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
           {/* CENTER COLUMN: Permanent Top Mapping Tools Bar + Extra-Large High-Accuracy 1:1 SVG Field Mapping Canvas + Bottom Panel Switcher */}
           <div className="flex-1 min-w-0 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-1 flex flex-col overflow-hidden">
-            {/* PERMANENT TOP TOOLS BAR — Always placed on top of the canvas for fast 1-tap access */}
-            <div className="bg-slate-950 border border-amber-500/40 rounded-lg px-2 py-1 mb-0.5 flex flex-wrap items-center justify-between gap-1.5 shrink-0">
-              <div className="flex flex-wrap items-center gap-1">
-                {(
-                  [
-                    ['1_lithology', '1. Rock Lithology', Paintbrush],
-                    ['2_vein_foliation', '2. Vein & Foliation', Layers],
-                    ['3_joint_trace', '3. Joint Trace', Pencil],
-                    ['4_dip_surface', '4. Dip Plane Surface', Pencil],
-                    ['5_geo_feature', '5. Geological Features', Sparkles],
-                    ['6_water_mark', '6. Mark Water', Droplets],
-                    ['eraser', 'Erase Features', Eraser],
-                    ['litho_eraser', 'Litho Eraser', Pickaxe],
-                  ] as [FieldCanvasTool, string, any][]
-                ).map(([tId, lbl, IconC]) => (
-                  <button
-                    key={tId}
-                    type="button"
-                    onClick={() => {
-                      if (stage === 'joint_grouping') setStage('field_canvas');
-                      setActiveTool(tId);
-                    }}
-                    className={`px-2 py-1 rounded-lg text-[10.5px] font-black flex items-center gap-1 cursor-pointer transition-all ${
-                      stage === 'field_canvas' && activeTool === tId
-                        ? tId === 'eraser'
-                          ? 'bg-rose-500 text-white shadow ring-1 ring-rose-300'
+            {/* PERMANENT TOP TOOLS BAR — Always placed on top of the canvas for fast 1-tap access (Only for Stage 4 Field/Face Canvas; Hidden in Stage 5 Group Joints window) */}
+            {stage !== 'joint_grouping' && (
+              <div className="bg-slate-950 border border-amber-500/40 rounded-lg px-2 py-1 mb-0.5 flex flex-wrap items-center justify-between gap-1.5 shrink-0">
+                <div className="flex flex-wrap items-center gap-1">
+                  {(
+                    [
+                      ['1_lithology', '1. Rock Lithology', Paintbrush],
+                      ['2_vein_foliation', '2. Vein & Foliation', Layers],
+                      ['3_joint_trace', '3. Joint Trace', Pencil],
+                      ['4_dip_surface', '4. Dip Plane Surface', Pencil],
+                      ['5_geo_feature', '5. Geological Features', Sparkles],
+                      ['6_water_mark', '6. Mark Water', Droplets],
+                      ['eraser', 'Erase Features', Eraser],
+                      ['litho_eraser', 'Litho Eraser', Pickaxe],
+                    ] as [FieldCanvasTool, string, any][]
+                  ).map(([tId, lbl, IconC]) => (
+                    <button
+                      key={tId}
+                      type="button"
+                      onClick={() => {
+                        setActiveTool(tId);
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-black flex items-center gap-1 cursor-pointer transition-all ${
+                        activeTool === tId
+                          ? tId === 'eraser'
+                            ? 'bg-rose-500 text-white shadow ring-1 ring-rose-300'
+                            : tId === 'litho_eraser'
+                            ? 'bg-amber-600 text-white shadow ring-1 ring-amber-300'
+                            : 'bg-amber-500 text-slate-950 shadow'
                           : tId === 'litho_eraser'
-                          ? 'bg-amber-600 text-white shadow ring-1 ring-amber-300'
-                          : 'bg-amber-500 text-slate-950 shadow'
-                        : tId === 'litho_eraser'
-                        ? 'bg-slate-900 text-amber-300 hover:text-white border border-amber-500/40'
-                        : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                    }`}
-                    title={
-                      tId === 'eraser'
-                        ? 'Feature & Joint Eraser: Erases joint traces, dip surfaces, features, and water marks (Will NOT erase rock lithology)'
-                        : tId === 'litho_eraser'
-                        ? 'Litho Eraser: Erases ONLY Rock Lithology layers and fills'
-                        : lbl
-                    }
+                          ? 'bg-slate-900 text-amber-300 hover:text-white border border-amber-500/40'
+                          : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                      }`}
+                      title={
+                        tId === 'eraser'
+                          ? 'Feature & Joint Eraser: Erases joint traces, dip surfaces, features, and water marks (Will NOT erase rock lithology)'
+                          : tId === 'litho_eraser'
+                          ? 'Litho Eraser: Erases ONLY Rock Lithology layers and fills'
+                          : lbl
+                      }
+                    >
+                      <IconC className="w-3.5 h-3.5" />
+                      <span>{lbl}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={handleUndo}
+                    disabled={undoStack.length === 0}
+                    className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                    title="Undo"
                   >
-                    <IconC className="w-3.5 h-3.5" />
-                    <span>{lbl}</span>
+                    <Undo2 className="w-3 h-3" />
+                    <span>Undo</span>
                   </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={handleUndo}
-                  disabled={undoStack.length === 0}
-                  className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                  title="Undo"
-                >
-                  <Undo2 className="w-3 h-3" />
-                  <span>Undo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRedo}
-                  disabled={redoStack.length === 0}
-                  className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                  title="Redo"
-                >
-                  <Redo2 className="w-3 h-3" />
-                  <span>Redo</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleRedo}
+                    disabled={redoStack.length === 0}
+                    className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                    title="Redo"
+                  >
+                    <Redo2 className="w-3 h-3" />
+                    <span>Redo</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
             {/* Top Canvas Bar: Panel Transform Image Buttons (Move, Rotate, Mirror Vertical, Mirror Horizontal for Left Wall / Crown / Right Wall) + Zoom & Colour Toggle */}
             {!(stage === 'field_canvas' && is3DMappingMode && mappingDomain === 'TUNNEL') && (
             <div className="flex items-center justify-between px-1 pb-0.5 mb-0.5 border-b border-slate-800 shrink-0 gap-1">
@@ -8013,6 +8014,32 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     <span className="hidden sm:inline">Pan</span>
                   </button>
                 </div>
+
+                {/* Undo / Redo Controls in Top Canvas Bar during Stage 5 Group Joints */}
+                {stage === 'joint_grouping' && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleUndo}
+                      disabled={undoStack.length === 0}
+                      className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-[10px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                      title="Undo Joint Grouping"
+                    >
+                      <Undo2 className="w-3 h-3" />
+                      <span>Undo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRedo}
+                      disabled={redoStack.length === 0}
+                      className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-[10px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                      title="Redo Joint Grouping"
+                    >
+                      <Redo2 className="w-3 h-3" />
+                      <span>Redo</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Surface Segment Mapping Mode Toggle (e.g. 10m split into 2m x 5 segments) */}
                 {mappingDomain !== 'TUNNEL' && stage === 'field_canvas' && (
