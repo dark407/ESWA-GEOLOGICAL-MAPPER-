@@ -143,7 +143,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
       </div>
 
       {/* 4 Mode Sub-Tabs: Basic | Perspective | Mesh Warp | Custom Shape */}
-      <div className="grid grid-cols-4 gap-0.5 p-1 bg-slate-950 border-b border-slate-800 font-mono text-[10px] shrink-0">
+      <div className="grid grid-cols-4 gap-0.5 p-1 bg-slate-100 border-b border-slate-200 font-mono text-[10px] shrink-0">
         {(
           [
             { id: 'basic', label: '1. BASIC' },
@@ -168,10 +168,10 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                 }));
               }
             }}
-            className={`py-1.5 px-1 rounded font-semibold transition-colors text-center ${
+            className={`py-1.5 px-1 rounded font-semibold transition-colors text-center cursor-pointer ${
               subTab === tab.id
-                ? 'bg-cyan-600 text-white'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                ? 'bg-cyan-600 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
             }`}
           >
             {tab.label}
@@ -180,11 +180,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
       </div>
 
       {/* Scrollable Editor Controls */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 font-mono text-[11px]">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-3 font-mono text-[11px] bg-white text-slate-900">
         {/* Always-accessible Photo Opacity (0-100%) (Section 5) */}
-        <div className="p-2 bg-slate-950/90 border border-slate-800 rounded space-y-1">
+        <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-slate-900 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-slate-300 font-semibold">
+            <span className="text-slate-800 font-bold">
               PHOTO OPACITY: {currentPhoto.opacity}%
             </span>
             <div className="flex items-center gap-1">
@@ -192,10 +192,10 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                 <button
                   key={val}
                   onClick={() => onUpdateOpacity(val)}
-                  className={`px-1 py-0.2 text-[9px] rounded ${
+                  className={`px-1 py-0.2 text-[9px] rounded font-semibold cursor-pointer border ${
                     currentPhoto.opacity === val
-                      ? 'bg-cyan-600 text-white'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                      ? 'bg-cyan-600 text-white border-cyan-700'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                   }`}
                 >
                   {val}%
@@ -210,7 +210,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
             step="1"
             value={currentPhoto.opacity}
             onChange={(e) => onUpdateOpacity(Number(e.target.value))}
-            className="w-full accent-cyan-500"
+            className="w-full accent-cyan-600 cursor-pointer"
           />
         </div>
 
@@ -263,7 +263,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
             <button
               type="button"
               onClick={onDeduplicateSplOverlaps}
-              className="w-full py-1 px-2 rounded font-semibold text-[10px] bg-slate-900 hover:bg-slate-800 text-emerald-200 border border-emerald-700/70 transition-colors cursor-pointer"
+              className="w-full py-1.5 px-2 rounded font-bold text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 transition-colors cursor-pointer shadow-2xs"
             >
               Deduplicate &amp; Link Wall–Crown (SPL) Seam Traces
             </button>
@@ -277,7 +277,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
           <div className="space-y-2.5">
             <div className="grid grid-cols-2 gap-2">
               <label className="space-y-0.5">
-                <span className="text-slate-400">Move / Pan X: {t.offsetX.toFixed(2)}m</span>
+                <span className="text-slate-700 font-semibold">Move / Pan X: {t.offsetX.toFixed(2)}m</span>
                 <input
                   type="range"
                   min="-4"
@@ -290,11 +290,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                       offsetX: parseFloat(e.target.value),
                     }))
                   }
-                  className="w-full accent-cyan-500"
+                  className="w-full accent-cyan-500 cursor-pointer"
                 />
               </label>
               <label className="space-y-0.5">
-                <span className="text-slate-400">Move / Pan Y: {t.offsetY.toFixed(2)}m</span>
+                <span className="text-slate-700 font-semibold">Move / Pan Y: {t.offsetY.toFixed(2)}m</span>
                 <input
                   type="range"
                   min="-4"
@@ -307,12 +307,12 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                       offsetY: parseFloat(e.target.value),
                     }))
                   }
-                  className="w-full accent-cyan-500"
+                  className="w-full accent-cyan-500 cursor-pointer"
                 />
               </label>
 
               <label className="space-y-0.5">
-                <span className="text-slate-400">
+                <span className="text-slate-700 font-semibold">
                   Scale X (Stretch/Shrink): {t.scaleX.toFixed(2)}×
                 </span>
                 <input
@@ -327,11 +327,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                       scaleX: parseFloat(e.target.value),
                     }))
                   }
-                  className="w-full accent-cyan-500"
+                  className="w-full accent-cyan-500 cursor-pointer"
                 />
               </label>
               <label className="space-y-0.5">
-                <span className="text-slate-400">
+                <span className="text-slate-700 font-semibold">
                   Scale Y (Stretch/Shrink): {t.scaleY.toFixed(2)}×
                 </span>
                 <input
@@ -346,12 +346,12 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                       scaleY: parseFloat(e.target.value),
                     }))
                   }
-                  className="w-full accent-cyan-500"
+                  className="w-full accent-cyan-500 cursor-pointer"
                 />
               </label>
 
               <label className="space-y-0.5">
-                <span className="text-slate-400">
+                <span className="text-slate-700 font-semibold">
                   Uniform Zoom: {(t.zoom ?? 1).toFixed(2)}×
                 </span>
                 <input
@@ -421,15 +421,15 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                 onClick={() =>
                   onUpdateTransform((prev) => ({ ...prev, rotation: 0 }))
                 }
-                className="py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded"
+                className="py-1.5 px-2 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded font-bold cursor-pointer"
               >
                 0°
               </button>
             </div>
 
             {/* Rectangular Image Crop Margins */}
-            <div className="p-2 bg-slate-950/80 border border-slate-800 rounded space-y-1.5">
-              <div className="flex items-center justify-between text-[10px] text-cyan-400 font-semibold">
+            <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5 shadow-2xs">
+              <div className="flex items-center justify-between text-[10px] text-cyan-800 font-bold">
                 <span>IMAGE CROP MARGINS (TOP / BOTTOM / LEFT / RIGHT)</span>
                 <button
                   onClick={() =>
@@ -441,14 +441,14 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                       cropRight: 0,
                     }))
                   }
-                  className="text-slate-400 hover:text-white"
+                  className="text-slate-500 hover:text-slate-900 font-bold cursor-pointer"
                 >
                   Reset Crop
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-2 text-[10px]">
                 <label>
-                  <span className="text-slate-400">
+                  <span className="text-slate-700 font-semibold">
                     Crop Top: {Math.round((t.cropTop || 0) * 100)}%
                   </span>
                   <input
@@ -463,11 +463,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         cropTop: parseFloat(e.target.value),
                       }))
                     }
-                    className="w-full accent-cyan-500"
+                    className="w-full accent-cyan-600"
                   />
                 </label>
                 <label>
-                  <span className="text-slate-400">
+                  <span className="text-slate-700 font-semibold">
                     Crop Bottom: {Math.round((t.cropBottom || 0) * 100)}%
                   </span>
                   <input
@@ -482,11 +482,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         cropBottom: parseFloat(e.target.value),
                       }))
                     }
-                    className="w-full accent-cyan-500"
+                    className="w-full accent-cyan-600"
                   />
                 </label>
                 <label>
-                  <span className="text-slate-400">
+                  <span className="text-slate-700 font-semibold">
                     Crop Left: {Math.round((t.cropLeft || 0) * 100)}%
                   </span>
                   <input
@@ -501,11 +501,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         cropLeft: parseFloat(e.target.value),
                       }))
                     }
-                    className="w-full accent-cyan-500"
+                    className="w-full accent-cyan-600"
                   />
                 </label>
                 <label>
-                  <span className="text-slate-400">
+                  <span className="text-slate-700 font-semibold">
                     Crop Right: {Math.round((t.cropRight || 0) * 100)}%
                   </span>
                   <input
@@ -520,7 +520,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         cropRight: parseFloat(e.target.value),
                       }))
                     }
-                    className="w-full accent-cyan-500"
+                    className="w-full accent-cyan-600"
                   />
                 </label>
               </div>
@@ -622,8 +622,8 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
             </div>
 
             {/* 4 Edge Midpoint Push/Pull Sliders */}
-            <div className="p-2 bg-slate-950/90 border border-slate-800 rounded space-y-1.5">
-              <div className="flex items-center justify-between text-[10px] text-amber-300 font-semibold">
+            <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5 shadow-2xs">
+              <div className="flex items-center justify-between text-[10px] text-amber-800 font-bold">
                 <span>EDGE MOVEMENT / BOWING (TOP, RIGHT, BOTTOM, LEFT)</span>
                 <button
                   onClick={() =>
@@ -637,14 +637,14 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                       ],
                     }))
                   }
-                  className="text-slate-400 hover:text-white"
+                  className="text-slate-500 hover:text-slate-900 font-bold cursor-pointer"
                 >
                   Zero Edges
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-2 text-[10px]">
                 <label>
-                  <span className="text-slate-400">
+                  <span className="text-slate-700 font-semibold">
                     Top Edge Arch: {Math.round(edgeOffsets[0].y * 100)}%
                   </span>
                   <input
@@ -668,11 +668,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         return { ...prev, edgeOffsets: nextEdges };
                       });
                     }}
-                    className="w-full accent-amber-500"
+                    className="w-full accent-amber-600"
                   />
                 </label>
                 <label>
-                  <span className="text-slate-400">
+                  <span className="text-slate-700 font-semibold">
                     Bottom Edge: {Math.round(edgeOffsets[2].y * 100)}%
                   </span>
                   <input
@@ -696,11 +696,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         return { ...prev, edgeOffsets: nextEdges };
                       });
                     }}
-                    className="w-full accent-amber-500"
+                    className="w-full accent-amber-600"
                   />
                 </label>
                 <label>
-                  <span className="text-slate-400">
+                  <span className="text-slate-700 font-semibold">
                     Left Wall Edge: {Math.round(edgeOffsets[3].x * 100)}%
                   </span>
                   <input
@@ -724,11 +724,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         return { ...prev, edgeOffsets: nextEdges };
                       });
                     }}
-                    className="w-full accent-amber-500"
+                    className="w-full accent-amber-600"
                   />
                 </label>
                 <label>
-                  <span className="text-slate-400">
+                  <span className="text-slate-700 font-semibold">
                     Right Wall Edge: {Math.round(edgeOffsets[1].x * 100)}%
                   </span>
                   <input
@@ -752,7 +752,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         return { ...prev, edgeOffsets: nextEdges };
                       });
                     }}
-                    className="w-full accent-amber-500"
+                    className="w-full accent-amber-600"
                   />
                 </label>
               </div>
@@ -760,10 +760,10 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
 
             {/* Camera Calibration & Lens k1 */}
             {currentPhoto.calibration && (
-              <div className="p-2 bg-slate-950/90 border border-slate-800 rounded space-y-1 text-[10px]">
-                <div className="flex justify-between text-slate-400">
+              <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-[10px] shadow-2xs">
+                <div className="flex justify-between text-slate-700 font-semibold">
                   <span>CAMERA LENS CALIBRATION:</span>
-                  <span className="text-cyan-300 font-semibold">
+                  <span className="text-cyan-800 font-bold">
                     {currentPhoto.calibration.focalLengthMm}mm eq · k1=
                     {currentPhoto.calibration.radialDistortionK1.toFixed(3)}
                   </span>
@@ -781,7 +781,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         currentPhoto.calibration!.radialDistortionK1
                       )
                     }
-                    className="w-full accent-cyan-500"
+                    className="w-full accent-cyan-600"
                   />
                   <input
                     type="range"
@@ -795,7 +795,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                         parseFloat(e.target.value)
                       )
                     }
-                    className="w-full accent-cyan-500"
+                    className="w-full accent-cyan-600"
                   />
                 </div>
               </div>
@@ -877,19 +877,19 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                     meshControlPoints: createDefaultMeshControlPoints(3, 3),
                   }))
                 }
-                className="py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 rounded"
+                className="py-1.5 px-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded font-semibold cursor-pointer"
               >
                 Reset Mesh (3×3)
               </button>
             </div>
 
-            <label className="flex items-center justify-between p-2 bg-slate-950 border border-slate-800 rounded cursor-pointer">
-              <span className="text-slate-300">Show Piecewise Warp Grid on Canvas</span>
+            <label className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer">
+              <span className="text-slate-800 font-semibold">Show Piecewise Warp Grid on Canvas</span>
               <input
                 type="checkbox"
                 checked={showMeshGrid}
                 onChange={(e) => onToggleMeshGrid(e.target.checked)}
-                className="rounded border-slate-700 bg-slate-800 text-cyan-500"
+                className="rounded border-slate-300 bg-white text-cyan-600"
               />
             </label>
           </div>
@@ -900,7 +900,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
            ================================================================ */}
         {subTab === 'custom_mask' && (
           <div className="space-y-2.5">
-            <div className="p-2 bg-amber-950/30 border border-amber-700/50 rounded text-[10px] text-amber-200 leading-relaxed space-y-1.5">
+            <div className="p-2 bg-amber-50 border border-amber-300 rounded-lg text-[10px] text-amber-950 leading-relaxed space-y-1.5">
               <div>
                 <strong>Custom Tunnel Shape Boundary (P1..P{customMaskPts.length || 'n'}):</strong>{' '}
                 Your active tunnel geometry is loaded below. Drag any vertex{' '}
@@ -918,8 +918,8 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-between p-2 bg-slate-950 border border-slate-800 rounded">
-              <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
+            <div className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg">
+              <label className="flex items-center gap-2 text-slate-800 font-semibold cursor-pointer">
                 <input
                   type="checkbox"
                   checked={t.cropToGeometry}
@@ -929,12 +929,12 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                       cropToGeometry: e.target.checked,
                     }))
                   }
-                  className="rounded border-slate-700 bg-slate-800 text-cyan-500"
+                  className="rounded border-slate-300 bg-white text-cyan-600"
                 />
                 <span>Clip Photo to Boundary Mask</span>
               </label>
 
-              <label className="flex items-center gap-1.5 text-amber-300 cursor-pointer">
+              <label className="flex items-center gap-1.5 text-amber-900 font-bold cursor-pointer">
                 <input
                   type="checkbox"
                   checked={Boolean(t.useCustomMask)}
@@ -1030,11 +1030,11 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
           SECTION 4 REQUIRED FOOTER ACTION BAR:
           FIT TO TUNNEL | RESET | UNDO | REDO | APPLY | CANCEL
          ==================================================================== */}
-      <div className="p-2.5 bg-[#131A28] border-t border-slate-800 space-y-2 shrink-0 font-mono text-[11px]">
+      <div className="p-2.5 bg-slate-100 border-t border-slate-200 space-y-2 shrink-0 font-mono text-[11px]">
         <div className="grid grid-cols-4 gap-1.5">
           <button
             onClick={onFitToTunnel}
-            className="col-span-2 flex items-center justify-center gap-1 py-1.5 px-2 bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-600/60 rounded font-semibold"
+            className="col-span-2 flex items-center justify-center gap-1 py-1.5 px-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-md font-bold cursor-pointer shadow-xs"
             title="Auto-fit photograph to authoritative tunnel boundary"
           >
             <Maximize2 className="w-3 h-3" />
@@ -1045,9 +1045,9 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
             onClick={() =>
               onUpdateTransform(() => createDefaultSurfaceTransform())
             }
-            className="flex items-center justify-center gap-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded"
+            className="flex items-center justify-center gap-1 py-1.5 px-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-md font-semibold cursor-pointer"
           >
-            <RotateCcw className="w-3 h-3" />
+            <RotateCcw className="w-3 h-3 text-slate-500" />
             RESET
           </button>
 
@@ -1065,7 +1065,7 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
                 homographyMatrix: solveProjectiveHomography3x3(resetCorners),
               }));
             }}
-            className="py-1.5 px-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-[10px]"
+            className="py-1.5 px-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-md text-[10px] font-semibold cursor-pointer"
           >
             1:1 Quad
           </button>
@@ -1074,15 +1074,15 @@ export const PhotoFittingPanel: React.FC<PhotoFittingPanelProps> = ({
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={onCancel}
-            className="flex items-center justify-center gap-1 py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded font-semibold"
+            className="flex items-center justify-center gap-1 py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-md font-semibold cursor-pointer"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-3.5 h-3.5 text-slate-500" />
             CANCEL
           </button>
 
           <button
             onClick={onApply}
-            className="flex items-center justify-center gap-1 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/50 rounded font-semibold shadow-sm"
+            className="flex items-center justify-center gap-1 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md font-bold cursor-pointer shadow-xs"
           >
             <Check className="w-3.5 h-3.5" />
             APPLY FITTING

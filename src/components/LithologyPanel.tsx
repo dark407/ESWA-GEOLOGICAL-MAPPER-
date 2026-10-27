@@ -241,15 +241,17 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
     ? joints.filter((j) => doesJointIntersectLithologyRegion(j, selectedRegion)).length
     : 0;
 
+  const ContainerTag = embedded ? 'div' : 'aside';
+
   return (
-    <aside
+    <ContainerTag
       style={embedded ? undefined : { width: `${panelWidthPx}px` }}
       className={
         embedded
-          ? 'relative w-full flex-1 bg-[#0D121B] flex flex-col min-h-0 select-none overflow-hidden'
-          : `relative max-w-[52vw] bg-[#0D121B] ${
+          ? 'relative w-full flex-1 bg-white text-slate-900 flex flex-col min-h-0 overflow-hidden'
+          : `relative max-w-[52vw] bg-white text-slate-900 ${
               dockSide === 'left' ? 'order-first border-r' : 'order-last border-l'
-            } border-slate-800 flex flex-col shrink-0 z-20 select-none overflow-hidden transition-[width] duration-75`
+            } border-slate-200 flex flex-col shrink-0 z-20 overflow-hidden transition-[width] duration-75 shadow-xs`
       }
     >
       {/* Interactive Drag-to-Resize Handle (Drag Edge to Expand or Shrink) */}
@@ -327,22 +329,22 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
       </div>
 
       {/* Scrollable Body */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3.5 font-mono text-xs">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-3.5 font-mono text-xs bg-white text-slate-900">
         {/* ====================================================================
             STEP 1: USER SELECTS / DRAWS ROCK AREA ON TUNNEL (Section 11)
            ==================================================================== */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded p-2.5 space-y-2">
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-2 text-slate-900 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-amber-300">
+            <span className="text-[11px] font-bold text-amber-800">
               1. SELECT / DRAW ROCK AREA
             </span>
-            <span className="text-[10px] text-slate-400 uppercase">
+            <span className="text-[10px] text-slate-600 font-semibold uppercase">
               {activeSurface}
             </span>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] text-slate-400 block">
+            <label className="text-[10px] text-slate-700 font-semibold block">
               Rock Lithology Type (Applies to Selected &amp; New Area):
             </label>
             <select
@@ -370,7 +372,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                   onStatusMessage?.(`Updated lithology region to ${preset.defaultName}.`);
                 }
               }}
-              className="w-full bg-slate-950 border border-amber-500/60 rounded px-2 py-1.5 text-xs text-slate-100 font-semibold cursor-pointer"
+              className="w-full bg-white border border-slate-300 rounded px-2 py-1.5 text-xs text-slate-900 font-semibold cursor-pointer shadow-2xs focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
             >
               {LITHOLOGY_PRESETS.map((p) => (
                 <option key={p.patternType} value={p.patternType}>
@@ -384,14 +386,14 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
           {!isDrawingLithologyPolygon ? (
             <button
               onClick={onStartDrawingLithologyPolygon}
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded transition-colors"
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded transition-colors shadow-2xs cursor-pointer"
             >
               <PenTool className="w-3.5 h-3.5" />
               Draw Custom Rock Area on Canvas
             </button>
           ) : (
-            <div className="p-2 bg-amber-950/50 border border-amber-500/60 rounded space-y-2">
-              <div className="text-[10px] text-amber-200 leading-relaxed">
+            <div className="p-2 bg-amber-50 border border-amber-300 rounded space-y-2 text-amber-950">
+              <div className="text-[10px] text-amber-900 leading-relaxed font-medium">
                 Click points on the tunnel canvas to outline the rock area ({draftLithologyPoints.length}{' '}
                 pts placed). Drag any placed point to adjust, or click L1 to close.
               </div>
@@ -399,7 +401,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                 <button
                   onClick={onFinishDrawingLithologyPolygon}
                   disabled={draftLithologyPoints.length < 3}
-                  className="flex-1 py-1 px-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold rounded text-[11px]"
+                  className="flex-1 py-1 px-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold rounded text-[11px] cursor-pointer"
                 >
                   Close &amp; Save ({draftLithologyPoints.length})
                 </button>
@@ -407,7 +409,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                   <button
                     onClick={onUndoLastDraftPoint}
                     disabled={draftLithologyPoints.length === 0}
-                    className="py-1 px-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-amber-200 rounded text-[11px]"
+                    className="py-1 px-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 disabled:opacity-40 text-slate-800 rounded text-[11px] font-medium cursor-pointer"
                     title="Undo Last Point"
                   >
                     Undo Pt
@@ -415,7 +417,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                 )}
                 <button
                   onClick={onCancelDrawingLithologyPolygon}
-                  className="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px]"
+                  className="py-1 px-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 rounded text-[11px] font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -425,37 +427,37 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
 
           {/* Quick Single-Click Area Selection */}
           <div className="pt-1">
-            <div className="text-[10px] text-slate-400 mb-1">
+            <div className="text-[10px] text-slate-600 font-semibold mb-1">
               Or Quick-Select Tunnel Area (Reshapable):
             </div>
             <div className="grid grid-cols-3 gap-1">
               <button
                 onClick={() => handleSelectZoneArea('full')}
-                className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-[10px]"
+                className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
               >
                 + Full Area
               </button>
               <button
                 onClick={() => handleSelectZoneArea('upper_half')}
-                className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-[10px]"
+                className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
               >
                 + Upper Half
               </button>
               <button
                 onClick={() => handleSelectZoneArea('lower_half')}
-                className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-[10px]"
+                className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
               >
                 + Lower Half
               </button>
               <button
                 onClick={() => handleSelectZoneArea('left_half')}
-                className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-[10px]"
+                className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
               >
                 + Left Zone
               </button>
               <button
                 onClick={() => handleSelectZoneArea('right_half')}
-                className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-[10px]"
+                className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
               >
                 + Right Zone
               </button>
@@ -464,8 +466,8 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
 
           {/* List of User-Defined Lithology Regions on Current Surface */}
           {surfaceRegions.length > 0 && (
-            <div className="pt-1.5 border-t border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-400">
+            <div className="pt-1.5 border-t border-slate-200 space-y-1">
+              <div className="text-[10px] text-slate-600 font-semibold">
                 Selected Regions on {activeSurface.toUpperCase()} ({surfaceRegions.length}):
               </div>
               <div className="space-y-1 max-h-28 overflow-y-auto">
@@ -477,29 +479,29 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                       onClick={() => onSelectRegionId(reg.id)}
                       className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer border text-[11px] ${
                         isSel
-                          ? 'bg-amber-500/20 border-amber-500/60 text-white'
-                          : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:bg-slate-800/60'
+                          ? 'bg-amber-100 border-amber-400 text-amber-950 font-bold shadow-2xs'
+                          : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-100'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 truncate">
                         <span
-                          className="w-2.5 h-2.5 rounded-sm shrink-0"
+                          className="w-2.5 h-2.5 rounded-sm shrink-0 border border-slate-300"
                           style={{ backgroundColor: reg.colorHex }}
                         />
-                        <span className="font-semibold truncate">
+                        <span className="truncate">
                           R{idx + 1}: {reg.lithologyName}
                         </span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {reg.userApproved && (
                           <span
-                            className="text-[9px] px-1 py-0.2 bg-emerald-500/20 text-emerald-300 rounded"
+                            className="text-[9px] px-1 py-0.2 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded font-bold"
                             title="User Approved Description"
                           >
                             OK
                           </span>
                         )}
-                        <span className="text-[9px] text-slate-400">
+                        <span className="text-[9px] text-slate-500 font-medium">
                           {reg.polygon.length}v
                         </span>
                       </div>
@@ -516,18 +518,18 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
             {/* ====================================================================
                 STEP 2: CHOOSE LITHOLOGY & SUBTLE VISUALIZATION (Sections 11, 12, 13)
                ==================================================================== */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded p-2.5 space-y-2">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-2 text-slate-900 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-cyan-300">
+                <span className="text-[11px] font-bold text-cyan-800">
                   2. SELECT &amp; EDIT LITHOLOGY
                 </span>
-                <span className="text-[10px] text-emerald-400">
+                <span className="text-[10px] text-emerald-700 font-semibold">
                   Layer 2 (Below Traces)
                 </span>
               </div>
 
               <label className="block space-y-1">
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-slate-700 font-semibold">
                   Geological Pattern / Standard Type:
                 </span>
                 <select
@@ -551,7 +553,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     updatedReg.structuralFeatures = gen.structuralFeatures;
                     updateSelectedRegion(() => updatedReg);
                   }}
-                  className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100"
+                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs text-slate-900 font-medium shadow-2xs focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                 >
                   {LITHOLOGY_PRESETS.map((p) => (
                     <option key={p.patternType} value={p.patternType}>
@@ -562,7 +564,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
               </label>
 
               <label className="block space-y-1">
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-slate-700 font-semibold">
                   Editable Lithology Name (LITHOLOGY:):
                 </span>
                 <input
@@ -575,17 +577,17 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     }))
                   }
                   placeholder="e.g. Quartzite"
-                  className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-semibold"
+                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs text-slate-900 font-semibold shadow-2xs focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                 />
               </label>
 
               {/* Subtle Visual Opacity Slider (Section 12: Never overpower photograph or hide joints) */}
               <div className="space-y-1 pt-1">
                 <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-slate-400">
+                  <span className="text-slate-700 font-semibold">
                     Subtle Geology Overlay Opacity:
                   </span>
-                  <span className="text-cyan-300 font-bold">
+                  <span className="text-cyan-700 font-bold">
                     {Math.round(selectedRegion.opacity * 100)}%
                   </span>
                 </div>
@@ -601,7 +603,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                       opacity: Number(e.target.value) / 100,
                     }))
                   }
-                  className="w-full accent-cyan-500"
+                  className="w-full accent-cyan-600 cursor-pointer"
                 />
                 <div className="text-[9px] text-slate-500 leading-tight">
                   Drawn strictly below joints, faults, veins, symbols &amp; labels (max 40% to keep photo &amp; structures clear).
@@ -609,12 +611,12 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
               </div>
 
               {/* Symbol Orientation Angle (Bedding / Foliation Dip & Alternative Rock Angle) */}
-              <div className="space-y-1.5 pt-2 border-t border-slate-800">
+              <div className="space-y-1.5 pt-2 border-t border-slate-200">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-slate-300 font-semibold">
+                  <span className="text-[10px] text-slate-700 font-semibold">
                     Symbol Angle (Bedding / Foliation / Dip):
                   </span>
-                  <span className="font-mono text-[10px] text-amber-400 font-bold px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700">
+                  <span className="font-mono text-[10px] text-amber-900 font-bold px-1.5 py-0.5 rounded bg-amber-50 border border-amber-300">
                     {(selectedRegion.patternAngleDeg ?? selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0) > 0
                       ? `+${selectedRegion.patternAngleDeg ?? selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}°`
                       : `${selectedRegion.patternAngleDeg ?? selectedRegion.angleDeg ?? selectedRegion.patternAngle ?? 0}°`}
@@ -635,7 +637,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                       patternAngleDeg: val,
                     }));
                   }}
-                  className="w-full accent-amber-500 cursor-pointer"
+                  className="w-full accent-amber-600 cursor-pointer"
                 />
                 <div className="grid grid-cols-4 gap-1">
                   {[-45, -30, 0, 30, 45, 60, 90, -60].map((ang) => {
@@ -654,8 +656,8 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                         }
                         className={`py-0.5 px-1 rounded text-[9px] font-bold border cursor-pointer ${
                           cur === ang
-                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-black'
-                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:text-white'
+                            ? 'bg-amber-600 text-white border-amber-700'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                         }`}
                       >
                         {ang === 0 ? '0° Flat' : ang > 0 ? `+${ang}°` : `${ang}°`}
@@ -690,9 +692,9 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                           `Aligned ${selectedRegion.lithologyName} symbol angle to Bedding/Foliation (${normalizedAngle}°).`
                         );
                       }}
-                      className="w-full mt-1 py-1 px-2 bg-amber-950/70 hover:bg-amber-900 border border-amber-600/50 rounded text-[9.5px] font-bold text-amber-300 flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                      className="w-full mt-1 py-1 px-2 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded text-[9.5px] font-bold text-amber-900 flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
                     >
-                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      <Sparkles className="w-3 h-3 text-amber-600" />
                       Sync with Bedding / Foliation J0 ({normalizedAngle}°)
                     </button>
                   );
@@ -703,18 +705,18 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
             {/* ====================================================================
                 STEP 3: REGION EDITING — RESIZE, RESHAPE, SPLIT, MERGE, DELETE (Section 13)
                ==================================================================== */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded p-2.5 space-y-2">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-2 text-slate-900 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-purple-300">
+                <span className="text-[11px] font-bold text-purple-800">
                   3. EDIT / RESHAPE / SPLIT / MERGE
                 </span>
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-slate-600 font-semibold">
                   {selectedRegion.polygon.length} Vertices (L1..L{selectedRegion.polygon.length})
                 </span>
               </div>
 
-              <div className="text-[10px] text-slate-400 leading-tight">
-                Drag yellow <span className="text-amber-300 font-semibold">L1..L{selectedRegion.polygon.length}</span> handles directly on the canvas to reshape this lithology boundary.
+              <div className="text-[10px] text-slate-600 leading-tight">
+                Drag yellow <span className="text-amber-700 font-bold">L1..L{selectedRegion.polygon.length}</span> handles directly on the canvas to reshape this lithology boundary.
               </div>
 
               {/* Add / Remove / Reopen Vertex */}
@@ -723,9 +725,9 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                   onClick={() =>
                     updateSelectedRegion((reg) => addVertexToLithologyRegion(reg))
                   }
-                  className="flex items-center justify-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-[10px]"
+                  className="flex items-center justify-center gap-1 px-2 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium shadow-2xs cursor-pointer"
                 >
-                  <Plus className="w-3 h-3 text-emerald-400" />
+                  <Plus className="w-3 h-3 text-emerald-600" />
                   Add Vertex
                 </button>
                 <button
@@ -737,9 +739,9 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     setActiveVertexIdx(0);
                   }}
                   disabled={selectedRegion.polygon.length <= 3}
-                  className="flex items-center justify-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 border border-slate-700 rounded text-[10px]"
+                  className="flex items-center justify-center gap-1 px-2 py-1 bg-white hover:bg-slate-100 disabled:opacity-40 text-slate-800 border border-slate-300 rounded text-[10px] font-medium shadow-2xs cursor-pointer"
                 >
-                  <Minimize2 className="w-3 h-3 text-rose-400" />
+                  <Minimize2 className="w-3 h-3 text-rose-600" />
                   Delete L{Math.min(activeVertexIdx + 1, selectedRegion.polygon.length)}
                 </button>
               </div>
@@ -749,7 +751,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                 <select
                   value={Math.min(activeVertexIdx, selectedRegion.polygon.length - 1)}
                   onChange={(e) => setActiveVertexIdx(Number(e.target.value))}
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-amber-200"
+                  className="flex-1 bg-white border border-slate-300 rounded px-1.5 py-1 text-[10px] text-slate-800 font-medium shadow-2xs"
                 >
                   {selectedRegion.polygon.map((pt, idx) => (
                     <option key={idx} value={idx}>
@@ -760,7 +762,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                 {onReopenRegionAsDraft && (
                   <button
                     onClick={() => onReopenRegionAsDraft(selectedRegion)}
-                    className="px-2 py-1 bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/40 rounded text-[10px] whitespace-nowrap"
+                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] whitespace-nowrap font-semibold cursor-pointer shadow-2xs"
                     title="Reopen polygon to continue clicking & adding boundary points"
                   >
                     Reopen / Edit Pts
@@ -769,8 +771,8 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
               </div>
 
               {/* Resize Region Controls */}
-              <div className="space-y-1 pt-1 border-t border-slate-800/80">
-                <span className="text-[10px] text-slate-400 block">
+              <div className="space-y-1 pt-1 border-t border-slate-200">
+                <span className="text-[10px] text-slate-700 font-semibold block">
                   Resize Selected Region:
                 </span>
                 <div className="grid grid-cols-4 gap-1">
@@ -778,7 +780,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     onClick={() =>
                       updateSelectedRegion((reg) => resizeLithologyRegion(reg, 0.9, 0.9))
                     }
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                     title="Shrink Region 10%"
                   >
                     Shrink -10%
@@ -787,7 +789,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     onClick={() =>
                       updateSelectedRegion((reg) => resizeLithologyRegion(reg, 1.1, 1.1))
                     }
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                     title="Expand Region 10%"
                   >
                     Expand +10%
@@ -796,7 +798,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     onClick={() =>
                       updateSelectedRegion((reg) => resizeLithologyRegion(reg, 1.12, 1.0))
                     }
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                   >
                     Widen X
                   </button>
@@ -804,7 +806,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     onClick={() =>
                       updateSelectedRegion((reg) => resizeLithologyRegion(reg, 1.0, 1.12))
                     }
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                   >
                     Taller Y
                   </button>
@@ -812,16 +814,16 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
               </div>
 
               {/* Move / Shift Selected Region */}
-              <div className="space-y-1 pt-1 border-t border-slate-800/80">
-                <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                  <Move className="w-3 h-3 text-cyan-400" /> Shift / Move Region:
+              <div className="space-y-1 pt-1 border-t border-slate-200">
+                <span className="text-[10px] text-slate-700 font-semibold flex items-center gap-1">
+                  <Move className="w-3 h-3 text-cyan-600" /> Shift / Move Region:
                 </span>
                 <div className="grid grid-cols-4 gap-1">
                   <button
                     onClick={() =>
                       updateSelectedRegion((reg) => translateLithologyRegion(reg, -0.35, 0))
                     }
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                   >
                     ← Left
                   </button>
@@ -829,7 +831,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     onClick={() =>
                       updateSelectedRegion((reg) => translateLithologyRegion(reg, 0.35, 0))
                     }
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                   >
                     Right →
                   </button>
@@ -837,7 +839,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     onClick={() =>
                       updateSelectedRegion((reg) => translateLithologyRegion(reg, 0, 0.35))
                     }
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                   >
                     ↑ Up
                   </button>
@@ -845,7 +847,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     onClick={() =>
                       updateSelectedRegion((reg) => translateLithologyRegion(reg, 0, -0.35))
                     }
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                   >
                     ↓ Down
                   </button>
@@ -853,26 +855,26 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
               </div>
 
               {/* Split Region Controls */}
-              <div className="space-y-1 pt-1 border-t border-slate-800/80">
-                <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                  <Scissors className="w-3 h-3 text-amber-400" /> Split Selected Region Into Two:
+              <div className="space-y-1 pt-1 border-t border-slate-200">
+                <span className="text-[10px] text-slate-700 font-semibold flex items-center gap-1">
+                  <Scissors className="w-3 h-3 text-amber-600" /> Split Selected Region Into Two:
                 </span>
                 <div className="grid grid-cols-3 gap-1">
                   <button
                     onClick={() => handleSplitSelectedRegion('horizontal')}
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-200 border border-slate-700 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                   >
                     Split Horiz
                   </button>
                   <button
                     onClick={() => handleSplitSelectedRegion('vertical')}
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-200 border border-slate-700 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                   >
                     Split Vert
                   </button>
                   <button
                     onClick={() => handleSplitSelectedRegion('diagonal')}
-                    className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-200 border border-slate-700 rounded text-[10px]"
+                    className="px-1.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] font-medium cursor-pointer shadow-2xs"
                   >
                     Split Diag
                   </button>
@@ -881,15 +883,15 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
 
               {/* Merge Regions Control */}
               {surfaceRegions.length > 1 && (
-                <div className="space-y-1 pt-1 border-t border-slate-800/80">
-                  <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <Combine className="w-3 h-3 text-cyan-400" /> Merge With Another Region:
+                <div className="space-y-1 pt-1 border-t border-slate-200">
+                  <span className="text-[10px] text-slate-700 font-semibold flex items-center gap-1">
+                    <Combine className="w-3 h-3 text-cyan-600" /> Merge With Another Region:
                   </span>
                   <div className="flex items-center gap-1">
                     <select
                       value={mergeTargetId}
                       onChange={(e) => setMergeTargetId(e.target.value)}
-                      className="flex-1 bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-slate-200"
+                      className="flex-1 bg-white border border-slate-300 rounded px-1.5 py-1 text-[10px] text-slate-800 font-medium shadow-2xs"
                     >
                       <option value="">Select region to merge...</option>
                       {surfaceRegions
@@ -903,7 +905,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     <button
                       onClick={handleMergeRegions}
                       disabled={!mergeTargetId}
-                      className="px-2 py-1 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-40 text-white rounded text-[10px] font-semibold"
+                      className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white rounded text-[10px] font-semibold cursor-pointer shadow-2xs"
                     >
                       Merge
                     </button>
@@ -912,10 +914,10 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
               )}
 
               {/* Delete Region */}
-              <div className="pt-1 border-t border-slate-800/80">
+              <div className="pt-1 border-t border-slate-200">
                 <button
                   onClick={handleDeleteSelectedRegion}
-                  className="w-full flex items-center justify-center gap-1.5 py-1 px-2 bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border border-rose-800/60 rounded text-[10px]"
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded text-[10px] font-semibold cursor-pointer shadow-2xs"
                 >
                   <Trash2 className="w-3 h-3" />
                   Delete Selected Lithology Region
@@ -926,22 +928,22 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
             {/* ====================================================================
                 STEP 4: AI GEOLOGICAL DESCRIPTION & USER APPROVAL (Section 14)
                ==================================================================== */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded p-2.5 space-y-2">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-2 text-slate-900 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-emerald-300">
+                <span className="text-[11px] font-bold text-emerald-800">
                   4. AI GEOLOGICAL DESCRIPTION
                 </span>
                 <button
                   onClick={handleAISuggestDescription}
-                  className="flex items-center gap-1 px-2 py-0.5 bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 rounded text-[10px]"
+                  className="flex items-center gap-1 px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 rounded text-[10px] font-semibold cursor-pointer shadow-2xs"
                   title="Generate concise description from selected lithology, visible rock & mapped joints"
                 >
-                  <Sparkles className="w-3 h-3 text-purple-300" />
+                  <Sparkles className="w-3 h-3 text-purple-600" />
                   AI Suggest
                 </button>
               </div>
 
-              <div className="text-[10px] text-slate-400 flex items-center justify-between bg-slate-950/70 px-2 py-1 rounded border border-slate-800">
+              <div className="text-[10px] text-slate-700 flex items-center justify-between bg-white px-2 py-1 rounded border border-slate-200 font-medium">
                 <span>Traces inside region: {intersectingJointCount}</span>
                 <span>
                   Supporting photos: {photoSurface.supportingPhotos?.length || 0}
@@ -951,16 +953,16 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
               {/* Structured Output Preview & Editor (LITHOLOGY / DESCRIPTION / STRUCTURAL FEATURES) */}
               <div className="space-y-1.5">
                 <div>
-                  <span className="text-[10px] font-bold text-slate-300 block">
+                  <span className="text-[10px] font-bold text-slate-700 block">
                     LITHOLOGY:
                   </span>
-                  <div className="text-xs font-semibold text-amber-300 bg-slate-950/80 px-2 py-1 rounded border border-slate-800">
+                  <div className="text-xs font-semibold text-slate-900 bg-white px-2 py-1 rounded border border-slate-300 shadow-2xs">
                     {selectedRegion.lithologyName}
                   </div>
                 </div>
 
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-bold text-slate-300 block">
+                  <span className="text-[10px] font-bold text-slate-700 block">
                     DESCRIPTION (User-Editable):
                   </span>
                   <textarea
@@ -973,12 +975,12 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                       }))
                     }
                     placeholder="Medium to coarse grained quartzite with visible foliation, discontinuities and minor clay-filled seams."
-                    className="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-[11px] text-slate-100 leading-relaxed"
+                    className="w-full bg-white border border-slate-300 rounded p-1.5 text-[11px] text-slate-900 leading-relaxed shadow-2xs focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                   />
                 </label>
 
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-bold text-slate-300 block">
+                  <span className="text-[10px] font-bold text-slate-700 block">
                     STRUCTURAL FEATURES (User-Editable):
                   </span>
                   <textarea
@@ -991,12 +993,12 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                       }))
                     }
                     placeholder="Predominant joint sets J1/J2 with associated minor veins."
-                    className="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-[11px] text-slate-100 leading-relaxed"
+                    className="w-full bg-white border border-slate-300 rounded p-1.5 text-[11px] text-slate-900 leading-relaxed shadow-2xs focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                   />
                 </label>
 
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-bold text-slate-300 block">
+                  <span className="text-[10px] font-bold text-slate-700 block">
                     NOTES / FIELD OBSERVATIONS (User-Editable):
                   </span>
                   <textarea
@@ -1009,7 +1011,7 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                       }))
                     }
                     placeholder="Add engineering geology notes, weathering grade, or support remarks for this unit..."
-                    className="w-full bg-slate-950 border border-slate-700 rounded p-1.5 text-[11px] text-slate-100 leading-relaxed"
+                    className="w-full bg-white border border-slate-300 rounded p-1.5 text-[11px] text-slate-900 leading-relaxed shadow-2xs focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                   />
                 </label>
               </div>
@@ -1024,32 +1026,32 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
                     `Approved final geological description for ${selectedRegion.lithologyName}. Synced to Final Engineering Sheet.`
                   );
                 }}
-                className={`w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded font-semibold text-xs transition-colors ${
+                className={`w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded font-semibold text-xs transition-colors cursor-pointer shadow-2xs ${
                   selectedRegion.userApproved
-                    ? 'bg-emerald-600/30 text-emerald-200 border border-emerald-500/50'
+                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-400 font-bold'
                     : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                 }`}
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 {selectedRegion.userApproved
-                  ? 'User-Edited Description Approved'
+                  ? 'User-Edited Description Approved ✓'
                   : 'Approve Final Description'}
               </button>
             </div>
           </>
         ) : (
-          <div className="p-4 text-center bg-slate-900/50 border border-slate-800/80 rounded text-slate-400 space-y-1.5">
-            <div className="text-xs font-semibold text-slate-300">
+          <div className="p-4 text-center bg-slate-50 border border-slate-200 rounded-lg text-slate-700 space-y-1.5 shadow-2xs">
+            <div className="text-xs font-bold text-slate-900">
               No Lithology Area Selected Yet
             </div>
-            <div className="text-[11px] leading-relaxed">
+            <div className="text-[11px] leading-relaxed text-slate-600">
               Per Section 11, the tunnel is not automatically divided into excessive regions. Click{' '}
-              <span className="text-amber-300 font-semibold">Draw Custom Rock Area</span> or{' '}
-              <span className="text-cyan-300 font-semibold">+ Full Area</span> above to select a rock area.
+              <span className="text-amber-800 font-bold">Draw Custom Rock Area</span> or{' '}
+              <span className="text-cyan-800 font-bold">+ Full Area</span> above to select a rock area.
             </div>
           </div>
         )}
       </div>
-    </aside>
+    </ContainerTag>
   );
 };

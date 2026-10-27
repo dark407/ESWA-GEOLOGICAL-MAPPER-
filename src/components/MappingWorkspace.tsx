@@ -432,7 +432,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
       const dx = ev.clientX - resizingInspector.startX;
       const delta = inspectorDockSide === 'right' ? -dx : dx;
       setInspectorWidthPx(
-        Math.max(195, Math.min(640, Math.round(resizingInspector.startWidth + delta)))
+        Math.max(160, Math.min(650, Math.round(resizingInspector.startWidth + delta)))
       );
     };
     const onUp = () => setResizingInspector(null);
@@ -7318,7 +7318,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                       preserveAspectRatio="xMidYMid meet"
                       style={{
                         touchAction: 'none',
-                        backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                        backgroundColor: '#090C12',
                       }}
                       onWheel={handleCanvasWheel}
                       onMouseDown={handleCanvasMouseDown}
@@ -7355,7 +7355,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                       preserveAspectRatio="xMidYMid meet"
                       style={{
                         touchAction: 'none',
-                        backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                        backgroundColor: '#090C12',
                       }}
                       onPointerDown={handleCanvasPointerDown}
                       onPointerMove={handleCanvasPointerMove}
@@ -7496,7 +7496,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                       preserveAspectRatio="xMidYMid meet"
                       style={{
                         touchAction: 'none',
-                        backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                        backgroundColor: '#090C12',
                       }}
                       onWheel={handleCanvasWheel}
                       onMouseDown={handleCanvasMouseDown}
@@ -7517,7 +7517,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                 preserveAspectRatio="xMidYMid meet"
                 style={{
                   touchAction: 'none',
-                  backgroundColor: isLight ? '#E2E8F0' : '#090C12',
+                  backgroundColor: '#090C12',
                 }}
                 onPointerDown={handleCanvasPointerDown}
                 onPointerMove={handleCanvasPointerMove}
@@ -8237,12 +8237,12 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
             className={
               responsive.isMobile && !responsive.isLandscape
                 ? 'canvas-chrome fixed inset-x-0 bottom-0 max-h-[54dvh] w-full bg-white rounded-t-xl border-t-2 border-sky-500 flex flex-col z-40 shadow-[0_-16px_48px_rgba(15,23,42,0.35)] overflow-hidden'
-                : `canvas-chrome relative w-[min(245px,36vw)] md:w-auto max-w-[38vw] bg-white ${
+                : `canvas-chrome relative h-full min-h-0 min-w-[160px] max-w-[min(650px,85vw)] bg-white ${
                     inspectorDockSide === 'left' ? 'order-first border-r' : 'order-last border-l'
-                  } border-slate-200 flex flex-col shrink-0 z-20 shadow-xs overflow-hidden transition-[width] duration-150`
+                  } border-slate-200 flex flex-col shrink-0 z-20 shadow-xs overflow-hidden transition-[width] duration-75`
             }
           >
-            {/* Interactive Drag-to-Expand Resize Handle on Edge */}
+            {/* Interactive Drag-to-Expand / Shrink Resize Handle on Edge */}
             <div
               onMouseDown={(e) => {
                 e.preventDefault();
@@ -8258,72 +8258,140 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                   startWidth: inspectorWidthPx,
                 });
               }}
-              title="Drag edge left or right to resize Property Palette"
-              className={`hidden md:flex items-center justify-center absolute top-0 bottom-0 w-3.5 cursor-col-resize z-30 group select-none touch-none ${
+              title="Drag edge left or right to expand or shrink Property Palette (160px - 650px)"
+              className={`hidden md:flex items-center justify-center absolute top-0 bottom-0 w-4 cursor-col-resize z-30 group select-none touch-none ${
                 inspectorDockSide === 'left' ? '-right-2' : '-left-2'
               }`}
             >
-              <div className="h-24 w-1.5 rounded-full bg-slate-300 group-hover:bg-cyan-600 group-active:bg-cyan-700 transition-colors shadow-xs" />
+              <div className="h-28 w-1.5 rounded-full bg-slate-300 group-hover:bg-cyan-600 group-active:bg-cyan-700 transition-colors shadow-xs" />
             </div>
 
-            {/* Collapsible Sidebar Header: Active Tool Context Badge + Dock Side + Collapse Button */}
-            <div className="flex items-center justify-between gap-1.5 px-3 py-2 bg-slate-100 border-b border-slate-200 text-[10px] font-mono shrink-0">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <Sliders className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
-                <div className="truncate">
-                  <span className="text-slate-900 font-bold tracking-wider uppercase">
-                    {activeTool === 'photo_fit'
-                      ? 'PHOTO FIT & WARP'
-                      : activeTool === 'add_joint' ||
-                        activeTool === 'redraw_joint' ||
-                        activeTool === 'append_joint'
-                      ? 'DRAW JOINT TOOL'
-                      : activeTool === 'lithology'
-                      ? 'LITHOLOGY ZONES'
-                      : activeTool === 'geological_symbol'
-                      ? 'ISRM SYMBOLS'
-                      : activeTool === 'dip_probe'
-                      ? '3D DIP PROBE'
-                      : activeTool === 'control_point'
-                      ? 'CONTROL POINTS'
-                      : activeTool === 'overbreak'
-                      ? 'OVERBREAK / SURVEY'
-                      : activeTool === 'measure'
-                      ? 'MEASURE DISTANCE'
-                      : selectedJoint
-                      ? `TRACE ${selectedJoint.set} PROPERTIES`
-                      : 'TOOL PROPERTIES'}
-                  </span>
+            {/* Collapsible Sidebar Header: Active Tool Context Badge + Width Shrink/Expand Controls + Dock Side + Collapse Button */}
+            <div className="flex flex-col border-b border-slate-200 bg-slate-100 text-[10px] font-mono shrink-0">
+              <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Sliders className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+                  <div className="truncate">
+                    <span className="text-slate-900 font-bold tracking-wider uppercase">
+                      {activeTool === 'photo_fit'
+                        ? 'PHOTO FIT & WARP'
+                        : activeTool === 'add_joint' ||
+                          activeTool === 'redraw_joint' ||
+                          activeTool === 'append_joint'
+                        ? 'DRAW JOINT TOOL'
+                        : activeTool === 'lithology'
+                        ? 'LITHOLOGY ZONES'
+                        : activeTool === 'geological_symbol'
+                        ? 'ISRM SYMBOLS'
+                        : activeTool === 'dip_probe'
+                        ? '3D DIP PROBE'
+                        : activeTool === 'control_point'
+                        ? 'CONTROL POINTS'
+                        : activeTool === 'overbreak'
+                        ? 'OVERBREAK / SURVEY'
+                        : activeTool === 'measure'
+                        ? 'MEASURE DISTANCE'
+                        : selectedJoint
+                        ? `TRACE ${selectedJoint.set} PROPERTIES`
+                        : 'TOOL PROPERTIES'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Dock Side Toggle (Left / Right) */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setInspectorDockSide((s) => (s === 'right' ? 'left' : 'right'))
+                    }
+                    className="px-1.5 py-0.5 rounded bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 flex items-center gap-0.5 cursor-pointer font-semibold"
+                    title="Dock Property Sidebar on Left or Right Side"
+                  >
+                    {inspectorDockSide === 'right' ? (
+                      <>
+                        <PanelLeft className="w-3 h-3 text-cyan-600" /> L
+                      </>
+                    ) : (
+                      <>
+                        <PanelRight className="w-3 h-3 text-cyan-600" /> R
+                      </>
+                    )}
+                  </button>
+                  {/* Collapse Button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowCadPropertiesAlways(false)}
+                    className="px-2 py-0.5 rounded bg-sky-600 hover:bg-sky-500 text-white font-semibold cursor-pointer flex items-center gap-1"
+                    title="Collapse Property Sidebar to maximize canvas workspace"
+                  >
+                    <span>Collapse</span>
+                    <span>{inspectorDockSide === 'right' ? '»' : '«'}</span>
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setInspectorDockSide((s) => (s === 'right' ? 'left' : 'right'))
-                  }
-                  className="px-1.5 py-0.5 rounded bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 flex items-center gap-0.5 cursor-pointer font-semibold"
-                  title="Dock Property Sidebar on Left or Right Side"
-                >
-                  {inspectorDockSide === 'right' ? (
-                    <>
-                      <PanelLeft className="w-3 h-3 text-cyan-600" /> L
-                    </>
-                  ) : (
-                    <>
-                      <PanelRight className="w-3 h-3 text-cyan-600" /> R
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCadPropertiesAlways(false)}
-                  className="px-2 py-0.5 rounded bg-sky-600 hover:bg-sky-500 text-white font-semibold cursor-pointer flex items-center gap-1"
-                  title="Collapse Property Sidebar to maximize canvas workspace"
-                >
-                  <span>Collapse</span>
-                  <span>{inspectorDockSide === 'right' ? '»' : '«'}</span>
-                </button>
+
+              {/* Quick Shrink / Expand Width Control Strip */}
+              <div className="hidden md:flex items-center justify-between px-2.5 py-1 bg-slate-50 border-t border-slate-200/80 text-[9.5px] text-slate-600">
+                <div className="flex items-center gap-1">
+                  <span className="font-semibold text-slate-500">Width: {inspectorWidthPx}px</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {/* Shrink Width Button */}
+                  <button
+                    type="button"
+                    onClick={() => setInspectorWidthPx((w) => Math.max(160, w - 30))}
+                    className="px-1.5 py-0.5 rounded bg-white hover:bg-slate-200 text-slate-800 border border-slate-300 font-bold cursor-pointer transition-colors shadow-2xs"
+                    title="Shrink Property Sidebar (-30px, minimum 160px)"
+                  >
+                    − Shrink
+                  </button>
+                  {/* Expand Width Button */}
+                  <button
+                    type="button"
+                    onClick={() => setInspectorWidthPx((w) => Math.min(650, w + 30))}
+                    className="px-1.5 py-0.5 rounded bg-white hover:bg-slate-200 text-slate-800 border border-slate-300 font-bold cursor-pointer transition-colors shadow-2xs"
+                    title="Expand Property Sidebar (+30px, maximum 650px)"
+                  >
+                    + Expand
+                  </button>
+                  {/* Preset Widths */}
+                  <button
+                    type="button"
+                    onClick={() => setInspectorWidthPx(175)}
+                    className={`px-1 py-0.5 rounded text-[9px] font-bold border cursor-pointer ${
+                      inspectorWidthPx <= 180
+                        ? 'bg-cyan-600 text-white border-cyan-700'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                    title="Compact Width (175px)"
+                  >
+                    Compact
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInspectorWidthPx(245)}
+                    className={`px-1 py-0.5 rounded text-[9px] font-bold border cursor-pointer ${
+                      inspectorWidthPx > 180 && inspectorWidthPx < 320
+                        ? 'bg-cyan-600 text-white border-cyan-700'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                    title="Standard Width (245px)"
+                  >
+                    Standard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInspectorWidthPx(360)}
+                    className={`px-1 py-0.5 rounded text-[9px] font-bold border cursor-pointer ${
+                      inspectorWidthPx >= 320
+                        ? 'bg-cyan-600 text-white border-cyan-700'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                    title="Wide Width (360px)"
+                  >
+                    Wide
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -8416,7 +8484,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                 onStatusMessage={onUpdateStatusMessage}
               />
             ) : (
-              <div className="flex-1 overflow-y-auto p-3 text-xs space-y-2.5">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 text-xs space-y-2.5 bg-white text-slate-900">
                 {activeTool === 'photo_fit' ? (
               <PhotoFittingPanel
                 activeSurface={activeSurface}

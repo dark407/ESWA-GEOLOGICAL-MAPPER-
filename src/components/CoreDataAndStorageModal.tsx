@@ -166,23 +166,23 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
   };
 
   const mainContent = (
-    <div className={`bg-white text-black rounded-2xl shadow-xl border-2 border-slate-400 w-full flex flex-col overflow-hidden ${embedded ? '' : 'max-w-6xl max-h-[94vh] my-auto'}`}>
+    <div className={`bg-slate-900 text-slate-100 rounded-2xl shadow-2xl border border-slate-800 w-full flex flex-col overflow-hidden ${embedded ? '' : 'max-w-6xl max-h-[94vh] my-auto'}`}>
       {/* Top Header */}
-      <div className="px-5 py-4 border-b-2 border-slate-300 bg-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="px-5 py-4 border-b border-slate-800 bg-slate-950 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-orange-600 text-white shadow-md">
             <Database className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-black text-black">
+              <h2 className="text-base font-black text-slate-100">
                 Geotechnical Core Data &amp; Storage Registry
               </h2>
-              <span className="px-2 py-0.5 rounded-full text-xs font-mono font-black bg-orange-100 text-black border-2 border-orange-400">
+              <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-orange-950/60 text-orange-300 border border-orange-500/50">
                 {boreholes.length} Logged Hole{boreholes.length !== 1 ? 's' : ''}
               </span>
             </div>
-            <p className="text-xs text-black font-bold">
+            <p className="text-xs text-slate-400 font-medium">
               Access, inspect, backup, import, duplicate, and manage all borehole run logs and core box records.
             </p>
           </div>
@@ -193,7 +193,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-black hover:text-rose-600 hover:bg-slate-200 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer"
               title="Close Data &amp; Storage"
               aria-label="Close"
             >
@@ -204,34 +204,34 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
       </div>
 
       {/* Global Storage & Data KPI Metrics Strip */}
-      <div className="bg-slate-200 border-b-2 border-slate-300 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0 text-black">
+      <div className="bg-slate-950/80 border-b border-slate-800 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0 text-slate-300">
         <div className="flex flex-wrap items-center gap-4 sm:gap-6">
           <div className="flex items-center gap-2">
-            <span className="text-black font-black uppercase text-[10px]">Total Boreholes:</span>
-            <span className="font-mono font-black text-black">{boreholes.length}</span>
+            <span className="text-slate-400 font-bold uppercase text-[10px]">Total Boreholes:</span>
+            <span className="font-mono font-bold text-slate-100">{boreholes.length}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-black font-black uppercase text-[10px]">Total Drilled Depth:</span>
-            <span className="font-mono font-black text-black">
+            <span className="text-slate-400 font-bold uppercase text-[10px]">Total Drilled Depth:</span>
+            <span className="font-mono font-bold text-slate-100">
               {totalDrilledAllHoles.toFixed(2)} m
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-black font-black uppercase text-[10px]">Total Core Runs:</span>
-            <span className="font-mono font-black text-black">{totalRunsAllHoles}</span>
+            <span className="text-slate-400 font-bold uppercase text-[10px]">Total Core Runs:</span>
+            <span className="font-mono font-bold text-slate-100">{totalRunsAllHoles}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-black font-black uppercase text-[10px]">Core Box Photos:</span>
-            <span className="font-mono font-black text-black">{totalPhotosAllHoles}</span>
+            <span className="text-slate-400 font-bold uppercase text-[10px]">Core Box Photos:</span>
+            <span className="font-mono font-bold text-slate-100">{totalPhotosAllHoles}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-black font-black uppercase text-[10px]">Local Storage:</span>
-            <span className="font-mono font-black text-black">
+            <span className="text-slate-400 font-bold uppercase text-[10px]">Local Storage:</span>
+            <span className="font-mono font-bold text-slate-100">
               {storageUsage.formattedSize}
             </span>
-            <div className="w-16 h-2 rounded-full bg-slate-300 border border-slate-400 overflow-hidden">
+            <div className="w-16 h-2 rounded-full bg-slate-800 border border-slate-700 overflow-hidden">
               <div
-                className="h-full bg-emerald-600 rounded-full"
+                className="h-full bg-emerald-500 rounded-full"
                 style={{ width: `${Math.max(4, storageUsage.percentageOfLimit)}%` }}
               />
             </div>
@@ -242,10 +242,10 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
           <button
             type="button"
             onClick={handleLoadBenchmarks}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black bg-white hover:bg-slate-100 text-black border-2 border-slate-400 shadow-2xs transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shadow-2xs transition-all cursor-pointer"
             title="Load 3 complete benchmark borehole datasets (BH-01, BH-02, BH-03)"
           >
-            <Sparkles className="w-3.5 h-3.5 text-orange-600" />
+            <Sparkles className="w-3.5 h-3.5 text-orange-400" />
             <span>Load Benchmark Holes</span>
           </button>
         </div>
@@ -279,15 +279,15 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
       )}
 
       {/* Toolbar & Search Bar */}
-      <div className="p-4 border-b-2 border-slate-300 bg-white flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="p-4 border-b border-slate-800 bg-slate-900 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="relative flex-1 min-w-[240px] max-w-md">
-          <Search className="w-4 h-4 text-black absolute left-3 top-2.5 pointer-events-none" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search boreholes by ID, project, chainage, geologist..."
-            className="w-full pl-9 pr-3 py-1.5 rounded-lg border-2 border-slate-400 bg-white text-xs text-black font-bold placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
+            className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-700 bg-slate-950 text-xs text-slate-100 font-medium placeholder:text-slate-500 focus:border-orange-500 focus:outline-hidden"
           />
         </div>
 
@@ -299,10 +299,10 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
               downloadBoreholeJSONFile(boreholes);
               triggerStatus(`Downloaded full backup JSON with ${boreholes.length} borehole logs.`, 'success');
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black bg-white hover:bg-slate-100 text-black border-2 border-slate-400 shadow-2xs transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shadow-2xs transition-all cursor-pointer"
             title="Download all borehole records in JSON archive"
           >
-            <Download className="w-3.5 h-3.5 text-blue-600" />
+            <Download className="w-3.5 h-3.5 text-blue-400" />
             <span>Backup All (JSON)</span>
           </button>
 
@@ -313,19 +313,19 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
               downloadRunsCSVFile(boreholes);
               triggerStatus(`Exported continuous runs CSV for ${boreholes.length} boreholes.`, 'success');
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black bg-white hover:bg-slate-100 text-black border-2 border-slate-400 shadow-2xs transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shadow-2xs transition-all cursor-pointer"
             title="Export all run data into CSV for CAD / Excel"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
             <span>Export Runs (CSV)</span>
           </button>
 
           {/* Import JSON */}
           <label
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black bg-white hover:bg-slate-100 text-black border-2 border-slate-400 shadow-2xs transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shadow-2xs transition-all cursor-pointer"
             title="Import borehole archive from JSON file"
           >
-            <Upload className="w-3.5 h-3.5 text-orange-600" />
+            <Upload className="w-3.5 h-3.5 text-orange-400" />
             <span>Import JSON</span>
             <input
               ref={fileInputRef}
@@ -343,7 +343,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
               onClose();
               onCreateNewHole();
             }}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-black bg-orange-600 hover:bg-orange-700 text-white shadow-sm transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-orange-600 hover:bg-orange-500 text-white shadow-sm transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Create Hole</span>
@@ -352,13 +352,13 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
       </div>
 
       {/* Content Area: Main Registry Table & Inspector */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-black">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-slate-100">
         {/* Borehole Cards / Table */}
-        <div className="bg-white rounded-xl shadow-xs border-2 border-slate-400 overflow-hidden">
+        <div className="bg-slate-950 rounded-xl shadow-xs border border-slate-800 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-slate-200 text-black font-black uppercase text-[10px] border-b-2 border-slate-400">
+                <tr className="bg-slate-900 text-slate-400 font-black uppercase text-[10px] border-b border-slate-800">
                   <th className="py-2.5 px-4 w-12 text-center">Status</th>
                   <th className="py-2.5 px-4">Borehole ID</th>
                   <th className="py-2.5 px-4">Project &amp; Location</th>
@@ -371,13 +371,13 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                   <th className="py-2.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y-2 divide-slate-200">
+              <tbody className="divide-y divide-slate-800 text-slate-200">
                 {filteredBoreholes.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-black">
-                      <FolderArchive className="w-8 h-8 mx-auto mb-2 text-black" />
-                      <p className="font-black text-black">No boreholes found</p>
-                      <p className="text-xs text-black font-bold mt-1">
+                    <td colSpan={10} className="py-12 text-center text-slate-400">
+                      <FolderArchive className="w-8 h-8 mx-auto mb-2 text-slate-500" />
+                      <p className="font-bold text-slate-300">No boreholes found</p>
+                      <p className="text-xs text-slate-500 mt-1">
                         Try adjusting your search query or click "Create Hole" to begin logging.
                       </p>
                     </td>
@@ -400,17 +400,17 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                         key={b.id}
                         className={`transition-colors ${
                           isActive
-                            ? 'bg-orange-100/80 font-bold'
+                            ? 'bg-orange-950/30 font-bold border-l-2 border-orange-500'
                             : isInspected
-                            ? 'bg-slate-100 font-medium'
-                            : 'hover:bg-slate-50'
+                            ? 'bg-slate-900 font-medium'
+                            : 'hover:bg-slate-900/50'
                         }`}
                       >
                         {/* Active Status Badge */}
                         <td className="py-3 px-4 text-center">
                           {isActive ? (
                             <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-black border-2 border-emerald-500"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-500/60"
                               title="Currently open in workspace"
                             >
                               Active
@@ -422,7 +422,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                                 onSelectBorehole(b.id);
                                 triggerStatus(`Switched active hole to ${b.boreholeId}`, 'info');
                               }}
-                              className="text-[10px] font-black text-black hover:text-orange-600 hover:underline cursor-pointer"
+                              className="text-[10px] font-bold text-slate-400 hover:text-orange-400 hover:underline cursor-pointer"
                               title="Click to make this borehole active in workspace"
                             >
                               Select
@@ -433,52 +433,52 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                         {/* Hole ID */}
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-black text-sm text-black">
+                            <span className="font-mono font-black text-sm text-orange-400">
                               {b.boreholeId}
                             </span>
                             {b.coreDiameter && (
-                              <span className="font-mono text-[10px] font-black text-black bg-slate-200 px-1.5 py-0.5 rounded border border-slate-400">
+                              <span className="font-mono text-[10px] font-bold text-slate-300 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
                                 {b.coreDiameter.split(' ')[0]}
                               </span>
                             )}
                           </div>
-                          <div className="text-[11px] text-black font-black font-mono mt-0.5">
+                          <div className="text-[11px] text-slate-400 font-mono mt-0.5">
                             {b.chainageLabel || 'Chainage N/A'}
                           </div>
                         </td>
 
                         {/* Project & Alignment */}
                         <td className="py-3 px-4 max-w-[200px]">
-                          <div className="font-black text-black truncate">
+                          <div className="font-bold text-slate-200 truncate">
                             {b.projectName}
                           </div>
-                          <div className="text-[11px] text-black font-bold truncate">
+                          <div className="text-[11px] text-slate-400 truncate">
                             {b.tunnelName || 'Tunnel Alignment'} &bull; RL: {b.collarElevation || 0}m
                           </div>
                         </td>
 
                         {/* Total Depth */}
-                        <td className="py-3 px-4 text-center font-mono font-black text-black">
+                        <td className="py-3 px-4 text-center font-mono font-bold text-slate-200">
                           {sm.totalDrilledDepth.toFixed(2)} m
                         </td>
 
                         {/* Runs count */}
-                        <td className="py-3 px-4 text-center font-mono font-black text-black">
+                        <td className="py-3 px-4 text-center font-mono font-bold text-slate-200">
                           {sm.runCount}
                         </td>
 
                         {/* TCR % Recovery */}
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            <span className="font-mono font-black text-black">
+                            <span className="font-mono font-bold text-slate-200">
                               {sm.averageTcr.toFixed(1)}%
                             </span>
                           </div>
-                          <div className="w-16 mx-auto h-2 rounded-full bg-slate-200 border border-slate-400 overflow-hidden mt-1">
+                          <div className="w-16 mx-auto h-2 rounded-full bg-slate-800 border border-slate-700 overflow-hidden mt-1">
                             <div
                               className={`h-full ${
                                 sm.averageTcr >= 90
-                                  ? 'bg-emerald-600'
+                                  ? 'bg-emerald-500'
                                   : sm.averageTcr >= 70
                                   ? 'bg-amber-500'
                                   : 'bg-rose-500'
@@ -491,11 +491,11 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                         {/* RQD % */}
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <span className="font-mono font-black text-black">
+                            <span className="font-mono font-bold text-slate-200">
                               {sm.averageRqd.toFixed(1)}%
                             </span>
                             <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-black border-2 ${badge.bg} text-black border-slate-400`}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${badge.bg} text-slate-200 border-slate-600`}
                             >
                               {sm.overallRqdRating}
                             </span>
@@ -504,24 +504,24 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
 
                         {/* Dominant Rock */}
                         <td className="py-3 px-4">
-                          <div className="font-black text-black">
+                          <div className="font-bold text-slate-200">
                             {sm.dominantLithology}
                           </div>
-                          <div className="text-[10px] text-black font-bold">Weathering: {sm.dominantWeathering}</div>
+                          <div className="text-[10px] text-slate-400">Weathering: {sm.dominantWeathering}</div>
                         </td>
 
                         {/* Sign-Off status */}
                         <td className="py-3 px-4 text-center">
                           <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black border-2 ${
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${
                               signOffCount === 3
-                                ? 'bg-emerald-100 text-black border-emerald-500'
+                                ? 'bg-emerald-950/60 text-emerald-400 border-emerald-500/60'
                                 : signOffCount > 0
-                                ? 'bg-amber-100 text-black border-amber-500'
-                                : 'bg-slate-200 text-black border-slate-400'
+                                ? 'bg-amber-950/60 text-amber-400 border-amber-500/60'
+                                : 'bg-slate-800 text-slate-400 border-slate-700'
                             }`}
                           >
-                            <ShieldCheck className="w-3 h-3 text-black" />
+                            <ShieldCheck className="w-3 h-3 text-slate-400" />
                             <span>{signOffCount}/3 Parties</span>
                           </span>
                         </td>
@@ -536,7 +536,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                                 onSelectBorehole(b.id);
                                 onClose();
                               }}
-                              className="px-2.5 py-1 rounded text-xs font-black bg-orange-600 text-white hover:bg-orange-700 shadow-2xs transition-colors cursor-pointer"
+                              className="px-2.5 py-1 rounded text-xs font-bold bg-orange-600 text-white hover:bg-orange-500 shadow-2xs transition-colors cursor-pointer"
                               title="Open this hole in main logging workspace"
                             >
                               Open
@@ -548,10 +548,10 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                               onClick={() =>
                                 setInspectedBoreholeId(inspectedBoreholeId === b.id ? null : b.id)
                               }
-                              className={`p-1.5 rounded-lg border border-slate-300 transition-colors cursor-pointer font-bold ${
+                              className={`p-1.5 rounded-lg border border-slate-700 transition-colors cursor-pointer font-bold ${
                                 inspectedBoreholeId === b.id
-                                  ? 'bg-black text-white'
-                                  : 'hover:bg-slate-200 text-black'
+                                  ? 'bg-slate-800 text-orange-400 border-orange-500/50'
+                                  : 'hover:bg-slate-800 text-slate-300'
                               }`}
                               title="Inspect complete details and all runs for this hole"
                             >
@@ -562,7 +562,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                             <button
                               type="button"
                               onClick={() => onOpenReportForBorehole(b)}
-                              className="p-1.5 rounded-lg border border-slate-300 hover:bg-slate-200 text-black hover:text-orange-600 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-orange-400 transition-colors cursor-pointer"
                               title="Generate A4 Engineering Strip Log Report"
                             >
                               <Printer className="w-3.5 h-3.5" />
@@ -572,7 +572,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                             <button
                               type="button"
                               onClick={() => handleDuplicate(b)}
-                              className="p-1.5 rounded-lg border border-slate-300 hover:bg-slate-200 text-black hover:text-blue-600 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-blue-400 transition-colors cursor-pointer"
                               title="Duplicate borehole parameters for next hole"
                             >
                               <Copy className="w-3.5 h-3.5" />
@@ -585,7 +585,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                                 downloadBoreholeJSONFile([b], `${b.boreholeId}_Core_Log_${new Date().toISOString().split('T')[0]}.json`);
                                 triggerStatus(`Exported JSON for ${b.boreholeId}`, 'success');
                               }}
-                              className="p-1.5 rounded-lg border border-slate-300 hover:bg-slate-200 text-black hover:text-emerald-600 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-emerald-400 transition-colors cursor-pointer"
                               title="Export single borehole JSON"
                             >
                               <Download className="w-3.5 h-3.5" />
@@ -597,14 +597,14 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                                 <button
                                   type="button"
                                   onClick={() => handleDelete(b.id)}
-                                  className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-600 text-white cursor-pointer"
+                                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white cursor-pointer"
                                 >
                                   Confirm
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setDeleteConfirmId(null)}
-                                  className="px-1.5 py-0.5 rounded text-[10px] bg-slate-200 text-black font-bold cursor-pointer"
+                                  className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-bold cursor-pointer"
                                 >
                                   Cancel
                                 </button>
@@ -613,7 +613,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                               <button
                                 type="button"
                                 onClick={() => setDeleteConfirmId(b.id)}
-                                className="p-1.5 rounded-lg border border-slate-300 hover:bg-rose-100 text-black hover:text-rose-600 transition-colors cursor-pointer"
+                                className="p-1.5 rounded-lg border border-slate-700 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
                                 title="Delete borehole record"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -632,15 +632,15 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
 
           {/* COMPLETE HOLE DETAIL INSPECTOR ACCORDION / DRAWER */}
           {inspectedBorehole && inspectedSummary && (
-            <div className="bg-white text-black rounded-xl shadow-md border-2 border-orange-500 overflow-hidden animate-fadeIn">
+            <div className="bg-slate-950 text-slate-100 rounded-xl shadow-md border border-orange-500/50 overflow-hidden animate-fadeIn">
               {/* Inspector Header */}
               <div className="px-5 py-3.5 bg-orange-600 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <Eye className="w-4 h-4 text-white" />
-                  <h3 className="font-black text-sm text-white">
+                  <h3 className="font-bold text-sm text-white">
                     Complete Geotechnical Inspection: {inspectedBorehole.boreholeId} ({inspectedBorehole.projectName})
                   </h3>
-                  <span className="text-xs bg-white text-black px-2.5 py-0.5 rounded-full font-mono font-black">
+                  <span className="text-xs bg-slate-900 text-orange-400 px-2.5 py-0.5 rounded-full font-mono font-bold border border-orange-500/40">
                     Total Depth: {inspectedSummary.totalDrilledDepth.toFixed(2)}m &bull; {inspectedSummary.runCount} Runs
                   </span>
                 </div>
@@ -652,7 +652,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                       onSelectBorehole(inspectedBorehole.id);
                       onClose();
                     }}
-                    className="flex items-center gap-1 px-3 py-1 rounded text-xs font-black bg-white text-black hover:bg-slate-100 transition-colors cursor-pointer shadow-xs"
+                    className="flex items-center gap-1 px-3 py-1 rounded text-xs font-bold bg-slate-900 text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer shadow-xs border border-slate-700"
                   >
                     <span>Open in Workspace</span>
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -670,40 +670,40 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
               </div>
 
               {/* Inspector Content Grid */}
-              <div className="p-5 space-y-5 text-xs text-black">
+              <div className="p-5 space-y-5 text-xs text-slate-100">
                 {/* Hole Parameters Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 bg-slate-100 p-4 rounded-xl border-2 border-slate-300">
+                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 bg-slate-900 p-4 rounded-xl border border-slate-800">
                   <div>
-                    <span className="text-[10px] text-black font-black uppercase block">Collar RL</span>
-                    <span className="font-mono font-black text-black">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Collar RL</span>
+                    <span className="font-mono font-bold text-slate-100">
                       {inspectedBorehole.collarElevation || 0} m a.s.l.
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-black font-black uppercase block">Inclination / Azimuth</span>
-                    <span className="font-mono font-black text-black">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Inclination / Azimuth</span>
+                    <span className="font-mono font-bold text-slate-100">
                       {inspectedBorehole.inclinationDeg}° / {inspectedBorehole.azimuthDeg}°
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-black font-black uppercase block">Core Diameter</span>
-                    <span className="font-black text-black">{inspectedBorehole.coreDiameter}</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Core Diameter</span>
+                    <span className="font-bold text-slate-100">{inspectedBorehole.coreDiameter}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-black font-black uppercase block">Drilling Method</span>
-                    <span className="font-black text-black truncate block">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Drilling Method</span>
+                    <span className="font-bold text-slate-100 truncate block">
                       {inspectedBorehole.drillingMethod}
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-black font-black uppercase block">Core Recovery</span>
-                    <span className="font-mono font-black text-black">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Core Recovery</span>
+                    <span className="font-mono font-bold text-slate-100">
                       {inspectedSummary.averageTcr.toFixed(1)}% TCR
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-black font-black uppercase block">RQD Rating</span>
-                    <span className="font-mono font-black text-black">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">RQD Rating</span>
+                    <span className="font-mono font-bold text-slate-100">
                       {inspectedSummary.averageRqd.toFixed(1)}% ({inspectedSummary.overallRqdRating})
                     </span>
                   </div>
@@ -711,17 +711,17 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
 
                 {/* All Continuous Runs Table */}
                 <div>
-                  <h4 className="font-black text-black text-xs uppercase tracking-wider mb-2 flex items-center justify-between">
+                  <h4 className="font-bold text-slate-300 text-xs uppercase tracking-wider mb-2 flex items-center justify-between">
                     <span>Continuous Run Log Table ({inspectedBorehole.runs.length} runs)</span>
-                    <span className="text-[11px] font-black text-black">
+                    <span className="text-[11px] font-mono text-slate-400">
                       ISO 22475-1 / ASTM D2113 Engineering Runs
                     </span>
                   </h4>
-                  <div className="border-2 border-slate-400 rounded-lg overflow-hidden">
+                  <div className="border border-slate-800 rounded-lg overflow-hidden bg-slate-950">
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse text-xs">
                         <thead>
-                          <tr className="bg-slate-200 text-black font-black uppercase text-[10px] border-b-2 border-slate-400">
+                          <tr className="bg-slate-900 text-slate-400 font-bold uppercase text-[10px] border-b border-slate-800">
                             <th className="py-2 px-3 text-center">Run #</th>
                             <th className="py-2 px-3 text-center">Depth (From - To)</th>
                             <th className="py-2 px-3 text-center">Length</th>
@@ -735,50 +735,50 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                             <th className="py-2 px-3">Discontinuities / Remarks</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y-2 divide-slate-200">
+                        <tbody className="divide-y divide-slate-800 text-slate-200">
                           {inspectedBorehole.runs.map((r) => {
                             const rb = getRqdBadgeColor(r.rqdRating);
                             return (
-                              <tr key={r.id} className="hover:bg-slate-100">
-                                <td className="py-2 px-3 text-center font-mono font-black text-black">{r.runNumber}</td>
-                                <td className="py-2 px-3 text-center font-mono font-black text-black">
+                              <tr key={r.id} className="hover:bg-slate-900/60">
+                                <td className="py-2 px-3 text-center font-mono font-bold text-orange-400">{r.runNumber}</td>
+                                <td className="py-2 px-3 text-center font-mono font-bold text-slate-200">
                                   {r.depthFrom.toFixed(2)} - {r.depthTo.toFixed(2)}m
                                 </td>
-                                <td className="py-2 px-3 text-center font-mono font-black text-black">
+                                <td className="py-2 px-3 text-center font-mono font-bold text-slate-300">
                                   {r.runLength.toFixed(2)}m
                                 </td>
-                                <td className="py-2 px-3 text-center font-mono font-black text-black">{r.coreRecovered.toFixed(2)}m</td>
-                                <td className="py-2 px-3 text-center font-mono font-black">
-                                  <span className={r.tcrPercent >= 90 ? 'text-emerald-700 font-black' : 'text-amber-700 font-black'}>
+                                <td className="py-2 px-3 text-center font-mono font-bold text-slate-200">{r.coreRecovered.toFixed(2)}m</td>
+                                <td className="py-2 px-3 text-center font-mono font-bold">
+                                  <span className={r.tcrPercent >= 90 ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
                                     {r.tcrPercent.toFixed(1)}%
                                   </span>
                                 </td>
-                                <td className="py-2 px-3 text-center font-mono font-black text-black">{r.soundPiecesOver10cm.toFixed(2)}m</td>
-                                <td className="py-2 px-3 text-center font-mono font-black text-black">{r.rqdPercent.toFixed(1)}%</td>
+                                <td className="py-2 px-3 text-center font-mono font-bold text-slate-300">{r.soundPiecesOver10cm.toFixed(2)}m</td>
+                                <td className="py-2 px-3 text-center font-mono font-bold text-slate-200">{r.rqdPercent.toFixed(1)}%</td>
                                 <td className="py-2 px-3 text-center">
                                   <span
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-black border ${rb.bg} text-black border-slate-400`}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${rb.bg} text-slate-200 border-slate-600`}
                                   >
                                     {r.rqdRating}
                                   </span>
                                 </td>
                                 <td className="py-2 px-3 text-center">
                                   <span
-                                    className="px-2 py-0.5 rounded text-[11px] font-black"
+                                    className="px-2 py-0.5 rounded text-[11px] font-bold"
                                     style={{
-                                      backgroundColor: r.lithologyColor ? `${r.lithologyColor}30` : '#f1f5f9',
-                                      color: '#000000',
-                                      border: `1.5px solid ${r.lithologyColor || '#cbd5e1'}`,
+                                      backgroundColor: r.lithologyColor ? `${r.lithologyColor}30` : '#1e293b',
+                                      color: r.lithologyColor || '#e2e8f0',
+                                      border: `1.5px solid ${r.lithologyColor || '#334155'}`,
                                     }}
                                   >
                                     {r.lithology}
                                   </span>
                                 </td>
-                                <td className="py-2 px-3 text-center font-mono font-black text-black">
+                                <td className="py-2 px-3 text-center font-mono font-bold text-slate-300">
                                   {r.weathering} / {r.strengthGrade}
                                 </td>
-                                <td className="py-2 px-3 text-black">
-                                  <div className="truncate max-w-[260px] font-bold text-black">
+                                <td className="py-2 px-3 text-slate-300">
+                                  <div className="truncate max-w-[260px] text-slate-300">
                                     {r.discontinuitiesDescription || r.remarks || '—'}
                                   </div>
                                 </td>
@@ -794,30 +794,30 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                 {/* Core Box Photos Gallery */}
                 {inspectedBorehole.photos && inspectedBorehole.photos.length > 0 && (
                   <div>
-                    <h4 className="font-black text-black text-xs uppercase tracking-wider mb-2 flex items-center gap-2">
-                      <Camera className="w-3.5 h-3.5 text-orange-600" />
+                    <h4 className="font-bold text-slate-300 text-xs uppercase tracking-wider mb-2 flex items-center gap-2">
+                      <Camera className="w-3.5 h-3.5 text-orange-500" />
                       <span>Core Box Photographic Records ({inspectedBorehole.photos.length} boxes)</span>
                     </h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                       {inspectedBorehole.photos.map((p) => (
                         <div
                           key={p.id}
-                          className="p-3 bg-white rounded-lg border-2 border-slate-300 shadow-2xs"
+                          className="p-3 bg-slate-900 rounded-lg border border-slate-800 shadow-2xs"
                         >
-                          <div className="aspect-16/9 bg-slate-200 rounded flex items-center justify-center overflow-hidden mb-2">
+                          <div className="aspect-16/9 bg-slate-950 rounded flex items-center justify-center overflow-hidden mb-2 border border-slate-800">
                             {p.photoUrl ? (
                               <img src={p.photoUrl} alt={p.photoTitle} className="w-full h-full object-cover" />
                             ) : (
-                              <div className="text-center p-3 text-black">
+                              <div className="text-center p-3 text-slate-400">
                                 <Camera className="w-6 h-6 mx-auto mb-1 opacity-70" />
-                                <span className="text-[10px] font-black">Photo Recorded</span>
+                                <span className="text-[10px] font-bold">Photo Recorded</span>
                               </div>
                             )}
                           </div>
-                          <div className="font-black text-black text-xs">
+                          <div className="font-bold text-slate-200 text-xs">
                             Box #{p.boxNumber} ({p.depthFrom.toFixed(2)}m - {p.depthTo.toFixed(2)}m)
                           </div>
-                          <div className="text-[11px] text-black font-bold truncate mt-0.5">
+                          <div className="text-[11px] text-slate-400 truncate mt-0.5">
                             {p.photoTitle || p.notes || 'Condition: ' + p.condition}
                           </div>
                         </div>
@@ -827,33 +827,33 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
                 )}
 
                 {/* Sign-Off Parties Preview */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t-2 border-slate-300">
-                  <div className="p-3 bg-white rounded-lg border-2 border-slate-300 shadow-2xs">
-                    <span className="text-[10px] font-black text-black uppercase block">1. Contractor Geologist</span>
-                    <div className="font-black text-black mt-0.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-800">
+                  <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 shadow-2xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">1. Contractor Geologist</span>
+                    <div className="font-bold text-slate-100 mt-0.5">
                       {inspectedBorehole.signOff?.contractorName || 'Pending'}
                     </div>
-                    <div className="text-[10px] text-black font-bold">
+                    <div className="text-[10px] text-slate-400">
                       {inspectedBorehole.signOff?.contractorDesignation || inspectedBorehole.drillingContractor}
                     </div>
                   </div>
 
-                  <div className="p-3 bg-white rounded-lg border-2 border-slate-300 shadow-2xs">
-                    <span className="text-[10px] font-black text-black uppercase block">2. PMC Geotechnical Lead</span>
-                    <div className="font-black text-black mt-0.5">
+                  <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 shadow-2xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">2. PMC Geotechnical Lead</span>
+                    <div className="font-bold text-slate-100 mt-0.5">
                       {inspectedBorehole.signOff?.pmcName || 'Pending'}
                     </div>
-                    <div className="text-[10px] text-black font-bold">
+                    <div className="text-[10px] text-slate-400">
                       {inspectedBorehole.signOff?.pmcDesignation || inspectedBorehole.pmcConsultant}
                     </div>
                   </div>
 
-                  <div className="p-3 bg-white rounded-lg border-2 border-slate-300 shadow-2xs">
-                    <span className="text-[10px] font-black text-black uppercase block">3. Client Project Director</span>
-                    <div className="font-black text-black mt-0.5">
+                  <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 shadow-2xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">3. Client Project Director</span>
+                    <div className="font-bold text-slate-100 mt-0.5">
                       {inspectedBorehole.signOff?.clientName || 'Pending'}
                     </div>
-                    <div className="text-[10px] text-black font-bold">
+                    <div className="text-[10px] text-slate-400">
                       {inspectedBorehole.signOff?.clientDesignation || inspectedBorehole.clientEmployer}
                     </div>
                   </div>
@@ -864,9 +864,9 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
         </div>
 
         {/* Modal Footer */}
-        <div className="px-5 py-3 border-t-2 border-slate-300 bg-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
-          <div className="text-black font-black flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+        <div className="px-5 py-3 border-t border-slate-800 bg-slate-950 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
+          <div className="text-slate-400 font-medium flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
             <span>Persistent HTML5 LocalStorage Active &bull; Auto-syncs continuously</span>
           </div>
 
@@ -874,7 +874,7 @@ export const CoreDataAndStorageModal: React.FC<CoreDataAndStorageModalProps> = (
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg text-xs font-black bg-slate-200 text-black hover:bg-slate-300 transition-colors cursor-pointer border border-slate-400"
+              className="px-4 py-2 rounded-lg text-xs font-bold bg-slate-800 text-slate-200 hover:bg-slate-700 transition-colors cursor-pointer border border-slate-700"
             >
               {embedded ? 'Close Registry' : 'Close'}
             </button>

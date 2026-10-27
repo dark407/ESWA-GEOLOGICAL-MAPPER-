@@ -501,15 +501,17 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
     );
   };
 
+  const ContainerTag = embedded ? 'div' : 'aside';
+
   return (
-    <aside
+    <ContainerTag
       style={embedded ? undefined : { width: `${panelWidthPx}px` }}
       className={
         embedded
-          ? 'relative w-full flex-1 bg-[#111621] flex flex-col min-h-0 text-xs font-mono overflow-hidden'
-          : `relative max-w-[52vw] bg-[#111621] ${
+          ? 'relative w-full flex-1 bg-white text-slate-900 flex flex-col min-h-0 text-xs font-mono overflow-hidden'
+          : `relative max-w-[52vw] bg-white text-slate-900 ${
               dockSide === 'left' ? 'order-first border-r' : 'order-last border-l'
-            } border-slate-800 flex flex-col h-full text-xs font-mono shrink-0 z-20 transition-[width] duration-75`
+            } border-slate-200 flex flex-col h-full text-xs font-mono shrink-0 z-20 transition-[width] duration-75 shadow-xs`
       }
     >
       {/* Interactive Drag-to-Resize Handle (Drag Edge to Expand or Shrink) */}
@@ -612,20 +614,20 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
           )}
         </div>
       ) : (
-        <div className="mx-2.5 mt-2 p-2 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-[10px] text-emerald-200 leading-relaxed">
-          <strong className="text-emerald-300">Realistic Tunnel Shape (1. Face Cross-Section):</strong>{' '}
+        <div className="mx-2.5 mt-2 p-2 rounded-lg bg-emerald-50 border border-emerald-300 text-[10px] text-emerald-950 leading-relaxed shadow-2xs">
+          <strong className="text-emerald-900">Realistic Tunnel Shape (1. Face Cross-Section):</strong>{' '}
           Crown Arch Overbreak, Left Wall Overbreak &amp; Right Wall Overbreak are plotted here on the Face cross-section (since radial overbreak is not geometrically possible on flat unwrapped Wall/Crown views).
         </div>
       )}
 
       {/* Quick Action Bar */}
-      <div className="p-2.5 bg-slate-900/90 border-b border-slate-800 space-y-2">
+      <div className="p-2.5 bg-slate-50 border-b border-slate-200 space-y-2">
         <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"
             disabled={surveyProfile.locked}
             onClick={onGenerateSampleAsBuiltProfile}
-            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold rounded text-[11px]"
+            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold rounded text-[11px] cursor-pointer shadow-2xs"
             title="Place Survey Control Points around the tunnel perimeter for as-built profile adjustment"
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -635,7 +637,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             type="button"
             disabled={surveyProfile.locked || surfaceCPs.length < 2}
             onClick={handleAutoConnectPerimeter}
-            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white font-semibold rounded text-[11px]"
+            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white font-bold rounded text-[11px] cursor-pointer shadow-2xs"
             title="Connect all control points in clockwise sequence around tunnel perimeter"
           >
             <Link2 className="w-3.5 h-3.5" />
@@ -648,7 +650,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             type="button"
             disabled={surveyProfile.locked || surfaceCPs.length < 2}
             onClick={handleConnectInOrder}
-            className="flex-1 py-1 px-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 border border-slate-700 rounded text-[10px]"
+            className="flex-1 py-1 px-2 bg-white hover:bg-slate-100 disabled:opacity-40 text-slate-800 border border-slate-300 rounded font-semibold text-[10px] cursor-pointer"
           >
             Connect CP1→CPn
           </button>
@@ -656,7 +658,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             type="button"
             disabled={surveyProfile.locked || surveyProfile.orderedControlPointIds.length === 0}
             onClick={handleDisconnectAll}
-            className="flex items-center gap-1 py-1 px-2 bg-slate-800 hover:bg-rose-950/60 disabled:opacity-40 text-slate-300 hover:text-rose-200 border border-slate-700 rounded text-[10px]"
+            className="flex items-center gap-1 py-1 px-2 bg-white hover:bg-rose-50 disabled:opacity-40 text-rose-700 hover:text-rose-800 border border-slate-300 rounded font-semibold text-[10px] cursor-pointer"
           >
             <Unlink className="w-3 h-3" />
             Disconnect
@@ -664,35 +666,35 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
           <button
             type="button"
             onClick={() => setShowImportBox((p) => !p)}
-            className="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 rounded text-[10px]"
+            className="py-1 px-2 bg-white hover:bg-slate-100 text-cyan-800 border border-slate-300 rounded font-semibold text-[10px] cursor-pointer"
           >
             Import XY
           </button>
         </div>
 
         {showImportBox && (
-          <div className="p-2 bg-slate-950 border border-slate-700 rounded space-y-1.5">
-            <div className="text-[10px] text-slate-400">
+          <div className="p-2.5 bg-white border border-slate-300 rounded-lg space-y-1.5 shadow-xs">
+            <div className="text-[10px] text-slate-700 font-semibold">
               Paste Survey Control Points (`Label, X(m), Y(m)`):
             </div>
             <textarea
               rows={4}
               value={importText}
               onChange={(e) => setImportText(e.target.value)}
-              className="w-full p-1.5 bg-slate-900 border border-slate-700 rounded text-[10px] text-slate-200 font-mono"
+              className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded text-[10px] text-slate-900 font-mono"
             />
             <div className="flex justify-end gap-1.5">
               <button
                 type="button"
                 onClick={() => setShowImportBox(false)}
-                className="px-2 py-1 text-[10px] text-slate-400 hover:text-white"
+                className="px-2 py-1 text-[10px] text-slate-600 hover:text-slate-900 font-semibold cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleImportSurveyText}
-                className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-[10px] font-semibold"
+                className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-[10px] font-bold cursor-pointer"
               >
                 Import &amp; Connect
               </button>
@@ -702,14 +704,14 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
       </div>
 
       {/* Sub-navigation Tabs */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 bg-[#0B0E14] border-b border-slate-800 p-1 gap-1">
+      <div className="grid grid-cols-3 sm:grid-cols-6 bg-slate-100 border-b border-slate-200 p-1 gap-1">
         <button
           type="button"
           onClick={() => setSubTab('quantities')}
           className={`py-1.5 px-1 rounded text-[10px] font-semibold transition-colors cursor-pointer text-center ${
             subTab === 'quantities'
-              ? 'bg-cyan-600 text-white shadow'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-cyan-600 text-white shadow-2xs font-bold'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
           }`}
         >
           1. Quantities
@@ -719,8 +721,8 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
           onClick={() => setSubTab('profile_points')}
           className={`py-1.5 px-1 rounded text-[10px] font-semibold transition-colors cursor-pointer text-center ${
             subTab === 'profile_points'
-              ? 'bg-cyan-600 text-white shadow'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-cyan-600 text-white shadow-2xs font-bold'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
           }`}
         >
           2. CPs ({analysis.connectedPointsCount})
@@ -730,8 +732,8 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
           onClick={() => setSubTab('reasons')}
           className={`py-1.5 px-1 rounded text-[10px] font-semibold transition-colors cursor-pointer text-center ${
             subTab === 'reasons'
-              ? 'bg-cyan-600 text-white shadow'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-cyan-600 text-white shadow-2xs font-bold'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
           }`}
         >
           3. Reasons
@@ -741,20 +743,20 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
           onClick={() => setSubTab('round_trends')}
           className={`py-1.5 px-1 rounded text-[10px] font-bold transition-colors cursor-pointer text-center flex items-center justify-center gap-1 ${
             subTab === 'round_trends'
-              ? 'bg-cyan-600 text-white shadow'
-              : 'text-cyan-400 hover:text-cyan-200 hover:bg-slate-900'
+              ? 'bg-cyan-600 text-white shadow-2xs'
+              : 'text-cyan-700 hover:text-cyan-900 hover:bg-slate-200'
           }`}
         >
           <TrendingUp className="w-3 h-3" />
-          <span>4. Trends (Δ)</span>
+          <span>4. Trends</span>
         </button>
         <button
           type="button"
           onClick={() => setSubTab('look_ahead')}
           className={`py-1.5 px-1 rounded text-[10px] font-bold transition-colors cursor-pointer text-center flex items-center justify-center gap-1 ${
             subTab === 'look_ahead'
-              ? 'bg-amber-600 text-white shadow'
-              : 'text-amber-400 hover:text-amber-200 hover:bg-slate-900'
+              ? 'bg-amber-600 text-white shadow-2xs'
+              : 'text-amber-700 hover:text-amber-900 hover:bg-slate-200'
           }`}
         >
           <Compass className="w-3 h-3" />
@@ -765,8 +767,8 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
           onClick={() => setSubTab('ai_predictor')}
           className={`py-1.5 px-1 rounded text-[10px] font-bold transition-colors cursor-pointer text-center flex items-center justify-center gap-1 ${
             subTab === 'ai_predictor'
-              ? 'bg-emerald-600 text-white shadow'
-              : 'text-emerald-400 hover:text-emerald-200 bg-emerald-950/30'
+              ? 'bg-emerald-600 text-white shadow-2xs'
+              : 'text-emerald-700 hover:text-emerald-900 hover:bg-slate-200'
           }`}
         >
           <Sparkles className="w-3 h-3" />
@@ -775,7 +777,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
       </div>
 
       {/* Tab Body */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-3 bg-white text-slate-900">
         {!analysis.hasConnectedProfile && (
           <div className="p-3 bg-amber-950/40 border border-amber-600/50 rounded text-[11px] text-amber-200 space-y-1.5">
             <div className="font-bold flex items-center gap-1.5 text-amber-300">
@@ -794,29 +796,29 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
         {subTab === 'quantities' && (
           <>
             {/* Reference Design vs Surveyed As-Built Summary */}
-            <div className="p-2.5 bg-slate-900 border border-slate-800 rounded space-y-1.5">
-              <div className="text-[10px] font-bold text-cyan-400 border-b border-slate-800 pb-1 flex items-center justify-between">
+            <div className="p-2.5 bg-white border border-slate-200 rounded-lg space-y-1.5 shadow-2xs">
+              <div className="text-[10px] font-bold text-cyan-800 border-b border-slate-200 pb-1 flex items-center justify-between">
                 <span>PROFILE COMPARISON ({settings.faceChainage})</span>
-                <span className="text-slate-400">{geometry.source.toUpperCase()}</span>
+                <span className="text-slate-500 font-semibold">{geometry.source.toUpperCase()}</span>
               </div>
               <div className="grid grid-cols-2 gap-2 pt-1">
-                <div className="p-2 bg-slate-950 rounded border border-slate-800/90">
-                  <div className="text-[10px] text-slate-400">Design Area</div>
-                  <div className="text-sm font-bold text-cyan-300">
+                <div className="p-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="text-[10px] text-slate-500 font-semibold">Design Area</div>
+                  <div className="text-sm font-bold text-cyan-700">
                     {analysis.designAreaSqMeters.toFixed(2)} m²
                   </div>
-                  <div className="text-[10px] text-slate-500">
+                  <div className="text-[10px] text-slate-600">
                     Perim: {analysis.designPerimeterMeters.toFixed(2)} m
                   </div>
                 </div>
-                <div className="p-2 bg-slate-950 rounded border border-slate-800/90">
-                  <div className="text-[10px] text-slate-400">Surveyed As-Built</div>
-                  <div className="text-sm font-bold text-emerald-300">
+                <div className="p-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="text-[10px] text-slate-500 font-semibold">Surveyed As-Built</div>
+                  <div className="text-sm font-bold text-emerald-700">
                     {analysis.hasConnectedProfile
                       ? `${analysis.surveyedAreaSqMeters.toFixed(2)} m²`
                       : '—'}
                   </div>
-                  <div className="text-[10px] text-slate-500">
+                  <div className="text-[10px] text-slate-600">
                     Perim:{' '}
                     {analysis.hasConnectedProfile
                       ? `${analysis.surveyedPerimeterMeters.toFixed(2)} m`
@@ -827,9 +829,9 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             </div>
 
             {/* Pull / Chainage Interval Configuration for Volume Calculation */}
-            <div className="p-2.5 bg-slate-900 border border-slate-800 rounded space-y-2">
+            <div className="p-2.5 bg-white border border-slate-200 rounded-lg space-y-2 shadow-2xs">
               <div className="flex items-center justify-between">
-                <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-200 cursor-pointer">
+                <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-800 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={surveyProfile.useValidPullInterval}
@@ -843,7 +845,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                             : prev.pullIntervalMeters,
                       }))
                     }
-                    className="rounded border-slate-700 bg-slate-950 text-cyan-500"
+                    className="rounded border-slate-300 bg-white text-cyan-600"
                   />
                   Valid Pull / Chainage Interval (m)
                 </label>
@@ -861,14 +863,14 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                       pullIntervalMeters: Number.isNaN(val) ? null : val,
                     }));
                   }}
-                  className="w-20 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-right text-cyan-300 font-bold"
+                  className="w-20 px-2 py-1 bg-slate-50 border border-slate-300 rounded text-right text-cyan-800 font-bold"
                 />
               </div>
               <div
-                className={`text-[10px] px-2 py-1 rounded border ${
+                className={`text-[10px] px-2 py-1 rounded-md border font-semibold ${
                   analysis.hasValidVolumeInterval
-                    ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
-                    : 'bg-amber-950/50 border-amber-700/60 text-amber-300 font-semibold'
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                    : 'bg-amber-50 border-amber-300 text-amber-900'
                 }`}
               >
                 {analysis.volumeStatusMessage}
@@ -876,61 +878,61 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             </div>
 
             {/* OVERBREAK CARD (Outside Design Boundary) */}
-            <div className="p-2.5 bg-rose-950/20 border border-rose-500/40 rounded space-y-1.5">
-              <div className="flex items-center justify-between border-b border-rose-900/50 pb-1">
-                <span className="font-bold text-rose-300">
+            <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg space-y-1.5 shadow-2xs">
+              <div className="flex items-center justify-between border-b border-rose-200 pb-1">
+                <span className="font-bold text-rose-900">
                   OVERBREAK (OUTSIDE DESIGN)
                 </span>
-                <span className="px-1.5 py-0.5 bg-rose-950 text-rose-300 rounded text-[10px] border border-rose-700/50">
+                <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded text-[10px] border border-rose-300 font-bold">
                   {analysis.overbreakRegions.length} Zone(s)
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Area:</span>
-                  <strong className="text-rose-300">
+                  <span className="text-slate-600">Area:</span>
+                  <strong className="text-rose-800">
                     {analysis.overbreakAreaSqMeters.toFixed(2)} m²
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Overbreak %:</span>
-                  <strong className="text-rose-300">
+                  <span className="text-slate-600">Overbreak %:</span>
+                  <strong className="text-rose-800">
                     {analysis.overbreakPercentage.toFixed(2)}%
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Max Radial:</span>
-                  <strong className="text-slate-100">
+                  <span className="text-slate-600">Max Radial:</span>
+                  <strong className="text-slate-900 font-bold">
                     {analysis.maxRadialOverbreakMeters.toFixed(3)} m
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Min Radial:</span>
-                  <strong className="text-slate-100">
+                  <span className="text-slate-600">Min Radial:</span>
+                  <strong className="text-slate-900 font-bold">
                     {analysis.minRadialOverbreakMeters.toFixed(3)} m
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Avg Radial:</span>
-                  <strong className="text-slate-100">
+                  <span className="text-slate-600">Avg Radial:</span>
+                  <strong className="text-slate-900 font-bold">
                     {analysis.avgRadialOverbreakMeters.toFixed(3)} m
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Perimeter:</span>
-                  <strong className="text-slate-100">
+                  <span className="text-slate-600">Perimeter:</span>
+                  <strong className="text-slate-900 font-bold">
                     {analysis.overbreakPerimeterMeters.toFixed(2)} m
                   </strong>
                 </div>
               </div>
-              <div className="pt-1 border-t border-rose-900/40 flex items-center justify-between text-[11px]">
-                <span className="text-slate-300">Overbreak Volume:</span>
+              <div className="pt-1 border-t border-rose-200 flex items-center justify-between text-[11px]">
+                <span className="text-slate-600 font-semibold">Overbreak Volume:</span>
                 {analysis.overbreakVolumeCubicMeters !== null ? (
-                  <strong className="text-rose-300 text-xs">
+                  <strong className="text-rose-800 text-xs font-bold">
                     {analysis.overbreakVolumeCubicMeters.toFixed(2)} m³
                   </strong>
                 ) : (
-                  <span className="text-[10px] text-amber-300">
+                  <span className="text-[10px] text-amber-800 font-semibold">
                     Volume requires valid chainage/pull interval.
                   </span>
                 )}
@@ -938,55 +940,55 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             </div>
 
             {/* UNDERCUT CARD (Inside Design Boundary) */}
-            <div className="p-2.5 bg-amber-950/20 border border-amber-500/40 rounded space-y-1.5">
-              <div className="flex items-center justify-between border-b border-amber-900/50 pb-1">
-                <span className="font-bold text-amber-300">
+            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg space-y-1.5 shadow-2xs">
+              <div className="flex items-center justify-between border-b border-amber-200 pb-1">
+                <span className="font-bold text-amber-900">
                   UNDERCUT (INSIDE DESIGN)
                 </span>
-                <span className="px-1.5 py-0.5 bg-amber-950 text-amber-300 rounded text-[10px] border border-amber-700/50">
+                <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 rounded text-[10px] border border-amber-300 font-bold">
                   {analysis.undercutRegions.length} Zone(s)
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Area:</span>
-                  <strong className="text-amber-300">
+                  <span className="text-slate-600">Area:</span>
+                  <strong className="text-amber-800">
                     {analysis.undercutAreaSqMeters.toFixed(2)} m²
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Undercut %:</span>
-                  <strong className="text-amber-300">
+                  <span className="text-slate-600">Undercut %:</span>
+                  <strong className="text-amber-800">
                     {analysis.undercutPercentage.toFixed(2)}%
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Max Undercut:</span>
-                  <strong className="text-slate-100">
+                  <span className="text-slate-600">Max Undercut:</span>
+                  <strong className="text-slate-900 font-bold">
                     {analysis.maxRadialUndercutMeters.toFixed(3)} m
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Avg Undercut:</span>
-                  <strong className="text-slate-100">
+                  <span className="text-slate-600">Avg Undercut:</span>
+                  <strong className="text-slate-900 font-bold">
                     {analysis.avgRadialUndercutMeters.toFixed(3)} m
                   </strong>
                 </div>
                 <div className="flex justify-between col-span-2">
-                  <span className="text-slate-400">Affected Perimeter:</span>
-                  <strong className="text-slate-100">
+                  <span className="text-slate-600">Affected Perimeter:</span>
+                  <strong className="text-slate-900 font-bold">
                     {analysis.undercutPerimeterMeters.toFixed(2)} m
                   </strong>
                 </div>
               </div>
-              <div className="pt-1 border-t border-amber-900/40 flex items-center justify-between text-[11px]">
-                <span className="text-slate-300">Undercut Volume:</span>
+              <div className="pt-1 border-t border-amber-200 flex items-center justify-between text-[11px]">
+                <span className="text-slate-600 font-semibold">Undercut Volume:</span>
                 {analysis.undercutVolumeCubicMeters !== null ? (
-                  <strong className="text-amber-300 text-xs">
+                  <strong className="text-amber-800 text-xs font-bold">
                     {analysis.undercutVolumeCubicMeters.toFixed(2)} m³
                   </strong>
                 ) : (
-                  <span className="text-[10px] text-amber-300">
+                  <span className="text-[10px] text-amber-800 font-semibold">
                     Volume requires valid chainage/pull interval.
                   </span>
                 )}
@@ -998,7 +1000,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
               <button
                 type="button"
                 onClick={() => onOpenExportSheet('ENGINEERING_QUANTITY_SHEET')}
-                className="w-full py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white rounded flex items-center justify-center gap-2 text-[11px] font-bold shadow cursor-pointer"
+                className="w-full py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white rounded-lg flex items-center justify-center gap-2 text-[11px] font-bold shadow-xs cursor-pointer"
               >
                 <Layers className="w-3.5 h-3.5" />
                 Open Overbreak &amp; Engineering Quantity Sheet →
@@ -1009,9 +1011,9 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             <button
               type="button"
               onClick={onOpenProjectMemoryModal}
-              className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-700/50 rounded flex items-center justify-center gap-2 text-[11px] font-semibold"
+              className="w-full py-2 px-3 bg-white hover:bg-slate-50 text-cyan-800 border border-slate-300 rounded-lg flex items-center justify-center gap-2 text-[11px] font-bold cursor-pointer shadow-2xs"
             >
-              <Database className="w-3.5 h-3.5" />
+              <Database className="w-3.5 h-3.5 text-cyan-600" />
               Project Memory &amp; Section-to-Section Volumes
             </button>
           </>
@@ -1019,8 +1021,8 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
 
         {subTab === 'profile_points' && (
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between bg-slate-900 p-2 rounded border border-slate-800">
-              <label className="flex items-center gap-1.5 text-[11px] text-slate-200 cursor-pointer">
+            <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
+              <label className="flex items-center gap-1.5 text-[11px] text-slate-800 font-semibold cursor-pointer">
                 <input
                   type="checkbox"
                   checked={surveyProfile.isClosed}
@@ -1031,18 +1033,18 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                       isClosed: e.target.checked,
                     }))
                   }
-                  className="rounded border-slate-700 bg-slate-950 text-emerald-500"
+                  className="rounded border-slate-300 bg-white text-emerald-600"
                 />
                 Close Profile Loop (CPn → CP1)
               </label>
-              <span className="text-[10px] text-emerald-400">
+              <span className="text-[10px] text-emerald-700 font-bold">
                 {surveyProfile.orderedControlPointIds.length} Connected
               </span>
             </div>
 
-            <div className="text-[10px] text-slate-400">
+            <div className="text-[10px] text-slate-600 font-medium">
               Connected Sequence:{' '}
-              <strong className="text-emerald-300">
+              <strong className="text-emerald-800 font-bold">
                 {surveyProfile.orderedControlPointIds.length > 0
                   ? surveyProfile.orderedControlPointIds
                       .map((id) => surfaceCPs.find((c) => c.id === id)?.label || '?')
@@ -1054,7 +1056,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             {/* Ordered Control Points Table */}
             <div className="space-y-1.5">
               {surfaceCPs.length === 0 ? (
-                <div className="p-3 bg-slate-900/60 border border-slate-800 rounded text-center text-slate-400 text-[11px]">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-center text-slate-500 text-[11px]">
                   No survey control points on this surface yet. Click on the canvas or click
                   &quot;Load Sample As-Built&quot;.
                 </div>
@@ -1067,10 +1069,10 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                     <div
                       key={cp.id}
                       onClick={() => onSelectControlPointId(cp.id)}
-                      className={`p-2 rounded border transition-colors cursor-pointer space-y-1.5 ${
+                      className={`p-2 rounded-lg border transition-colors cursor-pointer space-y-1.5 ${
                         isSel
-                          ? 'bg-emerald-950/50 border-emerald-500/60'
-                          : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                          ? 'bg-emerald-50 border-emerald-400 shadow-2xs'
+                          : 'bg-white border-slate-200 hover:bg-slate-50'
                       }`}
                     >
                       <div className="flex items-center justify-between">
@@ -1084,11 +1086,11 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                               handleTogglePointInSequence(cp.id);
                             }}
                             title="Include/exclude control point in connected profile"
-                            className="rounded border-slate-700 bg-slate-950 text-emerald-500"
+                            className="rounded border-slate-300 bg-white text-emerald-600"
                           />
-                          <span className="font-bold text-emerald-300">{cp.label}</span>
+                          <span className="font-bold text-slate-900">{cp.label}</span>
                           {seqIdx >= 0 && (
-                            <span className="px-1.5 py-0.2 bg-emerald-950 text-emerald-300 border border-emerald-700/60 rounded text-[9px]">
+                            <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded text-[9px] font-bold">
                               #{seqIdx + 1}
                             </span>
                           )}
@@ -1103,7 +1105,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                                   e.stopPropagation();
                                   handleMovePointInSequence(cp.id, -1);
                                 }}
-                                className="p-0.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded"
+                                className="p-1 bg-white hover:bg-slate-100 disabled:opacity-30 rounded border border-slate-300 text-slate-700 cursor-pointer"
                                 title="Move earlier in sequence"
                               >
                                 <ArrowUp className="w-3 h-3" />
@@ -1118,7 +1120,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                                   e.stopPropagation();
                                   handleMovePointInSequence(cp.id, 1);
                                 }}
-                                className="p-0.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded"
+                                className="p-1 bg-white hover:bg-slate-100 disabled:opacity-30 rounded border border-slate-300 text-slate-700 cursor-pointer"
                                 title="Move later in sequence"
                               >
                                 <ArrowDown className="w-3 h-3" />
@@ -1130,7 +1132,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                                   e.stopPropagation();
                                   handleInsertMidpointAfter(cp.id);
                                 }}
-                                className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded text-[9px]"
+                                className="px-1.5 py-0.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-300 rounded text-[9px] font-bold cursor-pointer"
                                 title="Insert new point after this CP along segment"
                               >
                                 +Ins
@@ -1152,7 +1154,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                                 ),
                               }));
                             }}
-                            className="p-0.5 text-slate-400 hover:text-rose-400"
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
                             title="Delete Control Point"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -1161,8 +1163,8 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                       </div>
 
                       <div className="grid grid-cols-2 gap-1.5">
-                        <label className="flex items-center gap-1 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
-                          <span className="text-[9px] text-slate-500">X:</span>
+                        <label className="flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-300">
+                          <span className="text-[9px] text-slate-500 font-semibold">X:</span>
                           <input
                             type="number"
                             step="0.02"
@@ -1179,12 +1181,12 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                                 )
                               );
                             }}
-                            className="w-full bg-transparent text-slate-100 text-[10px] focus:outline-none"
+                            className="w-full bg-transparent text-slate-900 text-[10px] font-bold focus:outline-none"
                           />
                           <span className="text-[9px] text-slate-500">m</span>
                         </label>
-                        <label className="flex items-center gap-1 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
-                          <span className="text-[9px] text-slate-500">Y:</span>
+                        <label className="flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-300">
+                          <span className="text-[9px] text-slate-500 font-semibold">Y:</span>
                           <input
                             type="number"
                             step="0.02"
@@ -1201,7 +1203,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                                 )
                               );
                             }}
-                            className="w-full bg-transparent text-slate-100 text-[10px] focus:outline-none"
+                            className="w-full bg-transparent text-slate-900 text-[10px] font-bold focus:outline-none"
                           />
                           <span className="text-[9px] text-slate-500">m</span>
                         </label>
@@ -1217,28 +1219,28 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
         {subTab === 'reasons' && (
           <div className="space-y-3">
             {/* One-Click AI Overbreak Root-Cause Diagnosis Banner */}
-            <div className="p-2.5 bg-emerald-950/30 border border-emerald-500/50 rounded space-y-1.5">
+            <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg space-y-1.5 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-emerald-300 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold text-emerald-900 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
                   AI ROOT-CAUSE: {aiOverbreakPrediction.overallDominantCategory} ({aiOverbreakPrediction.geologicalSharePct}% GEOL / {aiOverbreakPrediction.mechanicalSharePct}% MECH)
                 </span>
               </div>
-              <p className="text-[10px] text-slate-300 leading-relaxed">
+              <p className="text-[10px] text-slate-700 leading-relaxed">
                 {aiOverbreakPrediction.advanceLevelRootCauseSummary}
               </p>
               <div className="flex items-center gap-1.5 pt-1">
                 <button
                   type="button"
                   onClick={handleApplyAiOverbreakDiagnosisToAllZones}
-                  className="flex-1 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold cursor-pointer"
+                  className="flex-1 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-[10px] font-bold cursor-pointer shadow-xs"
                 >
                   Apply AI Root-Cause Diagnosis to All Zones
                 </button>
                 <button
                   type="button"
                   onClick={() => setSubTab('ai_predictor')}
-                  className="py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-600/40 rounded text-[10px] font-semibold cursor-pointer"
+                  className="py-1.5 px-2 bg-white hover:bg-slate-50 text-cyan-800 border border-slate-300 rounded-md text-[10px] font-bold cursor-pointer"
                 >
                   Advance Forecast →
                 </button>
@@ -1246,13 +1248,13 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             </div>
 
             {/* Overall Default Overbreak & Undercut Reason Categories */}
-            <div className="p-2.5 bg-slate-900 border border-slate-800 rounded space-y-2">
-              <div className="text-[10px] font-bold text-cyan-400">
+            <div className="p-2.5 bg-white border border-slate-200 rounded-lg space-y-2 shadow-2xs">
+              <div className="text-[10px] font-bold text-cyan-800">
                 PRIMARY OVERBREAK &amp; UNDERCUT CLASSIFICATION
               </div>
 
               <label className="block space-y-1">
-                <span className="text-[10px] text-rose-300 font-semibold">
+                <span className="text-[10px] text-rose-800 font-bold">
                   Overall Overbreak Category:
                 </span>
                 <select
@@ -1263,7 +1265,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                       overallOverbreakCategory: e.target.value as OverbreakReasonCategory,
                     }))
                   }
-                  className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-slate-100 text-[11px]"
+                  className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded text-slate-900 font-bold text-[11px]"
                 >
                   <option value="GEOLOGICAL">
                     GEOLOGICAL (Wedge / Joint Intersection / Shear Zone / Foliation)
@@ -1275,7 +1277,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
               </label>
 
               <label className="block space-y-1">
-                <span className="text-[10px] text-slate-400">Overbreak Engineering Remarks:</span>
+                <span className="text-[10px] text-slate-600 font-semibold">Overbreak Engineering Remarks:</span>
                 <input
                   type="text"
                   value={surveyProfile.overallOverbreakReason}
@@ -1285,12 +1287,12 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                       overallOverbreakReason: e.target.value,
                     }))
                   }
-                  className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-slate-100 text-[11px]"
+                  className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded text-slate-900 text-[11px]"
                 />
               </label>
 
-              <label className="block space-y-1 pt-1 border-t border-slate-800">
-                <span className="text-[10px] text-amber-300 font-semibold">
+              <label className="block space-y-1 pt-1 border-t border-slate-200">
+                <span className="text-[10px] text-amber-800 font-bold">
                   Overall Undercut Category:
                 </span>
                 <select
@@ -1301,7 +1303,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                       overallUndercutCategory: e.target.value as OverbreakReasonCategory,
                     }))
                   }
-                  className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-slate-100 text-[11px]"
+                  className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded text-slate-900 font-bold text-[11px]"
                 >
                   <option value="MECHANICAL_EXCAVATION">
                     MECHANICAL / EXCAVATION (Tight Toe / Under-Excavation / Scaling)
@@ -1313,7 +1315,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
               </label>
 
               <label className="block space-y-1">
-                <span className="text-[10px] text-slate-400">Undercut Engineering Remarks:</span>
+                <span className="text-[10px] text-slate-600 font-semibold">Undercut Engineering Remarks:</span>
                 <input
                   type="text"
                   value={surveyProfile.overallUndercutReason}
@@ -1323,7 +1325,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                       overallUndercutReason: e.target.value,
                     }))
                   }
-                  className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-slate-100 text-[11px]"
+                  className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded text-slate-900 text-[11px]"
                 />
               </label>
             </div>
@@ -1334,24 +1336,24 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
               return (
                 <div
                   key={zone.id}
-                  className={`p-2.5 rounded border space-y-1.5 ${
+                  className={`p-2.5 rounded-lg border space-y-1.5 shadow-2xs ${
                     isOB
-                      ? 'bg-rose-950/20 border-rose-500/40'
-                      : 'bg-amber-950/20 border-amber-500/40'
+                      ? 'bg-rose-50 border-rose-200'
+                      : 'bg-amber-50 border-amber-200'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`font-bold ${isOB ? 'text-rose-300' : 'text-amber-300'}`}>
+                    <span className={`font-bold ${isOB ? 'text-rose-900' : 'text-amber-900'}`}>
                       {zone.id}: {zone.locationLabel}
                     </span>
-                    <span className="text-[10px] text-slate-300">
+                    <span className="text-[10px] text-slate-600 font-semibold">
                       {zone.areaSqMeters.toFixed(2)} m² (Max {zone.maxRadialMeters.toFixed(2)}m)
                     </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-1.5">
                     <label className="space-y-0.5">
-                      <span className="text-[9px] text-slate-400">Reason Category</span>
+                      <span className="text-[9px] text-slate-600 font-semibold">Reason Category</span>
                       <select
                         value={zone.reasonCategory}
                         onChange={(e) => {
@@ -1369,7 +1371,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                             },
                           }));
                         }}
-                        className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-[10px] text-slate-100"
+                        className="w-full px-1.5 py-1 bg-white border border-slate-300 rounded text-[10px] text-slate-900 font-semibold"
                       >
                         <option value="GEOLOGICAL">GEOLOGICAL</option>
                         <option value="MECHANICAL_EXCAVATION">MECHANICAL / EXCAV.</option>
@@ -1377,7 +1379,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                     </label>
 
                     <label className="space-y-0.5">
-                      <span className="text-[9px] text-slate-400">Linked Joint Sets</span>
+                      <span className="text-[9px] text-slate-600 font-semibold">Linked Joint Sets</span>
                       <input
                         type="text"
                         value={zone.linkedJointSets}
@@ -1397,13 +1399,13 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                             },
                           }));
                         }}
-                        className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-[10px] text-slate-100"
+                        className="w-full px-1.5 py-1 bg-white border border-slate-300 rounded text-[10px] text-slate-900"
                       />
                     </label>
                   </div>
 
                   <label className="block space-y-0.5">
-                    <span className="text-[9px] text-slate-400">Specific Cause / Remarks</span>
+                    <span className="text-[9px] text-slate-600 font-semibold">Specific Cause / Remarks</span>
                     <input
                       type="text"
                       value={zone.reasonDetail}
@@ -1422,7 +1424,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                           },
                         }));
                       }}
-                      className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-[10px] text-slate-100"
+                      className="w-full px-1.5 py-1 bg-white border border-slate-300 rounded text-[10px] text-slate-900"
                     />
                   </label>
                 </div>
@@ -1434,13 +1436,13 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
         {subTab === 'ai_predictor' && (
           <div className="space-y-3">
             {/* 1. Advance-Level Root Cause Breakdown: Geological vs. Mechanical Overbreak */}
-            <div className="p-2.5 bg-slate-900 border border-emerald-500/50 rounded space-y-2">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                <span className="text-[10px] font-bold text-emerald-300 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" />
+            <div className="p-2.5 bg-emerald-50/80 border border-emerald-300 rounded space-y-2 shadow-sm">
+              <div className="flex items-center justify-between border-b border-emerald-200 pb-1.5">
+                <span className="text-[10px] font-bold text-emerald-900 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
                   ADVANCE-LEVEL AI OVERBREAK ROOT-CAUSE DIAGNOSIS
                 </span>
-                <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700/60 text-[9px] font-bold">
+                <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[9px] font-bold">
                   {aiOverbreakPrediction.overallDominantCategory === 'GEOLOGICAL'
                     ? 'GEOLOGICAL DOMINANT'
                     : 'MECHANICAL / EXCAVATION'}
@@ -1450,17 +1452,17 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
               {/* Progress Split Bar: Geological vs Mechanical */}
               <div className="space-y-1">
                 <div className="flex justify-between text-[10px] font-semibold">
-                  <span className="text-rose-300">
+                  <span className="text-rose-800">
                     Geological (Wedge/Joint/Shear): {aiOverbreakPrediction.geologicalSharePct}%
                   </span>
-                  <span className="text-amber-300">
+                  <span className="text-amber-800">
                     Mechanical (Profile/Excavation): {aiOverbreakPrediction.mechanicalSharePct}%
                   </span>
                 </div>
-                <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden flex border border-slate-300">
                   <div
                     style={{ width: `${aiOverbreakPrediction.geologicalSharePct}%` }}
-                    className="bg-rose-500 h-full"
+                    className="bg-rose-600 h-full"
                   />
                   <div
                     style={{ width: `${aiOverbreakPrediction.mechanicalSharePct}%` }}
@@ -1469,53 +1471,53 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                 </div>
               </div>
 
-              <p className="text-[10px] text-slate-200 leading-relaxed bg-slate-950 p-2 rounded border border-slate-800">
+              <p className="text-[10px] text-slate-800 leading-relaxed bg-white p-2 rounded border border-emerald-200 shadow-sm">
                 {aiOverbreakPrediction.advanceLevelRootCauseSummary}
               </p>
 
               <button
                 type="button"
                 onClick={handleApplyAiOverbreakDiagnosisToAllZones}
-                className="w-full py-1.5 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold cursor-pointer shadow"
+                className="w-full py-1.5 px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-[10px] font-bold cursor-pointer shadow-sm transition-colors"
               >
                 Apply AI Diagnosis &amp; Joint Links to All Overbreak Zones
               </button>
             </div>
 
             {/* 2. Next-Pull Advance Overbreak Forecast (Editable by User) */}
-            <div className="p-2.5 bg-slate-900 border border-cyan-500/50 rounded space-y-2">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1">
-                <span className="text-[10px] font-bold text-cyan-300">
+            <div className="p-2.5 bg-cyan-50/80 border border-cyan-300 rounded space-y-2 shadow-sm">
+              <div className="flex items-center justify-between border-b border-cyan-200 pb-1">
+                <span className="text-[10px] font-bold text-cyan-950">
                   NEXT PULL ADVANCE FORECAST (+{(settings.roundLength || 3.5).toFixed(1)}m ROUND)
                 </span>
-                <span className="text-[10px] font-bold text-amber-300">
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
                   Pred OB: {aiOverbreakPrediction.nextPullPredictedOverbreakPct}%
                 </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-[10px]">
-                <div className="p-2 bg-slate-950 rounded border border-slate-800">
-                  <div className="text-slate-400">Predicted Next-Pull Area</div>
-                  <div className="text-sm font-bold text-rose-300">
+                <div className="p-2 bg-white rounded border border-cyan-200 shadow-sm">
+                  <div className="text-slate-600 font-medium">Predicted Next-Pull Area</div>
+                  <div className="text-sm font-bold text-rose-700">
                     {aiOverbreakPrediction.nextPullPredictedOverbreakAreaSqM.toFixed(2)} m² (
                     {aiOverbreakPrediction.nextPullPredictedOverbreakPct}%)
                   </div>
                 </div>
-                <div className="p-2 bg-slate-950 rounded border border-slate-800">
-                  <div className="text-slate-400">Predicted Max Radial Depth</div>
-                  <div className="text-sm font-bold text-amber-300">
+                <div className="p-2 bg-white rounded border border-cyan-200 shadow-sm">
+                  <div className="text-slate-600 font-medium">Predicted Max Radial Depth</div>
+                  <div className="text-sm font-bold text-amber-700">
                     {aiOverbreakPrediction.nextPullPredictedMaxRadialM.toFixed(2)} m
                   </div>
                 </div>
               </div>
 
-              <div className="text-[10px] text-slate-300 bg-slate-950 p-2 rounded border border-slate-800">
-                <strong className="text-cyan-300 block mb-0.5">Critical Sectors Ahead:</strong>
+              <div className="text-[10px] text-slate-800 bg-white p-2 rounded border border-cyan-200 shadow-sm">
+                <strong className="text-cyan-900 block mb-0.5 font-bold">Critical Sectors Ahead:</strong>
                 {customNextPullPredictionNote || aiOverbreakPrediction.nextPullCriticalSectors}
               </div>
 
               <label className="block space-y-0.5">
-                <span className="text-[9px] text-slate-400">
+                <span className="text-[9px] font-semibold text-slate-700">
                   Recommended Excavation &amp; Pre-Support Mitigation (User Editable):
                 </span>
                 <textarea
@@ -1530,40 +1532,40 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                       overallOverbreakReason: e.target.value,
                     }));
                   }}
-                  className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-[10px] text-slate-100"
+                  className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-[10px] text-slate-900 shadow-inner focus:outline-none focus:ring-1 focus:ring-cyan-500"
                 />
               </label>
             </div>
 
             {/* 3. Per-Zone AI Geological vs Mechanical Breakdown */}
             <div className="space-y-2">
-              <div className="text-[10px] font-bold text-slate-300">
-                ZONE-BY-ZONE AI DIAGNOSTIC &amp; SPOT BOLTING REQUIREMENT
+              <div className="text-[10px] font-bold text-slate-800 uppercase tracking-wide">
+                Zone-by-Zone AI Diagnostic &amp; Spot Bolting Requirement
               </div>
               {aiOverbreakPrediction.zonePredictions.map((zp) => (
                 <div
                   key={zp.zoneId}
-                  className="p-2.5 bg-slate-900 border border-slate-800 rounded space-y-1.5 text-[10px]"
+                  className="p-2.5 bg-white border border-slate-200 rounded-lg shadow-sm space-y-1.5 text-[10px]"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-rose-300">
+                    <span className="font-bold text-rose-800">
                       {zp.zoneId} · {zp.locationLabel}
                     </span>
                     <span
                       className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
                         zp.predictedCategory === 'GEOLOGICAL'
-                          ? 'bg-rose-950 text-rose-300 border border-rose-700/60'
-                          : 'bg-amber-950 text-amber-300 border border-amber-700/60'
+                          ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                          : 'bg-amber-100 text-amber-800 border border-amber-300'
                       }`}
                     >
                       {zp.predictedCategory} ({zp.confidencePct}% Conf)
                     </span>
                   </div>
-                  <div className="text-cyan-300 font-semibold">{zp.primaryMechanism}</div>
-                  <p className="text-slate-300 leading-relaxed">{zp.detailedExplanation}</p>
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[9px] text-slate-400">
-                    <span>Controlling Sets: {zp.controllingJointSets}</span>
-                    <span className="text-emerald-300 font-bold">
+                  <div className="text-cyan-900 font-semibold">{zp.primaryMechanism}</div>
+                  <p className="text-slate-700 leading-relaxed">{zp.detailedExplanation}</p>
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[9px] text-slate-600">
+                    <span>Controlling Sets: <strong className="text-slate-800">{zp.controllingJointSets}</strong></span>
+                    <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                       Spot Bolts Needed: {zp.recommendedSpotBolts} nos
                     </span>
                   </div>
@@ -1577,28 +1579,28 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
         {subTab === 'round_trends' && (
           <div className="space-y-3">
             {/* Round Delta Header Banner */}
-            <div className="p-3 bg-slate-900 border border-slate-800 rounded space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-1.5">
-                <span className="font-bold text-cyan-300 text-xs flex items-center gap-1.5">
-                  <TrendingUp className="w-3.5 h-3.5" />
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-1.5">
+                <span className="font-bold text-cyan-900 text-xs flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5 text-cyan-700" />
                   Multi-Round Trend Comparison ({multiRoundReport.chainageInterval})
                 </span>
-                <span className="text-[10px] text-slate-400">
-                  Historical Baseline: <strong>{savedProjects.length} saved round(s)</strong>
+                <span className="text-[10px] text-slate-600">
+                  Historical Baseline: <strong className="text-slate-900">{savedProjects.length} saved round(s)</strong>
                 </span>
               </div>
 
               {multiRoundReport.deltas.deteriorationRateWarning ? (
-                <div className="p-2 rounded bg-rose-950/50 border border-rose-600 text-rose-200 text-[10px] flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="p-2 rounded bg-rose-50 border border-rose-300 text-rose-900 text-[10px] flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <div>
-                    <strong className="text-rose-100 block">RAPID ROCK MASS DEGRADATION WARNING:</strong>
+                    <strong className="text-rose-900 block font-bold">RAPID ROCK MASS DEGRADATION WARNING:</strong>
                     {multiRoundReport.deltas.deteriorationDescription}
                   </div>
                 </div>
               ) : (
-                <div className="p-2 rounded bg-emerald-950/30 border border-emerald-600/50 text-emerald-200 text-[10px] flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div className="p-2 rounded bg-emerald-50 border border-emerald-300 text-emerald-900 text-[10px] flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>Ground conditions and overbreak rates are stable or improving relative to the preceding excavation round.</span>
                 </div>
               )}
@@ -1607,17 +1609,17 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             {/* 6 Key Geotechnical & Overbreak Delta KPI Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {/* Q-Index Delta */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Barton Q-Index (ΔQ)</div>
+              <div className="p-2.5 rounded bg-white border border-slate-200 shadow-sm space-y-1">
+                <div className="text-[10px] font-semibold text-slate-600">Barton Q-Index (ΔQ)</div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-white">
+                  <span className="text-sm font-bold text-slate-900">
                     {qIndexParams ? ((qIndexParams.rqd / (qIndexParams.jn || 9)) * ((qIndexParams.jr || 1.5) / (qIndexParams.ja || 1.0)) * ((qIndexParams.jw || 1.0) / (qIndexParams.srf || 1.0))).toFixed(2) : '10.00'}
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
                       (multiRoundReport.deltas.deltaQ ?? 0) >= 0
-                        ? 'bg-emerald-950 text-emerald-300'
-                        : 'bg-rose-950 text-rose-300'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-rose-50 text-rose-800 border-rose-200'
                     }`}
                   >
                     {(multiRoundReport.deltas.deltaQ ?? 0) >= 0 ? '+' : ''}
@@ -1627,10 +1629,10 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
               </div>
 
               {/* RMR Delta */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Bieniawski RMR89 (ΔRMR)</div>
+              <div className="p-2.5 rounded bg-white border border-slate-200 shadow-sm space-y-1">
+                <div className="text-[10px] font-semibold text-slate-600">Bieniawski RMR89 (ΔRMR)</div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-emerald-300">
+                  <span className="text-sm font-bold text-emerald-700">
                     {rmrParams
                       ? (rmrParams.intactStrengthRating || 7) +
                         (rmrParams.rqdRating || 13) +
@@ -1641,10 +1643,10 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                     pts
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
                       (multiRoundReport.deltas.deltaRMR ?? 0) >= 0
-                        ? 'bg-emerald-950 text-emerald-300'
-                        : 'bg-rose-950 text-rose-300'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-rose-50 text-rose-800 border-rose-200'
                     }`}
                   >
                     {(multiRoundReport.deltas.deltaRMR ?? 0) >= 0 ? '+' : ''}
@@ -1654,17 +1656,17 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
               </div>
 
               {/* RQD Delta */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">RQD &amp; Spacing (ΔRQD)</div>
+              <div className="p-2.5 rounded bg-white border border-slate-200 shadow-sm space-y-1">
+                <div className="text-[10px] font-semibold text-slate-600">RQD &amp; Spacing (ΔRQD)</div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-cyan-300">
+                  <span className="text-sm font-bold text-cyan-800">
                     {qIndexParams?.rqd ?? 80}%
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
                       (multiRoundReport.deltas.deltaRQD ?? 0) >= 0
-                        ? 'bg-emerald-950 text-emerald-300'
-                        : 'bg-rose-950 text-rose-300'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-rose-50 text-rose-800 border-rose-200'
                     }`}
                   >
                     {(multiRoundReport.deltas.deltaRQD ?? 0) >= 0 ? '+' : ''}
@@ -1674,10 +1676,10 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
               </div>
 
               {/* Overbreak Rate Delta */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Linear Overbreak Rate</div>
+              <div className="p-2.5 rounded bg-white border border-slate-200 shadow-sm space-y-1">
+                <div className="text-[10px] font-semibold text-slate-600">Linear Overbreak Rate</div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-amber-300">
+                  <span className="text-sm font-bold text-amber-800">
                     {(
                       (analysis.overbreakVolumeCubicMeters ??
                         analysis.overbreakAreaSqMeters * (settings.roundLength || 3.5)) /
@@ -1686,10 +1688,10 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                     m³/m
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
                       multiRoundReport.deltas.deltaOverbreakM3PerM <= 0
-                        ? 'bg-emerald-950 text-emerald-300'
-                        : 'bg-rose-950 text-rose-300'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-rose-50 text-rose-800 border-rose-200'
                     }`}
                   >
                     {multiRoundReport.deltas.deltaOverbreakM3PerM > 0 ? '+' : ''}
@@ -1699,26 +1701,26 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
               </div>
 
               {/* Max Radial Overbreak */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Max Radial Overbreak</div>
+              <div className="p-2.5 rounded bg-white border border-slate-200 shadow-sm space-y-1">
+                <div className="text-[10px] font-semibold text-slate-600">Max Radial Overbreak</div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-rose-400">
+                  <span className="text-sm font-bold text-rose-700">
                     +{(analysis.maxRadialOverbreakMeters * 100).toFixed(1)} cm
                   </span>
-                  <span className="text-[9px] text-slate-400">
+                  <span className="text-[9px] font-medium text-slate-500">
                     Crown (11:00)
                   </span>
                 </div>
               </div>
 
               {/* Critical Wedge Fallout Weight */}
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-400">Critical Wedge Fallout</div>
+              <div className="p-2.5 rounded bg-white border border-slate-200 shadow-sm space-y-1">
+                <div className="text-[10px] font-semibold text-slate-600">Critical Wedge Fallout</div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-white">
+                  <span className="text-sm font-bold text-slate-900">
                     {multiRoundReport.lookAheadPredictions.at3mMeters.crownWedgeWeightTonnes} t
                   </span>
-                  <span className="text-[9px] text-emerald-300 font-bold">
+                  <span className="text-[9px] text-emerald-700 font-bold bg-emerald-50 px-1 rounded border border-emerald-200">
                     Water: 0 L/min
                   </span>
                 </div>
@@ -1726,29 +1728,29 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             </div>
 
             {/* Automated Overbreak Root-Cause Diagnosis (Contractual Proof) */}
-            <div className="p-3 bg-gradient-to-br from-slate-900 to-[#0B1220] border border-cyan-800/60 rounded space-y-2">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                <span className="font-bold text-cyan-300 text-xs flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5" />
+            <div className="p-3 bg-gradient-to-br from-cyan-50 to-sky-50 border border-cyan-300 rounded-lg space-y-2 shadow-sm">
+              <div className="flex items-center justify-between border-b border-cyan-200 pb-1.5">
+                <span className="font-bold text-cyan-950 text-xs flex items-center gap-1.5">
+                  <Compass className="w-3.5 h-3.5 text-cyan-700" />
                   Automated Overbreak Root-Cause Diagnosis (Contractual Proof)
                 </span>
-                <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-700 text-cyan-200 font-bold text-[9px]">
+                <span className="px-2 py-0.5 rounded bg-cyan-100 border border-cyan-300 text-cyan-900 font-bold text-[9px]">
                   {multiRoundReport.overbreakDiagnosis.dominantType.replace(/_/g, ' ')}
                 </span>
               </div>
 
-              <div className="p-2 rounded bg-slate-950 border border-slate-800 text-[10px] space-y-1.5 leading-relaxed">
+              <div className="p-2 rounded bg-white border border-cyan-200 text-[10px] space-y-1.5 leading-relaxed shadow-sm">
                 <div>
-                  <strong className="text-slate-300">Geotechnical Analysis: </strong>
-                  <span className="text-slate-200">{multiRoundReport.overbreakDiagnosis.explanation}</span>
+                  <strong className="text-slate-800">Geotechnical Analysis: </strong>
+                  <span className="text-slate-700">{multiRoundReport.overbreakDiagnosis.explanation}</span>
                 </div>
                 {multiRoundReport.overbreakDiagnosis.geologicalWedgeSector && (
-                  <div className="text-amber-300 font-bold">
+                  <div className="text-amber-800 font-bold bg-amber-50 p-1 rounded border border-amber-200">
                     Recurring Keyblock Sector: {multiRoundReport.overbreakDiagnosis.geologicalWedgeSector}
                   </div>
                 )}
-                <div className="pt-1 border-t border-slate-800 text-slate-400">
-                  <strong className="text-slate-300">Engineering Directive: </strong>
+                <div className="pt-1 border-t border-slate-200 text-slate-600">
+                  <strong className="text-slate-800">Engineering Directive: </strong>
                   {multiRoundReport.engineeringMemo}
                 </div>
               </div>
@@ -1760,9 +1762,9 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
         {subTab === 'look_ahead' && (
           <div className="space-y-3">
             {/* Distance Selector Pills */}
-            <div className="p-2.5 bg-slate-900 border border-slate-800 rounded flex flex-wrap items-center justify-between gap-2">
-              <span className="font-bold text-cyan-300 text-xs flex items-center gap-1.5">
-                <Compass className="w-3.5 h-3.5" />
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex flex-wrap items-center justify-between gap-2 shadow-sm">
+              <span className="font-bold text-cyan-950 text-xs flex items-center gap-1.5">
+                <Compass className="w-3.5 h-3.5 text-cyan-700" />
                 3D Forward Look-Ahead Predictor
               </span>
               <div className="flex items-center gap-1.5">
@@ -1777,10 +1779,10 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                     key={d.dist}
                     type="button"
                     onClick={() => setLookAheadDist(d.dist)}
-                    className={`px-2.5 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                    className={`px-2.5 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer border ${
                       lookAheadDist === d.dist
-                        ? 'bg-amber-600 text-white shadow'
-                        : 'bg-slate-950 text-slate-400 hover:text-slate-200'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                     }`}
                   >
                     {d.label}
@@ -1790,15 +1792,15 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             </div>
 
             {/* Predicted Face & Crown Cross-Section Diagram */}
-            <div className="p-3 bg-slate-950 border border-slate-800 rounded space-y-2">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1 text-[11px] font-bold text-cyan-300">
+            <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-2 shadow-sm">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px] font-bold text-cyan-950">
                 <span>Predicted Cross-Section at Z = +{lookAheadDist}.0m Ahead of Face</span>
-                <span className="text-[10px] text-amber-300">
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
                   Anticipated Crown Fallout: {lookAheadDist === 3 ? multiRoundReport.lookAheadPredictions.at3mMeters.crownWedgeWeightTonnes : lookAheadDist === 6 ? multiRoundReport.lookAheadPredictions.at6mMeters.crownWedgeWeightTonnes : 18.5} t
                 </span>
               </div>
 
-              <div className="bg-[#070B12] border border-slate-800 rounded p-2 flex flex-col items-center justify-center">
+              <div className="bg-slate-900 border border-slate-300 rounded p-2 flex flex-col items-center justify-center">
                 <svg viewBox="0 0 320 200" className="w-full max-w-[280px] h-auto">
                   <rect x="0" y="0" width="320" height="200" fill="#0A0E17" />
                   {/* Excavation Profile at +Zm */}
@@ -1816,7 +1818,7 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                     fill="none"
                     stroke="#F59E0B"
                     strokeWidth="3"
-                    opacity="0.6"
+                    opacity="0.8"
                   />
 
                   {/* Projected Joints at +Zm */}
@@ -1851,28 +1853,28 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
                   <text x="160" y="12" textAnchor="middle" fontSize="8" fontWeight="700" fill="#F59E0B">
                     CROWN ARCH (10:00 - 02:00)
                   </text>
-                  <text x="160" y="195" textAnchor="middle" fontSize="8" fill="#64748B">
+                  <text x="160" y="195" textAnchor="middle" fontSize="8" fill="#94A3B8">
                     Chainage: {settings.faceChainage || 'CH 00+000'} + {lookAheadDist}m
                   </text>
                 </svg>
               </div>
 
-              <div className="text-[10px] text-center text-slate-400">
+              <div className="text-[10px] text-center text-slate-600 font-medium">
                 Red dashed lines = Joints migrating upward into the Crown Arch · Yellow arc = Crown Canopy Zone
               </div>
             </div>
 
             {/* Upward Migration Alerts */}
             {jointLookAheads.some((j) => j.migratingUpwardIntoCrown) && (
-              <div className="p-2.5 rounded bg-rose-950/50 border border-rose-600 text-rose-100 text-[10px] space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-rose-300">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
+              <div className="p-2.5 rounded bg-rose-50 border border-rose-300 text-rose-900 text-[10px] space-y-1 shadow-sm">
+                <div className="font-bold flex items-center gap-1.5 text-rose-800">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
                   FORWARD JOINT DAYLIGHTING DETECTED!
                 </div>
                 {jointLookAheads
                   .filter((j) => j.migratingUpwardIntoCrown)
                   .map((j) => (
-                    <div key={j.jointId} className="leading-snug">
+                    <div key={j.jointId} className="leading-snug text-rose-800">
                       • {j.warningMessage || `Joint ${j.set} will daylight into CROWN ARCH at ~Z=+${j.crownDaylightDistanceM}m!`}
                     </div>
                   ))}
@@ -1880,65 +1882,65 @@ const OverbreakAnalysisPanelComponent: React.FC<OverbreakAnalysisPanelProps> = (
             )}
 
             {/* FOREPOLING / SPILING CANOPY PRESCRIPTION CARD */}
-            <div className={`p-3 rounded-lg border space-y-2.5 ${
+            <div className={`p-3 rounded-lg border space-y-2.5 shadow-sm ${
               multiRoundReport.forepolingCanopy.recommended
-                ? 'bg-amber-950/40 border-amber-500/80'
-                : 'bg-slate-900 border-slate-800'
+                ? 'bg-amber-50 border-amber-300'
+                : 'bg-slate-50 border-slate-200'
             }`}>
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                <span className="font-bold text-xs flex items-center gap-1.5 text-amber-300">
-                  <Shield className="w-3.5 h-3.5" />
+              <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                <span className="font-bold text-xs flex items-center gap-1.5 text-amber-900">
+                  <Shield className="w-3.5 h-3.5 text-amber-700" />
                   Forepoling / Spiling Canopy Prescription
                 </span>
                 <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
                   multiRoundReport.forepolingCanopy.recommended
-                    ? 'bg-amber-600 text-white'
-                    : 'bg-emerald-950 text-emerald-300 border border-emerald-700'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                 }`}>
                   {multiRoundReport.forepolingCanopy.recommended ? 'CANOPY MANDATORY' : 'NOT REQUIRED'}
                 </span>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px]">
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Forepole Pipe Count:</span>
-                  <strong className="text-white text-xs">{multiRoundReport.forepolingCanopy.pipeCount} Nos</strong>
+                <div className="p-1.5 rounded bg-white border border-slate-200 shadow-sm">
+                  <span className="text-slate-600 block font-medium">Forepole Pipe Count:</span>
+                  <strong className="text-slate-900 text-xs">{multiRoundReport.forepolingCanopy.pipeCount} Nos</strong>
                 </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Pipe Spec &amp; Length:</span>
-                  <strong className="text-cyan-300 text-xs">
+                <div className="p-1.5 rounded bg-white border border-slate-200 shadow-sm">
+                  <span className="text-slate-600 block font-medium">Pipe Spec &amp; Length:</span>
+                  <strong className="text-cyan-800 text-xs">
                     Ø{multiRoundReport.forepolingCanopy.pipeDiameterMm}mm × {multiRoundReport.forepolingCanopy.pipeLengthM}m
                   </strong>
                 </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Look-Out Angle:</span>
-                  <strong className="text-amber-300 text-xs">{multiRoundReport.forepolingCanopy.lookOutAngleDeg}°</strong>
+                <div className="p-1.5 rounded bg-white border border-slate-200 shadow-sm">
+                  <span className="text-slate-600 block font-medium">Look-Out Angle:</span>
+                  <strong className="text-amber-800 text-xs">{multiRoundReport.forepolingCanopy.lookOutAngleDeg}°</strong>
                 </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Installation Sector:</span>
-                  <strong className="text-white">{multiRoundReport.forepolingCanopy.clockSector}</strong>
+                <div className="p-1.5 rounded bg-white border border-slate-200 shadow-sm">
+                  <span className="text-slate-600 block font-medium">Installation Sector:</span>
+                  <strong className="text-slate-900">{multiRoundReport.forepolingCanopy.clockSector}</strong>
                 </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Overlap Between Pulls:</span>
-                  <strong className="text-white">{multiRoundReport.forepolingCanopy.overlapLengthM} m</strong>
+                <div className="p-1.5 rounded bg-white border border-slate-200 shadow-sm">
+                  <span className="text-slate-600 block font-medium">Overlap Between Pulls:</span>
+                  <strong className="text-slate-900">{multiRoundReport.forepolingCanopy.overlapLengthM} m</strong>
                 </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block">Max Recommended Pull:</span>
-                  <strong className="text-emerald-300 font-bold">
+                <div className="p-1.5 rounded bg-white border border-slate-200 shadow-sm">
+                  <span className="text-slate-600 block font-medium">Max Recommended Pull:</span>
+                  <strong className="text-emerald-700 font-bold">
                     {multiRoundReport.forepolingCanopy.recommended ? '1.50m - 2.00m' : '3.00m - 3.50m'}
                   </strong>
                 </div>
               </div>
 
-              <div className="p-2 rounded bg-slate-950 border border-slate-800 text-[10px] text-slate-300 leading-relaxed">
-                <strong>Justification: </strong>
+              <div className="p-2 rounded bg-white border border-slate-200 text-[10px] text-slate-700 leading-relaxed shadow-sm">
+                <strong className="text-slate-900">Justification: </strong>
                 {multiRoundReport.forepolingCanopy.triggerReason}
               </div>
             </div>
           </div>
         )}
       </div>
-    </aside>
+    </ContainerTag>
   );
 };
 

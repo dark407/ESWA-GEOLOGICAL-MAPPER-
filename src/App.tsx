@@ -4156,16 +4156,25 @@ export default function App({
   if (isCoreLoggingOpen) {
     return (
       <>
-        <CoreLoggingWorkspace
-          onBackToMain={() => {
-            setIsCoreLoggingOpen(false);
-            if (industryMode === 'NATM') {
-              setScreen('welcome');
-            }
+        <div
+          className="h-dvh w-full flex flex-col overflow-hidden"
+          style={{
+            backgroundColor: palette.primaryHex,
+            color: palette.onBaseTextColor,
           }}
-          onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
-          activeGeologistProfile={activeGeologist}
-        />
+        >
+          <CoreLoggingWorkspace
+            onBackToMain={() => {
+              setIsCoreLoggingOpen(false);
+              if (industryMode === 'NATM') {
+                setScreen('welcome');
+              }
+            }}
+            onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
+            activeGeologistProfile={activeGeologist}
+            industryMode={industryMode}
+          />
+        </div>
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
       </>
