@@ -361,17 +361,23 @@ export const FittedPanelPhotoSvgImage: React.FC<{
   const dx = fitConfig.offsetX || 0;
   const dy = fitConfig.offsetY || 0;
 
-  // Custom Crop Extent inset percentages (shrink from edges or extend)
+  // Custom Crop Cut inset percentages: CUTS (clips) the edges off cleanly instead of shrinking/squishing
   const crop = fitConfig.cropExtent || { leftPct: 0, rightPct: 0, topPct: 0, bottomPct: 0 };
-  const cropLeft = (crop.leftPct || 0) / 100;
-  const cropRight = (crop.rightPct || 0) / 100;
-  const cropTop = (crop.topPct || 0) / 100;
-  const cropBottom = (crop.bottomPct || 0) / 100;
+  const cropLeft = Math.max(0, Math.min(0.48, (crop.leftPct || 0) / 100));
+  const cropRight = Math.max(0, Math.min(0.48, (crop.rightPct || 0) / 100));
+  const cropTop = Math.max(0, Math.min(0.48, (crop.topPct || 0) / 100));
+  const cropBottom = Math.max(0, Math.min(0.48, (crop.bottomPct || 0) / 100));
+  const hasCropCut = cropLeft > 0 || cropRight > 0 || cropTop > 0 || cropBottom > 0;
 
-  const effBoxX = boxX + cropLeft * boxW;
-  const effBoxY = boxY + cropTop * boxH;
-  const effBoxW = Math.max(10, boxW * (1 - cropLeft - cropRight));
-  const effBoxH = Math.max(10, boxH * (1 - cropTop - cropBottom));
+  const cutRectX = boxX + cropLeft * boxW;
+  const cutRectY = boxY + cropTop * boxH;
+  const cutRectW = Math.max(1, boxW * (1 - cropLeft - cropRight));
+  const cutRectH = Math.max(1, boxH * (1 - cropTop - cropBottom));
+
+  const cropClipId = useMemo(
+    () => `crop-cut-${Math.random().toString(36).substring(2, 9)}`,
+    []
+  );
 
   const preserveAspectRatio =
     fitConfig.fitMode === 'stretch'
@@ -415,13 +421,25 @@ export const FittedPanelPhotoSvgImage: React.FC<{
 
   return (
     <g clipPath={clipPathId ? `url(#${clipPathId})` : undefined} pointerEvents="none">
-      <g transform={transformStr}>
+      <defs>
+        {hasCropCut && (
+          <clipPath id={cropClipId}>
+            <rect
+              x={cutRectX}
+              y={cutRectY}
+              width={cutRectW}
+              height={cutRectH}
+            />
+          </clipPath>
+        )}
+      </defs>
+      <g transform={transformStr} clipPath={hasCropCut ? `url(#${cropClipId})` : undefined}>
         <image
           href={fitConfig.warpedDataUrl || photoUrl}
-          x={effBoxX}
-          y={effBoxY}
-          width={effBoxW}
-          height={effBoxH}
+          x={boxX}
+          y={boxY}
+          width={boxW}
+          height={boxH}
           preserveAspectRatio={preserveAspectRatio}
           opacity={opacity}
           filter={filterId ? `url(#${filterId})` : undefined}
@@ -1187,59 +1205,29 @@ export const FieldInBuiltCameraStage: React.FC<{
                     </span>
                   </h3>
 
-                  {workflowMode !== 'photo_mapping' && (
-                    <p className="text-xs text-slate-400 mt-1 mb-4 leading-relaxed">
-                      {cameraError
-                        ? cameraError
-                        : 'Underground camera module ready. Take photos using native device camera hardware, capture live stream, or load authentic tunnel face rock exposures.'}
-                    </p>
-                  )}
-
-                  {/* 4 Interactive Camera Action Buttons (Hidden in Photogrammetry Mode) */}
-                  {workflowMode !== 'photo_mapping' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
-                      {/* 1. Native Device Camera (Mobile / Tablet) */}
+                  {/* Button: Upload File in Photogrammetry Mode vs Native Device Camera in Field Mapping Mode */}
+                  <div className="w-full max-w-xs mt-3">
+                    {workflowMode === 'photo_mapping' ? (
+                      <button
+                        type="button"
+                        onClick={() => multiFileInputRef.current?.click()}
+                        className="w-full p-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
+                        title="Upload photos for photogrammetry analysis"
+                      >
+                        <Upload className="w-4 h-4" />
+                        <span>📁 Upload File</span>
+                      </button>
+                    ) : (
                       <button
                         type="button"
                         onClick={() => nativeCameraCaptureRef.current?.click()}
-                        className="p-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
+                        className="w-full p-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
                       >
                         <Camera className="w-4 h-4" />
                         <span>📱 Native Device Camera</span>
                       </button>
-
-                      {/* 2. Load Authentic Rock Exposure (AI Studio 1-Click Test) */}
-                      <button
-                        type="button"
-                        onClick={handleLoadAuthenticSamplePhoto}
-                        className="p-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
-                        title="1-click authentic geological rock face photo generator for testing in Google AI Studio"
-                      >
-                        <Sparkles className="w-4 h-4" />
-                        <span>🪨 Load Tunnel Face Photo</span>
-                      </button>
-
-                      {/* 3. Upload File from Device */}
-                      <button
-                        type="button"
-                        onClick={() => multiFileInputRef.current?.click()}
-                        className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                      >
-                        <Upload className="w-4 h-4 text-cyan-400" />
-                        <span>📁 Upload File / Gallery</span>
-                      </button>
-
-                      {/* 4. Retry WebRTC Live Stream */}
-                      <button
-                        type="button"
-                        onClick={() => startCamera(cameraFacingMode)}
-                        className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                      >
-                        <RefreshCw className="w-4 h-4 text-emerald-400" />
-                        <span>🔄 Retry Live Stream</span>
-                      </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -1271,43 +1259,16 @@ export const FieldInBuiltCameraStage: React.FC<{
                   e.target.value = '';
                 }}
               />
-              {workflowMode !== 'photo_mapping' && (
-                <button
-                  type="button"
-                  onClick={() => multiFileInputRef.current?.click()}
-                  className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
-                  title="Upload from device gallery or folder"
-                >
-                  <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Upload File</span>
-                </button>
-              )}
-
-              {workflowMode !== 'photo_mapping' && (
-                <button
-                  type="button"
-                  onClick={() => nativeCameraCaptureRef.current?.click()}
-                  className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
-                  title="Open Phone/Tablet Native Camera"
-                >
-                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Device Camera</span>
-                </button>
-              )}
-            </div>
-
-            {/* Bottom Center: Big Tactile Shutter Button (Always succeeds!) */}
-            {workflowMode !== 'photo_mapping' && (
               <button
                 type="button"
-                onClick={handleSnapFieldPhoto}
-                className="px-8 py-3 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow-xl cursor-pointer transition-transform ring-4 ring-amber-500/20 shrink-0 whitespace-nowrap"
-                title={liveCameraActive ? 'Capture frame from live video' : 'Capture authentic rock face exposure for this portion'}
+                onClick={() => multiFileInputRef.current?.click()}
+                className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
+                title="Upload from device gallery or folder"
               >
-                <Camera className="w-5 h-5" />
-                <span>Click Photo ({activePortionInfo.shortLabel})</span>
+                <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Upload File</span>
               </button>
-            )}
+            </div>
 
             {/* Bottom Right: Proceed / End Camera Module (Slidable without slidebar) */}
             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x whitespace-nowrap shrink-0">
@@ -2763,18 +2724,7 @@ export const FieldPhotoFitStage: React.FC<{
               <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-bold uppercase">
                 Step 4 • Professional Photo Fit &amp; Shape Warp
               </span>
-              <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-mono">
-                {isSurface
-                  ? `Profile: ${mappingDomain} RECTANGULAR (${effectiveLocation.widthM}m W × ${effectiveLocation.heightM}m H)`
-                  : `Profile: ${effectiveLocation.shape.toUpperCase()} (${effectiveLocation.widthM}m W × ${effectiveLocation.heightM}m H • Pull ${activeRound.pullLengthMeters || 3}m)`}
-              </span>
             </div>
-            <h2 className="text-sm sm:text-base font-bold text-white mt-0.5 flex items-center gap-1.5">
-              <Maximize2 className="w-4 h-4 text-amber-400" />
-              {isSurface
-                ? `Fit & Align Photographs into ${surfMap.domainTitle} Panels`
-                : 'Fit, Align Angle & Mesh-Warp Photo to Tunnel Profile'}
-            </h2>
           </div>
 
           {/* 4 Surface Selector Tabs */}
@@ -2805,150 +2755,6 @@ export const FieldPhotoFitStage: React.FC<{
         <div className="flex-1 min-h-0 grid grid-cols-1 landscape:grid-cols-12 lg:grid-cols-12 gap-2 mt-2 overflow-hidden">
           {/* Left Columns (8 of 12 in landscape/desktop): Interactive SVG Profile Fit Viewport — Main Importance */}
           <div className="landscape:col-span-8 lg:col-span-8 xl:col-span-9 h-full min-h-0 bg-slate-950 border border-slate-800 rounded-xl p-2 flex flex-col overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 mb-1.5 border-b border-slate-800 text-xs shrink-0">
-              <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-amber-300 uppercase">
-                  Active Surface: {panelTabs.find((p) => p.id === selectedPanel)?.label}
-                </span>
-                <span className="text-slate-400 font-mono">
-                  ({pGeom.panelWidthM.toFixed(1)}m × {pGeom.panelHeightM.toFixed(1)}m)
-                </span>
-                {selectedPanel === 'crown' && (
-                  <span className="px-1.5 py-0.5 rounded bg-sky-950 border border-sky-800 text-sky-300 text-[10px] font-mono font-bold">
-                    Horizontal (0m Bottom → {pGeom.panelHeightM.toFixed(1)}m Top)
-                  </span>
-                )}
-              </div>
-
-              {/* Viewport Overlay Toggles & Quick Action Bar */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleFitFullInsideOutline}
-                  className="px-2.5 py-1 rounded text-[11px] font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow flex items-center gap-1 cursor-pointer"
-                  title="Fit 100% of the photograph inside the tunnel outline with zero clipping"
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                  <span>Fit Inside Tunnel</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleFitFillStretch}
-                  className="px-2 py-1 rounded text-[10.5px] font-mono bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
-                  title="Stretch and fill the photo to the tunnel profile bounds"
-                >
-                  Fill Profile
-                </button>
-                {/* Canvas View Zoom Status Badge (Click to reset 100%; zoom via mouse wheel or finger pinch) */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCanvasZoom(1.0);
-                    setCanvasPan({ x: 0, y: 0 });
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[10.5px] font-mono text-emerald-400 font-bold hover:bg-slate-800 cursor-pointer transition-colors"
-                  title="Zoom with Mouse Wheel or 2-Finger Touch Pinch. Click to reset Canvas Zoom to 100% and Center."
-                >
-                  {Math.round(canvasZoom * 100)}%
-                </button>
-                {/* Quick Rotate 90 & Mirror */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    updatePanelFit(selectedPanel, {
-                      rotationDeg: ((activeFit.rotationDeg + 90 + 540) % 360) - 180,
-                    })
-                  }
-                  className="px-1.5 py-1 rounded text-[10px] font-mono bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 cursor-pointer"
-                  title="Rotate 90° Clockwise"
-                >
-                  ↻ 90°
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    updatePanelFit(selectedPanel, { mirrorH: !activeFit.mirrorH })
-                  }
-                  className={`px-1.5 py-1 rounded text-[10px] font-mono border cursor-pointer ${
-                    activeFit.mirrorH
-                      ? 'bg-amber-500/20 border-amber-400 text-amber-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                  }`}
-                  title="Flip Horizontal (Mirror)"
-                >
-                  Flip H
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    updatePanelFit(selectedPanel, { mirrorV: !activeFit.mirrorV })
-                  }
-                  className={`px-1.5 py-1 rounded text-[10px] font-mono border cursor-pointer ${
-                    activeFit.mirrorV
-                      ? 'bg-amber-500/20 border-amber-400 text-amber-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                  }`}
-                  title="Flip Vertical"
-                >
-                  Flip V
-                </button>
-                <div className="h-4 w-px bg-slate-700 mx-0.5" />
-                {/* Mesh Quick Extend / Shrink */}
-                <button
-                  type="button"
-                  onClick={() => handleMeshExtend(10)}
-                  className="px-1.5 py-1 rounded text-[10px] font-mono bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 cursor-pointer"
-                  title="Extend all 4 mesh corners outward (+10px)"
-                >
-                  Mesh +10
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleMeshShrink(10)}
-                  className="px-1.5 py-1 rounded text-[10px] font-mono bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 cursor-pointer"
-                  title="Shrink all 4 mesh corners inward (-10px)"
-                >
-                  Mesh -10
-                </button>
-                <div className="h-4 w-px bg-slate-700 mx-0.5" />
-                <button
-                  type="button"
-                  onClick={() => setShowMeshPins((v) => !v)}
-                  className={`px-2 py-1 rounded text-[10.5px] font-mono border cursor-pointer ${
-                    showMeshPins
-                      ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-400'
-                  }`}
-                  title="Toggle 4-Corner Mesh Control Pins"
-                >
-                  Pins: {showMeshPins ? 'ON' : 'OFF'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCropHandles((v) => !v)}
-                  className={`px-2 py-1 rounded text-[10.5px] font-mono border cursor-pointer ${
-                    showCropHandles
-                      ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-400'
-                  }`}
-                  title="Toggle Crop & Extent Boundary Handles"
-                >
-                  Crop: {showCropHandles ? 'ON' : 'OFF'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowGridOverlay((v) => !v)}
-                  className={`px-2 py-1 rounded text-[10.5px] font-mono border cursor-pointer ${
-                    showGridOverlay
-                      ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-400'
-                  }`}
-                >
-                  1m Grid: {showGridOverlay ? 'ON' : 'OFF'}
-                </button>
-              </div>
-            </div>
-
             <div className="relative flex-1 min-h-0 h-full w-full flex items-center justify-center bg-transparent overflow-hidden">
               <svg
                 ref={svgRef}
@@ -3124,52 +2930,8 @@ export const FieldPhotoFitStage: React.FC<{
                   />
                 )}
 
-                {/* Crown Canonical Annotation: Placed Strictly OUTSIDE the Outline (Top & Bottom) */}
-                {selectedPanel === 'crown' && (
-                  <g pointerEvents="none" fontFamily="IBM Plex Mono, monospace" fontSize="11" fontWeight="bold">
-                    {/* Bottom Annotation (Previous Round Start 0.00m) - Strictly Below Outline */}
-                    <rect
-                      x={pGeom.boxX}
-                      y={pGeom.boxY + pGeom.boxH + 8}
-                      width={pGeom.boxW}
-                      height="22"
-                      rx="4"
-                      fill="rgba(15, 23, 42, 0.92)"
-                      stroke="#0284c7"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={pGeom.boxX + pGeom.boxW / 2}
-                      y={pGeom.boxY + pGeom.boxH + 23}
-                      textAnchor="middle"
-                      fill="#38bdf8"
-                    >
-                      ▲ ADVANCE START 0.00m (BOTTOM • PREVIOUS ROUND)
-                    </text>
-                    {/* Top Annotation (Excavation Face Advance Pull) - Strictly Above Outline */}
-                    <rect
-                      x={pGeom.boxX}
-                      y={Math.max(4, pGeom.boxY - 32)}
-                      width={pGeom.boxW}
-                      height="22"
-                      rx="4"
-                      fill="rgba(15, 23, 42, 0.92)"
-                      stroke="#d97706"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={pGeom.boxX + pGeom.boxW / 2}
-                      y={Math.max(4, pGeom.boxY - 32) + 15}
-                      textAnchor="middle"
-                      fill="#fbbf24"
-                    >
-                      ▲ EXCAVATION FACE {pGeom.panelHeightM.toFixed(1)}m (TOP ADVANCE)
-                    </text>
-                  </g>
-                )}
-
-                {/* Interactive Crop & Extent Boundary Visualizer - Strictly Outside Perimeter */}
-                {showCropHandles && activePhoto && (
+                {/* Interactive Crop & Extent Boundary Visualizer - Only active in Crop / Cut tab */}
+                {activeTab === 'crop_extent' && showCropHandles && activePhoto && (
                   <g>
                     <rect
                       x={cropL}
@@ -3236,8 +2998,8 @@ export const FieldPhotoFitStage: React.FC<{
                   </g>
                 )}
 
-                {/* 4-Point Mesh Pins Overlay on Canvas - Placed Strictly OUTSIDE Outline Corners */}
-                {showMeshPins && activePhoto && (
+                {/* 4-Point Mesh Pins Overlay - Only active in Point Mesh tab */}
+                {activeTab === 'mesh' && showMeshPins && activePhoto && (
                   <g>
                     {/* Perspective mesh quad boundary */}
                     <polygon
@@ -3293,45 +3055,9 @@ export const FieldPhotoFitStage: React.FC<{
                       <circle r="12" fill="#06b6d4" stroke="#ffffff" strokeWidth="2.5" />
                       <text textAnchor="middle" dy="4" fill="#080c14" fontSize="10" fontWeight="bold">BL</text>
                     </g>
-
-                    {/* Interactive Top Rotation Stem & Handle - Strictly Above Outline */}
-                    <line
-                      x1={pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}
-                      y1={pGeom.boxY + activeFit.offsetY}
-                      x2={pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}
-                      y2={pGeom.boxY + activeFit.offsetY - 48}
-                      stroke="#10b981"
-                      strokeWidth="2.5"
-                    />
-                    <g
-                      transform={`translate(${pGeom.boxX + pGeom.boxW / 2 + activeFit.offsetX}, ${pGeom.boxY + activeFit.offsetY - 48})`}
-                      className="cursor-crosshair"
-                      onPointerDown={(e) => handlePointerDown('rotate_handle', e)}
-                    >
-                      <circle r="11" fill="#10b981" stroke="#ffffff" strokeWidth="2.5" />
-                      <text textAnchor="middle" dy="3.5" fill="#080c14" fontSize="10" fontWeight="black">↻</text>
-                    </g>
                   </g>
                 )}
 
-                {/* Dimension Callout Header - Strictly Above Outline */}
-                <text
-                  x={pGeom.boxX + pGeom.boxW / 2}
-                  y={Math.max(22, pGeom.boxY - 38)}
-                  textAnchor="middle"
-                  fill="#f8fafc"
-                  fontSize="16"
-                  fontWeight="bold"
-                  fontFamily="IBM Plex Mono, monospace"
-                >
-                  {selectedPanel === 'face'
-                    ? isSurface
-                      ? `${surfMap.face.fullLabel.toUpperCase()} (${effectiveLocation.widthM.toFixed(1)}m W × ${effectiveLocation.heightM.toFixed(1)}m H)`
-                      : `TUNNEL FACE (${effectiveLocation.shape.toUpperCase()} • ${effectiveLocation.widthM.toFixed(1)}m W × ${effectiveLocation.heightM.toFixed(1)}m H)`
-                    : selectedPanel === 'crown'
-                    ? `CROWN ARCH (HORIZONTAL • ${pGeom.panelWidthM.toFixed(1)}m W × ${pGeom.panelHeightM.toFixed(1)}m ADVANCE PULL)`
-                    : `${(panelTabs.find((p) => p.id === selectedPanel)?.label || selectedPanel).toUpperCase()} (${pGeom.panelWidthM.toFixed(1)}m × ${pGeom.panelHeightM.toFixed(1)}m)`}
-                </text>
               </svg>
             </div>
           </div>
@@ -3405,9 +3131,9 @@ export const FieldPhotoFitStage: React.FC<{
                       ? 'bg-purple-500 text-slate-950 shadow-xs'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
-                  title="Custom Crop Extent & Shrink"
+                  title="Crop & Cut Photo Edges (Cut off floor, muck, or sides without shrinking)"
                 >
-                  Crop Extent
+                  Crop / Cut
                 </button>
                 <button
                   type="button"
@@ -3426,10 +3152,6 @@ export const FieldPhotoFitStage: React.FC<{
               {/* TAB 1: ANGLE & ORIENTATION (Solves "photo in one angle our outline in one angle") */}
               {activeTab === 'angle' && (
                 <div className="space-y-3">
-                  <div className="p-2 rounded bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200">
-                    <strong>Angle Alignment:</strong> Fine-tune rotation and perspective skew so oblique camera photographs align with the tunnel axis.
-                  </div>
-
                   {/* Free Rotation Angle Dial & Slider */}
                   <div>
                     <div className="flex items-center justify-between text-[11px] font-mono mb-1">
@@ -3800,19 +3522,19 @@ export const FieldPhotoFitStage: React.FC<{
                 </div>
               )}
 
-              {/* TAB 3: CUSTOM CROP & EXTENT / SHRINK (Solves "custom crop extent shrink") */}
+              {/* TAB 3: CROP & CUT (Cuts photo edges without resizing/shrinking) */}
               {activeTab === 'crop_extent' && (
                 <div className="space-y-3">
                   <div className="p-2 rounded bg-purple-500/10 border border-purple-500/30 text-[11px] text-purple-200 leading-snug">
-                    <strong>Custom Crop &amp; Extent:</strong> Shrink unwanted foreground clutter or extend coverage on Left, Right, Top, or Bottom independently.
+                    <strong>Crop &amp; Cut Edges:</strong> Cuts unwanted photo edges (floor, muck piles, rails, or equipment) cleanly off without shrinking or stretching the rock face image.
                   </div>
 
-                  {/* 4 Edge Crop Sliders */}
+                  {/* 4 Edge Cut Sliders */}
                   <div className="space-y-2">
                     <div>
                       <div className="flex justify-between text-[10px] font-mono mb-0.5">
-                        <span className="text-slate-400">Left Crop / Extent</span>
-                        <span className="text-purple-300 font-bold">{cropExtent.leftPct}%</span>
+                        <span className="text-slate-400">Cut Left Edge</span>
+                        <span className="text-purple-300 font-bold">{cropExtent.leftPct}% cut</span>
                       </div>
                       <input
                         type="range"
@@ -3831,8 +3553,8 @@ export const FieldPhotoFitStage: React.FC<{
 
                     <div>
                       <div className="flex justify-between text-[10px] font-mono mb-0.5">
-                        <span className="text-slate-400">Right Crop / Extent</span>
-                        <span className="text-purple-300 font-bold">{cropExtent.rightPct}%</span>
+                        <span className="text-slate-400">Cut Right Edge</span>
+                        <span className="text-purple-300 font-bold">{cropExtent.rightPct}% cut</span>
                       </div>
                       <input
                         type="range"
@@ -3851,8 +3573,8 @@ export const FieldPhotoFitStage: React.FC<{
 
                     <div>
                       <div className="flex justify-between text-[10px] font-mono mb-0.5">
-                        <span className="text-slate-400">Top Crop / Extent</span>
-                        <span className="text-purple-300 font-bold">{cropExtent.topPct}%</span>
+                        <span className="text-slate-400">Cut Top / Crown Edge</span>
+                        <span className="text-purple-300 font-bold">{cropExtent.topPct}% cut</span>
                       </div>
                       <input
                         type="range"
@@ -3871,8 +3593,8 @@ export const FieldPhotoFitStage: React.FC<{
 
                     <div>
                       <div className="flex justify-between text-[10px] font-mono mb-0.5">
-                        <span className="text-slate-400">Bottom Crop / Extent</span>
-                        <span className="text-purple-300 font-bold">{cropExtent.bottomPct}%</span>
+                        <span className="text-slate-400">Cut Bottom / Floor (Muck Pile) Edge</span>
+                        <span className="text-purple-300 font-bold">{cropExtent.bottomPct}% cut</span>
                       </div>
                       <input
                         type="range"
@@ -3890,10 +3612,10 @@ export const FieldPhotoFitStage: React.FC<{
                     </div>
                   </div>
 
-                  {/* Quick Extent / Shrink Presets */}
+                  {/* Quick Edge Cut Presets */}
                   <div className="pt-2 border-t border-slate-800">
                     <label className="block text-[11px] font-mono text-slate-400 mb-1.5">
-                      Quick Extent &amp; Shrink Actions
+                      Quick Edge Cut Actions
                     </label>
                     <div className="grid grid-cols-2 gap-1.5">
                       <button
@@ -3901,64 +3623,56 @@ export const FieldPhotoFitStage: React.FC<{
                         onClick={() =>
                           updatePanelFit(selectedPanel, {
                             cropExtent: {
+                              ...cropExtent,
                               leftPct: Math.min(45, cropExtent.leftPct + 5),
+                            },
+                          })
+                        }
+                        className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono cursor-pointer"
+                      >
+                        Cut Left +5%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePanelFit(selectedPanel, {
+                            cropExtent: {
+                              ...cropExtent,
                               rightPct: Math.min(45, cropExtent.rightPct + 5),
-                              topPct: cropExtent.topPct,
-                              bottomPct: cropExtent.bottomPct,
                             },
                           })
                         }
                         className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono cursor-pointer"
                       >
-                        Shrink Width -5%
+                        Cut Right +5%
                       </button>
                       <button
                         type="button"
                         onClick={() =>
                           updatePanelFit(selectedPanel, {
                             cropExtent: {
-                              leftPct: Math.max(0, cropExtent.leftPct - 5),
-                              rightPct: Math.max(0, cropExtent.rightPct - 5),
-                              topPct: cropExtent.topPct,
-                              bottomPct: cropExtent.bottomPct,
-                            },
-                          })
-                        }
-                        className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono cursor-pointer"
-                      >
-                        Extend Width +5%
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updatePanelFit(selectedPanel, {
-                            cropExtent: {
-                              leftPct: cropExtent.leftPct,
-                              rightPct: cropExtent.rightPct,
-                              topPct: Math.min(45, cropExtent.topPct + 5),
+                              ...cropExtent,
                               bottomPct: Math.min(45, cropExtent.bottomPct + 5),
                             },
                           })
                         }
                         className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono cursor-pointer"
                       >
-                        Shrink Height -5%
+                        Cut Floor +5%
                       </button>
                       <button
                         type="button"
                         onClick={() =>
                           updatePanelFit(selectedPanel, {
                             cropExtent: {
-                              leftPct: cropExtent.leftPct,
-                              rightPct: cropExtent.rightPct,
-                              topPct: Math.max(0, cropExtent.topPct - 5),
-                              bottomPct: Math.max(0, cropExtent.bottomPct - 5),
+                              ...cropExtent,
+                              topPct: Math.min(45, cropExtent.topPct + 5),
                             },
                           })
                         }
                         className="py-1 px-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[10px] font-mono cursor-pointer"
                       >
-                        Extend Height +5%
+                        Cut Top +5%
                       </button>
                     </div>
 
@@ -3969,9 +3683,9 @@ export const FieldPhotoFitStage: React.FC<{
                           cropExtent: { leftPct: 0, rightPct: 0, topPct: 0, bottomPct: 0 },
                         })
                       }
-                      className="w-full mt-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center justify-center gap-1 cursor-pointer"
+                      className="w-full mt-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-purple-300 text-[10px] font-mono font-bold border border-slate-700 flex items-center justify-center gap-1 cursor-pointer"
                     >
-                      <RefreshCw className="w-3 h-3" /> Reset Extents to 0%
+                      <RefreshCw className="w-3 h-3" /> Reset Cuts (Show 100% Full Photo)
                     </button>
                   </div>
                 </div>
@@ -4180,38 +3894,6 @@ export const FieldPhotoFitStage: React.FC<{
                     />
                   </div>
                 </div>
-              </div>
-            </div>
-
-            {/* Quick 4-Surface Fit Thumbnails */}
-            <div className="pt-2 border-t border-slate-800">
-              <div className="text-[10px] font-mono uppercase text-slate-400 mb-1.5 flex items-center justify-between">
-                <span>All 4 Surfaces Fit Status</span>
-                <span className="text-amber-400">{panelTabs.filter((p) => activeRound.collectedPhotos.some((ph) => ph.panel === p.id)).length} of {panelTabs.length}</span>
-              </div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {panelTabs.map((p) => {
-                  const ph = activeRound.collectedPhotos.find((item) => item.panel === p.id);
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setSelectedPanel(p.id)}
-                      className={`p-1.5 rounded border text-center cursor-pointer transition-all ${
-                        selectedPanel === p.id
-                          ? 'border-amber-400 bg-amber-500/15 ring-1 ring-amber-400/50'
-                          : 'border-slate-800 bg-slate-900 hover:bg-slate-850'
-                      }`}
-                    >
-                      <div className="text-[10px] font-mono font-bold text-slate-200 truncate">
-                        {p.shortLabel}
-                      </div>
-                      <div className={`text-[9px] font-mono mt-0.5 ${ph ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
-                        {ph ? '✓ Ready' : 'Empty'}
-                      </div>
-                    </button>
-                  );
-                })}
               </div>
             </div>
           </div>
