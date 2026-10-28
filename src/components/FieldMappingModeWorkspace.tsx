@@ -74,6 +74,9 @@ import {
   saveIdealPanelTransform,
   snapPointToExactFieldPanelOutline,
   tCanvasPointToPanelPoint,
+  resolveClosedLithologyPolygonFromTrace,
+  isPointInsidePolygon,
+  getExactFieldPanelPerimeterLoop,
   FIELD_EXTENDED_ROCK_SUGGESTIONS,
   FIELD_EXTENDED_VEIN_FOLIATION_SUGGESTIONS,
   FIELD_FAULT_ELEMENT_ROLES,
@@ -850,7 +853,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [newLocShape, setNewLocShape] = useState<FieldTunnelShapeType>('d_shaped');
   const [newLocWidth, setNewLocWidth] = useState(8.5);
   const [newLocHeight, setNewLocHeight] = useState(7.5);
+  const [newLocWallHeight, setNewLocWallHeight] = useState(4.0);
+  const [newLocCrownRadius, setNewLocCrownRadius] = useState(4.25);
   const [newLocAzimuth, setNewLocAzimuth] = useState(45);
+  const [newLocExcavationMode, setNewLocExcavationMode] = useState('Drill & Blast (Full Face)');
+  const [newLocExcavationApproach, setNewLocExcavationApproach] = useState('Full Face');
   const [newLocCustomPoints, setNewLocCustomPoints] = useState<
     { x: number; y: number }[] | undefined
   >(undefined);
@@ -858,8 +865,29 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     TunnelGeometry | undefined
   >(undefined);
   const [customBuilderTarget, setCustomBuilderTarget] = useState<
-    'new_location' | 'active_location' | null
+    'new_location' | 'edit_location' | 'active_location' | null
   >(null);
+  const [customBuilderLocationId, setCustomBuilderLocationId] = useState<string | null>(null);
+
+  // Edit Project State
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editProjName, setEditProjName] = useState('');
+  const [editProjClient, setEditProjClient] = useState('');
+  const [editProjContractor, setEditProjContractor] = useState('');
+  const [editProjConsultant, setEditProjConsultant] = useState('');
+  const [editProjChainageInterval, setEditProjChainageInterval] = useState<number>(25);
+
+  // Edit Location State
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
+  const [editLocName, setEditLocName] = useState('');
+  const [editLocShape, setEditLocShape] = useState<FieldTunnelShapeType>('d_shaped');
+  const [editLocWidth, setEditLocWidth] = useState(8.5);
+  const [editLocHeight, setEditLocHeight] = useState(7.5);
+  const [editLocWallHeight, setEditLocWallHeight] = useState(4.0);
+  const [editLocCrownRadius, setEditLocCrownRadius] = useState(4.25);
+  const [editLocAzimuth, setEditLocAzimuth] = useState(45);
+  const [editLocExcavationMode, setEditLocExcavationMode] = useState('Drill & Blast (Full Face)');
+  const [editLocExcavationApproach, setEditLocExcavationApproach] = useState('Full Face');
 
   // Sequential Setup Window step: Surface Type (for Surface Mapping) -> 1. Project -> 2. Location -> 3. Face / Station
   const [setupWindowStep, setSetupWindowStep] = useState<
@@ -1511,6 +1539,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     dipDirection: number;
     dipAmount: number;
     isClosed?: boolean;
+    polygon?: FieldPoint2D[];
+    clickPt?: FieldPoint2D;
   } | null>(null);
 
   const setActiveDrawSubToolForCurrentFeature = (nextSubTool: FeatureDrawSubTool) => {
@@ -2696,21 +2726,37 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeRound.lithologyPatternAngle ??
         lithologyPatternAngle ??
         0;
+
+      const explicitPoly = (pendingItem as any).polygon as FieldPoint2D[] | undefined;
+      const clickPt = (pendingItem as any).clickPt as FieldPoint2D | undefined;
+      const resolved = explicitPoly
+        ? { polygon: explicitPoly, closureType: 'self_closed' as const, candidatePolygons: [explicitPoly], clickedInside: true }
+        : resolveClosedLithologyPolygonFromTrace(
+            shapedPts,
+            clickPt || null,
+            targetPanel,
+            activeLocation,
+            activeRound
+          );
+
       const isShapeClosed =
         Boolean((pendingItem as any).isClosed) ||
+        Boolean(explicitPoly) ||
+        Boolean(resolved) ||
         (shapedPts.length >= 3 &&
           Math.hypot(
             shapedPts[0].x - shapedPts[shapedPts.length - 1].x,
             shapedPts[0].y - shapedPts[shapedPts.length - 1].y
           ) < 48);
-      const finalPts = isShapeClosed
+
+      const finalPts = resolved?.polygon || (isShapeClosed
         ? Math.hypot(
             shapedPts[0].x - shapedPts[shapedPts.length - 1].x,
             shapedPts[0].y - shapedPts[shapedPts.length - 1].y
           ) > 0.1
           ? [...shapedPts, shapedPts[0]]
           : shapedPts
-        : shapedPts;
+        : shapedPts);
 
       const stroke: FieldLithologyStroke = {
         id: `lith-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2727,7 +2773,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         points: finalPts,
         isClosed: isShapeClosed,
         polygon: isShapeClosed ? finalPts : undefined,
-        brushRadius,
+        brushRadius: pSubTool !== 'brush' ? 2.5 : brushRadius,
         symbolDensity: currentDensity,
         lineMode: effectiveToolLineMode,
         alternatingRockIds: isAltBands ? [...alternatingRockIds] : undefined,
@@ -3060,6 +3106,33 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         pending2DTrace.panel === targetPanel
           ? pending2DTrace.points
           : [];
+
+      // LITHOLOGY PENCIL: If user clicked/tapped inside an active pencil boundary trace, close & fill the lithology!
+      if (
+        activeTool === '1_lithology' &&
+        existingPendingPts.length >= 2 &&
+        (segChord < 8 || rawClampedSeg.length <= 2)
+      ) {
+        const closure = resolveClosedLithologyPolygonFromTrace(
+          existingPendingPts,
+          snappedFirst,
+          targetPanel,
+          activeLocation,
+          activeRound
+        );
+        if (closure && (closure.clickedInside || closure.closureType === 'self_closed')) {
+          commitPending2DTraceToRound({
+            ...pending2DTrace,
+            polygon: closure.polygon,
+            clickPt: snappedFirst,
+            isClosed: true,
+          });
+          setPending2DTrace(null);
+          setCurrentPoints([]);
+          pointerStartClientRef.current = null;
+          return;
+        }
+      }
 
       if (activeDrawSubTool === 'polyline') {
         if (segChord < 6) {
@@ -4000,17 +4073,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const handleCreateLocation = () => {
     if (!activeProject || !newLocName.trim()) return;
     const locId = `floc-${Date.now()}`;
+    const w = Number(newLocWidth) || 8.5;
+    const h = Number(newLocHeight) || 7.5;
+    const wallH = Number(newLocWallHeight) || Number((h * 0.55).toFixed(2));
+    const crownR = Number(newLocCrownRadius) || Number((w * 0.5).toFixed(2));
+    const az = Number(newLocAzimuth) || 45;
+
     const loc: FieldTunnelLocationItem = {
       id: locId,
       name: newLocName.trim(),
       shape: newLocShape,
-      widthM: Number(newLocWidth) || 8.5,
-      heightM: Number(newLocHeight) || 7.5,
-      wallHeightM: Number((Number(newLocHeight) * 0.55).toFixed(2)),
-      crownRadiusM: Number((Number(newLocWidth) * 0.5).toFixed(2)),
-      defaultDriveAzimuth: Number(newLocAzimuth) || 45,
-      defaultExcavationMode: 'Drill & Blast (Full Face)',
-      defaultExcavationApproach: 'Full Face',
+      widthM: w,
+      heightM: h,
+      wallHeightM: wallH,
+      crownRadiusM: crownR,
+      defaultDriveAzimuth: az,
+      defaultExcavationMode: newLocExcavationMode.trim() || 'Drill & Blast (Full Face)',
+      defaultExcavationApproach: newLocExcavationApproach.trim() || 'Full Face',
       customCrossSectionPoints: newLocCustomPoints,
       customGeometry: newLocCustomGeometry,
       rememberedRockTypes: [],
@@ -4028,6 +4107,92 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     setNewLocName('');
     setShowNewLocationForm(false);
     setSetupWindowStep('face');
+  };
+
+  // Edit Project Handlers
+  const handleStartEditProject = (proj: FieldProjectItem) => {
+    setEditingProjectId(proj.id);
+    setEditProjName(proj.projectName);
+    setEditProjClient(proj.clientName);
+    setEditProjContractor(proj.contractorName);
+    setEditProjConsultant(proj.consultantName);
+    setEditProjChainageInterval(proj.chainageGroupIntervalM || 25);
+  };
+
+  const handleSaveEditProject = (projId: string) => {
+    if (!editProjName.trim()) return;
+    setStore((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        if (p.id !== projId) return p;
+        return {
+          ...p,
+          projectName: editProjName.trim(),
+          clientName: editProjClient.trim() || 'Client',
+          contractorName: editProjContractor.trim() || 'Contractor',
+          consultantName: editProjConsultant.trim() || 'Consultant',
+          chainageGroupIntervalM: editProjChainageInterval,
+        };
+      }),
+    }));
+    setEditingProjectId(null);
+  };
+
+  const handleCancelEditProject = () => {
+    setEditingProjectId(null);
+  };
+
+  // Edit Location Handlers
+  const handleStartEditLocation = (loc: FieldTunnelLocationItem) => {
+    setEditingLocationId(loc.id);
+    setEditLocName(loc.name);
+    setEditLocShape(loc.shape || 'd_shaped');
+    setEditLocWidth(loc.widthM || 8.5);
+    setEditLocHeight(loc.heightM || 7.5);
+    setEditLocWallHeight(loc.wallHeightM || Number(((loc.heightM || 7.5) * 0.55).toFixed(2)));
+    setEditLocCrownRadius(loc.crownRadiusM || Number(((loc.widthM || 8.5) * 0.5).toFixed(2)));
+    setEditLocAzimuth(loc.defaultDriveAzimuth || 45);
+    setEditLocExcavationMode(loc.defaultExcavationMode || 'Drill & Blast (Full Face)');
+    setEditLocExcavationApproach(loc.defaultExcavationApproach || 'Full Face');
+  };
+
+  const handleSaveEditLocation = (locId: string) => {
+    if (!activeProject || !editLocName.trim()) return;
+    const w = Number(editLocWidth) || 8.5;
+    const h = Number(editLocHeight) || 7.5;
+    const wallH = Number(editLocWallHeight) || Number((h * 0.55).toFixed(2));
+    const crownR = Number(editLocCrownRadius) || Number((w * 0.5).toFixed(2));
+    const az = Number(editLocAzimuth) || 45;
+
+    setStore((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        if (p.id !== activeProject.id) return p;
+        return {
+          ...p,
+          locations: p.locations.map((l) => {
+            if (l.id !== locId) return l;
+            return {
+              ...l,
+              name: editLocName.trim(),
+              shape: editLocShape,
+              widthM: w,
+              heightM: h,
+              wallHeightM: wallH,
+              crownRadiusM: crownR,
+              defaultDriveAzimuth: az,
+              defaultExcavationMode: editLocExcavationMode.trim() || l.defaultExcavationMode,
+              defaultExcavationApproach: editLocExcavationApproach.trim() || l.defaultExcavationApproach,
+            };
+          }),
+        };
+      }),
+    }));
+    setEditingLocationId(null);
+  };
+
+  const handleCancelEditLocation = () => {
+    setEditingLocationId(null);
   };
 
   // Open New Face / Station dialog to ask Details + Field vs Photogrammetry Method
@@ -4743,6 +4908,127 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
               {store.projects.map((proj) => {
                 const isSelected = activeProject?.id === proj.id;
+                const isEditing = editingProjectId === proj.id;
+
+                if (isEditing) {
+                  return (
+                    <div
+                      key={proj.id}
+                      className="p-3 rounded-xl border-2 border-amber-400 bg-slate-950 shadow-xl space-y-2.5 transition-all"
+                    >
+                      <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-800">
+                        <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                          <Pencil className="w-3.5 h-3.5 text-amber-400" />
+                          Edit Project Details
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleCancelEditProject}
+                          className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer text-xs"
+                          title="Cancel Editing"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-300 mb-0.5">
+                            Project Name
+                          </label>
+                          <input
+                            type="text"
+                            value={editProjName}
+                            onChange={(e) => setEditProjName(e.target.value)}
+                            placeholder="Project Name"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                            autoFocus
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                          <div>
+                            <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                              Client Name
+                            </label>
+                            <input
+                              type="text"
+                              value={editProjClient}
+                              onChange={(e) => setEditProjClient(e.target.value)}
+                              placeholder="Client"
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                              Contractor
+                            </label>
+                            <input
+                              type="text"
+                              value={editProjContractor}
+                              onChange={(e) => setEditProjContractor(e.target.value)}
+                              placeholder="Contractor"
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                              Consultant
+                            </label>
+                            <input
+                              type="text"
+                              value={editProjConsultant}
+                              onChange={(e) => setEditProjConsultant(e.target.value)}
+                              placeholder="Consultant"
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[9.5px] font-bold text-slate-400 mb-1">
+                            Chainage Data Grouping Range (m)
+                          </label>
+                          <div className="grid grid-cols-5 gap-1">
+                            {[10, 20, 25, 50, 100].map((span) => (
+                              <button
+                                key={span}
+                                type="button"
+                                onClick={() => setEditProjChainageInterval(span)}
+                                className={`py-1 rounded text-[10px] font-mono font-bold border cursor-pointer ${
+                                  editProjChainageInterval === span
+                                    ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                                    : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
+                                }`}
+                              >
+                                {span}m
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800">
+                        <button
+                          type="button"
+                          onClick={handleCancelEditProject}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEditProject(proj.id)}
+                          className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer shadow"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Save Project Changes
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
                   <div
                     key={proj.id}
@@ -4764,24 +5050,39 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       <div className="font-bold text-sm text-white truncate">
                         {formatDomainProjName(proj.projectName)}
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingDeleteConfirm({
-                            kind: 'project',
-                            id: proj.id,
-                            label: formatDomainProjName(proj.projectName),
-                          });
-                        }}
-                        className="p-1 rounded bg-rose-950/60 hover:bg-rose-900 border border-rose-800/50 text-rose-300 cursor-pointer shrink-0"
-                        title="Delete Project"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartEditProject(proj);
+                          }}
+                          className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 hover:text-white cursor-pointer shrink-0 flex items-center gap-1 text-[10.5px] font-bold"
+                          title="Edit Project Details"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingDeleteConfirm({
+                              kind: 'project',
+                              id: proj.id,
+                              label: formatDomainProjName(proj.projectName),
+                            });
+                          }}
+                          className="p-1 rounded bg-rose-950/60 hover:bg-rose-900 border border-rose-800/50 text-rose-300 cursor-pointer shrink-0"
+                          title="Delete Project"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                     <div className="text-[11px] text-slate-400 mt-0.5">
                       Client: {proj.clientName} • Contractor: {proj.contractorName}
+                      {proj.consultantName ? ` • Consultant: ${proj.consultantName}` : ''}
                     </div>
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <span className="text-[10px] text-amber-400 font-semibold">
@@ -4849,150 +5150,561 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             </div>
 
             {showNewLocationForm && (
-              <div className="bg-slate-950 border border-amber-500/40 rounded-lg p-2.5 mb-2 space-y-2">
-                <input
-                  type="text"
-                  value={newLocName}
-                  onChange={(e) => setNewLocName(e.target.value)}
-                  placeholder={
-                    mappingDomain === 'TUNNEL'
-                      ? 'Tunnel Location (e.g. Headrace Tunnel Adit-2)'
-                      : mappingDomain === 'BENCH'
-                      ? 'Bench Sector (e.g. Pit Bench RL 280–270m North)'
-                      : mappingDomain === 'TRENCH'
-                      ? 'Trench Sector (e.g. Foundation Trench TR-01)'
-                      : mappingDomain === 'ROCK_SURFACE'
-                      ? 'Rock Surface Sector (e.g. Outcrop Window RS-01)'
-                      : 'Slope Sector (e.g. Portal Cut Slope CS-01)'
-                  }
-                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
-                />
-                {mappingDomain === 'TUNNEL' ? (
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div>
-                      <label className="block text-[10px] text-slate-400">Tunnel Shape</label>
-                      <select
-                        value={newLocShape}
-                        onChange={(e) => {
-                          const val = e.target.value as FieldTunnelShapeType;
-                          setNewLocShape(val);
-                          if (val === 'freeform_custom') {
-                            setCustomBuilderTarget('new_location');
-                          }
-                        }}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
-                      >
-                        {FIELD_TUNNEL_SHAPES.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-slate-400">Drive Azimuth (°)</label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={360}
-                        value={newLocAzimuth}
-                        onChange={(e) => setNewLocAzimuth(Number(e.target.value))}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
-                      />
-                    </div>
+              <div className="bg-slate-950 border-2 border-amber-400 rounded-xl p-3 mb-2 space-y-2.5 shadow-xl transition-all">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-800 gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5 text-amber-400" />
+                    {mappingDomain === 'TUNNEL'
+                      ? 'New Tunnel Location Details'
+                      : `New ${domainPanelMap.domainTitle} Sector Details`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewLocationForm(false)}
+                    className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer text-xs"
+                    title="Cancel Adding Location"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-300 mb-0.5">
+                      {mappingDomain === 'TUNNEL' ? 'Tunnel Location Name' : 'Sector / Outcrop Name'}
+                    </label>
+                    <input
+                      type="text"
+                      value={newLocName}
+                      onChange={(e) => setNewLocName(e.target.value)}
+                      placeholder={
+                        mappingDomain === 'TUNNEL'
+                          ? 'Tunnel Location (e.g. Headrace Tunnel Adit-2)'
+                          : mappingDomain === 'BENCH'
+                          ? 'Bench Sector (e.g. Pit Bench RL 280–270m North)'
+                          : mappingDomain === 'TRENCH'
+                          ? 'Trench Sector (e.g. Foundation Trench TR-01)'
+                          : mappingDomain === 'ROCK_SURFACE'
+                          ? 'Rock Surface Sector (e.g. Outcrop Window RS-01)'
+                          : 'Slope Sector (e.g. Portal Cut Slope CS-01)'
+                      }
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                      autoFocus
+                    />
                   </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div>
-                      <label className="block text-[10px] text-slate-400">Surface Geometry</label>
-                      <input
-                        type="text"
-                        readOnly
-                        value={
-                          mappingDomain === 'BENCH'
-                            ? 'Bench Face & Berm (Rectangular)'
-                            : mappingDomain === 'TRENCH'
-                            ? '3-Panel Trench Log (L-Wall/Floor/R-Wall)'
-                            : mappingDomain === 'ROCK_SURFACE'
-                            ? 'Exposed Rock Surface Window'
-                            : 'Cut / Natural Slope Face (Rectangular)'
-                        }
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-amber-300 font-bold"
-                      />
+
+                  {mappingDomain === 'TUNNEL' ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <div>
+                        <div className="flex items-center justify-between mb-0.5">
+                          <label className="block text-[9.5px] font-bold text-slate-400">Tunnel Shape</label>
+                          {newLocShape === 'freeform_custom' && (
+                            <button
+                              type="button"
+                              onClick={() => setCustomBuilderTarget('new_location')}
+                              className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-bold text-[9px] flex items-center gap-1 cursor-pointer"
+                              title="Open Quick Sketch Shape Creator"
+                            >
+                              <span>✏️ Shape Creator</span>
+                            </button>
+                          )}
+                        </div>
+                        <select
+                          value={newLocShape}
+                          onChange={(e) => {
+                            const val = e.target.value as FieldTunnelShapeType;
+                            setNewLocShape(val);
+                            if (val === 'freeform_custom') {
+                              setCustomBuilderTarget('new_location');
+                            }
+                          }}
+                          onClick={(e) => {
+                            const target = e.target as HTMLSelectElement;
+                            if (target.value === 'freeform_custom') {
+                              setCustomBuilderTarget('new_location');
+                            }
+                          }}
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                        >
+                          {FIELD_TUNNEL_SHAPES.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                        {newLocShape === 'freeform_custom' && (
+                          <div className="mt-1 flex items-center justify-between gap-1 p-1 bg-amber-500/10 border border-amber-500/30 rounded text-[9.5px] text-amber-300">
+                            <span>Custom profile active ({newLocCustomPoints?.length || 0} pts)</span>
+                            <button
+                              type="button"
+                              onClick={() => setCustomBuilderTarget('new_location')}
+                              className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-black cursor-pointer hover:bg-amber-400"
+                            >
+                              Open Shape Creator →
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">Drive Azimuth (°)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={360}
+                          value={newLocAzimuth}
+                          onChange={(e) => setNewLocAzimuth(Number(e.target.value))}
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                        />
+                      </div>
                     </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">Surface Geometry</label>
+                        <input
+                          type="text"
+                          readOnly
+                          value={
+                            mappingDomain === 'BENCH'
+                              ? 'Bench Face & Berm (Rectangular)'
+                              : mappingDomain === 'TRENCH'
+                              ? '3-Panel Trench Log (L-Wall/Floor/R-Wall)'
+                              : mappingDomain === 'ROCK_SURFACE'
+                              ? 'Exposed Rock Surface Window'
+                              : 'Cut / Natural Slope Face (Rectangular)'
+                          }
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-amber-300 font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                          {mappingDomain === 'TRENCH'
+                            ? 'Trench Axis Azimuth (°)'
+                            : 'Face Dip Direction (°)'}
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={360}
+                          value={newLocAzimuth}
+                          onChange={(e) => setNewLocAzimuth(Number(e.target.value))}
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                     <div>
-                      <label className="block text-[10px] text-slate-400">
-                        {mappingDomain === 'TRENCH'
-                          ? 'Trench Axis Azimuth (°)'
-                          : 'Face Dip Direction (°)'}
+                      <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                        {mappingDomain === 'TUNNEL'
+                          ? 'Width / Span (m)'
+                          : mappingDomain === 'TRENCH'
+                          ? 'Trench Width Wt (m)'
+                          : 'Exposure Length (m)'}
                       </label>
                       <input
                         type="number"
-                        min={0}
-                        max={360}
-                        value={newLocAzimuth}
-                        onChange={(e) => setNewLocAzimuth(Number(e.target.value))}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                        step={0.1}
+                        value={newLocWidth}
+                        onChange={(e) => {
+                          const w = Number(e.target.value);
+                          setNewLocWidth(w);
+                          setNewLocCrownRadius(Number((w * 0.5).toFixed(2)));
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
                       />
                     </div>
+                    <div>
+                      <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                        {mappingDomain === 'TUNNEL'
+                          ? 'Height (m)'
+                          : mappingDomain === 'BENCH'
+                          ? 'Bench Height Hb (m)'
+                          : mappingDomain === 'TRENCH'
+                          ? 'Trench Depth Dt (m)'
+                          : mappingDomain === 'ROCK_SURFACE'
+                          ? 'Exposure Height Hr (m)'
+                          : 'Slope Height Hs (m)'}
+                      </label>
+                      <input
+                        type="number"
+                        step={0.1}
+                        value={newLocHeight}
+                        onChange={(e) => {
+                          const h = Number(e.target.value);
+                          setNewLocHeight(h);
+                          setNewLocWallHeight(Number((h * 0.55).toFixed(2)));
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                      />
+                    </div>
+                    {mappingDomain === 'TUNNEL' && (
+                      <>
+                        <div>
+                          <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                            Wall Height (m)
+                          </label>
+                          <input
+                            type="number"
+                            step={0.1}
+                            value={newLocWallHeight}
+                            onChange={(e) => setNewLocWallHeight(Number(e.target.value))}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                            Crown Radius (m)
+                          </label>
+                          <input
+                            type="number"
+                            step={0.1}
+                            value={newLocCrownRadius}
+                            onChange={(e) => setNewLocCrownRadius(Number(e.target.value))}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
-                )}
-                <div className="grid grid-cols-2 gap-1.5">
-                  <div>
-                    <label className="block text-[10px] text-slate-400">
-                      {mappingDomain === 'TUNNEL'
-                        ? 'Width / Span (m)'
-                        : mappingDomain === 'TRENCH'
-                        ? 'Trench Width Wt (m)'
-                        : 'Exposure Length / Width (m)'}
-                    </label>
-                    <input
-                      type="number"
-                      step={0.1}
-                      value={newLocWidth}
-                      onChange={(e) => setNewLocWidth(Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400">
-                      {mappingDomain === 'TUNNEL'
-                        ? 'Height (m)'
-                        : mappingDomain === 'BENCH'
-                        ? 'Bench Height Hb (m)'
-                        : mappingDomain === 'TRENCH'
-                        ? 'Trench Depth Dt (m)'
-                        : mappingDomain === 'ROCK_SURFACE'
-                        ? 'Exposure Height Hr (m)'
-                        : 'Slope Height Hs (m)'}
-                    </label>
-                    <input
-                      type="number"
-                      step={0.1}
-                      value={newLocHeight}
-                      onChange={(e) => setNewLocHeight(Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
-                    />
-                  </div>
+
+                  {mappingDomain === 'TUNNEL' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                          Excavation Mode
+                        </label>
+                        <input
+                          type="text"
+                          value={newLocExcavationMode}
+                          onChange={(e) => setNewLocExcavationMode(e.target.value)}
+                          placeholder="e.g. Drill & Blast (Full Face)"
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                          Excavation Approach
+                        </label>
+                        <select
+                          value={newLocExcavationApproach}
+                          onChange={(e) => setNewLocExcavationApproach(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                        >
+                          <option value="Full Face">Full Face</option>
+                          <option value="Heading & Bench">Heading &amp; Bench</option>
+                          <option value="Multiple Drift / Top Heading & Benches">
+                            Multiple Drift / Top Heading &amp; Benches
+                          </option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={handleCreateLocation}
-                  className="w-full py-1.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs"
-                >
-                  {mappingDomain === 'TUNNEL'
-                    ? 'Create Tunnel Location'
-                    : `Create ${domainPanelMap.domainTitle} Sector`}
-                </button>
+
+                <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowNewLocationForm(false)}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateLocation}
+                    className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer shadow"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    {mappingDomain === 'TUNNEL'
+                      ? 'Create Tunnel Location'
+                      : `Create ${domainPanelMap.domainTitle} Sector`}
+                  </button>
+                </div>
               </div>
             )}
 
             <div className="flex-1 min-h-0 overflow-y-auto touch-pan-y space-y-2 pr-1">
               {activeProject?.locations.map((loc) => {
                 const isSelected = activeLocation?.id === loc.id;
+                const isEditing = editingLocationId === loc.id;
                 const displayW =
                   mappingDomain !== 'TUNNEL' && isSelected ? activeLocation.widthM : loc.widthM;
                 const displayH =
                   mappingDomain !== 'TUNNEL' && isSelected ? activeLocation.heightM : loc.heightM;
+
+                if (isEditing) {
+                  return (
+                    <div
+                      key={loc.id}
+                      className="p-3 rounded-xl border-2 border-amber-400 bg-slate-950 shadow-xl space-y-2.5 transition-all"
+                    >
+                      <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-800">
+                        <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                          <Pencil className="w-3.5 h-3.5 text-amber-400" />
+                          {mappingDomain === 'TUNNEL'
+                            ? 'Edit Tunnel Location Details'
+                            : `Edit ${domainPanelMap.domainTitle} Sector Details`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleCancelEditLocation}
+                          className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer text-xs"
+                          title="Cancel Editing"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-300 mb-0.5">
+                            {mappingDomain === 'TUNNEL' ? 'Tunnel Location Name' : 'Sector / Outcrop Name'}
+                          </label>
+                          <input
+                            type="text"
+                            value={editLocName}
+                            onChange={(e) => setEditLocName(e.target.value)}
+                            placeholder="Location Name"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                            autoFocus
+                          />
+                        </div>
+
+                        {mappingDomain === 'TUNNEL' ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            <div>
+                              <div className="flex items-center justify-between mb-0.5">
+                                <label className="block text-[9.5px] font-bold text-slate-400">
+                                  Tunnel Shape
+                                </label>
+                                {editLocShape === 'freeform_custom' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCustomBuilderLocationId(loc.id);
+                                      setCustomBuilderTarget('edit_location');
+                                    }}
+                                    className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-bold text-[9px] flex items-center gap-1 cursor-pointer"
+                                    title="Open Quick Sketch Shape Creator"
+                                  >
+                                    <span>✏️ Shape Creator</span>
+                                  </button>
+                                )}
+                              </div>
+                              <select
+                                value={editLocShape}
+                                onChange={(e) => {
+                                  const val = e.target.value as FieldTunnelShapeType;
+                                  setEditLocShape(val);
+                                  if (val === 'freeform_custom') {
+                                    setCustomBuilderLocationId(loc.id);
+                                    setCustomBuilderTarget('edit_location');
+                                  }
+                                }}
+                                onClick={(e) => {
+                                  const target = e.target as HTMLSelectElement;
+                                  if (target.value === 'freeform_custom') {
+                                    setCustomBuilderLocationId(loc.id);
+                                    setCustomBuilderTarget('edit_location');
+                                  }
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                              >
+                                {FIELD_TUNNEL_SHAPES.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.label}
+                                  </option>
+                                ))}
+                              </select>
+                              {editLocShape === 'freeform_custom' && (
+                                <div className="mt-1 flex items-center justify-between gap-1 p-1 bg-amber-500/10 border border-amber-500/30 rounded text-[9.5px] text-amber-300">
+                                  <span>Custom profile active ({loc.customCrossSectionPoints?.length || 0} pts)</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCustomBuilderLocationId(loc.id);
+                                      setCustomBuilderTarget('edit_location');
+                                    }}
+                                    className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-black cursor-pointer hover:bg-amber-400"
+                                  >
+                                    Open Shape Creator →
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                                Drive Azimuth (°)
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={360}
+                                value={editLocAzimuth}
+                                onChange={(e) => setEditLocAzimuth(Number(e.target.value))}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            <div>
+                              <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                                Surface Geometry
+                              </label>
+                              <input
+                                type="text"
+                                readOnly
+                                value={`${mappingDomain} Sector Profile`}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-amber-300 font-bold"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                                {mappingDomain === 'TRENCH' ? 'Trench Axis Azimuth (°)' : 'Face Dip Direction (°)'}
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={360}
+                                value={editLocAzimuth}
+                                onChange={(e) => setEditLocAzimuth(Number(e.target.value))}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                          <div>
+                            <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                              {mappingDomain === 'TUNNEL'
+                                ? 'Width (m)'
+                                : mappingDomain === 'TRENCH'
+                                ? 'Width Wt (m)'
+                                : 'Span / Length (m)'}
+                            </label>
+                            <input
+                              type="number"
+                              step={0.1}
+                              value={editLocWidth}
+                              onChange={(e) => {
+                                const w = Number(e.target.value);
+                                setEditLocWidth(w);
+                                setEditLocCrownRadius(Number((w * 0.5).toFixed(2)));
+                              }}
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                              {mappingDomain === 'TUNNEL'
+                                ? 'Height (m)'
+                                : mappingDomain === 'BENCH'
+                                ? 'Height Hb (m)'
+                                : mappingDomain === 'TRENCH'
+                                ? 'Depth Dt (m)'
+                                : 'Height (m)'}
+                            </label>
+                            <input
+                              type="number"
+                              step={0.1}
+                              value={editLocHeight}
+                              onChange={(e) => {
+                                const h = Number(e.target.value);
+                                setEditLocHeight(h);
+                                setEditLocWallHeight(Number((h * 0.55).toFixed(2)));
+                              }}
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                            />
+                          </div>
+                          {mappingDomain === 'TUNNEL' && (
+                            <>
+                              <div>
+                                <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                                  Wall Height (m)
+                                </label>
+                                <input
+                                  type="number"
+                                  step={0.1}
+                                  value={editLocWallHeight}
+                                  onChange={(e) => setEditLocWallHeight(Number(e.target.value))}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                                  Crown Radius (m)
+                                </label>
+                                <input
+                                  type="number"
+                                  step={0.1}
+                                  value={editLocCrownRadius}
+                                  onChange={(e) => setEditLocCrownRadius(Number(e.target.value))}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                                />
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {mappingDomain === 'TUNNEL' && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            <div>
+                              <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                                Excavation Mode
+                              </label>
+                              <input
+                                type="text"
+                                value={editLocExcavationMode}
+                                onChange={(e) => setEditLocExcavationMode(e.target.value)}
+                                placeholder="e.g. Drill & Blast (Full Face)"
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                                Excavation Approach
+                              </label>
+                              <select
+                                value={editLocExcavationApproach}
+                                onChange={(e) => setEditLocExcavationApproach(e.target.value)}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                              >
+                                <option value="Full Face">Full Face</option>
+                                <option value="Heading & Bench">Heading &amp; Bench</option>
+                                <option value="Multiple Drift / Top Heading & Benches">
+                                  Multiple Drift / Top Heading &amp; Benches
+                                </option>
+                              </select>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800">
+                        <button
+                          type="button"
+                          onClick={handleCancelEditLocation}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEditLocation(loc.id)}
+                          className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer shadow"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Save Location Changes
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
                   <div
                     key={loc.id}
@@ -5019,6 +5731,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             ? loc.shape.replace(/_/g, ' ')
                             : `${mappingDomain} PROFILE`}
                         </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartEditLocation(loc);
+                          }}
+                          className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 hover:text-white cursor-pointer shrink-0 flex items-center gap-1 text-[10.5px] font-bold"
+                          title="Edit Location / Sector Details"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          <span>Edit</span>
+                        </button>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -9398,7 +10122,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 : isLiveAltLith
                                 ? 'url(#fcanv-alt-live-preview)'
                                 : previewTool === '1_lithology'
-                                ? liveSingleLithUrl
+                                ? previewSubTool !== 'brush'
+                                  ? '#f59e0b'
+                                  : liveSingleLithUrl
                                 : previewTool === '3_joint_trace'
                                 ? '#0f172a'
                                 : previewTool === '6_water_mark'
@@ -9408,7 +10134,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 : '#d97706';
                             const rawLiveW =
                               previewTool === '1_lithology'
-                                ? brushRadius <= 8
+                                ? previewSubTool !== 'brush'
+                                  ? 2.8
+                                  : brushRadius <= 8
                                   ? Math.max(2, brushRadius)
                                   : brushRadius * 2
                                 : previewTool === '3_joint_trace'
@@ -9571,6 +10299,80 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     strokeLinejoin="round"
                                   />
                                 )}
+                                {previewTool === '1_lithology' &&
+                                  previewSubTool !== 'brush' &&
+                                  canonicalPreviewPts.length >= 2 &&
+                                  (() => {
+                                    const closure = resolveClosedLithologyPolygonFromTrace(
+                                      canonicalPreviewPts,
+                                      hoverPanelPt?.panel === panelId ? hoverPanelPt.point : null,
+                                      panelId,
+                                      activeLocation,
+                                      activeRound
+                                    );
+                                    if (!closure || closure.polygon.length < 3) return null;
+                                    const mappedClosed = closure.polygon.map(ptToBox);
+                                    const closedD =
+                                      mappedClosed
+                                        .map(
+                                          (p, i) =>
+                                            `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`
+                                        )
+                                        .join(' ') + ' Z';
+                                    let cx = 0;
+                                    let cy = 0;
+                                    mappedClosed.forEach((p) => {
+                                      cx += p.x;
+                                      cy += p.y;
+                                    });
+                                    cx /= mappedClosed.length;
+                                    cy /= mappedClosed.length;
+
+                                    return (
+                                      <g className="pointer-events-none select-none">
+                                        <path
+                                          d={closedD}
+                                          fill={liveSingleLithUrl}
+                                          fillOpacity={0.34}
+                                          stroke="#f59e0b"
+                                          strokeWidth="1.8"
+                                          strokeDasharray="5 3"
+                                        />
+                                        {closure.closureType === 'tunnel_outline' && (
+                                          <path
+                                            d={closedD}
+                                            fill="none"
+                                            stroke="#10b981"
+                                            strokeWidth="2.5"
+                                            strokeDasharray="4 2"
+                                            opacity="0.85"
+                                          />
+                                        )}
+                                        <rect
+                                          x={cx - 105}
+                                          y={cy - 14}
+                                          width="210"
+                                          height="28"
+                                          rx="7"
+                                          fill="#020617"
+                                          fillOpacity="0.88"
+                                          stroke="#f59e0b"
+                                          strokeWidth="1.2"
+                                        />
+                                        <text
+                                          x={cx}
+                                          y={cy + 4}
+                                          textAnchor="middle"
+                                          fill="#fbbf24"
+                                          fontSize="10"
+                                          fontWeight="900"
+                                          fontFamily="system-ui, sans-serif"
+                                        >
+                                          👆 Click inside to fill {liveRockMeta.name}
+                                        </text>
+                                      </g>
+                                    );
+                                  })()}
                                 {/* Render start anchor & control point vertices for Pencil, Spline, and Polyline */}
                                 {previewSubTool !== 'brush' &&
                                   controlVertexPts.map((vp, vIdx) => {
@@ -12572,113 +13374,166 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       )}
 
       {/* ==================== CUSTOM TUNNEL SHAPE BUILDER MODAL (SAME AS PHOTOGRAMMETRY) ==================== */}
-      {customBuilderTarget && (
-        <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto">
-          <FreeformCustomProfileEditor
-            geometry={
-              (customBuilderTarget === 'new_location'
-                ? newLocCustomGeometry
-                : activeLocation?.customGeometry) ||
-              createTunnelGeometry(
-                customBuilderTarget === 'new_location'
-                  ? newLocWidth
-                  : activeLocation?.widthM || 8.5,
-                customBuilderTarget === 'new_location'
-                  ? newLocHeight
-                  : activeLocation?.heightM || 7.5,
-                4.0,
-                'd_shaped',
-                4.25
-              )
-            }
-            settings={{
-              projectName: activeProject?.projectName || 'Tunnel Project',
-              tunnelName: activeLocation?.name || newLocName || 'Main Tunnel',
-              driveDirectionInput: String(
-                activeLocation?.defaultDriveAzimuth || newLocAzimuth || 45
-              ),
-              driveDirection: Number(
-                activeLocation?.defaultDriveAzimuth || newLocAzimuth || 45
-              ),
-              chainage: `${activeRound?.chainageFrom || '100.0'} - ${
-                activeRound?.chainageTo || '103.0'
-              }`,
-              faceChainage: activeRound?.chainageTo || '103.0',
-              roundLength: 3.0,
-              date: new Date().toISOString().slice(0, 10),
-              mappedBy: activeRound?.geologistName || 'Site Engineering Geologist',
-              lithology: 'Quartzite',
-            }}
-            savedGeometries={[]}
-            chainageSchedule={[]}
-            initialTab="freeform_canvas"
-            onApplyGeometry={(nextGeometry: TunnelGeometry) => {
-              const evalProf = nextGeometry.customProfile
-                ? evaluateCustomProfileGeometry(nextGeometry.customProfile)
-                : null;
-              const pts =
-                evalProf && evalProf.crossSectionPoints.length >= 2
-                  ? evalProf.crossSectionPoints
-                  : nextGeometry.crossSectionPoints &&
-                    nextGeometry.crossSectionPoints.length >= 2
-                  ? nextGeometry.crossSectionPoints
-                  : undefined;
-              const spanW = Number(
-                (evalProf?.width || nextGeometry.width || 8.5).toFixed(2)
-              );
-              const totalH = Number(
-                (evalProf?.height || nextGeometry.height || 7.5).toFixed(2)
-              );
-              const wallH = Number(
-                (
-                  evalProf?.wallHeight ||
-                  nextGeometry.wallHeight ||
-                  totalH * 0.55
-                ).toFixed(2)
-              );
-
-              if (customBuilderTarget === 'new_location') {
-                setNewLocShape('freeform_custom');
-                setNewLocWidth(spanW);
-                setNewLocHeight(totalH);
-                setNewLocCustomPoints(pts);
-                setNewLocCustomGeometry(nextGeometry);
-              } else if (activeLocation) {
-                updateActiveProject((p) => ({
-                  ...p,
-                  locations: p.locations.map((l) =>
-                    l.id === activeLocation.id
-                      ? {
-                          ...l,
-                          shape: 'freeform_custom',
-                          widthM: spanW,
-                          heightM: totalH,
-                          wallHeightM: wallH,
-                          crownLengthM: evalProf
-                            ? Number(evalProf.crownArcLength.toFixed(2))
-                            : undefined,
-                          leftWallLengthM: evalProf
-                            ? Number(evalProf.leftWallArcLength.toFixed(2))
-                            : undefined,
-                          rightWallLengthM: evalProf
-                            ? Number(evalProf.rightWallArcLength.toFixed(2))
-                            : undefined,
-                          customCrossSectionPoints: pts,
-                          customGeometry: nextGeometry,
-                        }
-                      : l
-                  ),
-                }));
+      {customBuilderTarget && (() => {
+        const targetEditLoc = customBuilderLocationId
+          ? activeProject?.locations.find((l) => l.id === customBuilderLocationId)
+          : null;
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto">
+            <FreeformCustomProfileEditor
+              geometry={
+                (customBuilderTarget === 'new_location'
+                  ? newLocCustomGeometry
+                  : customBuilderTarget === 'edit_location' && targetEditLoc
+                  ? targetEditLoc.customGeometry
+                  : activeLocation?.customGeometry) ||
+                createTunnelGeometry(
+                  customBuilderTarget === 'new_location'
+                    ? newLocWidth
+                    : customBuilderTarget === 'edit_location' && targetEditLoc
+                    ? targetEditLoc.widthM || editLocWidth || 8.5
+                    : activeLocation?.widthM || 8.5,
+                  customBuilderTarget === 'new_location'
+                    ? newLocHeight
+                    : customBuilderTarget === 'edit_location' && targetEditLoc
+                    ? targetEditLoc.heightM || editLocHeight || 7.5
+                    : activeLocation?.heightM || 7.5,
+                  4.0,
+                  'd_shaped',
+                  4.25
+                )
               }
-              setCustomBuilderTarget(null);
-            }}
-            onSaveToGeometryLibrary={() => {}}
-            onDeleteSavedGeometry={() => {}}
-            onUpdateChainageSchedule={() => {}}
-            onBack={() => setCustomBuilderTarget(null)}
-          />
-        </div>
-      )}
+              settings={{
+                projectName: activeProject?.projectName || 'Tunnel Project',
+                tunnelName:
+                  customBuilderTarget === 'edit_location' && targetEditLoc
+                    ? targetEditLoc.name
+                    : activeLocation?.name || newLocName || 'Main Tunnel',
+                driveDirectionInput: String(
+                  customBuilderTarget === 'edit_location' && targetEditLoc
+                    ? targetEditLoc.defaultDriveAzimuth || 45
+                    : activeLocation?.defaultDriveAzimuth || newLocAzimuth || 45
+                ),
+                driveDirection: Number(
+                  customBuilderTarget === 'edit_location' && targetEditLoc
+                    ? targetEditLoc.defaultDriveAzimuth || 45
+                    : activeLocation?.defaultDriveAzimuth || newLocAzimuth || 45
+                ),
+                chainage: `${activeRound?.chainageFrom || '100.0'} - ${
+                  activeRound?.chainageTo || '103.0'
+                }`,
+                faceChainage: activeRound?.chainageTo || '103.0',
+                roundLength: 3.0,
+                date: new Date().toISOString().slice(0, 10),
+                mappedBy: activeRound?.geologistName || 'Site Engineering Geologist',
+                lithology: 'Quartzite',
+              }}
+              savedGeometries={[]}
+              chainageSchedule={[]}
+              initialTab="sketch_solver"
+              onApplyGeometry={(nextGeometry: TunnelGeometry) => {
+                const evalProf = nextGeometry.customProfile
+                  ? evaluateCustomProfileGeometry(nextGeometry.customProfile)
+                  : null;
+                const pts =
+                  evalProf && evalProf.crossSectionPoints.length >= 2
+                    ? evalProf.crossSectionPoints
+                    : nextGeometry.crossSectionPoints &&
+                      nextGeometry.crossSectionPoints.length >= 2
+                    ? nextGeometry.crossSectionPoints
+                    : undefined;
+                const spanW = Number(
+                  (evalProf?.width || nextGeometry.width || 8.5).toFixed(2)
+                );
+                const totalH = Number(
+                  (evalProf?.height || nextGeometry.height || 7.5).toFixed(2)
+                );
+                const wallH = Number(
+                  (
+                    evalProf?.wallHeight ||
+                    nextGeometry.wallHeight ||
+                    totalH * 0.55
+                  ).toFixed(2)
+                );
+
+                if (customBuilderTarget === 'new_location') {
+                  setNewLocShape('freeform_custom');
+                  setNewLocWidth(spanW);
+                  setNewLocHeight(totalH);
+                  setNewLocWallHeight(wallH);
+                  setNewLocCustomPoints(pts);
+                  setNewLocCustomGeometry(nextGeometry);
+                } else if (customBuilderTarget === 'edit_location' && customBuilderLocationId) {
+                  setEditLocShape('freeform_custom');
+                  setEditLocWidth(spanW);
+                  setEditLocHeight(totalH);
+                  setEditLocWallHeight(wallH);
+                  updateActiveProject((p) => ({
+                    ...p,
+                    locations: p.locations.map((l) =>
+                      l.id === customBuilderLocationId
+                        ? {
+                            ...l,
+                            shape: 'freeform_custom',
+                            widthM: spanW,
+                            heightM: totalH,
+                            wallHeightM: wallH,
+                            crownLengthM: evalProf
+                              ? Number(evalProf.crownArcLength.toFixed(2))
+                              : undefined,
+                            leftWallLengthM: evalProf
+                              ? Number(evalProf.leftWallArcLength.toFixed(2))
+                              : undefined,
+                            rightWallLengthM: evalProf
+                              ? Number(evalProf.rightWallArcLength.toFixed(2))
+                              : undefined,
+                            customCrossSectionPoints: pts,
+                            customGeometry: nextGeometry,
+                          }
+                        : l
+                    ),
+                  }));
+                } else if (activeLocation) {
+                  updateActiveProject((p) => ({
+                    ...p,
+                    locations: p.locations.map((l) =>
+                      l.id === activeLocation.id
+                        ? {
+                            ...l,
+                            shape: 'freeform_custom',
+                            widthM: spanW,
+                            heightM: totalH,
+                            wallHeightM: wallH,
+                            crownLengthM: evalProf
+                              ? Number(evalProf.crownArcLength.toFixed(2))
+                              : undefined,
+                            leftWallLengthM: evalProf
+                              ? Number(evalProf.leftWallArcLength.toFixed(2))
+                              : undefined,
+                            rightWallLengthM: evalProf
+                              ? Number(evalProf.rightWallArcLength.toFixed(2))
+                              : undefined,
+                            customCrossSectionPoints: pts,
+                            customGeometry: nextGeometry,
+                          }
+                        : l
+                    ),
+                  }));
+                }
+                setCustomBuilderTarget(null);
+                setCustomBuilderLocationId(null);
+              }}
+              onSaveToGeometryLibrary={() => {}}
+              onDeleteSavedGeometry={() => {}}
+              onUpdateChainageSchedule={() => {}}
+              onBack={() => {
+                setCustomBuilderTarget(null);
+                setCustomBuilderLocationId(null);
+              }}
+            />
+          </div>
+        );
+      })()}
 
       <GlobalSettingsModal
         isOpen={isGlobalSettingsOpen}

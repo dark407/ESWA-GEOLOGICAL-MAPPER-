@@ -315,6 +315,318 @@ CRITICAL GEOLOGICAL REALISM & MAIN PHOTO RULES:
   });
 
   /**
+   * POST /api/ai/analyze-sketch-shape
+   * AI-powered vision and CAD analysis of user's rough hand-drawn tunnel profile with lengths and angles.
+   */
+  app.post('/api/ai/analyze-sketch-shape', async (req, res) => {
+    try {
+      const {
+        imageBase64,
+        strokes = [],
+        textAnnotations = [],
+        tunnelName = 'Custom Tunnel',
+      } = req.body || {};
+
+      const ai = getGeminiClient();
+      let aiResult: any = null;
+
+      if (ai && imageBase64 && typeof imageBase64 === 'string') {
+        const base64Clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+        const prompt = `You are a licensed underground civil/mining tunnel engineer and computer vision specialist.
+The user has sketched a rough tunnel cross-section on an engineering drafting canvas.
+They may have also written or annotated numbers indicating lengths/dimensions (e.g. Span/Width in meters like "9.2m", "8.5m", "10m", Height in meters like "7.5m", "8m", Wall height in meters like "4.0m", or wall angles in degrees like "90°", "85°", "80°", "75°").
+
+CRITICAL ENGINEERING NOTATION RULE FOR "c <length>" (e.g. "c 10.6m", "C 10.6m", "C: 10.6m", "c=10.6m", "c 10.6"):
+In tunnel and mining civil engineering drawings, "c" denotes a CURVED PORTION or ARC LENGTH.
+If the user has written or annotated "c <number>m" or "C <number>m" (such as "c 10.2m" or "c 10.6m") along the upper/crown portion:
+1. That portion MUST be solved as a genuine CURVED ARC (crownType = "circular_arc" or "basket_handle_3arc").
+2. Set crownArcLengthM to that exact number (e.g. 10.2).
+3. Compute crownSagittaM and heightM so that the mathematical arc length of the crown matches this specified curve length.
+
+OPEN TUNNELS / SLASHING / SLUICING / DRIFTS:
+In underground mining and tunneling, slashing / sluicing / drift enlargement headings often do NOT have one wall (it is OPEN into an adjacent void, stope, or pre-existing drift).
+If the sketch or annotations indicate "open" on one wall (e.g. "open" written on the left or right, or an arrow indicating an open boundary):
+1. Determine which wall is open: "left", "right", or "none".
+2. If left wall is open:
+   - openWall = "left"
+   - hasLeftWall = false
+   - hasRightWall = true
+   - isSymmetric = false
+   - archetype = "open_slashing_drift"
+   - The sketch typically shows the floor (invert width, e.g. 6m), right solid rock wall (e.g. 3.2m), the left open boundary height (e.g. 8m with angle ~80°), and a continuous curved crown arc (e.g. c 10.2m) connecting the top left apex down to the right wall shoulder.
+3. If right wall is open:
+   - openWall = "right"
+   - hasRightWall = false
+   - hasLeftWall = true
+   - isSymmetric = false
+   - archetype = "open_slashing_drift"
+
+User annotations / text notes: ${JSON.stringify(textAnnotations)}
+
+Task:
+1. Examine the user's rough sketch drawing and any written/drawn dimensions or angles.
+2. Determine the engineering tunnel shape archetype:
+   - "open_slashing_drift" (one wall is open to void/adjacent drift, common in mining slashing/sluicing)
+   - "horseshoe" (standard NATM/drill & blast horseshoe with arched crown, slightly inclined/vertical sidewalls, flat or dished invert)
+   - "d_shaped" (straight vertical sidewalls with semicircular crown arch)
+   - "modified_horseshoe" (high-arch 3-centered basket-handle arch with dished invert)
+   - "circular" (full circular or TBM profile)
+   - "box_portal" (rectangular/culvert portal with flat or slight arch roof)
+   - "cavern" (large span cavern/powerhouse with high vertical walls and arch roof)
+3. Extract accurate numerical values for:
+   - openWall ("none" | "left" | "right")
+   - hasLeftWall (boolean)
+   - hasRightWall (boolean)
+   - widthM (Total span/width at floor or widest point, in meters)
+   - heightM (Total height from invert to highest apex/datum, in meters)
+   - leftWallHeightM (Height from left invert to springline/shoulder, in meters)
+   - rightWallHeightM (Height from right invert to springline/shoulder, in meters)
+   - leftWallAngleDeg (Sidewall angle in degrees: 90 is vertical, <90 is inward battered/slanted, e.g. 80, >90 is flared)
+   - rightWallAngleDeg (Sidewall angle in degrees)
+   - crownSagittaM (Rise/sagitta of the crown arch from the springline level to apex, in meters)
+   - crownArcLengthM (Exact curve/arc length in meters if specified with "c <length>", e.g. 10.2)
+   - crownType ("circular_arc" | "basket_handle_3arc" | "flat")
+   - invertType ("flat" | "curved_dish")
+   - invertSagittaM (depth of dish curvature in meters, e.g. 0.3m, or 0 if flat)
+   - invertArcLengthM (length of dish arc if specified)
+   - isSymmetric (boolean)
+4. If specific numbers are written or labeled on the drawing (like "Width 6m", "3.2m", "8m", "80°", "c 10.2m", "open"), PRIORITIZE those exact written numbers!
+5. Provide an engineering summary explaining the detected shape, open wall status, curve lengths, and dimensions.`;
+
+        const candidateModels = ['gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'];
+        for (const modelName of candidateModels) {
+          try {
+            const response = await ai.models.generateContent({
+              model: modelName,
+              contents: {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: 'image/png',
+                      data: base64Clean,
+                    },
+                  },
+                  {
+                    text: prompt,
+                  },
+                ],
+              },
+              config: {
+                temperature: 0.1,
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    archetype: { type: Type.STRING },
+                    openWall: { type: Type.STRING, description: 'none, left, or right' },
+                    hasLeftWall: { type: Type.BOOLEAN },
+                    hasRightWall: { type: Type.BOOLEAN },
+                    widthM: { type: Type.NUMBER },
+                    heightM: { type: Type.NUMBER },
+                    leftWallHeightM: { type: Type.NUMBER },
+                    rightWallHeightM: { type: Type.NUMBER },
+                    leftWallAngleDeg: { type: Type.NUMBER },
+                    rightWallAngleDeg: { type: Type.NUMBER },
+                    crownSagittaM: { type: Type.NUMBER },
+                    crownArcLengthM: { type: Type.NUMBER },
+                    crownType: { type: Type.STRING },
+                    invertType: { type: Type.STRING },
+                    invertSagittaM: { type: Type.NUMBER },
+                    invertArcLengthM: { type: Type.NUMBER },
+                    isSymmetric: { type: Type.BOOLEAN },
+                    recognizedDimensions: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                    },
+                    explanation: { type: Type.STRING },
+                  },
+                  required: ['archetype', 'widthM', 'heightM', 'crownSagittaM'],
+                },
+              },
+            });
+            const parsed = JSON.parse(response.text || '{}');
+            if (parsed && typeof parsed.widthM === 'number' && typeof parsed.heightM === 'number') {
+              aiResult = parsed;
+              break;
+            }
+          } catch (modelErr) {
+            console.warn(`[AI Sketch Analysis] Model ${modelName} error:`, modelErr);
+          }
+        }
+      }
+
+      // If AI succeeded, return AI analysis with status
+      if (aiResult) {
+        res.json({
+          success: true,
+          source: 'GEMINI_AI_VISION',
+          result: aiResult,
+        });
+        return;
+      }
+
+      // Robust Local Geometric / Heuristic Solver Fallback (runs if AI is offline or without key)
+      const allPts: { x: number; y: number }[] = [];
+      if (Array.isArray(strokes)) {
+        for (const s of strokes) {
+          if (Array.isArray(s)) allPts.push(...s);
+          else if (s && Array.isArray(s.points)) allPts.push(...s.points);
+        }
+      }
+
+      let detectedWidth = 8.5;
+      let detectedHeight = 7.5;
+      let detectedLeftWallH = 4.0;
+      let detectedRightWallH = 4.0;
+      let detectedLeftAngle = 90;
+      let detectedRightAngle = 90;
+      let detectedCrownSagitta = 3.5;
+      let detectedInvertType = 'flat';
+      let detectedArchetype = 'horseshoe';
+
+      let detectedCrownArcLength: number | null = null;
+      let detectedOpenWall: 'none' | 'left' | 'right' = 'none';
+
+      // Parse any text annotations for numbers like "8.5m", "7m", "80°", "open", or "c 10.2m"
+      for (const ann of textAnnotations) {
+        const str = typeof ann === 'string' ? ann : (ann?.text || '');
+        const annX = typeof ann === 'object' && typeof ann?.x === 'number' ? ann.x : 0;
+        const matchC =
+          str.match(/(?:^|\b)c\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i) ||
+          str.match(/(?:^|\b)(?:arc|curve)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
+        const matchM = str.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
+        const matchDeg = str.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:°|deg|degrees)/i);
+
+        if (/(?:^|\b)open\b/i.test(str) || /slashing|drift/i.test(str)) {
+          if (/right/i.test(str) || annX > 0.5) {
+            detectedOpenWall = 'right';
+          } else {
+            detectedOpenWall = 'left';
+          }
+        }
+
+        if (matchC) {
+          detectedCrownArcLength = Number(matchC[1]);
+        } else if (matchM && /width|span|w\b|floor|invert/i.test(str)) {
+          detectedWidth = Number(matchM[1]);
+        } else if (matchM && /height|h\b|total/i.test(str)) {
+          detectedHeight = Number(matchM[1]);
+        } else if (matchM && /wall/i.test(str)) {
+          if (/right/i.test(str)) {
+            detectedRightWallH = Number(matchM[1]);
+          } else if (/left/i.test(str)) {
+            detectedLeftWallH = Number(matchM[1]);
+          } else {
+            detectedLeftWallH = Number(matchM[1]);
+            detectedRightWallH = Number(matchM[1]);
+          }
+        }
+        if (matchDeg) {
+          const deg = Number(matchDeg[1]);
+          if (/right/i.test(str)) {
+            detectedRightAngle = deg;
+          } else {
+            detectedLeftAngle = deg;
+          }
+        }
+      }
+
+      if (detectedOpenWall === 'left') {
+        detectedArchetype = 'open_slashing_drift';
+        // For open left slashing, check specific numbers like 8m height, 6m width, 3.2m right wall
+        for (const ann of textAnnotations) {
+          const str = typeof ann === 'string' ? ann : (ann?.text || '');
+          const annX = typeof ann === 'object' && typeof ann?.x === 'number' ? ann.x : 0;
+          const matchM = str.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
+          if (matchM && !str.toLowerCase().startsWith('c')) {
+            const val = Number(matchM[1]);
+            if (val >= 7.0 && val <= 14.0) detectedHeight = val;
+            else if (val >= 5.0 && val <= 7.0 && !/wall/i.test(str)) detectedWidth = val;
+            else if (val >= 2.0 && val <= 4.5 && (annX > 0 || /right|wall/i.test(str))) detectedRightWallH = val;
+          }
+        }
+      } else if (detectedOpenWall === 'right') {
+        detectedArchetype = 'open_slashing_drift';
+      }
+
+      if (allPts.length >= 3 && detectedOpenWall === 'none') {
+        const xs = allPts.map((p) => p.x);
+        const ys = allPts.map((p) => p.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const spanPx = Math.max(1, maxX - minX);
+        const hPx = Math.max(1, maxY - minY);
+        const aspect = hPx / spanPx;
+
+        // Base real-world scale: average span ~ 8.5m
+        detectedWidth = Number((Math.max(4.0, Math.min(18.0, spanPx * 0.022))).toFixed(2));
+        detectedHeight = Number((detectedWidth * aspect).toFixed(2));
+        detectedLeftWallH = Number((detectedHeight * 0.52).toFixed(2));
+        detectedRightWallH = detectedLeftWallH;
+        detectedCrownSagitta = Number((detectedHeight - detectedLeftWallH).toFixed(2));
+        detectedArchetype = aspect > 0.95 ? 'horseshoe' : aspect < 0.75 ? 'modified_horseshoe' : 'd_shaped';
+      }
+
+      // If curve length c (e.g. c 10.2m or c 10.6m) is specified, solve exact arc sagitta and height
+      if (detectedCrownArcLength && detectedCrownArcLength > 1.0) {
+        const chord = Math.max(2.0, detectedWidth);
+        const targetArc = Math.max(chord * 1.01, detectedCrownArcLength);
+        // Solve bulge b = tan(theta/4) where L = chord * ((1+b^2)/b) * atan(b)
+        let low = 0.01;
+        let high = 2.0;
+        for (let iter = 0; iter < 28; iter++) {
+          const mid = (low + high) / 2;
+          const arcLen = chord * ((1 + mid * mid) / mid) * Math.atan(mid);
+          if (arcLen < targetArc) low = mid;
+          else high = mid;
+        }
+        const bulge = (low + high) / 2;
+        detectedCrownSagitta = Number(((chord * bulge) / 2).toFixed(2));
+        if (detectedOpenWall === 'none') {
+          detectedHeight = Number((detectedLeftWallH + detectedCrownSagitta).toFixed(2));
+        }
+      }
+
+      const hasLeftWall = detectedOpenWall !== 'left';
+      const hasRightWall = detectedOpenWall !== 'right';
+      const isSymmetric = detectedOpenWall === 'none';
+
+      res.json({
+        success: true,
+        source: 'LOCAL_GEOMETRIC_SOLVER',
+        result: {
+          archetype: detectedArchetype,
+          openWall: detectedOpenWall,
+          hasLeftWall,
+          hasRightWall,
+          widthM: detectedWidth,
+          heightM: detectedHeight,
+          leftWallHeightM: hasLeftWall ? detectedLeftWallH : 0,
+          rightWallHeightM: hasRightWall ? detectedRightWallH : 0,
+          leftWallAngleDeg: detectedLeftAngle,
+          rightWallAngleDeg: detectedRightAngle,
+          crownSagittaM: detectedCrownSagitta,
+          crownArcLengthM: detectedCrownArcLength || undefined,
+          crownType: 'circular_arc',
+          invertType: detectedInvertType,
+          invertSagittaM: 0.3,
+          isSymmetric,
+          explanation: detectedOpenWall !== 'none'
+            ? `Locally solved open tunnel (${detectedOpenWall} wall open): span ${detectedWidth}m, height ${detectedHeight}m, curve arc C=${detectedCrownArcLength || 'auto'}m.`
+            : detectedCrownArcLength
+            ? `Locally solved: curved crown arc length C=${detectedCrownArcLength}m with rise ${detectedCrownSagitta}m.`
+            : 'Locally solved from sketch bounding geometry and annotated constraints.',
+        },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error in sketch analysis';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
    * POST /api/geometry/parse-cad
    * Backend DWG / DXF conversion pipeline to extract tunnel vector cross-section coordinates.
    */
@@ -1323,6 +1635,8 @@ ${safeJsContent}
     await apkBuildInFlightPromise;
   };
 
+  const releaseDir = path.join(process.cwd(), 'release');
+
   const resolveEffectiveApkPath = (isMaster: boolean): { fileName: string; filePath: string } => {
     const geoName = isMaster
       ? 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk'
@@ -1331,16 +1645,19 @@ ${safeJsContent}
       ? 'ESWA-TUNNEL-MAPPER-Master-Android.apk'
       : 'ESWA-TUNNEL-MAPPER-User-Android.apk';
 
-    const geoPath = path.join(runtimeCacheDir, geoName);
-    const legacyPath = path.join(runtimeCacheDir, legacyName);
+    const candidates = [
+      { name: geoName, p: path.join(releaseDir, geoName) },
+      { name: legacyName, p: path.join(releaseDir, legacyName) },
+      { name: geoName, p: path.join(runtimeCacheDir, geoName) },
+      { name: legacyName, p: path.join(runtimeCacheDir, legacyName) },
+    ];
 
-    if (fs.existsSync(geoPath)) {
-      return { fileName: geoName, filePath: geoPath };
+    for (const c of candidates) {
+      if (fs.existsSync(c.p) && fs.statSync(c.p).size > 100000) {
+        return { fileName: c.name, filePath: c.p };
+      }
     }
-    if (fs.existsSync(legacyPath)) {
-      return { fileName: legacyName, filePath: legacyPath };
-    }
-    return { fileName: geoName, filePath: geoPath };
+    return { fileName: geoName, filePath: path.join(releaseDir, geoName) };
   };
 
   const serveStandaloneAndroidApk = async (

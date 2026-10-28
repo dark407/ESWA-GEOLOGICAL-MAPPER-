@@ -157,101 +157,17 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
         </div>
       </div>
 
-      {/* Top-Right Header: Google Login ID, ISOLATED Reviews/Device ID, Settings */}
+      {/* Top-Right Header: Settings (Google Login, Device ID, Theme Color inside) */}
       <div className="absolute top-3 right-3 sm:top-5 sm:right-6 flex flex-wrap items-center justify-end gap-2 z-20">
-        {/* Google Email Login & Cloud Workspace Sync */}
-        <div className="relative">
-          {googleUser ? (
-            <button
-              type="button"
-              onClick={() => setIsAccountMenuOpen((prev) => !prev)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-slate-900/95 hover:bg-slate-800 text-slate-200 border-cyan-500/40 shadow-sm transition-all cursor-pointer text-xs font-semibold"
-              title={`Signed in as ${googleUser.email}`}
-            >
-              {googleUser.photoURL ? (
-                <img
-                  src={googleUser.photoURL}
-                  alt={googleUser.displayName}
-                  className="w-4 h-4 rounded-full object-cover border border-cyan-400"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <UserIcon className="w-3.5 h-3.5 text-cyan-400" />
-              )}
-              <span className="max-w-[130px] sm:max-w-[180px] truncate">{googleUser.email}</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={isAuthBusy}
-              onClick={onGoogleSignIn}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-slate-900/95 hover:bg-slate-800 text-cyan-300 border-cyan-500/50 shadow-sm transition-all cursor-pointer text-xs font-semibold whitespace-nowrap active:scale-95"
-              title="Sign in with your Google Email"
-            >
-              <LogIn className={`w-3.5 h-3.5 text-cyan-400 ${isAuthBusy ? 'animate-spin' : ''}`} />
-              <span>{isAuthBusy ? 'Signing in...' : 'Google Login'}</span>
-            </button>
-          )}
-
-          {googleUser && isAccountMenuOpen && (
-            <div className="absolute right-0 mt-1.5 w-64 rounded-xl border border-cyan-500/30 bg-slate-900 shadow-2xl p-3 text-left z-30 space-y-2">
-              <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-bold text-slate-100 truncate">{googleUser.displayName}</div>
-                  <div className="text-[11px] font-mono text-cyan-400 truncate">{googleUser.email}</div>
-                </div>
-              </div>
-
-              {onGoogleSignOut && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onGoogleSignOut();
-                    setIsAccountMenuOpen(false);
-                  }}
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Sign Out</span>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ISOLATED TBM REVIEWS, NOTIFICATIONS & DEVICE ID */}
-        <DeviceIdAndNotificationHeaderWidget
-          onDataImported={() => {
-            // refresh data
-          }}
-        />
-
-        {/* Active Geologist Profile */}
-        {activeGeologist && (
-          <button
-            type="button"
-            onClick={onOpenGlobalSettings}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border bg-slate-900/90 text-cyan-300 border-cyan-500/30 hover:bg-slate-800 transition-all cursor-pointer"
-            title={`Active Geologist: ${activeGeologist.name} (${activeGeologist.role})`}
-          >
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="font-bold">[{activeGeologist.role}]</span>
-            <span className="truncate max-w-[110px]">{activeGeologist.name}</span>
-          </button>
-        )}
-
-        {/* Settings Button */}
         <button
           type="button"
           onClick={onOpenGlobalSettings}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900/90 border border-slate-700 hover:border-cyan-500 text-slate-200 shadow-sm transition-all cursor-pointer active:scale-95"
-          title="Open Global Settings (Default Startup Mode, Device ID, Profiles)"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900/90 border border-slate-700 hover:border-cyan-500 text-slate-200 shadow-sm transition-all cursor-pointer active:scale-95"
+          title="Open Settings (Google Account, Device ID, Theme Colors, Projects & Profiles)"
         >
           <Settings className="w-4 h-4 text-cyan-400 hover:rotate-90 transition-transform duration-300" />
-          <span className="hidden sm:inline">Settings</span>
+          <span className="font-semibold">Settings</span>
         </button>
-
-        <ThemeToggleButton compact />
       </div>
 
       {/* Main Center Content: Strict 2 Options (Data Analysis & Storage) */}

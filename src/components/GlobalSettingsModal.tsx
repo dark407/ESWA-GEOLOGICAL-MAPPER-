@@ -67,6 +67,7 @@ import {
   GeologistUserProfile,
 } from '../engine/userCloudAndPackageEngine';
 import { ThemeToggleButton, useTheme, THEME_COLOR_PALETTES, ThemeColor } from '../context/ThemeContext';
+import { DeviceIdAndNotificationHeaderWidget } from './DeviceIdReviewAndNotificationCenter';
 
 export interface GlobalSettingsModalProps {
   isOpen: boolean;
@@ -825,6 +826,18 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
                       Helps team members recognize this device in review logs and transfer notifications.
                     </p>
                   </div>
+                </div>
+
+                {/* Device Transfers & Team Notifications Center */}
+                <div className="pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold text-slate-200">Device Transfers &amp; Review Notifications</div>
+                    <div className="text-[11px] text-slate-400">Review incoming face packages, sign-offs, and transfers for this device</div>
+                  </div>
+                  <DeviceIdAndNotificationHeaderWidget
+                    currentUser={currentUser}
+                    onUserChanged={onUserChanged}
+                  />
                 </div>
               </div>
 

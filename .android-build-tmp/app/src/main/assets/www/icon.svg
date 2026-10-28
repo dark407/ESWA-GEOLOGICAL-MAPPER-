@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Deep Geological Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#080C14" />
+      <stop offset="45%" stop-color="#0F172A" />
+      <stop offset="85%" stop-color="#141E33" />
+      <stop offset="100%" stop-color="#070B12" />
+    </linearGradient>
+
+    <!-- Glowing Metallic Bezel Gradient -->
+    <linearGradient id="bezelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B" />
+      <stop offset="30%" stop-color="#38BDF8" />
+      <stop offset="70%" stop-color="#06B6D4" />
+      <stop offset="100%" stop-color="#10B981" />
+    </linearGradient>
+
+    <!-- Mountain & Eagle Head Ice-Blue Gradient -->
+    <linearGradient id="eagleIceGrad" x1="15%" y1="10%" x2="90%" y2="90%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="45%" stop-color="#E0F2FE" />
+      <stop offset="75%" stop-color="#BAE6FD" />
+      <stop offset="100%" stop-color="#38BDF8" />
+    </linearGradient>
+
+    <!-- Horseshoe Arch Inner Rock Wall Gradient -->
+    <linearGradient id="tunnelWallGrad" x1="0%" y1="90%" x2="90%" y2="10%">
+      <stop offset="0%" stop-color="#9A7B4F" />
+      <stop offset="40%" stop-color="#856A47" />
+      <stop offset="75%" stop-color="#5B6B73" />
+      <stop offset="100%" stop-color="#3B4D59" />
+    </linearGradient>
+
+    <!-- Folded Rock Strata Gradient inside 'S' -->
+    <linearGradient id="strataGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24" />
+      <stop offset="50%" stop-color="#D97706" />
+      <stop offset="100%" stop-color="#78350F" />
+    </linearGradient>
+
+    <!-- Glow Drop Shadow Filter -->
+    <filter id="iconGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#0284C7" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Outer Rounded Square Chassis with Precision Bezel -->
+  <rect width="512" height="512" rx="108" fill="url(#bgGrad)" stroke="#1E293B" stroke-width="6" />
+  <rect x="18" y="18" width="476" height="476" rx="94" fill="none" stroke="url(#bezelGrad)" stroke-width="3" stroke-opacity="0.85" />
+  <rect x="28" y="28" width="456" height="456" rx="86" fill="none" stroke="#38BDF8" stroke-width="1.2" stroke-dasharray="8 8" stroke-opacity="0.3" />
+
+  <!-- Topographic Elevation Contours (Background) -->
+  <g fill="none" stroke="#334155" stroke-width="1.3" opacity="0.45">
+    <ellipse cx="256" cy="180" rx="190" ry="120" stroke-dasharray="14 6" />
+    <ellipse cx="256" cy="180" rx="145" ry="90" />
+    <ellipse cx="256" cy="180" rx="105" ry="65" />
+    <ellipse cx="256" cy="180" rx="65" ry="40" />
+  </g>
+
+  <!-- Topographic Mountain Triangle (Apex Peak) -->
+  <g filter="url(#iconGlow)">
+    <polygon points="142,228 205,108 220,122 256,52 370,228" fill="#0B1324" stroke="#38BDF8" stroke-width="3.5" stroke-linejoin="round" />
+    <!-- Mountain Ridges -->
+    <path d="M 256 52 L 256 228 M 205 108 L 256 160 M 310 140 L 256 175" fill="none" stroke="#64748B" stroke-width="1.8" opacity="0.65" />
+    <!-- Eagle Head with Hooked Beak -->
+    <path d="M 176 186 C 204 158, 238 134, 276 130 C 298 128, 314 135, 322 144 C 342 146, 362 155, 370 172 C 375 184, 372 198, 362 208 C 358 198, 350 190, 338 188 C 320 186, 302 196, 286 212 C 278 220, 272 228, 270 236 L 234 236 C 224 208, 198 190, 176 186 Z" fill="url(#eagleIceGrad)" stroke="#090D14" stroke-width="2.5" stroke-linejoin="round" />
+    <!-- Eagle Eye: Compass Needle & Diamond -->
+    <g transform="translate(296, 160) rotate(-32)">
+      <polygon points="-16,0 0,-5 16,0 0,5" fill="#0F172A" />
+      <circle cx="0" cy="0" r="4.5" fill="#0284C7" />
+      <circle cx="0" cy="0" r="2.2" fill="#FFFFFF" />
+    </g>
+  </g>
+
+  <!-- Horseshoe Tunnel Arch & Face Excavation Area -->
+  <g transform="translate(0, 10)">
+    <!-- Overbreak Profile (Rose Dashed Line) -->
+    <path d="M 96 400 L 90 286 L 132 192 L 256 142 L 380 192 L 422 286 L 416 400" fill="none" stroke="#F43F5E" stroke-width="4.5" stroke-dasharray="10 8" stroke-linecap="round" />
+
+    <!-- Main Tunnel D-Shaped Arch Outer Rim -->
+    <path d="M 116 400 L 116 290 A 140 140 0 0 1 396 290 L 396 400 Z" fill="#090D16" stroke="#22D3EE" stroke-width="8" stroke-linejoin="round" />
+
+    <!-- Tunnel Rock Face Interior -->
+    <path d="M 126 394 L 126 290 A 130 130 0 0 1 386 290 L 386 394 Z" fill="url(#tunnelWallGrad)" fill-opacity="0.38" stroke="#0F172A" stroke-width="3" />
+
+    <!-- Geological Joint Discontinuity Traces (Amber J1, Cyan J2, Emerald J3) -->
+    <path d="M 132 342 L 208 288 L 302 248 L 380 220" fill="none" stroke="#F59E0B" stroke-width="6" stroke-linecap="round" />
+    <path d="M 160 216 L 244 282 L 324 354 L 380 378" fill="none" stroke="#38BDF8" stroke-width="5.5" stroke-linecap="round" />
+    <path d="M 130 384 L 236 352 L 348 316" fill="none" stroke="#10B981" stroke-width="5" stroke-linecap="round" />
+
+    <!-- 3D Survey Control Point Targets (Left Springline, Crown Apex, Right Springline) -->
+    <g fill="#10B981" stroke="#FFFFFF" stroke-width="3.5">
+      <circle cx="116" cy="290" r="9" />
+      <circle cx="256" cy="150" r="9" fill="#0EA5E9" />
+      <circle cx="396" cy="290" r="9" />
+    </g>
+
+    <!-- Stylized Central "ESWA" Monogram Anchor -->
+    <g transform="translate(192, 238)">
+      <!-- 'E' Tunnel Monogram -->
+      <path d="M 0 0 H 42 M 0 0 V 68 M 0 34 H 32 M 0 68 H 42" fill="none" stroke="#F8FAFC" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" />
+      <!-- 'S' Folded Stratum -->
+      <path d="M 54 10 C 54 2, 78 2, 78 16 C 78 30, 54 36, 54 52 C 54 66, 80 66, 80 58" fill="none" stroke="url(#strataGoldGrad)" stroke-width="8.5" stroke-linecap="round" />
+      <!-- 'W' Bedding Vectors -->
+      <path d="M 92 4 L 102 68 L 114 26 L 126 68 L 136 4" fill="none" stroke="#38BDF8" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+  </g>
+
+  <!-- Bottom Brand Nameplate: "ESWA GEOLOGICAL MAPPER" -->
+  <g transform="translate(0, 0)">
+    <rect x="68" y="424" width="376" height="58" rx="16" fill="#090D16" stroke="url(#bezelGrad)" stroke-width="3" />
+    <text x="256" y="452" text-anchor="middle" fill="#FFFFFF" font-size="21" font-weight="900" font-family="'Chakra Petch', sans-serif" letter-spacing="4">ESWA</text>
+    <text x="256" y="471" text-anchor="middle" fill="#38BDF8" font-size="10.5" font-weight="800" font-family="'Plus Jakarta Sans', sans-serif" letter-spacing="2.5">GEOLOGICAL MAPPER</text>
+  </g>
+</svg>

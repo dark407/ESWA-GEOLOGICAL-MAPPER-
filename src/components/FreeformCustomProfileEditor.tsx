@@ -44,8 +44,10 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
+import { QuickSketchShapeSolver } from './QuickSketchShapeSolver';
 
 export type ProfileEditorMainTab =
+  | 'sketch_solver'
   | 'common_variants'
   | 'freeform_canvas'
   | 'trace_image'
@@ -135,19 +137,13 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
   onDeleteSavedGeometry,
   onBack,
 }) => {
-  // Normalize initial tab so custom shapes or 'freeform_canvas' open directly onto the custom canvas
-  const [mainTab, setMainTab] = useState<'common_variants' | 'freeform_canvas' | 'dxf_import'>(
+  // Normalize initial tab so custom shapes open directly onto the Quick Sketch Solver
+  const [mainTab, setMainTab] = useState<'sketch_solver' | 'common_variants' | 'freeform_canvas' | 'dxf_import'>(
     () => {
       if (initialTab === 'dxf_import') return 'dxf_import';
-      if (
-        initialTab === 'freeform_canvas' ||
-        initialTab === 'segment_builder' ||
-        geometry.isAuthoritativeCustom ||
-        Boolean(geometry.customProfile)
-      ) {
-        return 'freeform_canvas';
-      }
-      return 'common_variants';
+      if (initialTab === 'common_variants') return 'common_variants';
+      if (initialTab === 'freeform_canvas') return 'freeform_canvas';
+      return 'sketch_solver';
     }
   );
 
@@ -1423,8 +1419,19 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
           </div>
         </div>
 
-        {/* 3 Clear Shape Creation Tabs */}
+        {/* 4 Clear Shape Creation Tabs */}
         <div className="flex items-center gap-1 p-1 bg-slate-100 border border-slate-200 rounded-xl">
+          <button
+            type="button"
+            onClick={() => setMainTab('sketch_solver')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+              mainTab === 'sketch_solver'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span>🎨 1. Quick Sketch &amp; Dimensions</span>
+          </button>
           <button
             type="button"
             onClick={() => setMainTab('common_variants')}
@@ -1434,7 +1441,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            1. Common Tunnel Variants
+            2. Common Variants
           </button>
           <button
             type="button"
@@ -1445,7 +1452,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            2. Custom Shape (Line / Arc / XY)
+            3. CAD Line / Arc / XY
           </button>
           <button
             type="button"
@@ -1456,13 +1463,32 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            3. Import DWG / DXF
+            4. Import DWG / DXF
           </button>
         </div>
       </header>
 
       {/* ====================================================================
-          TAB 1: COMMON TUNNEL VARIANTS (SIMPLE, FAST & ACCURATE)
+          TAB 1: QUICK SKETCH & DIMENSION SOLVER
+         ==================================================================== */}
+      {mainTab === 'sketch_solver' && (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <QuickSketchShapeSolver
+            initialGeometry={geometry}
+            initialWidth={geometry.width || 8.5}
+            initialHeight={geometry.height || 7.5}
+            tunnelName={settings.locationName || settings.tunnelName || 'Tunnel'}
+            onApplyProfile={(profileDef, resolvedGeom) => {
+              setProfile(profileDef);
+              onApplyGeometry(resolvedGeom);
+            }}
+            onCancel={onBack}
+          />
+        </div>
+      )}
+
+      {/* ====================================================================
+          TAB 2: COMMON TUNNEL VARIANTS (SIMPLE, FAST & ACCURATE)
          ==================================================================== */}
       {mainTab === 'common_variants' && (
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 p-5 overflow-y-auto">

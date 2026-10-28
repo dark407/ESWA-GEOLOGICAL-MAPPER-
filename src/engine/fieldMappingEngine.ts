@@ -8649,5 +8649,219 @@ export function computeMineGradeControlSummary(
   };
 }
 
+// ============================================================================
+// PENCIL LITHOLOGY: BOUNDARY TRACE, OUTLINE CLOSURE & CLICK-TO-FILL ENGINE
+// ============================================================================
+
+export function isPointInsidePolygon(
+  pt: FieldPoint2D,
+  poly: FieldPoint2D[]
+): boolean {
+  if (poly.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x;
+    const yi = poly[i].y;
+    const xj = poly[j].x;
+    const yj = poly[j].y;
+    const intersect =
+      yi > pt.y !== yj > pt.y &&
+      pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+export function computePolygonArea(poly: FieldPoint2D[]): number {
+  if (poly.length < 3) return 0;
+  let area = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const j = (i + 1) % poly.length;
+    area += poly[i].x * poly[j].y;
+    area -= poly[j].x * poly[i].y;
+  }
+  return Math.abs(area / 2);
+}
+
+export function getExactFieldPanelPerimeterLoop(
+  panel: FieldPanelId,
+  location: FieldTunnelLocationItem,
+  round: FieldExcavationRound
+): FieldPoint2D[] {
+  const geom = computePanelCanvasGeometry(panel, location, round);
+  if (panel !== 'face') {
+    return [
+      { x: geom.boxX, y: geom.boxY },
+      { x: geom.boxX + geom.boxW, y: geom.boxY },
+      { x: geom.boxX + geom.boxW, y: geom.boxY + geom.boxH },
+      { x: geom.boxX, y: geom.boxY + geom.boxH },
+    ];
+  }
+  const details = computeFaceTunnelOutlineDetails(
+    location,
+    geom.boxX,
+    geom.boxY,
+    geom.boxW,
+    geom.boxH
+  );
+  return [
+    ...details.leftWallPoly,
+    ...details.crownPoly,
+    ...details.rightWallPoly.slice().reverse(),
+    ...(details.hasInvert ? details.invertPoly.slice().reverse() : []),
+  ];
+}
+
+export function projectPointOntoPerimeterLoop(
+  pt: FieldPoint2D,
+  perim: FieldPoint2D[]
+): { point: FieldPoint2D; segmentIndex: number; t: number; dist: number } {
+  let bestPt = perim[0];
+  let bestIdx = 0;
+  let bestT = 0;
+  let bestDist = Infinity;
+  const N = perim.length;
+
+  for (let i = 0; i < N; i++) {
+    const a = perim[i];
+    const b = perim[(i + 1) % N];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    let t = 0;
+    let proj: FieldPoint2D;
+    if (lenSq <= 1e-6) {
+      proj = a;
+    } else {
+      t = Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / lenSq));
+      proj = {
+        x: Number((a.x + t * dx).toFixed(1)),
+        y: Number((a.y + t * dy).toFixed(1)),
+      };
+    }
+    const d = Math.hypot(pt.x - proj.x, pt.y - proj.y);
+    if (d < bestDist) {
+      bestDist = d;
+      bestPt = proj;
+      bestIdx = i;
+      bestT = t;
+    }
+  }
+
+  return { point: bestPt, segmentIndex: bestIdx, t: bestT, dist: bestDist };
+}
+
+export function getPerimeterSubpath(
+  perim: FieldPoint2D[],
+  fromIdx: number,
+  toIdx: number,
+  forward: boolean
+): FieldPoint2D[] {
+  const N = perim.length;
+  if (N === 0) return [];
+
+  const pts: FieldPoint2D[] = [];
+  const maxSteps = N + 2;
+  let steps = 0;
+
+  if (forward) {
+    let curr = (fromIdx + 1) % N;
+    while (steps < maxSteps) {
+      pts.push(perim[curr]);
+      if (curr === toIdx) break;
+      curr = (curr + 1) % N;
+      steps++;
+    }
+  } else {
+    let curr = fromIdx;
+    while (steps < maxSteps) {
+      pts.push(perim[curr]);
+      if (curr === ((toIdx + 1) % N)) break;
+      curr = (curr - 1 + N) % N;
+      steps++;
+    }
+  }
+
+  return pts;
+}
+
+export interface ClosedLithologyPolygonResult {
+  polygon: FieldPoint2D[];
+  closureType: 'self_closed' | 'tunnel_outline';
+  candidatePolygons: FieldPoint2D[][];
+  clickedInside: boolean;
+}
+
+export function resolveClosedLithologyPolygonFromTrace(
+  drawnPts: FieldPoint2D[],
+  clickPt: FieldPoint2D | null,
+  panel: FieldPanelId,
+  location: FieldTunnelLocationItem,
+  round: FieldExcavationRound
+): ClosedLithologyPolygonResult | null {
+  if (drawnPts.length < 2) return null;
+
+  const firstPt = drawnPts[0];
+  const lastPt = drawnPts[drawnPts.length - 1];
+  const chordDist = Math.hypot(firstPt.x - lastPt.x, firstPt.y - lastPt.y);
+
+  // 1. Check if the line self-closes (endpoints meet within 48 units, or user clicked near start)
+  if (chordDist < 48 || (clickPt && chordDist < 75 && drawnPts.length >= 5)) {
+    const closed =
+      chordDist > 0.5
+        ? [...drawnPts, firstPt]
+        : drawnPts;
+    const isInside = clickPt ? isPointInsidePolygon(clickPt, closed) : true;
+    return {
+      polygon: closed,
+      closureType: 'self_closed',
+      candidatePolygons: [closed],
+      clickedInside: isInside,
+    };
+  }
+
+  // 2. Closure with Tunnel Outline
+  const perim = getExactFieldPanelPerimeterLoop(panel, location, round);
+  if (perim.length < 3) {
+    const closed = [...drawnPts, firstPt];
+    return {
+      polygon: closed,
+      closureType: 'self_closed',
+      candidatePolygons: [closed],
+      clickedInside: clickPt ? isPointInsidePolygon(clickPt, closed) : true,
+    };
+  }
+
+  const projA = projectPointOntoPerimeterLoop(firstPt, perim);
+  const projB = projectPointOntoPerimeterLoop(lastPt, perim);
+
+  const forwardPerim = getPerimeterSubpath(perim, projB.segmentIndex, projA.segmentIndex, true);
+  const backwardPerim = getPerimeterSubpath(perim, projB.segmentIndex, projA.segmentIndex, false);
+
+  const poly1 = [projA.point, ...drawnPts.slice(1, -1), projB.point, ...forwardPerim];
+  const poly2 = [projA.point, ...drawnPts.slice(1, -1), projB.point, ...backwardPerim];
+
+  if (clickPt) {
+    if (isPointInsidePolygon(clickPt, poly1)) {
+      return { polygon: poly1, closureType: 'tunnel_outline', candidatePolygons: [poly1, poly2], clickedInside: true };
+    }
+    if (isPointInsidePolygon(clickPt, poly2)) {
+      return { polygon: poly2, closureType: 'tunnel_outline', candidatePolygons: [poly1, poly2], clickedInside: true };
+    }
+  }
+
+  // If no click or click was directly on border, pick the smaller area partition as default
+  const a1 = computePolygonArea(poly1);
+  const a2 = computePolygonArea(poly2);
+  const chosen = a1 > 0 && (a1 <= a2 || a2 <= 0) ? poly1 : poly2;
+
+  return {
+    polygon: chosen,
+    closureType: 'tunnel_outline',
+    candidatePolygons: [poly1, poly2],
+    clickedInside: false,
+  };
+}
+
 
 

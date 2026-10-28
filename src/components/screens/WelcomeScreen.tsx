@@ -203,221 +203,23 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         </div>
       </div>
 
-      {/* Top-Right Controls: Google Email Login & Master Software Access Control */}
+      {/* Top-Right Controls: Settings (Google Account, Device ID, Theme Color inside) & Master Software Access Control */}
       {!isContinuous3DLoggerOpen && !isProjectMemoryModalOpen && (
         <div className="absolute top-3 right-3 sm:top-5 sm:right-6 flex flex-wrap items-center justify-end gap-2 z-20">
-          {/* Google Email Login & Cloud Workspace Sync */}
-          <div className="relative">
-            {googleUser ? (
-              <button
-                type="button"
-                onClick={() => setIsAccountMenuOpen((prev) => !prev)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white/95 text-stone-900 shadow-sm transition-all cursor-pointer text-xs font-semibold"
-                style={{
-                  borderColor: palette.primaryHex + '50',
-                }}
-                title={`Signed in as ${googleUser.email}. Click to sync or manage your ESWA account & data.`}
-              >
-                {googleUser.photoURL ? (
-                  <img
-                    src={googleUser.photoURL}
-                    alt={googleUser.displayName}
-                    className="w-4 h-4 rounded-full object-cover border"
-                    style={{ borderColor: palette.primaryHex + '60' }}
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <UserIcon className="w-3.5 h-3.5" style={{ color: palette.accentIconColor }} />
-                )}
-                <span className="max-w-[140px] sm:max-w-[190px] truncate">
-                  {googleUser.email}
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={isAuthBusy}
-                onClick={async () => {
-                  setIsAuthBusy(true);
-                  const res = await signInWithGoogleAccount();
-                  setIsAuthBusy(false);
-                  if (res.user) {
-                    setGoogleUser(res.user);
-                    setSavedProjects(loadSavedProjectsFromMemory());
-                    setSavedGeometries(loadSavedDesignGeometries());
-                    setCloudSyncStatus('Signed in & loaded your account data');
-                  } else if (res.error) {
-                    setCloudSyncStatus(res.error);
-                    setIsGlobalSettingsOpen(true);
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white/95 text-stone-900 shadow-sm transition-all cursor-pointer text-xs font-semibold whitespace-nowrap active:scale-95"
-                style={{
-                  borderColor: palette.primaryHex + '50',
-                }}
-                title="Sign in with your Google Email to access and sync your ESWA Tunnel Mapper app & data"
-              >
-                <LogIn
-                  className={`w-3.5 h-3.5 ${isAuthBusy ? 'animate-spin' : ''}`}
-                  style={{ color: palette.accentIconColor }}
-                />
-                <span>{isAuthBusy ? 'Signing in...' : 'Google Login'}</span>
-              </button>
-            )}
+          <button
+            type="button"
+            onClick={() => setIsGlobalSettingsOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/95 border text-slate-800 shadow-sm transition-all cursor-pointer active:scale-95 hover:bg-stone-50"
+            style={{ borderColor: palette.primaryHex + '45' }}
+            title="Open Settings (Google Account, Device ID, Theme Colors, Projects & Profiles)"
+          >
+            <Settings
+              className="w-4 h-4 hover:rotate-90 transition-transform duration-300"
+              style={{ color: palette.accentIconColor }}
+            />
+            <span className="font-semibold">Settings</span>
+          </button>
 
-            {googleUser && isAccountMenuOpen && (
-              <div
-                className="absolute right-0 mt-1.5 w-72 rounded-xl border bg-white shadow-xl p-3 text-left z-30 space-y-2.5"
-                style={{ borderColor: palette.primaryHex + '40' }}
-              >
-                <div
-                  className="flex items-center gap-2.5 pb-2 border-b"
-                  style={{ borderColor: palette.primaryHex + '25' }}
-                >
-                  {googleUser.photoURL ? (
-                    <img
-                      src={googleUser.photoURL}
-                      alt={googleUser.displayName}
-                      className="w-8 h-8 rounded-full object-cover border"
-                      style={{ borderColor: palette.primaryHex + '60' }}
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs"
-                      style={{
-                        backgroundColor: palette.primaryHex + '20',
-                        color: palette.accentColorOnLight,
-                      }}
-                    >
-                      {(googleUser.email || 'U').slice(0, 1).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-bold text-stone-900 truncate">
-                      {googleUser.displayName}
-                    </div>
-                    <div className="text-[11px] font-mono text-stone-600 truncate">
-                      {googleUser.email}
-                    </div>
-                  </div>
-                </div>
-
-                {cloudSyncStatus && (
-                  <div
-                    className="text-[10px] font-mono px-2 py-1 rounded border"
-                    style={{
-                      backgroundColor: palette.primaryHex + '15',
-                      borderColor: palette.primaryHex + '35',
-                      color: palette.isLightBg ? '#0F172A' : '#1E293B',
-                    }}
-                  >
-                    {cloudSyncStatus}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    disabled={isAuthBusy}
-                    onClick={async () => {
-                      setIsAuthBusy(true);
-                      const res = await syncUserWorkspaceToCloud();
-                      setIsAuthBusy(false);
-                      setCloudSyncStatus(res.message);
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg text-white text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-xs"
-                    style={{
-                      backgroundColor: palette.primaryHex,
-                      color: palette.buttonTextColor,
-                    }}
-                  >
-                    <Cloud className="w-3.5 h-3.5" />
-                    <span>Save to Cloud</span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isAuthBusy}
-                    onClick={async () => {
-                      setIsAuthBusy(true);
-                      const res = await pullUserWorkspaceFromCloud();
-                      setIsAuthBusy(false);
-                      if (res.pulled) {
-                        setSavedProjects(loadSavedProjectsFromMemory());
-                        setSavedGeometries(loadSavedDesignGeometries());
-                        setCloudSyncStatus('Loaded workspace from Google Cloud');
-                      } else {
-                        setCloudSyncStatus('No cloud backup found yet');
-                      }
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                    style={{
-                      backgroundColor: palette.primaryHex + '15',
-                      borderColor: palette.primaryHex + '40',
-                      color: palette.isLightBg ? '#0F172A' : '#1C130E',
-                    }}
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Load Cloud</span>
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await signOutGoogleAccount();
-                    setGoogleUser(null);
-                    setIsAccountMenuOpen(false);
-                    setCloudSyncStatus('');
-                  }}
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Sign Out</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          <DeviceIdAndNotificationHeaderWidget
-            onDataImported={() => {
-              setSavedProjects(loadSavedProjectsFromMemory());
-              setSavedGeometries(loadSavedDesignGeometries());
-            }}
-          />
-
-          {/* Top Header Settings Gear & Active Geologist Profile Pill */}
-          <div className="flex items-center gap-1.5">
-            {activeGeologist && (
-              <button
-                type="button"
-                onClick={() => setIsGlobalSettingsOpen(true)}
-                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer bg-white/95 text-stone-900"
-                style={{ borderColor: palette.primaryHex + '40' }}
-                title={`Active Geologist: ${activeGeologist.name} (${activeGeologist.role}) - Click to switch profile`}
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="font-bold">[{activeGeologist.role}]</span>
-                <span className="truncate max-w-[110px]">{activeGeologist.name}</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setIsGlobalSettingsOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white/95 border text-slate-800 shadow-sm transition-all cursor-pointer active:scale-95"
-              style={{ borderColor: palette.primaryHex + '45' }}
-              title="Open Global Settings (Google Account, Device ID, Multi-Device Project Sync, Geologist Profiles & Signatures)"
-            >
-              <Settings
-                className="w-4 h-4 hover:rotate-90 transition-transform duration-300"
-                style={{ color: palette.accentIconColor }}
-              />
-              <span className="hidden sm:inline">Settings</span>
-            </button>
-          </div>
-
-          <ThemeToggleButton compact />
           {isMasterSoftware && onOpenAdminPortal && (
             <button
               type="button"
@@ -669,14 +471,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 >
                   <Layers className="w-4 h-4 shrink-0" />
                 </span>
-                <div>
-                  <span className="text-black font-extrabold text-sm sm:text-base block">
-                    Continuous 3D Tunnel Log
-                  </span>
-                  <span className="text-[10px] font-mono text-stone-500 font-normal">
-                    Multi-pull 3D unfolded shell &amp; AutoCAD 2026 strip log
-                  </span>
-                </div>
+                <span className="text-black font-extrabold text-sm sm:text-base">
+                  Continuous 3D Tunnel Log
+                </span>
               </span>
               <span
                 className="text-xs font-mono font-bold flex items-center gap-1"
