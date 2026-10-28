@@ -186,18 +186,59 @@ Whenever a new user prompt is received:
   - Row 2 houses the secondary canvas & photogrammetry viewport controls (Zoom/Pan reset, 4 drawing sub-tools, Advance MATLAB filters toggle, Dual Canvas split toggle, 3D Joint Inspector, B&W vs Colour mode, Face Layers shuffle, and Photogrammetry photo filters & brightness/contrast controls).
   - Verified 100% clean TypeScript type check (`tsc --noEmit`) and successful production bundle compilation (`compile_applet`).
 
+- [x] **Milestone 25: Merged Dual Canvas Headers into Single Div & Equalized SVG Canvas Sizes:**
+  - Consolidated the top dual-canvas selector bar (`div:nth-of-type(2) > div:nth-of-type(1)`) and the nested photo canvas filter/adjustment bar (`div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1)`) into a single unified top header `div` above both canvases.
+  - Eliminated the vertical height discrepancy that previously caused the right Photo Canvas SVG to shrink relative to the left CAD Canvas SVG.
+  - Symmetrically matched both left and right outer pane containers (`flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative w-full h-full`), inner SVG wrappers (`flex-1 min-h-0 relative flex items-center justify-center w-full h-full`), and SVG dimensions (`style={{ width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%' }}`).
+  - Both SVGs now render with identical aspect ratio and 100% equal pixel dimensions side-by-side.
+  - Verified 100% clean TypeScript type check (`tsc --noEmit`) and successful production bundle compilation (`compile_applet`).
+
+- [x] **Milestone 26: Removed Advance Button and Duplicate Photo Filters from Face Canvas Toolbar:**
+  - Removed `button:nth-of-type(1)` (Advance MATLAB toggle button) from the Face Canvas top controls toolbar per user Focus Mode selection.
+  - Removed `div:nth-of-type(4)` (duplicate rock photo filter dropdown and brightness/contrast stepper bar) from the Face Canvas top controls toolbar, as these controls are now cleanly integrated into the unified dual-canvas split header above the fitted rock photo.
+  - Verified 100% clean TypeScript type check (`tsc --noEmit`) and successful production bundle compilation (`compile_applet`).
+
+- [x] **Milestone 27: Enforced Pure CAD Surface on Primary Tunnel Canvas:**
+  - Removed photo underlay rendering from `renderPanelBoxLayer` in the primary tunnel canvas (`canvasSvgRef`).
+  - The primary tunnel canvas is now strictly a clean, high-contrast vector CAD face mapping surface (master interior outline, 1m×1m grid, rock lithologies, joint traces, dip surfaces, structural features, and water marks).
+  - The rock face photo is exclusively displayed in the dedicated second canvas (`photoCanvasSvgRef`) when Dual Canvas mode is active (`isDualCanvasActive && dualCanvasMobileTab !== 'map'`).
+  - Verified 100% clean TypeScript type check (`tsc --noEmit`) and successful production bundle compilation (`compile_applet`).
+
+---
+
+- [x] **Milestone 28: Enforced Pure 3D CAD Geometry on 3D Tunnel Canvas (Photo Underlay Removed):**
+  - Removed `LAYER 1B: Fitted Photo Underlay on 3D Tunnel Surfaces (Left Wall, Crown, Right Wall, Face)` from `Field3DTunnelCanvas.tsx`.
+  - The 3D Tunnel Canvas now renders strictly as a pure vector 3D CAD mesh (mesh wireframes, design perimeter outlines, lithology block fills, foliation/vein bands, joint traces, 3D dip plane surfaces, structural features, and water condition indicators) without any photo underlay.
+  - Removed unused `getFieldPhotoFitConfig` import from `Field3DTunnelCanvas.tsx`.
+  - Verified 100% clean TypeScript type check (`tsc --noEmit`) and successful production bundle compilation (`compile_applet`).
+
+---
+
+- [x] **Milestone 29: Removed Targeted View Rotate Button from 3D Tunnel Canvas Top Controls:**
+  - Removed `button:nth-of-type(1)` ("🖐 View Rotate" button) and its conditional trace toggle from the 3D Tunnel Canvas top controls toolbar per user Focus Mode selector.
+  - Retained the clean 3D View Center Reset button in the toolbar.
+  - Verified 100% clean TypeScript type check (`tsc --noEmit`) and successful production bundle compilation (`compile_applet`).
+
 ---
 
 ### ACTIVE TASK CHECKPOINT
 <!-- FUTURE AI SESSIONS: Check this section first. If a task is active, resume from the first unchecked [ ] file. -->
 
-- **Current Status:** COMPLETED (Milestones 1 to 24 fully implemented & verified)
+- **Current Status:** COMPLETED (Milestones 1 to 29 fully implemented & verified)
 - **Active Task:** None
 - **Target Files Checklist:**
-  - [x] `/src/components/FieldMappingModeWorkspace.tsx` (Consolidated the primary geological tools bar and secondary canvas/photogrammetry options bar into a single unified container div component)
+  - [x] `/src/components/Field3DTunnelCanvas.tsx` (Removed targeted View Rotate button)
   - [x] `/AI_HANDOFF.md` (Updated permanent memory)
 - **Notes / Last Known State:**
-  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`npm run build` and `compile_applet`) succeeded with 0 errors. All focus-mode targeted requirements 100% verified.
+  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`compile_applet`) succeeded with 0 errors. All focus-mode targeted requirements 100% verified.
+
+
+
+
+
+
+
+
 
 
 

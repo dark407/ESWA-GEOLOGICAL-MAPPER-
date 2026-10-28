@@ -8766,28 +8766,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       </div>
                     )}
 
-                    {/* Advance (MATLAB Filters & Feature Detection) Toggle on Option Side */}
-                    {stage === 'field_canvas' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextVal = !activeRound.advanceCanvasEnabled;
-                          updateActiveRound((r) => ({ ...r, advanceCanvasEnabled: nextVal }));
-                          if (nextVal) {
-                            setRightSidebarCollapsed(false);
-                          }
-                        }}
-                        className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
-                          activeRound.advanceCanvasEnabled
-                            ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
-                            : 'bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800'
-                        }`}
-                        title="Toggle Advance MATLAB Image Filters & Auto Feature Detection on Option Side (When off: Normal Field Map)"
-                      >
-                        <Sparkles className="w-3 h-3" />
-                        <span>{activeRound.advanceCanvasEnabled ? 'Advance: ON' : 'Advance'}</span>
-                      </button>
-                    )}
 
                     {/* Dual Canvas (Photogrammetry Mode: Tunnel Portion Rock Photo + Realtime Sync) */}
                     {stage === 'field_canvas' && canShowSplitOption && (
@@ -8906,64 +8884,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       </button>
                     )}
 
-                    {/* Photo Filter & Brightness Controls directly on Face Canvas */}
-                    {workflowMode === 'photo_mapping' && stage === 'field_canvas' && (
-                      <div className="inline-flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-700 gap-1">
-                        <Sliders className="w-3 h-3 text-cyan-400 shrink-0 ml-1" />
-                        <select
-                          value={splitPhotoFilter}
-                          onChange={(e) => setSplitPhotoFilter(e.target.value as SplitPhotoFilterType)}
-                          className="bg-slate-900 border-none text-cyan-300 text-[10px] rounded px-1.5 py-0.5 font-bold cursor-pointer focus:outline-none"
-                          title="Geological Filters for Rock Photo"
-                        >
-                          <option value="normal">Normal</option>
-                          <option value="negative">Invert</option>
-                          <option value="bw_contrast">High B&W</option>
-                          <option value="rgb_red">Red Channel</option>
-                          <option value="rgb_green">Green Channel</option>
-                          <option value="rgb_blue">Blue Channel</option>
-                          <option value="ridge_edge">Ridge / Edge</option>
-                          <option value="clahe">CLAHE</option>
-                          <option value="thermal">Thermal</option>
-                          <option value="sepia">Sepia</option>
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => setPhotoBrightness((b) => Math.max(40, b - 15))}
-                          className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                          title="Decrease Brightness"
-                        >
-                          ☀-
-                        </button>
-                        <span className="text-[9px] font-mono text-amber-300 px-0.5">{photoBrightness}%</span>
-                        <button
-                          type="button"
-                          onClick={() => setPhotoBrightness((b) => Math.min(220, b + 15))}
-                          className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                          title="Increase Brightness"
-                        >
-                          ☀+
-                        </button>
-                        <span className="text-slate-700">|</span>
-                        <button
-                          type="button"
-                          onClick={() => setPhotoContrast((c) => Math.max(40, c - 15))}
-                          className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                          title="Decrease Contrast"
-                        >
-                          ◐-
-                        </button>
-                        <span className="text-[9px] font-mono text-cyan-300 px-0.5">{photoContrast}%</span>
-                        <button
-                          type="button"
-                          onClick={() => setPhotoContrast((c) => Math.min(250, c + 15))}
-                          className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                          title="Increase Contrast"
-                        >
-                          ◐+
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -9026,35 +8946,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   ref={canvasWrapperRef}
                   className={`flex-1 min-h-0 ${photoCanvasTheme === 'light' ? 'bg-slate-200' : 'bg-slate-950'} overflow-hidden flex flex-col items-stretch justify-center relative touch-none`}
                 >
-                  {/* Top selector bar containing the view label and the "Map Only" / "Split (Map + 2D Photo)" buttons */}
+                  {/* Top selector bar containing view labels, tab toggle, theme, AND rock photo extraction filters/controls — Merged into a SINGLE top div */}
                   {canShowSplitOption && isDualCanvasActive && (
                     <div
-                      className={`flex items-center justify-between px-3 py-1 ${
+                      className={`flex flex-wrap items-center justify-between px-3 py-1.5 ${
                         photoCanvasTheme === 'light'
                           ? 'bg-slate-100 border-b border-slate-300 text-slate-700'
                           : 'bg-slate-900 border-b border-slate-800 text-slate-300'
-                      } text-[11px] font-semibold shrink-0 select-none z-10 w-full`}
+                      } text-[11px] font-semibold shrink-0 select-none z-10 w-full gap-2`}
                     >
-                      <div className="flex items-center gap-1.5">
-                        <Layers className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
-                        <span className={`font-semibold ${photoCanvasTheme === 'light' ? 'text-slate-800' : 'text-slate-200'}`}>
-                          {FIELD_PANEL_DISPLAY_LABELS[activePanel] || 'Face'} Canvas
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {/* Theme Toggle in split bar */}
-                        <button
-                          type="button"
-                          onClick={() => setPhotoCanvasTheme((t) => (t === 'light' ? 'dark' : 'light'))}
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
-                            photoCanvasTheme === 'light'
-                              ? 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
-                              : 'bg-slate-800 text-amber-300 border-slate-700 hover:bg-slate-700'
-                          }`}
-                          title="Toggle Light Engineering Mode vs Dark Rock Mode"
-                        >
-                          {photoCanvasTheme === 'light' ? '☀️ Light' : '🌙 Dark'}
-                        </button>
+                      {/* Left Side: Face Canvas label, Dual View Switcher, Theme Toggle */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <Layers className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                          <span className={`font-semibold ${photoCanvasTheme === 'light' ? 'text-slate-800' : 'text-slate-200'}`}>
+                            1. {FIELD_PANEL_DISPLAY_LABELS[activePanel] || 'Face'} CAD Map
+                          </span>
+                        </div>
+                        {/* Map Only vs Split Buttons */}
                         <div
                           className={`flex items-center rounded-lg p-0.5 border ${
                             photoCanvasTheme === 'light'
@@ -9091,7 +9000,223 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             <span>Split (Map + 2D Photo)</span>
                           </button>
                         </div>
+                        {/* Theme Toggle */}
+                        <button
+                          type="button"
+                          onClick={() => setPhotoCanvasTheme((t) => (t === 'light' ? 'dark' : 'light'))}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                            photoCanvasTheme === 'light'
+                              ? 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
+                              : 'bg-slate-800 text-amber-300 border-slate-700 hover:bg-slate-700'
+                          }`}
+                          title="Toggle Light Engineering Mode vs Dark Rock Mode"
+                        >
+                          {photoCanvasTheme === 'light' ? '☀️ Light' : '🌙 Dark'}
+                        </button>
                       </div>
+
+                      {/* Right Side: 2. Fitted Photo Controls, Filters & Brightness/Contrast merged into this single div */}
+                      {dualCanvasMobileTab !== 'map' && (
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                          <div className="flex items-center gap-1 min-w-0 mr-1">
+                            <Camera className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                            <span className={`${photoCanvasTheme === 'light' ? 'text-cyan-800' : 'text-cyan-300'} font-mono font-bold truncate text-[10.5px]`}>
+                              2. {domainPanelMap[activePanel]?.label || FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Fitted Photo
+                            </span>
+                          </div>
+
+                          {/* Filter Dropdown */}
+                          <div className="inline-flex items-center bg-slate-950 rounded p-0.5 border border-slate-700 gap-1">
+                            <Sliders className="w-3 h-3 text-cyan-400 shrink-0 ml-1" />
+                            <select
+                              value={splitPhotoFilter}
+                              onChange={(e) => setSplitPhotoFilter(e.target.value as SplitPhotoFilterType)}
+                              className="bg-slate-900 border-none text-cyan-300 text-[10px] rounded px-1.5 py-0.5 font-bold cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                              title="Geological Filters for Joint & Trace Extraction"
+                            >
+                              <option value="normal">Normal (RGB Clean)</option>
+                              <option value="negative">Negative (Invert - Joint Extraction)</option>
+                              <option value="bw_contrast">High B&W (Fracture Aperture)</option>
+                              <option value="rgb_red">Red Channel (Iron Oxide)</option>
+                              <option value="rgb_green">Green Channel (Chlorite)</option>
+                              <option value="rgb_blue">Blue Channel (Water Seepage)</option>
+                              <option value="ridge_edge">Ridge (Edge Convolution)</option>
+                              <option value="clahe">CLAHE (Adaptive Local Contrast)</option>
+                              <option value="thermal">Thermal Heatmap (Relief)</option>
+                              <option value="sepia">Sepia (Warm Tone)</option>
+                            </select>
+                          </div>
+
+                          {/* Quick Filter Buttons */}
+                          <div className="hidden sm:inline-flex items-center rounded bg-slate-950 p-0.5 border border-slate-800 gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setSplitPhotoFilter('negative')}
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                                splitPhotoFilter === 'negative'
+                                  ? 'bg-amber-500 text-slate-950 shadow'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                              title="Invert photo to extract dark fracture lines on white ground"
+                            >
+                              Invert
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSplitPhotoFilter('bw_contrast')}
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                                splitPhotoFilter === 'bw_contrast'
+                                  ? 'bg-amber-500 text-slate-950 shadow'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                              title="High-contrast black & white for open joints"
+                            >
+                              B&W
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSplitPhotoFilter('ridge_edge')}
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                                splitPhotoFilter === 'ridge_edge'
+                                  ? 'bg-amber-500 text-slate-950 shadow'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                              title="Edge detection for crack traces"
+                            >
+                              Ridge
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSplitPhotoFilter('rgb_red')}
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                                splitPhotoFilter === 'rgb_red'
+                                  ? 'bg-rose-500 text-white shadow'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                              title="Isolate Red channel (hematite / iron staining)"
+                            >
+                              Red
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSplitPhotoFilter('normal')}
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
+                                splitPhotoFilter === 'normal'
+                                  ? 'bg-cyan-500 text-slate-950 shadow'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                              title="Reset filter to original"
+                            >
+                              Orig
+                            </button>
+                          </div>
+
+                          {/* Brightness & Contrast Controls */}
+                          <div className="inline-flex items-center bg-slate-950 rounded p-0.5 border border-slate-800 gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setPhotoBrightness((b) => Math.max(40, b - 15))}
+                              className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                              title="Decrease Photo Brightness"
+                            >
+                              ☀-
+                            </button>
+                            <span className="text-[9px] font-mono text-amber-300 px-0.5">{photoBrightness}%</span>
+                            <button
+                              type="button"
+                              onClick={() => setPhotoBrightness((b) => Math.min(220, b + 15))}
+                              className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                              title="Increase Photo Brightness"
+                            >
+                              ☀+
+                            </button>
+                            <span className="text-slate-700">|</span>
+                            <button
+                              type="button"
+                              onClick={() => setPhotoContrast((c) => Math.max(40, c - 15))}
+                              className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                              title="Decrease Photo Contrast"
+                            >
+                              ◐-
+                            </button>
+                            <span className="text-[9px] font-mono text-cyan-300 px-0.5">{photoContrast}%</span>
+                            <button
+                              type="button"
+                              onClick={() => setPhotoContrast((c) => Math.min(250, c + 15))}
+                              className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                              title="Increase Photo Contrast"
+                            >
+                              ◐+
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPhotoBrightness(100);
+                                setPhotoContrast(100);
+                                setSplitPhotoFilter('normal');
+                              }}
+                              className="px-1 text-[9px] text-slate-400 hover:text-amber-300 cursor-pointer"
+                              title="Reset Filters, Brightness, and Contrast to default"
+                            >
+                              ↺
+                            </button>
+                          </div>
+
+                          {/* Peek Traces on Photo Toggle */}
+                          <button
+                            type="button"
+                            onClick={() => setIsPeekingTracesOnPhoto((prev) => !prev)}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all ${
+                              isPeekingTracesOnPhoto
+                                ? 'bg-amber-500 text-slate-950 shadow'
+                                : 'bg-slate-800 text-slate-300 hover:text-white'
+                            }`}
+                            title="Show/Hide confirmed geological traces over rock photo (or hold Shift)"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>{isPeekingTracesOnPhoto ? 'Traces: ON' : 'Peek'}</span>
+                          </button>
+
+                          {/* Upload / Change Photo */}
+                          <label
+                            className="px-1.5 py-0.5 rounded bg-cyan-700/80 hover:bg-cyan-600 text-white text-[10px] font-black cursor-pointer flex items-center gap-0.5 shadow-sm"
+                            title={`Upload Photo for ${domainPanelMap[activePanel]?.label || FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel}`}
+                          >
+                            <span>Photo</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const reader = new FileReader();
+                                  reader.onload = (ev) => {
+                                    const url = ev.target?.result as string;
+                                    if (url) {
+                                      updateActiveRound((r) => {
+                                        const otherPhotos = r.collectedPhotos.filter((p) => p.panel !== activePanel);
+                                        const newP: FieldCollectedPhoto = {
+                                          id: `photo-${activePanel}-${Date.now()}`,
+                                          panel: activePanel,
+                                          dataUrl: url,
+                                          label: `${mappingDomain === 'TUNNEL' ? 'Underground Tunnel' : domainPanelMap.domainTitle.replace(' Mapping', '')} ${domainPanelMap[activePanel]?.label || activePanel} High-Resolution Rock Photo`,
+                                          capturedAt: new Date().toISOString(),
+                                        };
+                                        return {
+                                          ...r,
+                                          collectedPhotos: [...otherPhotos, newP],
+                                        };
+                                      });
+                                    }
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -9496,44 +9621,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             if (canvasLayerVisibility[layerKey] === false) return null;
 
                             if (layerKey === 'photo') {
-                              const computedCssFilter = (() => {
-                                let f = `brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
-                                if (splitPhotoFilter === 'negative') {
-                                  f = `invert(100%) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
-                                } else if (splitPhotoFilter === 'bw_contrast') {
-                                  f = `grayscale(100%) contrast(${Math.round(photoContrast * 1.8)}%) brightness(${photoBrightness}%)`;
-                                } else if (splitPhotoFilter === 'sepia') {
-                                  f = `sepia(100%) contrast(${Math.round(photoContrast * 1.3)}%) brightness(${photoBrightness}%)`;
-                                } else if (splitPhotoFilter === 'clahe') {
-                                  f = `contrast(${Math.round(photoContrast * 1.6)}%) saturate(160%) brightness(${photoBrightness}%)`;
-                                } else if (splitPhotoFilter === 'rgb_red') {
-                                  f = `url(#split-filter-red-channel) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
-                                } else if (splitPhotoFilter === 'rgb_green') {
-                                  f = `url(#split-filter-green-channel) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
-                                } else if (splitPhotoFilter === 'rgb_blue') {
-                                  f = `url(#split-filter-blue-channel) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
-                                } else if (splitPhotoFilter === 'ridge_edge') {
-                                  f = `url(#split-filter-ridge) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
-                                } else if (splitPhotoFilter === 'thermal') {
-                                  f = `url(#split-filter-thermal) brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
-                                }
-                                return f;
-                              })();
-
-                              return workflowMode === 'photo_mapping' && pPhoto ? (
-                                <FittedPanelPhotoSvgImage
-                                  key="fcanv-layer-photo"
-                                  photoUrl={pPhoto.dataUrl}
-                                  fitConfig={getFieldPhotoFitConfig(activeRound, panelId)}
-                                  boxX={targetBox.x}
-                                  boxY={targetBox.y}
-                                  boxW={targetBox.w}
-                                  boxH={targetBox.h}
-                                  clipPathId={clipId}
-                                  cssFilter={computedCssFilter}
-                                  overrideOpacity={1}
-                                />
-                              ) : null;
+                              // Strictly never lay the photo on the primary tunnel canvas (photo is exclusively displayed on the second canvas in dual canvas mode)
+                              return null;
                             }
 
                             if (layerKey === 'underlay_grid') {
@@ -10766,219 +10855,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 photoCanvasTheme === 'light'
                   ? 'bg-slate-100'
                   : 'bg-slate-950'
-              } overflow-hidden relative ${
+              } overflow-hidden relative w-full h-full ${
                 dualCanvasMobileTab === 'map' ? 'hidden' : 'flex'
               }`}
             >
-              {/* Photo Canvas Top Bar with Geological Trace Extraction Filters */}
-              <div className={`${
-                photoCanvasTheme === 'light'
-                  ? 'bg-slate-200 border-b border-slate-300 text-slate-800'
-                  : 'bg-slate-900/95 border-b border-slate-800 text-slate-200'
-              } px-2 py-1 flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold shrink-0`}>
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <Camera className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
-                  <span className={`${photoCanvasTheme === 'light' ? 'text-cyan-800' : 'text-cyan-300'} font-mono font-bold truncate`}>
-                    2. {domainPanelMap[activePanel]?.label || FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel.toUpperCase()} Fitted Photo (2D)
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0 flex-wrap">
-                  {/* Filter Dropdown */}
-                  <div className="inline-flex items-center bg-slate-950 rounded p-0.5 border border-slate-700 gap-1">
-                    <Sliders className="w-3 h-3 text-cyan-400 shrink-0 ml-1" />
-                    <select
-                      value={splitPhotoFilter}
-                      onChange={(e) => setSplitPhotoFilter(e.target.value as SplitPhotoFilterType)}
-                      className="bg-slate-900 border-none text-cyan-300 text-[10px] rounded px-1.5 py-0.5 font-bold cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                      title="Geological Filters for Joint & Trace Extraction"
-                    >
-                      <option value="normal">Normal (RGB Clean)</option>
-                      <option value="negative">Negative (Invert - Joint Extraction)</option>
-                      <option value="bw_contrast">High B&W (Fracture Aperture)</option>
-                      <option value="rgb_red">Red Channel (Iron Oxide)</option>
-                      <option value="rgb_green">Green Channel (Chlorite)</option>
-                      <option value="rgb_blue">Blue Channel (Water Seepage)</option>
-                      <option value="ridge_edge">Ridge (Edge Convolution)</option>
-                      <option value="clahe">CLAHE (Adaptive Local Contrast)</option>
-                      <option value="thermal">Thermal Heatmap (Relief)</option>
-                      <option value="sepia">Sepia (Warm Tone)</option>
-                    </select>
-                  </div>
-
-                  {/* Filter Quick-Buttons for fast one-click toggling */}
-                  <div className="hidden sm:inline-flex items-center rounded bg-slate-950 p-0.5 border border-slate-800 gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setSplitPhotoFilter('negative')}
-                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
-                        splitPhotoFilter === 'negative'
-                          ? 'bg-amber-500 text-slate-950 shadow'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Invert photo to extract dark fracture lines on white ground"
-                    >
-                      Invert
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitPhotoFilter('bw_contrast')}
-                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
-                        splitPhotoFilter === 'bw_contrast'
-                          ? 'bg-amber-500 text-slate-950 shadow'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="High-contrast black & white for open joints"
-                    >
-                      B&W
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitPhotoFilter('ridge_edge')}
-                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
-                        splitPhotoFilter === 'ridge_edge'
-                          ? 'bg-amber-500 text-slate-950 shadow'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Edge detection for crack traces"
-                    >
-                      Ridge
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitPhotoFilter('rgb_red')}
-                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
-                        splitPhotoFilter === 'rgb_red'
-                          ? 'bg-rose-500 text-white shadow'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Isolate Red channel (hematite / iron staining)"
-                    >
-                      Red
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitPhotoFilter('normal')}
-                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-colors ${
-                        splitPhotoFilter === 'normal'
-                          ? 'bg-cyan-500 text-slate-950 shadow'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Reset filter to original"
-                    >
-                      Orig
-                    </button>
-                  </div>
-
-                  {/* Photo Brightness & Contrast Controls */}
-                  <div className="inline-flex items-center bg-slate-950 rounded p-0.5 border border-slate-800 gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setPhotoBrightness((b) => Math.max(40, b - 15))}
-                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                      title="Decrease Photo Brightness"
-                    >
-                      ☀-
-                    </button>
-                    <span className="text-[9px] font-mono text-amber-300 px-0.5">{photoBrightness}%</span>
-                    <button
-                      type="button"
-                      onClick={() => setPhotoBrightness((b) => Math.min(220, b + 15))}
-                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                      title="Increase Photo Brightness"
-                    >
-                      ☀+
-                    </button>
-                    <span className="text-slate-700">|</span>
-                    <button
-                      type="button"
-                      onClick={() => setPhotoContrast((c) => Math.max(40, c - 15))}
-                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                      title="Decrease Photo Contrast"
-                    >
-                      ◐-
-                    </button>
-                    <span className="text-[9px] font-mono text-cyan-300 px-0.5">{photoContrast}%</span>
-                    <button
-                      type="button"
-                      onClick={() => setPhotoContrast((c) => Math.min(250, c + 15))}
-                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                      title="Increase Photo Contrast"
-                    >
-                      ◐+
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPhotoBrightness(100);
-                        setPhotoContrast(100);
-                        setSplitPhotoFilter('normal');
-                      }}
-                      className="px-1 text-[9px] text-slate-400 hover:text-amber-300 cursor-pointer"
-                      title="Reset Filters, Brightness, and Contrast to default"
-                    >
-                      ↺
-                    </button>
-                  </div>
-
-                  {/* Peek Traces on Photo Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => setIsPeekingTracesOnPhoto((prev) => !prev)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all ${
-                      isPeekingTracesOnPhoto
-                        ? 'bg-amber-500 text-slate-950 shadow'
-                        : 'bg-slate-800 text-slate-300 hover:text-white'
-                    }`}
-                    title="Show/Hide confirmed geological traces over rock photo (or hold Shift)"
-                  >
-                    <Eye className="w-3 h-3" />
-                    <span>{isPeekingTracesOnPhoto ? 'Traces: ON' : 'Peek'}</span>
-                  </button>
-
-                  {/* Upload / Change Photo for current portion (domain-specific panel) */}
-                  <label
-                    className="px-1.5 py-0.5 rounded bg-cyan-700/80 hover:bg-cyan-600 text-white text-[10px] font-black cursor-pointer flex items-center gap-0.5 shadow-sm"
-                    title={`Upload Photo for ${domainPanelMap[activePanel]?.label || FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel}`}
-                  >
-                    <span>Photo</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            const url = ev.target?.result as string;
-                            if (url) {
-                              updateActiveRound((r) => {
-                                const otherPhotos = r.collectedPhotos.filter((p) => p.panel !== activePanel);
-                                const newP: FieldCollectedPhoto = {
-                                  id: `photo-${activePanel}-${Date.now()}`,
-                                  panel: activePanel,
-                                  dataUrl: url,
-                                  label: `${mappingDomain === 'TUNNEL' ? 'Underground Tunnel' : domainPanelMap.domainTitle.replace(' Mapping', '')} ${domainPanelMap[activePanel]?.label || activePanel} High-Resolution Rock Photo`,
-                                  capturedAt: new Date().toISOString(),
-                                };
-                                return {
-                                  ...r,
-                                  collectedPhotos: [...otherPhotos, newP],
-                                };
-                              });
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-
-              {/* Photo SVG Canvas with Outline-Fitted Photo & Synced Drawing */}
-              <div className={`flex-1 min-h-0 relative flex items-center justify-center ${
+              {/* Photo SVG Canvas with Outline-Fitted Photo & Synced Drawing — Identical sizing & aspect ratio to Left CAD Canvas */}
+              <div className={`flex-1 min-h-0 relative flex items-center justify-center w-full h-full ${
                 photoCanvasTheme === 'light' ? 'bg-[#E2E8F0]' : 'bg-slate-950'
               }`}>
                 <svg
@@ -10991,6 +10873,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   preserveAspectRatio="xMidYMid meet"
                   style={{
                     backgroundColor: photoCanvasTheme === 'light' ? '#E2E8F0' : '#020617',
+                    width: '100%',
+                    height: '100%',
+                    maxWidth: '100%',
+                    maxHeight: '100%',
                     cursor:
                       isCanvasPanMode
                         ? 'grab'
@@ -11010,7 +10896,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   onPointerUp={handleCanvasPointerUp}
                   onPointerCancel={handleCanvasPointerUp}
                   onPointerLeave={() => setSyncCursorCoord(null)}
-                  className="w-full h-full touch-none select-none"
+                  className="w-full h-full touch-none select-none m-auto transition-all"
                 >
                   <defs>
                     {/* Red channel filter for iron oxide staining */}

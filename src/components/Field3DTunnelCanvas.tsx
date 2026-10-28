@@ -43,7 +43,6 @@ import {
   FieldFaultElementRole,
   FieldFoldSubType,
   FieldFoldElementRole,
-  getFieldPhotoFitConfig,
   pruneFullyErasedLithologyStrokes,
   resolveRockDisplayInfo,
   smoothFieldTracePoints,
@@ -2892,30 +2891,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             </div>
           )}
 
-          {/* Top Toolbar View Toggle: Click to Rotate Any Side Using Finger */}
-          <div className="flex items-center gap-1 bg-slate-900 border border-cyan-500/50 rounded-md px-1.5 py-0.5">
-            <button
-              type="button"
-              onClick={() => setInsideNavMode((m) => (m === 'draw' ? 'rotate' : 'draw'))}
-              className={`px-2 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all flex items-center gap-1 ${
-                insideNavMode === 'rotate'
-                  ? 'bg-amber-400 text-slate-950 shadow-md ring-1 ring-amber-200'
-                  : 'bg-slate-800 text-cyan-300 hover:bg-slate-700 hover:text-white'
-              }`}
-              title="View Toggle — click to rotate the 3D tunnel to any side/angle using your finger, then click again to resume tracing!"
-            >
-              {insideNavMode === 'rotate' ? '🖐 View Rotate: ON' : '🖐 View Rotate'}
-            </button>
-            {insideNavMode === 'rotate' && (
-              <button
-                type="button"
-                onClick={() => setInsideNavMode('draw')}
-                className="px-1.5 py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[9.5px] font-black cursor-pointer"
-                title="Switch back to Trace / Draw mode"
-              >
-                ✏️ Trace
-              </button>
-            )}
+          {/* 3D View Center Reset */}
+          <div className="flex items-center gap-1 bg-slate-900 border border-slate-700/60 rounded-md px-1.5 py-0.5">
             <button
               type="button"
               onClick={() => {
@@ -3344,65 +3321,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
           />
 
           {/* =====================================================================
-              LAYER 1B: Fitted Photo Underlay on 3D Tunnel Surfaces (Left Wall, Crown, Right Wall, Face)
+              LAYER 1B: Photo underlay disabled — 3D canvas renders pure CAD geometry
              ===================================================================== */}
-          {allPanels.map((pid) => {
-            const ph = activeRound.collectedPhotos
-              .slice()
-              .reverse()
-              .find((p) => p.panel === pid);
-            if (!ph) return null;
-            const fitCfg = getFieldPhotoFitConfig(activeRound, pid);
-            const photoSrc = fitCfg.filteredDataUrl || ph.dataUrl;
-            const ptsStr =
-              pid === 'left_wall'
-                ? surfaceMeshes.leftWallPts
-                : pid === 'right_wall'
-                ? surfaceMeshes.rightWallPts
-                : pid === 'crown'
-                ? surfaceMeshes.crownPts
-                : surfaceMeshes.facePts;
-            if (!ptsStr) return null;
-            const coords = ptsStr
-              .trim()
-              .split(/\s+/)
-              .map((pair) => pair.split(',').map(Number));
-            const xs = coords.map((c) => c[0]).filter((n) => !Number.isNaN(n));
-            const ys = coords.map((c) => c[1]).filter((n) => !Number.isNaN(n));
-            if (xs.length === 0 || ys.length === 0) return null;
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
-            const minY = Math.min(...ys);
-            const maxY = Math.max(...ys);
-            const bw = Math.max(10, maxX - minX);
-            const bh = Math.max(10, maxY - minY);
-            const cx = minX + bw / 2;
-            const cy = minY + bh / 2;
-            const tx = (fitCfg.offsetX / 100) * bw;
-            const ty = (fitCfg.offsetY / 100) * bh;
-            const sx = (fitCfg.mirrorH ? -1 : 1) * fitCfg.scale;
-            const sy = (fitCfg.mirrorV ? -1 : 1) * fitCfg.scale;
-            const photoTr = `translate(${cx + tx}, ${cy + ty}) rotate(${fitCfg.rotationDeg}) scale(${sx}, ${sy}) translate(${-cx}, ${-cy})`;
-            return (
-              <g
-                key={`3d-photo-layer-${pid}`}
-                clipPath={`url(#clip-3d-${pid})`}
-                pointerEvents="none"
-              >
-                <g transform={photoTr}>
-                  <image
-                    href={photoSrc}
-                    x={minX}
-                    y={minY}
-                    width={bw}
-                    height={bh}
-                    preserveAspectRatio="none"
-                    opacity={0.78}
-                  />
-                </g>
-              </g>
-            );
-          })}
 
           {/* =====================================================================
               LAYER 2: Lithology Block Fills (Specified Geological Symbols Only — No Color Change!)
