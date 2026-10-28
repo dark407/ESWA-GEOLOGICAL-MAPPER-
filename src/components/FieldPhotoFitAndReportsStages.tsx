@@ -1023,12 +1023,12 @@ export const FieldInBuiltCameraStage: React.FC<{
         /* ==================== CAMERA MODULE VIEW ==================== */
         <div className="max-w-5xl w-full mx-auto flex-1 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
           {/* Top Bar: Portion Options (Face, Crown, LW, RW) & Grid Switch */}
-          <div className="bg-slate-950 border-b border-slate-800 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+          <div className="bg-slate-950 border-b border-slate-800 px-3 py-2 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 shrink-0">
                 Portion:
               </span>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x whitespace-nowrap">
                 {availablePortions.map((portion) => {
                   const count = activeRound.collectedPhotos.filter((p) => p.panel === portion.id).length;
                   const isSelected = targetPanel === portion.id;
@@ -1187,55 +1187,59 @@ export const FieldInBuiltCameraStage: React.FC<{
                     </span>
                   </h3>
 
-                  <p className="text-xs text-slate-400 mt-1 mb-4 leading-relaxed">
-                    {cameraError
-                      ? cameraError
-                      : 'Underground camera module ready. Take photos using native device camera hardware, capture live stream, or load authentic tunnel face rock exposures.'}
-                  </p>
+                  {workflowMode !== 'photo_mapping' && (
+                    <p className="text-xs text-slate-400 mt-1 mb-4 leading-relaxed">
+                      {cameraError
+                        ? cameraError
+                        : 'Underground camera module ready. Take photos using native device camera hardware, capture live stream, or load authentic tunnel face rock exposures.'}
+                    </p>
+                  )}
 
-                  {/* 4 Interactive Camera Action Buttons */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
-                    {/* 1. Native Device Camera (Mobile / Tablet) */}
-                    <button
-                      type="button"
-                      onClick={() => nativeCameraCaptureRef.current?.click()}
-                      className="p-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
-                    >
-                      <Camera className="w-4 h-4" />
-                      <span>📱 Native Device Camera</span>
-                    </button>
+                  {/* 4 Interactive Camera Action Buttons (Hidden in Photogrammetry Mode) */}
+                  {workflowMode !== 'photo_mapping' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+                      {/* 1. Native Device Camera (Mobile / Tablet) */}
+                      <button
+                        type="button"
+                        onClick={() => nativeCameraCaptureRef.current?.click()}
+                        className="p-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span>📱 Native Device Camera</span>
+                      </button>
 
-                    {/* 2. Load Authentic Rock Exposure (AI Studio 1-Click Test) */}
-                    <button
-                      type="button"
-                      onClick={handleLoadAuthenticSamplePhoto}
-                      className="p-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
-                      title="1-click authentic geological rock face photo generator for testing in Google AI Studio"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      <span>🪨 Load Tunnel Face Photo</span>
-                    </button>
+                      {/* 2. Load Authentic Rock Exposure (AI Studio 1-Click Test) */}
+                      <button
+                        type="button"
+                        onClick={handleLoadAuthenticSamplePhoto}
+                        className="p-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
+                        title="1-click authentic geological rock face photo generator for testing in Google AI Studio"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>🪨 Load Tunnel Face Photo</span>
+                      </button>
 
-                    {/* 3. Upload File from Device */}
-                    <button
-                      type="button"
-                      onClick={() => multiFileInputRef.current?.click()}
-                      className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                    >
-                      <Upload className="w-4 h-4 text-cyan-400" />
-                      <span>📁 Upload File / Gallery</span>
-                    </button>
+                      {/* 3. Upload File from Device */}
+                      <button
+                        type="button"
+                        onClick={() => multiFileInputRef.current?.click()}
+                        className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                      >
+                        <Upload className="w-4 h-4 text-cyan-400" />
+                        <span>📁 Upload File / Gallery</span>
+                      </button>
 
-                    {/* 4. Retry WebRTC Live Stream */}
-                    <button
-                      type="button"
-                      onClick={() => startCamera(cameraFacingMode)}
-                      className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                    >
-                      <RefreshCw className="w-4 h-4 text-emerald-400" />
-                      <span>🔄 Retry Live Stream</span>
-                    </button>
-                  </div>
+                      {/* 4. Retry WebRTC Live Stream */}
+                      <button
+                        type="button"
+                        onClick={() => startCamera(cameraFacingMode)}
+                        className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                      >
+                        <RefreshCw className="w-4 h-4 text-emerald-400" />
+                        <span>🔄 Retry Live Stream</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1254,8 +1258,8 @@ export const FieldInBuiltCameraStage: React.FC<{
           </div>
 
           {/* Bottom Bar: Device upload, Click Photo, and End Camera */}
-          <div className="bg-slate-950 border-t border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+          <div className="bg-slate-950 border-t border-slate-800 px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2.5 sm:gap-3 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x">
+            <div className="flex items-center gap-2 shrink-0">
               <input
                 ref={multiFileInputRef}
                 type="file"
@@ -1267,44 +1271,50 @@ export const FieldInBuiltCameraStage: React.FC<{
                   e.target.value = '';
                 }}
               />
-              <button
-                type="button"
-                onClick={() => multiFileInputRef.current?.click()}
-                className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                title="Upload from device gallery or folder"
-              >
-                <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Upload File</span>
-              </button>
+              {workflowMode !== 'photo_mapping' && (
+                <button
+                  type="button"
+                  onClick={() => multiFileInputRef.current?.click()}
+                  className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
+                  title="Upload from device gallery or folder"
+                >
+                  <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Upload File</span>
+                </button>
+              )}
 
-              <button
-                type="button"
-                onClick={() => nativeCameraCaptureRef.current?.click()}
-                className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                title="Open Phone/Tablet Native Camera"
-              >
-                <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Device Camera</span>
-              </button>
+              {workflowMode !== 'photo_mapping' && (
+                <button
+                  type="button"
+                  onClick={() => nativeCameraCaptureRef.current?.click()}
+                  className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
+                  title="Open Phone/Tablet Native Camera"
+                >
+                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Device Camera</span>
+                </button>
+              )}
             </div>
 
             {/* Bottom Center: Big Tactile Shutter Button (Always succeeds!) */}
-            <button
-              type="button"
-              onClick={handleSnapFieldPhoto}
-              className="px-8 py-3 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow-xl cursor-pointer transition-transform ring-4 ring-amber-500/20"
-              title={liveCameraActive ? 'Capture frame from live video' : 'Capture authentic rock face exposure for this portion'}
-            >
-              <Camera className="w-5 h-5" />
-              <span>Click Photo ({activePortionInfo.shortLabel})</span>
-            </button>
+            {workflowMode !== 'photo_mapping' && (
+              <button
+                type="button"
+                onClick={handleSnapFieldPhoto}
+                className="px-8 py-3 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow-xl cursor-pointer transition-transform ring-4 ring-amber-500/20 shrink-0 whitespace-nowrap"
+                title={liveCameraActive ? 'Capture frame from live video' : 'Capture authentic rock face exposure for this portion'}
+              >
+                <Camera className="w-5 h-5" />
+                <span>Click Photo ({activePortionInfo.shortLabel})</span>
+              </button>
+            )}
 
-            {/* Bottom Right: Proceed / End Camera Module */}
-            <div className="flex items-center gap-2">
+            {/* Bottom Right: Proceed / End Camera Module (Slidable without slidebar) */}
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x whitespace-nowrap shrink-0">
               <button
                 type="button"
                 onClick={handleEndCamera}
-                className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
                 title="Inspect captured photos and add reference marks"
               >
                 <Target className="w-4 h-4 text-amber-400" />
@@ -1314,7 +1324,7 @@ export const FieldInBuiltCameraStage: React.FC<{
               <button
                 type="button"
                 onClick={handleProceedToNextStep}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer shrink-0 whitespace-nowrap"
               >
                 <span>{workflowMode === 'photo_mapping' ? 'Next: Photo Fit' : 'Next Step'}</span>
                 <ArrowRight className="w-4 h-4" />
@@ -1326,8 +1336,8 @@ export const FieldInBuiltCameraStage: React.FC<{
         /* ==================== PHOTO INSPECTION & REFERENCE MARKING VIEW ==================== */
         <div className="max-w-6xl w-full mx-auto flex-1 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl space-y-0">
           {/* Header */}
-          <div className="bg-slate-950 border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-            <div>
+          <div className="bg-slate-950 border-b border-slate-800 px-4 py-3 flex items-center justify-between gap-3 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x">
+            <div className="shrink-0 min-w-[260px]">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm sm:text-base font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
                   <Target className="w-4 h-4" />
@@ -1342,11 +1352,11 @@ export const FieldInBuiltCameraStage: React.FC<{
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x whitespace-nowrap shrink-0">
               <button
                 type="button"
                 onClick={() => setViewMode('camera')}
-                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
               >
                 <Camera className="w-3.5 h-3.5 text-amber-400" />
                 <span>Re-open Camera</span>
@@ -1354,7 +1364,7 @@ export const FieldInBuiltCameraStage: React.FC<{
               <button
                 type="button"
                 onClick={handleProceedToNextStep}
-                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer shrink-0 whitespace-nowrap"
               >
                 <span>{workflowMode === 'photo_mapping' ? 'Proceed to Photo Fit & Scale' : 'Proceed to Face Canvas'}</span>
                 <ArrowRight className="w-4 h-4" />
@@ -1369,18 +1379,18 @@ export const FieldInBuiltCameraStage: React.FC<{
               <p className="text-xs text-slate-500 max-w-md mt-1 mb-4">
                 You ended the camera without snapping any photos. You can re-open the camera or skip directly to the next stage.
               </p>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x whitespace-nowrap">
                 <button
                   type="button"
                   onClick={() => setViewMode('camera')}
-                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider cursor-pointer shrink-0 whitespace-nowrap"
                 >
                   📸 Open Camera to Take Photos
                 </button>
                 <button
                   type="button"
                   onClick={handleProceedToNextStep}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs cursor-pointer border border-emerald-500/40"
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs cursor-pointer border border-emerald-500/40 shrink-0 whitespace-nowrap"
                 >
                   {workflowMode === 'photo_mapping' ? 'Skip to Photo Fit →' : 'Skip to Face Canvas →'}
                 </button>
@@ -1389,7 +1399,7 @@ export const FieldInBuiltCameraStage: React.FC<{
           ) : (
             <div className="flex-1 flex flex-col min-h-0 bg-slate-950/40">
               {/* Photo Thumbnails Strip */}
-              <div className="bg-slate-950 border-b border-slate-800 px-3 py-2 flex items-center gap-2 overflow-x-auto">
+              <div className="bg-slate-950 border-b border-slate-800 px-3 py-2 flex items-center gap-2 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x">
                 <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 shrink-0">
                   Photos:
                 </span>
