@@ -175,16 +175,31 @@ Whenever a new user prompt is received:
 
 ---
 
+- [x] **Milestone 23: Merged Face Details Header & Creation Form into Single Option Div:**
+  - Unified Window 3 header and new face creation form into a single, seamless option container div (`div#root ... > div:nth-of-type(3) > div:nth-of-type(1)`), eliminating awkward stacked double-box layouts.
+  - Merged mapping method selection ("1. Field Mapping" and "2. Photogrammetry") into a sleek, high-contrast segmented single option div (`grid grid-cols-2 p-1 bg-slate-900 border border-slate-700 rounded-xl`).
+  - Preserved full responsiveness across desktop, tablet, and mobile layouts.
+
+- [x] **Milestone 24: Merged Face Canvas Top Toolbar & Canvas Options into Single Div Component in Photogrammetry Mode:**
+  - Consolidated the two previously separate component divs at the top of the Face Canvas in Photogrammetry Mode (the primary geological tools bar `div:nth-of-type(1)` and the secondary canvas/photogrammetry controls bar `div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1)`) into a single, cohesive, high-contrast container div component (`bg-slate-950 border border-amber-500/40 rounded-xl p-1.5 mb-1 flex flex-col gap-1.5 shrink-0 shadow-lg select-none`).
+  - Row 1 neatly houses the primary geological mapping tools (Rock Lithology, Vein & Foliation, Joint Traces, Dip Plane Surface, Geo Features, Mark Water, Feature Eraser, Litho Eraser, and Undo/Redo history).
+  - Row 2 houses the secondary canvas & photogrammetry viewport controls (Zoom/Pan reset, 4 drawing sub-tools, Advance MATLAB filters toggle, Dual Canvas split toggle, 3D Joint Inspector, B&W vs Colour mode, Face Layers shuffle, and Photogrammetry photo filters & brightness/contrast controls).
+  - Verified 100% clean TypeScript type check (`tsc --noEmit`) and successful production bundle compilation (`compile_applet`).
+
+---
+
 ### ACTIVE TASK CHECKPOINT
 <!-- FUTURE AI SESSIONS: Check this section first. If a task is active, resume from the first unchecked [ ] file. -->
 
-- **Current Status:** COMPLETED (Milestones 1 to 22 fully implemented & verified)
+- **Current Status:** COMPLETED (Milestones 1 to 24 fully implemented & verified)
 - **Active Task:** None
 - **Target Files Checklist:**
-  - [x] `/src/components/Field3DTunnelCanvas.tsx` (Rectified `mapUvToSyncSvg` axes, added structural features, veins, dip surfaces, and continuous cross-panel stroke tracking in `Field3DNewTraceUnfoldedSyncBox`)
+  - [x] `/src/components/FieldMappingModeWorkspace.tsx` (Consolidated the primary geological tools bar and secondary canvas/photogrammetry options bar into a single unified container div component)
   - [x] `/AI_HANDOFF.md` (Updated permanent memory)
 - **Notes / Last Known State:**
-  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`npm run build` and `compile_applet`) succeeded with 0 errors. All geological mapping synchronization is 100% verified.
+  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`npm run build` and `compile_applet`) succeeded with 0 errors. All focus-mode targeted requirements 100% verified.
+
+
 
 
 

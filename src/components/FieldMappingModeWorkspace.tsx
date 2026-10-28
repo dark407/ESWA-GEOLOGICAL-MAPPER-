@@ -5854,192 +5854,194 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 : 'md:col-span-4'
             } min-h-[220px] md:min-h-0 h-full bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 flex flex-col overflow-hidden`}
           >
-            <div className="flex items-center justify-between mb-1.5 shrink-0 gap-2">
-              <div className="flex items-center gap-2">
-                {setupLayoutMode === 'wizard' && (
-                  <button
-                    type="button"
-                    onClick={() => setSetupWindowStep('location')}
-                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold cursor-pointer"
-                  >
-                    ← Back to Locations
-                  </button>
-                )}
-                <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                  {mappingDomain === 'TUNNEL'
-                    ? '3. Face Details & Completion / Review Status'
-                    : `3. ${domainPanelMap.domainTitle} Face Details & Status`}
-                </h2>
-              </div>
-              {activeLocation && (
-                <button
-                  onClick={() => handleStartNewRoundForLocation(activeLocation)}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer shadow"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  {mappingDomain === 'TUNNEL'
-                    ? 'New Face (Ask Details & Method)'
-                    : `New ${mappingDomain === 'BENCH' ? 'Bench' : mappingDomain === 'TRENCH' ? 'Trench' : 'Slope'} Face`}
-                </button>
-              )}
-            </div>
-
-            {/* New Face Details & Field vs Photogrammetry Method Modal / Card */}
-            {showNewFaceModal && activeLocation && (
-              <div className="mb-3 p-3.5 rounded-xl bg-slate-950 border-2 border-emerald-500/60 shadow-2xl space-y-3 shrink-0">
-                <div className="flex items-center justify-between">
-                  <div>
+            {/* Unified Single Option Div for Face Header & New Face Creation */}
+            <div
+              className={`mb-2 shrink-0 transition-all ${
+                showNewFaceModal && activeLocation
+                  ? 'p-3 rounded-xl bg-slate-950 border-2 border-emerald-500/60 shadow-xl space-y-2.5'
+                  : 'flex items-center justify-between mb-1.5 gap-2'
+              }`}
+            >
+              {!showNewFaceModal || !activeLocation ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    {setupLayoutMode === 'wizard' && (
+                      <button
+                        type="button"
+                        onClick={() => setSetupWindowStep('location')}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold cursor-pointer"
+                      >
+                        ← Back to Locations
+                      </button>
+                    )}
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                      {mappingDomain === 'TUNNEL'
+                        ? '3. Face Details & Completion / Review Status'
+                        : `3. ${domainPanelMap.domainTitle} Face Details & Status`}
+                    </h2>
+                  </div>
+                  {activeLocation && (
+                    <button
+                      type="button"
+                      onClick={() => handleStartNewRoundForLocation(activeLocation)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer shadow"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      {mappingDomain === 'TUNNEL'
+                        ? 'New Face (Ask Details & Method)'
+                        : `New ${mappingDomain === 'BENCH' ? 'Bench' : mappingDomain === 'TRENCH' ? 'Trench' : 'Slope'} Face`}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Integrated New Face Options in Single Div */}
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-1.5">
                     <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
                       Create New {mappingDomain === 'TUNNEL' ? 'Tunnel Face' : `${domainPanelMap.domainTitle} Station`}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewFaceModal(false)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                      title="Close"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewFaceModal(false)}
-                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
-                      {mappingDomain === 'TUNNEL'
-                        ? 'Chainage From (m)'
-                        : `${domainPanelMap.stationPrefix} From (m)`}
-                    </label>
-                    <input
-                      type="text"
-                      value={newFaceChainageFrom}
-                      onChange={(e) => setNewFaceChainageFrom(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
-                      {mappingDomain === 'TUNNEL'
-                        ? 'Pull / Advance Length (m)'
-                        : domainPanelMap.roundLengthLabel}
-                    </label>
-                    <input
-                      type="number"
-                      step={0.1}
-                      min={0.1}
-                      value={newFacePullLength}
-                      onChange={(e) => setNewFacePullLength(Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
-                      Geologist Name
-                    </label>
-                    <input
-                      type="text"
-                      value={newFaceGeologist}
-                      onChange={(e) => setNewFaceGeologist(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
-                      {mappingDomain === 'TUNNEL'
-                        ? 'Excavation Method'
-                        : mappingDomain === 'ROCK_SURFACE'
-                        ? 'Surface / Outcrop Type'
-                        : 'Excavation Method'}
-                    </label>
-                    {mappingDomain === 'TUNNEL' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
+                        {mappingDomain === 'TUNNEL'
+                          ? 'Chainage From (m)'
+                          : `${domainPanelMap.stationPrefix} From (m)`}
+                      </label>
                       <input
                         type="text"
-                        value={newFaceExcavationMode}
-                        onChange={(e) => setNewFaceExcavationMode(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                        value={newFaceChainageFrom}
+                        onChange={(e) => setNewFaceChainageFrom(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:border-emerald-400 focus:outline-none"
                       />
-                    ) : (
-                      <select
-                        value={newFaceExcavationMode}
-                        onChange={(e) => setNewFaceExcavationMode(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
+                        {mappingDomain === 'TUNNEL'
+                          ? 'Pull / Advance Length (m)'
+                          : domainPanelMap.roundLengthLabel}
+                      </label>
+                      <input
+                        type="number"
+                        step={0.1}
+                        min={0.1}
+                        value={newFacePullLength}
+                        onChange={(e) => setNewFacePullLength(Number(e.target.value))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:border-emerald-400 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
+                        Geologist Name
+                      </label>
+                      <input
+                        type="text"
+                        value={newFaceGeologist}
+                        onChange={(e) => setNewFaceGeologist(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-400 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
+                        {mappingDomain === 'TUNNEL'
+                          ? 'Excavation Method'
+                          : mappingDomain === 'ROCK_SURFACE'
+                          ? 'Surface / Outcrop Type'
+                          : 'Excavation Method'}
+                      </label>
+                      {mappingDomain === 'TUNNEL' ? (
+                        <input
+                          type="text"
+                          value={newFaceExcavationMode}
+                          onChange={(e) => setNewFaceExcavationMode(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-400 focus:outline-none"
+                        />
+                      ) : (
+                        <select
+                          value={newFaceExcavationMode}
+                          onChange={(e) => setNewFaceExcavationMode(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-400 focus:outline-none"
+                        >
+                          {getDomainExcavationMethodOptions(mappingDomain).map((opt) => (
+                            <option key={opt.value} value={opt.label}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-amber-300 mb-1">
+                      Mapping Method Option:
+                    </label>
+                    {/* Merged Single Option Div for Mapping Method */}
+                    <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-900/90 border border-slate-700/80 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setNewFaceMethod('field_mapping')}
+                        className={`px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${
+                          newFaceMethod === 'field_mapping'
+                            ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                        }`}
                       >
-                        {getDomainExcavationMethodOptions(mappingDomain).map((opt) => (
-                          <option key={opt.value} value={opt.label}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10.5px] font-black uppercase tracking-wider text-amber-300 mb-1.5">
-                    Select Mapping Method for This Face:
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setNewFaceMethod('field_mapping')}
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                        newFaceMethod === 'field_mapping'
-                          ? 'bg-emerald-500/20 border-emerald-400 shadow'
-                          : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-emerald-300">
-                          1. Field Mapping Method
-                        </span>
+                        <span>1. Field Mapping</span>
                         {newFaceMethod === 'field_mapping' && (
-                          <span className="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 text-[10px] font-black">
-                            ✓ Selected
+                          <span className="text-[10px] bg-slate-950/20 px-1.5 py-0.2 rounded font-black">
+                            ✓
                           </span>
                         )}
-                      </div>
-                    </button>
+                      </button>
 
+                      <button
+                        type="button"
+                        onClick={() => setNewFaceMethod('photo_mapping')}
+                        className={`px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${
+                          newFaceMethod === 'photo_mapping'
+                            ? 'bg-cyan-500 text-slate-950 font-black shadow-sm'
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <span>2. Photogrammetry</span>
+                        {newFaceMethod === 'photo_mapping' && (
+                          <span className="text-[10px] bg-slate-950/20 px-1.5 py-0.2 rounded font-black">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800">
                     <button
                       type="button"
-                      onClick={() => setNewFaceMethod('photo_mapping')}
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                        newFaceMethod === 'photo_mapping'
-                          ? 'bg-cyan-500/20 border-cyan-400 shadow'
-                          : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                      }`}
+                      onClick={() => setShowNewFaceModal(false)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-cyan-300">
-                          2. Photogrammetry Method
-                        </span>
-                        {newFaceMethod === 'photo_mapping' && (
-                          <span className="px-2 py-0.5 rounded bg-cyan-500 text-slate-950 text-[10px] font-black">
-                            ✓ Selected
-                          </span>
-                        )}
-                      </div>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmCreateNewFace}
+                      className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer shadow"
+                    >
+                      Create Face &amp; Start {newFaceMethod === 'photo_mapping' ? 'Photogrammetry' : 'Field Mapping'} →
                     </button>
                   </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowNewFaceModal(false)}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmCreateNewFace}
-                    className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer shadow"
-                  >
-                    Create Face &amp; Start {newFaceMethod === 'photo_mapping' ? 'Photogrammetry' : 'Field Mapping'} →
-                  </button>
-                </div>
-              </div>
-            )}
+                </>
+              )}
+            </div>
 
             {(() => {
               const locRounds = store.rounds
@@ -8340,627 +8342,631 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
           {/* CENTER COLUMN: Permanent Top Mapping Tools Bar + Extra-Large High-Accuracy 1:1 SVG Field Mapping Canvas + Bottom Panel Switcher */}
           <div className="flex-1 min-w-0 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-1 flex flex-col overflow-hidden">
-            {/* PERMANENT TOP TOOLS BAR — Always placed on top of the canvas for fast 1-tap access (Only for Stage 4 Field/Face Canvas; Hidden in Stage 5 Group Joints window) */}
-            {stage !== 'joint_grouping' && (
-              <div className="bg-slate-950 border border-amber-500/40 rounded-lg px-2 py-1 mb-0.5 flex flex-wrap items-center justify-between gap-1.5 shrink-0">
-                <div className="flex flex-wrap items-center gap-1">
-                  {(
-                    [
-                      ['1_lithology', '1. Rock Lithology', Paintbrush],
-                      ['2_vein_foliation', '2. Vein & Foliation', Layers],
-                      ['3_joint_trace', '3. Joint Trace', Pencil],
-                      ['4_dip_surface', '4. Dip Plane Surface', Pencil],
-                      ['5_geo_feature', '5. Geological Features', Sparkles],
-                      ['6_water_mark', '6. Mark Water', Droplets],
-                      ['eraser', 'Erase Features', Eraser],
-                      ['litho_eraser', 'Litho Eraser', Pickaxe],
-                    ] as [FieldCanvasTool, string, any][]
-                  ).map(([tId, lbl, IconC]) => (
-                    <button
-                      key={tId}
-                      type="button"
-                      onClick={() => {
-                        setActiveTool(tId);
-                      }}
-                      className={`px-2 py-1 rounded-lg text-[10.5px] font-black flex items-center gap-1 cursor-pointer transition-all ${
-                        activeTool === tId
-                          ? tId === 'eraser'
-                            ? 'bg-rose-500 text-white shadow ring-1 ring-rose-300'
-                            : tId === 'litho_eraser'
-                            ? 'bg-amber-600 text-white shadow ring-1 ring-amber-300'
-                            : 'bg-amber-500 text-slate-950 shadow'
-                          : tId === 'litho_eraser'
-                          ? 'bg-slate-900 text-amber-300 hover:text-white border border-amber-500/40'
-                          : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                      }`}
-                      title={
-                        tId === 'eraser'
-                          ? 'Feature & Joint Eraser: Erases joint traces, dip surfaces, features, and water marks (Will NOT erase rock lithology)'
-                          : tId === 'litho_eraser'
-                          ? 'Litho Eraser: Erases ONLY Rock Lithology layers and fills'
-                          : lbl
-                      }
-                    >
-                      <IconC className="w-3.5 h-3.5" />
-                      <span>{lbl}</span>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={handleUndo}
-                    disabled={undoStack.length === 0}
-                    className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                    title="Undo"
-                  >
-                    <Undo2 className="w-3 h-3" />
-                    <span>Undo</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRedo}
-                    disabled={redoStack.length === 0}
-                    className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                    title="Redo"
-                  >
-                    <Redo2 className="w-3 h-3" />
-                    <span>Redo</span>
-                  </button>
-                </div>
-              </div>
-            )}
-            {/* Top Canvas Bar: Panel Transform Image Buttons (Move, Rotate, Mirror Vertical, Mirror Horizontal for Left Wall / Crown / Right Wall) + Zoom & Colour Toggle */}
+            {/* UNIFIED FACE CANVAS CONTROLS & TOOLBAR BAR — Merged into a single div component for Photogrammetry & Face Mapping */}
             {!(stage === 'field_canvas' && is3DMappingMode && mappingDomain === 'TUNNEL') && (
-            <div className="flex items-center justify-between px-1 pb-0.5 mb-0.5 border-b border-slate-800 shrink-0 gap-1">
-              {stage === 'joint_grouping' || activePanel !== 'face' ? (
-                (() => {
-                  const targetP: 'left_wall' | 'crown' | 'right_wall' =
-                    activePanel !== 'face' ? activePanel : transformTargetPanel;
-                  const tr = getFieldPanelTransform(
-                    activeRound,
-                    targetP,
-                    activeStageTransformMode
-                  );
-                  const fGeomForTabs = computePanelCanvasGeometry(
-                    'face',
-                    activeLocation,
-                    activeRound
-                  );
-                  const hasTransform =
-                    tr.rotationDeg !== 0 ||
-                    tr.mirrorH ||
-                    tr.mirrorV ||
-                    tr.offsetX !== 0 ||
-                    tr.offsetY !== 0 ||
-                    tr.tOffsetX !== 0 ||
-                    tr.tOffsetY !== 0;
-
-                  return (
-                    <div className="flex items-center gap-1 min-w-0 overflow-x-auto no-scrollbar">
-                      {stage === 'joint_grouping' && (
-                        <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-800 gap-0.5 shrink-0">
-                          {(
-                            [
-                              ...(fGeomForTabs.hasLeftWall
-                                ? ([['left_wall', domainPanelMap.leftWall.shortLabel]] as [
-                                    'left_wall' | 'crown' | 'right_wall',
-                                    string,
-                                  ][])
-                                : []),
-                              ...(fGeomForTabs.hasCrown
-                                ? ([['crown', domainPanelMap.crown.shortLabel]] as [
-                                    'left_wall' | 'crown' | 'right_wall',
-                                    string,
-                                  ][])
-                                : []),
-                              ...(fGeomForTabs.hasRightWall
-                                ? ([['right_wall', domainPanelMap.rightWall.shortLabel]] as [
-                                    'left_wall' | 'crown' | 'right_wall',
-                                    string,
-                                  ][])
-                                : []),
-                            ]
-                          ).map(([pid, lbl]) => {
-                            const isSel = targetP === pid;
-                            return (
-                              <button
-                                key={pid}
-                                type="button"
-                                onClick={() => {
-                                  setTransformTargetPanel(pid);
-                                  setActivePanel(pid);
-                                }}
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${
-                                  isSel
-                                    ? 'bg-amber-500 text-slate-950 shadow'
-                                    : 'text-slate-400 hover:text-white'
-                                }`}
-                                title={`Select ${lbl} for Move / Rotate / Mirror`}
-                              >
-                                {lbl}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* 1. MOVE BUTTON */}
-                      <button
-                        type="button"
-                        onClick={() => setIsPanelMoveMode((m) => !m)}
-                        className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
-                          isPanelMoveMode
-                            ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
-                            : 'bg-slate-950 text-slate-200 border-slate-700 hover:border-amber-400/60 hover:text-white'
-                        }`}
-                        title="Move Panel (Drag on canvas to reposition panel & outline reference)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="w-3.5 h-3.5 shrink-0"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="5 9 2 12 5 15" />
-                          <polyline points="9 5 12 2 15 5" />
-                          <polyline points="15 19 12 22 9 19" />
-                          <polyline points="19 9 22 12 19 15" />
-                          <line x1="2" y1="12" x2="22" y2="12" />
-                          <line x1="12" y1="2" x2="12" y2="22" />
-                        </svg>
-                        <span>Move</span>
-                      </button>
-
-                      {/* 2. ROTATE 90° BUTTON */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updatePanelTransform(targetP, (prev) => ({
-                            ...prev,
-                            rotationDeg: (((prev.rotationDeg + 90) % 360) as
-                              | 0
-                              | 90
-                              | 180
-                              | 270),
-                          }))
-                        }
-                        className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
-                          tr.rotationDeg !== 0
-                            ? 'bg-sky-500 text-slate-950 border-sky-300 shadow'
-                            : 'bg-slate-950 text-slate-200 border-slate-700 hover:border-sky-400/60 hover:text-white'
-                        }`}
-                        title="Rotate Panel 90° (Swaps X/Y axes while keeping 1m×1m square grid & outline reference in place)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="w-3.5 h-3.5 shrink-0"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                          <path d="M21 3v5h-5" />
-                        </svg>
-                        <span>Rotate{tr.rotationDeg ? ` ${tr.rotationDeg}°` : ''}</span>
-                      </button>
-
-                      {/* 3. VERTICAL MIRROR BUTTON */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updatePanelTransform(targetP, (prev) => ({
-                            ...prev,
-                            mirrorV: !prev.mirrorV,
-                          }))
-                        }
-                        className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
-                          tr.mirrorV
-                            ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow'
-                            : 'bg-slate-950 text-slate-200 border-slate-700 hover:border-emerald-400/60 hover:text-white'
-                        }`}
-                        title="Vertical Mirror (Flip Top ↔ Bottom with outline reference updated in place)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="w-3.5 h-3.5 shrink-0"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M3 12h18" strokeDasharray="3 2" />
-                          <polygon points="12 3 7 9 17 9" />
-                          <polygon points="12 21 7 15 17 15" />
-                        </svg>
-                        <span>Mirror V</span>
-                      </button>
-
-                      {/* 4. HORIZONTAL MIRROR BUTTON */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updatePanelTransform(targetP, (prev) => ({
-                            ...prev,
-                            mirrorH: !prev.mirrorH,
-                          }))
-                        }
-                        className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
-                          tr.mirrorH
-                            ? 'bg-violet-500 text-white border-violet-300 shadow'
-                            : 'bg-slate-950 text-slate-200 border-slate-700 hover:border-violet-400/60 hover:text-white'
-                        }`}
-                        title="Horizontal Mirror (Flip Left ↔ Right with outline reference & Drive direction updated in place)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="w-3.5 h-3.5 shrink-0"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M12 3v18" strokeDasharray="3 2" />
-                          <polygon points="3 12 9 7 9 17" />
-                          <polygon points="21 12 15 7 15 17" />
-                        </svg>
-                        <span>Mirror H</span>
-                      </button>
-
-                      {/* 5. IDEAL POSITION LOCK / STATUS BUTTON */}
-                      <button
-                        type="button"
-                        onClick={() => lockCurrentPanelAsIdealPosition(targetP)}
-                        className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
-                          isPanelAtIdealPosition(activeRound, targetP, activeStageTransformMode) &&
-                          !isPanelMoveMode
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                            : 'bg-amber-500 text-slate-950 border-amber-300 shadow'
-                        }`}
-                        title="Lock current position & orientation as the Ideal Position across all rounds"
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>
-                          {isPanelAtIdealPosition(activeRound, targetP, activeStageTransformMode) &&
-                          !isPanelMoveMode
-                            ? 'Ideal Position'
-                            : 'Set Ideal Position'}
-                        </span>
-                      </button>
-
-                      {hasTransform && (
+              <div className="bg-slate-950 border border-amber-500/40 rounded-xl p-1.5 mb-1 flex flex-col gap-1.5 shrink-0 shadow-lg select-none">
+                {/* 1. Primary Geological Mapping Tools (Hidden during Stage 5 Joint Grouping) */}
+                {stage !== 'joint_grouping' && (
+                  <div className="flex flex-wrap items-center justify-between gap-1 pb-1 border-b border-slate-800/80">
+                    <div className="flex flex-wrap items-center gap-1">
+                      {(
+                        [
+                          ['1_lithology', '1. Rock Lithology', Paintbrush],
+                          ['2_vein_foliation', '2. Vein & Foliation', Layers],
+                          ['3_joint_trace', '3. Joint Trace', Pencil],
+                          ['4_dip_surface', '4. Dip Plane Surface', Pencil],
+                          ['5_geo_feature', '5. Geological Features', Sparkles],
+                          ['6_water_mark', '6. Mark Water', Droplets],
+                          ['eraser', 'Erase Features', Eraser],
+                          ['litho_eraser', 'Litho Eraser', Pickaxe],
+                        ] as [FieldCanvasTool, string, any][]
+                      ).map(([tId, lbl, IconC]) => (
                         <button
+                          key={tId}
                           type="button"
                           onClick={() => {
-                            const zeroTr = {
-                              offsetX: 0,
-                              offsetY: 0,
-                              tOffsetX: 0,
-                              tOffsetY: 0,
-                              rotationDeg: 0 as const,
-                              mirrorH: false,
-                              mirrorV: false,
-                            };
-                            saveIdealPanelTransform(targetP, zeroTr, activeStageTransformMode);
-                            updatePanelTransform(targetP, () => zeroTr);
+                            setActiveTool(tId);
                           }}
-                          className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold flex items-center gap-0.5 shrink-0 cursor-pointer"
-                          title="Reset Move, Rotate & Mirror to 0°"
+                          className={`px-2 py-1 rounded-lg text-[10.5px] font-black flex items-center gap-1 cursor-pointer transition-all ${
+                            activeTool === tId
+                              ? tId === 'eraser'
+                                ? 'bg-rose-500 text-white shadow ring-1 ring-rose-300'
+                                : tId === 'litho_eraser'
+                                ? 'bg-amber-600 text-white shadow ring-1 ring-amber-300'
+                                : 'bg-amber-500 text-slate-950 shadow'
+                              : tId === 'litho_eraser'
+                              ? 'bg-slate-900 text-amber-300 hover:text-white border border-amber-500/40'
+                              : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                          }`}
+                          title={
+                            tId === 'eraser'
+                              ? 'Feature & Joint Eraser: Erases joint traces, dip surfaces, features, and water marks (Will NOT erase rock lithology)'
+                              : tId === 'litho_eraser'
+                              ? 'Litho Eraser: Erases ONLY Rock Lithology layers and fills'
+                              : lbl
+                          }
                         >
-                          <RotateCcw className="w-3 h-3" />
+                          <IconC className="w-3.5 h-3.5" />
+                          <span>{lbl}</span>
                         </button>
-                      )}
-                    </div>
-                  );
-                })()
-              ) : (
-                <div className="flex items-center gap-1 min-w-0" />
-              )}
-
-              <div className="flex items-center gap-1.5 shrink-0">
-                {/* Touch Pinch / PC Scroll Zoom Status & 100% Reset Pill (Zoom with Mouse Wheel or 2-Finger Touch Pinch) */}
-                <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCanvasZoom(1);
-                      setCanvasPan({ x: 0, y: 0 });
-                      setIsCanvasPanMode(false);
-                    }}
-                    className="px-2 py-0.5 rounded text-[10px] font-mono font-bold text-amber-300 hover:bg-slate-800 cursor-pointer transition-colors"
-                    title="Zoom with Mouse Wheel or 2-Finger Touch Pinch. Click to reset to 100%."
-                  >
-                    {Math.round(canvasZoom * 100)}%
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsCanvasPanMode((p) => !p)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-0.5 cursor-pointer ${
-                      isCanvasPanMode
-                        ? 'bg-sky-500 text-slate-950 font-black'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Toggle 1-Finger Pan / Move Canvas Mode"
-                  >
-                    <Move className="w-3 h-3" />
-                    <span className="hidden sm:inline">Pan</span>
-                  </button>
-                </div>
-
-                {/* Undo / Redo Controls in Top Canvas Bar during Stage 5 Group Joints */}
-                {stage === 'joint_grouping' && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleUndo}
-                      disabled={undoStack.length === 0}
-                      className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-[10px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                      title="Undo Joint Grouping"
-                    >
-                      <Undo2 className="w-3 h-3" />
-                      <span>Undo</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleRedo}
-                      disabled={redoStack.length === 0}
-                      className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-[10px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                      title="Redo Joint Grouping"
-                    >
-                      <Redo2 className="w-3 h-3" />
-                      <span>Redo</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Surface Segment Mapping Mode Toggle (e.g. 10m split into 2m x 5 segments) */}
-                {mappingDomain !== 'TUNNEL' && stage === 'field_canvas' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !isSurfaceSegmentedMode;
-                      setIsSurfaceSegmentedMode(next);
-                      if (next) {
-                        jumpToSurfaceSegment(0);
-                      } else {
-                        setCanvasZoom(1);
-                        setCanvasPan({ x: 0, y: 0 });
-                      }
-                    }}
-                    className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
-                      isSurfaceSegmentedMode
-                        ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
-                        : 'bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800'
-                    }`}
-                    title="Split long surface exposure into custom segments (e.g. 2m windows) to trace window-by-window"
-                  >
-                    <Layers className="w-3 h-3" />
-                    <span>{isSurfaceSegmentedMode ? `Segments: ${surfaceSegmentSpanM}m` : 'Segments'}</span>
-                  </button>
-                )}
-
-                {/* 4 Drawing Tools (Pencil, Brush, Spline, Polyline) in Top Bar for all features except Mark Water */}
-                {stage === 'field_canvas' && hasFourDrawSubTools && (
-                  <div className="inline-flex items-center gap-1">
-                    {renderFeatureDrawSubToolSelector(true)}
-                    {pending2DTrace && pending2DTrace.points.length >= 2 && (
+                      ))}
                       <button
                         type="button"
-                        onClick={() => commitPending2DTraceToRound(pending2DTrace)}
-                        className="px-2 py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-black cursor-pointer"
-                        title="Confirm current trace"
+                        onClick={handleUndo}
+                        disabled={undoStack.length === 0}
+                        className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                        title="Undo"
                       >
-                        ✓ Confirm
+                        <Undo2 className="w-3 h-3" />
+                        <span>Undo</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRedo}
+                        disabled={redoStack.length === 0}
+                        className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                        title="Redo"
+                      >
+                        <Redo2 className="w-3 h-3" />
+                        <span>Redo</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Secondary Canvas Controls: Panel Transforms, Zoom, Sub-tools, Advance, Dual Canvas, 3D Inspector, B&W/Colour, Layers, Photo Filters */}
+                <div className="flex items-center justify-between shrink-0 gap-1 flex-wrap">
+                  {stage === 'joint_grouping' || activePanel !== 'face' ? (
+                    (() => {
+                      const targetP: 'left_wall' | 'crown' | 'right_wall' =
+                        activePanel !== 'face' ? activePanel : transformTargetPanel;
+                      const tr = getFieldPanelTransform(
+                        activeRound,
+                        targetP,
+                        activeStageTransformMode
+                      );
+                      const fGeomForTabs = computePanelCanvasGeometry(
+                        'face',
+                        activeLocation,
+                        activeRound
+                      );
+                      const hasTransform =
+                        tr.rotationDeg !== 0 ||
+                        tr.mirrorH ||
+                        tr.mirrorV ||
+                        tr.offsetX !== 0 ||
+                        tr.offsetY !== 0 ||
+                        tr.tOffsetX !== 0 ||
+                        tr.tOffsetY !== 0;
+
+                      return (
+                        <div className="flex items-center gap-1 min-w-0 overflow-x-auto no-scrollbar">
+                          {stage === 'joint_grouping' && (
+                            <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-800 gap-0.5 shrink-0">
+                              {(
+                                [
+                                  ...(fGeomForTabs.hasLeftWall
+                                    ? ([['left_wall', domainPanelMap.leftWall.shortLabel]] as [
+                                        'left_wall' | 'crown' | 'right_wall',
+                                        string,
+                                      ][])
+                                    : []),
+                                  ...(fGeomForTabs.hasCrown
+                                    ? ([['crown', domainPanelMap.crown.shortLabel]] as [
+                                        'left_wall' | 'crown' | 'right_wall',
+                                        string,
+                                      ][])
+                                    : []),
+                                  ...(fGeomForTabs.hasRightWall
+                                    ? ([['right_wall', domainPanelMap.rightWall.shortLabel]] as [
+                                        'left_wall' | 'crown' | 'right_wall',
+                                        string,
+                                      ][])
+                                    : []),
+                                ]
+                              ).map(([pid, lbl]) => {
+                                const isSel = targetP === pid;
+                                return (
+                                  <button
+                                    key={pid}
+                                    type="button"
+                                    onClick={() => {
+                                      setTransformTargetPanel(pid);
+                                      setActivePanel(pid);
+                                    }}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase transition-all cursor-pointer ${
+                                      isSel
+                                        ? 'bg-amber-500 text-slate-950 shadow'
+                                        : 'text-slate-400 hover:text-white'
+                                    }`}
+                                    title={`Select ${lbl} for Move / Rotate / Mirror`}
+                                  >
+                                    {lbl}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* 1. MOVE BUTTON */}
+                          <button
+                            type="button"
+                            onClick={() => setIsPanelMoveMode((m) => !m)}
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
+                              isPanelMoveMode
+                                ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                                : 'bg-slate-950 text-slate-200 border-slate-700 hover:border-amber-400/60 hover:text-white'
+                            }`}
+                            title="Move Panel (Drag on canvas to reposition panel & outline reference)"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="w-3.5 h-3.5 shrink-0"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="5 9 2 12 5 15" />
+                              <polyline points="9 5 12 2 15 5" />
+                              <polyline points="15 19 12 22 9 19" />
+                              <polyline points="19 9 22 12 19 15" />
+                              <line x1="2" y1="12" x2="22" y2="12" />
+                              <line x1="12" y1="2" x2="12" y2="22" />
+                            </svg>
+                            <span>Move</span>
+                          </button>
+
+                          {/* 2. ROTATE 90° BUTTON */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updatePanelTransform(targetP, (prev) => ({
+                                ...prev,
+                                rotationDeg: (((prev.rotationDeg + 90) % 360) as
+                                  | 0
+                                  | 90
+                                  | 180
+                                  | 270),
+                              }))
+                            }
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
+                              tr.rotationDeg !== 0
+                                ? 'bg-sky-500 text-slate-950 border-sky-300 shadow'
+                                : 'bg-slate-950 text-slate-200 border-slate-700 hover:border-sky-400/60 hover:text-white'
+                            }`}
+                            title="Rotate Panel 90° (Swaps X/Y axes while keeping 1m×1m square grid & outline reference in place)"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="w-3.5 h-3.5 shrink-0"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                              <path d="M21 3v5h-5" />
+                            </svg>
+                            <span>Rotate{tr.rotationDeg ? ` ${tr.rotationDeg}°` : ''}</span>
+                          </button>
+
+                          {/* 3. VERTICAL MIRROR BUTTON */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updatePanelTransform(targetP, (prev) => ({
+                                ...prev,
+                                mirrorV: !prev.mirrorV,
+                              }))
+                            }
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
+                              tr.mirrorV
+                                ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow'
+                                : 'bg-slate-950 text-slate-200 border-slate-700 hover:border-emerald-400/60 hover:text-white'
+                            }`}
+                            title="Vertical Mirror (Flip Top ↔ Bottom with outline reference updated in place)"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="w-3.5 h-3.5 shrink-0"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M3 12h18" strokeDasharray="3 2" />
+                              <polygon points="12 3 7 9 17 9" />
+                              <polygon points="12 21 7 15 17 15" />
+                            </svg>
+                            <span>Mirror V</span>
+                          </button>
+
+                          {/* 4. HORIZONTAL MIRROR BUTTON */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updatePanelTransform(targetP, (prev) => ({
+                                ...prev,
+                                mirrorH: !prev.mirrorH,
+                              }))
+                            }
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
+                              tr.mirrorH
+                                ? 'bg-violet-500 text-white border-violet-300 shadow'
+                                : 'bg-slate-950 text-slate-200 border-slate-700 hover:border-violet-400/60 hover:text-white'
+                            }`}
+                            title="Horizontal Mirror (Flip Left ↔ Right with outline reference & Drive direction updated in place)"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="w-3.5 h-3.5 shrink-0"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M12 3v18" strokeDasharray="3 2" />
+                              <polygon points="3 12 9 7 9 17" />
+                              <polygon points="21 12 15 7 15 17" />
+                            </svg>
+                            <span>Mirror H</span>
+                          </button>
+
+                          {/* 5. IDEAL POSITION LOCK / STATUS BUTTON */}
+                          <button
+                            type="button"
+                            onClick={() => lockCurrentPanelAsIdealPosition(targetP)}
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all cursor-pointer ${
+                              isPanelAtIdealPosition(activeRound, targetP, activeStageTransformMode) &&
+                              !isPanelMoveMode
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                                : 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                            }`}
+                            title="Lock current position & orientation as the Ideal Position across all rounds"
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>
+                              {isPanelAtIdealPosition(activeRound, targetP, activeStageTransformMode) &&
+                              !isPanelMoveMode
+                                ? 'Ideal Position'
+                                : 'Set Ideal Position'}
+                            </span>
+                          </button>
+
+                          {hasTransform && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const zeroTr = {
+                                  offsetX: 0,
+                                  offsetY: 0,
+                                  tOffsetX: 0,
+                                  tOffsetY: 0,
+                                  rotationDeg: 0 as const,
+                                  mirrorH: false,
+                                  mirrorV: false,
+                                };
+                                saveIdealPanelTransform(targetP, zeroTr, activeStageTransformMode);
+                                updatePanelTransform(targetP, () => zeroTr);
+                              }}
+                              className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold flex items-center gap-0.5 shrink-0 cursor-pointer"
+                              title="Reset Move, Rotate & Mirror to 0°"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div className="flex items-center gap-1 min-w-0" />
+                  )}
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Touch Pinch / PC Scroll Zoom Status & 100% Reset Pill (Zoom with Mouse Wheel or 2-Finger Touch Pinch) */}
+                    <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCanvasZoom(1);
+                          setCanvasPan({ x: 0, y: 0 });
+                          setIsCanvasPanMode(false);
+                        }}
+                        className="px-2 py-0.5 rounded text-[10px] font-mono font-bold text-amber-300 hover:bg-slate-800 cursor-pointer transition-colors"
+                        title="Zoom with Mouse Wheel or 2-Finger Touch Pinch. Click to reset to 100%."
+                      >
+                        {Math.round(canvasZoom * 100)}%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsCanvasPanMode((p) => !p)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-0.5 cursor-pointer ${
+                          isCanvasPanMode
+                            ? 'bg-sky-500 text-slate-950 font-black'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Toggle 1-Finger Pan / Move Canvas Mode"
+                      >
+                        <Move className="w-3 h-3" />
+                        <span className="hidden sm:inline">Pan</span>
+                      </button>
+                    </div>
+
+                    {/* Undo / Redo Controls in Top Canvas Bar during Stage 5 Group Joints */}
+                    {stage === 'joint_grouping' && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={handleUndo}
+                          disabled={undoStack.length === 0}
+                          className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-[10px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                          title="Undo Joint Grouping"
+                        >
+                          <Undo2 className="w-3 h-3" />
+                          <span>Undo</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRedo}
+                          disabled={redoStack.length === 0}
+                          className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-[10px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                          title="Redo Joint Grouping"
+                        >
+                          <Redo2 className="w-3 h-3" />
+                          <span>Redo</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Surface Segment Mapping Mode Toggle (e.g. 10m split into 2m x 5 segments) */}
+                    {mappingDomain !== 'TUNNEL' && stage === 'field_canvas' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !isSurfaceSegmentedMode;
+                          setIsSurfaceSegmentedMode(next);
+                          if (next) {
+                            jumpToSurfaceSegment(0);
+                          } else {
+                            setCanvasZoom(1);
+                            setCanvasPan({ x: 0, y: 0 });
+                          }
+                        }}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
+                          isSurfaceSegmentedMode
+                            ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                            : 'bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800'
+                        }`}
+                        title="Split long surface exposure into custom segments (e.g. 2m windows) to trace window-by-window"
+                      >
+                        <Layers className="w-3 h-3" />
+                        <span>{isSurfaceSegmentedMode ? `Segments: ${surfaceSegmentSpanM}m` : 'Segments'}</span>
                       </button>
                     )}
-                  </div>
-                )}
 
-                {/* Advance (MATLAB Filters & Feature Detection) Toggle on Option Side */}
-                {stage === 'field_canvas' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextVal = !activeRound.advanceCanvasEnabled;
-                      updateActiveRound((r) => ({ ...r, advanceCanvasEnabled: nextVal }));
-                      if (nextVal) {
-                        setRightSidebarCollapsed(false);
-                      }
-                    }}
-                    className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
-                      activeRound.advanceCanvasEnabled
-                        ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
-                        : 'bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800'
-                    }`}
-                    title="Toggle Advance MATLAB Image Filters & Auto Feature Detection on Option Side (When off: Normal Field Map)"
-                  >
-                    <Sparkles className="w-3 h-3" />
-                    <span>{activeRound.advanceCanvasEnabled ? 'Advance: ON' : 'Advance'}</span>
-                  </button>
-                )}
+                    {/* 4 Drawing Tools (Pencil, Brush, Spline, Polyline) in Top Bar for all features except Mark Water */}
+                    {stage === 'field_canvas' && hasFourDrawSubTools && (
+                      <div className="inline-flex items-center gap-1">
+                        {renderFeatureDrawSubToolSelector(true)}
+                        {pending2DTrace && pending2DTrace.points.length >= 2 && (
+                          <button
+                            type="button"
+                            onClick={() => commitPending2DTraceToRound(pending2DTrace)}
+                            className="px-2 py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-black cursor-pointer"
+                            title="Confirm current trace"
+                          >
+                            ✓ Confirm
+                          </button>
+                        )}
+                      </div>
+                    )}
 
-                {/* Dual Canvas (Photogrammetry Mode: Tunnel Portion Rock Photo + Realtime Sync) */}
-                {stage === 'field_canvas' && canShowSplitOption && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPhotogrammetryDualCanvas((prev) => {
-                        const next = !prev;
-                        if (next && dualCanvasMobileTab === 'map') {
-                          setDualCanvasMobileTab('split');
+                    {/* Advance (MATLAB Filters & Feature Detection) Toggle on Option Side */}
+                    {stage === 'field_canvas' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextVal = !activeRound.advanceCanvasEnabled;
+                          updateActiveRound((r) => ({ ...r, advanceCanvasEnabled: nextVal }));
+                          if (nextVal) {
+                            setRightSidebarCollapsed(false);
+                          }
+                        }}
+                        className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
+                          activeRound.advanceCanvasEnabled
+                            ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                            : 'bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800'
+                        }`}
+                        title="Toggle Advance MATLAB Image Filters & Auto Feature Detection on Option Side (When off: Normal Field Map)"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>{activeRound.advanceCanvasEnabled ? 'Advance: ON' : 'Advance'}</span>
+                      </button>
+                    )}
+
+                    {/* Dual Canvas (Photogrammetry Mode: Tunnel Portion Rock Photo + Realtime Sync) */}
+                    {stage === 'field_canvas' && canShowSplitOption && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsPhotogrammetryDualCanvas((prev) => {
+                            const next = !prev;
+                            if (next && dualCanvasMobileTab === 'map') {
+                              setDualCanvasMobileTab('split');
+                            }
+                            return next;
+                          });
+                        }}
+                        className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
+                          isPhotogrammetryDualCanvas
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow font-black'
+                            : 'bg-slate-950 text-cyan-300 border-cyan-500/40 hover:bg-slate-800'
+                        }`}
+                        title={`Toggle Dual Canvas Mode: ${mappingDomain === 'TUNNEL' ? 'Tunnel' : domainPanelMap.domainTitle.replace(' Mapping', '')} ${domainPanelMap[activePanel]?.label || FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel} Photo on right canvas with real-time synchronization`}
+                      >
+                        <Columns className="w-3 h-3" />
+                        <span>{isPhotogrammetryDualCanvas ? 'Dual Canvas: ON' : 'Dual Canvas'}</span>
+                      </button>
+                    )}
+
+                    {/* 3D Joint Inspector (Orientation, Intersections, Persistence Analysis) */}
+                    {stage === 'field_canvas' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetId = selectedTraceId || activeRound.jointTraces[0]?.id;
+                          if (targetId) {
+                            setInspectedJointId(targetId);
+                            setIs3DJointInspectorOpen(true);
+                          } else {
+                            // Create a default joint trace on active panel so the inspector is ready immediately
+                            const newTr: FieldJointTrace = {
+                              id: `JT-${Date.now().toString(36).toUpperCase()}`,
+                              panel: activePanel,
+                              points: [
+                                { x: 250, y: 350 },
+                                { x: 500, y: 450 },
+                                { x: 750, y: 550 },
+                              ],
+                              dipDirection: activeRound.tunnelDriveDirection || 135,
+                              dipAmount: 65,
+                              strike: ((activeRound.tunnelDriveDirection || 135) - 90 + 360) % 360,
+                              setId: 'J1',
+                              strokeWidthPx: 3.8,
+                              lineMode: 'smooth',
+                            };
+                            updateActiveRound((r) => ({
+                              ...r,
+                              jointTraces: [newTr],
+                            }));
+                            setSelectedTraceId(newTr.id);
+                            setInspectedJointId(newTr.id);
+                            setIs3DJointInspectorOpen(true);
+                          }
+                        }}
+                        className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
+                          selectedTraceId
+                            ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                            : 'bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800'
+                        }`}
+                        title="Open 3D Joint Inspector: 3D Orientation, Multi-Surface Intersections, Trace Extent & Persistence Analysis"
+                      >
+                        <Box className="w-3 h-3" />
+                        <span>3D Joint Inspector</span>
+                      </button>
+                    )}
+
+                    {/* Small Top Button for Black & White vs Colour on Canvas */}
+                    <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateActiveRound((r) => ({ ...r, reportColorMode: 'bw' }))
                         }
-                        return next;
-                      });
-                    }}
-                    className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
-                      isPhotogrammetryDualCanvas
-                        ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow font-black'
-                        : 'bg-slate-950 text-cyan-300 border-cyan-500/40 hover:bg-slate-800'
-                    }`}
-                    title={`Toggle Dual Canvas Mode: ${mappingDomain === 'TUNNEL' ? 'Tunnel' : domainPanelMap.domainTitle.replace(' Mapping', '')} ${domainPanelMap[activePanel]?.label || FIELD_PANEL_DISPLAY_LABELS[activePanel] || activePanel} Photo on right canvas with real-time synchronization`}
-                  >
-                    <Columns className="w-3 h-3" />
-                    <span>{isPhotogrammetryDualCanvas ? 'Dual Canvas: ON' : 'Dual Canvas'}</span>
-                  </button>
-                )}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-black transition-all cursor-pointer ${
+                          (activeRound.reportColorMode ?? 'color') === 'bw'
+                            ? 'bg-slate-200 text-slate-950 shadow'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Switch Canvas to Black & White Mode"
+                      >
+                        B&amp;W
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateActiveRound((r) => ({ ...r, reportColorMode: 'color' }))
+                        }
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-black transition-all cursor-pointer ${
+                          (activeRound.reportColorMode ?? 'color') === 'color'
+                            ? 'bg-amber-500 text-slate-950 shadow'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Switch Canvas to Geological Colour Mode"
+                      >
+                        Colour
+                      </button>
+                    </div>
 
-                {/* 3D Joint Inspector (Orientation, Intersections, Persistence Analysis) */}
-                {stage === 'field_canvas' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const targetId = selectedTraceId || activeRound.jointTraces[0]?.id;
-                      if (targetId) {
-                        setInspectedJointId(targetId);
-                        setIs3DJointInspectorOpen(true);
-                      } else {
-                        // Create a default joint trace on active panel so the inspector is ready immediately
-                        const newTr: FieldJointTrace = {
-                          id: `JT-${Date.now().toString(36).toUpperCase()}`,
-                          panel: activePanel,
-                          points: [
-                            { x: 250, y: 350 },
-                            { x: 500, y: 450 },
-                            { x: 750, y: 550 },
-                          ],
-                          dipDirection: activeRound.tunnelDriveDirection || 135,
-                          dipAmount: 65,
-                          strike: ((activeRound.tunnelDriveDirection || 135) - 90 + 360) % 360,
-                          setId: 'J1',
-                          strokeWidthPx: 3.8,
-                          lineMode: 'smooth',
-                        };
-                        updateActiveRound((r) => ({
-                          ...r,
-                          jointTraces: [newTr],
-                        }));
-                        setSelectedTraceId(newTr.id);
-                        setInspectedJointId(newTr.id);
-                        setIs3DJointInspectorOpen(true);
-                      }
-                    }}
-                    className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
-                      selectedTraceId
-                        ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
-                        : 'bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800'
-                    }`}
-                    title="Open 3D Joint Inspector: 3D Orientation, Multi-Surface Intersections, Trace Extent & Persistence Analysis"
-                  >
-                    <Box className="w-3 h-3" />
-                    <span>3D Joint Inspector</span>
-                  </button>
-                )}
+                    {/* Face Canvas Layers Shuffle / Reorder Button */}
+                    {stage === 'field_canvas' && (
+                      <button
+                        type="button"
+                        onClick={() => setIsLayerShuffleModalOpen(true)}
+                        className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800"
+                        title="Shuffle and reorder canvas layers (Lithology, Joints, Dip Surfaces, Features, Water, Grid, Photo)"
+                      >
+                        <Layers className="w-3 h-3 text-amber-400" />
+                        <span>Layers</span>
+                      </button>
+                    )}
 
-                {/* Small Top Button for Black & White vs Colour on Canvas */}
-                <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateActiveRound((r) => ({ ...r, reportColorMode: 'bw' }))
-                    }
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-black transition-all cursor-pointer ${
-                      (activeRound.reportColorMode ?? 'color') === 'bw'
-                        ? 'bg-slate-200 text-slate-950 shadow'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Switch Canvas to Black & White Mode"
-                  >
-                    B&amp;W
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateActiveRound((r) => ({ ...r, reportColorMode: 'color' }))
-                    }
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-black transition-all cursor-pointer ${
-                      (activeRound.reportColorMode ?? 'color') === 'color'
-                        ? 'bg-amber-500 text-slate-950 shadow'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Switch Canvas to Geological Colour Mode"
-                  >
-                    Colour
-                  </button>
-                </div>
-
-                {/* Face Canvas Layers Shuffle / Reorder Button */}
-                {stage === 'field_canvas' && (
-                  <button
-                    type="button"
-                    onClick={() => setIsLayerShuffleModalOpen(true)}
-                    className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800"
-                    title="Shuffle and reorder canvas layers (Lithology, Joints, Dip Surfaces, Features, Water, Grid, Photo)"
-                  >
-                    <Layers className="w-3 h-3 text-amber-400" />
-                    <span>Layers</span>
-                  </button>
-                )}
-
-                {/* Photo Filter & Brightness Controls directly on Face Canvas */}
-                {workflowMode === 'photo_mapping' && stage === 'field_canvas' && (
-                  <div className="inline-flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-700 gap-1">
-                    <Sliders className="w-3 h-3 text-cyan-400 shrink-0 ml-1" />
-                    <select
-                      value={splitPhotoFilter}
-                      onChange={(e) => setSplitPhotoFilter(e.target.value as SplitPhotoFilterType)}
-                      className="bg-slate-900 border-none text-cyan-300 text-[10px] rounded px-1.5 py-0.5 font-bold cursor-pointer focus:outline-none"
-                      title="Geological Filters for Rock Photo"
-                    >
-                      <option value="normal">Normal</option>
-                      <option value="negative">Invert</option>
-                      <option value="bw_contrast">High B&W</option>
-                      <option value="rgb_red">Red Channel</option>
-                      <option value="rgb_green">Green Channel</option>
-                      <option value="rgb_blue">Blue Channel</option>
-                      <option value="ridge_edge">Ridge / Edge</option>
-                      <option value="clahe">CLAHE</option>
-                      <option value="thermal">Thermal</option>
-                      <option value="sepia">Sepia</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setPhotoBrightness((b) => Math.max(40, b - 15))}
-                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                      title="Decrease Brightness"
-                    >
-                      ☀-
-                    </button>
-                    <span className="text-[9px] font-mono text-amber-300 px-0.5">{photoBrightness}%</span>
-                    <button
-                      type="button"
-                      onClick={() => setPhotoBrightness((b) => Math.min(220, b + 15))}
-                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                      title="Increase Brightness"
-                    >
-                      ☀+
-                    </button>
-                    <span className="text-slate-700">|</span>
-                    <button
-                      type="button"
-                      onClick={() => setPhotoContrast((c) => Math.max(40, c - 15))}
-                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                      title="Decrease Contrast"
-                    >
-                      ◐-
-                    </button>
-                    <span className="text-[9px] font-mono text-cyan-300 px-0.5">{photoContrast}%</span>
-                    <button
-                      type="button"
-                      onClick={() => setPhotoContrast((c) => Math.min(250, c + 15))}
-                      className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                      title="Increase Contrast"
-                    >
-                      ◐+
-                    </button>
+                    {/* Photo Filter & Brightness Controls directly on Face Canvas */}
+                    {workflowMode === 'photo_mapping' && stage === 'field_canvas' && (
+                      <div className="inline-flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-700 gap-1">
+                        <Sliders className="w-3 h-3 text-cyan-400 shrink-0 ml-1" />
+                        <select
+                          value={splitPhotoFilter}
+                          onChange={(e) => setSplitPhotoFilter(e.target.value as SplitPhotoFilterType)}
+                          className="bg-slate-900 border-none text-cyan-300 text-[10px] rounded px-1.5 py-0.5 font-bold cursor-pointer focus:outline-none"
+                          title="Geological Filters for Rock Photo"
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="negative">Invert</option>
+                          <option value="bw_contrast">High B&W</option>
+                          <option value="rgb_red">Red Channel</option>
+                          <option value="rgb_green">Green Channel</option>
+                          <option value="rgb_blue">Blue Channel</option>
+                          <option value="ridge_edge">Ridge / Edge</option>
+                          <option value="clahe">CLAHE</option>
+                          <option value="thermal">Thermal</option>
+                          <option value="sepia">Sepia</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setPhotoBrightness((b) => Math.max(40, b - 15))}
+                          className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                          title="Decrease Brightness"
+                        >
+                          ☀-
+                        </button>
+                        <span className="text-[9px] font-mono text-amber-300 px-0.5">{photoBrightness}%</span>
+                        <button
+                          type="button"
+                          onClick={() => setPhotoBrightness((b) => Math.min(220, b + 15))}
+                          className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                          title="Increase Brightness"
+                        >
+                          ☀+
+                        </button>
+                        <span className="text-slate-700">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setPhotoContrast((c) => Math.max(40, c - 15))}
+                          className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                          title="Decrease Contrast"
+                        >
+                          ◐-
+                        </button>
+                        <span className="text-[9px] font-mono text-cyan-300 px-0.5">{photoContrast}%</span>
+                        <button
+                          type="button"
+                          onClick={() => setPhotoContrast((c) => Math.min(250, c + 15))}
+                          className="px-1 text-[9px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                          title="Increase Contrast"
+                        >
+                          ◐+
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
             )}
 
             {/* Interactive 3D Tunnel Mapping Canvas (when 3D tab selected) OR 1000×1000 2D Field Canvas */}
