@@ -5983,43 +5983,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-amber-300 mb-1">
-                      Mapping Method Option:
+                      Mapping Method:
                     </label>
-                    {/* Merged Single Option Div for Mapping Method */}
-                    <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-900/90 border border-slate-700/80 rounded-xl">
-                      <button
-                        type="button"
-                        onClick={() => setNewFaceMethod('field_mapping')}
-                        className={`px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${
-                          newFaceMethod === 'field_mapping'
-                            ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
-                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                        }`}
-                      >
-                        <span>1. Field Mapping</span>
-                        {newFaceMethod === 'field_mapping' && (
-                          <span className="text-[10px] bg-slate-950/20 px-1.5 py-0.2 rounded font-black">
-                            ✓
-                          </span>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setNewFaceMethod('photo_mapping')}
-                        className={`px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${
-                          newFaceMethod === 'photo_mapping'
-                            ? 'bg-cyan-500 text-slate-950 font-black shadow-sm'
-                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                        }`}
-                      >
-                        <span>2. Photogrammetry</span>
-                        {newFaceMethod === 'photo_mapping' && (
-                          <span className="text-[10px] bg-slate-950/20 px-1.5 py-0.2 rounded font-black">
-                            ✓
-                          </span>
-                        )}
-                      </button>
+                    <div className="p-1 bg-slate-900/90 border border-slate-700/80 rounded-xl">
+                      <div className="px-3 py-2 rounded-lg text-xs font-bold bg-emerald-500 text-slate-950 font-black shadow-sm flex items-center justify-between">
+                        <span>Field Mapping</span>
+                        <span className="text-[10px] bg-slate-950/20 px-1.5 py-0.2 rounded font-black">
+                          ✓
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -6036,7 +6008,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       onClick={handleConfirmCreateNewFace}
                       className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer shadow"
                     >
-                      Create Face &amp; Start {newFaceMethod === 'photo_mapping' ? 'Photogrammetry' : 'Field Mapping'} →
+                      Create Face &amp; Start Field Mapping →
                     </button>
                   </div>
                 </>

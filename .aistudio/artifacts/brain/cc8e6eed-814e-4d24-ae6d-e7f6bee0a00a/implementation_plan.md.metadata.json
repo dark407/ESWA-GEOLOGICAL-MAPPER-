@@ -1,6 +1,6 @@
 {
-  "summary":  "Detailed implementation plan for adding Shaft Face Mapping, Probe Hole Drilling, and Instrumentation & Monitoring modules to the NATM workflow, positioned between 3D Continuous Tunnel Logging and Geotechnical Core Logging with high-contrast UI and strict isolation from TBM/mining.",
-  "updatedAt":  "2026-10-25T23:17:25.357478375Z",
+  "summary":  "Architectural implementation plan for 3D Dual Canvas Mode: Left 3D Drawing Canvas and Right 3D Photogrammetry Photo Canvas with synchronized camera orbits, AI photo-to-tunnel 3D shape reconstruction, geological filter syncing, and live spatial crosshair tracking.",
+  "updatedAt":  "2026-10-28T20:02:11.807147186Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

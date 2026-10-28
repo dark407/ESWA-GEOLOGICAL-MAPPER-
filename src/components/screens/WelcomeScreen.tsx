@@ -380,7 +380,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   setResumeFieldAtLastStage(false);
                   setIsFieldMappingModeOpen(true);
                 }}
-                className="flex-1 py-1 px-2 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 text-stone-900 transition-all cursor-pointer group"
+                className="w-full py-1 px-2 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 text-stone-900 transition-all cursor-pointer group"
               >
                 <span className="flex items-center gap-2.5">
                   <span
@@ -407,43 +407,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
                   style={{ color: palette.accentIconColor }}
                 />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsFirstOpening(false);
-                  const resumeSubType = surfaceResumeMeta?.subType || selectedSurfaceSubType;
-                  setSelectedSurfaceSubType(resumeSubType);
-                  handleSwitchMappingDomain(resumeSubType);
-                  setActiveFieldWorkflowMode(
-                    surfaceResumeMeta?.workflowMode === 'PHOTOGRAMMETRY'
-                      ? 'photo_mapping'
-                      : 'field_mapping'
-                  );
-                  setResumeFieldAtLastStage(true);
-                  setIsFieldMappingModeOpen(true);
-                }}
-                className="px-4 py-2 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_4px_14px_-2px_rgba(0,0,0,0.25)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
-                style={{
-                  backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
-                  borderColor: palette.accentHex,
-                  color: palette.isLightBg ? '#FFFFFF' : '#000000',
-                }}
-                title={
-                  surfaceResumeMeta
-                    ? `Resume Surface Mapping where you stopped (${surfaceResumeMeta.subType})`
-                    : 'Resume Surface Mapping where you stopped'
-                }
-              >
-                <Play
-                  className="w-3.5 h-3.5 shrink-0"
-                  style={{
-                    color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
-                    fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
-                  }}
-                />
-                <span>Resume</span>
               </button>
             </div>
           </div>

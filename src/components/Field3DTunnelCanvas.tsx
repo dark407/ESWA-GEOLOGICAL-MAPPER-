@@ -55,19 +55,21 @@ import {
   FieldWaterSymbolSvgRenderer,
 } from './FieldMappingCompassAndPatterns';
 
-export type Field3DViewSubMode = 'open_heading' | 'inside_tunnel' | 'origami_fold';
+export type Field3DViewSubMode = 'open_heading' | 'origami_fold';
 
 function isPointInPolygon(x: number, y: number, poly: { x: number; y: number }[]): boolean {
-  if (poly.length < 3) return false;
+  if (!poly || poly.length < 3) return false;
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const xi = poly[i].x;
     const yi = poly[i].y;
     const xj = poly[j].x;
     const yj = poly[j].y;
-    const intersect =
-      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-6) + xi;
-    if (intersect) inside = !inside;
+    const dy = yj - yi;
+    if (Math.abs(dy) > 1e-7) {
+      const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / dy + xi;
+      if (intersect) inside = !inside;
+    }
   }
   return inside;
 }
@@ -254,6 +256,10 @@ interface Field3DTunnelCanvasProps {
   onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
   onSyncTraceStateChange?: (state: Field3DSyncTraceState) => void;
   onOpen3DJointInspector?: (id: string) => void;
+  sharedCameraState?: any;
+  onCameraChange?: (state: any) => void;
+  syncedHoverCoord?: any;
+  onHoverCoordChange?: (coord: any) => void;
 }
 
 interface PerimeterSampleNode {
@@ -493,10 +499,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
   const [foldPercent, setFoldPercent] = useState<number>(60);
 
   // 3D Tunnel Camera Rotation, Pan & Two-Finger Zoom State (works across 3D Heading & Inside Tunnel while tracing!)
-  const [insideYawDeg, setInsideYawDeg] = useState<number>(0); // -85° (Look Left Wall) .. 0° (Center) .. +85° (Look Right Wall)
-  const [insidePitchDeg, setInsidePitchDeg] = useState<number>(0); // -85° (Look Up Crown) .. +24° (Look Down)
-  const [insideZoom, setInsideZoom] = useState<number>(1.18);
-  const [insideStationFrac, setInsideStationFrac] = useState<number>(0.15); // Observer station inside tunnel: 0.05 (near portal) .. 0.85 (near face)
+  const [insideYawDeg, setInsideYawDeg] = useState<number>(0);
+  const [insidePitchDeg, setInsidePitchDeg] = useState<number>(0);
   const [viewZoom, setViewZoom] = useState<number>(1.0); // 0.65x .. 3.2x (Two-finger pinch zoom & wheel zoom)
   const [viewPan, setViewPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [insideNavMode, setInsideNavMode] = useState<'draw' | 'rotate'>('draw');
@@ -514,6 +518,31 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     startYaw: number;
     startPitch: number;
   } | null>(null);
+  const pendingRotationRef = useRef<{ yaw: number; pitch: number } | null>(null);
+  const rotationRafIdRef = useRef<number | null>(null);
+
+  // Butter-smooth 60fps/120fps rotation updater via requestAnimationFrame
+  const scheduleRotationUpdate = React.useCallback((nextYaw: number, nextPitch: number) => {
+    pendingRotationRef.current = { yaw: nextYaw, pitch: nextPitch };
+    if (!rotationRafIdRef.current) {
+      rotationRafIdRef.current = requestAnimationFrame(() => {
+        rotationRafIdRef.current = null;
+        if (pendingRotationRef.current) {
+          setInsideYawDeg(pendingRotationRef.current.yaw);
+          setInsidePitchDeg(pendingRotationRef.current.pitch);
+        }
+      });
+    }
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      if (rotationRafIdRef.current) {
+        cancelAnimationFrame(rotationRafIdRef.current);
+      }
+    };
+  }, []);
+
   const activeTouchPointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchGestureRef = useRef<{
     active: boolean;
@@ -815,50 +844,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     const yawRad = (insideYawDeg * Math.PI) / 180;
     const pitchRad = (insidePitchDeg * Math.PI) / 180;
 
-    if (subMode === 'inside_tunnel') {
-      // =========================================================================
-      // INSIDE TUNNEL MODE: Observer is standing INSIDE the 3D tunnel gallery!
-      // =========================================================================
-      const camX = 0; // Centerline of tunnel walkway
-      const camY = -0.5 * H + Math.min(1.7, 0.42 * H); // Human eye-level (1.6m above invert)
-      // Station along tunnel pull: from portal (-0.5 * L) forward towards face (+0.5 * L)
-      const stationZ = -0.5 * L + insideStationFrac * L;
-      const camZ = stationZ;
 
-      // Relative vector from observer's eyes to 3D point
-      const dx = x3d - camX;
-      const dy = y3d - camY;
-      const dz = z3d - camZ;
-
-      // Rotate camera look direction:
-      // Yaw (horizontal turn left/right):
-      const rx1 = dx * Math.cos(yawRad) - dz * Math.sin(yawRad);
-      const ry1 = dy;
-      const rz1 = dx * Math.sin(yawRad) + dz * Math.cos(yawRad);
-
-      // Pitch (vertical head tilt up/down):
-      const rx2 = rx1;
-      const ry2 = ry1 * Math.cos(pitchRad) - rz1 * Math.sin(pitchRad);
-      const rz2 = ry1 * Math.sin(pitchRad) + rz1 * Math.cos(pitchRad);
-
-      // Wide inside-tunnel field of view
-      const focal = 620 * insideZoom;
-
-      if (rz2 >= 0.22) {
-        return {
-          x: 500 + (rx2 * focal) / rz2,
-          y: 500 - (ry2 * focal) / rz2,
-        };
-      } else {
-        // Point is alongside or behind the observer: smooth outward projection prevents inversion
-        const safeDepth = Math.max(0.18, rz2);
-        const push = 1.0 + Math.max(0, 0.22 - rz2) * 4.5;
-        return {
-          x: 500 + ((rx2 * focal) / safeDepth) * push,
-          y: 500 - ((ry2 * focal) / safeDepth) * push,
-        };
-      }
-    }
 
     if (subMode === 'origami_fold') {
       const f = foldPercent / 100;
@@ -1037,8 +1023,6 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     headingFlareDepth,
     insideYawDeg,
     insidePitchDeg,
-    insideZoom,
-    insideStationFrac,
     activeLocation.widthM,
     activeLocation.heightM,
   ]);
@@ -1130,9 +1114,10 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     let bestTPull = 0.5;
     let bestDistSq = Infinity;
 
-    // Fast 2-stage search (~45 iterations total instead of 1,500)
-    const coarseSteps = 10;
-    for (let ni = 0; ni < panelNodes.length; ni++) {
+    // Fast 2-stage search (~90 evaluations total instead of 600+)
+    const coarseNiStep = Math.max(1, Math.floor(panelNodes.length / 16));
+    const coarseSteps = 6;
+    for (let ni = 0; ni < panelNodes.length; ni += coarseNiStep) {
       const node = panelNodes[ni];
       for (let s = 0; s <= coarseSteps; s++) {
         const tPull = s / coarseSteps;
@@ -1149,8 +1134,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     // Local fine refinement around (bestNode, bestTPull) for sub-pixel accuracy
     const minT = Math.max(0, bestTPull - 0.12);
     const maxT = Math.min(1, bestTPull + 0.12);
-    for (let s = 0; s <= 12; s++) {
-      const tPull = minT + ((maxT - minT) * s) / 12;
+    for (let s = 0; s <= 8; s++) {
+      const tPull = minT + ((maxT - minT) * s) / 8;
       const proj = projectTunnel3DPoint(bestNode.nx, bestNode.ny, tPull, bestNode.panel);
       const dSq = (proj.x - svgX) * (proj.x - svgX) + (proj.y - svgY) * (proj.y - svgY);
       if (dSq < bestDistSq) {
@@ -1738,8 +1723,13 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       const rawPitch = Math.round(rotateDragRef.current.startPitch + dy * 0.45);
       const wrappedYaw = ((((rawYaw + 180) % 360) + 360) % 360) - 180;
       const clampedPitch = Math.max(-85, Math.min(85, rawPitch));
-      setInsideYawDeg(wrappedYaw);
-      setInsidePitchDeg(clampedPitch);
+      scheduleRotationUpdate(wrappedYaw, clampedPitch);
+      return;
+    }
+
+    // When in rotate mode and not drawing, skip heavy inverse grid solver
+    if (insideNavMode === 'rotate' && !isDrawing3D) {
+      updateHoverCursorDom(null);
       return;
     }
 
@@ -1835,6 +1825,15 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     }
     if (rotateDragRef.current?.active) {
       rotateDragRef.current = null;
+      if (rotationRafIdRef.current) {
+        cancelAnimationFrame(rotationRafIdRef.current);
+        rotationRafIdRef.current = null;
+      }
+      if (pendingRotationRef.current) {
+        setInsideYawDeg(pendingRotationRef.current.yaw);
+        setInsidePitchDeg(pendingRotationRef.current.pitch);
+        pendingRotationRef.current = null;
+      }
       return;
     }
 
@@ -2722,8 +2721,6 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     headingFlareDepth,
     insideYawDeg,
     insidePitchDeg,
-    insideZoom,
-    insideStationFrac,
     viewZoom,
     viewPan.x,
     viewPan.y,
@@ -2752,32 +2749,15 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
               setSubMode('open_heading');
               setInsideNavMode('rotate');
             }}
-            className={`px-2.5 py-1 rounded text-[10.5px] font-black flex items-center gap-1.5 cursor-pointer transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all duration-150 select-none ${
               subMode === 'open_heading'
-                ? 'bg-amber-400 text-slate-950 shadow-md ring-1 ring-amber-200'
-                : 'bg-slate-900 text-slate-300 hover:text-white'
+                ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 shadow-md ring-1 ring-amber-300 font-black'
+                : 'bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/80'
             }`}
             title="3D Tunnel Orbit — full 3D rigid rotation around the tunnel tube from outside (never shrinks or expands)"
           >
-            <Box className="w-3.5 h-3.5" />
-            🌐 3D Tunnel Orbit
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setSubMode('inside_tunnel');
-              setInsideNavMode('rotate');
-            }}
-            className={`px-2.5 py-1 rounded text-[10.5px] font-black flex items-center gap-1.5 cursor-pointer transition-all ${
-              subMode === 'inside_tunnel'
-                ? 'bg-emerald-400 text-slate-950 shadow-md ring-1 ring-emerald-200'
-                : 'bg-slate-900 text-slate-300 hover:text-white'
-            }`}
-            title="Inside Tunnel View — stand inside the tunnel and look around 360° at walls, roof, face & floor without distortion"
-          >
-            <Box className="w-3.5 h-3.5" />
-            🚶 Inside Tunnel View
+            <Box className="w-3.5 h-3.5 text-amber-400" />
+            <span>🌐 3D Tunnel Orbit</span>
           </button>
 
           <button
@@ -2786,71 +2766,16 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
               setSubMode('origami_fold');
               setInsideNavMode('draw');
             }}
-            className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all duration-150 select-none ${
               subMode === 'origami_fold'
-                ? 'bg-violet-500 text-white shadow'
-                : 'bg-slate-900 text-slate-300 hover:text-white'
+                ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-md ring-1 ring-violet-300 font-black'
+                : 'bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/80'
             }`}
             title="Smoothly fold/unfold tunnel between 2D flat and 3D heading"
           >
-            <Sliders className="w-3 h-3" />
-            3D ↔ 2D Fold
+            <Sliders className="w-3.5 h-3.5 text-violet-400" />
+            <span>3D ↔ 2D Fold</span>
           </button>
-
-          {/* Quick Perspective Look Buttons for Inside Tunnel Mode */}
-          {subMode === 'inside_tunnel' && (
-            <div className="flex items-center gap-1 bg-emerald-950/70 border border-emerald-500/40 rounded px-1.5 py-0.5">
-              <span className="text-[9px] font-mono font-bold text-emerald-300">Look:</span>
-              <button
-                type="button"
-                onClick={() => { setInsideYawDeg(0); setInsidePitchDeg(0); }}
-                className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-all ${insideYawDeg === 0 && insidePitchDeg === 0 ? 'bg-emerald-400 text-slate-950' : 'bg-slate-900 text-slate-200 hover:text-white'}`}
-                title="Look forward at Excavation Face (Yaw 0°, Pitch 0°)"
-              >
-                Face
-              </button>
-              <button
-                type="button"
-                onClick={() => { setInsideYawDeg(-90); setInsidePitchDeg(0); }}
-                className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-all ${insideYawDeg === -90 && insidePitchDeg === 0 ? 'bg-emerald-400 text-slate-950' : 'bg-slate-900 text-slate-200 hover:text-white'}`}
-                title="Turn left to inspect Left Rock Wall (Yaw -90°)"
-              >
-                Left Wall
-              </button>
-              <button
-                type="button"
-                onClick={() => { setInsideYawDeg(0); setInsidePitchDeg(55); }}
-                className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-all ${insidePitchDeg > 35 ? 'bg-emerald-400 text-slate-950' : 'bg-slate-900 text-slate-200 hover:text-white'}`}
-                title="Look up at Crown Arch Roof (Pitch +55°)"
-              >
-                Crown
-              </button>
-              <button
-                type="button"
-                onClick={() => { setInsideYawDeg(90); setInsidePitchDeg(0); }}
-                className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-all ${insideYawDeg === 90 && insidePitchDeg === 0 ? 'bg-emerald-400 text-slate-950' : 'bg-slate-900 text-slate-200 hover:text-white'}`}
-                title="Turn right to inspect Right Rock Wall (Yaw +90°)"
-              >
-                Right Wall
-              </button>
-              <button
-                type="button"
-                onClick={() => { setInsideYawDeg(0); setInsidePitchDeg(-55); }}
-                className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-all ${insidePitchDeg < -35 ? 'bg-emerald-400 text-slate-950' : 'bg-slate-900 text-slate-200 hover:text-white'}`}
-                title="Look down at Invert Floor (Pitch -55°)"
-              >
-                Floor
-              </button>
-              <button
-                type="button"
-                onClick={() => { setInsideYawDeg(180); setInsidePitchDeg(0); }}
-                className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition-all ${Math.abs(insideYawDeg) === 180 ? 'bg-emerald-400 text-slate-950' : 'bg-slate-900 text-slate-200 hover:text-white'}`}
-                title="Turn around to look back along tunnel drive towards Portal (Yaw 180°)"
-              >
-                Back
-              </button>
-            </div>
-          )}
 
           {/* Quick Angle Buttons for 3D Orbit Mode */}
           {subMode === 'open_heading' && (
@@ -2936,36 +2861,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
 
         {/* Right Controls: Station / Zoom / Fold Slider + Smart Continue + 1m Graph Grid & Tunnel Outline */}
         <div className="flex flex-wrap items-center gap-1.5">
-          {subMode === 'inside_tunnel' && (
-            <>
-              <div className="flex items-center gap-1 text-[9.5px] font-mono bg-slate-900 border border-slate-800 rounded px-1.5 py-0.5">
-                <span className="text-slate-400">Station:</span>
-                <input
-                  type="range"
-                  min={0.05}
-                  max={0.85}
-                  step={0.05}
-                  value={insideStationFrac}
-                  onChange={(e) => setInsideStationFrac(Number(e.target.value))}
-                  className="w-16 accent-emerald-400 cursor-pointer"
-                  title="Walk position inside tunnel: from Portal (0m) forward towards Face"
-                />
-                <span className="text-emerald-300 font-bold">{(insideStationFrac * pullM).toFixed(1)}m</span>
-              </div>
-              <div className="flex items-center gap-1 text-[9.5px] font-mono">
-                <span className="text-slate-400">Zoom:</span>
-                <input
-                  type="range"
-                  min={0.8}
-                  max={2.0}
-                  step={0.05}
-                  value={insideZoom}
-                  onChange={(e) => setInsideZoom(Number(e.target.value))}
-                  className="w-14 accent-emerald-400 cursor-pointer"
-                />
-              </div>
-            </>
-          )}
+
 
           {subMode === 'origami_fold' && (
             <div className="flex items-center gap-1 text-[9.5px] font-mono">
@@ -3110,15 +3006,27 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
               const rawPitch = Math.round(bottomWheelDragRef.current.startPitch + dy * 1.15);
               const wrappedYaw = ((((rawYaw + 180) % 360) + 360) % 360) - 180;
               const wrappedPitch = ((((rawPitch + 180) % 360) + 360) % 360) - 180;
-              setInsideYawDeg(wrappedYaw);
-              setInsidePitchDeg(wrappedPitch);
+              scheduleRotationUpdate(wrappedYaw, wrappedPitch);
             }}
             onPointerUp={(e) => {
               e.stopPropagation();
               bottomWheelDragRef.current = null;
+              if (rotationRafIdRef.current) {
+                cancelAnimationFrame(rotationRafIdRef.current);
+                rotationRafIdRef.current = null;
+              }
+              if (pendingRotationRef.current) {
+                setInsideYawDeg(pendingRotationRef.current.yaw);
+                setInsidePitchDeg(pendingRotationRef.current.pitch);
+                pendingRotationRef.current = null;
+              }
             }}
             onPointerCancel={() => {
               bottomWheelDragRef.current = null;
+              if (rotationRafIdRef.current) {
+                cancelAnimationFrame(rotationRafIdRef.current);
+                rotationRafIdRef.current = null;
+              }
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -3214,7 +3122,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             className="px-1.5 py-0.5 rounded bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-[8.5px] font-mono font-bold text-cyan-300 cursor-pointer shadow whitespace-nowrap"
             title="Tap to reset 3D rotation to 0°/0°"
           >
-            {subMode === 'inside_tunnel' ? '🚶 Inside' : '🌐 Orbit'} {insideYawDeg}°/{insidePitchDeg}°
+            {subMode === 'origami_fold' ? '📐 3D↔2D' : '🌐 Orbit'} {insideYawDeg}°/{insidePitchDeg}°
           </button>
         </div>
 
