@@ -148,6 +148,42 @@ export interface FieldLithologyStroke {
   polygon?: FieldPoint2D[];
 }
 
+export interface FieldLithologyBandItem {
+  id: string;
+  name?: string;
+  rockType: string;
+  rockCode?: string;
+  rockName?: string;
+  angleDeg: number;          // -90 to +90 degrees
+  thicknessPx: number;       // Visual band thickness in SVG canvas px (5..120)
+  thicknessMeters?: number;  // Scaled thickness in meters
+  anchorPoint?: FieldPoint2D; // Centerline anchor point on face canvas
+  color?: string;
+  patternId?: string;
+  enabled?: boolean;
+}
+
+export function computeBandOrientedPolygon(
+  anchor: FieldPoint2D,
+  angleDeg: number,
+  thicknessPx: number,
+  span: number = 3000
+): FieldPoint2D[] {
+  const rad = (angleDeg * Math.PI) / 180;
+  const ux = Math.cos(rad);
+  const uy = Math.sin(rad);
+  const vx = -Math.sin(rad);
+  const vy = Math.cos(rad);
+  const halfThick = Math.max(1, thicknessPx / 2);
+
+  return [
+    { x: anchor.x + halfThick * vx - span * ux, y: anchor.y + halfThick * vy - span * uy },
+    { x: anchor.x + halfThick * vx + span * ux, y: anchor.y + halfThick * vy + span * uy },
+    { x: anchor.x - halfThick * vx + span * ux, y: anchor.y - halfThick * vy + span * uy },
+    { x: anchor.x - halfThick * vx - span * ux, y: anchor.y - halfThick * vy - span * uy },
+  ];
+}
+
 export interface FieldJointTrace {
   id: string;
   label?: string;
@@ -585,13 +621,15 @@ export interface FieldExcavationRound {
   lithologyPatternAngle?: number;
   /** Per-lithology custom colour map (rockType / patternId -> hex colour) */
   lithologyColorByRock?: Record<string, string>;
-  /** Sedimentary / Metamorphic Alternating Lithology Bands configuration (2 or 3 rocks + spacing) */
+  /** Sedimentary / Metamorphic Alternating Lithology Bands configuration (supports legacy count/rockTypes and new multi-band architecture) */
   alternateLithologyConfig?: {
     enabled: boolean;
-    count: 2 | 3;
-    rockTypes: string[];
-    spacingPx: number;
-    angleDeg: number;
+    count?: 2 | 3;
+    rockTypes?: string[];
+    spacingPx?: number;
+    angleDeg?: number;
+    baseRockType?: string;
+    bands?: FieldLithologyBandItem[];
   };
   veinBandSymbolDensity?: number;
   veinBandSymbolSize?: number;

@@ -284,52 +284,64 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 </span>
               </span>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setIsFirstOpening(false);
-                  handleSwitchMappingDomain('TUNNEL');
-                  setActiveFieldWorkflowMode('field_mapping');
-                  setResumeFieldAtLastStage(Boolean(fieldResumeMeta));
-                  setIsFieldMappingModeOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
-                style={{
-                  backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
-                  borderColor: palette.accentHex,
-                  color: palette.isLightBg ? '#FFFFFF' : '#000000',
-                }}
-                title={
-                  fieldResumeMeta
-                    ? `Resume Underground Face Mapping where you stopped (${fieldResumeMeta.stage})`
-                    : 'Open Underground Face Mapping'
-                }
-              >
-                <Play
-                  className="w-3.5 h-3.5 shrink-0"
-                  style={{
-                    color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
-                    fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    handleSwitchMappingDomain('TUNNEL');
+                    setActiveFieldWorkflowMode('field_mapping');
+                    setResumeFieldAtLastStage(false);
+                    setIsFieldMappingModeOpen(true);
                   }}
-                />
-                <span>{fieldResumeMeta ? 'Resume' : 'Open'}</span>
-              </button>
+                  className="px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-all cursor-pointer active:scale-95"
+                  title="Open Underground Face Mapping (Start Fresh)"
+                >
+                  <span>Open</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    handleSwitchMappingDomain('TUNNEL');
+                    setActiveFieldWorkflowMode('field_mapping');
+                    setResumeFieldAtLastStage(true);
+                    setIsFieldMappingModeOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                  style={{
+                    backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
+                    borderColor: palette.accentHex,
+                    color: palette.isLightBg ? '#FFFFFF' : '#000000',
+                  }}
+                  title={
+                    fieldResumeMeta
+                      ? `Resume Underground Face Mapping where you stopped (${fieldResumeMeta.stage})`
+                      : 'Resume Last Active Underground Face Mapping Session'
+                  }
+                >
+                  <Play
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                      fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    }}
+                  />
+                  <span>Resume</span>
+                </button>
+              </div>
             </div>
           </div>
 
           {/* 2. Geological & Geotechnical Core Logging */}
-          <div className="flex items-stretch gap-2 w-full">
-            <button
-              type="button"
-              onClick={() => {
-                setIsFirstOpening(false);
-                setIsCoreLoggingOpen(true);
-              }}
-              className="w-full py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.22)] transition-all cursor-pointer hover:shadow-xl active:scale-99 group"
-              style={{
-                borderColor: palette.primaryHex,
-              }}
-            >
+          <div
+            className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 transition-colors"
+            style={{
+              borderColor: palette.primaryHex,
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2.5 text-left">
                 <span
                   className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
@@ -344,11 +356,45 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   Geological &amp; Geotechnical Core Logging
                 </span>
               </span>
-              <ArrowRight
-                className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
-                style={{ color: palette.accentIconColor }}
-              />
-            </button>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    setIsCoreLoggingOpen(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-all cursor-pointer active:scale-95"
+                  title="Open Core Logging Workspace"
+                >
+                  <span>Open</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    setIsCoreLoggingOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                  style={{
+                    backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
+                    borderColor: palette.accentHex,
+                    color: palette.isLightBg ? '#FFFFFF' : '#000000',
+                  }}
+                  title="Resume Active Core Logging Borehole"
+                >
+                  <Play
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                      fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    }}
+                  />
+                  <span>Resume</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* 3. Surface Mapping (Bench, Trench, Slope, Outcrop) */}
@@ -358,60 +404,87 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               borderColor: palette.primaryHex,
             }}
           >
-            <div className="flex items-stretch gap-2 w-full">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsFirstOpening(false);
-                  handleSwitchMappingDomain(selectedSurfaceSubType);
-                  setActiveFieldWorkflowMode('field_mapping');
-                  setResumeFieldAtLastStage(false);
-                  setIsFieldMappingModeOpen(true);
-                }}
-                className="w-full py-1 px-2 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 text-stone-900 transition-all cursor-pointer group"
-              >
-                <span className="flex items-center gap-2.5">
-                  <span
-                    className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors"
-                    style={{
-                      backgroundColor: palette.primaryHex + '20',
-                      color: palette.accentIconColor,
-                    }}
-                  >
-                    <Mountain className="w-3.5 h-3.5 shrink-0" />
-                  </span>
-                  <span className="text-black font-extrabold text-sm sm:text-base">Surface Mapping</span>
-                  <span
-                    className="px-2 py-0.5 rounded font-mono text-[10px] font-bold"
-                    style={{
-                      backgroundColor: palette.primaryHex + '25',
-                      color: palette.accentColorOnLight,
-                    }}
-                  >
-                    {selectedSurfaceSubType}
-                  </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2.5 text-left">
+                <span
+                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                  style={{
+                    backgroundColor: palette.primaryHex + '20',
+                    color: palette.accentIconColor,
+                  }}
+                >
+                  <Mountain className="w-3.5 h-3.5 shrink-0" />
                 </span>
-                <ArrowRight
-                  className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
-                  style={{ color: palette.accentIconColor }}
-                />
-              </button>
+                <span className="text-black font-extrabold text-sm sm:text-base">Surface Mapping</span>
+                <span
+                  className="px-2 py-0.5 rounded font-mono text-[10px] font-bold"
+                  style={{
+                    backgroundColor: palette.primaryHex + '25',
+                    color: palette.accentColorOnLight,
+                  }}
+                >
+                  {selectedSurfaceSubType}
+                </span>
+              </span>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    handleSwitchMappingDomain(selectedSurfaceSubType);
+                    setActiveFieldWorkflowMode('field_mapping');
+                    setResumeFieldAtLastStage(false);
+                    setIsFieldMappingModeOpen(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-all cursor-pointer active:scale-95"
+                  title="Open Surface Mapping (Start Fresh)"
+                >
+                  <span>Open</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    handleSwitchMappingDomain(selectedSurfaceSubType);
+                    setActiveFieldWorkflowMode('field_mapping');
+                    setResumeFieldAtLastStage(true);
+                    setIsFieldMappingModeOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                  style={{
+                    backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
+                    borderColor: palette.accentHex,
+                    color: palette.isLightBg ? '#FFFFFF' : '#000000',
+                  }}
+                  title={
+                    surfaceResumeMeta
+                      ? `Resume Surface Mapping where you stopped (${surfaceResumeMeta.stage || 'Active Session'})`
+                      : 'Resume Last Active Surface Mapping Session'
+                  }
+                >
+                  <Play
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                      fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    }}
+                  />
+                  <span>Resume</span>
+                </button>
+              </div>
             </div>
           </div>
 
           {/* 4. Continuous 3D Tunnel Mapping & Strip CAD Log */}
-          <div className="w-full">
-            <button
-              type="button"
-              onClick={() => {
-                setIsFirstOpening(false);
-                setIsContinuousLogSetupOpen(true);
-              }}
-              className="w-full py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
-              style={{
-                borderColor: palette.primaryHex,
-              }}
-            >
+          <div
+            className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 transition-colors"
+            style={{
+              borderColor: palette.primaryHex,
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2.5 text-left">
                 <span
                   className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
@@ -426,11 +499,45 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   Continuous 3D Tunnel Log
                 </span>
               </span>
-              <ArrowRight
-                className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
-                style={{ color: palette.accentIconColor }}
-              />
-            </button>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    setIsContinuousLogSetupOpen(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-all cursor-pointer active:scale-95"
+                  title="Open Continuous 3D Tunnel Log Setup"
+                >
+                  <span>Open</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    setIsContinuousLogSetupOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                  style={{
+                    backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
+                    borderColor: palette.accentHex,
+                    color: palette.isLightBg ? '#FFFFFF' : '#000000',
+                  }}
+                  title="Resume Continuous 3D Tunnel Log"
+                >
+                  <Play
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                      fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    }}
+                  />
+                  <span>Resume</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* 5. Data Storage, Import & Export */}

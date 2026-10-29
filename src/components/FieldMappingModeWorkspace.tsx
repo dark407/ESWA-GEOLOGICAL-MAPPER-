@@ -52,6 +52,7 @@ import {
   buildDipSurfaceOutlineAndCentroid,
   buildDipSurfacePolygonWithOutlineSnap,
   buildSmoothSvgPath,
+  computeBandOrientedPolygon,
   clampPointToFieldPanelOutline,
   clipSegmentToFieldPanelOutline,
   computeDisplayPanelGeometry,
@@ -104,6 +105,7 @@ import {
   FieldJointGroupingId,
   FieldJointSetId,
   FieldJointTrace,
+  FieldLithologyBandItem,
   FieldLithologyId,
   FieldLithologyStroke,
   FieldMappingStoreState,
@@ -1377,10 +1379,192 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     if (activeRound?.alternateLithologyConfig?.angleDeg !== undefined) {
       setAlternatingAngleDeg(activeRound.alternateLithologyConfig.angleDeg);
     }
+    if (activeRound?.alternateLithologyConfig?.enabled !== undefined) {
+      setAlternatingBandMode(activeRound.alternateLithologyConfig.enabled);
+    }
     if (activeRound?.lithologyPatternAngle !== undefined) {
       setLithologyPatternAngle(activeRound.lithologyPatternAngle);
     }
-  }, [activeRound?.alternateLithologyConfig?.angleDeg, activeRound?.lithologyPatternAngle]);
+  }, [
+    activeRound?.alternateLithologyConfig?.angleDeg,
+    activeRound?.alternateLithologyConfig?.enabled,
+    activeRound?.lithologyPatternAngle,
+  ]);
+
+  // Multi-Band Alternate Lithology Engine
+  const [activePlacingBandId, setActivePlacingBandId] = useState<string | null>(null);
+  const [selectedBandId, setSelectedBandId] = useState<string | null>(null);
+  const [hoverCanvasPoint, setHoverCanvasPoint] = useState<FieldPoint2D | null>(null);
+  const [alternateLithologyMode, setAlternateLithologyMode] = useState<
+    'layered_bands' | 'uniform_stripes'
+  >('layered_bands');
+
+  const currentBands: FieldLithologyBandItem[] = useMemo(() => {
+    if (
+      activeRound?.alternateLithologyConfig?.bands &&
+      activeRound.alternateLithologyConfig.bands.length > 0
+    ) {
+      return activeRound.alternateLithologyConfig.bands;
+    }
+    return [
+      {
+        id: 'band-1',
+        name: 'Band #1 (Second Lithology)',
+        rockType: alternatingRockIds[1] || 'shale',
+        angleDeg: alternatingAngleDeg ?? -22,
+        thicknessPx: 26,
+        anchorPoint: { x: 500, y: 400 },
+        enabled: true,
+      },
+    ];
+  }, [
+    activeRound?.alternateLithologyConfig?.bands,
+    alternatingRockIds,
+    alternatingAngleDeg,
+  ]);
+
+  const activeBaseRockType: string = useMemo(() => {
+    return (
+      activeRound?.alternateLithologyConfig?.baseRockType ||
+      selectedRockType ||
+      'quartzite'
+    );
+  }, [activeRound?.alternateLithologyConfig?.baseRockType, selectedRockType]);
+
+  const handleAddBand = useCallback(() => {
+    const nextIdx = (activeRound?.alternateLithologyConfig?.bands?.length || currentBands.length) + 1;
+    const defaultRocks = ['shale', 'phyllite', 'mica_schist', 'quartz_vein', 'pegmatite', 'basalt'];
+    const chosenRock = defaultRocks[(nextIdx - 1) % defaultRocks.length];
+    const newBand: FieldLithologyBandItem = {
+      id: `band-${Date.now()}-${nextIdx}`,
+      name: `Band #${nextIdx}`,
+      rockType: chosenRock,
+      angleDeg: alternatingAngleDeg ?? -22,
+      thicknessPx: 24,
+      anchorPoint: { x: 500, y: Math.max(150, Math.min(850, 320 + ((nextIdx * 85) % 400))) },
+      enabled: true,
+    };
+    updateActiveRound((r) => {
+      const curCfg = r.alternateLithologyConfig || {
+        enabled: true,
+        count: 2,
+        rockTypes: alternatingRockIds,
+        spacingPx: alternatingSpacingPx,
+        angleDeg: alternatingAngleDeg,
+      };
+      const existing = curCfg.bands && curCfg.bands.length > 0 ? curCfg.bands : currentBands;
+      const updatedBands = [...existing, newBand];
+      return {
+        ...r,
+        alternateLithologyConfig: {
+          ...curCfg,
+          enabled: true,
+          baseRockType: curCfg.baseRockType || selectedRockType,
+          bands: updatedBands,
+        },
+      };
+    });
+    setSelectedBandId(newBand.id);
+    setActivePlacingBandId(newBand.id);
+    setStatusMessage(`Added Band #${nextIdx} (${chosenRock}). Tap anywhere on face canvas to position.`);
+  }, [
+    activeRound?.alternateLithologyConfig?.bands,
+    currentBands,
+    alternatingAngleDeg,
+    updateActiveRound,
+    alternatingRockIds,
+    alternatingSpacingPx,
+    selectedRockType,
+    setStatusMessage,
+  ]);
+
+  const handleUpdateBand = useCallback((bandId: string, updates: Partial<FieldLithologyBandItem>) => {
+    updateActiveRound((r) => {
+      const curCfg = r.alternateLithologyConfig || {
+        enabled: true,
+        count: 2,
+        rockTypes: alternatingRockIds,
+        spacingPx: alternatingSpacingPx,
+        angleDeg: alternatingAngleDeg,
+      };
+      const existing = curCfg.bands && curCfg.bands.length > 0 ? curCfg.bands : currentBands;
+      const updatedBands = existing.map((b) => (b.id === bandId ? { ...b, ...updates } : b));
+      return {
+        ...r,
+        alternateLithologyConfig: {
+          ...curCfg,
+          enabled: true,
+          baseRockType: curCfg.baseRockType || selectedRockType,
+          bands: updatedBands,
+        },
+      };
+    });
+  }, [
+    updateActiveRound,
+    alternatingRockIds,
+    alternatingSpacingPx,
+    alternatingAngleDeg,
+    currentBands,
+    selectedRockType,
+  ]);
+
+  const handleDeleteBand = useCallback((bandId: string) => {
+    updateActiveRound((r) => {
+      const curCfg = r.alternateLithologyConfig || {
+        enabled: true,
+        count: 2,
+        rockTypes: alternatingRockIds,
+        spacingPx: alternatingSpacingPx,
+        angleDeg: alternatingAngleDeg,
+      };
+      const existing = curCfg.bands && curCfg.bands.length > 0 ? curCfg.bands : currentBands;
+      const updatedBands = existing.filter((b) => b.id !== bandId);
+      return {
+        ...r,
+        alternateLithologyConfig: {
+          ...curCfg,
+          bands: updatedBands,
+        },
+      };
+    });
+    setSelectedBandId((prev) => (prev === bandId ? null : prev));
+    setActivePlacingBandId((prev) => (prev === bandId ? null : prev));
+  }, [
+    updateActiveRound,
+    alternatingRockIds,
+    alternatingSpacingPx,
+    alternatingAngleDeg,
+    currentBands,
+  ]);
+
+  const handleSetBaseRockType = useCallback((rockId: string) => {
+    updateActiveRound((r) => {
+      const curCfg = r.alternateLithologyConfig || {
+        enabled: true,
+        count: 2,
+        rockTypes: alternatingRockIds,
+        spacingPx: alternatingSpacingPx,
+        angleDeg: alternatingAngleDeg,
+      };
+      return {
+        ...r,
+        alternateLithologyConfig: {
+          ...curCfg,
+          enabled: true,
+          baseRockType: rockId,
+          bands: curCfg.bands && curCfg.bands.length > 0 ? curCfg.bands : currentBands,
+        },
+      };
+    });
+    setStatusMessage(`Base lithology updated to ${rockId}.`);
+  }, [
+    updateActiveRound,
+    alternatingRockIds,
+    alternatingSpacingPx,
+    alternatingAngleDeg,
+    currentBands,
+    setStatusMessage,
+  ]);
 
   // Collapsible & Draggable Left and Right sidebars on Stage 4 / Stage 5 Canvas (Prioritizes Canvas on Android & Compact screens)
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState<boolean>(() => {
@@ -2322,6 +2506,41 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       }
     }
 
+    // Handle placing of alternate lithology band on Face Canvas
+    if (activePlacingBandId && targetPanel === 'face') {
+      const targetBandId = activePlacingBandId;
+      updateActiveRound((r) => {
+        const curCfg = r.alternateLithologyConfig || {
+          enabled: true,
+          count: 2,
+          rockTypes: alternatingRockIds,
+          spacingPx: alternatingSpacingPx,
+          angleDeg: alternatingAngleDeg,
+        };
+        const prevBands =
+          curCfg.bands && curCfg.bands.length > 0 ? curCfg.bands : currentBands;
+        const nextBands = prevBands.map((b) =>
+          b.id === targetBandId ? { ...b, anchorPoint: { ...panelSpacePt }, enabled: true } : b
+        );
+        return {
+          ...r,
+          alternateLithologyConfig: {
+            ...curCfg,
+            enabled: true,
+            baseRockType: curCfg.baseRockType || selectedRockType,
+            bands: nextBands,
+          },
+        };
+      });
+      setSelectedBandId(targetBandId);
+      setActivePlacingBandId(null);
+      setHoverCanvasPoint(null);
+      setStatusMessage(
+        `Placed lithology band at (${Math.round(panelSpacePt.x)}, ${Math.round(panelSpacePt.y)})`
+      );
+      return;
+    }
+
     // Snap start point to the exact tunnel outline when starting near the outline (within 30 SVG units inside or 52 outside)
     const shouldSnapOutline =
       activeTool !== 'eraser' &&
@@ -2529,6 +2748,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             );
           })()
         : rawPt;
+
+    if (activePlacingBandId && hoverTargetPanel === 'face') {
+      setHoverCanvasPoint(panelSpacePt);
+    } else if (hoverCanvasPoint && !activePlacingBandId) {
+      setHoverCanvasPoint(null);
+    }
 
     // Only update hoverPanelPt when actively previewing a multi-click Spline or Polyline trace!
     // Eliminates 60fps full-workspace React re-renders when simply moving the mouse over the 2D canvas.

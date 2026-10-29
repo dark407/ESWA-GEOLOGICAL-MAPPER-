@@ -1,159 +1,145 @@
-# Strict Input Validation & Blank-State Form Engine
+# Multi-Band Alternate Lithology Engine & Canvas Band Plotting
 
-Eliminate pre-filled placeholder data across all industry modes (NATM Tunneling, Field APK Mapping, Underground Mining, and TBM Mechanized Tunneling). Enforce explicit user selection for all tunnel shapes, locations, and dimensions with unselected placeholders (`-- Select Shape / Option --`), visual validation states (red highlight borders upon attempted submission), and strict navigation guards that block advancing to subsequent windows until all mandatory fields are valid.
+Transform the alternate lithology workflow into a multi-layered geological banding system: establish a configurable **Main Base Lithology** that covers the excavation face background, and empower geologists to add and plot **unlimited secondary, tertiary, and quaternary lithology bands** with independent rock types, angles (-90° to +90°), and thicknesses (5px to 100px / 0.1m to 2.5m), placed directly on the face canvas via tap/click positioning.
 
 ---
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following product behaviors were confirmed during Phase 1 interactive clarification:
-> - **Pre-Filled Data Scope**: Completely removed across all modes (NATM, Field Mapping, Underground Mining, and TBM). All forms start clean/blank with no pre-loaded dummy measurements or pre-selected shapes.
-> - **Demo Buttons**: Removed or disabled demo data generators/benchmark buttons across all modes to ensure clean production workflows.
-> - **Select Box Initial State**: Dropdowns default to an unselected placeholder state (`-- Select Option / Shape --`). Upon validation failure, empty required inputs and unselected dropdowns receive a prominent red border highlight.
-> - **Validation & Navigation Enforcement**: Clicking "Next" / "Proceed" / "Save & Continue" with empty mandatory fields will strictly **block window navigation**, automatically **focus the first invalid/empty input**, and trigger a high-visibility warning **toast alert** detailing the missing parameters.
+> The following product behaviors were confirmed during the Turn 1 interactive clarification:
+> - **Main Base Structure**: The main lithology acts as the base background, with separate, distinct overlay bands plotted over it.
+> - **Band Placement UX**: The geologist configures the rock type, angle, and thickness in the panel controls, then taps/clicks on the face canvas to place the band precisely where desired.
+> - **Band Capacity**: Unlimited bands with dynamic "+ Add Band" and delete controls, allowing secondary, tertiary, 4th, 5th, or any number of distinct lithology bands per round.
 
 ---
 
 ## 1. Overview & Core Concept
 
-### What It Delivers
-Previously, opening a new session or location would automatically populate default geometric profiles (e.g., D-shaped 8.40m × 7.20m, round pull 3.5m, azimuth 000°), which could inadvertently lead field geologists and tunneling engineers to proceed with unintended default measurements.
+### 1.1 What It Delivers
+In real-world tunneling and mining faces (e.g. interbedded flysch, turbidite sequences, quartz/pegmatite vein swarms, schist with quartzite intercalations), rock faces rarely consist of a single uniform rock or a single rigid alternating pair. 
 
-This upgrade transforms the input lifecycle into a **strict, blank-state, self-validating system**:
-1. **Zero Pre-Seeded Form State**: When starting a new project, location, or stope, no default dimensions or shapes are pre-selected.
-2. **Explicit Selection Protocol**: Dropdowns explicitly require user action (starting at `-- Select Shape --` or `-- Select Option --`).
-3. **Real-Time & Submission Validation**: Fields track "touched" and "submitted" validation states. Incomplete fields light up with a red border (`border-rose-500 ring-2 ring-rose-500/20`), red label accents, and assistive error notices.
-4. **Navigation Interlock**: Step transitions (e.g. Project/Location → Tunnel Shape → Surface Pictures → Photogrammetry Canvas) are guarded. If required parameters are missing, navigation is halted, the viewport scrolls/focuses on the offending input, and a descriptive toast appears.
+This feature introduces a **Base & Layered Band Architecture**:
+1. **Main Lithology Base**: The dominant rock mass (e.g. Quartzite, Granite, Sandstone) acts as the continuous backdrop.
+2. **Dynamic Band Stack**: Users configure individual secondary/tertiary bands (e.g., Band 1: 15cm Mica Schist at -45°, Band 2: 40cm Quartz Vein at +30°, Band 3: 8cm Phyllite at 0°).
+3. **Direct Canvas Plotting**: A dedicated "Plot Band on Canvas" mode allows tapping or dragging anywhere across the face canvas to anchor the band centerline, instantly rendering the band at its defined angle, thickness, and geological hatch pattern.
+4. **Per-Band Customization**: Each band maintains its own rock code, angle (-90° to +90°), thickness slider, color, and hatch pattern.
 
 ---
 
 ## 2. User Experience & Visual Design
 
-### 2.1 Visual Hierarchy & Component States
+### 2.1 Workspace Control Panel (`FieldMappingModeWorkspace.tsx`)
 
-| State | Visual Treatment | Helper / Placeholder Text |
-| :--- | :--- | :--- |
-| **Initial / Pristine** | Slate-300 / Slate-700 border, neutral background | `-- Select Excavation Shape --`, `0.00` placeholder |
-| **Active / Focused** | Accent cyan / amber outline (`ring-2 ring-cyan-500`) | Standard active input typography |
-| **Valid / Filled** | Clean border with optional subtle green check icon | Formatted value (e.g., `8.50 m`, `045°`) |
-| **Validation Error (Blocked)** | Bold crimson border (`border-rose-500 ring-2 ring-rose-500/30 bg-rose-500/5`), shake animation | *"Tunnel width is required (min 0.5m)"* |
+Following the **Scientific Console & Telemetry Design Constitution** (dense technical layout, 60-30-10 palette with dark obsidian `#0F172A`, slate `#1E293B`, and laser cyan `#06B6D4` accents, with tabular numerals):
 
-### 2.2 Error Feedback & Toast Alert Design
-- **Floating Alert Toast**: Fixed top-center notification with smooth entrance animation, warning icon (`AlertTriangle`), and clear message:
-  > *"Cannot advance: Please select a Tunnel Excavation Shape and enter Width, Height, and Chainage before proceeding."*
-- **Focus Jumping**: The first empty required input is programmatically targeted with `.focus()` and smooth scrolling so the user immediately lands on what needs attention.
+1. **Main Base Lithology Header**:
+   - Prominently displays the active base rock (e.g., `BASE: Quartzite [Qtz]`) with rock color badge and pattern thumbnail.
+   - Quick "Change Base Rock" dropdown/palette selector.
+2. **Layered Lithology Bands Stack**:
+   - Header with active band count (e.g., `3 Layered Bands`) and an "+ Add Lithology Band" button (`bg-cyan-500 text-slate-950 font-bold`).
+   - Band card list with clear index badges (`#1`, `#2`, `#3`, ...).
+   - Each band card provides:
+     - **Rock Selector**: Compact chip grid or dropdown with quick search from the rock catalog.
+     - **Angle Control**: Slider (-90° to +90°) with real-time rotating strata icon and quick presets (`-60°`, `-45°`, `-22° Nat`, `0° Flat`, `+30°`, `+45°`, `+60°`, `90° Vert`).
+     - **Thickness Control**: Slider (5px to 100px) with numeric readout and presets (`Thin 10px`, `Med 25px`, `Wide 50px`, `Broad 80px`).
+     - **Placement Action Button**: A high-visibility `"Tap on Canvas to Place"` toggle button (`cursor-crosshair`). When active, clicking on the face canvas places/anchors this band.
+     - **Delete Band Button**: Compact trash button to remove a band.
 
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-### 3.1 Initial Geometry Representation
-- **Problem**: In 3D canvases and SVG previews, rendering an empty geometry (`width = 0, height = 0, points = []`) can cause division-by-zero or broken SVG bounding boxes.
-- **Decision**: Introduce a distinct `hasValidUserGeometry: boolean` flag. The preview canvas displays a dedicated *"No Shape Selected — Please select a profile shape and enter dimensions"* guidance graphic with dashed outline placeholder rather than crashing or showing arbitrary default geometry.
-
-### 3.2 Granular Mode Enforcement
-- **NATM Setup (Step 1 → Step 2 → Step 3)**:
-  - Required Step 1: Project Name, Location Name, Chainage (`faceChainage` / `chainage`), Drive Azimuth, and Round Length.
-  - Required Step 2 (Geometry): Excavation Shape (must not be unselected), Width (> 0.5m), Height (> 0.5m), Wall Height (> 0.2m).
-- **Field Mapping APK Mode (`FieldMappingModeWorkspace`)**:
-  - Project setup: Project Name & Location selection required before moving to round setup.
-  - Round setup: Round Number, Chainage, and Profile Shape required before entering the drafting canvas.
-- **Underground Mining Suite (`MiningFaceSetupWizard`)**:
-  - Mine Level, Stope ID, Stope Shape, Width, and Height required before opening face mapping.
-- **TBM Mechanized Suite (`TbmWorkflowShell`)**:
-  - Ring number, key segment position, and excavation diameter required before recording telemetry.
-
----
-
-## 4. Technical Architecture & Component Hierarchy
+### 2.2 Face Canvas Interaction & SVG Rendering
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        RootApplicationRouter                           │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                                App.tsx                                 │
-│  - isGeometryValid: boolean                                            │
-│  - validationErrors: Record<string, string>                            │
-│  - validateStartScreen() -> boolean (Blocks step transition on error)  │
-│  - validateManualGeometry() -> boolean                                 │
-│  - showValidationToast(msg)                                            │
-└───────────────┬───────────────────┬───────────────────┬────────────────┘
-                │                   │                   │
-  ┌─────────────▼─────────┐ ┌───────▼───────────┐ ┌─────▼──────────────┐
-  │   Step 1: Start       │ │ Step 2: Manual    │ │ Field Mode APK     │
-  │   Project & Location  │ │ Geometry Screen   │ │ Workspace          │
-  │   - Project Input     │ │ - Shape Selector  │ │ - Clean Projects   │
-  │   - Chainage Input    │ │ - Width / Height  │ │ - Validation Guard │
-  │   - Drive Direction   │ │ - Red Error Rings │ │ - No Auto-Fills    │
-  └───────────────────────┘ └───────────────────┘ └────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│                   TUNNEL FACE CANVAS                   │
+│                                                        │
+│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │ <- Main Base Lithology
+│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │    (e.g., Quartzite)
+│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
+│  ───────/─────────────────────────────────────────────  │ <- Band #1 (Schist, 15px, -35°)
+│  ░░░░░░/░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│  ─────/───────────────────────────────────────────────  │
+│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
+│  ───────────────────────────────\───────────────────  │ <- Band #2 (Quartz Vein, 35px, +25°)
+│  ████████████████████████████████\██████████████████  │
+│  ─────────────────────────────────\─────────────────  │
+│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
+└────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 5. Step-by-Step Implementation Sequence
-
-### Phase 1: Reset Default States in `App.tsx`
-1. **Geometry Initial State**:
-   - Initialize `manWidth: ''`, `manHeight: ''`, `manWallHeight: ''`, `manCrownRadius: ''`.
-   - Initialize `manProfileType: ''` (unselected string).
-   - Set initial `geometry` dimensions to unselected / blank placeholders until explicitly configured.
-2. **Settings Initial State**:
-   - Set `settings.projectName: ''`, `settings.locationName: ''`, `settings.tunnelName: ''`.
-   - Set `settings.driveDirectionInput: ''`, `settings.chainage: ''`, `settings.faceChainage: ''`.
-   - Set `settings.roundLength: 0` (or `''` in form inputs).
-3. **Demo Data Removal**:
-   - Remove or deprecate automated sample injection triggers that automatically fill dummy values upon window open.
-
-### Phase 2: Form Controls & Validation Hooks
-1. **Dropdown Select Placeholders**:
-   - Add `<option value="">-- Select Tunnel Excavation Shape --</option>` as the disabled/default initial selection across:
-     - `GeometryManualScreen.tsx`
-     - `App.tsx` (Step 1 quick shapes)
-     - `FreeformCustomProfileEditor.tsx`
-     - `FieldMappingModeWorkspace.tsx`
-     - `MiningFaceSetupWizard.tsx`
-2. **Visual Error Indicator Classes**:
-   - Create unified utility classes for form inputs:
-     ```ts
-     const getInputClass = (hasError: boolean) =>
-       hasError
-         ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5 focus:border-rose-600 focus:ring-rose-600'
-         : 'border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:ring-cyan-500';
-     ```
-   - Render inline error messages beneath flagged select boxes and numeric inputs.
-
-### Phase 3: Navigation Interlocks & Guard Functions
-1. **Step 1 (`screen === 'start'`)**:
-   - Intercept `navigateScreen('drive_and_photos')` and `setScreen('geometry_manual')`.
-   - Validate `projectName`, `locationName`, `chainage`, `driveDirectionInput`, and selected shape.
-   - If invalid: update `validationErrors`, set `attemptedSubmit: true`, scroll to and focus the first invalid field, and display a warning toast.
-2. **Step 2 (`screen === 'geometry_manual'`)**:
-   - Intercept `handleApplyManualGeometry()`.
-   - Ensure shape is chosen (`manProfileType !== ''`) and dimensions (`manWidth`, `manHeight`, `manWallHeight`) are positive numbers.
-   - If missing: highlight select box and empty fields with red borders, block navigation, and display warning toast.
-3. **Field Mapping Mode (`FieldMappingModeWorkspace.tsx`)**:
-   - Intercept stage forward navigation (`nextStage`).
-   - Guard each stage with mandatory parameter checks before allowing stage advancement.
-
-### Phase 4: Empty Preview Fallback Display
-- Update the SVG / 2D Cross-section preview cards:
-  - When no shape or dimensions are selected, show a clear dashed silhouette with prompt text:
-    *"Select shape & enter width/height to view cross-section"*.
-  - Prevents rendering degenerate (0×0) geometries while maintaining UI responsiveness.
+- When `"Plot Band on Canvas"` is active, moving the cursor over the SVG canvas renders a translucent, real-time angled preview stripe following the cursor.
+- Clicking commits the band anchor point `(x, y)` to the active excavation round's stroke data.
+- The band renders with:
+  - High-precision SVG polygon/path clipping constrained to the tunnel excavation perimeter.
+  - Distinct hatched geological pattern (`fill="url(#pattern-rock)"`).
+  - Boundary delimitation lines with customizable contrast.
+  - Non-destructive placement: clicking an existing band highlights it in the panel for live adjustment.
 
 ---
 
-## 6. Verification & Quality Gates
+## 3. Key Product Decisions & Technical Strategy
 
-- **Initial Load Check**: Verify that when the app opens fresh, Project, Location, Chainage, Shape, and Dimensions are completely empty.
-- **Select Box Initial State**: Verify dropdowns show `-- Select Tunnel Shape --` with value `""`.
-- **Validation Trigger**: Attempt to click "Next" / "Proceed" without selecting a shape or filling project details.
-  - Verify that navigation does NOT proceed.
-  - Verify that missing fields receive red borders and warning highlights.
-  - Verify that the first empty input is automatically focused.
-  - Verify that an alert toast pops up with clear instructions.
-- **Successful Transition**: Fill valid data (e.g., Project "Project Alpha", Location "Heading 1", Shape "Horseshoe", Width "8.5", Height "7.2") and click "Next". Verify that the app transitions smoothly to the next window.
-- **Compilation & Build**: Run `compile_applet` and `lint_applet` to ensure zero regressions or broken types.
+### 3.1 Data Model Expansion (`fieldMappingEngine.ts`)
+
+Introduce a dedicated `FieldLithologyBandItem` structure while maintaining backwards compatibility with legacy `alternateLithologyConfig` and `FieldLithologyStroke`:
+
+```typescript
+export interface FieldLithologyBandItem {
+  id: string;
+  name?: string;
+  rockType: string;
+  rockCode?: string;
+  rockName?: string;
+  angleDeg: number;          // -90 to +90 degrees
+  thicknessPx: number;       // Visual band thickness in SVG canvas px
+  thicknessMeters?: number;  // True scaled thickness in meters
+  anchorPoint?: { x: number; y: number }; // Centerline anchor on face
+  color?: string;
+  patternId?: string;
+  enabled?: boolean;
+}
+
+export interface MultiBandAlternateLithologyConfig {
+  enabled: boolean;
+  baseRockType: string;
+  bands: FieldLithologyBandItem[];
+}
+```
+
+### 3.2 Canvas Rendering Pipeline
+
+1. **Base Layer Pass**: Renders the complete perimeter filled with `baseRockType` (defaulting to the round's primary rock).
+2. **Layered Bands Pass**: Loops through `bands`, calculating the geometric bounding polygon across the tunnel boundary using rotation angle $\theta$ and thickness $W$ around `anchorPoint`.
+3. **Perimeter Clipping**: Clips each band polygon against the excavation crown, invert, and sidewalls via SVG `<clipPath id="panel-tunnel-boundary">` so bands never bleed outside the excavation profile.
+4. **Export & Report Sync**: The 2-page Word/PDF sheet and photo reports will display the composite lithology description (e.g., *"Quartzite with intercalated Mica Schist (-35°, 15cm) and Quartz Vein (+25°, 35cm)"*).
+
+---
+
+## 4. Step-by-Step Implementation Sequence
+
+### Phase 1: Engine & Types Update (`fieldMappingEngine.ts`)
+- Define `FieldLithologyBandItem` and update `alternateLithologyConfig` on `FieldExcavationRound` to support both legacy format and the new `MultiBandAlternateLithologyConfig` with unlimited `bands`.
+- Provide calculation helper `computeBandPolygonPoints(anchor, angleDeg, thicknessPx, bounds)` to generate exact oriented band boundary polygons.
+
+### Phase 2: UI Panel Controls (`FieldMappingModeWorkspace.tsx`)
+- Update the Alternate Lithology sidebar section:
+  - Add Base Rock display & selector.
+  - Implement the dynamic bands stack with "+ Add Lithology Band" button.
+  - Provide Angle and Thickness sliders for each band with live numerical displays.
+  - Add "Tap on Canvas to Place" toggle with active indicator.
+  - Add individual Delete and Reorder buttons.
+
+### Phase 3: Canvas Interaction & Hover HUD
+- Wire `handleCanvasPointerDown` and `handleCanvasPointerMove` to track when band plotting is active.
+- Display a dynamic preview guide stripe showing the exact angle and thickness before clicking.
+- Upon click, commit the band's anchor point to the round state with auto-save.
+
+### Phase 4: Full Multi-Band SVG Rendering
+- Render layered SVG paths for each configured band inside the face canvas, clipped to the excavation boundary.
+- Apply rock pattern fills, colors, and boundary lines.
+- Enable direct selection of placed bands on the canvas to highlight and edit them in the side panel.
+
+### Phase 5: Verification & Quality Pass
+- Test compilation with `npx tsc --noEmit` and `compile_applet`.
+- Verify adding 1, 2, 3, 4+ bands with varying angles and thicknesses.
+- Verify that changing angles and thicknesses updates the canvas instantly.
+- Verify canvas click-to-place functionality and boundary clipping.
