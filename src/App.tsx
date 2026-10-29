@@ -379,6 +379,12 @@ export default function App({
   }, [isFieldMappingModeOpen]);
 
   useEffect(() => {
+    document.title = isMasterSoftware
+      ? 'MASTER ESWA GEOLOGICAL MAPPER'
+      : 'ESWA GEOLOGICAL MAPPER';
+  }, [isMasterSoftware]);
+
+  useEffect(() => {
     if (!isMasterSoftware) return;
     const unsub = subscribeAdminLicensingData({
       onRequests: (all) => {
@@ -4263,6 +4269,7 @@ export default function App({
           onChangeIndustryMode={handleSwitchIndustryMode}
           googleUser={googleUser}
           activeGeologist={activeGeologist}
+          isMasterSoftware={isMasterSoftware}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
           onOpenContinuousTunnelLog={() => {
             setIsContinuousLogSetupOpen(true);
@@ -4303,6 +4310,7 @@ export default function App({
           onChangeIndustryMode={handleSwitchIndustryMode}
           googleUser={googleUser}
           activeGeologist={activeGeologist}
+          isMasterSoftware={isMasterSoftware}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
           onOpenContinuousTunnelLog={() => {
             setIsContinuousLogSetupOpen(true);
@@ -4892,16 +4900,29 @@ export default function App({
               </div>
 
               <div className="text-left">
-                <h1 className="font-display text-lg sm:text-xl font-bold tracking-wide text-slate-900">
-                  {activeMappingDomain === 'TUNNEL'
-                    ? 'ESWA Geological Mapper · NATM Tunnel Setup'
-                    : `ESWA Surface Mapper · ${
-                        activeMappingDomain === 'BENCH'
-                          ? 'Bench Mapping'
-                          : activeMappingDomain === 'TRENCH'
-                          ? 'Trench Mapping'
-                          : 'Slope Mapping'
-                      } Photogrammetry Setup`}
+                <h1 className="font-display text-lg sm:text-xl font-bold tracking-wide text-slate-900 flex items-center gap-2">
+                  {isMasterSoftware ? (
+                    <>
+                      <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-xs font-black tracking-widest uppercase shadow-xs">
+                        MASTER
+                      </span>
+                      <span>ESWA GEOLOGICAL MAPPER</span>
+                    </>
+                  ) : (
+                    <span>ESWA GEOLOGICAL MAPPER</span>
+                  )}
+                  <span className="text-slate-400 font-normal text-sm">·</span>
+                  <span className="text-slate-600 text-sm font-semibold">
+                    {activeMappingDomain === 'TUNNEL'
+                      ? 'NATM Tunnel Setup'
+                      : `${
+                          activeMappingDomain === 'BENCH'
+                            ? 'Bench'
+                            : activeMappingDomain === 'TRENCH'
+                            ? 'Trench'
+                            : 'Slope'
+                        } Setup`}
+                  </span>
                 </h1>
                 <p className={layoutStyles.labelMuted}>
                   {activeMappingDomain === 'TUNNEL'
@@ -6113,7 +6134,12 @@ export default function App({
             );
           })()}
 
-        {isBootLoading && <EswaLoadingScreen onComplete={() => setIsBootLoading(false)} />}
+        {isBootLoading && (
+          <EswaLoadingScreen
+            onComplete={() => setIsBootLoading(false)}
+            isMasterEdition={isMasterSoftware}
+          />
+        )}
         {projectMemoryModalNode}
         {natmRockMechanicsModalNode}
         {welcomeAiChatbotNode}

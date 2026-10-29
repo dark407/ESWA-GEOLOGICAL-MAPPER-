@@ -98,7 +98,16 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
 
   // Solved CAD Dimension & Angle parameters
   const [widthM, setWidthM] = useState<number>(() => initialGeometry?.width || initialWidth || 8.5);
+  const [leftSpanM, setLeftSpanM] = useState<number>(() => {
+    const totalW = initialGeometry?.width || initialWidth || 8.5;
+    return Number((totalW / 2).toFixed(2));
+  });
+  const [rightSpanM, setRightSpanM] = useState<number>(() => {
+    const totalW = initialGeometry?.width || initialWidth || 8.5;
+    return Number((totalW / 2).toFixed(2));
+  });
   const [heightM, setHeightM] = useState<number>(() => initialGeometry?.height || initialHeight || 7.5);
+  const [crownApexOffsetXM, setCrownApexOffsetXM] = useState<number>(0);
   const [leftWallHeightM, setLeftWallHeightM] = useState<number>(() => {
     return Number((initialGeometry?.leftWallHeight || initialGeometry?.wallHeight || 3.8).toFixed(2));
   });
@@ -127,78 +136,95 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
   // Palm Rejection state for touchscreen tablets and stylus drawing
   const [palmRejectionEnabled, setPalmRejectionEnabled] = useState<boolean>(true);
 
-  // Derive detected user requirements from user sketches, pins and annotations
-  const detectedUserRequirements = useMemo(() => {
-    let reqWidth: number | null = null;
-    let reqHeight: number | null = null;
-    let reqCrownArc: number | null = null;
-    let reqLeftWallH: number | null = null;
-    let reqRightWallH: number | null = null;
-    let reqWallAngle: number | null = null;
-    let reqOpenWall: 'none' | 'left' | 'right' | null = null;
-    const annotationsList: string[] = [];
+  // Geometric stroke analyzer for both symmetric and non-symmetric modes
+  const analyzeStrokesGeometrically = useCallback(
+    (isNonSymmetricMode: boolean) => {
+      const allPts: { x: number; y: number }[] = [];
+      strokes.forEach((s) => allPts.push(...s.points));
+      if (currentStroke.length > 0) allPts.push(...currentStroke);
 
-    textAnnotations.forEach((ann) => {
-      const txt = ann.text;
-      annotationsList.push(txt);
-      const matchC =
-        txt.match(/(?:^|\b)c\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i) ||
-        txt.match(/(?:^|\b)(?:arc|curve)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
-      const matchM = txt.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
-      const matchDeg = txt.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:°|deg|degrees)/i);
+      if (allPts.length < 3) return null;
 
-      if (/(?:^|\b)open\b/i.test(txt) || /slashing|drift/i.test(txt)) {
-        reqOpenWall = /right/i.test(txt) || ann.x > 0.5 ? 'right' : 'left';
-      }
+      const xs = allPts.map((p) => p.x);
+      const ys = allPts.map((p) => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
 
-      if (matchC) {
-        reqCrownArc = Number(matchC[1]);
-      } else if (matchM && /width|span|w\b|floor|invert/i.test(txt)) {
-        reqWidth = Number(matchM[1]);
-      } else if (matchM && /height|h\b|total/i.test(txt)) {
-        reqHeight = Number(matchM[1]);
-      } else if (matchM && /wall/i.test(txt)) {
-        if (/right/i.test(txt)) reqRightWallH = Number(matchM[1]);
-        else if (/left/i.test(txt)) reqLeftWallH = Number(matchM[1]);
-        else {
-          reqLeftWallH = Number(matchM[1]);
-          reqRightWallH = Number(matchM[1]);
+      const span = Math.max(2.0, maxX - minX);
+      const totalH = Math.max(2.0, maxY - Math.max(0, minY));
+
+      // Partition points into Left flank (x <= 0.05) and Right flank (x >= -0.05)
+      const leftPts = allPts.filter((p) => p.x <= 0.05);
+      const rightPts = allPts.filter((p) => p.x >= -0.05);
+
+      // Left side metrics
+      const minLeftX = leftPts.length > 0 ? Math.min(...leftPts.map((p) => p.x)) : -span / 2;
+      const leftSpan = Math.max(1.0, Math.abs(minLeftX));
+      const leftWallCandidates = leftPts.filter((p) => p.x <= minLeftX + leftSpan * 0.45);
+      const leftWallH =
+        leftWallCandidates.length > 0
+          ? Math.max(...leftWallCandidates.map((p) => p.y))
+          : totalH * 0.52;
+
+      // Right side metrics
+      const maxRightX = rightPts.length > 0 ? Math.max(...rightPts.map((p) => p.x)) : span / 2;
+      const rightSpan = Math.max(1.0, maxRightX);
+      const rightWallCandidates = rightPts.filter((p) => p.x >= maxRightX - rightSpan * 0.45);
+      const rightWallH =
+        rightWallCandidates.length > 0
+          ? Math.max(...rightWallCandidates.map((p) => p.y))
+          : totalH * 0.52;
+
+      // Left wall angle from lowest left point to shoulder
+      let leftAngle = 90;
+      if (leftWallCandidates.length >= 2) {
+        const sorted = [...leftWallCandidates].sort((a, b) => a.y - b.y);
+        const pBot = sorted[0];
+        const pTop = sorted[sorted.length - 1];
+        const dy = pTop.y - pBot.y;
+        const dx = pTop.x - pBot.x;
+        if (dy > 0.4) {
+          const deg = 90 - (Math.atan2(dx, dy) * 180) / Math.PI;
+          leftAngle = Math.round(Math.min(115, Math.max(65, deg)));
         }
-      } else if (matchM && !matchC) {
-        const val = Number(matchM[1]);
-        if (val >= 7.0 && val <= 14.0 && !reqHeight) reqHeight = val;
-        else if (val >= 5.0 && val <= 7.0 && !reqWidth) reqWidth = val;
-        else if (val >= 2.0 && val <= 4.5 && !reqRightWallH) reqRightWallH = val;
       }
 
-      if (matchDeg) {
-        reqWallAngle = Number(matchDeg[1]);
+      // Right wall angle from lowest right point to shoulder
+      let rightAngle = 90;
+      if (rightWallCandidates.length >= 2) {
+        const sorted = [...rightWallCandidates].sort((a, b) => a.y - b.y);
+        const pBot = sorted[0];
+        const pTop = sorted[sorted.length - 1];
+        const dy = pTop.y - pBot.y;
+        const dx = pTop.x - pBot.x;
+        if (dy > 0.4) {
+          const deg = 90 + (Math.atan2(dx, dy) * 180) / Math.PI;
+          rightAngle = Math.round(Math.min(115, Math.max(65, deg)));
+        }
       }
-    });
 
-    if (strokes.length > 0) {
-      const allPts = strokes.flatMap((s) => s.points);
-      if (allPts.length >= 3) {
-        const xs = allPts.map((p) => p.x);
-        const ys = allPts.map((p) => p.y);
-        const strokeW = Math.max(2.0, Math.max(...xs) - Math.min(...xs));
-        const strokeH = Math.max(2.0, Math.max(...ys) - Math.min(...ys));
-        if (!reqWidth) reqWidth = Number(strokeW.toFixed(2));
-        if (!reqHeight) reqHeight = Number(strokeH.toFixed(2));
-      }
-    }
+      // Apex (highest point)
+      const highestPt = allPts.reduce((best, p) => (p.y > best.y ? p : best), allPts[0]);
+      const apexOffsetX = isNonSymmetricMode
+        ? Number(Math.max(-span * 0.4, Math.min(span * 0.4, highestPt.x)).toFixed(2))
+        : 0;
 
-    return {
-      width: reqWidth,
-      height: reqHeight,
-      crownArc: reqCrownArc,
-      leftWallH: reqLeftWallH,
-      rightWallH: reqRightWallH,
-      wallAngle: reqWallAngle,
-      openWall: reqOpenWall,
-      annotationsList,
-    };
-  }, [textAnnotations, strokes]);
+      return {
+        span,
+        totalH,
+        leftSpan,
+        rightSpan,
+        leftWallH: Math.max(0.5, Math.min(totalH - 0.3, leftWallH)),
+        rightWallH: Math.max(0.5, Math.min(totalH - 0.3, rightWallH)),
+        leftAngle,
+        rightAngle,
+        apexOffsetX,
+      };
+    },
+    [strokes, currentStroke]
+  );
 
   // Synchronize when symmetry is enabled
   const handleLeftWallHeightChange = (val: number) => {
@@ -212,6 +238,46 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
     setLeftWallAngleDeg(val);
     if (isSymmetric) {
       setRightWallAngleDeg(val);
+    }
+  };
+
+  const handleRightWallAngleChange = (val: number) => {
+    setRightWallAngleDeg(val);
+    if (isSymmetric) {
+      setLeftWallAngleDeg(val);
+    }
+  };
+
+  const handleTotalWidthChange = (val: number) => {
+    setWidthM(val);
+    if (isSymmetric) {
+      const half = Number((val / 2).toFixed(2));
+      setLeftSpanM(half);
+      setRightSpanM(half);
+    } else {
+      const ratio = val / Math.max(0.1, leftSpanM + rightSpanM);
+      setLeftSpanM(Number((leftSpanM * ratio).toFixed(2)));
+      setRightSpanM(Number((rightSpanM * ratio).toFixed(2)));
+    }
+  };
+
+  const handleLeftSpanChange = (val: number) => {
+    setLeftSpanM(val);
+    if (isSymmetric) {
+      setRightSpanM(val);
+      setWidthM(Number((val * 2).toFixed(2)));
+    } else {
+      setWidthM(Number((val + rightSpanM).toFixed(2)));
+    }
+  };
+
+  const handleRightSpanChange = (val: number) => {
+    setRightSpanM(val);
+    if (isSymmetric) {
+      setLeftSpanM(val);
+      setWidthM(Number((val * 2).toFixed(2)));
+    } else {
+      setWidthM(Number((leftSpanM + val).toFixed(2)));
     }
   };
 
@@ -403,15 +469,21 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
     }
 
     if (activeHandle === 'crown_apex') {
-      const newH = Math.max(leftWallHeightM + 0.4, pt.y);
+      const minWallH = Math.min(leftWallHeightM, rightWallHeightM);
+      const newH = Math.max(minWallH + 0.4, pt.y);
       setHeightM(Number(newH.toFixed(2)));
-      setCrownSagittaM(Number((newH - leftWallHeightM).toFixed(2)));
+      setCrownSagittaM(Number((newH - minWallH).toFixed(2)));
       setCrownArcLengthM(null); // Clear locked arc length on freeform apex drag
+      if (!isSymmetric) {
+        const maxOffset = widthM * 0.45;
+        const newOffset = Math.max(-maxOffset, Math.min(maxOffset, pt.x));
+        setCrownApexOffsetXM(Number(newOffset.toFixed(2)));
+      }
     } else if (activeHandle === 'left_wall') {
       const newWallH = Math.max(0.5, Math.min(heightM - 0.4, pt.y));
       handleLeftWallHeightChange(Number(newWallH.toFixed(2)));
-      const newHalfW = Math.max(1.0, Math.abs(pt.x));
-      setWidthM(Number((newHalfW * 2).toFixed(2)));
+      const newSpan = Math.max(1.0, Math.abs(pt.x));
+      handleLeftSpanChange(Number(newSpan.toFixed(2)));
     } else if (activeHandle === 'right_wall') {
       const newWallH = Math.max(0.5, Math.min(heightM - 0.4, pt.y));
       if (isSymmetric) {
@@ -419,8 +491,8 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       } else {
         setRightWallHeightM(Number(newWallH.toFixed(2)));
       }
-      const newHalfW = Math.max(1.0, Math.abs(pt.x));
-      setWidthM(Number((newHalfW * 2).toFixed(2)));
+      const newSpan = Math.max(1.0, Math.abs(pt.x));
+      handleRightSpanChange(Number(newSpan.toFixed(2)));
     }
   };
 
@@ -499,6 +571,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
           strokes: strokes.map((s) => s.points),
           textAnnotations: textAnnotations.map((a) => a.text),
           tunnelName,
+          userSymmetryPreference: isSymmetric ? 'symmetric' : 'non-symmetric',
         }),
       });
 
@@ -510,7 +583,20 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       if (data && data.result) {
         const r = data.result;
         if (typeof r.widthM === 'number') setWidthM(Number(r.widthM.toFixed(2)));
+        if (typeof r.leftSpanM === 'number') {
+          setLeftSpanM(Number(r.leftSpanM.toFixed(2)));
+        } else if (typeof r.widthM === 'number' && isSymmetric) {
+          setLeftSpanM(Number((r.widthM / 2).toFixed(2)));
+        }
+        if (typeof r.rightSpanM === 'number') {
+          setRightSpanM(Number(r.rightSpanM.toFixed(2)));
+        } else if (typeof r.widthM === 'number' && isSymmetric) {
+          setRightSpanM(Number((r.widthM / 2).toFixed(2)));
+        }
         if (typeof r.heightM === 'number') setHeightM(Number(r.heightM.toFixed(2)));
+        if (typeof r.apexOffsetXM === 'number') {
+          setCrownApexOffsetXM(Number(r.apexOffsetXM.toFixed(2)));
+        }
         if (typeof r.leftWallHeightM === 'number') setLeftWallHeightM(Number(r.leftWallHeightM.toFixed(2)));
         if (typeof r.rightWallHeightM === 'number') setRightWallHeightM(Number(r.rightWallHeightM.toFixed(2)));
         if (typeof r.leftWallAngleDeg === 'number') setLeftWallAngleDeg(Number(r.leftWallAngleDeg.toFixed(1)));
@@ -523,7 +609,10 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
         if (r.crownType) setCrownType(r.crownType);
         if (r.invertType) setInvertType(r.invertType);
         if (typeof r.invertSagittaM === 'number') setInvertSagittaM(Number(r.invertSagittaM.toFixed(2)));
-        if (typeof r.isSymmetric === 'boolean') setIsSymmetric(r.isSymmetric);
+        // Only override isSymmetric if the user had not explicitly chosen non-symmetric
+        if (isSymmetric && typeof r.isSymmetric === 'boolean') {
+          setIsSymmetric(r.isSymmetric);
+        }
         if (r.archetype) setSelectedArchetype(r.archetype as StarterArchetype);
 
         if (r.openWall === 'left' || r.openWall === 'right' || r.openWall === 'none') {
@@ -539,7 +628,9 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
           r.explanation ||
             `Analyzed sketch: detected ${r.archetype || 'tunnel'} profile (${r.widthM}m W × ${r.heightM}m H${
               r.crownArcLengthM ? `, Curve Arc C=${r.crownArcLengthM}m` : ''
-            }${r.openWall && r.openWall !== 'none' ? `, ${r.openWall.toUpperCase()} WALL OPEN` : ''}).`
+            }${r.openWall && r.openWall !== 'none' ? `, ${r.openWall.toUpperCase()} WALL OPEN` : ''}${
+              !isSymmetric ? `, Non-Symmetric (Left: ${r.leftWallHeightM || leftWallHeightM}m, Right: ${r.rightWallHeightM || rightWallHeightM}m)` : ''
+            }).`
         );
         setHasAnalyzedShape(true);
       } else {
@@ -608,28 +699,33 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       setSelectedArchetype('open_slashing_drift');
     }
 
-    if (allPts.length >= 3 && detectedOpen === 'none') {
-      const xs = allPts.map((p) => p.x);
-      const ys = allPts.map((p) => p.y);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
+    const geom = analyzeStrokesGeometrically(!isSymmetric);
 
-      const span = Math.max(3.0, maxX - minX);
-      const rise = Math.max(2.5, maxY - Math.max(0, minY));
-      const calcW = overrideW ?? Number(span.toFixed(2));
-      const calcH = overrideH ?? Number(rise.toFixed(2));
-      const calcWallH = overrideWall ?? Number((calcH * 0.52).toFixed(2));
-      const calcAngle = overrideAngle ?? 90;
+    if (geom && detectedOpen === 'none') {
+      const calcW = overrideW ?? Number(geom.span.toFixed(2));
+      const calcH = overrideH ?? Number(geom.totalH.toFixed(2));
+      const calcLeftWallH = overrideWall ?? Number(geom.leftWallH.toFixed(2));
+      const calcRightWallH = isSymmetric ? calcLeftWallH : Number(geom.rightWallH.toFixed(2));
+      const calcLeftAngle = overrideAngle ?? geom.leftAngle;
+      const calcRightAngle = isSymmetric ? calcLeftAngle : geom.rightAngle;
 
       setWidthM(calcW);
+      if (isSymmetric) {
+        const half = Number((calcW / 2).toFixed(2));
+        setLeftSpanM(half);
+        setRightSpanM(half);
+        setCrownApexOffsetXM(0);
+      } else {
+        setLeftSpanM(Number(geom.leftSpan.toFixed(2)));
+        setRightSpanM(Number(geom.rightSpan.toFixed(2)));
+        setCrownApexOffsetXM(geom.apexOffsetX);
+      }
       setHeightM(calcH);
-      setLeftWallHeightM(calcWallH);
-      setRightWallHeightM(calcWallH);
-      setLeftWallAngleDeg(calcAngle);
-      setRightWallAngleDeg(calcAngle);
-      setCrownSagittaM(Number((calcH - calcWallH).toFixed(2)));
+      setLeftWallHeightM(calcLeftWallH);
+      setRightWallHeightM(calcRightWallH);
+      setLeftWallAngleDeg(calcLeftAngle);
+      setRightWallAngleDeg(calcRightAngle);
+      setCrownSagittaM(Number((calcH - Math.min(calcLeftWallH, calcRightWallH)).toFixed(2)));
     } else {
       if (overrideW) setWidthM(overrideW);
       if (overrideH) setHeightM(overrideH);
@@ -640,7 +736,9 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
           setLeftWallHeightM(overrideWall);
         } else {
           setLeftWallHeightM(overrideWall);
-          setRightWallHeightM(overrideWall);
+          if (isSymmetric) {
+            setRightWallHeightM(overrideWall);
+          }
         }
       }
       if (overrideAngle) {
@@ -648,7 +746,9 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
           setLeftWallAngleDeg(overrideAngle);
         } else {
           setLeftWallAngleDeg(overrideAngle);
-          setRightWallAngleDeg(overrideAngle);
+          if (isSymmetric) {
+            setRightWallAngleDeg(overrideAngle);
+          }
         }
       }
     }
@@ -665,6 +765,8 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
         ? `Solved locally: Open Slashing Drift (${detectedOpen} wall open to void), Span ${overrideW || widthM}m, Height ${overrideH || heightM}m, Curve Arc C=${overrideCrownArcLength || crownArcLengthM || 'auto'}m.`
         : overrideCrownArcLength
         ? `Solved locally: parsed curve arc length C=${overrideCrownArcLength}m with accurate profile.`
+        : !isSymmetric
+        ? `Solved locally: non-symmetric profile (Left Wall: ${leftWallHeightM}m @ ${leftWallAngleDeg}°, Right Wall: ${rightWallHeightM}m @ ${rightWallAngleDeg}°).`
         : 'Solved locally from bounding sketch geometry and annotated length/angle constraints.'
     );
   };
@@ -724,7 +826,9 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
 
   // Construct authoritatively solved CAD Profile Definition
   const solvedProfileDefinition: CustomTunnelProfileDefinition = useMemo(() => {
-    const halfW = widthM / 2;
+    const effLeftSpan = isSymmetric ? widthM / 2 : leftSpanM;
+    const effRightSpan = isSymmetric ? widthM / 2 : rightSpanM;
+    const totalSpan = effLeftSpan + effRightSpan;
     const invertY = invertType === 'curved_dish' ? -invertSagittaM : 0;
     const leftRad = ((90 - leftWallAngleDeg) * Math.PI) / 180;
     const rightRad = ((90 - rightWallAngleDeg) * Math.PI) / 180;
@@ -738,12 +842,12 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       const pInvLeft: ProfileControlPoint = {
         id: 'p_inv_left',
         label: 'P1-InvertL',
-        x: -halfW,
+        x: -effLeftSpan,
         y: 0,
         role: 'left_invert',
       };
       // Top left apex datum (at heightM with inward/outward batter angle)
-      const topLeftApexX = -halfW + Math.tan(leftRad) * heightM;
+      const topLeftApexX = -effLeftSpan + Math.tan(leftRad) * heightM;
       const pTopLeft: ProfileControlPoint = {
         id: 'p_open_top_left',
         label: 'P2-ApexL(Open)',
@@ -752,7 +856,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
         role: 'crown_apex',
       };
       // Right wall top shoulder (solid rock)
-      const rightWallTopX = halfW - Math.tan(rightRad) * rightWallHeightM;
+      const rightWallTopX = effRightSpan - Math.tan(rightRad) * rightWallHeightM;
       const pWallRight: ProfileControlPoint = {
         id: 'p_wall_right',
         label: 'P3-ShoulderR',
@@ -764,7 +868,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       const pInvRight: ProfileControlPoint = {
         id: 'p_inv_right',
         label: 'P4-InvertR',
-        x: halfW,
+        x: effRightSpan,
         y: 0,
         role: 'right_invert',
       };
@@ -817,7 +921,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       return {
         id: `profile-sketch-slashing-left-${Date.now()}`,
         name: `${tunnelName} Slashing Heading (Left Open)`,
-        category: 'freeform',
+        category: 'asymmetric_section',
         isClosed: true,
         controlPoints: pts,
         segments,
@@ -840,11 +944,11 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       const pInvLeft: ProfileControlPoint = {
         id: 'p_inv_left',
         label: 'P1-InvertL',
-        x: -halfW,
+        x: -effLeftSpan,
         y: 0,
         role: 'left_invert',
       };
-      const leftWallTopX = -halfW + Math.tan(leftRad) * leftWallHeightM;
+      const leftWallTopX = -effLeftSpan + Math.tan(leftRad) * leftWallHeightM;
       const pWallLeft: ProfileControlPoint = {
         id: 'p_wall_left',
         label: 'P2-ShoulderL',
@@ -852,7 +956,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
         y: leftWallHeightM,
         role: 'left_wall_top',
       };
-      const topRightApexX = halfW - Math.tan(rightRad) * heightM;
+      const topRightApexX = effRightSpan - Math.tan(rightRad) * heightM;
       const pTopRight: ProfileControlPoint = {
         id: 'p_open_top_right',
         label: 'P3-ApexR(Open)',
@@ -863,7 +967,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       const pInvRight: ProfileControlPoint = {
         id: 'p_inv_right',
         label: 'P4-InvertR',
-        x: halfW,
+        x: effRightSpan,
         y: 0,
         role: 'right_invert',
       };
@@ -915,7 +1019,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       return {
         id: `profile-sketch-slashing-right-${Date.now()}`,
         name: `${tunnelName} Slashing Heading (Right Open)`,
-        category: 'freeform',
+        category: 'asymmetric_section',
         isClosed: true,
         controlPoints: pts,
         segments,
@@ -933,13 +1037,133 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       };
     }
 
-    // STANDARD CLOSED PROFILE (Both walls solid rock)
-    // Points: P1-InvertL -> P2-ShoulderL -> P3-ShoulderR -> P4-InvertR
-    // The crown arc is an analytical circular arc directly between P2 and P3 with arcBulge.
-    // By keeping P2 and P3 consecutive in pts, evaluateCustomProfileGeometry invokes evaluateArcSegment
-    // and produces 24 smooth curved vertices (never a straight line!).
-    const leftWallTopX = -halfW + Math.tan(leftRad) * leftWallHeightM;
-    const rightWallTopX = halfW - Math.tan(rightRad) * rightWallHeightM;
+    // STANDARD CLOSED PROFILE
+    const leftWallTopX = -effLeftSpan + Math.tan(leftRad) * leftWallHeightM;
+    const rightWallTopX = effRightSpan - Math.tan(rightRad) * rightWallHeightM;
+
+    const isAsymmetric = !isSymmetric;
+
+    if (isAsymmetric) {
+      // 5-Point Asymmetric Profile with distinct Crown Apex Point
+      const pInvLeft: ProfileControlPoint = {
+        id: 'p_inv_left',
+        label: 'P1-InvertL',
+        x: Number((-effLeftSpan).toFixed(3)),
+        y: invertY,
+        role: 'left_invert',
+      };
+      const pWallLeft: ProfileControlPoint = {
+        id: 'p_wall_left',
+        label: 'P2-ShoulderL',
+        x: Number(leftWallTopX.toFixed(3)),
+        y: leftWallHeightM,
+        role: 'left_wall_top',
+      };
+      const pCrownApex: ProfileControlPoint = {
+        id: 'p_crown_apex',
+        label: 'P3-Apex',
+        x: Number(crownApexOffsetXM.toFixed(3)),
+        y: heightM,
+        role: 'crown_apex',
+      };
+      const pWallRight: ProfileControlPoint = {
+        id: 'p_wall_right',
+        label: 'P4-ShoulderR',
+        x: Number(rightWallTopX.toFixed(3)),
+        y: rightWallHeightM,
+        role: 'right_wall_top',
+      };
+      const pInvRight: ProfileControlPoint = {
+        id: 'p_inv_right',
+        label: 'P5-InvertR',
+        x: Number(effRightSpan.toFixed(3)),
+        y: invertY,
+        role: 'right_invert',
+      };
+
+      pts = [pInvLeft, pWallLeft, pCrownApex, pWallRight, pInvRight];
+
+      // Compute left crown arch bulge
+      const chordL = Math.hypot(pCrownApex.x - pWallLeft.x, pCrownApex.y - pWallLeft.y);
+      const riseL = Math.max(0.15, (heightM - leftWallHeightM) * 0.35);
+      const bulgeL =
+        crownType === 'flat'
+          ? undefined
+          : Number(Math.min(0.45, Math.max(0.1, (2 * riseL) / Math.max(0.1, chordL))).toFixed(3));
+
+      // Compute right crown arch bulge
+      const chordR = Math.hypot(pWallRight.x - pCrownApex.x, pCrownApex.y - pWallRight.y);
+      const riseR = Math.max(0.15, (heightM - rightWallHeightM) * 0.35);
+      const bulgeR =
+        crownType === 'flat'
+          ? undefined
+          : Number(Math.min(0.45, Math.max(0.1, (2 * riseR) / Math.max(0.1, chordR))).toFixed(3));
+
+      segments = [
+        {
+          id: 'seg_left_wall',
+          fromPointId: 'p_inv_left',
+          toPointId: 'p_wall_left',
+          type: 'line',
+          zoneRole: 'leftWall',
+        },
+        {
+          id: 'seg_crown_left',
+          fromPointId: 'p_wall_left',
+          toPointId: 'p_crown_apex',
+          type: crownType === 'flat' ? 'line' : 'arc',
+          zoneRole: 'crown',
+          arcBulge: bulgeL,
+        },
+        {
+          id: 'seg_crown_right',
+          fromPointId: 'p_crown_apex',
+          toPointId: 'p_wall_right',
+          type: crownType === 'flat' ? 'line' : 'arc',
+          zoneRole: 'crown',
+          arcBulge: bulgeR,
+        },
+        {
+          id: 'seg_right_wall',
+          fromPointId: 'p_wall_right',
+          toPointId: 'p_inv_right',
+          type: 'line',
+          zoneRole: 'rightWall',
+        },
+        {
+          id: 'seg_invert_floor',
+          fromPointId: 'p_inv_right',
+          toPointId: 'p_inv_left',
+          type: invertType === 'curved_dish' ? 'arc' : 'line',
+          zoneRole: 'invert',
+          arcBulge:
+            invertType === 'curved_dish'
+              ? Number(((2 * invertSagittaM) / totalSpan).toFixed(3))
+              : undefined,
+        },
+      ];
+
+      return {
+        id: `profile-sketch-${Date.now()}`,
+        name: `${tunnelName} Asymmetric Profile`,
+        category: 'asymmetric_section',
+        isClosed: true,
+        controlPoints: pts,
+        segments,
+        surfaceConfig: {
+          hasCrown: true,
+          hasLeftWall: true,
+          hasRightWall: true,
+          fullSectionTotalHeightMeters: heightM,
+          fullSectionWallHeightMeters: leftWallHeightM,
+          fullSectionRightWallHeightMeters: rightWallHeightM,
+        },
+        version: '1.0',
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Standard Symmetric Closed Profile (4 points with continuous crown arc)
     const chordLtoR = Math.hypot(rightWallTopX - leftWallTopX, rightWallHeightM - leftWallHeightM);
     const midShoulderY = (leftWallHeightM + rightWallHeightM) / 2;
 
@@ -955,10 +1179,10 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
     }
 
     pts = [
-      { id: 'p_inv_left', label: 'P1-InvertL', x: -halfW, y: invertY, role: 'left_invert' },
+      { id: 'p_inv_left', label: 'P1-InvertL', x: -effLeftSpan, y: invertY, role: 'left_invert' },
       { id: 'p_wall_left', label: 'P2-ShoulderL', x: Number(leftWallTopX.toFixed(3)), y: leftWallHeightM, role: 'left_wall_top' },
       { id: 'p_wall_right', label: 'P3-ShoulderR', x: Number(rightWallTopX.toFixed(3)), y: rightWallHeightM, role: 'right_wall_top' },
-      { id: 'p_inv_right', label: 'P4-InvertR', x: halfW, y: invertY, role: 'right_invert' },
+      { id: 'p_inv_right', label: 'P4-InvertR', x: effRightSpan, y: invertY, role: 'right_invert' },
     ];
 
     segments = [
@@ -990,7 +1214,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
         toPointId: 'p_inv_left',
         type: invertType === 'curved_dish' ? 'arc' : 'line',
         zoneRole: 'invert',
-        arcBulge: invertType === 'curved_dish' ? Number(((2 * invertSagittaM) / widthM).toFixed(3)) : undefined,
+        arcBulge: invertType === 'curved_dish' ? Number(((2 * invertSagittaM) / totalSpan).toFixed(3)) : undefined,
       },
     ];
 
@@ -1015,6 +1239,10 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
   }, [
     openWall,
     widthM,
+    leftSpanM,
+    rightSpanM,
+    crownApexOffsetXM,
+    isSymmetric,
     heightM,
     leftWallHeightM,
     rightWallHeightM,
@@ -1049,6 +1277,19 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
     d += ' Z';
     return d;
   }, [evaluated]);
+  const effLeftSpan = isSymmetric ? widthM / 2 : leftSpanM;
+  const effRightSpan = isSymmetric ? widthM / 2 : rightSpanM;
+
+  const detectedUserRequirements = useMemo(() => {
+    let width: number | null = null;
+    let height: number | null = null;
+    textAnnotations.forEach((a) => {
+      const matchM = a.text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
+      if (matchM && /width|span|w\b|floor|invert/i.test(a.text)) width = Number(matchM[1]);
+      else if (matchM && /height|h\b|total|apex/i.test(a.text)) height = Number(matchM[1]);
+    });
+    return { width, height };
+  }, [textAnnotations]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-slate-950 text-white select-none">
@@ -1341,9 +1582,9 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                   {openWall === 'left' && (
                     <g className="text-cyan-400">
                       <line
-                        x1={toSvgX(-widthM / 2)}
+                        x1={toSvgX(-effLeftSpan)}
                         y1={toSvgY(0)}
-                        x2={toSvgX(-widthM / 2 + Math.tan(((90 - leftWallAngleDeg) * Math.PI) / 180) * heightM)}
+                        x2={toSvgX(-effLeftSpan + Math.tan(((90 - leftWallAngleDeg) * Math.PI) / 180) * heightM)}
                         y2={toSvgY(heightM)}
                         stroke="#38bdf8"
                         strokeWidth="2.5"
@@ -1352,7 +1593,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       {/* Open Void Badge */}
                       <g
                         transform={`translate(${
-                          toSvgX(-widthM / 2 + (Math.tan(((90 - leftWallAngleDeg) * Math.PI) / 180) * heightM) / 2) - 45
+                          toSvgX(-effLeftSpan + (Math.tan(((90 - leftWallAngleDeg) * Math.PI) / 180) * heightM) / 2) - 45
                         }, ${toSvgY(heightM / 2)})`}
                       >
                         <rect
@@ -1381,14 +1622,14 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       {/* Left Wall Angle Arc indicator */}
                       <g className="text-amber-400 font-mono text-[9.5px]">
                         <path
-                          d={`M ${toSvgX(-widthM / 2) + 20} ${toSvgY(0)} A 20 20 0 0 0 ${
-                            toSvgX(-widthM / 2) + 20 * Math.cos((leftWallAngleDeg * Math.PI) / 180)
+                          d={`M ${toSvgX(-effLeftSpan) + 20} ${toSvgY(0)} A 20 20 0 0 0 ${
+                            toSvgX(-effLeftSpan) + 20 * Math.cos((leftWallAngleDeg * Math.PI) / 180)
                           } ${toSvgY(0) - 20 * Math.sin((leftWallAngleDeg * Math.PI) / 180)}`}
                           fill="none"
                           stroke="#fcd34d"
                           strokeWidth="1.5"
                         />
-                        <text x={toSvgX(-widthM / 2) + 26} y={toSvgY(0) - 12} fill="#fcd34d" fontWeight="black">
+                        <text x={toSvgX(-effLeftSpan) + 26} y={toSvgY(0) - 12} fill="#fcd34d" fontWeight="black">
                           {leftWallAngleDeg}°
                         </text>
                       </g>
@@ -1398,9 +1639,9 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                   {openWall === 'right' && (
                     <g className="text-cyan-400">
                       <line
-                        x1={toSvgX(widthM / 2)}
+                        x1={toSvgX(effRightSpan)}
                         y1={toSvgY(0)}
-                        x2={toSvgX(widthM / 2 - Math.tan(((90 - rightWallAngleDeg) * Math.PI) / 180) * heightM)}
+                        x2={toSvgX(effRightSpan - Math.tan(((90 - rightWallAngleDeg) * Math.PI) / 180) * heightM)}
                         y2={toSvgY(heightM)}
                         stroke="#38bdf8"
                         strokeWidth="2.5"
@@ -1409,7 +1650,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       {/* Open Void Badge */}
                       <g
                         transform={`translate(${
-                          toSvgX(widthM / 2 - (Math.tan(((90 - rightWallAngleDeg) * Math.PI) / 180) * heightM) / 2) + 45
+                          toSvgX(effRightSpan - (Math.tan(((90 - rightWallAngleDeg) * Math.PI) / 180) * heightM) / 2) + 45
                         }, ${toSvgY(heightM / 2)})`}
                       >
                         <rect
@@ -1437,7 +1678,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       </g>
                       {/* Right Wall Angle Arc indicator */}
                       <g className="text-amber-400 font-mono text-[9.5px]">
-                        <text x={toSvgX(widthM / 2) - 34} y={toSvgY(0) - 12} fill="#fcd34d" fontWeight="black">
+                        <text x={toSvgX(effRightSpan) - 34} y={toSvgY(0) - 12} fill="#fcd34d" fontWeight="black">
                           {rightWallAngleDeg}°
                         </text>
                       </g>
@@ -1448,19 +1689,19 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                   {/* 1. Overall Width Arrow at Invert */}
                   <g className="text-amber-400 font-mono text-[10px]">
                     <line
-                      x1={toSvgX(-widthM / 2)}
+                      x1={toSvgX(-effLeftSpan)}
                       y1={toSvgY(0) + 24}
-                      x2={toSvgX(widthM / 2)}
+                      x2={toSvgX(effRightSpan)}
                       y2={toSvgY(0) + 24}
                       stroke="#f59e0b"
                       strokeWidth="1.5"
                     />
-                    <circle cx={toSvgX(-widthM / 2)} cy={toSvgY(0) + 24} r="3" fill="#f59e0b" />
-                    <circle cx={toSvgX(widthM / 2)} cy={toSvgY(0) + 24} r="3" fill="#f59e0b" />
+                    <circle cx={toSvgX(-effLeftSpan)} cy={toSvgY(0) + 24} r="3" fill="#f59e0b" />
+                    <circle cx={toSvgX(effRightSpan)} cy={toSvgY(0) + 24} r="3" fill="#f59e0b" />
                     <rect
-                      x="365"
+                      x="350"
                       y={toSvgY(0) + 14}
-                      width="70"
+                      width="100"
                       height="18"
                       rx="4"
                       fill="#020617"
@@ -1474,34 +1715,34 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       fill="#f59e0b"
                       fontWeight="bold"
                     >
-                      {widthM.toFixed(2)} m
+                      {widthM.toFixed(2)} m {!isSymmetric ? `(L:${effLeftSpan.toFixed(2)} | R:${effRightSpan.toFixed(2)})` : ''}
                     </text>
                   </g>
 
                   {/* 2. Total Height Arrow */}
                   <g className="text-cyan-400 font-mono text-[10px]">
                     <line
-                      x1={openWall === 'left' ? toSvgX(-widthM / 2) - 28 : toSvgX(widthM / 2) + 28}
+                      x1={openWall === 'left' ? toSvgX(-effLeftSpan) - 28 : toSvgX(effRightSpan) + 28}
                       y1={toSvgY(heightM)}
-                      x2={openWall === 'left' ? toSvgX(-widthM / 2) - 28 : toSvgX(widthM / 2) + 28}
+                      x2={openWall === 'left' ? toSvgX(-effLeftSpan) - 28 : toSvgX(effRightSpan) + 28}
                       y2={toSvgY(0)}
                       stroke="#38bdf8"
                       strokeWidth="1.5"
                     />
                     <circle
-                      cx={openWall === 'left' ? toSvgX(-widthM / 2) - 28 : toSvgX(widthM / 2) + 28}
+                      cx={openWall === 'left' ? toSvgX(-effLeftSpan) - 28 : toSvgX(effRightSpan) + 28}
                       cy={toSvgY(heightM)}
                       r="3"
                       fill="#38bdf8"
                     />
                     <circle
-                      cx={openWall === 'left' ? toSvgX(-widthM / 2) - 28 : toSvgX(widthM / 2) + 28}
+                      cx={openWall === 'left' ? toSvgX(-effLeftSpan) - 28 : toSvgX(effRightSpan) + 28}
                       cy={toSvgY(0)}
                       r="3"
                       fill="#38bdf8"
                     />
                     <rect
-                      x={openWall === 'left' ? toSvgX(-widthM / 2) - 62 : toSvgX(widthM / 2) + 12}
+                      x={openWall === 'left' ? toSvgX(-effLeftSpan) - 62 : toSvgX(effRightSpan) + 12}
                       y={toSvgY(heightM / 2) - 9}
                       width="65"
                       height="18"
@@ -1511,7 +1752,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       strokeWidth="1"
                     />
                     <text
-                      x={openWall === 'left' ? toSvgX(-widthM / 2) - 30 : toSvgX(widthM / 2) + 44}
+                      x={openWall === 'left' ? toSvgX(-effLeftSpan) - 30 : toSvgX(effRightSpan) + 44}
                       y={toSvgY(heightM / 2) + 4}
                       textAnchor="middle"
                       fill="#38bdf8"
@@ -1525,13 +1766,13 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                   {openWall !== 'left' && (
                     <g className="text-emerald-400 font-mono text-[9.5px]">
                       <text
-                        x={toSvgX(-widthM / 2) - 10}
+                        x={toSvgX(-effLeftSpan) - 10}
                         y={toSvgY(leftWallHeightM / 2)}
                         textAnchor="end"
                         fill="#34d399"
                         fontWeight="bold"
                       >
-                        Wall: {leftWallHeightM.toFixed(2)}m @ {leftWallAngleDeg}°
+                        L-Wall: {leftWallHeightM.toFixed(2)}m @ {leftWallAngleDeg}°
                       </text>
                     </g>
                   )}
@@ -1540,23 +1781,23 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                   {openWall !== 'right' && (
                     <g className="text-emerald-400 font-mono text-[9.5px]">
                       <line
-                        x1={toSvgX(widthM / 2) + 14}
+                        x1={toSvgX(effRightSpan) + 14}
                         y1={toSvgY(rightWallHeightM)}
-                        x2={toSvgX(widthM / 2) + 14}
+                        x2={toSvgX(effRightSpan) + 14}
                         y2={toSvgY(0)}
                         stroke="#34d399"
                         strokeWidth="1.2"
                       />
-                      <circle cx={toSvgX(widthM / 2) + 14} cy={toSvgY(rightWallHeightM)} r="2.5" fill="#34d399" />
-                      <circle cx={toSvgX(widthM / 2) + 14} cy={toSvgY(0)} r="2.5" fill="#34d399" />
+                      <circle cx={toSvgX(effRightSpan) + 14} cy={toSvgY(rightWallHeightM)} r="2.5" fill="#34d399" />
+                      <circle cx={toSvgX(effRightSpan) + 14} cy={toSvgY(0)} r="2.5" fill="#34d399" />
                       <text
-                        x={toSvgX(widthM / 2) + 20}
+                        x={toSvgX(effRightSpan) + 20}
                         y={toSvgY(rightWallHeightM / 2) + 3}
                         textAnchor="start"
                         fill="#34d399"
                         fontWeight="bold"
                       >
-                        Wall: {rightWallHeightM.toFixed(2)}m @ {rightWallAngleDeg}°
+                        R-Wall: {rightWallHeightM.toFixed(2)}m @ {rightWallAngleDeg}°
                       </text>
                     </g>
                   )}
@@ -1564,7 +1805,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                   {/* 5. Crown Curve / Arc Tag (Displays exact C length) */}
                   <g className="text-amber-300 font-mono text-[10px]">
                     <circle
-                      cx={openWall === 'left' ? toSvgX(0) : 400}
+                      cx={openWall === 'left' ? toSvgX(0) : toSvgX(crownApexOffsetXM)}
                       cy={toSvgY(openWall === 'left' ? (heightM + rightWallHeightM) / 2 + 0.8 : heightM)}
                       r="5"
                       fill="#f59e0b"
@@ -1574,7 +1815,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       onPointerDown={() => setActiveHandle('crown_apex')}
                     />
                     <rect
-                      x={openWall === 'left' ? toSvgX(0) - 130 : 270}
+                      x={openWall === 'left' ? toSvgX(0) - 130 : toSvgX(crownApexOffsetXM) - 130}
                       y={toSvgY(openWall === 'left' ? (heightM + rightWallHeightM) / 2 + 0.8 : heightM) - 27}
                       width="260"
                       height="21"
@@ -1585,7 +1826,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       className="filter drop-shadow-[0_2px_8px_rgba(245,158,11,0.3)]"
                     />
                     <text
-                      x={openWall === 'left' ? toSvgX(0) : 400}
+                      x={openWall === 'left' ? toSvgX(0) : toSvgX(crownApexOffsetXM)}
                       y={toSvgY(openWall === 'left' ? (heightM + rightWallHeightM) / 2 + 0.8 : heightM) - 13}
                       textAnchor="middle"
                       fill="#fcd34d"
@@ -1598,7 +1839,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                   {/* Draggable Handles for Fine-Tuning */}
                   {openWall !== 'left' && (
                     <circle
-                      cx={toSvgX(-(widthM / 2 - Math.tan(((90 - leftWallAngleDeg) * Math.PI) / 180) * leftWallHeightM))}
+                      cx={toSvgX(-effLeftSpan + Math.tan(((90 - leftWallAngleDeg) * Math.PI) / 180) * leftWallHeightM)}
                       cy={toSvgY(leftWallHeightM)}
                       r="6"
                       fill="#10b981"
@@ -1611,7 +1852,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
 
                   {openWall !== 'right' && (
                     <circle
-                      cx={toSvgX(widthM / 2 - Math.tan(((90 - rightWallAngleDeg) * Math.PI) / 180) * rightWallHeightM)}
+                      cx={toSvgX(effRightSpan - Math.tan(((90 - rightWallAngleDeg) * Math.PI) / 180) * rightWallHeightM)}
                       cy={toSvgY(rightWallHeightM)}
                       r="6"
                       fill="#10b981"
@@ -1672,8 +1913,13 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       type="button"
                       onClick={() => {
                         setIsSymmetric(true);
+                        const avgSpan = Number(((leftSpanM + rightSpanM) / 2).toFixed(2));
+                        setLeftSpanM(avgSpan);
+                        setRightSpanM(avgSpan);
+                        setWidthM(Number((avgSpan * 2).toFixed(2)));
                         setRightWallHeightM(leftWallHeightM);
                         setRightWallAngleDeg(leftWallAngleDeg);
+                        setCrownApexOffsetXM(0);
                         if (openWall !== 'none') setOpenWall('none');
                         setHasAnalyzedShape(true);
                       }}
@@ -1682,7 +1928,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                           ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
-                      title="Both sidewalls and curvature are perfectly symmetric"
+                      title="Both sidewalls, half-spans and curvature are perfectly symmetric"
                     >
                       ⚖️ Symmetric
                     </button>
@@ -1690,6 +1936,25 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       type="button"
                       onClick={() => {
                         setIsSymmetric(false);
+                        const geom = analyzeStrokesGeometrically(true);
+                        if (geom) {
+                          setLeftSpanM(Number(geom.leftSpan.toFixed(2)));
+                          setRightSpanM(Number(geom.rightSpan.toFixed(2)));
+                          setWidthM(Number((geom.leftSpan + geom.rightSpan).toFixed(2)));
+                          setHeightM(Number(geom.totalH.toFixed(2)));
+                          setLeftWallHeightM(Number(geom.leftWallH.toFixed(2)));
+                          setRightWallHeightM(Number(geom.rightWallH.toFixed(2)));
+                          setLeftWallAngleDeg(geom.leftAngle);
+                          setRightWallAngleDeg(geom.rightAngle);
+                          setCrownApexOffsetXM(geom.apexOffsetX);
+                          setAnalysisExplanation(
+                            `Extracted genuine non-symmetric profile from sketch: Left Wall ${geom.leftWallH.toFixed(2)}m @ ${geom.leftAngle}°, Right Wall ${geom.rightWallH.toFixed(2)}m @ ${geom.rightAngle}°, Left Span ${geom.leftSpan.toFixed(2)}m, Right Span ${geom.rightSpan.toFixed(2)}m, Apex Offset ${geom.apexOffsetX.toFixed(2)}m.`
+                          );
+                        } else {
+                          if (Math.abs(leftWallHeightM - rightWallHeightM) < 0.05) {
+                            setRightWallHeightM(Number(Math.max(1.0, leftWallHeightM * 0.78).toFixed(2)));
+                          }
+                        }
                         setHasAnalyzedShape(true);
                       }}
                       className={`px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
@@ -1697,7 +1962,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                           ? 'bg-cyan-500 text-slate-950 font-black shadow-xs'
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
-                      title="Independent left and right wall heights and batter angles (slashing, drifts, fault zones)"
+                      title="Independent left and right wall heights, spans, and batter angles (slashing, drifts, fault zones, shanty)"
                     >
                       📐 Non-Symmetric
                     </button>
@@ -1876,59 +2141,105 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                     1. Baseline Span / Width (W)
                   </span>
                   <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/30">
-                    {Math.abs((detectedUserRequirements.width ?? widthM) - widthM) < 0.05 ? 'Exact Match' : 'Reconciled'}
+                    Total: {widthM.toFixed(2)}m {!isSymmetric ? '(Non-Symmetric)' : ''}
                   </span>
                 </div>
 
                 {/* Rationale / Reason */}
                 <p className="text-[9.5px] text-slate-300 leading-relaxed bg-slate-900/80 p-2 rounded-lg border border-slate-800/80">
                   <strong className="text-amber-400 font-bold">Reason: </strong>
-                  {Math.abs((detectedUserRequirements.width ?? widthM) - widthM) < 0.05
-                    ? 'Matched baseline chord directly from floor datum sketch with zero distortion.'
-                    : `Calibrated baseline span from sketch (${detectedUserRequirements.width}m) to preserve springline clearance.`}
+                  {!isSymmetric
+                    ? `Independent left span (${leftSpanM.toFixed(2)}m) and right span (${rightSpanM.toFixed(2)}m) from centerline CL to sidewall footings.`
+                    : 'Symmetric baseline chord directly calibrated to floor datum sketch.'}
                 </p>
 
-                {/* Slider */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
-                    <span>Slide to re-ensure:</span>
-                    <span className="text-amber-300 font-bold font-mono text-[10px]">{widthM.toFixed(2)} m</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={2.0}
-                    max={25.0}
-                    step={0.1}
-                    value={widthM}
-                    onChange={(e) => {
-                      setWidthM(Number(e.target.value));
-                      setHasAnalyzedShape(true);
-                    }}
-                    className="w-full accent-amber-500 h-2 bg-slate-800 rounded-lg cursor-pointer"
-                  />
-                </div>
+                {isSymmetric ? (
+                  <>
+                    {/* Slider */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
+                        <span>Slide total span:</span>
+                        <span className="text-amber-300 font-bold font-mono text-[10px]">{widthM.toFixed(2)} m</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={2.0}
+                        max={25.0}
+                        step={0.1}
+                        value={widthM}
+                        onChange={(e) => {
+                          handleTotalWidthChange(Number(e.target.value));
+                          setHasAnalyzedShape(true);
+                        }}
+                        className="w-full accent-amber-500 h-2 bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                    </div>
 
-                {/* Direct Entry: Dedicated Row */}
-                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
-                  <span className="text-[10px] text-slate-300 font-semibold shrink-0">Direct Number Input:</span>
-                  <div className="relative w-28 shrink-0">
-                    <input
-                      type="number"
-                      step={0.1}
-                      min={1.0}
-                      max={30.0}
-                      value={widthM}
-                      onChange={(e) => {
-                        setWidthM(Number(e.target.value));
-                        setHasAnalyzedShape(true);
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-2.5 pr-7 py-1 text-xs text-white font-mono font-bold focus:border-amber-400 focus:outline-none"
-                    />
-                    <span className="absolute right-2.5 top-1.5 text-[10px] text-slate-400 font-mono pointer-events-none">
-                      m
-                    </span>
+                    {/* Direct Entry: Dedicated Row */}
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+                      <span className="text-[10px] text-slate-300 font-semibold shrink-0">Direct Number Input:</span>
+                      <div className="relative w-28 shrink-0">
+                        <input
+                          type="number"
+                          step={0.1}
+                          min={1.0}
+                          max={30.0}
+                          value={widthM}
+                          onChange={(e) => {
+                            handleTotalWidthChange(Number(e.target.value));
+                            setHasAnalyzedShape(true);
+                          }}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-2.5 pr-7 py-1 text-xs text-white font-mono font-bold focus:border-amber-400 focus:outline-none"
+                        />
+                        <span className="absolute right-2.5 top-1.5 text-[10px] text-slate-400 font-mono pointer-events-none">
+                          m
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2.5">
+                    {/* Left Span */}
+                    <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800/80 space-y-1">
+                      <div className="flex items-center justify-between text-[9.5px]">
+                        <span className="text-emerald-400 font-bold">Left Half-Span (CL to Left Wall):</span>
+                        <span className="font-mono text-emerald-300 font-bold">{leftSpanM.toFixed(2)} m</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={15.0}
+                        step={0.05}
+                        value={leftSpanM}
+                        onChange={(e) => {
+                          handleLeftSpanChange(Number(e.target.value));
+                          setHasAnalyzedShape(true);
+                        }}
+                        className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Right Span */}
+                    <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800/80 space-y-1">
+                      <div className="flex items-center justify-between text-[9.5px]">
+                        <span className="text-purple-400 font-bold">Right Half-Span (CL to Right Wall):</span>
+                        <span className="font-mono text-purple-300 font-bold">{rightSpanM.toFixed(2)} m</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={15.0}
+                        step={0.05}
+                        value={rightSpanM}
+                        onChange={(e) => {
+                          handleRightSpanChange(Number(e.target.value));
+                          setHasAnalyzedShape(true);
+                        }}
+                        className="w-full accent-purple-500 h-2 bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
             {/* 2. Total Height (Apex Elevation) */}
@@ -1938,22 +2249,20 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                     2. Total Height (Apex Datum)
                   </span>
                   <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/30">
-                    {Math.abs((detectedUserRequirements.height ?? heightM) - heightM) < 0.05 ? 'Exact Match' : 'Reconciled'}
+                    {heightM.toFixed(2)}m
                   </span>
                 </div>
 
                 {/* Rationale / Reason */}
                 <p className="text-[9.5px] text-slate-300 leading-relaxed bg-slate-900/80 p-2 rounded-lg border border-slate-800/80">
                   <strong className="text-cyan-400 font-bold">Reason: </strong>
-                  {Math.abs((detectedUserRequirements.height ?? heightM) - heightM) < 0.05
-                    ? 'Total elevation measured from invert datum RL 0.00m to highest roof apex point.'
-                    : 'Apex height calibrated to satisfy crown curvature tangency and jumbo drill clearance.'}
+                  Total elevation measured from invert datum RL 0.00m to highest roof apex point.
                 </p>
 
                 {/* Slider */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
-                    <span>Slide to re-ensure:</span>
+                    <span>Slide height:</span>
                     <span className="text-cyan-300 font-bold font-mono text-[10px]">{heightM.toFixed(2)} m</span>
                   </div>
                   <input
@@ -1965,7 +2274,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                     onChange={(e) => {
                       const val = Number(e.target.value);
                       setHeightM(val);
-                      setCrownSagittaM(Number(Math.max(0.3, val - leftWallHeightM).toFixed(2)));
+                      setCrownSagittaM(Number(Math.max(0.3, val - Math.min(leftWallHeightM, rightWallHeightM)).toFixed(2)));
                       setCrownArcLengthM(null);
                       setHasAnalyzedShape(true);
                     }}
@@ -1986,7 +2295,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                       onChange={(e) => {
                         const val = Number(e.target.value);
                         setHeightM(val);
-                        setCrownSagittaM(Number(Math.max(0.3, val - leftWallHeightM).toFixed(2)));
+                        setCrownSagittaM(Number(Math.max(0.3, val - Math.min(leftWallHeightM, rightWallHeightM)).toFixed(2)));
                         setCrownArcLengthM(null);
                         setHasAnalyzedShape(true);
                       }}
@@ -1997,6 +2306,48 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                     </span>
                   </div>
                 </div>
+
+                {/* Crown Apex CL Offset in Non-Symmetric mode */}
+                {!isSymmetric && (
+                  <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[9.5px]">
+                      <span className="text-cyan-300 font-bold">Crown Apex Peak Offset from CL:</span>
+                      <span className="font-mono text-cyan-200 font-bold">
+                        {crownApexOffsetXM === 0
+                          ? 'Centered (0.00m)'
+                          : crownApexOffsetXM < 0
+                          ? `${Math.abs(crownApexOffsetXM).toFixed(2)}m Left`
+                          : `${crownApexOffsetXM.toFixed(2)}m Right`}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={-Math.min(5, leftSpanM * 0.8)}
+                      max={Math.min(5, rightSpanM * 0.8)}
+                      step={0.05}
+                      value={crownApexOffsetXM}
+                      onChange={(e) => {
+                        setCrownApexOffsetXM(Number(e.target.value));
+                        setHasAnalyzedShape(true);
+                      }}
+                      className="w-full accent-cyan-400 h-2 bg-slate-800 rounded-lg cursor-pointer"
+                    />
+                    <div className="flex items-center justify-between text-[8.5px] text-slate-500 font-mono">
+                      <span>← Left Peak</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCrownApexOffsetXM(0);
+                          setHasAnalyzedShape(true);
+                        }}
+                        className="text-[8.5px] text-cyan-400 hover:underline cursor-pointer"
+                      >
+                        Center (0m)
+                      </button>
+                      <span>Right Peak →</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
             {/* 3. Crown Curve Arc C (Slide Bar + Presets in Separate Rows) */}
@@ -2239,7 +2590,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
             <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2.5 shadow-sm">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-bold text-amber-300">
-                    6. Wall Incline / Batter Angle
+                    6. Wall Incline / Batter Angle {isSymmetric ? '' : '(Left Sidewall)'}
                   </span>
                   <span className="text-[9.5px] font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-bold">
                     {leftWallAngleDeg}° ({leftWallAngleDeg < 90 ? `${90 - leftWallAngleDeg}° Inward Batter` : leftWallAngleDeg > 90 ? `${leftWallAngleDeg - 90}° Flared` : 'Vertical 90°'})
@@ -2293,6 +2644,60 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                     </span>
                   </div>
                 </div>
+
+                {!isSymmetric && openWall !== 'right' && (
+                  <div className="pt-3 mt-2 border-t border-slate-800/80 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-amber-300">
+                        Right Sidewall Incline Angle
+                      </span>
+                      <span className="text-[9.5px] font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-bold">
+                        {rightWallAngleDeg}° ({rightWallAngleDeg < 90 ? `${90 - rightWallAngleDeg}° Inward Batter` : rightWallAngleDeg > 90 ? `${rightWallAngleDeg - 90}° Flared` : 'Vertical 90°'})
+                      </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <input
+                        type="range"
+                        min={70}
+                        max={110}
+                        step={1}
+                        value={rightWallAngleDeg}
+                        onChange={(e) => {
+                          handleRightWallAngleChange(Number(e.target.value));
+                          setHasAnalyzedShape(true);
+                        }}
+                        className="w-full accent-amber-500 h-2 bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                      <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
+                        <span>70° (Inward)</span>
+                        <span>90° (Vertical)</span>
+                        <span>110° (Flared)</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+                      <span className="text-[10px] text-slate-300 font-semibold shrink-0">Direct Number Input:</span>
+                      <div className="relative w-28 shrink-0">
+                        <input
+                          type="number"
+                          step={1}
+                          min={60}
+                          max={120}
+                          value={rightWallAngleDeg}
+                          onChange={(e) => {
+                            handleRightWallAngleChange(Number(e.target.value));
+                            setHasAnalyzedShape(true);
+                          }}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-2.5 pr-7 py-1 text-xs text-white font-mono font-bold focus:border-amber-400 focus:outline-none"
+                        />
+                        <span className="absolute right-2.5 top-1.5 text-[10px] text-slate-400 font-mono pointer-events-none">
+                          °
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
             {/* 7. Floor / Invert Profile */}

@@ -55,7 +55,7 @@ def uleb128(value: int) -> bytes:
 
 def build_binary_axml(
     pkg_name_str: str = "com.eswa.tunnelmapper.user",
-    app_label_str: str = "ESWA Tunnel Mapper",
+    app_label_str: str = "ESWA GEOLOGICAL MAPPER",
 ) -> bytes:
     """
     Builds a spec-compliant Android Binary XML (AXML) AndroidManifest.xml

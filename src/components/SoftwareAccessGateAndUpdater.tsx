@@ -301,7 +301,7 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
           <EswaTunnelLogo size="sm" />
           <div>
             <div className="font-display font-bold text-sm sm:text-base tracking-wide text-white">
-              ESWA TUNNEL MAPPER
+              ESWA GEOLOGICAL MAPPER
             </div>
             <div className="text-[11px] text-slate-400">
               {isMobileApp
@@ -811,7 +811,7 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
             releaseId: `github_auto_${releaseStamp}`,
             portalScope: 'ESWA_GLOBAL',
             version: releaseStamp,
-            title: 'ESWA TUNNEL MAPPER — New Live Update Available',
+            title: 'ESWA GEOLOGICAL MAPPER — New Live Update Available',
             releaseNotes:
               data.body ||
               'A new update is ready! Touch "Install Update Now" below to automatically update your app and software in-place without downloading any installer package.',

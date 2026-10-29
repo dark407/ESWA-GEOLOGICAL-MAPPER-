@@ -249,7 +249,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       <div className="relative z-10 w-full max-w-[650px] my-auto shrink-0 flex flex-col items-center text-center justify-center p-2 sm:p-3 gap-2.5 sm:gap-4 eswa-stage-transition">
         <div
           onClick={() => playEswaWelcomeChime(true)}
-          className="cursor-pointer transition-transform hover:scale-[1.02]"
+          className="cursor-pointer transition-transform hover:scale-[1.02] flex flex-col items-center"
           title="Click to replay ESWA Welcome Chime"
         >
           <EswaTunnelLogo
@@ -257,7 +257,22 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             variant="emblem"
             animated
             showBadge={false}
+            isMasterEdition={isMasterSoftware}
           />
+          <div className="mt-2 text-center select-none">
+            <h1 className="text-xl sm:text-2xl font-black tracking-wide uppercase drop-shadow-sm font-display flex items-center justify-center gap-2">
+              {isMasterSoftware ? (
+                <>
+                  <span className="px-2.5 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs sm:text-sm font-black tracking-widest uppercase shadow">
+                    MASTER
+                  </span>
+                  <span className="text-slate-950 font-black">ESWA GEOLOGICAL MAPPER</span>
+                </>
+              ) : (
+                <span className="text-slate-950 font-black">ESWA GEOLOGICAL MAPPER</span>
+              )}
+            </h1>
+          </div>
         </div>
 
         {/* Main Window: Core Geological & Geotechnical Suite Options */}

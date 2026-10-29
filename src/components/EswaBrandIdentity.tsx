@@ -8,6 +8,7 @@ export interface EswaTunnelLogoProps {
   eagleEntranceAnimation?: boolean;
   showBadge?: boolean;
   className?: string;
+  isMasterEdition?: boolean;
 }
 
 const SIZE_MAP: Record<NonNullable<EswaTunnelLogoProps['size']>, number> = {
@@ -1074,14 +1075,19 @@ export const EswaAppBackgroundWatermark: React.FC<EswaAppBackgroundWatermarkProp
 
 interface EswaLoadingScreenProps {
   onComplete: () => void;
+  isMasterEdition?: boolean;
 }
 
 /**
  * Official ESWA 3-Second Animated Boot Splash Screen (Logo Only — No Box!):
- * - Displays ONLY the official cutout ESWA TUNNEL GEOLOGICAL MAPPER logo over the geological orange background.
+ * - Displays ONLY the official cutout ESWA GEOLOGICAL MAPPER logo over the geological orange background.
  * - Eagle flies in from the left while the logo slowly pops out over 3 seconds (3000ms) with the Windows-style welcome chime.
+ * - Automatically transitions into the application without requiring click.
  */
-export const EswaLoadingScreen: React.FC<EswaLoadingScreenProps> = ({ onComplete }) => {
+export const EswaLoadingScreen: React.FC<EswaLoadingScreenProps> = ({
+  onComplete,
+  isMasterEdition = false,
+}) => {
   const [isExiting, setIsExiting] = useState<boolean>(false);
   const chimePlayedRef = useRef<boolean>(false);
   const { palette } = useTheme();
@@ -1136,24 +1142,20 @@ export const EswaLoadingScreen: React.FC<EswaLoadingScreenProps> = ({ onComplete
       {/* Full-Bleed Geological Orange Map Backdrop */}
       <EswaGeologicalOrangeMapBackdrop />
 
-      {/* Logo Only — No Box Around It! Eagle Flies in From Left + Logo Slowly Pops Out Over 3 Seconds */}
-      <div className="relative z-10 flex flex-col items-center justify-center">
+      {/* Logo Only — Eagle Flies in From Left + Logo Slowly Pops Out Over 3 Seconds with Chime */}
+      <div className="relative z-10 flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-700">
         <EswaTunnelLogo
           size="splash"
           variant="emblem"
           eagleEntranceAnimation
           showBadge={false}
+          isMasterEdition={isMasterEdition}
         />
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onComplete();
-          }}
-          className="mt-6 px-4 py-1.5 rounded-full bg-slate-900/60 hover:bg-slate-900/80 text-white/90 text-xs font-semibold tracking-wider uppercase transition-colors shadow-sm"
-        >
-          Click anywhere to enter
-        </button>
+        {isMasterEdition && (
+          <div className="mt-4 inline-flex items-center gap-1.5 px-4 py-1 rounded-full bg-amber-500 text-slate-950 font-black text-xs sm:text-sm tracking-widest uppercase shadow-lg border border-amber-300">
+            MASTER EDITION
+          </div>
+        )}
       </div>
     </div>
   );

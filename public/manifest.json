@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "ESWA GEOLOGICAL MAPPER — Engineering Suite",
-  "short_name": "EswaGeology",
+  "name": "ESWA GEOLOGICAL MAPPER",
+  "short_name": "ESWA Mapper",
   "description": "Geological engineering suite for underground tunneling (NATM, TBM) and underground hard-rock mining grade control, structural orientation, photogrammetry, and core logging.",
   "theme_color": "#0B0E14",
   "background_color": "#0B0E14",

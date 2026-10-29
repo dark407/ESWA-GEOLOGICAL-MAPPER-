@@ -57,6 +57,7 @@ export interface MiningMainWindowProps {
   isAuthBusy?: boolean;
   onGoogleSignIn?: () => void;
   onGoogleSignOut?: () => void;
+  isMasterSoftware?: boolean;
 }
 
 export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
@@ -70,6 +71,7 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
   isAuthBusy = false,
   onGoogleSignIn,
   onGoogleSignOut,
+  isMasterSoftware = false,
 }) => {
   const [activeMiningView, setActiveMiningView] = useState<'MAIN' | 'MAPPING' | 'CORE_LOGGING'>('MAIN');
   const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
@@ -171,10 +173,33 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
         {/* Animated Emblem */}
         <div
           onClick={() => playEswaWelcomeChime(true)}
-          className="cursor-pointer transition-transform hover:scale-[1.02]"
+          className="cursor-pointer transition-transform hover:scale-[1.02] flex flex-col items-center"
           title="ESWA Underground Mining & Exploration Suite"
         >
-          <EswaTunnelLogo size="xl" variant="emblem" animated showBadge={false} />
+          <EswaTunnelLogo
+            size="xl"
+            variant="emblem"
+            animated
+            showBadge={false}
+            isMasterEdition={isMasterSoftware}
+          />
+          <div className="mt-2 text-center select-none">
+            <h1 className="text-xl sm:text-2xl font-black tracking-wide uppercase drop-shadow-sm font-display flex items-center justify-center gap-2">
+              {isMasterSoftware ? (
+                <>
+                  <span className="px-2.5 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs sm:text-sm font-black tracking-widest uppercase shadow">
+                    MASTER
+                  </span>
+                  <span className="text-white font-black">ESWA GEOLOGICAL MAPPER</span>
+                </>
+              ) : (
+                <span className="text-white font-black">ESWA GEOLOGICAL MAPPER</span>
+              )}
+            </h1>
+            <p className="text-xs font-mono text-emerald-400 font-semibold tracking-wider mt-0.5">
+              Underground Hard-Rock Mining & Grade Control
+            </p>
+          </div>
         </div>
 
         {/* 3 PRIMARY MAIN OPTIONS */}

@@ -405,7 +405,7 @@ fs.writeFileSync(
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
-        android:label="ESWA Tunnel Mapper"
+        android:label="ESWA GEOLOGICAL MAPPER"
         android:usesCleartextTraffic="true"
         android:hardwareAccelerated="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">

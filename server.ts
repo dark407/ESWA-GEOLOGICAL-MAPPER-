@@ -325,6 +325,7 @@ CRITICAL GEOLOGICAL REALISM & MAIN PHOTO RULES:
         strokes = [],
         textAnnotations = [],
         tunnelName = 'Custom Tunnel',
+        userSymmetryPreference = 'auto',
       } = req.body || {};
 
       const ai = getGeminiClient();
@@ -335,6 +336,20 @@ CRITICAL GEOLOGICAL REALISM & MAIN PHOTO RULES:
         const prompt = `You are a licensed underground civil/mining tunnel engineer and computer vision specialist.
 The user has sketched a rough tunnel cross-section on an engineering drafting canvas.
 They may have also written or annotated numbers indicating lengths/dimensions (e.g. Span/Width in meters like "9.2m", "8.5m", "10m", Height in meters like "7.5m", "8m", Wall height in meters like "4.0m", or wall angles in degrees like "90°", "85°", "80°", "75°").
+
+USER SYMMETRY PREFERENCE: ${userSymmetryPreference}
+CRITICAL NON-SYMMETRIC / ASYMMETRIC RULES:
+${
+  userSymmetryPreference === 'non-symmetric'
+    ? `- The user EXPLICITLY selected "Non-Symmetric" mode.
+- isSymmetric MUST be set to FALSE.
+- DO NOT force left and right wall heights or angles to match!
+- Measure leftWallHeightM and rightWallHeightM independently from the sketch.
+- Measure leftWallAngleDeg and rightWallAngleDeg independently.
+- If left half-span (distance from center to left wall) differs from right half-span, report leftSpanM and rightSpanM.
+- If the crown apex (peak) is offset from center x=0, report apexOffsetXM (negative for left, positive for right).`
+    : `- If the user's sketch exhibits clear asymmetry between left and right walls/angles/spans, set isSymmetric to false and report leftWallHeightM, rightWallHeightM, leftWallAngleDeg, and rightWallAngleDeg independently.`
+}
 
 CRITICAL ENGINEERING NOTATION RULE FOR "c <length>" (e.g. "c 10.6m", "C 10.6m", "C: 10.6m", "c=10.6m", "c 10.6"):
 In tunnel and mining civil engineering drawings, "c" denotes a CURVED PORTION or ARC LENGTH.
@@ -378,7 +393,10 @@ Task:
    - hasLeftWall (boolean)
    - hasRightWall (boolean)
    - widthM (Total span/width at floor or widest point, in meters)
+   - leftSpanM (Half-span from centerline to left wall base, in meters)
+   - rightSpanM (Half-span from centerline to right wall base, in meters)
    - heightM (Total height from invert to highest apex/datum, in meters)
+   - apexOffsetXM (Horizontal offset of highest apex from centerline x=0, in meters; 0 if centered)
    - leftWallHeightM (Height from left invert to springline/shoulder, in meters)
    - rightWallHeightM (Height from right invert to springline/shoulder, in meters)
    - leftWallAngleDeg (Sidewall angle in degrees: 90 is vertical, <90 is inward battered/slanted, e.g. 80, >90 is flared)
@@ -422,7 +440,10 @@ Task:
                     hasLeftWall: { type: Type.BOOLEAN },
                     hasRightWall: { type: Type.BOOLEAN },
                     widthM: { type: Type.NUMBER },
+                    leftSpanM: { type: Type.NUMBER },
+                    rightSpanM: { type: Type.NUMBER },
                     heightM: { type: Type.NUMBER },
+                    apexOffsetXM: { type: Type.NUMBER },
                     leftWallHeightM: { type: Type.NUMBER },
                     rightWallHeightM: { type: Type.NUMBER },
                     leftWallAngleDeg: { type: Type.NUMBER },
