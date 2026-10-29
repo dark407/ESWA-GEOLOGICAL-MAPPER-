@@ -67,6 +67,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 11. Master Admin Auth Challenges (for 6-digit email codes)
+    match /eswa_master_auth_challenges/{challengeId} {
+      allow read, write: if true;
+    }
+
+    // 12. User Feedback
+    match /eswa_user_feedback/{feedbackId} {
+      allow read, write: if true;
+    }
+
     // Fallback: Full permission across any documents to prevent permission errors
     match /{document=**} {
       allow read, write: if true;

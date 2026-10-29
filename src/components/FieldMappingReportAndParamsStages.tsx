@@ -3,15 +3,23 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
+  Compass,
   Download,
+  Edit3,
   FileText,
+  GitMerge,
   Image as ImageIcon,
+  Layers,
+  Link2,
   Move,
   Palette,
   Plus,
+  RotateCcw,
+  Sliders,
   Trash2,
   Undo2,
   Upload,
+  X,
 } from 'lucide-react';
 import {
   APERTURE_OPTIONS,
@@ -29,6 +37,8 @@ import {
   exportFieldMappingTwoPageWordSheet,
   FIELD_JOINT_GROUP_COLORS,
   FIELD_JOINT_SET_IDS,
+  FIELD_LITHOLOGY_CATALOG,
+  FieldJointGroupingId,
   mapMetricPointToStripSvg,
 } from '../engine/fieldMappingEngine';
 import {
@@ -74,7 +84,7 @@ import {
   evaluateSurfaceStabilityAndRomanaSmr,
 } from '../engine/surfaceMappingEngine';
 
-type StripAlignItemKind = 'joint' | 'vein' | 'feature';
+type StripAlignItemKind = 'joint' | 'vein' | 'feature' | 'lithology' | 'dip_plane';
 type JointPointActionMode = 'add_point' | 'bend' | 'move' | 'extend';
 
 interface StripAlignableItem {
@@ -84,6 +94,7 @@ interface StripAlignableItem {
   label: string;
   color: string;
   points: FieldPoint2D[];
+  rawItem?: any;
 }
 
 // Ensures a polyline has at least minCount evenly spaced points along its arc so smooth bending works on any trace
@@ -181,10 +192,13 @@ export const FieldStripAlignmentStage: React.FC<{
 }) => {
   const stripSvgRef = useRef<SVGSVGElement | null>(null);
   const [pointActionMode, setPointActionMode] = useState<JointPointActionMode>('bend');
+  const [isJoinMode, setIsJoinMode] = useState<boolean>(false);
+  const [joinFirstTraceId, setJoinFirstTraceId] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<
     {
       jointTraces: FieldExcavationRound['jointTraces'];
       lithologyStrokes: FieldExcavationRound['lithologyStrokes'];
+      dipPlaneSurfaces: FieldExcavationRound['dipPlaneSurfaces'];
       structuralFeatures: NonNullable<FieldExcavationRound['structuralFeatures']>;
     }[]
   >([]);
@@ -216,6 +230,10 @@ export const FieldStripAlignmentStage: React.FC<{
           ...s,
           points: s.points.map((p) => ({ ...p })),
         })),
+        dipPlaneSurfaces: activeRound.dipPlaneSurfaces.map((d) => ({
+          ...d,
+          points: d.points.map((p) => ({ ...p })),
+        })),
         structuralFeatures: (activeRound.structuralFeatures || []).map((f) => ({
           ...f,
           points: f.points.map((p) => ({ ...p })),
@@ -232,6 +250,7 @@ export const FieldStripAlignmentStage: React.FC<{
       ...r,
       jointTraces: last.jointTraces,
       lithologyStrokes: last.lithologyStrokes,
+      dipPlaneSurfaces: last.dipPlaneSurfaces || r.dipPlaneSurfaces,
       structuralFeatures: last.structuralFeatures,
     }));
   };
@@ -467,16 +486,37 @@ export const FieldStripAlignmentStage: React.FC<{
   activeRound.lithologyStrokes.forEach((st) => {
     if (
       (st.panel === 'left_wall' || st.panel === 'crown' || st.panel === 'right_wall') &&
-      (st.mode === 'vein_band' || st.mode === 'foliation_plane' || st.mode === 'region_fill') &&
       st.points.length >= 2
     ) {
+      const isVeinOrFol = st.mode === 'vein_band' || st.mode === 'foliation_plane';
       alignableItems.push({
         id: st.id,
-        kind: 'vein',
+        kind: isVeinOrFol ? 'vein' : 'lithology',
         panel: st.panel,
-        label: st.rockName.slice(0, 8),
-        color: '#0d9488',
-        points: st.points,
+        label: (st.rockName || st.rockType || 'Lithology').slice(0, 10),
+        color: st.customColor || st.color || '#0d9488',
+        points: st.polygon && st.polygon.length >= 3 ? st.polygon : st.points,
+        rawItem: st,
+      });
+    }
+  });
+  activeRound.dipPlaneSurfaces.forEach((ds) => {
+    if (
+      (ds.panel === 'left_wall' || ds.panel === 'crown' || ds.panel === 'right_wall') &&
+      ds.points.length >= 2
+    ) {
+      const col = FIELD_JOINT_GROUP_COLORS[ds.setId || 'unassigned']?.stroke || '#0284c7';
+      alignableItems.push({
+        id: ds.id,
+        kind: 'dip_plane',
+        panel: ds.panel,
+        label:
+          ds.setId === 'unassigned'
+            ? `DS ${ds.dipDirection}°/${ds.dipAmount}°`
+            : `${ds.setId} ${ds.dipDirection}°/${ds.dipAmount}°`,
+        color: col,
+        points: ds.outlinePolygon && ds.outlinePolygon.length >= 3 ? ds.outlinePolygon : ds.points,
+        rawItem: ds,
       });
     }
   });
@@ -496,7 +536,7 @@ export const FieldStripAlignmentStage: React.FC<{
     }
   });
 
-  // Update points of any item (Joint, Vein/Foliation, or Structural Feature) and refresh its orientation
+  // Update points of any item (Joint, Vein/Foliation, Lithology, Dip Plane, or Feature) and refresh its orientation
   const updateItemPointsInRound = (
     r: FieldExcavationRound,
     id: string,
@@ -574,6 +614,32 @@ export const FieldStripAlignmentStage: React.FC<{
         }),
       };
     }
+    if (kind === 'lithology') {
+      return {
+        ...r,
+        lithologyStrokes: r.lithologyStrokes.map((st) => {
+          if (st.id !== id) return st;
+          return {
+            ...st,
+            points: nextPoints,
+            polygon: st.polygon ? nextPoints : undefined,
+          };
+        }),
+      };
+    }
+    if (kind === 'dip_plane') {
+      return {
+        ...r,
+        dipPlaneSurfaces: r.dipPlaneSurfaces.map((ds) => {
+          if (ds.id !== id) return ds;
+          return {
+            ...ds,
+            points: nextPoints,
+            outlinePolygon: ds.outlinePolygon ? nextPoints : undefined,
+          };
+        }),
+      };
+    }
     return {
       ...r,
       structuralFeatures: (r.structuralFeatures || []).map((ft) => {
@@ -594,6 +660,102 @@ export const FieldStripAlignmentStage: React.FC<{
         };
       }),
     };
+  };
+
+  // Join / Connect two joint traces into a single continuous joint trace
+  const handleJoinJoints = (traceAId: string, traceBId: string) => {
+    if (traceAId === traceBId) return;
+    const isProjA = traceAId.startsWith('proj-');
+    const isProjB = traceBId.startsWith('proj-');
+    const realAId = isProjA ? traceAId.replace(/^proj-(lw|cr|rw)-/, '') : traceAId;
+    const realBId = isProjB ? traceBId.replace(/^proj-(lw|cr|rw)-/, '') : traceBId;
+
+    const traceA = activeRound.jointTraces.find((t) => t.id === realAId);
+    const traceB = activeRound.jointTraces.find((t) => t.id === realBId);
+    if (!traceA || !traceB) {
+      setIsJoinMode(false);
+      setJoinFirstTraceId(null);
+      return;
+    }
+
+    pushUndo();
+
+    const ptsA = traceA.points;
+    const ptsB = traceB.points;
+    if (ptsA.length < 2 || ptsB.length < 2) return;
+
+    const aStart = ptsA[0];
+    const aEnd = ptsA[ptsA.length - 1];
+    const bStart = ptsB[0];
+    const bEnd = ptsB[ptsB.length - 1];
+
+    const dEndToStart = Math.hypot(aEnd.x - bStart.x, aEnd.y - bStart.y);
+    const dEndToEnd = Math.hypot(aEnd.x - bEnd.x, aEnd.y - bEnd.y);
+    const dStartToStart = Math.hypot(aStart.x - bStart.x, aStart.y - bStart.y);
+    const dStartToEnd = Math.hypot(aStart.x - bEnd.x, aStart.y - bEnd.y);
+
+    let mergedPoints: FieldPoint2D[];
+    const minD = Math.min(dEndToStart, dEndToEnd, dStartToStart, dStartToEnd);
+
+    if (minD === dEndToStart) {
+      mergedPoints = [...ptsA, ...ptsB];
+    } else if (minD === dEndToEnd) {
+      mergedPoints = [...ptsA, ...ptsB.slice().reverse()];
+    } else if (minD === dStartToStart) {
+      mergedPoints = [...ptsA.slice().reverse(), ...ptsB];
+    } else {
+      mergedPoints = [...ptsB, ...ptsA];
+    }
+
+    const smoothedMerged = smoothFieldPencilStroke(mergedPoints);
+    const targetPanel = traceA.panel;
+    const ori = computeTraceOrientationFromTunnelDrive(
+      smoothedMerged,
+      targetPanel,
+      activeRound.tunnelDriveDirection,
+      traceA.crownDipSign,
+      activeLocation.widthM,
+      activeLocation.heightM
+    );
+    const metricPoints = computePhysicalMetricPoints(
+      smoothedMerged,
+      targetPanel,
+      activeLocation,
+      activeRound
+    );
+
+    const mergedLabel =
+      traceA.label && traceB.label && traceA.label !== traceB.label
+        ? `${traceA.label}+${traceB.label}`
+        : traceA.label || traceB.label || (traceA.setId === 'unassigned' ? 'J' : traceA.setId);
+
+    onUpdateRound((r) => ({
+      ...r,
+      jointTraces: r.jointTraces
+        .filter((t) => t.id !== realBId)
+        .map((t) =>
+          t.id === realAId
+            ? {
+                ...t,
+                label: mergedLabel,
+                points: smoothedMerged,
+                metricPoints,
+                dipDirection: t.editedByCompass ? t.dipDirection : ori.dipDirection,
+                dipAmount: t.editedByCompass ? t.dipAmount : ori.dipAmount,
+                strike: t.editedByCompass ? t.strike : ori.strike,
+                traceLengthM: ori.traceLengthM,
+              }
+            : t
+        ),
+    }));
+
+    setSelectedTraceItem({
+      id: realAId,
+      kind: 'joint',
+      panel: traceA.panel === 'face' ? 'crown' : (traceA.panel as 'left_wall' | 'crown' | 'right_wall'),
+    });
+    setIsJoinMode(false);
+    setJoinFirstTraceId(null);
   };
 
   // Find closest normalized ratio (0..1) along a strip polyline to a given strip coordinate
@@ -1224,7 +1386,7 @@ export const FieldStripAlignmentStage: React.FC<{
         };
 
         const onEndpointPointerDown = (
-          e: React.PointerEvent<SVGCircleElement>,
+          e: React.PointerEvent<SVGElement>,
           endIndex: 'start' | 'end'
         ) => {
           e.stopPropagation();
@@ -1290,6 +1452,12 @@ export const FieldStripAlignmentStage: React.FC<{
 
         const onLinePointerDown = (e: React.PointerEvent<SVGElement>) => {
           e.stopPropagation();
+          if (isJoinMode && joinFirstTraceId) {
+            if (item.id !== joinFirstTraceId && (item.kind === 'joint' || item.kind === 'vein')) {
+              handleJoinJoints(joinFirstTraceId, item.id);
+            }
+            return;
+          }
           setSelectedTraceItem({ id: item.id, kind: item.kind, panel: item.panel });
           const pt = getStripSvgCoords(e.clientX, e.clientY);
           pushUndo();
@@ -1343,6 +1511,19 @@ export const FieldStripAlignmentStage: React.FC<{
 
         return (
           <g key={`${item.kind}-${item.id}`}>
+            {/* Join Mode First Selected Trace Pulsing Outline */}
+            {isJoinMode && joinFirstTraceId === item.id && (
+              <polyline
+                points={ptsAttr}
+                fill="none"
+                stroke="#06b6d4"
+                strokeWidth="10"
+                strokeDasharray="6,4"
+                className="animate-pulse"
+                pointerEvents="none"
+              />
+            )}
+
             {/* Selection Halo & Wide Invisible Hit Target */}
             {isTraceSelected && (
               <polyline
@@ -1360,117 +1541,112 @@ export const FieldStripAlignmentStage: React.FC<{
               points={ptsAttr}
               fill="none"
               stroke="transparent"
-              strokeWidth="14"
+              strokeWidth="16"
               strokeLinecap="round"
               strokeLinejoin="round"
               onPointerDown={onLinePointerDown}
-              className={pointActionMode === 'add_point' ? 'cursor-crosshair' : 'cursor-move'}
+              className={
+                isJoinMode
+                  ? 'cursor-pointer'
+                  : pointActionMode === 'add_point'
+                  ? 'cursor-crosshair'
+                  : 'cursor-move'
+              }
             />
 
-            {/* '+' Add-Point Handles along the joint (tap or drag to add a point on the joint and bend/move/extend it) */}
-            {(isTraceSelected || controlRatios.length === 0) &&
-              addCandidateRatios.map((candRatio, cIdx) => {
-                if (!isTraceSelected && cIdx !== Math.floor(addCandidateRatios.length / 2)) {
-                  return null;
-                }
-                const candPt = getPointAtRatio(candRatio);
-                return (
-                  <g
-                    key={`add-pt-${item.id}-${candRatio}`}
-                    transform={`translate(${candPt.x.toFixed(1)}, ${candPt.y.toFixed(1)})`}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      setSelectedTraceItem({ id: item.id, kind: item.kind, panel: item.panel });
-                      pushUndo();
-                      const pt = getStripSvgCoords(e.clientX, e.clientY);
-                      const added = addControlPointToJoint(item, candRatio);
-                      if (pointActionMode === 'add_point') {
-                        setPointActionMode('bend');
-                      }
-                      setDraggingHandle({
-                        id: item.id,
-                        kind: item.kind,
-                        panel: item.panel,
-                        handleType: pointActionMode === 'move' ? 'center' : 'bend_point',
-                        bendPointIdx: added.idx,
-                        bendRatio: added.ratio,
-                        lastStripX: pt.x,
-                        lastStripY: pt.y,
-                      });
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <title>Tap or drag to add a point on this joint to bend, move, or extend it</title>
-                    <circle
-                      cx="0"
-                      cy="0"
-                      r={isTraceSelected ? 6.5 : 5.5}
-                      fill="#0f172a"
-                      stroke="#38bdf8"
-                      strokeWidth="1.8"
-                    />
-                    <path
-                      d="M -3 0 L 3 0 M 0 -3 L 0 3"
-                      stroke="#38bdf8"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                    />
-                  </g>
-                );
-              })}
+            {/* DISCIPLINE: Handles (Start/Open, End, Bend Points, Add Handles) ONLY shown on the SELECTED item */}
+            {isTraceSelected && (
+              <>
+                {/* '+' Add-Point Handles along the joint (tap or drag to add a point on the joint and bend/move/extend it) */}
+                {addCandidateRatios.map((candRatio) => {
+                  const candPt = getPointAtRatio(candRatio);
+                  return (
+                    <g
+                      key={`add-pt-${item.id}-${candRatio}`}
+                      transform={`translate(${candPt.x.toFixed(1)}, ${candPt.y.toFixed(1)})`}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        setSelectedTraceItem({ id: item.id, kind: item.kind, panel: item.panel });
+                        pushUndo();
+                        const pt = getStripSvgCoords(e.clientX, e.clientY);
+                        const added = addControlPointToJoint(item, candRatio);
+                        if (pointActionMode === 'add_point') {
+                          setPointActionMode('bend');
+                        }
+                        setDraggingHandle({
+                          id: item.id,
+                          kind: item.kind,
+                          panel: item.panel,
+                          handleType: pointActionMode === 'move' ? 'center' : 'bend_point',
+                          bendPointIdx: added.idx,
+                          bendRatio: added.ratio,
+                          lastStripX: pt.x,
+                          lastStripY: pt.y,
+                        });
+                      }}
+                      className="cursor-pointer"
+                    >
+                      <title>Tap or drag to add a point on this joint to bend, move, or extend it</title>
+                      <circle cx="0" cy="0" r={6.5} fill="#0f172a" stroke="#38bdf8" strokeWidth="1.8" />
+                      <path d="M -3 0 L 3 0 M 0 -3 L 0 3" stroke="#38bdf8" strokeWidth="1.6" strokeLinecap="round" />
+                    </g>
+                  );
+                })}
 
-            {/* Added Control Points on the Joint (Drag to Bend / Move / Extend) */}
-            {controlRatios.map((ratio, bIdx) => {
-              const bPt = getPointAtRatio(ratio);
-              const isPtSel = isTraceSelected && selectedControlPointIdx === bIdx;
-              return (
-                <g
-                  key={`bend-pt-${item.id}-${bIdx}`}
-                  transform={`translate(${bPt.x.toFixed(1)}, ${bPt.y.toFixed(1)})`}
-                  onPointerDown={(e) => onBendPointPointerDown(e, bIdx, ratio)}
-                  className="cursor-pointer"
-                >
-                  <title>Drag point to bend, move, or extend joint</title>
+                {/* Added Control Points on the Joint (Drag to Bend / Move / Extend) */}
+                {controlRatios.map((ratio, bIdx) => {
+                  const bPt = getPointAtRatio(ratio);
+                  const isPtSel = selectedControlPointIdx === bIdx;
+                  return (
+                    <g
+                      key={`bend-pt-${item.id}-${bIdx}`}
+                      transform={`translate(${bPt.x.toFixed(1)}, ${bPt.y.toFixed(1)})`}
+                      onPointerDown={(e) => onBendPointPointerDown(e, bIdx, ratio)}
+                      className="cursor-pointer"
+                    >
+                      <title>Drag point to bend, move, or extend joint</title>
+                      <circle
+                        cx="0"
+                        cy="0"
+                        r={isPtSel ? 8 : 6.8}
+                        fill={isPtSel ? '#8b5cf6' : '#0284c7'}
+                        stroke="#fde047"
+                        strokeWidth="2.2"
+                      />
+                      <circle cx="0" cy="0" r="2.3" fill="#ffffff" />
+                    </g>
+                  );
+                })}
+
+                {/* Start Endpoint Handle (Open Point - Yellow/Amber) */}
+                <g onPointerDown={(e) => onEndpointPointerDown(e, 'start')} className="cursor-pointer">
                   <circle
-                    cx="0"
-                    cy="0"
-                    r={isPtSel ? 8 : 6.8}
-                    fill={isPtSel ? '#8b5cf6' : '#0284c7'}
-                    stroke="#fde047"
+                    cx={startPt.x}
+                    cy={startPt.y}
+                    r={7.5}
+                    fill="#f59e0b"
+                    stroke="#0f172a"
                     strokeWidth="2.2"
                   />
-                  <circle cx="0" cy="0" r="2.3" fill="#ffffff" />
+                  <circle cx={startPt.x} cy={startPt.y} r={2.5} fill="#ffffff" />
+                  <title>Start / Open Point: Drag to extend or align joint</title>
                 </g>
-              );
-            })}
 
-            {/* Start Endpoint Handle (Drag to Extend / Align Start) */}
-            <circle
-              cx={startPt.x}
-              cy={startPt.y}
-              r={6.8}
-              fill="#f59e0b"
-              stroke="#0f172a"
-              strokeWidth="2"
-              onPointerDown={(e) => onEndpointPointerDown(e, 'start')}
-              className="cursor-pointer"
-            >
-              <title>Drag endpoint to extend or align joint</title>
-            </circle>
-
-            {/* End Endpoint Handle (Drag to Extend / Align End) */}
-            <circle
-              cx={endPt.x}
-              cy={endPt.y}
-              r={6.8}
-              fill="#10b981"
-              stroke="#0f172a"
-              strokeWidth="2"
-              onPointerDown={(e) => onEndpointPointerDown(e, 'end')}
-              className="cursor-pointer"
-            >
-              <title>Drag endpoint to extend or align joint</title>
-            </circle>
+                {/* End Endpoint Handle (Green) */}
+                <g onPointerDown={(e) => onEndpointPointerDown(e, 'end')} className="cursor-pointer">
+                  <circle
+                    cx={endPt.x}
+                    cy={endPt.y}
+                    r={7.5}
+                    fill="#10b981"
+                    stroke="#0f172a"
+                    strokeWidth="2.2"
+                  />
+                  <circle cx={endPt.x} cy={endPt.y} r={2.5} fill="#ffffff" />
+                  <title>End Point: Drag to extend or align joint</title>
+                </g>
+              </>
+            )}
           </g>
         );
       })}
@@ -1500,7 +1676,7 @@ export const FieldStripAlignmentStage: React.FC<{
 
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 overflow-y-auto bg-slate-950 touch-pan-y">
-      {/* Simple Top Joint Point Bar: Add Point on Joint • Bend • Move • Extend */}
+      {/* Top Joint & Element Bar: Add Point • Bend • Move • Extend • Join Joints */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex flex-wrap items-center gap-1.5">
           <button
@@ -1563,6 +1739,38 @@ export const FieldStripAlignmentStage: React.FC<{
             title="Drag endpoint to extend the joint"
           >
             Extend
+          </button>
+
+          {/* Join Joints Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (isJoinMode) {
+                setIsJoinMode(false);
+                setJoinFirstTraceId(null);
+              } else {
+                setIsJoinMode(true);
+                if (
+                  selectedTraceItem &&
+                  (selectedTraceItem.kind === 'joint' || selectedTraceItem.kind === 'vein')
+                ) {
+                  const isProj = selectedTraceItem.id.startsWith('proj-');
+                  const realId = isProj
+                    ? selectedTraceItem.id.replace(/^proj-(lw|cr|rw)-/, '')
+                    : selectedTraceItem.id;
+                  setJoinFirstTraceId(realId);
+                }
+              }
+            }}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              isJoinMode
+                ? 'bg-sky-500 text-slate-950 shadow ring-2 ring-sky-300 font-black animate-pulse'
+                : 'bg-slate-800 text-sky-300 hover:bg-slate-700 border border-sky-500/40'
+            }`}
+            title="Connect / Join two joints into a single continuous trace"
+          >
+            <GitMerge className="w-3.5 h-3.5" />
+            {isJoinMode ? 'Joining Active...' : 'Join Joints'}
           </button>
 
           {selectedTraceItem && selectedControlPointIdx !== null && (
@@ -1645,6 +1853,799 @@ export const FieldStripAlignmentStage: React.FC<{
           </button>
         </div>
       </div>
+
+      {/* 1. Join Mode Active Alert Banner */}
+      {isJoinMode && (
+        <div className="bg-sky-950/90 border border-sky-500/60 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-3 text-sky-200 text-xs shrink-0 shadow-lg animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <GitMerge className="w-4 h-4 text-sky-400 animate-pulse shrink-0" />
+            <span>
+              <strong>Join Mode Active:</strong>{' '}
+              {joinFirstTraceId ? (
+                <>
+                  First joint selected (
+                  <span className="font-mono font-bold text-amber-300">
+                    {activeRound.jointTraces.find((t) => t.id === joinFirstTraceId)?.label ||
+                      joinFirstTraceId}
+                  </span>
+                  ). Click the second joint on the strip log to connect them into a single joint!
+                </>
+              ) : (
+                'Click the first joint to start, then click the second joint to connect them.'
+              )}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsJoinMode(false);
+              setJoinFirstTraceId(null);
+            }}
+            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer border border-slate-700"
+          >
+            Cancel Join
+          </button>
+        </div>
+      )}
+
+      {/* 2. Interactive Strip Item Inspector Card (Edit Joint Text, Set, Dip, Lithology, Dip Surface) */}
+      {selectedTraceItem && activeSelectedTraceObj && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 sm:p-3 shrink-0 shadow-xl space-y-2">
+          {/* Header row */}
+          <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2">
+            <div className="flex items-center gap-2">
+              <span
+                className="w-3 h-3 rounded-full shrink-0"
+                style={{ backgroundColor: activeSelectedTraceObj.color }}
+              />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                {selectedTraceItem.kind === 'joint'
+                  ? 'Joint Trace Inspector'
+                  : selectedTraceItem.kind === 'lithology'
+                  ? 'Lithology Zone Inspector'
+                  : selectedTraceItem.kind === 'dip_plane'
+                  ? 'Dip Plane Surface Inspector'
+                  : selectedTraceItem.kind === 'vein'
+                  ? 'Vein / Foliation Inspector'
+                  : 'Structural Feature Inspector'}
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                {selectedTraceItem.panel.replace('_', ' ').toUpperCase()}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedTraceItem(null)}
+              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+              title="Close inspector"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Joint Inspector Body */}
+          {selectedTraceItem.kind === 'joint' && (() => {
+            const isProj = selectedTraceItem.id.startsWith('proj-');
+            const realId = isProj
+              ? selectedTraceItem.id.replace(/^proj-(lw|cr|rw)-/, '')
+              : selectedTraceItem.id;
+            const tr = activeRound.jointTraces.find((t) => t.id === realId);
+            if (!tr) return null;
+
+            return (
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 text-xs">
+                {/* Joint Label / Text Input */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium">Text / ID:</span>
+                  <input
+                    type="text"
+                    value={tr.label || ''}
+                    onChange={(e) => {
+                      const nextLabel = e.target.value;
+                      onUpdateRound((r) => ({
+                        ...r,
+                        jointTraces: r.jointTraces.map((t) =>
+                          t.id === realId ? { ...t, label: nextLabel } : t
+                        ),
+                      }));
+                    }}
+                    placeholder="e.g. J1, Fault-1"
+                    className="bg-slate-950 border border-slate-700 focus:border-amber-400 rounded px-2 py-1 text-white text-xs font-mono w-28 focus:outline-none"
+                  />
+                </div>
+
+                {/* Joint Set Selector */}
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-slate-400 font-medium">Set:</span>
+                  {(
+                    [
+                      'unassigned',
+                      'J1',
+                      'J2',
+                      'J3',
+                      'J4',
+                      'J5',
+                      'JR1',
+                      'JR2',
+                      'J-Bedding',
+                      'J-Random',
+                    ] as FieldJointGroupingId[]
+                  ).map((setId) => {
+                    const isCur = tr.setId === setId;
+                    const col = FIELD_JOINT_GROUP_COLORS[setId]?.stroke || '#0f172a';
+                    return (
+                      <button
+                        key={setId}
+                        type="button"
+                        onClick={() => {
+                          pushUndo();
+                          onUpdateRound((r) => ({
+                            ...r,
+                            jointTraces: r.jointTraces.map((t) =>
+                              t.id === realId
+                                ? {
+                                    ...t,
+                                    setId,
+                                    label:
+                                      setId === 'unassigned'
+                                        ? 'J'
+                                        : t.label && t.label !== 'J'
+                                        ? t.label
+                                        : setId,
+                                  }
+                                : t
+                            ),
+                          }));
+                        }}
+                        style={{
+                          borderColor: isCur ? col : undefined,
+                          backgroundColor: isCur ? `${col}33` : undefined,
+                          color: isCur ? '#ffffff' : '#94a3b8',
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                          isCur
+                            ? 'font-black shadow'
+                            : 'border-slate-800 bg-slate-950 hover:border-slate-700'
+                        } cursor-pointer transition-colors`}
+                      >
+                        {setId === 'unassigned' ? 'Unassigned' : setId}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Dip Direction & Dip Amount Steppers */}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-400 font-medium">Dip Dir:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const nextDipDir = (tr.dipDirection - 5 + 360) % 360;
+                        onUpdateRound((r) => ({
+                          ...r,
+                          jointTraces: r.jointTraces.map((t) =>
+                            t.id === realId
+                              ? { ...t, dipDirection: nextDipDir, editedByCompass: true }
+                              : t
+                          ),
+                        }));
+                      }}
+                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      max="360"
+                      value={tr.dipDirection}
+                      onChange={(e) => {
+                        const val = Math.max(0, Math.min(360, Number(e.target.value) || 0));
+                        onUpdateRound((r) => ({
+                          ...r,
+                          jointTraces: r.jointTraces.map((t) =>
+                            t.id === realId ? { ...t, dipDirection: val, editedByCompass: true } : t
+                          ),
+                        }));
+                      }}
+                      className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-center text-amber-300 font-mono font-bold text-xs w-14 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const nextDipDir = (tr.dipDirection + 5) % 360;
+                        onUpdateRound((r) => ({
+                          ...r,
+                          jointTraces: r.jointTraces.map((t) =>
+                            t.id === realId
+                              ? { ...t, dipDirection: nextDipDir, editedByCompass: true }
+                              : t
+                          ),
+                        }));
+                      }}
+                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      +
+                    </button>
+                    <span className="text-slate-500 text-[10px]">°</span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-400 font-medium">Dip Amt:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const nextDipAmt = Math.max(0, tr.dipAmount - 5);
+                        onUpdateRound((r) => ({
+                          ...r,
+                          jointTraces: r.jointTraces.map((t) =>
+                            t.id === realId
+                              ? { ...t, dipAmount: nextDipAmt, editedByCompass: true }
+                              : t
+                          ),
+                        }));
+                      }}
+                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      max="90"
+                      value={tr.dipAmount}
+                      onChange={(e) => {
+                        const val = Math.max(0, Math.min(90, Number(e.target.value) || 0));
+                        onUpdateRound((r) => ({
+                          ...r,
+                          jointTraces: r.jointTraces.map((t) =>
+                            t.id === realId ? { ...t, dipAmount: val, editedByCompass: true } : t
+                          ),
+                        }));
+                      }}
+                      className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-center text-amber-300 font-mono font-bold text-xs w-12 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const nextDipAmt = Math.min(90, tr.dipAmount + 5);
+                        onUpdateRound((r) => ({
+                          ...r,
+                          jointTraces: r.jointTraces.map((t) =>
+                            t.id === realId
+                              ? { ...t, dipAmount: nextDipAmt, editedByCompass: true }
+                              : t
+                          ),
+                        }));
+                      }}
+                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      +
+                    </button>
+                    <span className="text-slate-500 text-[10px]">°</span>
+                  </div>
+                </div>
+
+                {/* Quick Joint Actions */}
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      pushUndo();
+                      addControlPointToJoint(activeSelectedTraceObj);
+                      setPointActionMode('bend');
+                    }}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    title="Add an interior control point to bend this joint"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Bend Point
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      pushUndo();
+                      const revPts = tr.points.slice().reverse();
+                      const ori = computeTraceOrientationFromTunnelDrive(
+                        revPts,
+                        tr.panel,
+                        activeRound.tunnelDriveDirection,
+                        tr.crownDipSign,
+                        activeLocation.widthM,
+                        activeLocation.heightM
+                      );
+                      const metricPoints = computePhysicalMetricPoints(
+                        revPts,
+                        tr.panel,
+                        activeLocation,
+                        activeRound
+                      );
+                      onUpdateRound((r) => ({
+                        ...r,
+                        jointTraces: r.jointTraces.map((t) =>
+                          t.id === realId
+                            ? {
+                                ...t,
+                                points: revPts,
+                                metricPoints,
+                                dipDirection: t.editedByCompass ? t.dipDirection : ori.dipDirection,
+                                dipAmount: t.editedByCompass ? t.dipAmount : ori.dipAmount,
+                                strike: t.editedByCompass ? t.strike : ori.strike,
+                                traceLengthM: ori.traceLengthM,
+                              }
+                            : t
+                        ),
+                      }));
+                    }}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    title="Reverse endpoints of this joint trace"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Reverse
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsJoinMode(true);
+                      setJoinFirstTraceId(realId);
+                    }}
+                    className="px-2 py-1 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    title="Connect this joint with another joint into a single trace"
+                  >
+                    <GitMerge className="w-3 h-3" />
+                    Join...
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      pushUndo();
+                      onUpdateRound((r) => ({
+                        ...r,
+                        jointTraces: r.jointTraces.filter((t) => t.id !== realId),
+                      }));
+                      setSelectedTraceItem(null);
+                    }}
+                    className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    title="Delete this joint"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Lithology Inspector Body */}
+          {selectedTraceItem.kind === 'lithology' && (() => {
+            const st = activeRound.lithologyStrokes.find((s) => s.id === selectedTraceItem.id);
+            if (!st) return null;
+
+            return (
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 text-xs">
+                {/* Rock Type Selector */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium">Rock Type:</span>
+                  <select
+                    value={st.rockType}
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      const catalogItem = FIELD_LITHOLOGY_CATALOG.find((c) => c.id === newType);
+                      pushUndo();
+                      onUpdateRound((r) => ({
+                        ...r,
+                        lithologyStrokes: r.lithologyStrokes.map((s) =>
+                          s.id === st.id
+                            ? {
+                                ...s,
+                                rockType: newType,
+                                rockName: catalogItem?.name || s.rockName,
+                                patternId: catalogItem?.patternId || s.patternId,
+                                color: s.customColor || catalogItem?.colorTint || s.color,
+                              }
+                            : s
+                        ),
+                      }));
+                    }}
+                    className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-xs font-semibold focus:outline-none"
+                  >
+                    {FIELD_LITHOLOGY_CATALOG.map((rc) => (
+                      <option key={rc.id} value={rc.id}>
+                        {rc.name} ({rc.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Rock Name Custom Input */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium">Name:</span>
+                  <input
+                    type="text"
+                    value={st.rockName || ''}
+                    onChange={(e) => {
+                      const nextName = e.target.value;
+                      onUpdateRound((r) => ({
+                        ...r,
+                        lithologyStrokes: r.lithologyStrokes.map((s) =>
+                          s.id === st.id ? { ...s, rockName: nextName } : s
+                        ),
+                      }));
+                    }}
+                    className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono w-28 focus:outline-none"
+                  />
+                </div>
+
+                {/* Rock Custom Color Picker */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium">Color:</span>
+                  <input
+                    type="color"
+                    value={st.customColor || st.color || '#fef08a'}
+                    onChange={(e) => {
+                      const nextCol = e.target.value;
+                      onUpdateRound((r) => ({
+                        ...r,
+                        lithologyStrokes: r.lithologyStrokes.map((s) =>
+                          s.id === st.id ? { ...s, customColor: nextCol, color: nextCol } : s
+                        ),
+                      }));
+                    }}
+                    className="w-7 h-7 rounded border border-slate-700 bg-transparent cursor-pointer"
+                  />
+                </div>
+
+                {/* Symbol Density */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium">Density:</span>
+                  <input
+                    type="range"
+                    min="30"
+                    max="180"
+                    step="5"
+                    value={st.symbolDensity ?? 85}
+                    onChange={(e) => {
+                      const nextDens = Number(e.target.value);
+                      onUpdateRound((r) => ({
+                        ...r,
+                        lithologyStrokes: r.lithologyStrokes.map((s) =>
+                          s.id === st.id ? { ...s, symbolDensity: nextDens } : s
+                        ),
+                      }));
+                    }}
+                    className="w-24 accent-amber-500 cursor-pointer"
+                  />
+                  <span className="font-mono text-[10px] text-amber-400 w-8">
+                    {st.symbolDensity ?? 85}%
+                  </span>
+                </div>
+
+                {/* Delete button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    pushUndo();
+                    onUpdateRound((r) => ({
+                      ...r,
+                      lithologyStrokes: r.lithologyStrokes.filter((s) => s.id !== st.id),
+                    }));
+                    setSelectedTraceItem(null);
+                  }}
+                  className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1 cursor-pointer ml-auto"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Zone
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Dip Plane Surface Inspector Body */}
+          {selectedTraceItem.kind === 'dip_plane' && (() => {
+            const ds = activeRound.dipPlaneSurfaces.find((d) => d.id === selectedTraceItem.id);
+            if (!ds) return null;
+
+            return (
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 text-xs">
+                {/* Joint Set Selector */}
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-slate-400 font-medium">Set:</span>
+                  {(
+                    ['unassigned', 'J1', 'J2', 'J3', 'J4', 'J5', 'J-Bedding', 'J-Random'] as FieldJointGroupingId[]
+                  ).map((setId) => {
+                    const isCur = ds.setId === setId;
+                    const col = FIELD_JOINT_GROUP_COLORS[setId]?.stroke || '#0f172a';
+                    return (
+                      <button
+                        key={setId}
+                        type="button"
+                        onClick={() => {
+                          pushUndo();
+                          onUpdateRound((r) => ({
+                            ...r,
+                            dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
+                              d.id === ds.id ? { ...d, setId } : d
+                            ),
+                          }));
+                        }}
+                        style={{
+                          borderColor: isCur ? col : undefined,
+                          backgroundColor: isCur ? `${col}33` : undefined,
+                          color: isCur ? '#ffffff' : '#94a3b8',
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                          isCur
+                            ? 'font-black shadow'
+                            : 'border-slate-800 bg-slate-950 hover:border-slate-700'
+                        } cursor-pointer transition-colors`}
+                      >
+                        {setId === 'unassigned' ? 'Unassigned' : setId}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Dip Direction & Amount */}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-400 font-medium">Dip Dir:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const nextDipDir = (ds.dipDirection - 5 + 360) % 360;
+                        onUpdateRound((r) => ({
+                          ...r,
+                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
+                            d.id === ds.id ? { ...d, dipDirection: nextDipDir } : d
+                          ),
+                        }));
+                      }}
+                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      max="360"
+                      value={ds.dipDirection}
+                      onChange={(e) => {
+                        const val = Math.max(0, Math.min(360, Number(e.target.value) || 0));
+                        onUpdateRound((r) => ({
+                          ...r,
+                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
+                            d.id === ds.id ? { ...d, dipDirection: val } : d
+                          ),
+                        }));
+                      }}
+                      className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-center text-cyan-300 font-mono font-bold text-xs w-14 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const nextDipDir = (ds.dipDirection + 5) % 360;
+                        onUpdateRound((r) => ({
+                          ...r,
+                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
+                            d.id === ds.id ? { ...d, dipDirection: nextDipDir } : d
+                          ),
+                        }));
+                      }}
+                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      +
+                    </button>
+                    <span className="text-slate-500 text-[10px]">°</span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-400 font-medium">Dip Amt:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const nextDipAmt = Math.max(0, ds.dipAmount - 5);
+                        onUpdateRound((r) => ({
+                          ...r,
+                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
+                            d.id === ds.id ? { ...d, dipAmount: nextDipAmt } : d
+                          ),
+                        }));
+                      }}
+                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      max="90"
+                      value={ds.dipAmount}
+                      onChange={(e) => {
+                        const val = Math.max(0, Math.min(90, Number(e.target.value) || 0));
+                        onUpdateRound((r) => ({
+                          ...r,
+                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
+                            d.id === ds.id ? { ...d, dipAmount: val } : d
+                          ),
+                        }));
+                      }}
+                      className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-center text-cyan-300 font-mono font-bold text-xs w-12 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const nextDipAmt = Math.min(90, ds.dipAmount + 5);
+                        onUpdateRound((r) => ({
+                          ...r,
+                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
+                            d.id === ds.id ? { ...d, dipAmount: nextDipAmt } : d
+                          ),
+                        }));
+                      }}
+                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      +
+                    </button>
+                    <span className="text-slate-500 text-[10px]">°</span>
+                  </div>
+                </div>
+
+                {/* Delete Surface */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    pushUndo();
+                    onUpdateRound((r) => ({
+                      ...r,
+                      dipPlaneSurfaces: r.dipPlaneSurfaces.filter((d) => d.id !== ds.id),
+                    }));
+                    setSelectedTraceItem(null);
+                  }}
+                  className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1 cursor-pointer ml-auto"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Surface
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Vein / Foliation Inspector Body */}
+          {selectedTraceItem.kind === 'vein' && (() => {
+            const st = activeRound.lithologyStrokes.find((s) => s.id === selectedTraceItem.id);
+            if (!st) return null;
+
+            return (
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium">Band Name:</span>
+                  <input
+                    type="text"
+                    value={st.rockName || ''}
+                    onChange={(e) => {
+                      const nextName = e.target.value;
+                      onUpdateRound((r) => ({
+                        ...r,
+                        lithologyStrokes: r.lithologyStrokes.map((s) =>
+                          s.id === st.id ? { ...s, rockName: nextName } : s
+                        ),
+                      }));
+                    }}
+                    className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono w-32 focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium">Thickness:</span>
+                  <input
+                    type="range"
+                    min="8"
+                    max="80"
+                    step="2"
+                    value={st.bandThicknessPx ?? st.brushRadius * 2}
+                    onChange={(e) => {
+                      const nextThick = Number(e.target.value);
+                      onUpdateRound((r) => ({
+                        ...r,
+                        lithologyStrokes: r.lithologyStrokes.map((s) =>
+                          s.id === st.id ? { ...s, bandThicknessPx: nextThick } : s
+                        ),
+                      }));
+                    }}
+                    className="w-24 accent-teal-500 cursor-pointer"
+                  />
+                  <span className="font-mono text-[10px] text-teal-400">
+                    {st.bandThicknessPx ?? st.brushRadius * 2}px
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    pushUndo();
+                    onUpdateRound((r) => ({
+                      ...r,
+                      lithologyStrokes: r.lithologyStrokes.filter((s) => s.id !== st.id),
+                    }));
+                    setSelectedTraceItem(null);
+                  }}
+                  className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1 cursor-pointer ml-auto"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Band
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Feature Inspector Body */}
+          {selectedTraceItem.kind === 'feature' && (() => {
+            const ft = (activeRound.structuralFeatures || []).find(
+              (f) => f.id === selectedTraceItem.id
+            );
+            if (!ft) return null;
+
+            return (
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium">Label:</span>
+                  <input
+                    type="text"
+                    value={ft.label || ''}
+                    onChange={(e) => {
+                      const nextLabel = e.target.value;
+                      onUpdateRound((r) => ({
+                        ...r,
+                        structuralFeatures: (r.structuralFeatures || []).map((f) =>
+                          f.id === ft.id ? { ...f, label: nextLabel } : f
+                        ),
+                      }));
+                    }}
+                    className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono w-28 focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium">Type:</span>
+                  <span className="font-bold text-rose-300 bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800">
+                    {ft.featureType.toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-amber-300 font-mono font-bold">
+                  <span>
+                    {ft.dipDirection}°/{ft.dipAmount}°
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    pushUndo();
+                    onUpdateRound((r) => ({
+                      ...r,
+                      structuralFeatures: (r.structuralFeatures || []).filter(
+                        (f) => f.id !== ft.id
+                      ),
+                    }));
+                    setSelectedTraceItem(null);
+                  }}
+                  className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1 cursor-pointer ml-auto"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Feature
+                </button>
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Direct Unfolded Strip Canvas (No outer enclosing box around the strip) */}
       <div

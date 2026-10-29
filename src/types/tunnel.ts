@@ -319,6 +319,7 @@ export interface CustomSurfacePortionConfig {
   hasCrown: boolean;          // Default true; false if e.g. Transformer Hall bench/wall logging with only Face & Wall portion
   hasLeftWall: boolean;       // Default true (Top Heading also has Left Wall!)
   hasRightWall: boolean;      // Default true (Top Heading also has Right Wall!)
+  hasInvert?: boolean;        // Optional floor invert presence flag
   excavationStage?: 'FULL_FACE' | 'TOP_HEADING' | 'full_face' | 'top_heading';
   benchHeightRemovedMeters?: number;
   leftBenchHeightMeters?: number;

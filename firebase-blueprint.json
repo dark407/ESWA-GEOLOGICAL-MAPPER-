@@ -393,6 +393,35 @@
         "projectId": { "type": "string", "maxLength": 128 }
       },
       "required": ["joinCode", "projectId"]
+    },
+    "MasterAuthChallenge": {
+      "title": "MasterAuthChallenge",
+      "description": "Active 6-digit email challenges for master verification.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 160 },
+        "code": { "type": "string", "maxLength": 10 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "expiresAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["email", "code", "createdAt", "expiresAt"]
+    },
+    "UserFeedback": {
+      "title": "UserFeedback",
+      "description": "User feedback, bug reports, and inquiries from field geologists.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 120 },
+        "userEmail": { "type": "string", "maxLength": 160 },
+        "deviceId": { "type": "string", "maxLength": 80 },
+        "industryMode": { "type": "string", "maxLength": 40 },
+        "message": { "type": "string", "maxLength": 2000 },
+        "photoUrl": { "type": "string", "maxLength": 500000 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["new", "reviewed", "resolved"] }
+      },
+      "required": ["id", "userName", "message", "createdAt", "status"]
     }
   },
   "firestore": {
@@ -435,6 +464,14 @@
     "/ai_training_telemetry/{recordId}": {
       "schema": { "$ref": "#/entities/AiTrainingTelemetry" },
       "description": "Underground geological mapping telemetry records for AI training and ground-truth dataset collection. Read/export restricted strictly to Master Admin akashdhanusheswar@gmail.com."
+    },
+    "/eswa_master_auth_challenges/{challengeId}": {
+      "schema": { "$ref": "#/entities/MasterAuthChallenge" },
+      "description": "Active 6-digit email challenges for master verification."
+    },
+    "/eswa_user_feedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/UserFeedback" },
+      "description": "User feedback items and field reports."
     }
   }
 }

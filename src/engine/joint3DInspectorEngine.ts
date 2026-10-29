@@ -30,7 +30,15 @@ export interface TunnelSpatialGeometry {
   pullLengthM: number;
   driveAzimuthDeg?: number; // 0..360° from North
   currentChainageM?: number;
-  tunnelShape?: 'd_shaped' | 'horseshoe' | 'circular' | 'rectangular';
+  tunnelShape?: 'd_shaped' | 'horseshoe' | 'circular' | 'rectangular' | 'freeform_custom';
+  crossSectionPoints?: { x: number; y: number }[];
+  customProfile?: any;
+  hasLeftWall?: boolean;
+  hasRightWall?: boolean;
+  hasCrown?: boolean;
+  hasInvert?: boolean;
+  leftWallHeightM?: number;
+  rightWallHeightM?: number;
 }
 
 export interface StrikeConventionResult {
@@ -693,12 +701,78 @@ function clipLineToRect(
 }
 
 /**
- * Calculates mathematical plane intersections with all 4 tunnel surfaces:
+ * Normalizes cross-section points to tunnel local frame:
+ * Y = transverse horizontal [0, widthM]
+ * Z = vertical elevation [0, heightM]
+ */
+export function getCrossSectionVerticesInTunnelFrame(
+  geom: TunnelSpatialGeometry
+): { y: number; z: number }[] {
+  if (!geom.crossSectionPoints || geom.crossSectionPoints.length < 3) return [];
+  const rawPts = geom.crossSectionPoints;
+  const minX = Math.min(...rawPts.map((p) => p.x));
+  const maxX = Math.max(...rawPts.map((p) => p.x));
+  const minY = Math.min(...rawPts.map((p) => p.y));
+  const maxY = Math.max(...rawPts.map((p) => p.y));
+  const spanX = Math.max(0.01, maxX - minX);
+  const spanY = Math.max(0.01, maxY - minY);
+
+  return rawPts.map((pt) => ({
+    y: Number((((pt.x - minX) / spanX) * geom.widthM).toFixed(3)),
+    z: Number((((pt.y - minY) / spanY) * geom.heightM).toFixed(3)),
+  }));
+}
+
+/**
+ * Clips an infinite line A*Y + B*Z + C = 0 to an arbitrary polygon in (Y, Z) frame.
+ */
+export function clipLineToPolygon(
+  A: number,
+  B: number,
+  C: number,
+  poly: { y: number; z: number }[]
+): { p1: { x: number; y: number }; p2: { x: number; y: number } } | null {
+  const eps = 1e-6;
+  const pts: { x: number; y: number }[] = [];
+  const n = poly.length;
+
+  for (let i = 0; i < n; i++) {
+    const p0 = poly[i];
+    const p1 = poly[(i + 1) % n];
+
+    const v0 = A * p0.y + B * p0.z + C;
+    const v1 = A * p1.y + B * p1.z + C;
+
+    if (Math.abs(v0) < eps) {
+      pts.push({ x: p0.y, y: p0.z });
+    }
+    if ((v0 > eps && v1 < -eps) || (v0 < -eps && v1 > eps)) {
+      const t = v0 / (v0 - v1);
+      const interY = p0.y + t * (p1.y - p0.y);
+      const interZ = p0.z + t * (p1.z - p0.z);
+      pts.push({ x: interY, y: interZ });
+    }
+  }
+
+  const unique: { x: number; y: number }[] = [];
+  pts.forEach((p) => {
+    if (!unique.some((u) => Math.hypot(u.x - p.x, u.y - p.y) < 1e-3)) {
+      unique.push(p);
+    }
+  });
+
+  if (unique.length < 2) return null;
+  unique.sort((a, b) => (a.x !== b.x ? a.x - b.x : a.y - b.y));
+  return { p1: unique[0], p2: unique[unique.length - 1] };
+}
+
+/**
+ * Calculates mathematical plane intersections with all active tunnel surfaces:
  * In tunnel-relative local frame:
  * 1. Face: X = pullLengthM, plane becomes b*Y + c*Z + (a*pullLengthM + d) = 0
- * 2. Left Wall: Y = 0, plane becomes a*X + c*Z + d = 0
- * 3. Right Wall: Y = widthM, plane becomes a*X + c*Z + (b*widthM + d) = 0
- * 4. Crown Arch: Z = heightM, plane becomes a*X + b*Y + (c*heightM + d) = 0
+ * 2. Left Wall: Y = 0, plane becomes a*X + c*Z + d = 0 (only if hasLeftWall)
+ * 3. Right Wall: Y = widthM, plane becomes a*X + c*Z + (b*widthM + d) = 0 (only if hasRightWall)
+ * 4. Crown Arch: Z = heightM, plane becomes a*X + b*Y + (c*heightM + d) = 0 (only if hasCrown)
  */
 export function calculatePlaneSurfaceIntersections(
   plane: PlaneEquation,
@@ -717,7 +791,12 @@ export function calculatePlaneSurfaceIntersections(
   // 1. FACE (X = pullLengthM)
   // Equation in (Y, Z): b * Y + c * Z + (a * pullLengthM + d) = 0
   const faceC = a * geom.pullLengthM + d;
-  const faceClip = clipLineToRect(b, c, faceC, 0, geom.widthM, 0, geom.heightM);
+  const customFacePoly = getCrossSectionVerticesInTunnelFrame(geom);
+  const faceClip =
+    customFacePoly.length >= 3
+      ? clipLineToPolygon(b, c, faceC, customFacePoly)
+      : clipLineToRect(b, c, faceC, 0, geom.widthM, 0, geom.heightM);
+
   let faceSeg: SurfaceIntersectionSegment | undefined;
   if (faceClip) {
     const len = Math.hypot(faceClip.p2.x - faceClip.p1.x, faceClip.p2.y - faceClip.p1.y);
@@ -733,56 +812,61 @@ export function calculatePlaneSurfaceIntersections(
   }
 
   // 2. LEFT WALL (Y = 0)
-  // Equation in (X, Z): a * X + c * Z + d = 0
-  const leftClip = clipLineToRect(a, c, d, 0, geom.pullLengthM, 0, geom.wallHeightM);
   let leftSeg: SurfaceIntersectionSegment | undefined;
-  if (leftClip) {
-    const len = Math.hypot(leftClip.p2.x - leftClip.p1.x, leftClip.p2.y - leftClip.p1.y);
-    leftSeg = {
-      panel: 'left_wall',
-      p1: leftClip.p1,
-      p2: leftClip.p2,
-      lengthM: Number(len.toFixed(2)),
-      isObserved: sourcePanel === 'left_wall',
-      isInferredContinuation: sourcePanel !== 'left_wall',
-    };
-    totalM += len;
+  if (geom.hasLeftWall !== false) {
+    const leftH = geom.leftWallHeightM || geom.wallHeightM;
+    const leftClip = clipLineToRect(a, c, d, 0, geom.pullLengthM, 0, leftH);
+    if (leftClip) {
+      const len = Math.hypot(leftClip.p2.x - leftClip.p1.x, leftClip.p2.y - leftClip.p1.y);
+      leftSeg = {
+        panel: 'left_wall',
+        p1: leftClip.p1,
+        p2: leftClip.p2,
+        lengthM: Number(len.toFixed(2)),
+        isObserved: sourcePanel === 'left_wall',
+        isInferredContinuation: sourcePanel !== 'left_wall',
+      };
+      totalM += len;
+    }
   }
 
   // 3. RIGHT WALL (Y = widthM)
-  // Equation in (X, Z): a * X + c * Z + (b * widthM + d) = 0
-  const rightC = b * geom.widthM + d;
-  const rightClip = clipLineToRect(a, c, rightC, 0, geom.pullLengthM, 0, geom.wallHeightM);
   let rightSeg: SurfaceIntersectionSegment | undefined;
-  if (rightClip) {
-    const len = Math.hypot(rightClip.p2.x - rightClip.p1.x, rightClip.p2.y - rightClip.p1.y);
-    rightSeg = {
-      panel: 'right_wall',
-      p1: rightClip.p1,
-      p2: rightClip.p2,
-      lengthM: Number(len.toFixed(2)),
-      isObserved: sourcePanel === 'right_wall',
-      isInferredContinuation: sourcePanel !== 'right_wall',
-    };
-    totalM += len;
+  if (geom.hasRightWall !== false) {
+    const rightH = geom.rightWallHeightM || geom.wallHeightM;
+    const rightC = b * geom.widthM + d;
+    const rightClip = clipLineToRect(a, c, rightC, 0, geom.pullLengthM, 0, rightH);
+    if (rightClip) {
+      const len = Math.hypot(rightClip.p2.x - rightClip.p1.x, rightClip.p2.y - rightClip.p1.y);
+      rightSeg = {
+        panel: 'right_wall',
+        p1: rightClip.p1,
+        p2: rightClip.p2,
+        lengthM: Number(len.toFixed(2)),
+        isObserved: sourcePanel === 'right_wall',
+        isInferredContinuation: sourcePanel !== 'right_wall',
+      };
+      totalM += len;
+    }
   }
 
   // 4. CROWN ARCH (Z = heightM)
-  // Equation in (X, Y): a * X + b * Y + (c * heightM + d) = 0
-  const crownC = c * geom.heightM + d;
-  const crownClip = clipLineToRect(a, b, crownC, 0, geom.pullLengthM, 0, geom.widthM);
   let crownSeg: SurfaceIntersectionSegment | undefined;
-  if (crownClip) {
-    const len = Math.hypot(crownClip.p2.x - crownClip.p1.x, crownClip.p2.y - crownClip.p1.y);
-    crownSeg = {
-      panel: 'crown',
-      p1: crownClip.p1,
-      p2: crownClip.p2,
-      lengthM: Number(len.toFixed(2)),
-      isObserved: sourcePanel === 'crown',
-      isInferredContinuation: sourcePanel !== 'crown',
-    };
-    totalM += len;
+  if (geom.hasCrown !== false) {
+    const crownC = c * geom.heightM + d;
+    const crownClip = clipLineToRect(a, b, crownC, 0, geom.pullLengthM, 0, geom.widthM);
+    if (crownClip) {
+      const len = Math.hypot(crownClip.p2.x - crownClip.p1.x, crownClip.p2.y - crownClip.p1.y);
+      crownSeg = {
+        panel: 'crown',
+        p1: crownClip.p1,
+        p2: crownClip.p2,
+        lengthM: Number(len.toFixed(2)),
+        isObserved: sourcePanel === 'crown',
+        isInferredContinuation: sourcePanel !== 'crown',
+      };
+      totalM += len;
+    }
   }
 
   return {
@@ -795,12 +879,12 @@ export function calculatePlaneSurfaceIntersections(
 }
 
 // ----------------------------------------------------------------------------
-// 5. 3D PLANE CLIPPING TO TUNNEL BOUNDING BOX
+// 5. 3D PLANE CLIPPING TO TUNNEL BOUNDING BOX & CUSTOM PROFILE
 // ----------------------------------------------------------------------------
 
 /**
- * Clips the infinite plane a*X + b*Y + c*Z + d = 0 to the tunnel bounding box:
- * [0, pullLengthM] x [0, widthM] x [0, heightM].
+ * Clips the infinite plane a*X + b*Y + c*Z + d = 0 to the tunnel envelope:
+ * Supports both standard bounding box and exact custom polygon prism extrusion.
  * Returns an ordered 3D polygon array of vertices for Three.js rendering.
  */
 export function clipPlaneToTunnelBox(
@@ -810,28 +894,62 @@ export function clipPlaneToTunnelBox(
   const { a, b, c, d } = plane;
   const eps = 1e-6;
 
-  const xMin = 0, xMax = geom.pullLengthM;
-  const yMin = 0, yMax = geom.widthM;
-  const zMin = 0, zMax = geom.heightM;
+  const customPoly = getCrossSectionVerticesInTunnelFrame(geom);
 
-  // The 12 edges of the bounding box in (X, Y, Z)
-  const edges: [{ x: number; y: number; z: number }, { x: number; y: number; z: number }][] = [
+  // The edges of the tunnel envelope in (X, Y, Z)
+  const edges: [{ x: number; y: number; z: number }, { x: number; y: number; z: number }][] = [];
+
+  if (customPoly.length >= 3) {
+    const n = customPoly.length;
+    for (let i = 0; i < n; i++) {
+      const p0 = customPoly[i];
+      const p1 = customPoly[(i + 1) % n];
+
+      // Cross section perimeter at portal entrance (X = 0)
+      edges.push([
+        { x: 0, y: p0.y, z: p0.z },
+        { x: 0, y: p1.y, z: p1.z },
+      ]);
+
+      // Cross section perimeter at excavation face (X = pullLengthM)
+      edges.push([
+        { x: geom.pullLengthM, y: p0.y, z: p0.z },
+        { x: geom.pullLengthM, y: p1.y, z: p1.z },
+      ]);
+
+      // Longitudinal generator rail parallel to X
+      edges.push([
+        { x: 0, y: p0.y, z: p0.z },
+        { x: geom.pullLengthM, y: p0.y, z: p0.z },
+      ]);
+    }
+  } else {
+    const xMin = 0, xMax = geom.pullLengthM;
+    const yMin = 0, yMax = geom.widthM;
+    const zMin = 0, zMax = geom.heightM;
+
     // 4 edges parallel to X (longitudinal)
-    [{ x: xMin, y: yMin, z: zMin }, { x: xMax, y: yMin, z: zMin }],
-    [{ x: xMin, y: yMax, z: zMin }, { x: xMax, y: yMax, z: zMin }],
-    [{ x: xMin, y: yMin, z: zMax }, { x: xMax, y: yMin, z: zMax }],
-    [{ x: xMin, y: yMax, z: zMax }, { x: xMax, y: yMax, z: zMax }],
+    edges.push(
+      [{ x: xMin, y: yMin, z: zMin }, { x: xMax, y: yMin, z: zMin }],
+      [{ x: xMin, y: yMax, z: zMin }, { x: xMax, y: yMax, z: zMin }],
+      [{ x: xMin, y: yMin, z: zMax }, { x: xMax, y: yMin, z: zMax }],
+      [{ x: xMin, y: yMax, z: zMax }, { x: xMax, y: yMax, z: zMax }]
+    );
     // 4 edges parallel to Y (transverse)
-    [{ x: xMin, y: yMin, z: zMin }, { x: xMin, y: yMax, z: zMin }],
-    [{ x: xMax, y: yMin, z: zMin }, { x: xMax, y: yMax, z: zMin }],
-    [{ x: xMin, y: yMin, z: zMax }, { x: xMin, y: yMax, z: zMax }],
-    [{ x: xMax, y: yMin, z: zMax }, { x: xMax, y: yMax, z: zMax }],
+    edges.push(
+      [{ x: xMin, y: yMin, z: zMin }, { x: xMin, y: yMax, z: zMin }],
+      [{ x: xMax, y: yMin, z: zMin }, { x: xMax, y: yMax, z: zMin }],
+      [{ x: xMin, y: yMin, z: zMax }, { x: xMin, y: yMax, z: zMax }],
+      [{ x: xMax, y: yMin, z: zMax }, { x: xMax, y: yMax, z: zMax }]
+    );
     // 4 edges parallel to Z (vertical)
-    [{ x: xMin, y: yMin, z: zMin }, { x: xMin, y: yMin, z: zMax }],
-    [{ x: xMax, y: yMin, z: zMin }, { x: xMax, y: yMin, z: zMax }],
-    [{ x: xMin, y: yMax, z: zMin }, { x: xMin, y: yMax, z: zMax }],
-    [{ x: xMax, y: yMax, z: zMin }, { x: xMax, y: yMax, z: zMax }],
-  ];
+    edges.push(
+      [{ x: xMin, y: yMin, z: zMin }, { x: xMin, y: yMin, z: zMax }],
+      [{ x: xMax, y: yMin, z: zMin }, { x: xMax, y: yMin, z: zMax }],
+      [{ x: xMin, y: yMax, z: zMin }, { x: xMin, y: yMax, z: zMax }],
+      [{ x: xMax, y: yMax, z: zMin }, { x: xMax, y: yMax, z: zMax }]
+    );
+  }
 
   const intersectPts: Vec3D[] = [];
 

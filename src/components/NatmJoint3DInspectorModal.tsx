@@ -877,25 +877,45 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     // 6. Tunnel Static Geometry Construction (Clean Smooth Hollow Tunnel Void, ZERO Triangles on SPL)
     const tunnelGroup = new THREE.Group();
 
-    // High-smoothness D-Shaped / Horseshoe profile (48 smooth segments)
-    // Coords strictly in [0, w] (horizontal) and [0, h] (vertical)
+    // Dynamic Profile points: strictly in [0, w] (horizontal) and [0, h] (vertical)
     const profilePts: THREE.Vector2[] = [];
-    const segments = 48;
-    // 1. Left Invert footing
-    profilePts.push(new THREE.Vector2(0, 0));
-    // 2. Right Invert footing
-    profilePts.push(new THREE.Vector2(w, 0));
-    // 3. Right Springline (SPL)
-    profilePts.push(new THREE.Vector2(w, hw));
-    // 4. Smooth arch from Right Springline to Left Springline
-    for (let i = 1; i < segments; i++) {
-      const theta = (i / segments) * Math.PI;
-      const x = cx + (w / 2) * Math.cos(theta); // theta=0 -> w; theta=PI -> 0
-      const y = hw + archRise * Math.sin(theta);
-      profilePts.push(new THREE.Vector2(x, y));
+    const customPoints = tunnelGeometry.crossSectionPoints;
+
+    if (customPoints && customPoints.length >= 3) {
+      const minX = Math.min(...customPoints.map((p) => p.x));
+      const maxX = Math.max(...customPoints.map((p) => p.x));
+      const minY = Math.min(...customPoints.map((p) => p.y));
+      const maxY = Math.max(...customPoints.map((p) => p.y));
+      const spanX = Math.max(0.01, maxX - minX);
+      const spanY = Math.max(0.01, maxY - minY);
+
+      for (const cp of customPoints) {
+        // Map from custom profile space into Three.js tunnel coordinates:
+        // x goes from 0 to w
+        // y goes from 0 to h
+        const tx = ((cp.x - minX) / spanX) * w;
+        const ty = ((cp.y - minY) / spanY) * h;
+        profilePts.push(new THREE.Vector2(tx, ty));
+      }
+    } else {
+      // High-smoothness D-Shaped / Horseshoe profile (48 smooth segments)
+      const segments = 48;
+      // 1. Left Invert footing
+      profilePts.push(new THREE.Vector2(0, 0));
+      // 2. Right Invert footing
+      profilePts.push(new THREE.Vector2(w, 0));
+      // 3. Right Springline (SPL)
+      profilePts.push(new THREE.Vector2(w, hw));
+      // 4. Smooth arch from Right Springline to Left Springline
+      for (let i = 1; i < segments; i++) {
+        const theta = (i / segments) * Math.PI;
+        const x = cx + (w / 2) * Math.cos(theta); // theta=0 -> w; theta=PI -> 0
+        const y = hw + archRise * Math.sin(theta);
+        profilePts.push(new THREE.Vector2(x, y));
+      }
+      // 5. Left Springline (SPL)
+      profilePts.push(new THREE.Vector2(0, hw));
     }
-    // 5. Left Springline (SPL)
-    profilePts.push(new THREE.Vector2(0, hw));
 
     // A. Clean Hollow 3D Tunnel Shell Mesh (NO caps at portal z=0, NO internal dividing triangles, NO triangle on SPL)
     const shellPositions: number[] = [];
@@ -939,20 +959,39 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     tunnelGroup.add(tunnelMesh);
 
     // B. Excavation Face Rock Cap at z = pullL
-    // Triangulated radially from centroid (cx, hw * 0.6) to all perimeter points.
-    // This strictly eliminates any chord or triangle on SPL!
+    // Triangulated for arbitrary custom polygons (triangles, horseshoe, gothic arch, non-symmetric caverns)
     const facePositions: number[] = [];
     const faceIndices: number[] = [];
-    const faceCentroid = new THREE.Vector2(cx, hw * 0.6);
-    facePositions.push(faceCentroid.x, faceCentroid.y, pullL); // Index 0
 
     for (let i = 0; i < numPts; i++) {
       facePositions.push(profilePts[i].x, profilePts[i].y, pullL);
     }
 
-    for (let i = 0; i < numPts; i++) {
-      const next = (i + 1) % numPts;
-      faceIndices.push(0, i + 1, next + 1);
+    try {
+      const triangles = THREE.ShapeUtils.triangulateShape(profilePts, []);
+      if (triangles && triangles.length > 0) {
+        for (const tri of triangles) {
+          faceIndices.push(tri[0], tri[1], tri[2]);
+        }
+      } else {
+        // Fallback to centroid fan
+        const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
+        const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
+        facePositions.push(avgX, avgY, pullL);
+        for (let i = 0; i < numPts; i++) {
+          const next = (i + 1) % numPts;
+          faceIndices.push(numPts, i, next);
+        }
+      }
+    } catch {
+      // Fallback to centroid fan
+      const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
+      const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
+      facePositions.push(avgX, avgY, pullL);
+      for (let i = 0; i < numPts; i++) {
+        const next = (i + 1) % numPts;
+        faceIndices.push(numPts, i, next);
+      }
     }
 
     const faceCapGeo = new THREE.BufferGeometry();
@@ -993,14 +1032,21 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     const prevContourLine = new THREE.Line(prevContourGeo, prevContourMat);
     tunnelGroup.add(prevContourLine);
 
-    // E. 5 Essential Longitudinal Rails (Left Invert, Right Invert, Left SPL, Right SPL, Crown Apex)
-    const railPositions: number[] = [
-      0, 0.01, 0, 0, 0.01, pullL,      // Left Invert footing
-      w, 0.01, 0, w, 0.01, pullL,      // Right Invert footing
-      0, hw, 0, 0, hw, pullL,          // Left Springline (SPL)
-      w, hw, 0, w, hw, pullL,          // Right Springline (SPL)
-      cx, h, 0, cx, h, pullL,          // Crown Apex
-    ];
+    // E. Longitudinal Generator Rails along Key Shape Vertices
+    const railPositions: number[] = [];
+    if (customPoints && customPoints.length >= 3 && numPts <= 12) {
+      for (const p of profilePts) {
+        railPositions.push(p.x, p.y, 0, p.x, p.y, pullL);
+      }
+    } else {
+      railPositions.push(
+        0, 0.01, 0, 0, 0.01, pullL,      // Left Invert footing
+        w, 0.01, 0, w, 0.01, pullL,      // Right Invert footing
+        0, hw, 0, 0, hw, pullL,          // Left Springline (SPL)
+        w, hw, 0, w, hw, pullL,          // Right Springline (SPL)
+        cx, h, 0, cx, h, pullL           // Crown Apex
+      );
+    }
     const railsGeo = new THREE.BufferGeometry();
     railsGeo.setAttribute('position', new THREE.Float32BufferAttribute(railPositions, 3));
     const railsMat = new THREE.LineBasicMaterial({ color: 0x64748b, linewidth: 1.5 });
@@ -3692,162 +3738,202 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     <div className="w-full bg-slate-950 rounded-xl border border-slate-800 p-4 overflow-x-auto">
                       <svg viewBox="0 0 940 280" className="w-full min-w-[780px] h-auto select-none">
                         {/* 1. LEFT WALL (X: 0..pullL, Z: 0..wallHeightM) */}
-                        <rect x="20" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
-                        <text x="110" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                          1. LEFT WALL (0..{tunnelGeometry.pullLengthM}m)
-                        </text>
-                        {/* Stationing ticks at 0m, 1m, 2m, pullL */}
-                        <line x1="20" y1="220" x2="200" y2="220" stroke="#64748b" strokeWidth="1" />
-                        <text x="20" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">0m</text>
-                        <text x="200" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">{tunnelGeometry.pullLengthM}m</text>
-                        <text x="110" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">Drive Advance (+X)</text>
-
-                        {/* Observed traces on Left Wall */}
-                        {allRoundJoints
-                          .filter((j) => j.panel === 'left_wall' && j.points.length >= 2)
-                          .map((j) => (
-                            <polyline
-                              key={`unrolled-obs-lw-${j.id}`}
-                              points={j.points
-                                .map((p) => `${20 + (p.x / 1000) * 180},${220 - (p.y / 800) * 180}`)
-                                .join(' ')}
-                              fill="none"
-                              stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
-                              strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
-                              strokeLinecap="round"
-                            />
-                          ))}
-
-                        {/* Calculated Plane Intersection on Left Wall */}
-                        {surfaceIntersections.leftWall && (
+                        {tunnelGeometry.hasLeftWall !== false && (
                           <g>
-                            <line
-                              x1={20 + (surfaceIntersections.leftWall.p1.x / tunnelGeometry.pullLengthM) * 180}
-                              y1={220 - (surfaceIntersections.leftWall.p1.y / tunnelGeometry.wallHeightM) * 180}
-                              x2={20 + (surfaceIntersections.leftWall.p2.x / tunnelGeometry.pullLengthM) * 180}
-                              y2={220 - (surfaceIntersections.leftWall.p2.y / tunnelGeometry.wallHeightM) * 180}
-                              stroke="#F59E0B"
-                              strokeWidth="2.8"
-                              strokeDasharray="6,3"
-                            />
-                            <text
-                              x={20 + ((surfaceIntersections.leftWall.p1.x + surfaceIntersections.leftWall.p2.x) / (2 * tunnelGeometry.pullLengthM)) * 180}
-                              y={215 - ((surfaceIntersections.leftWall.p1.y + surfaceIntersections.leftWall.p2.y) / (2 * tunnelGeometry.wallHeightM)) * 180}
-                              fill="#F59E0B"
-                              fontSize="8"
-                              fontWeight="bold"
-                              textAnchor="middle"
-                            >
-                              calc {surfaceIntersections.leftWall.lengthM}m
+                            <rect x="20" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
+                            <text x="110" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
+                              1. LEFT WALL (0..{tunnelGeometry.pullLengthM}m)
                             </text>
+                            {/* Stationing ticks at 0m, 1m, 2m, pullL */}
+                            <line x1="20" y1="220" x2="200" y2="220" stroke="#64748b" strokeWidth="1" />
+                            <text x="20" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">0m</text>
+                            <text x="200" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">{tunnelGeometry.pullLengthM}m</text>
+                            <text x="110" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">Drive Advance (+X)</text>
+
+                            {/* Observed traces on Left Wall */}
+                            {allRoundJoints
+                              .filter((j) => j.panel === 'left_wall' && j.points.length >= 2)
+                              .map((j) => (
+                                <polyline
+                                  key={`unrolled-obs-lw-${j.id}`}
+                                  points={j.points
+                                    .map((p) => `${20 + (p.x / 1000) * 180},${220 - (p.y / 800) * 180}`)
+                                    .join(' ')}
+                                  fill="none"
+                                  stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
+                                  strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
+                                  strokeLinecap="round"
+                                />
+                              ))}
+
+                            {/* Calculated Plane Intersection on Left Wall */}
+                            {surfaceIntersections.leftWall && (
+                              <g>
+                                <line
+                                  x1={20 + (surfaceIntersections.leftWall.p1.x / tunnelGeometry.pullLengthM) * 180}
+                                  y1={220 - (surfaceIntersections.leftWall.p1.y / (tunnelGeometry.leftWallHeightM || tunnelGeometry.wallHeightM)) * 180}
+                                  x2={20 + (surfaceIntersections.leftWall.p2.x / tunnelGeometry.pullLengthM) * 180}
+                                  y2={220 - (surfaceIntersections.leftWall.p2.y / (tunnelGeometry.leftWallHeightM || tunnelGeometry.wallHeightM)) * 180}
+                                  stroke="#F59E0B"
+                                  strokeWidth="2.8"
+                                  strokeDasharray="6,3"
+                                />
+                                <text
+                                  x={20 + ((surfaceIntersections.leftWall.p1.x + surfaceIntersections.leftWall.p2.x) / (2 * tunnelGeometry.pullLengthM)) * 180}
+                                  y={215 - ((surfaceIntersections.leftWall.p1.y + surfaceIntersections.leftWall.p2.y) / (2 * (tunnelGeometry.leftWallHeightM || tunnelGeometry.wallHeightM))) * 180}
+                                  fill="#F59E0B"
+                                  fontSize="8"
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                >
+                                  calc {surfaceIntersections.leftWall.lengthM}m
+                                </text>
+                              </g>
+                            )}
                           </g>
                         )}
 
                         {/* 2. CROWN ARCH / BACK (Y: 0..widthM, X: 0..pullL) */}
-                        <rect x="220" y="40" width="220" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
-                        <text x="330" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                          2. CROWN ARCH ({strikeInfo.strikePairLabel})
-                        </text>
-                        {/* Crown Centerline */}
-                        <line x1="330" y1="40" x2="330" y2="220" stroke="#0284c7" strokeWidth="1" strokeDasharray="4,4" />
-                        <text x="330" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">C/L ({(tunnelGeometry.widthM / 2).toFixed(1)}m)</text>
-                        <text x="220" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">L-SPL</text>
-                        <text x="440" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">R-SPL</text>
-
-                        {/* Observed traces on Crown */}
-                        {allRoundJoints
-                          .filter((j) => j.panel === 'crown' && j.points.length >= 2)
-                          .map((j) => (
-                            <polyline
-                              key={`unrolled-obs-cr-${j.id}`}
-                              points={j.points
-                                .map((p) => `${220 + (p.x / 1000) * 220},${40 + (p.y / 800) * 180}`)
-                                .join(' ')}
-                              fill="none"
-                              stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
-                              strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
-                              strokeLinecap="round"
-                            />
-                          ))}
-
-                        {/* Calculated Plane Intersection on Crown */}
-                        {surfaceIntersections.crown && (
+                        {tunnelGeometry.hasCrown !== false && (
                           <g>
-                            <line
-                              x1={220 + (surfaceIntersections.crown.p1.y / tunnelGeometry.widthM) * 220}
-                              y1={40 + (surfaceIntersections.crown.p1.x / tunnelGeometry.pullLengthM) * 180}
-                              x2={220 + (surfaceIntersections.crown.p2.y / tunnelGeometry.widthM) * 220}
-                              y2={40 + (surfaceIntersections.crown.p2.x / tunnelGeometry.pullLengthM) * 180}
-                              stroke="#F59E0B"
-                              strokeWidth="2.8"
-                              strokeDasharray="6,3"
-                            />
-                            <text
-                              x={220 + ((surfaceIntersections.crown.p1.y + surfaceIntersections.crown.p2.y) / (2 * tunnelGeometry.widthM)) * 220}
-                              y={35 + ((surfaceIntersections.crown.p1.x + surfaceIntersections.crown.p2.x) / (2 * tunnelGeometry.pullLengthM)) * 180}
-                              fill="#F59E0B"
-                              fontSize="8"
-                              fontWeight="bold"
-                              textAnchor="middle"
-                            >
-                              strike {surfaceIntersections.crown.lengthM}m
+                            <rect x="220" y="40" width="220" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
+                            <text x="330" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
+                              2. CROWN ARCH ({strikeInfo.strikePairLabel})
                             </text>
+                            {/* Crown Centerline */}
+                            <line x1="330" y1="40" x2="330" y2="220" stroke="#0284c7" strokeWidth="1" strokeDasharray="4,4" />
+                            <text x="330" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">C/L ({(tunnelGeometry.widthM / 2).toFixed(1)}m)</text>
+                            <text x="220" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">L-SPL</text>
+                            <text x="440" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">R-SPL</text>
+
+                            {/* Observed traces on Crown */}
+                            {allRoundJoints
+                              .filter((j) => j.panel === 'crown' && j.points.length >= 2)
+                              .map((j) => (
+                                <polyline
+                                  key={`unrolled-obs-cr-${j.id}`}
+                                  points={j.points
+                                    .map((p) => `${220 + (p.x / 1000) * 220},${40 + (p.y / 800) * 180}`)
+                                    .join(' ')}
+                                  fill="none"
+                                  stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
+                                  strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
+                                  strokeLinecap="round"
+                                />
+                              ))}
+
+                            {/* Calculated Plane Intersection on Crown */}
+                            {surfaceIntersections.crown && (
+                              <g>
+                                <line
+                                  x1={220 + (surfaceIntersections.crown.p1.y / tunnelGeometry.widthM) * 220}
+                                  y1={40 + (surfaceIntersections.crown.p1.x / tunnelGeometry.pullLengthM) * 180}
+                                  x2={220 + (surfaceIntersections.crown.p2.y / tunnelGeometry.widthM) * 220}
+                                  y2={40 + (surfaceIntersections.crown.p2.x / tunnelGeometry.pullLengthM) * 180}
+                                  stroke="#F59E0B"
+                                  strokeWidth="2.8"
+                                  strokeDasharray="6,3"
+                                />
+                                <text
+                                  x={220 + ((surfaceIntersections.crown.p1.y + surfaceIntersections.crown.p2.y) / (2 * tunnelGeometry.widthM)) * 220}
+                                  y={35 + ((surfaceIntersections.crown.p1.x + surfaceIntersections.crown.p2.x) / (2 * tunnelGeometry.pullLengthM)) * 180}
+                                  fill="#F59E0B"
+                                  fontSize="8"
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                >
+                                  strike {surfaceIntersections.crown.lengthM}m
+                                </text>
+                              </g>
+                            )}
                           </g>
                         )}
 
                         {/* 3. RIGHT WALL (X: 0..pullL, Z: 0..wallHeightM) */}
-                        <rect x="460" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
-                        <text x="550" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                          3. RIGHT WALL (0..{tunnelGeometry.pullLengthM}m)
-                        </text>
-                        <line x1="460" y1="220" x2="640" y2="220" stroke="#64748b" strokeWidth="1" />
-                        <text x="460" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">0m</text>
-                        <text x="640" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">{tunnelGeometry.pullLengthM}m</text>
-                        <text x="550" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">Drive Advance (+X)</text>
-
-                        {/* Observed traces on Right Wall */}
-                        {allRoundJoints
-                          .filter((j) => j.panel === 'right_wall' && j.points.length >= 2)
-                          .map((j) => (
-                            <polyline
-                              key={`unrolled-obs-rw-${j.id}`}
-                              points={j.points
-                                .map((p) => `${460 + (p.x / 1000) * 180},${220 - (p.y / 800) * 180}`)
-                                .join(' ')}
-                              fill="none"
-                              stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
-                              strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
-                              strokeLinecap="round"
-                            />
-                          ))}
-
-                        {/* Calculated Plane Intersection on Right Wall */}
-                        {surfaceIntersections.rightWall && (
+                        {tunnelGeometry.hasRightWall !== false && (
                           <g>
-                            <line
-                              x1={460 + (surfaceIntersections.rightWall.p1.x / tunnelGeometry.pullLengthM) * 180}
-                              y1={220 - (surfaceIntersections.rightWall.p1.y / tunnelGeometry.wallHeightM) * 180}
-                              x2={460 + (surfaceIntersections.rightWall.p2.x / tunnelGeometry.pullLengthM) * 180}
-                              y2={220 - (surfaceIntersections.rightWall.p2.y / tunnelGeometry.wallHeightM) * 180}
-                              stroke="#F59E0B"
-                              strokeWidth="2.8"
-                              strokeDasharray="6,3"
-                            />
-                            <text
-                              x={460 + ((surfaceIntersections.rightWall.p1.x + surfaceIntersections.rightWall.p2.x) / (2 * tunnelGeometry.pullLengthM)) * 180}
-                              y={215 - ((surfaceIntersections.rightWall.p1.y + surfaceIntersections.rightWall.p2.y) / (2 * tunnelGeometry.wallHeightM)) * 180}
-                              fill="#F59E0B"
-                              fontSize="8"
-                              fontWeight="bold"
-                              textAnchor="middle"
-                            >
-                              calc {surfaceIntersections.rightWall.lengthM}m
+                            <rect x="460" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
+                            <text x="550" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
+                              3. RIGHT WALL (0..{tunnelGeometry.pullLengthM}m)
                             </text>
+                            <line x1="460" y1="220" x2="640" y2="220" stroke="#64748b" strokeWidth="1" />
+                            <text x="460" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">0m</text>
+                            <text x="640" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">{tunnelGeometry.pullLengthM}m</text>
+                            <text x="550" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">Drive Advance (+X)</text>
+
+                            {/* Observed traces on Right Wall */}
+                            {allRoundJoints
+                              .filter((j) => j.panel === 'right_wall' && j.points.length >= 2)
+                              .map((j) => (
+                                <polyline
+                                  key={`unrolled-obs-rw-${j.id}`}
+                                  points={j.points
+                                    .map((p) => `${460 + (p.x / 1000) * 180},${220 - (p.y / 800) * 180}`)
+                                    .join(' ')}
+                                  fill="none"
+                                  stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
+                                  strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
+                                  strokeLinecap="round"
+                                />
+                              ))}
+
+                            {/* Calculated Plane Intersection on Right Wall */}
+                            {surfaceIntersections.rightWall && (
+                              <g>
+                                <line
+                                  x1={460 + (surfaceIntersections.rightWall.p1.x / tunnelGeometry.pullLengthM) * 180}
+                                  y1={220 - (surfaceIntersections.rightWall.p1.y / (tunnelGeometry.rightWallHeightM || tunnelGeometry.wallHeightM)) * 180}
+                                  x2={460 + (surfaceIntersections.rightWall.p2.x / tunnelGeometry.pullLengthM) * 180}
+                                  y2={220 - (surfaceIntersections.rightWall.p2.y / (tunnelGeometry.rightWallHeightM || tunnelGeometry.wallHeightM)) * 180}
+                                  stroke="#F59E0B"
+                                  strokeWidth="2.8"
+                                  strokeDasharray="6,3"
+                                />
+                                <text
+                                  x={460 + ((surfaceIntersections.rightWall.p1.x + surfaceIntersections.rightWall.p2.x) / (2 * tunnelGeometry.pullLengthM)) * 180}
+                                  y={215 - ((surfaceIntersections.rightWall.p1.y + surfaceIntersections.rightWall.p2.y) / (2 * (tunnelGeometry.rightWallHeightM || tunnelGeometry.wallHeightM))) * 180}
+                                  fill="#F59E0B"
+                                  fontSize="8"
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                >
+                                  calc {surfaceIntersections.rightWall.lengthM}m
+                                </text>
+                              </g>
+                            )}
                           </g>
                         )}
 
                         {/* 4. TUNNEL FACE (Transverse Y: 0..widthM, Elevation Z: 0..heightM) */}
-                        <rect x="670" y="40" width="240" height="180" fill="#1e293b" stroke="#0ea5e9" strokeWidth="2" />
+                        {(() => {
+                          const customPts = tunnelGeometry.crossSectionPoints;
+                          if (customPts && customPts.length >= 3) {
+                            const minX = Math.min(...customPts.map((p) => p.x));
+                            const maxX = Math.max(...customPts.map((p) => p.x));
+                            const minY = Math.min(...customPts.map((p) => p.y));
+                            const maxY = Math.max(...customPts.map((p) => p.y));
+                            const spanX = Math.max(0.01, maxX - minX);
+                            const spanY = Math.max(0.01, maxY - minY);
+                            const polyPoints = customPts
+                              .map((p) => {
+                                const sx = 670 + ((p.x - minX) / spanX) * 240;
+                                const sy = 220 - ((p.y - minY) / spanY) * 180;
+                                return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                              })
+                              .join(' ');
+                            return (
+                              <polygon
+                                points={polyPoints}
+                                fill="#1e293b"
+                                stroke="#0ea5e9"
+                                strokeWidth="2"
+                              />
+                            );
+                          }
+                          return (
+                            <rect x="670" y="40" width="240" height="180" fill="#1e293b" stroke="#0ea5e9" strokeWidth="2" />
+                          );
+                        })()}
                         <text x="790" y="32" fill="#38bdf8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
                           4. EXCAVATION FACE (X = {tunnelGeometry.pullLengthM}m)
                         </text>

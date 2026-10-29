@@ -208,20 +208,22 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       {/* Top-Right Controls: Settings, Feedback & Master Software Access Control */}
       {!isContinuous3DLoggerOpen && !isProjectMemoryModalOpen && (
         <div className="absolute top-3 right-3 sm:top-5 sm:right-6 flex flex-wrap items-center justify-end gap-2 z-20">
-          {/* Simple Feedback Toggle */}
-          <button
-            type="button"
-            onClick={() => setIsFeedbackModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/95 border text-slate-800 shadow-sm transition-all cursor-pointer active:scale-95 hover:bg-stone-50"
-            style={{ borderColor: palette.primaryHex + '45' }}
-            title="Send Feedback, Geological Suggestions, or Issue Report to Master"
-          >
-            <MessageSquare
-              className="w-4 h-4"
-              style={{ color: palette.accentIconColor }}
-            />
-            <span className="font-semibold">Feedback</span>
-          </button>
+          {/* Simple Feedback Toggle (Only for User Edition, hidden in Master Application) */}
+          {!isMasterSoftware && (
+            <button
+              type="button"
+              onClick={() => setIsFeedbackModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/95 border text-slate-800 shadow-sm transition-all cursor-pointer active:scale-95 hover:bg-stone-50"
+              style={{ borderColor: palette.primaryHex + '45' }}
+              title="Send Feedback, Geological Suggestions, or Issue Report to Master"
+            >
+              <MessageSquare
+                className="w-4 h-4"
+                style={{ color: palette.accentIconColor }}
+              />
+              <span className="font-semibold">Feedback</span>
+            </button>
+          )}
 
           <button
             type="button"

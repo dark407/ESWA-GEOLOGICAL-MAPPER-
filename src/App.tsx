@@ -4353,7 +4353,7 @@ export default function App({
           activeGeologist={activeGeologist}
           isMasterSoftware={isMasterSoftware}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
-          onOpenFeedback={() => setIsUserFeedbackModalOpen(true)}
+          onOpenFeedback={!isMasterSoftware ? () => setIsUserFeedbackModalOpen(true) : undefined}
           onOpenContinuousTunnelLog={() => {
             setIsContinuousLogSetupOpen(true);
           }}
@@ -4397,7 +4397,7 @@ export default function App({
           activeGeologist={activeGeologist}
           isMasterSoftware={isMasterSoftware}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
-          onOpenFeedback={() => setIsUserFeedbackModalOpen(true)}
+          onOpenFeedback={!isMasterSoftware ? () => setIsUserFeedbackModalOpen(true) : undefined}
           onOpenContinuousTunnelLog={() => {
             setIsContinuousLogSetupOpen(true);
           }}
@@ -5119,15 +5119,17 @@ export default function App({
                 <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-600">v2.6 LIVE</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setIsUserFeedbackModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold bg-white text-stone-800 border border-orange-200/90 hover:bg-orange-50 shadow-2xs cursor-pointer transition-all active:scale-95"
-                title="Send Feedback, Geological Suggestions, or Issue Report to Master"
-              >
-                <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
-                <span>Feedback</span>
-              </button>
+              {!isMasterSoftware && (
+                <button
+                  type="button"
+                  onClick={() => setIsUserFeedbackModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold bg-white text-stone-800 border border-orange-200/90 hover:bg-orange-50 shadow-2xs cursor-pointer transition-all active:scale-95"
+                  title="Send Feedback, Geological Suggestions, or Issue Report to Master"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Feedback</span>
+                </button>
+              )}
 
               <button
                 type="button"

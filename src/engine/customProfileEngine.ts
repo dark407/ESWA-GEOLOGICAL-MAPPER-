@@ -423,27 +423,53 @@ export function inferSegmentZoneRole(
   const midY = (p1.y + p2.y) / 2;
   const dx = Math.abs(p2.x - p1.x);
   const dy = Math.abs(p2.y - p1.y);
-  const totalH = Math.max(1, maxY - minY);
+  const totalH = Math.max(0.1, maxY - minY);
   const spanX = Math.abs(maxX - minX);
-  const centerX = spanX > 0.5 ? (minX + maxX) / 2 : 0;
+  const centerX = spanX > 0.1 ? (minX + maxX) / 2 : 0;
 
-  if (segType === 'arc' && midY >= minY + totalH * 0.25 && dx >= dy * 0.35) {
-    return 'crown';
-  }
-  // Predominantly vertical wall segment
-  if (dy > dx * 0.85) {
-    return midX <= centerX ? 'leftWall' : 'rightWall';
-  }
-  // Bottom invert segment
-  if (midY <= minY + totalH * 0.18 && dx > dy * 1.1 && segType !== 'arc') {
+  // Bottom invert segment: near the floor with low vertical elevation change
+  if (midY <= minY + totalH * 0.22 && dy <= dx * 0.75 && segType !== 'arc') {
     return 'invert';
   }
-  // Upper arch / crown segment
-  if (midY >= minY + totalH * 0.52 && dx >= dy * 0.45) {
+
+  // Curved crown/roof segment
+  if (segType === 'arc' && midY >= minY + totalH * 0.22) {
     return 'crown';
   }
-  // Left or right wall
-  return midX <= centerX ? 'leftWall' : 'rightWall';
+
+  // True vertical or near-vertical sidewalls:
+  // Must have substantial vertical component AND lower end must extend down towards invert (<= 35% height)
+  // This distinguishes true sidewalls from sloped roof rafters in a triangle or pentagon!
+  const lowerY = Math.min(p1.y, p2.y);
+  const reachesLowerWall = lowerY <= minY + totalH * 0.35;
+
+  if (dy >= dx * 0.95 && reachesLowerWall) {
+    return midX <= centerX ? 'leftWall' : 'rightWall';
+  }
+
+  // Upper arch, roof rafters, sloped gable/peak of triangle:
+  // If segment is in upper portion or reaches peak (maxY - 15%):
+  const upperY = Math.max(p1.y, p2.y);
+  if (upperY >= maxY - totalH * 0.15 || midY >= minY + totalH * 0.35) {
+    // Only classify as side wall if it's strictly vertical (dy > 3*dx) and on the far periphery
+    const isPeriphery = (minX + spanX * 0.15 >= Math.min(p1.x, p2.x)) || (maxX - spanX * 0.15 <= Math.max(p1.x, p2.x));
+    if (dy > dx * 3.0 && reachesLowerWall && isPeriphery) {
+      return midX <= centerX ? 'leftWall' : 'rightWall';
+    }
+    return 'crown';
+  }
+
+  // Near invert
+  if (midY <= minY + totalH * 0.25) {
+    return 'invert';
+  }
+
+  // Default fallback based on horizontal position
+  if (dy > dx * 0.75 && reachesLowerWall) {
+    return midX <= centerX ? 'leftWall' : 'rightWall';
+  }
+
+  return 'crown';
 }
 
 export function evaluateCustomProfileGeometry(
@@ -647,31 +673,31 @@ export function evaluateCustomProfileGeometry(
 
   const surfCfg = profile.surfaceConfig;
   const isClosed = profile.isClosed !== false;
-  // When the custom tunnel shape is NOT closed (`!isClosed`), any portion without a drawn segment is OPEN (no wall on that portion)!
+  // If the surfaceConfig explicitly defines presence, respect that configuration.
+  // Otherwise, determine presence from the actual drawn segments for that zone.
+  // Closed non-symmetric shapes (such as triangles or asymmetric arches) must NOT force a non-existent wall to true!
   const hasLeftWall =
-    surfCfg?.hasLeftWall !== false &&
-    (isClosed
-      ? true
+    surfCfg?.hasLeftWall !== undefined
+      ? surfCfg.hasLeftWall
       : hasDrawnLeftWallSeg ||
         (typeof surfCfg?.overrideLeftWallLength === 'number' &&
-          surfCfg.overrideLeftWallLength > 0));
+          surfCfg.overrideLeftWallLength > 0);
   const hasRightWall =
-    surfCfg?.hasRightWall !== false &&
-    (isClosed
-      ? true
+    surfCfg?.hasRightWall !== undefined
+      ? surfCfg.hasRightWall
       : hasDrawnRightWallSeg ||
         (typeof surfCfg?.overrideRightWallLength === 'number' &&
-          surfCfg.overrideRightWallLength > 0));
+          surfCfg.overrideRightWallLength > 0);
   const hasCrown =
-    surfCfg?.hasCrown !== false &&
-    (isClosed
-      ? true
+    surfCfg?.hasCrown !== undefined
+      ? surfCfg.hasCrown
       : hasDrawnCrownSeg ||
         (typeof surfCfg?.overrideCrownLength === 'number' &&
-          surfCfg.overrideCrownLength > 0));
-  const hasInvert = isClosed
-    ? hasDrawnInvertSeg || invertLength > 0.01
-    : hasDrawnInvertSeg;
+          surfCfg.overrideCrownLength > 0);
+  const hasInvert =
+    surfCfg?.hasInvert !== undefined
+      ? surfCfg.hasInvert
+      : hasDrawnInvertSeg || (isClosed && invertLength > 0.01);
 
   // Preserve true drawn Left Wall, Right Wall, and Crown lengths independently!
   // Never force Left Wall and Right Wall to an equal average length.

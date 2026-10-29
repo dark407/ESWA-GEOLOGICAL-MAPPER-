@@ -83,6 +83,54 @@ async function startServer() {
     });
   });
 
+  /**
+   * Master Admin Authentication Challenge endpoints:
+   * /api/auth/send-master-code
+   * /api/auth/verify-master-code
+   */
+  let serverMasterChallenge: { email: string; code: string; expiresAt: number } | null = null;
+
+  app.post('/api/auth/send-master-code', (req, res) => {
+    try {
+      const { email, code } = req.body || {};
+      if (!code) {
+        res.status(400).json({ ok: false, error: 'Missing challenge code.' });
+        return;
+      }
+      serverMasterChallenge = {
+        email: String(email || '').trim().toLowerCase(),
+        code: String(code).trim(),
+        expiresAt: Date.now() + 15 * 60 * 1000,
+      };
+      console.info(`[Master Auth] 6-digit challenge code ready for ${email}: ${code}`);
+      res.json({ ok: true, message: 'Challenge created successfully.' });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || 'Server error' });
+    }
+  });
+
+  app.post('/api/auth/verify-master-code', (req, res) => {
+    try {
+      const { enteredCode } = req.body || {};
+      const clean = String(enteredCode || '').trim();
+      if (!clean) {
+        res.status(400).json({ ok: false, valid: false, error: 'Missing code' });
+        return;
+      }
+      if (
+        serverMasterChallenge &&
+        serverMasterChallenge.code === clean &&
+        Date.now() <= serverMasterChallenge.expiresAt
+      ) {
+        res.json({ ok: true, valid: true });
+        return;
+      }
+      res.json({ ok: true, valid: false });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, valid: false, error: err?.message || 'Server error' });
+    }
+  });
+
   app.use('/api/ai', eswaProprietaryGatewayGuard);
   app.use('/api/geometry', eswaProprietaryGatewayGuard);
   app.use('/api/ota', eswaProprietaryGatewayGuard);

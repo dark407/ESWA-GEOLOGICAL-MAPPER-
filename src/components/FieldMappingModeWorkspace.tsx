@@ -14366,35 +14366,58 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       />
 
       {/* NATM 3D Joint Inspector Modal */}
-      {is3DJointInspectorOpen && activeRound && (
-        <NatmJoint3DInspectorModal
-          isOpen={is3DJointInspectorOpen}
-          onClose={() => setIs3DJointInspectorOpen(false)}
-          activeJoint={
-            (activeRound.jointTraces.find((t) => t.id === inspectedJointId) ||
-              activeRound.jointTraces.find((t) => t.id === selectedTraceId) ||
-              activeRound.jointTraces[0]) as FieldJointTrace
-          }
-          allRoundJoints={activeRound.jointTraces}
-          tunnelGeometry={{
-            widthM: activeLocation?.widthM || 8.5,
-            heightM: activeLocation?.heightM || 7.5,
-            wallHeightM: activeLocation?.wallHeightM || 4.2,
-            pullLengthM: activeRound?.pullLengthMeters || 3.0,
-            driveAzimuthDeg: activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth,
-            currentChainageM: activeRound ? parseFloat(activeRound.chainageTo) || 100 : 100,
-            tunnelShape: activeLocation?.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped',
-          }}
-          onSaveJoint={(updated) => {
-            updateActiveRound((r) => ({
-              ...r,
-              jointTraces: r.jointTraces.map((t) => (t.id === updated.id ? updated : t)),
-            }));
-            setLiveDipDirection(updated.dipDirection);
-            setLiveDipAmount(updated.dipAmount);
-          }}
-        />
-      )}
+      {is3DJointInspectorOpen && activeRound && (() => {
+        const fGeom = activeLocation ? computePanelCanvasGeometry('face', activeLocation, activeRound) : null;
+        const evalCustom = activeLocation?.customGeometry?.customProfile
+          ? evaluateCustomProfileGeometry(activeLocation.customGeometry.customProfile)
+          : null;
+        const crossPts =
+          evalCustom?.crossSectionPoints ||
+          activeLocation?.customGeometry?.crossSectionPoints ||
+          activeLocation?.customCrossSectionPoints;
+
+        return (
+          <NatmJoint3DInspectorModal
+            isOpen={is3DJointInspectorOpen}
+            onClose={() => setIs3DJointInspectorOpen(false)}
+            activeJoint={
+              (activeRound.jointTraces.find((t) => t.id === inspectedJointId) ||
+                activeRound.jointTraces.find((t) => t.id === selectedTraceId) ||
+                activeRound.jointTraces[0]) as FieldJointTrace
+            }
+            allRoundJoints={activeRound.jointTraces}
+            tunnelGeometry={{
+              widthM: fGeom?.tunnelW || activeLocation?.widthM || 8.5,
+              heightM: fGeom?.tunnelH || activeLocation?.heightM || 7.5,
+              wallHeightM: activeLocation?.wallHeightM || 4.2,
+              leftWallHeightM: activeLocation?.customGeometry?.leftWallHeight ?? fGeom?.leftWallLengthM ?? activeLocation?.wallHeightM ?? 4.2,
+              rightWallHeightM: activeLocation?.customGeometry?.rightWallHeight ?? fGeom?.rightWallLengthM ?? activeLocation?.wallHeightM ?? 4.2,
+              pullLengthM: activeRound?.pullLengthMeters || 3.0,
+              driveAzimuthDeg: activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth,
+              currentChainageM: activeRound ? parseFloat(activeRound.chainageTo) || 100 : 100,
+              tunnelShape: activeLocation?.shape === 'freeform_custom'
+                ? 'freeform_custom'
+                : activeLocation?.shape === 'horseshoe'
+                ? 'horseshoe'
+                : 'd_shaped',
+              crossSectionPoints: crossPts,
+              customProfile: activeLocation?.customGeometry?.customProfile,
+              hasLeftWall: fGeom?.hasLeftWall ?? true,
+              hasRightWall: fGeom?.hasRightWall ?? true,
+              hasCrown: fGeom?.hasCrown ?? true,
+              hasInvert: fGeom?.hasInvert ?? true,
+            }}
+            onSaveJoint={(updated) => {
+              updateActiveRound((r) => ({
+                ...r,
+                jointTraces: r.jointTraces.map((t) => (t.id === updated.id ? updated : t)),
+              }));
+              setLiveDipDirection(updated.dipDirection);
+              setLiveDipAmount(updated.dipAmount);
+            }}
+          />
+        );
+      })()}
 
       {/* Face Canvas Layer Shuffle & Visibility Modal */}
       <FaceCanvasLayerShuffleModal

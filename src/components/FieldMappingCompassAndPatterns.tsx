@@ -3475,16 +3475,19 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           const baseStrokeW =
             st.brushRadius <= 8 ? Math.max(2, st.brushRadius) : st.brushRadius * 2;
           const effectiveStrokeW = useContinuousCadMapping
-            ? Math.max(28, Math.round((st.brushRadius || 24) * 2))
+            ? Math.max(38, Math.round((st.brushRadius || 32) * 2.5))
             : Math.max(2, baseStrokeW);
           const isClosed =
             Boolean(st.isClosed) ||
+            st.mode === 'region_fill' ||
+            (st.mode as string) === 'fill' ||
             Boolean(st.polygon && st.polygon.length >= 3) ||
+            (useContinuousCadMapping && st.points.length >= 3) ||
             (st.points.length >= 3 &&
               Math.hypot(
                 st.points[0].x - st.points[st.points.length - 1].x,
                 st.points[0].y - st.points[st.points.length - 1].y
-              ) < 48);
+              ) < 120);
           const closedD = isClosed ? (d.endsWith('Z') || d.endsWith('z') ? d : `${d} Z`) : d;
           const indivLithDens = Math.round(
             st.symbolDensity ??
@@ -3498,7 +3501,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               ? `sheetpat-alt-${st.id}`
               : `sheetpat-${patId}-d${indivLithDens}`;
           return (
-            <g key={st.id}>
+            <g key={st.id} data-lithology-id={st.id}>
               {maskId && (
                 <defs>
                   <mask
@@ -3559,7 +3562,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                         ? '#0f172a'
                         : st.customColor || info.color || '#78350f'
                     }
-                    strokeWidth={Math.max(1.8, Math.min(5, effectiveStrokeW))}
+                    strokeWidth={Math.max(1.8, Math.min(5, effectiveStrokeW * 0.15))}
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     mask={maskId ? `url(#${maskId})` : undefined}
