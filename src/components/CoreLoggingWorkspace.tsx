@@ -1161,16 +1161,6 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
               <span className="font-extrabold">Create Hole</span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleLoadExampleCoreLog}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 shadow-xs transition-all cursor-pointer active:scale-95"
-              title={`Load authentic example borehole dataset for ${activeIndustryMode}`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden sm:inline font-extrabold">Load Example Core Log</span>
-              <span className="sm:hidden font-extrabold">Example</span>
-            </button>
 
             <button
               type="button"

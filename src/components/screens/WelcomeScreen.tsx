@@ -98,7 +98,6 @@ export interface WelcomeScreenProps {
   setIsBootLoading: (v: boolean) => void;
   projectMemoryModalNode?: React.ReactNode;
   natmRockMechanicsModalNode?: React.ReactNode;
-  welcomeAiChatbotNode?: React.ReactNode;
   continuousLoggingModalsNode?: React.ReactNode;
   globalSettingsModalNode?: React.ReactNode;
   modeSwitchConfirmationModalNode?: React.ReactNode;
@@ -141,7 +140,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   setIsBootLoading,
   projectMemoryModalNode,
   natmRockMechanicsModalNode,
-  welcomeAiChatbotNode,
   continuousLoggingModalsNode,
   globalSettingsModalNode,
   modeSwitchConfirmationModalNode,
@@ -259,40 +257,18 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             showBadge={false}
             isMasterEdition={isMasterSoftware}
           />
-          <div className="mt-2 text-center select-none">
-            <h1 className="text-xl sm:text-2xl font-black tracking-wide uppercase drop-shadow-sm font-display flex items-center justify-center gap-2">
-              {isMasterSoftware ? (
-                <>
-                  <span className="px-2.5 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs sm:text-sm font-black tracking-widest uppercase shadow">
-                    MASTER
-                  </span>
-                  <span className="text-slate-950 font-black">ESWA GEOLOGICAL MAPPER</span>
-                </>
-              ) : (
-                <span className="text-slate-950 font-black">ESWA GEOLOGICAL MAPPER</span>
-              )}
-            </h1>
-          </div>
         </div>
 
         {/* Main Window: Core Geological & Geotechnical Suite Options */}
         <div className="w-full space-y-2.5">
           {/* 1. Underground Face Mapping */}
-          <div className="flex items-stretch gap-2 w-full">
-            <button
-              type="button"
-              onClick={() => {
-                setIsFirstOpening(false);
-                handleSwitchMappingDomain('TUNNEL');
-                setActiveFieldWorkflowMode('field_mapping');
-                setResumeFieldAtLastStage(false);
-                setIsFieldMappingModeOpen(true);
-              }}
-              className="flex-1 py-2.5 px-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-white text-stone-900 border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer hover:shadow-lg active:scale-99 group"
-              style={{
-                borderColor: palette.primaryHex,
-              }}
-            >
+          <div
+            className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 transition-colors"
+            style={{
+              borderColor: palette.primaryHex,
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2.5 text-left">
                 <span
                   className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
@@ -307,41 +283,38 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   Underground Face Mapping
                 </span>
               </span>
-              <ArrowRight
-                className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
-                style={{ color: palette.accentIconColor }}
-              />
-            </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setIsFirstOpening(false);
-                handleSwitchMappingDomain('TUNNEL');
-                setResumeFieldAtLastStage(true);
-                setIsFieldMappingModeOpen(true);
-              }}
-              className="px-3.5 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
-              style={{
-                backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
-                borderColor: palette.accentHex,
-                color: palette.isLightBg ? '#FFFFFF' : '#000000',
-              }}
-              title={
-                fieldResumeMeta
-                  ? `Resume Underground Face Mapping where you stopped (${fieldResumeMeta.stage})`
-                  : 'Resume Underground Face Mapping where you stopped'
-              }
-            >
-              <Play
-                className="w-3.5 h-3.5 shrink-0"
-                style={{
-                  color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
-                  fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFirstOpening(false);
+                  handleSwitchMappingDomain('TUNNEL');
+                  setActiveFieldWorkflowMode('field_mapping');
+                  setResumeFieldAtLastStage(Boolean(fieldResumeMeta));
+                  setIsFieldMappingModeOpen(true);
                 }}
-              />
-              <span>Resume</span>
-            </button>
+                className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                style={{
+                  backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
+                  borderColor: palette.accentHex,
+                  color: palette.isLightBg ? '#FFFFFF' : '#000000',
+                }}
+                title={
+                  fieldResumeMeta
+                    ? `Resume Underground Face Mapping where you stopped (${fieldResumeMeta.stage})`
+                    : 'Open Underground Face Mapping'
+                }
+              >
+                <Play
+                  className="w-3.5 h-3.5 shrink-0"
+                  style={{
+                    color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                  }}
+                />
+                <span>{fieldResumeMeta ? 'Resume' : 'Open'}</span>
+              </button>
+            </div>
           </div>
 
           {/* 2. Geological & Geotechnical Core Logging */}
@@ -453,13 +426,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   Continuous 3D Tunnel Log
                 </span>
               </span>
-              <span
-                className="text-xs font-mono font-bold flex items-center gap-1"
+              <ArrowRight
+                className="w-4 h-4 shrink-0 transition-transform group-hover:translate-x-1"
                 style={{ color: palette.accentIconColor }}
-              >
-                <span className="hidden sm:inline">Launch 3D Log</span>
-                <ArrowRight className="w-3.5 h-3.5 shrink-0 transition-transform group-hover:translate-x-1" />
-              </span>
+              />
             </button>
           </div>
 
@@ -502,7 +472,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       {isBootLoading && <EswaLoadingScreen onComplete={() => setIsBootLoading(false)} />}
       {projectMemoryModalNode}
       {natmRockMechanicsModalNode}
-      {welcomeAiChatbotNode}
       {continuousLoggingModalsNode}
       {globalSettingsModalNode}
       {modeSwitchConfirmationModalNode}

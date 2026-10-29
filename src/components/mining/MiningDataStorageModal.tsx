@@ -557,14 +557,6 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                     <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
                   </label>
 
-                  <button
-                    type="button"
-                    onClick={handleResetToDefault}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-900/60 font-bold cursor-pointer ml-auto"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>Reset to Benchmark Demo</span>
-                  </button>
                 </div>
               </div>
             </div>

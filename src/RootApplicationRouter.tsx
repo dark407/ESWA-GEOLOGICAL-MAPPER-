@@ -26,7 +26,6 @@ import {
   prepareAndroidApkBlobUrl,
 } from './engine/windowsDesktopEngine';
 import { db } from './firebase';
-import { ElementInspectorHud } from './components/ElementInspectorHud';
 
 export const RootApplicationRouter: React.FC = () => {
   // Detect whether this instance is the Normal User App:
@@ -246,8 +245,6 @@ export const RootApplicationRouter: React.FC = () => {
     );
   }
 
-  const [isInspectorOpen, setIsInspectorOpen] = useState(false);
-
   return (
     <div
       className="h-dvh w-full flex flex-col overflow-hidden"
@@ -260,10 +257,6 @@ export const RootApplicationRouter: React.FC = () => {
           onOpenAdminPortal={handleOpenAdminWebsite}
         />
       </div>
-      <ElementInspectorHud
-        isOpen={isInspectorOpen}
-        onToggle={setIsInspectorOpen}
-      />
     </div>
   );
 };

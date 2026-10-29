@@ -106,7 +106,6 @@ import {
 } from './engine/sampleFieldData';
 import { MappingWorkspace } from './components/MappingWorkspace';
 import { EngineeringSheetModal } from './components/EngineeringSheetModal';
-import { EswaAiExecutiveChatbot } from './components/EswaAiExecutiveChatbot';
 import { loadSavedSheetConfig, saveSheetConfigToStorage } from './engine/sheetLayoutEngine';
 import {
   ContinuousTunnelStripDataset,
@@ -408,8 +407,10 @@ export default function App({
       initialDraft?.geometry &&
       typeof initialDraft.geometry.width === 'number' &&
       Number.isFinite(initialDraft.geometry.width) &&
+      initialDraft.geometry.width > 0 &&
       typeof initialDraft.geometry.height === 'number' &&
       Number.isFinite(initialDraft.geometry.height) &&
+      initialDraft.geometry.height > 0 &&
       Array.isArray(initialDraft.geometry.points) &&
       initialDraft.geometry.points.length >= 3
     ) {
@@ -420,28 +421,45 @@ export default function App({
         hasRightWall: true,
       };
     }
-    return createTunnelGeometry(8.4, 7.2, 4.2, 'd_shaped', 4.35, 'manual');
+    return createTunnelGeometry(0, 0, 0, 'd_shaped', 0, 'manual');
   });
 
-  // Manual geometry form inputs
+  const [isShapeConfigured, setIsShapeConfigured] = useState<boolean>(() => {
+    return Boolean(
+      initialDraft?.geometry &&
+      typeof initialDraft.geometry.width === 'number' &&
+      initialDraft.geometry.width > 0 &&
+      typeof initialDraft.geometry.height === 'number' &&
+      initialDraft.geometry.height > 0 &&
+      initialDraft?.manProfileType
+    );
+  });
+
+  // Step 1 start screen navigation validation state and refs
+  const [hasAttemptedStartValidation, setHasAttemptedStartValidation] = useState(false);
+  const [startValidationError, setStartValidationError] = useState<string | null>(null);
+  const startProjectSelectRef = useRef<HTMLSelectElement | null>(null);
+  const startProjectInputRef = useRef<HTMLInputElement | null>(null);
+  const startLocationSelectRef = useRef<HTMLSelectElement | null>(null);
+  const startLocationInputRef = useRef<HTMLInputElement | null>(null);
+  const startChainageInputRef = useRef<HTMLInputElement | null>(null);
+  const startDriveDirInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Manual geometry form inputs (Clean blank state, no pre-filled dummy data)
   const [manWidth, setManWidth] = useState<string>(() =>
-    initialDraft?.manWidth ? String(initialDraft.manWidth) : String(geometry.width || '8.40')
+    initialDraft?.manWidth ? String(initialDraft.manWidth) : ''
   );
   const [manHeight, setManHeight] = useState<string>(() =>
-    initialDraft?.manHeight ? String(initialDraft.manHeight) : String(geometry.height || '7.20')
+    initialDraft?.manHeight ? String(initialDraft.manHeight) : ''
   );
   const [manWallHeight, setManWallHeight] = useState<string>(() =>
-    initialDraft?.manWallHeight
-      ? String(initialDraft.manWallHeight)
-      : String(geometry.wallHeight || '4.20')
+    initialDraft?.manWallHeight ? String(initialDraft.manWallHeight) : ''
   );
   const [manCrownRadius, setManCrownRadius] = useState<string>(() =>
-    initialDraft?.manCrownRadius
-      ? String(initialDraft.manCrownRadius)
-      : String(geometry.crownRadius || '4.35')
+    initialDraft?.manCrownRadius ? String(initialDraft.manCrownRadius) : ''
   );
-  const [manProfileType, setManProfileType] = useState<ProfileType>(() =>
-    (initialDraft?.manProfileType as ProfileType) || geometry.crownGeometry || 'd_shaped'
+  const [manProfileType, setManProfileType] = useState<ProfileType | ''>(() =>
+    (initialDraft?.manProfileType as ProfileType) || ''
   );
 
   // CAD upload status
@@ -460,11 +478,11 @@ export default function App({
         tunnelName: '',
         location: '',
         locationName: '',
-        driveDirectionInput: 'N 000° E',
+        driveDirectionInput: '',
         driveDirection: 0,
-        chainage: 'RD 0.00m - 3.50m',
-        faceChainage: 'RD 3.50m',
-        roundLength: 3.5,
+        chainage: '',
+        faceChainage: '',
+        roundLength: 0,
         date: today,
         mappedBy: '',
         lithology: '',
@@ -477,11 +495,11 @@ export default function App({
       tunnelName: '',
       location: '',
       locationName: '',
-      driveDirectionInput: 'N 000° E',
+      driveDirectionInput: '',
       driveDirection: 0,
-      chainage: 'RD 0.00m - 3.50m',
-      faceChainage: 'RD 3.50m',
-      roundLength: 3.5,
+      chainage: '',
+      faceChainage: '',
+      roundLength: 0,
       date: today,
       mappedBy: '',
       lithology: '',
@@ -1621,6 +1639,90 @@ export default function App({
     });
   }, []);
 
+  const validateAndProceedFromStartScreen = useCallback(() => {
+    setHasAttemptedStartValidation(true);
+    const proj = (activeProjectName || settings.projectName || '').trim();
+    if (!proj) {
+      setStartValidationError('Project Name is required. Please select or enter a Project Name.');
+      if (startProjectInputRef.current) {
+        startProjectInputRef.current.focus();
+      } else if (startProjectSelectRef.current) {
+        startProjectSelectRef.current.focus();
+      }
+      return false;
+    }
+
+    const loc = (activeLocationName || settings.locationName || settings.tunnelName || '').trim();
+    if (!loc) {
+      setStartValidationError(
+        activeMappingDomain === 'TUNNEL'
+          ? 'Location / Tunnel Heading is required. Please select or enter a Location.'
+          : 'Sector / Location is required. Please enter a Location name.'
+      );
+      if (startLocationInputRef.current) {
+        startLocationInputRef.current.focus();
+      } else if (startLocationSelectRef.current) {
+        startLocationSelectRef.current.focus();
+      }
+      return false;
+    }
+
+    const ch = (settings.chainage || settings.faceChainage || '').trim();
+    if (!ch) {
+      setStartValidationError('Chainage / Station is required. Please enter Chainage / RD Interval.');
+      startChainageInputRef.current?.focus();
+      return false;
+    }
+
+    const drive = (settings.driveDirectionInput || '').trim();
+    if (!drive) {
+      setStartValidationError(
+        activeMappingDomain === 'TUNNEL'
+          ? 'Tunnel Drive Direction Azimuth is required (e.g. 135°).'
+          : 'Face Dip Direction / Axis Azimuth is required (e.g. 135°).'
+      );
+      startDriveDirInputRef.current?.focus();
+      return false;
+    }
+
+    if (activeMappingDomain === 'TUNNEL') {
+      if (!isShapeConfigured || geometry.width <= 0 || geometry.height <= 0) {
+        setStartValidationError(
+          'Tunnel Shape and Dimensions are required. Please click "Create / Edit Tunnel Shape" or select a shape before continuing.'
+        );
+        return false;
+      }
+    } else {
+      if (geometry.width <= 0 || geometry.height <= 0) {
+        setStartValidationError(
+          'Surface Geometry dimensions are required. Please configure Span and Height before continuing.'
+        );
+        return false;
+      }
+    }
+
+    setStartValidationError(null);
+    setIsFirstOpening(false);
+    handleSaveProjectLocationPair(proj, loc);
+    navigateScreen('drive_and_photos');
+    return true;
+  }, [
+    activeProjectName,
+    settings.projectName,
+    activeLocationName,
+    settings.locationName,
+    settings.tunnelName,
+    settings.chainage,
+    settings.faceChainage,
+    settings.driveDirectionInput,
+    activeMappingDomain,
+    isShapeConfigured,
+    geometry.width,
+    geometry.height,
+    navigateScreen,
+    handleSaveProjectLocationPair,
+  ]);
+
   // Filter saved tunnel shapes & sizes (prioritizes matching Location, or shows all saved shapes)
   const savedShapesForSelectedLocation = useMemo(() => {
     const locLower = activeLocationName.trim().toLowerCase();
@@ -2179,23 +2281,26 @@ export default function App({
   // Start a completely fresh new mapping session (clears draft & example data)
   const handleStartFreshNewSession = useCallback(() => {
     const today = new Date().toISOString().slice(0, 10);
-    const freshGeom = createTunnelGeometry(8.4, 7.2, 4.2, 'd_shaped', 4.35, 'manual');
+    const freshGeom = createTunnelGeometry(0, 0, 0, 'd_shaped', 0, 'manual');
     setGeometry(freshGeom);
-    setManWidth('8.40');
-    setManHeight('7.20');
-    setManWallHeight('4.20');
-    setManCrownRadius('4.35');
-    setManProfileType('d_shaped');
+    setIsShapeConfigured(false);
+    setHasAttemptedStartValidation(false);
+    setStartValidationError(null);
+    setManWidth('');
+    setManHeight('');
+    setManWallHeight('');
+    setManCrownRadius('');
+    setManProfileType('');
     setSettings({
       projectName: '',
       tunnelName: '',
       location: '',
       locationName: '',
-      driveDirectionInput: 'N 000° E',
+      driveDirectionInput: '',
       driveDirection: 0,
-      chainage: 'RD 0.00m - 3.50m',
-      faceChainage: 'RD 3.50m',
-      roundLength: 3.5,
+      chainage: '',
+      faceChainage: '',
+      roundLength: 0,
       date: today,
       mappedBy: '',
       lithology: '',
@@ -3132,13 +3237,26 @@ export default function App({
 
   // Apply manual tunnel geometry
   const handleApplyManualGeometry = (proceedToNext = true) => {
-    const w = Math.max(1.5, parseFloat(manWidth) || 8.4);
-    const h = Math.max(1.5, parseFloat(manHeight) || 7.2);
-    const wh = Math.min(h - 0.3, Math.max(0.5, parseFloat(manWallHeight) || 4.2));
-    const cr = Math.max(1.0, parseFloat(manCrownRadius) || w / 2);
+    const w = parseFloat(manWidth);
+    const h = parseFloat(manHeight);
+    const wh = parseFloat(manWallHeight);
+    const cr = parseFloat(manCrownRadius) || (w > 0 ? w / 2 : 1.0);
 
-    const nextGeom = createTunnelGeometry(w, h, wh, manProfileType, cr, 'manual');
+    if (!manProfileType || isNaN(w) || w <= 0 || isNaN(h) || h <= 0) {
+      setStatusMessage('Please select an excavation shape and specify valid dimensions.');
+      return;
+    }
+
+    const nextGeom = createTunnelGeometry(
+      w,
+      h,
+      isNaN(wh) || wh <= 0 ? h * 0.55 : wh,
+      (manProfileType as ProfileType) || 'd_shaped',
+      cr,
+      'manual'
+    );
     setGeometry(nextGeom);
+    setIsShapeConfigured(true);
     if (proceedToNext) {
       setScreen('drive_and_photos');
     }
@@ -3153,6 +3271,7 @@ export default function App({
         const text = await file.text();
         const parsedGeom = parseDXFStringToGeometry(text, file.name);
         setGeometry(parsedGeom);
+        setIsShapeConfigured(true);
         setManWidth(String(parsedGeom.width));
         setManHeight(String(parsedGeom.height));
         setManWallHeight(String(parsedGeom.wallHeight));
@@ -3827,87 +3946,6 @@ export default function App({
     />
   );
 
-  // AI Icon / Chatbot is strictly shown ONLY on the main Welcome Window
-  const welcomeAiChatbotNode = (
-    <EswaAiExecutiveChatbot
-      geometry={geometry}
-      settings={settings}
-      joints={clusteredJoints}
-      jointSets={jointSets}
-      qIndexParams={qIndexParams}
-      rmrParams={rmrParams}
-      rockMassSummary={rockMassSummary}
-      lithologyRegions={lithologyRegions}
-      placedSymbols={placedSymbols}
-      overbreakAnalysis={overbreakAnalysis}
-      savedProjects={savedProjects}
-      onNavigateScreen={(target) => setScreen(target)}
-      onOpenContinuous3DLogger={() => setIsContinuous3DLoggerOpen(true)}
-      onOpenProjectDatabase={() => handleOpenProjectMemoryModal('field_data')}
-      onOpenExportSheet={() => {
-        setExportModalInitialMode('FINAL_ENGINEERING_SHEET');
-        setIsExportModalOpen(true);
-      }}
-      onUpdateGeometryDimensions={(w, h, wh) => {
-        const constrained = enforceStrictTunnelGeometryConstraints(
-          w,
-          h,
-          wh,
-          geometry.crownGeometry
-        );
-        const nextGeom = createTunnelGeometry(
-          w,
-          h,
-          constrained.wallHeight,
-          geometry.crownGeometry,
-          constrained.crownRadius,
-          'manual'
-        );
-        setGeometry(nextGeom);
-        setManWidth(String(w));
-        setManHeight(String(h));
-        setManWallHeight(String(constrained.wallHeight));
-        setManCrownRadius(String(constrained.crownRadius));
-      }}
-      onUpdateSettings={setSettings}
-      onAddExecutiveJoint={(partial) => {
-        const newJ: Joint = {
-          id: `J-AI-${Date.now().toString().slice(-4)}`,
-          surface: activeSurface,
-          geometry: [
-            { x: -1.4, y: 2.1 },
-            { x: -0.3, y: 2.9 },
-            { x: 0.9, y: 3.6 },
-            { x: 1.8, y: 4.1 },
-          ],
-          traceAngle: 48,
-          strike: ((partial.dipDirection || 65) - 90 + 360) % 360,
-          dip: partial.dip || 52,
-          dipDirection: partial.dipDirection || 65,
-          orientationStatus: 'DIRECTLY_MEASURED',
-          set: partial.set || 'J1',
-          featureType: 'joint',
-          confidence: 'High',
-          confidenceScore: 0.95,
-          confidenceBreakdown: {
-            detection: 95,
-            trace: 94,
-            geometric: 96,
-            orientation: 95,
-          },
-          source: 'AI_HYBRID',
-          accepted: true,
-          persistenceMeters: 3.65,
-          roughness: partial.roughness || 'Rough / Stepped',
-          infilling: partial.infilling || 'Quartz / Tight',
-          apertureMm: '1-3 mm',
-          waterCondition: 'Dry',
-        };
-        updateJointsWithHistory([...clusteredJoints, newJ]);
-      }}
-      onSaveCurrentSection={handleSaveCurrentProjectToMemory}
-    />
-  );
 
   const continuousLoggingModalsNode = (
     <>
@@ -4271,7 +4309,6 @@ export default function App({
         setIsBootLoading={setIsBootLoading}
         projectMemoryModalNode={projectMemoryModalNode}
         natmRockMechanicsModalNode={natmRockMechanicsModalNode}
-        welcomeAiChatbotNode={welcomeAiChatbotNode}
         continuousLoggingModalsNode={continuousLoggingModalsNode}
         globalSettingsModalNode={globalSettingsModalNode}
         modeSwitchConfirmationModalNode={modeSwitchConfirmationModalNode}
@@ -5104,6 +5141,7 @@ export default function App({
 
                 {Object.keys(projectDirectory).length > 0 && !showNewProjectInput ? (
                   <select
+                    ref={startProjectSelectRef}
                     value={activeProjectName}
                     onChange={(e) => {
                       const nextProj = e.target.value;
@@ -5115,8 +5153,13 @@ export default function App({
                         locationName: firstLoc,
                         tunnelName: firstLoc,
                       }));
+                      if (startValidationError) setStartValidationError(null);
                     }}
-                    className={layoutStyles.inputControl}
+                    className={`${layoutStyles.inputControl} ${
+                      hasAttemptedStartValidation && !activeProjectName && !settings.projectName
+                        ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5'
+                        : ''
+                    }`}
                   >
                     <option value="">-- Select Project --</option>
                     {allProjectsList.map((proj) => (
@@ -5128,6 +5171,7 @@ export default function App({
                 ) : (
                   <div className="flex items-center gap-2">
                     <input
+                      ref={startProjectInputRef}
                       type="text"
                       placeholder="Enter Project Name..."
                       value={settings.projectName || ''}
@@ -5137,8 +5181,13 @@ export default function App({
                           ...prev,
                           projectName: val,
                         }));
+                        if (startValidationError) setStartValidationError(null);
                       }}
-                      className={layoutStyles.inputControl}
+                      className={`${layoutStyles.inputControl} ${
+                        hasAttemptedStartValidation && !activeProjectName && !settings.projectName
+                          ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5'
+                          : ''
+                      }`}
                     />
                     {showNewProjectInput && (
                       <button
@@ -5184,6 +5233,7 @@ export default function App({
 
                 {locationsForSelectedProject.length > 0 && !showNewLocationInput ? (
                   <select
+                    ref={startLocationSelectRef}
                     value={activeLocationName}
                     onChange={(e) => {
                       const nextLoc = e.target.value;
@@ -5192,6 +5242,7 @@ export default function App({
                         locationName: nextLoc,
                         tunnelName: nextLoc,
                       }));
+                      if (startValidationError) setStartValidationError(null);
                       if (activeMappingDomain === 'TUNNEL') {
                         const match = savedGeometries.find(
                           (g) =>
@@ -5200,6 +5251,7 @@ export default function App({
                         );
                         if (match) {
                           setGeometry(match.geometry);
+                          setIsShapeConfigured(true);
                           setManWidth(String(match.geometry.width));
                           setManHeight(String(match.geometry.height));
                           setManWallHeight(String(match.geometry.wallHeight));
@@ -5207,7 +5259,11 @@ export default function App({
                         }
                       }
                     }}
-                    className={layoutStyles.inputControl}
+                    className={`${layoutStyles.inputControl} ${
+                      hasAttemptedStartValidation && !activeLocationName && !settings.locationName && !settings.tunnelName
+                        ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5'
+                        : ''
+                    }`}
                   >
                     <option value="">-- Select Location --</option>
                     {locationsForSelectedProject.map((loc) => (
@@ -5219,6 +5275,7 @@ export default function App({
                 ) : (
                   <div className="flex items-center gap-2">
                     <FastInput
+                      ref={startLocationInputRef}
                       type="text"
                       placeholder={
                         activeMappingDomain === 'TUNNEL'
@@ -5236,8 +5293,13 @@ export default function App({
                           locationName: val,
                           tunnelName: val,
                         }));
+                        if (startValidationError) setStartValidationError(null);
                       }}
-                      className={layoutStyles.inputControl}
+                      className={`${layoutStyles.inputControl} ${
+                        hasAttemptedStartValidation && !activeLocationName && !settings.locationName && !settings.tunnelName
+                          ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5'
+                          : ''
+                      }`}
                     />
                     {showNewLocationInput && (
                       <button
@@ -5280,11 +5342,19 @@ export default function App({
                         : 'Station / Chainage Interval'}
                     </span>
                     <FastInput
+                      ref={startChainageInputRef}
                       type="text"
                       placeholder="e.g. Ch 120.0m - 135.0m"
                       value={settings.chainage}
-                      onChangeValue={(val) => setSettings((p) => ({ ...p, chainage: val }))}
-                      className={layoutStyles.inputControl}
+                      onChangeValue={(val) => {
+                        setSettings((p) => ({ ...p, chainage: val }));
+                        if (startValidationError) setStartValidationError(null);
+                      }}
+                      className={`${layoutStyles.inputControl} ${
+                        hasAttemptedStartValidation && !settings.chainage && !settings.faceChainage
+                          ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5'
+                          : ''
+                      }`}
                     />
                   </label>
 
@@ -5323,6 +5393,7 @@ export default function App({
                           }
                           return { ...p, faceChainage: nextFace, chainage: nextRange };
                         });
+                        if (startValidationError) setStartValidationError(null);
                       }}
                       className={layoutStyles.inputControl}
                     />
@@ -5366,6 +5437,7 @@ export default function App({
                         : `Face Dip Direction Azimuth (${Math.round(settings.driveDirection)}°)`}
                     </span>
                     <FastInput
+                      ref={startDriveDirInputRef}
                       type="text"
                       placeholder="e.g. N 135° or 135"
                       value={settings.driveDirectionInput}
@@ -5376,13 +5448,18 @@ export default function App({
                           driveDirectionInput: val,
                           driveDirection: norm.azimuth,
                         }));
+                        if (startValidationError) setStartValidationError(null);
                         if (activeMappingDomain !== 'TUNNEL') {
                           const updated = { ...photoSurfaceParams, faceDipDirectionDeg: norm.azimuth };
                           setPhotoSurfaceParams(updated);
                           saveSurfaceGeometryParameters(updated);
                         }
                       }}
-                      className={layoutStyles.inputControl}
+                      className={`${layoutStyles.inputControl} ${
+                        hasAttemptedStartValidation && !settings.driveDirectionInput
+                          ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5'
+                          : ''
+                      }`}
                     />
                   </label>
                 </div>
@@ -5444,6 +5521,8 @@ export default function App({
                         <div
                           key={rec.id}
                           onClick={() => {
+                            setIsShapeConfigured(true);
+                            if (startValidationError) setStartValidationError(null);
                             openChooseShapeExcavationModal(rec.name, rec.geometry);
                           }}
                           className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
@@ -5485,70 +5564,90 @@ export default function App({
                   </div>
                 )}
 
-                {/* Currently Selected Shape Summary Bar */}
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-3.5">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="px-2.5 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-300 text-xs font-mono font-bold">
-                          {geometry.excavationStage === 'TOP_HEADING' ||
-                          geometry.excavationStage === 'top_heading'
-                            ? 'TOP HEADING SHAPE'
-                            : 'ACTIVE SHAPE'}
-                        </div>
-                        <strong className="text-xs sm:text-sm font-mono text-slate-900">
-                          {geometry.profileName ||
-                            geometry.customProfile?.name ||
-                            geometry.crownGeometry.replace(/_/g, ' ').toUpperCase()}
-                        </strong>
+                {/* Currently Selected Shape Summary Bar / Unselected Warning Box */}
+                <div
+                  className={`p-3.5 rounded-xl flex flex-wrap items-center justify-between gap-3 transition-all ${
+                    !isShapeConfigured || geometry.width <= 0 || geometry.height <= 0
+                      ? hasAttemptedStartValidation
+                        ? 'bg-rose-500/5 border-2 border-rose-500 ring-2 ring-rose-500/20'
+                        : 'bg-slate-50 border border-dashed border-slate-300'
+                      : 'bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  {!isShapeConfigured || geometry.width <= 0 || geometry.height <= 0 ? (
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 shrink-0">
+                        <AlertTriangle className="w-5 h-5 text-amber-500" />
                       </div>
-                      <div className="text-xs font-mono text-slate-700 leading-relaxed">
-                        Width = <strong className="text-sky-700">{geometry.width.toFixed(2)} m</strong> ·{' '}
-                        {geometry.excavationStage === 'TOP_HEADING' ||
-                        geometry.excavationStage === 'top_heading' ? (
-                          <>
-                            Top Heading H ={' '}
-                            <strong className="text-amber-700">{geometry.height.toFixed(2)} m</strong>{' '}
-                            <span className="text-rose-700 font-semibold">
-                              (Bench {(geometry.benchHeightRemovedMeters || 0).toFixed(2)}m Removed)
-                            </span>{' '}
-                            · Top Heading L-Wall ={' '}
-                            <strong className="text-emerald-700">
-                              {(geometry.leftWallHeight ?? geometry.wallHeight).toFixed(2)} m
-                            </strong>{' '}
-                            · R-Wall ={' '}
-                            <strong className="text-indigo-700">
-                              {(geometry.rightWallHeight ?? geometry.wallHeight).toFixed(2)} m
-                            </strong>{' '}
-                            ·{' '}
-                          </>
-                        ) : (
-                          <>
-                            Height = <strong className="text-sky-700">{geometry.height.toFixed(2)} m</strong> ·
-                            L-Wall ={' '}
-                            <strong className="text-emerald-700">
-                              {(geometry.leftWallHeight ?? geometry.wallHeight).toFixed(2)} m
-                            </strong>{' '}
-                            · R-Wall ={' '}
-                            <strong className="text-indigo-700">
-                              {(geometry.rightWallHeight ?? geometry.wallHeight).toFixed(2)} m
-                            </strong>{' '}
-                            ·{' '}
-                          </>
-                        )}
-                        Crown = <strong className="text-sky-700">{geometry.crownArcLength.toFixed(2)} m</strong> ·
-                        Pull = <strong className="text-amber-700">{settings.roundLength.toFixed(2)} m</strong>
+                      <div>
+                        <div className="text-xs font-mono font-bold text-slate-900">
+                          -- No Tunnel Excavation Shape Selected (No Selection) --
+                        </div>
+                        <div className="text-[11px] text-slate-600">
+                          Please choose a saved shape above or click &quot;Create / Edit Tunnel Shape&quot; to configure dimensions before continuing.
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-3.5">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="px-2.5 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-300 text-xs font-mono font-bold">
+                            {geometry.excavationStage === 'TOP_HEADING' ||
+                            geometry.excavationStage === 'top_heading'
+                              ? 'TOP HEADING SHAPE'
+                              : 'ACTIVE SHAPE'}
+                          </div>
+                          <strong className="text-xs sm:text-sm font-mono text-slate-900">
+                            {geometry.profileName ||
+                              geometry.customProfile?.name ||
+                              geometry.crownGeometry.replace(/_/g, ' ').toUpperCase()}
+                          </strong>
+                        </div>
+                        <div className="text-xs font-mono text-slate-700 leading-relaxed">
+                          Width = <strong className="text-sky-700">{geometry.width.toFixed(2)} m</strong> ·{' '}
+                          {geometry.excavationStage === 'TOP_HEADING' ||
+                          geometry.excavationStage === 'top_heading' ? (
+                            <>
+                              Top Heading H ={' '}
+                              <strong className="text-amber-700">{geometry.height.toFixed(2)} m</strong>{' '}
+                              <span className="text-rose-700 font-semibold">
+                                (Bench {(geometry.benchHeightRemovedMeters || 0).toFixed(2)}m Removed)
+                              </span>{' '}
+                              · Top Heading L-Wall ={' '}
+                              <strong className="text-emerald-700">
+                                {(geometry.leftWallHeight ?? geometry.wallHeight).toFixed(2)} m
+                              </strong>{' '}
+                              · R-Wall ={' '}
+                              <strong className="text-indigo-700">
+                                {(geometry.rightWallHeight ?? geometry.wallHeight).toFixed(2)} m
+                              </strong>{' '}
+                              ·{' '}
+                            </>
+                          ) : (
+                            <>
+                              Height = <strong className="text-sky-700">{geometry.height.toFixed(2)} m</strong> ·
+                              L-Wall ={' '}
+                              <strong className="text-emerald-700">
+                                {(geometry.leftWallHeight ?? geometry.wallHeight).toFixed(2)} m
+                              </strong>{' '}
+                              · R-Wall ={' '}
+                              <strong className="text-indigo-700">
+                                {(geometry.rightWallHeight ?? geometry.wallHeight).toFixed(2)} m
+                              </strong>{' '}
+                              ·{' '}
+                            </>
+                          )}
+                          Crown = <strong className="text-sky-700">{geometry.crownArcLength.toFixed(2)} m</strong> ·
+                          Pull = <strong className="text-amber-700">{settings.roundLength.toFixed(2)} m</strong>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsFirstOpening(false);
-                      handleSaveProjectLocationPair(activeProjectName, activeLocationName);
-                      navigateScreen('drive_and_photos');
-                    }}
+                    onClick={validateAndProceedFromStartScreen}
                     className={`py-2.5 px-5 text-xs sm:text-sm ${layoutStyles.primaryButton}`}
                   >
                     <span>Continue with This Shape to Add Pictures</span>
@@ -5858,11 +5957,7 @@ export default function App({
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsFirstOpening(false);
-                      handleSaveProjectLocationPair(activeProjectName, activeLocationName);
-                      navigateScreen('drive_and_photos');
-                    }}
+                    onClick={validateAndProceedFromStartScreen}
                     className={`py-2.5 px-5 text-xs sm:text-sm ${layoutStyles.primaryButton}`}
                   >
                     <span>Continue with {activeMappingDomain} Geometry to Add Pictures</span>
@@ -5873,6 +5968,21 @@ export default function App({
             )}
           </div>
         </div>
+
+        {/* FLOATING STEP 1 VALIDATION TOAST BANNER */}
+        {startValidationError && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl bg-rose-950/95 border-2 border-rose-500 text-rose-100 shadow-2xl backdrop-blur-md animate-bounce max-w-lg w-[92vw]">
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+            <span className="text-xs sm:text-sm font-semibold flex-1">{startValidationError}</span>
+            <button
+              type="button"
+              onClick={() => setStartValidationError(null)}
+              className="p-1 rounded-lg hover:bg-rose-900/60 text-rose-300 ml-1 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* MODAL SHOWN WHEN CHOOSING A TUNNEL SHAPE: ASK FULL FACE OR TOP HEADING + BENCHING DETAILS */}
         {chosenShapeModalState &&
@@ -6170,7 +6280,6 @@ export default function App({
         )}
         {projectMemoryModalNode}
         {natmRockMechanicsModalNode}
-        {welcomeAiChatbotNode}
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}

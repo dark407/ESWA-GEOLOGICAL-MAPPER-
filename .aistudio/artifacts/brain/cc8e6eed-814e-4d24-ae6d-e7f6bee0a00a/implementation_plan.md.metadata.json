@@ -1,6 +1,6 @@
 {
-  "summary":  "Architectural implementation plan for 3D Dual Canvas Mode: Left 3D Drawing Canvas and Right 3D Photogrammetry Photo Canvas with synchronized camera orbits, AI photo-to-tunnel 3D shape reconstruction, geological filter syncing, and live spatial crosshair tracking.",
-  "updatedAt":  "2026-10-28T20:02:11.807147186Z",
+  "summary":  "Comprehensive implementation plan for removing pre-filled default data across all modes, enforcing explicit selection with '-- Select --' placeholders, adding visual validation indicators (red borders on missing fields), blocking navigation to next windows with focused field jumps and error toasts, and removing pre-configured demo data buttons.",
+  "updatedAt":  "2026-10-29T15:52:52.461163045Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

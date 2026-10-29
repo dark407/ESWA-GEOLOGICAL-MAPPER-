@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowLeft,
   BookmarkCheck,
   Box,
@@ -860,14 +861,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   const [showNewLocationForm, setShowNewLocationForm] = useState(false);
   const [newLocName, setNewLocName] = useState('');
-  const [newLocShape, setNewLocShape] = useState<FieldTunnelShapeType>('d_shaped');
-  const [newLocWidth, setNewLocWidth] = useState(8.5);
-  const [newLocHeight, setNewLocHeight] = useState(7.5);
-  const [newLocWallHeight, setNewLocWallHeight] = useState(4.0);
-  const [newLocCrownRadius, setNewLocCrownRadius] = useState(4.25);
-  const [newLocAzimuth, setNewLocAzimuth] = useState(45);
-  const [newLocExcavationMode, setNewLocExcavationMode] = useState('Drill & Blast (Full Face)');
+  const [newLocShape, setNewLocShape] = useState<FieldTunnelShapeType | ''>('');
+  const [newLocWidth, setNewLocWidth] = useState<string>('');
+  const [newLocHeight, setNewLocHeight] = useState<string>('');
+  const [newLocWallHeight, setNewLocWallHeight] = useState<string>('');
+  const [newLocCrownRadius, setNewLocCrownRadius] = useState<string>('');
+  const [newLocAzimuth, setNewLocAzimuth] = useState<string>('');
+  const [newLocExcavationMode, setNewLocExcavationMode] = useState('');
   const [newLocExcavationApproach, setNewLocExcavationApproach] = useState('Full Face');
+  const [locValidationAttempted, setLocValidationAttempted] = useState(false);
+  const [setupWizardToast, setSetupWizardToast] = useState<string | null>(null);
+  const newLocNameInputRef = useRef<HTMLInputElement | null>(null);
+  const newLocShapeSelectRef = useRef<HTMLSelectElement | null>(null);
+  const newLocWidthInputRef = useRef<HTMLInputElement | null>(null);
+  const newLocHeightInputRef = useRef<HTMLInputElement | null>(null);
   const [newLocCustomPoints, setNewLocCustomPoints] = useState<
     { x: number; y: number }[] | undefined
   >(undefined);
@@ -907,10 +914,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   // New Face / Station modal state (asks Face Details + Field vs Photogrammetry Method)
   const [showNewFaceModal, setShowNewFaceModal] = useState(false);
-  const [newFaceChainageFrom, setNewFaceChainageFrom] = useState('100.0');
-  const [newFacePullLength, setNewFacePullLength] = useState(3.0);
-  const [newFaceGeologist, setNewFaceGeologist] = useState('Site Engineering Geologist');
-  const [newFaceExcavationMode, setNewFaceExcavationMode] = useState('Drill & Blast (Full Face)');
+  const [newFaceChainageFrom, setNewFaceChainageFrom] = useState('');
+  const [newFacePullLength, setNewFacePullLength] = useState<string>('');
+  const [newFaceGeologist, setNewFaceGeologist] = useState('');
+  const [newFaceExcavationMode, setNewFaceExcavationMode] = useState('');
+  const [faceValidationAttempted, setFaceValidationAttempted] = useState(false);
+  const newFaceChainageInputRef = useRef<HTMLInputElement | null>(null);
+  const newFacePullInputRef = useRef<HTMLInputElement | null>(null);
   const [newFaceMethod, setNewFaceMethod] = useState<'field_mapping' | 'photo_mapping'>(
     initialWorkflowMode
   );
@@ -956,7 +966,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   }, [activeLocation]);
 
   const effectiveFacePhotoDataUrl = useMemo(() => {
-    const p = activeRound?.collectedPhotos.slice().reverse().find((ph) => ph.panel === 'face');
+    const p = activeRound?.collectedPhotos
+      ? activeRound.collectedPhotos.slice().reverse().find((ph) => ph.panel === 'face')
+      : undefined;
     return p?.dataUrl || defaultSampleFacePhoto;
   }, [activeRound?.collectedPhotos, defaultSampleFacePhoto]);
 
@@ -1007,8 +1019,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   );
 
   const activePanelUploadedPhoto = useMemo(() => {
+    if (!activeRound?.collectedPhotos) return null;
     return (
-      activeRound?.collectedPhotos
+      activeRound.collectedPhotos
         .slice()
         .reverse()
         .find(
@@ -1354,11 +1367,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   ]);
   const [alternatingSpacingPx, setAlternatingSpacingPx] = useState<number>(18);
   const [alternatingAngleDeg, setAlternatingAngleDeg] = useState<number>(() => {
-    return activeRound.alternateLithologyConfig?.angleDeg ?? -22;
+    return activeRound?.alternateLithologyConfig?.angleDeg ?? -22;
   });
   const [lithologyPatternAngle, setLithologyPatternAngle] = useState<number>(() => {
-    return activeRound.lithologyPatternAngle ?? 0;
+    return activeRound?.lithologyPatternAngle ?? 0;
   });
+
+  useEffect(() => {
+    if (activeRound?.alternateLithologyConfig?.angleDeg !== undefined) {
+      setAlternatingAngleDeg(activeRound.alternateLithologyConfig.angleDeg);
+    }
+    if (activeRound?.lithologyPatternAngle !== undefined) {
+      setLithologyPatternAngle(activeRound.lithologyPatternAngle);
+    }
+  }, [activeRound?.alternateLithologyConfig?.angleDeg, activeRound?.lithologyPatternAngle]);
 
   // Collapsible & Draggable Left and Right sidebars on Stage 4 / Stage 5 Canvas (Prioritizes Canvas on Android & Compact screens)
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState<boolean>(() => {
@@ -4144,44 +4166,127 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     setSetupWindowStep('location');
   };
 
-  // Create new tunnel location handler
+  // Create new tunnel location handler with strict validation & focus guards
   const handleCreateLocation = () => {
-    if (!activeProject || !newLocName.trim()) return;
-    const locId = `floc-${Date.now()}`;
-    const w = Number(newLocWidth) || 8.5;
-    const h = Number(newLocHeight) || 7.5;
-    const wallH = Number(newLocWallHeight) || Number((h * 0.55).toFixed(2));
-    const crownR = Number(newLocCrownRadius) || Number((w * 0.5).toFixed(2));
-    const az = Number(newLocAzimuth) || 45;
+    if (!activeProject) {
+      setSetupWizardToast('Please select or create a Project first.');
+      return;
+    }
+    setLocValidationAttempted(true);
+    const trimmedName = newLocName.trim();
+    if (!trimmedName) {
+      setSetupWizardToast('Location / Sector Name is required. Please enter a name.');
+      newLocNameInputRef.current?.focus();
+      return;
+    }
 
-    const loc: FieldTunnelLocationItem = {
-      id: locId,
-      name: newLocName.trim(),
-      shape: newLocShape,
-      widthM: w,
-      heightM: h,
-      wallHeightM: wallH,
-      crownRadiusM: crownR,
-      defaultDriveAzimuth: az,
-      defaultExcavationMode: newLocExcavationMode.trim() || 'Drill & Blast (Full Face)',
-      defaultExcavationApproach: newLocExcavationApproach.trim() || 'Full Face',
-      customCrossSectionPoints: newLocCustomPoints,
-      customGeometry: newLocCustomGeometry,
-      rememberedRockTypes: [],
-    };
-    const newRound = createDefaultExcavationRound(activeProject.id, loc, '0+100.0', 3.0);
-    setStore((prev) => ({
-      ...prev,
-      projects: prev.projects.map((p) =>
-        p.id === activeProject.id ? { ...p, locations: [...p.locations, loc] } : p
-      ),
-      rounds: [newRound, ...prev.rounds],
-      activeLocationId: locId,
-      activeRoundId: newRound.id,
-    }));
-    setNewLocName('');
-    setShowNewLocationForm(false);
-    setSetupWindowStep('face');
+    if (mappingDomain === 'TUNNEL') {
+      if (!newLocShape) {
+        setSetupWizardToast('Please select a Tunnel Shape from the dropdown (No Selection currently).');
+        newLocShapeSelectRef.current?.focus();
+        return;
+      }
+      const w = parseFloat(newLocWidth);
+      if (isNaN(w) || w <= 0) {
+        setSetupWizardToast('Tunnel Width / Span is required (must be > 0 m).');
+        newLocWidthInputRef.current?.focus();
+        return;
+      }
+      const h = parseFloat(newLocHeight);
+      if (isNaN(h) || h <= 0) {
+        setSetupWizardToast('Tunnel Height is required (must be > 0 m).');
+        newLocHeightInputRef.current?.focus();
+        return;
+      }
+
+      const wallH = parseFloat(newLocWallHeight) || Number((h * 0.55).toFixed(2));
+      const crownR = parseFloat(newLocCrownRadius) || Number((w * 0.5).toFixed(2));
+      const az = parseFloat(newLocAzimuth) || 0;
+
+      const locId = `floc-${Date.now()}`;
+      const loc: FieldTunnelLocationItem = {
+        id: locId,
+        name: trimmedName,
+        shape: newLocShape as FieldTunnelShapeType,
+        widthM: w,
+        heightM: h,
+        wallHeightM: wallH,
+        crownRadiusM: crownR,
+        defaultDriveAzimuth: az,
+        defaultExcavationMode: newLocExcavationMode.trim() || 'Drill & Blast (Full Face)',
+        defaultExcavationApproach: newLocExcavationApproach.trim() || 'Full Face',
+        customCrossSectionPoints: newLocCustomPoints,
+        customGeometry: newLocCustomGeometry,
+        rememberedRockTypes: [],
+      };
+      const newRound = createDefaultExcavationRound(activeProject.id, loc, '', 3.0);
+      setStore((prev) => ({
+        ...prev,
+        projects: prev.projects.map((p) =>
+          p.id === activeProject.id ? { ...p, locations: [...p.locations, loc] } : p
+        ),
+        rounds: [newRound, ...prev.rounds],
+        activeLocationId: locId,
+        activeRoundId: newRound.id,
+      }));
+      setNewLocName('');
+      setNewLocShape('');
+      setNewLocWidth('');
+      setNewLocHeight('');
+      setNewLocWallHeight('');
+      setNewLocCrownRadius('');
+      setNewLocAzimuth('');
+      setLocValidationAttempted(false);
+      setSetupWizardToast(null);
+      setShowNewLocationForm(false);
+      setSetupWindowStep('face');
+    } else {
+      const w = parseFloat(newLocWidth);
+      if (isNaN(w) || w <= 0) {
+        setSetupWizardToast('Width / Exposure Span is required (must be > 0 m).');
+        newLocWidthInputRef.current?.focus();
+        return;
+      }
+      const h = parseFloat(newLocHeight);
+      if (isNaN(h) || h <= 0) {
+        setSetupWizardToast('Height / Depth is required (must be > 0 m).');
+        newLocHeightInputRef.current?.focus();
+        return;
+      }
+      const az = parseFloat(newLocAzimuth) || 0;
+      const locId = `floc-${Date.now()}`;
+      const loc: FieldTunnelLocationItem = {
+        id: locId,
+        name: trimmedName,
+        shape: 'rectangular',
+        widthM: w,
+        heightM: h,
+        wallHeightM: h,
+        crownRadiusM: 0,
+        defaultDriveAzimuth: az,
+        defaultExcavationMode: newLocExcavationMode.trim() || 'Mechanical Cut',
+        defaultExcavationApproach: newLocExcavationApproach.trim() || 'Full Face',
+        rememberedRockTypes: [],
+      };
+      const newRound = createDefaultExcavationRound(activeProject.id, loc, '', 3.0);
+      setStore((prev) => ({
+        ...prev,
+        projects: prev.projects.map((p) =>
+          p.id === activeProject.id ? { ...p, locations: [...p.locations, loc] } : p
+        ),
+        rounds: [newRound, ...prev.rounds],
+        activeLocationId: locId,
+        activeRoundId: newRound.id,
+      }));
+      setNewLocName('');
+      setNewLocWidth('');
+      setNewLocHeight('');
+      setNewLocAzimuth('');
+      setLocValidationAttempted(false);
+      setSetupWizardToast(null);
+      setShowNewLocationForm(false);
+      setSetupWindowStep('face');
+    }
   };
 
   // Edit Project Handlers
@@ -4273,30 +4378,43 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   // Open New Face / Station dialog to ask Details + Field vs Photogrammetry Method
   const handleStartNewRoundForLocation = (loc: FieldTunnelLocationItem) => {
     if (!activeProject) return;
-    const existingForLoc = store.rounds.filter(
-      (r) => r.projectId === activeProject.id && r.locationId === loc.id
-    );
-    const lastChainage =
-      existingForLoc.length > 0 ? existingForLoc[0].chainageTo : '100.0';
     setStore((prev) => ({
       ...prev,
       activeLocationId: loc.id,
     }));
-    setNewFaceChainageFrom(lastChainage);
-    setNewFacePullLength(3.0);
+    setNewFaceChainageFrom('');
+    setNewFacePullLength('');
+    setNewFaceGeologist('');
     setNewFaceExcavationMode(loc.defaultExcavationMode || 'Drill & Blast (Full Face)');
     setNewFaceMethod(workflowMode);
+    setFaceValidationAttempted(false);
+    setSetupWizardToast(null);
     setSetupWindowStep('face');
     setShowNewFaceModal(true);
   };
 
   const handleConfirmCreateNewFace = () => {
     if (!activeProject || !activeLocation) return;
+    setFaceValidationAttempted(true);
+    if (!newFaceChainageFrom.trim()) {
+      setSetupWizardToast('Chainage / Station is required before creating a Face.');
+      newFaceChainageInputRef.current?.focus();
+      return;
+    }
+    const pull = parseFloat(String(newFacePullLength));
+    if (isNaN(pull) || pull <= 0) {
+      setSetupWizardToast('Pull / Advance Length is required (must be > 0 m).');
+      newFacePullInputRef.current?.focus();
+      return;
+    }
+
+    setFaceValidationAttempted(false);
+    setSetupWizardToast(null);
     const baseRound = createDefaultExcavationRound(
       activeProject.id,
       activeLocation,
-      newFaceChainageFrom.trim() || '100.0',
-      Math.max(0.1, Number(newFacePullLength) || 3.0)
+      newFaceChainageFrom.trim(),
+      pull
     );
     const newRound: FieldExcavationRound = {
       ...baseRound,
@@ -4709,7 +4827,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               <span className="text-slate-600 text-xs font-black">→</span>
               <button
                 type="button"
-                onClick={() => setSetupWindowStep('location')}
+                onClick={() => {
+                  if (!activeProject) {
+                    setSetupWizardToast('Please select or create a Project first before proceeding to Location.');
+                    return;
+                  }
+                  setSetupWizardToast(null);
+                  setSetupWindowStep('location');
+                }}
                 className={`px-3 py-1 rounded-lg text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all ${
                   setupWindowStep === 'location'
                     ? 'bg-amber-500 text-slate-950 shadow'
@@ -4724,7 +4849,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               <span className="text-slate-600 text-xs font-black">→</span>
               <button
                 type="button"
-                onClick={() => setSetupWindowStep('face')}
+                onClick={() => {
+                  if (!activeLocation) {
+                    setSetupWizardToast('Please select or create a Location first before proceeding to Face Details.');
+                    return;
+                  }
+                  setSetupWizardToast(null);
+                  setSetupWindowStep('face');
+                }}
                 className={`px-3 py-1 rounded-lg text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all ${
                   setupWindowStep === 'face'
                     ? 'bg-emerald-500 text-slate-950 shadow'
@@ -5261,9 +5393,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       {mappingDomain === 'TUNNEL' ? 'Tunnel Location Name' : 'Sector / Outcrop Name'}
                     </label>
                     <input
+                      ref={newLocNameInputRef}
                       type="text"
                       value={newLocName}
-                      onChange={(e) => setNewLocName(e.target.value)}
+                      onChange={(e) => {
+                        setNewLocName(e.target.value);
+                        if (setupWizardToast) setSetupWizardToast(null);
+                      }}
                       placeholder={
                         mappingDomain === 'TUNNEL'
                           ? 'Tunnel Location (e.g. Headrace Tunnel Adit-2)'
@@ -5275,7 +5411,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           ? 'Rock Surface Sector (e.g. Outcrop Window RS-01)'
                           : 'Slope Sector (e.g. Portal Cut Slope CS-01)'
                       }
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                      className={`w-full bg-slate-900 border rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none ${
+                        locValidationAttempted && !newLocName.trim()
+                          ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                          : 'border-slate-700 focus:border-amber-400'
+                      }`}
                       autoFocus
                     />
                   </div>
@@ -5297,10 +5437,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           )}
                         </div>
                         <select
+                          ref={newLocShapeSelectRef}
                           value={newLocShape}
                           onChange={(e) => {
-                            const val = e.target.value as FieldTunnelShapeType;
+                            const val = e.target.value as FieldTunnelShapeType | '';
                             setNewLocShape(val);
+                            if (setupWizardToast) setSetupWizardToast(null);
                             if (val === 'freeform_custom') {
                               setCustomBuilderTarget('new_location');
                             }
@@ -5311,8 +5453,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               setCustomBuilderTarget('new_location');
                             }
                           }}
-                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                          className={`w-full bg-slate-900 border rounded px-2 py-1 text-xs text-white focus:outline-none ${
+                            locValidationAttempted && !newLocShape
+                              ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                              : 'border-slate-700 focus:border-amber-400'
+                          }`}
                         >
+                          <option value="">-- Select Tunnel Shape (No Selection) --</option>
                           {FIELD_TUNNEL_SHAPES.map((s) => (
                             <option key={s.id} value={s.id}>
                               {s.label}
@@ -5339,7 +5486,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           min={0}
                           max={360}
                           value={newLocAzimuth}
-                          onChange={(e) => setNewLocAzimuth(Number(e.target.value))}
+                          onChange={(e) => setNewLocAzimuth(e.target.value)}
                           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
                         />
                       </div>
@@ -5374,7 +5521,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           min={0}
                           max={360}
                           value={newLocAzimuth}
-                          onChange={(e) => setNewLocAzimuth(Number(e.target.value))}
+                          onChange={(e) => setNewLocAzimuth(e.target.value)}
                           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
                         />
                       </div>
@@ -5391,15 +5538,25 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           : 'Exposure Length (m)'}
                       </label>
                       <input
+                        ref={newLocWidthInputRef}
                         type="number"
                         step={0.1}
+                        placeholder="e.g. 8.4"
                         value={newLocWidth}
                         onChange={(e) => {
-                          const w = Number(e.target.value);
-                          setNewLocWidth(w);
-                          setNewLocCrownRadius(Number((w * 0.5).toFixed(2)));
+                          const val = e.target.value;
+                          setNewLocWidth(val);
+                          const w = Number(val);
+                          if (!isNaN(w) && w > 0) {
+                            setNewLocCrownRadius(String(Number((w * 0.5).toFixed(2))));
+                          }
+                          if (setupWizardToast) setSetupWizardToast(null);
                         }}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                        className={`w-full bg-slate-900 border rounded px-2 py-1 text-xs text-white font-mono focus:outline-none ${
+                          locValidationAttempted && (!newLocWidth || Number(newLocWidth) <= 0)
+                            ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                            : 'border-slate-700 focus:border-amber-400'
+                        }`}
                       />
                     </div>
                     <div>
@@ -5415,15 +5572,25 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           : 'Slope Height Hs (m)'}
                       </label>
                       <input
+                        ref={newLocHeightInputRef}
                         type="number"
                         step={0.1}
+                        placeholder="e.g. 7.2"
                         value={newLocHeight}
                         onChange={(e) => {
-                          const h = Number(e.target.value);
-                          setNewLocHeight(h);
-                          setNewLocWallHeight(Number((h * 0.55).toFixed(2)));
+                          const val = e.target.value;
+                          setNewLocHeight(val);
+                          const h = Number(val);
+                          if (!isNaN(h) && h > 0) {
+                            setNewLocWallHeight(String(Number((h * 0.55).toFixed(2))));
+                          }
+                          if (setupWizardToast) setSetupWizardToast(null);
                         }}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                        className={`w-full bg-slate-900 border rounded px-2 py-1 text-xs text-white font-mono focus:outline-none ${
+                          locValidationAttempted && (!newLocHeight || Number(newLocHeight) <= 0)
+                            ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                            : 'border-slate-700 focus:border-amber-400'
+                        }`}
                       />
                     </div>
                     {mappingDomain === 'TUNNEL' && (
@@ -5435,9 +5602,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           <input
                             type="number"
                             step={0.1}
+                            placeholder="e.g. 4.0"
                             value={newLocWallHeight}
-                            onChange={(e) => setNewLocWallHeight(Number(e.target.value))}
-                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                            onChange={(e) => setNewLocWallHeight(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:border-amber-400 focus:outline-none"
                           />
                         </div>
                         <div>
@@ -5447,9 +5615,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           <input
                             type="number"
                             step={0.1}
+                            placeholder="e.g. 4.2"
                             value={newLocCrownRadius}
-                            onChange={(e) => setNewLocCrownRadius(Number(e.target.value))}
-                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                            onChange={(e) => setNewLocCrownRadius(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:border-amber-400 focus:outline-none"
                           />
                         </div>
                       </>
@@ -5467,7 +5636,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           value={newLocExcavationMode}
                           onChange={(e) => setNewLocExcavationMode(e.target.value)}
                           placeholder="e.g. Drill & Blast (Full Face)"
-                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:border-amber-400 focus:outline-none"
                         />
                       </div>
                       <div>
@@ -5490,10 +5659,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   )}
                 </div>
 
+                {setupWizardToast && (
+                  <div className="p-2.5 rounded-lg bg-rose-950/90 border border-rose-500/80 text-rose-100 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span className="font-medium">{setupWizardToast}</span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800">
                   <button
                     type="button"
-                    onClick={() => setShowNewLocationForm(false)}
+                    onClick={() => {
+                      setShowNewLocationForm(false);
+                      setSetupWizardToast(null);
+                    }}
                     className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
                   >
                     Cancel
@@ -6005,10 +6184,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           : `${domainPanelMap.stationPrefix} From (m)`}
                       </label>
                       <input
+                        ref={newFaceChainageInputRef}
                         type="text"
+                        placeholder="e.g. 100.0"
                         value={newFaceChainageFrom}
-                        onChange={(e) => setNewFaceChainageFrom(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:border-emerald-400 focus:outline-none"
+                        onChange={(e) => {
+                          setNewFaceChainageFrom(e.target.value);
+                          if (setupWizardToast) setSetupWizardToast(null);
+                        }}
+                        className={`w-full bg-slate-900 border rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none ${
+                          faceValidationAttempted && !newFaceChainageFrom.trim()
+                            ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                            : 'border-slate-700 focus:border-emerald-400'
+                        }`}
                       />
                     </div>
                     <div>
@@ -6018,12 +6206,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           : domainPanelMap.roundLengthLabel}
                       </label>
                       <input
+                        ref={newFacePullInputRef}
                         type="number"
                         step={0.1}
                         min={0.1}
+                        placeholder="e.g. 3.0"
                         value={newFacePullLength}
-                        onChange={(e) => setNewFacePullLength(Number(e.target.value))}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:border-emerald-400 focus:outline-none"
+                        onChange={(e) => {
+                          setNewFacePullLength(e.target.value);
+                          if (setupWizardToast) setSetupWizardToast(null);
+                        }}
+                        className={`w-full bg-slate-900 border rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none ${
+                          faceValidationAttempted && (!newFacePullLength || Number(newFacePullLength) <= 0)
+                            ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                            : 'border-slate-700 focus:border-emerald-400'
+                        }`}
                       />
                     </div>
                     <div>
@@ -6032,6 +6229,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       </label>
                       <input
                         type="text"
+                        placeholder="e.g. Site Geologist"
                         value={newFaceGeologist}
                         onChange={(e) => setNewFaceGeologist(e.target.value)}
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-400 focus:outline-none"
@@ -6050,6 +6248,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           type="text"
                           value={newFaceExcavationMode}
                           onChange={(e) => setNewFaceExcavationMode(e.target.value)}
+                          placeholder="e.g. Drill & Blast (Full Face)"
                           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-400 focus:outline-none"
                         />
                       ) : (
@@ -6072,20 +6271,56 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-amber-300 mb-1">
                       Mapping Method:
                     </label>
-                    <div className="p-1 bg-slate-900/90 border border-slate-700/80 rounded-xl">
-                      <div className="px-3 py-2 rounded-lg text-xs font-bold bg-emerald-500 text-slate-950 font-black shadow-sm flex items-center justify-between">
+                    <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900/90 border border-slate-700/80 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setNewFaceMethod('field_mapping')}
+                        className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-between cursor-pointer ${
+                          newFaceMethod === 'field_mapping'
+                            ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
                         <span>Field Mapping</span>
-                        <span className="text-[10px] bg-slate-950/20 px-1.5 py-0.2 rounded font-black">
-                          ✓
-                        </span>
-                      </div>
+                        {newFaceMethod === 'field_mapping' && (
+                          <span className="text-[10px] bg-slate-950/20 px-1.5 py-0.2 rounded font-black">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewFaceMethod('photo_mapping')}
+                        className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-between cursor-pointer ${
+                          newFaceMethod === 'photo_mapping'
+                            ? 'bg-cyan-500 text-slate-950 font-black shadow-sm'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <span>Photogrammetry Mode</span>
+                        {newFaceMethod === 'photo_mapping' && (
+                          <span className="text-[10px] bg-slate-950/20 px-1.5 py-0.2 rounded font-black">
+                            ✓
+                          </span>
+                        )}
+                      </button>
                     </div>
                   </div>
+
+                  {setupWizardToast && (
+                    <div className="p-2.5 rounded-lg bg-rose-950/90 border border-rose-500/80 text-rose-100 text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span className="font-medium">{setupWizardToast}</span>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800">
                     <button
                       type="button"
-                      onClick={() => setShowNewFaceModal(false)}
+                      onClick={() => {
+                        setShowNewFaceModal(false);
+                        setSetupWizardToast(null);
+                      }}
                       className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
                     >
                       Cancel
@@ -6093,9 +6328,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     <button
                       type="button"
                       onClick={handleConfirmCreateNewFace}
-                      className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer shadow"
+                      className={`px-4 py-1.5 rounded-lg font-black text-xs cursor-pointer shadow transition-all ${
+                        newFaceMethod === 'photo_mapping'
+                          ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950'
+                          : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                      }`}
                     >
-                      Create Face &amp; Start Field Mapping →
+                      {newFaceMethod === 'photo_mapping'
+                        ? 'Create Face & Start Photogrammetry →'
+                        : 'Create Face & Start Field Mapping →'}
                     </button>
                   </div>
                 </>
@@ -8886,6 +9127,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         data-role="button"
                         data-action="open-3d-joint-inspector"
                         onClick={() => {
+                          if (!activeRound) return;
                           const targetId = selectedTraceId || activeRound.jointTraces[0]?.id;
                           if (targetId) {
                             setInspectedJointId(targetId);
@@ -13530,12 +13772,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   : activeLocation?.customGeometry) ||
                 createTunnelGeometry(
                   customBuilderTarget === 'new_location'
-                    ? newLocWidth
+                    ? Number(newLocWidth) || 8.5
                     : customBuilderTarget === 'edit_location' && targetEditLoc
                     ? targetEditLoc.widthM || editLocWidth || 8.5
                     : activeLocation?.widthM || 8.5,
                   customBuilderTarget === 'new_location'
-                    ? newLocHeight
+                    ? Number(newLocHeight) || 7.5
                     : customBuilderTarget === 'edit_location' && targetEditLoc
                     ? targetEditLoc.heightM || editLocHeight || 7.5
                     : activeLocation?.heightM || 7.5,
@@ -13599,9 +13841,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                 if (customBuilderTarget === 'new_location') {
                   setNewLocShape('freeform_custom');
-                  setNewLocWidth(spanW);
-                  setNewLocHeight(totalH);
-                  setNewLocWallHeight(wallH);
+                  setNewLocWidth(String(spanW));
+                  setNewLocHeight(String(totalH));
+                  setNewLocWallHeight(String(wallH));
                   setNewLocCustomPoints(pts);
                   setNewLocCustomGeometry(nextGeometry);
                 } else if (customBuilderTarget === 'edit_location' && customBuilderLocationId) {
@@ -13743,7 +13985,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       />
 
       {/* NATM 3D Joint Inspector Modal */}
-      {is3DJointInspectorOpen && (
+      {is3DJointInspectorOpen && activeRound && (
         <NatmJoint3DInspectorModal
           isOpen={is3DJointInspectorOpen}
           onClose={() => setIs3DJointInspectorOpen(false)}

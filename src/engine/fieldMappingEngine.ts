@@ -2582,122 +2582,24 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
     // Ignore storage read failure
   }
 
-  if (domain && domain !== 'TUNNEL') {
-    return createDefaultSurfaceMappingStore(domain);
-  }
-
-  // Seed 1 default project & 2 locations so the geologist can test in 1 tap or add their own
-  const defaultLoc1: FieldTunnelLocationItem = {
-    id: 'floc-main-hrt',
-    name: 'Head Race Tunnel (HRT - Adit 1 D/S)',
-    shape: 'horseshoe',
-    widthM: 8.4,
-    heightM: 7.2,
-    wallHeightM: 4.0,
-    crownRadiusM: 4.2,
-    defaultDriveAzimuth: 45,
-    defaultExcavationMode: 'Drill & Blast',
-    defaultExcavationApproach: 'Full Face',
-  };
-
-  const defaultLoc2: FieldTunnelLocationItem = {
-    id: 'floc-tail-race',
-    name: 'Tail Race Tunnel (TRT - Main Face)',
-    shape: 'd_shaped',
-    widthM: 6.5,
-    heightM: 6.0,
-    wallHeightM: 3.4,
-    crownRadiusM: 3.25,
-    defaultDriveAzimuth: 130,
-    defaultExcavationMode: 'Drill & Blast',
-    defaultExcavationApproach: 'Top Heading & Bench',
-  };
-
-  const defaultProject: FieldProjectItem = {
-    id: 'fproj-default-1',
-    projectName: 'Underground Hydroelectric & Tunnel Project',
-    clientName: 'Project Authority',
-    contractorName: 'Tunnel Engineering Works',
-    consultantName: 'ESWA Engineering Geology',
-    createdAt: new Date().toISOString(),
-    locations: [defaultLoc1, defaultLoc2],
-    customWordTemplate: null,
-  };
-
-  const initialRound = createNewExcavationRound(defaultProject, defaultLoc1, null);
-
+  // Clean blank store: do not pre-feed dummy projects or locations per user specification
   return {
-    projects: [defaultProject],
-    rounds: [initialRound],
-    activeProjectId: defaultProject.id,
-    activeLocationId: defaultLoc1.id,
-    activeRoundId: initialRound.id,
+    projects: [],
+    rounds: [],
+    activeProjectId: null,
+    activeLocationId: null,
+    activeRoundId: null,
     rememberedRocks: [],
   };
 }
 
-export function createDefaultSurfaceMappingStore(domain: MappingDomainType = 'BENCH'): FieldMappingStoreState {
-  const isBench = domain === 'BENCH';
-  const isTrench = domain === 'TRENCH';
-  const isSlope = domain === 'SLOPE';
-
-  const defaultLoc: FieldTunnelLocationItem = {
-    id: `floc-surf-${domain.toLowerCase()}-1`,
-    name: isBench
-      ? 'Quarry Bench BL-1240'
-      : isTrench
-      ? 'Exploration Trench TR-01'
-      : isSlope
-      ? 'Cut Slope CS-01'
-      : 'Rock Surface Exposure RS-01',
-    shape: 'rectangular',
-    widthM: isTrench ? 4 : 15,
-    heightM: isTrench ? 3 : 8,
-    wallHeightM: isTrench ? 3 : 8,
-    crownRadiusM: 0,
-    roofRadiusM: 0,
-    directionDeg: 135,
-    defaultDriveAzimuth: 135,
-    defaultExcavationMode: 'Mechanical Cut',
-    defaultExcavationApproach: 'Full Bench',
-    chainagePrefix: isBench ? 'Bench' : isTrench ? 'Trench' : 'Station',
-  };
-
-  const defaultProject: FieldProjectItem = {
-    id: `fproj-surf-${domain.toLowerCase()}-1`,
-    projectName: isBench
-      ? 'Open-Pit & Quarry Bench Mapping Project'
-      : isTrench
-      ? 'Foundation & Exploration Trench Logging Project'
-      : isSlope
-      ? 'Engineered Rock Slope Stability Project'
-      : 'Surface Rock Outcrop Geological Mapping Project',
-    clientName: 'Surface Operations Authority',
-    contractorName: 'Surface Civil & Mining Works',
-    consultantName: 'ESWA Surface Rock Geology',
-    createdAt: new Date().toISOString(),
-    locations: [defaultLoc],
-    customWordTemplate: null,
-  };
-
-  const initialRound = createNewExcavationRound(defaultProject, defaultLoc, null);
-  initialRound.roundNumber = 1;
-  initialRound.pullLengthMeters = isTrench ? 5 : 15;
-  initialRound.mappingDomain = domain;
-  initialRound.faceTitle = isBench
-    ? 'Bench Face BF-01'
-    : isTrench
-    ? 'Trench Section TS-01'
-    : isSlope
-    ? 'Slope Section SS-01'
-    : 'Rock Exposure 01';
-
+export function createDefaultSurfaceMappingStore(_domain: MappingDomainType = 'BENCH'): FieldMappingStoreState {
   return {
-    projects: [defaultProject],
-    rounds: [initialRound],
-    activeProjectId: defaultProject.id,
-    activeLocationId: defaultLoc.id,
-    activeRoundId: initialRound.id,
+    projects: [],
+    rounds: [],
+    activeProjectId: null,
+    activeLocationId: null,
+    activeRoundId: null,
     rememberedRocks: [],
   };
 }

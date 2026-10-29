@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowLeft, ArrowRight, Database } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Database, Shapes } from 'lucide-react';
 import { ProfileType, TunnelGeometry } from '../../types/tunnel';
 import {
   createTunnelGeometry,
@@ -34,7 +34,7 @@ export interface GeometryManualScreenProps {
   setManWallHeight: (v: string) => void;
   manCrownRadius: string;
   setManCrownRadius: (v: string) => void;
-  manProfileType: ProfileType;
+  manProfileType: ProfileType | '';
   setManProfileType: (v: ProfileType) => void;
   setGeometry: (geom: TunnelGeometry) => void;
   savedGeometriesCount: number;
@@ -69,15 +69,34 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
   onApplyManualGeometry,
   projectMemoryModalNode,
 }) => {
-  const previewW = Math.max(1.5, parseFloat(manWidth) || 8.4);
-  const previewH = Math.max(1.5, parseFloat(manHeight) || 7.2);
-  const previewWH = Math.min(previewH - 0.3, Math.max(0.5, parseFloat(manWallHeight) || 4.2));
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const shapeSelectRef = useRef<HTMLSelectElement | null>(null);
+  const widthInputRef = useRef<HTMLInputElement | null>(null);
+  const heightInputRef = useRef<HTMLInputElement | null>(null);
+  const wallHeightInputRef = useRef<HTMLInputElement | null>(null);
+
+  const isShapeEmpty = !manProfileType;
+  const parsedW = parseFloat(manWidth);
+  const parsedH = parseFloat(manHeight);
+  const parsedWH = parseFloat(manWallHeight);
+
+  const isWidthEmpty = !manWidth || isNaN(parsedW) || parsedW < 1.0;
+  const isHeightEmpty = !manHeight || isNaN(parsedH) || parsedH < 1.0;
+  const isWallHeightEmpty = !manWallHeight || isNaN(parsedWH) || parsedWH < 0.2;
+
+  const hasCompleteGeometry = !isShapeEmpty && !isWidthEmpty && !isHeightEmpty && !isWallHeightEmpty;
+
+  const previewW = Math.max(1.5, parsedW || 8.4);
+  const previewH = Math.max(1.5, parsedH || 7.2);
+  const previewWH = Math.min(previewH - 0.3, Math.max(0.5, parsedWH || 4.2));
   const previewCR = Math.max(1.0, parseFloat(manCrownRadius) || previewW / 2);
   const previewGeom = createTunnelGeometry(
     previewW,
     previewH,
     previewWH,
-    manProfileType,
+    (manProfileType as ProfileType) || 'd_shaped',
     previewCR,
     'manual'
   );
@@ -88,8 +107,55 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
       .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${160 + p.x * scale} ${240 - p.y * scale}`)
       .join(' ') + ' Z';
 
+  const handleSaveAndContinue = () => {
+    setHasAttemptedSubmit(true);
+
+    if (isShapeEmpty) {
+      setErrorMessage('Please select a tunnel excavation shape to continue.');
+      shapeSelectRef.current?.focus();
+      return;
+    }
+    if (isWidthEmpty) {
+      setErrorMessage('Please specify the tunnel width (minimum 1.0m).');
+      widthInputRef.current?.focus();
+      return;
+    }
+    if (isHeightEmpty) {
+      setErrorMessage('Please specify the total tunnel height (minimum 1.0m).');
+      heightInputRef.current?.focus();
+      return;
+    }
+    if (isWallHeightEmpty) {
+      setErrorMessage('Please specify the sidewall height.');
+      wallHeightInputRef.current?.focus();
+      return;
+    }
+
+    setErrorMessage(null);
+    onApplyManualGeometry();
+  };
+
   return (
     <main className={layoutStyles.viewportShell}>
+      {/* Toast Alert for missing fields */}
+      {errorMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-full px-4 animate-in fade-in slide-in-from-top-4 duration-200">
+          <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-rose-600 text-white shadow-2xl border border-rose-400">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-5 h-5 shrink-0 text-amber-200" />
+              <p className="text-xs font-semibold leading-snug">{errorMessage}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              className="px-2 py-1 rounded-lg bg-rose-700 hover:bg-rose-800 text-xs font-bold cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className={`${layoutStyles.majorPanel} max-w-[920px]`}>
         <div className={layoutStyles.headerRow}>
           <button onClick={onBack} className={layoutStyles.backButton}>
@@ -113,11 +179,21 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center pr-1">
           <div className={`${layoutStyles.sectionSurface} space-y-4`}>
             <label className="block space-y-1.5">
-              <span className={layoutStyles.labelMuted}>Tunnel / Cavern Excavation Shape</span>
+              <span className="flex items-center justify-between">
+                <span className={layoutStyles.labelMuted}>Tunnel / Cavern Excavation Shape *</span>
+                {hasAttemptedSubmit && isShapeEmpty && (
+                  <span className="text-[11px] font-bold text-rose-500">Selection Required</span>
+                )}
+              </span>
               <select
+                ref={shapeSelectRef}
                 value={manProfileType}
                 onChange={(e) => {
                   const nextType = e.target.value as ProfileType;
+                  if (!nextType) {
+                    setManProfileType('' as ProfileType);
+                    return;
+                  }
                   if (
                     nextType === 'freeform_custom' ||
                     nextType === 'powerhouse_cavern' ||
@@ -147,17 +223,26 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
                     return;
                   }
                   setManProfileType(nextType);
-                  const c = enforceStrictTunnelGeometryConstraints(
-                    parseFloat(manWidth) || 8.4,
-                    parseFloat(manHeight) || 7.2,
-                    undefined,
-                    nextType
-                  );
-                  setManWallHeight(c.wallHeight.toFixed(2));
-                  setManCrownRadius(c.crownRadius.toFixed(2));
+                  const wVal = parseFloat(manWidth);
+                  const hVal = parseFloat(manHeight);
+                  if (wVal > 0 && hVal > 0) {
+                    const c = enforceStrictTunnelGeometryConstraints(
+                      wVal,
+                      hVal,
+                      undefined,
+                      nextType
+                    );
+                    setManWallHeight(c.wallHeight.toFixed(2));
+                    setManCrownRadius(c.crownRadius.toFixed(2));
+                  }
                 }}
-                className={layoutStyles.inputControl}
+                className={`${layoutStyles.inputControl} ${
+                  hasAttemptedSubmit && isShapeEmpty
+                    ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5 text-rose-700 dark:text-rose-300'
+                    : ''
+                }`}
               >
+                <option value="">-- Select Tunnel Excavation Shape (No Selection) --</option>
                 <option value="d_shaped">D-Shaped (Vertical Walls + Arch Crown)</option>
                 <option value="horseshoe">Horseshoe Profile (Curved Sidewalls)</option>
                 <option value="circular">Circular / TBM Profile</option>
@@ -207,18 +292,25 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
 
             <div className="grid grid-cols-2 gap-3.5">
               <label className="block space-y-1.5">
-                <span className={layoutStyles.labelMuted}>Tunnel Width (m)</span>
+                <span className="flex items-center justify-between">
+                  <span className={layoutStyles.labelMuted}>Tunnel Width (m) *</span>
+                  {hasAttemptedSubmit && isWidthEmpty && (
+                    <span className="text-[10px] font-bold text-rose-500">Required</span>
+                  )}
+                </span>
                 <input
+                  ref={widthInputRef}
                   type="number"
                   step="0.1"
-                  min="1.5"
+                  min="1.0"
+                  placeholder="e.g. 8.50"
                   value={manWidth}
                   onChange={(e) => {
                     const val = e.target.value;
                     setManWidth(val);
                     const numW = parseFloat(val);
-                    const numH = parseFloat(manHeight) || 7.2;
-                    if (Number.isFinite(numW) && numW >= 1.5) {
+                    const numH = parseFloat(manHeight);
+                    if (Number.isFinite(numW) && numW >= 1.0 && Number.isFinite(numH) && numH >= 1.0 && manProfileType) {
                       const c = enforceStrictTunnelGeometryConstraints(
                         numW,
                         numH,
@@ -229,23 +321,34 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
                       setManCrownRadius(c.crownRadius.toFixed(2));
                     }
                   }}
-                  className={layoutStyles.inputControl}
+                  className={`${layoutStyles.inputControl} ${
+                    hasAttemptedSubmit && isWidthEmpty
+                      ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5'
+                      : ''
+                  }`}
                 />
               </label>
 
               <label className="block space-y-1.5">
-                <span className={layoutStyles.labelMuted}>Total Height (m)</span>
+                <span className="flex items-center justify-between">
+                  <span className={layoutStyles.labelMuted}>Total Height (m) *</span>
+                  {hasAttemptedSubmit && isHeightEmpty && (
+                    <span className="text-[10px] font-bold text-rose-500">Required</span>
+                  )}
+                </span>
                 <input
+                  ref={heightInputRef}
                   type="number"
                   step="0.1"
-                  min="1.5"
+                  min="1.0"
+                  placeholder="e.g. 7.20"
                   value={manHeight}
                   onChange={(e) => {
                     const val = e.target.value;
                     setManHeight(val);
                     const numH = parseFloat(val);
-                    const numW = parseFloat(manWidth) || 8.4;
-                    if (Number.isFinite(numH) && numH >= 1.5) {
+                    const numW = parseFloat(manWidth);
+                    if (Number.isFinite(numH) && numH >= 1.0 && Number.isFinite(numW) && numW >= 1.0 && manProfileType) {
                       const c = enforceStrictTunnelGeometryConstraints(
                         numW,
                         numH,
@@ -256,24 +359,35 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
                       setManCrownRadius(c.crownRadius.toFixed(2));
                     }
                   }}
-                  className={layoutStyles.inputControl}
+                  className={`${layoutStyles.inputControl} ${
+                    hasAttemptedSubmit && isHeightEmpty
+                      ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5'
+                      : ''
+                  }`}
                 />
               </label>
 
               <label className="block space-y-1.5">
-                <span className={layoutStyles.labelMuted}>Wall Height (m)</span>
+                <span className="flex items-center justify-between">
+                  <span className={layoutStyles.labelMuted}>Wall Height (m) *</span>
+                  {hasAttemptedSubmit && isWallHeightEmpty && (
+                    <span className="text-[10px] font-bold text-rose-500">Required</span>
+                  )}
+                </span>
                 <input
+                  ref={wallHeightInputRef}
                   type="number"
                   step="0.1"
-                  min="0.5"
+                  min="0.2"
+                  placeholder="e.g. 4.20"
                   value={manWallHeight}
                   onChange={(e) => {
                     const val = e.target.value;
                     setManWallHeight(val);
                     const numWH = parseFloat(val);
-                    const numW = parseFloat(manWidth) || 8.4;
-                    const numH = parseFloat(manHeight) || 7.2;
-                    if (Number.isFinite(numWH) && numWH >= 0.5) {
+                    const numW = parseFloat(manWidth);
+                    const numH = parseFloat(manHeight);
+                    if (Number.isFinite(numWH) && numWH >= 0.2 && Number.isFinite(numW) && Number.isFinite(numH) && manProfileType) {
                       const c = enforceStrictTunnelGeometryConstraints(
                         numW,
                         numH,
@@ -283,7 +397,11 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
                       setManCrownRadius(c.crownRadius.toFixed(2));
                     }
                   }}
-                  className={layoutStyles.inputControl}
+                  className={`${layoutStyles.inputControl} ${
+                    hasAttemptedSubmit && isWallHeightEmpty
+                      ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/5'
+                      : ''
+                  }`}
                 />
               </label>
 
@@ -293,7 +411,8 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
                   type="number"
                   step="0.1"
                   min="1.0"
-                  value={previewGeom.crownRadius.toFixed(2)}
+                  value={hasCompleteGeometry ? previewGeom.crownRadius.toFixed(2) : ''}
+                  placeholder={hasCompleteGeometry ? undefined : 'Auto-computed'}
                   readOnly
                   title="Automatically constrained from Tunnel Width, Height, and Wall Height to prevent arch distortion"
                   className={`${layoutStyles.inputControl} opacity-75 cursor-not-allowed`}
@@ -307,61 +426,71 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
               }`}
             >
               <div>
-                Master Geometry Rule: Photographs &amp; Developed Perimeter strictly follow{' '}
-                <strong className={isLight ? 'text-slate-900' : 'text-slate-200'}>
-                  {previewGeom.width.toFixed(2)}m W × {previewGeom.height.toFixed(2)}m H
-                </strong>
-                .
+                Master Geometry Rule: Photographs &amp; Developed Perimeter strictly follow your configured dimensions.
               </div>
-              <div className={`font-mono text-[11px] ${isLight ? 'text-sky-700' : 'text-cyan-300'}`}>
-                Left/Right Wall = <strong>{previewGeom.wallHeight.toFixed(2)}m</strong> · Crown Arc ={' '}
-                <strong>{previewGeom.crownArcLength.toFixed(2)}m</strong> · Total Perimeter ={' '}
-                <strong>
-                  {(previewGeom.wallHeight * 2 + previewGeom.crownArcLength).toFixed(2)}m
-                </strong>
-              </div>
+              {hasCompleteGeometry && (
+                <div className={`font-mono text-[11px] ${isLight ? 'text-sky-700' : 'text-cyan-300'}`}>
+                  Left/Right Wall = <strong>{previewGeom.wallHeight.toFixed(2)}m</strong> · Crown Arc ={' '}
+                  <strong>{previewGeom.crownArcLength.toFixed(2)}m</strong> · Total Perimeter ={' '}
+                  <strong>
+                    {(previewGeom.wallHeight * 2 + previewGeom.crownArcLength).toFixed(2)}m
+                  </strong>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Live Vector Cross-Section Preview */}
           <div className={layoutStyles.previewStage}>
-            <svg viewBox="0 0 320 270" className="w-full h-[clamp(160px,28dvh,235px)]">
-              <line
-                x1="160"
-                y1="15"
-                x2="160"
-                y2="245"
-                stroke={isLight ? '#94A3B8' : '#334155'}
-                strokeWidth="1"
-                strokeDasharray="4,4"
-              />
-              <line
-                x1="40"
-                y1={240 - previewGeom.wallHeight * scale}
-                x2="280"
-                y2={240 - previewGeom.wallHeight * scale}
-                stroke={isLight ? '#94A3B8' : '#334155'}
-                strokeWidth="1"
-                strokeDasharray="4,4"
-              />
-              <path
-                d={polyPath}
-                fill={isLight ? 'rgba(2, 132, 199, 0.10)' : 'rgba(56, 189, 248, 0.08)'}
-                stroke={isLight ? '#0284C7' : '#38BDF8'}
-                strokeWidth="2.2"
-              />
-              <text
-                x="160"
-                y="262"
-                textAnchor="middle"
-                fontSize="11"
-                fill={isLight ? '#334155' : '#94A3B8'}
-                fontFamily="IBM Plex Mono, monospace"
-              >
-                W = {previewGeom.width.toFixed(2)}m · H = {previewGeom.height.toFixed(2)}m · Wall ={' '}
-                {previewGeom.wallHeight.toFixed(2)}m
-              </text>
-            </svg>
+            {hasCompleteGeometry ? (
+              <svg viewBox="0 0 320 270" className="w-full h-[clamp(160px,28dvh,235px)]">
+                <line
+                  x1="160"
+                  y1="15"
+                  x2="160"
+                  y2="245"
+                  stroke={isLight ? '#94A3B8' : '#334155'}
+                  strokeWidth="1"
+                  strokeDasharray="4,4"
+                />
+                <line
+                  x1="40"
+                  y1={240 - previewGeom.wallHeight * scale}
+                  x2="280"
+                  y2={240 - previewGeom.wallHeight * scale}
+                  stroke={isLight ? '#94A3B8' : '#334155'}
+                  strokeWidth="1"
+                  strokeDasharray="4,4"
+                />
+                <path
+                  d={polyPath}
+                  fill={isLight ? 'rgba(2, 132, 199, 0.10)' : 'rgba(56, 189, 248, 0.08)'}
+                  stroke={isLight ? '#0284C7' : '#38BDF8'}
+                  strokeWidth="2.2"
+                />
+                <text
+                  x="160"
+                  y="262"
+                  textAnchor="middle"
+                  fontSize="11"
+                  fill={isLight ? '#334155' : '#94A3B8'}
+                  fontFamily="IBM Plex Mono, monospace"
+                >
+                  W = {previewGeom.width.toFixed(2)}m · H = {previewGeom.height.toFixed(2)}m · Wall ={' '}
+                  {previewGeom.wallHeight.toFixed(2)}m
+                </text>
+              </svg>
+            ) : (
+              <div className="w-full h-[clamp(160px,28dvh,235px)] border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl flex flex-col items-center justify-center p-6 text-center text-slate-400">
+                <Shapes className="w-10 h-10 mb-2 opacity-50 text-cyan-500" />
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  No Tunnel Shape Selected
+                </p>
+                <p className="text-[11px] text-slate-500 max-w-[240px] mt-1">
+                  Select a shape from the dropdown and enter width &amp; height to preview the real-time cross section.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -370,7 +499,7 @@ export const GeometryManualScreen: React.FC<GeometryManualScreenProps> = ({
             <Database className={`w-3.5 h-3.5 ${isLight ? 'text-sky-600' : 'text-cyan-400'}`} />
             Saved Tunnel Geometries ({savedGeometriesCount})
           </button>
-          <button onClick={onApplyManualGeometry} className={layoutStyles.primaryButton}>
+          <button onClick={handleSaveAndContinue} className={layoutStyles.primaryButton}>
             Save Master Geometry &amp; Continue
             <ArrowRight className="w-4 h-4" />
           </button>
