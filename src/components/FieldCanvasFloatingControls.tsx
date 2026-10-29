@@ -9,6 +9,9 @@ export interface FieldPending2DTrace {
   points: { x: number; y: number }[];
   dipDirection?: number;
   dipAmount?: number;
+  strike?: number;
+  crownDipSign?: '+90' | '-90';
+  editedByCompass?: boolean;
 }
 
 export interface FieldCanvasFloatingControlsProps {
@@ -42,8 +45,14 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
     if (!isPencilTool || !pending2DTrace) return null;
 
     return (
-      <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 bg-slate-950/95 border-2 border-emerald-400 rounded-xl px-3 py-1.5 shadow-2xl flex flex-wrap items-center gap-2">
-        <div className="text-[11px] font-bold text-slate-200">
+      <div
+        className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 bg-slate-950/95 border-2 border-emerald-400 rounded-xl px-3 py-1.5 shadow-2xl flex flex-wrap items-center gap-2"
+        data-window="face-canvas-floating-controls"
+        data-element-id="face-canvas-floating-toolbar"
+        data-tool="trace-controls"
+        data-role="toolbar"
+      >
+        <div className="text-[11px] font-bold text-slate-200" data-element-id="face-canvas-trace-status-text">
           <span className="text-emerald-400 font-black uppercase mr-1.5">
             {pending2DTrace.subTool === 'spline'
               ? 'Spline Trace'
@@ -69,6 +78,11 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
         <button
           type="button"
           onClick={() => setIsCanvasPanMode((prev) => !prev)}
+          data-window="face-canvas-floating-controls"
+          data-element-id="face-canvas-btn-move-canvas"
+          data-tool="pan"
+          data-role="button"
+          data-action="toggle-canvas-pan"
           className={`px-2.5 py-1 rounded-lg font-black text-xs flex items-center gap-1 cursor-pointer transition-all ${
             isCanvasPanMode
               ? 'bg-sky-500 text-slate-950 shadow ring-1 ring-sky-300'
@@ -89,6 +103,11 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
               onClick={() => {
                 onJumpToSurfaceSegment(surfaceActiveSegmentIdx + 1);
               }}
+              data-window="face-canvas-floating-controls"
+              data-element-id="face-canvas-btn-next-segment"
+              data-tool="segment-nav"
+              data-role="button"
+              data-action="jump-next-segment"
               className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow cursor-pointer animate-pulse"
               title="Slide canvas forward to next segment while keeping trace active"
             >
@@ -108,6 +127,11 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
                   isClosed: true,
                 });
               }}
+              data-window="face-canvas-floating-controls"
+              data-element-id="face-canvas-btn-close-loop-fill"
+              data-tool="lithology"
+              data-role="button"
+              data-action="close-loop-fill"
               className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow cursor-pointer"
               title="Close loop from end to start and fill with lithology"
             >
@@ -121,6 +145,11 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
                   isClosed: true,
                 });
               }}
+              data-window="face-canvas-floating-controls"
+              data-element-id="face-canvas-btn-close-outline-fill"
+              data-tool="lithology"
+              data-role="button"
+              data-action="close-outline-fill"
               className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow cursor-pointer"
               title="Close boundary with tunnel outline and fill with lithology"
             >
@@ -136,6 +165,11 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
           <button
             type="button"
             onClick={() => onCommitPending2DTrace(pending2DTrace)}
+            data-window="face-canvas-floating-controls"
+            data-element-id="face-canvas-btn-confirm-trace"
+            data-tool="commit"
+            data-role="button"
+            data-action="commit-pending-trace"
             className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow cursor-pointer"
           >
             <Check className="w-3.5 h-3.5" />
@@ -154,6 +188,11 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
                     : null
                 )
               }
+              data-window="face-canvas-floating-controls"
+              data-element-id="face-canvas-btn-undo-point"
+              data-tool="history"
+              data-role="button"
+              data-action="undo-last-point"
               className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold text-xs cursor-pointer"
             >
               Undo Pt
@@ -163,6 +202,11 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
         <button
           type="button"
           onClick={() => setPending2DTrace(null)}
+          data-window="face-canvas-floating-controls"
+          data-element-id="face-canvas-btn-cancel-trace"
+          data-tool="cancel"
+          data-role="button"
+          data-action="cancel-pending-trace"
           className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 font-bold text-xs cursor-pointer"
         >
           Cancel

@@ -1,26 +1,31 @@
-# Isolated Underground Mining Suite: Professional Face Mapping, Core Logging & Data Storage
+# Comprehensive Parameter Input, Physical Bound Clamping & Verified Reporting Workflow
 
-Comprehensive architectural blueprint to transform the ESWA Mining Window from a prototype into an enterprise-grade, fully working underground mining suite for all underground mine types (hardrock precious/base metals, coal, potash/salt, industrial minerals), strictly isolated from NATM civil tunnelling and TBM modules.
+A unified, end-to-end framework enabling geologists to explicitly feed and control every tunnel, geotechnical, and project parameter from initial setup to final engineering reports—enforcing strict real-time physical bounds clamping, eliminating autonomous assumptions, and cleanly badging unentered data as "Not Assessed".
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The clarifying answers provided have been integrated into this architecture:
-> - **Stope & Face Shapes**: Support all standard mining shapes (D-arch, horseshoe, rectangular room-and-pillar, shanty, gothic) plus custom parametric geometry and DXF boundary import.
-> - **Geological & Geotechnical Tools**: Vein/ore contacts, hanging wall/foot wall boundaries, channel sampling lines with assay grades, major fault/shear zones, individual joint traces, and Laubscher MRMR / Barton Q stope stability.
-> - **Exports**: Mine planning 3D DXF (Surpac, Deswik, Datamine, Vulcan compatible), professional PDF A4/A3 Mining Face Sheet, and CSV channel sample assay logs.
-> - **Strict Isolation**: Zero mutation of NATM or TBM state; dedicated `eswa_mining_*` storage namespace and isolated components.
+> The following architectural and user experience decisions have been aligned based on confirmed requirements:
 
-- **Confirmed Decision 1**: Single-face canvas only. No crown arch or sidewall unfolding is rendered for mining stopes, removing NATM-specific group joint clustering and continuous strip log clutter.
-- **Confirmed Decision 2**: Identical setup flow to underground civil mapping (Project $\rightarrow$ Level/Heading Location $\rightarrow$ Face Station/Chainage & Advance $\rightarrow$ Custom Stope Shape & Size $\rightarrow$ Field Digital Sketch vs Photogrammetry Orthophoto).
+- **Input Bound Enforcement**: All numeric entries (e.g., Drive Direction 0°–360°, Dip 0°–90°, UCS 0.5–500 MPa, RQD 0%–100%, Q parameters) will actively block out-of-bounds typing, immediately clamp values to validated scientific ranges, and present clear parameter range alerts.
+- **Dedicated Project Configuration Console**: A centralized, structured Project & Geotechnical Configuration modal accessible across the workflow (header, ribbon, and setup screens) providing unified management of project metadata, drive orientation, excavation dimensions, chainage, RMR89, and Q-system inputs.
+- **Reporting & Export Integrity**: Unentered optional parameters across final engineering sheets, PDF/Word exports, and summary logs will never default to synthetic numbers; they will render with a clear, authoritative "Not Assessed" status badge.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: A complete, professional underground mine geology and grade control system. Geologists configure mine level, stope/drift IDs, and exact face profile geometry, then conduct face mapping in either direct digital field mode or calibrated photogrammetry mode. Tools feature vein boundary tracing with ore-grade classification, continuous channel/chip sampling lines with true-width calculations, fault slickenside mapping, Laubscher MRMR / Potvin Mathews stope stability evaluation, and instant mine-grade CAD/PDF/CSV exports.
-- **Target Audience / Persona**: Production mine geologists, grade control geologists, underground geotechnical/rock mechanics engineers, and exploration geologists across all commodity types.
-- **Key Value**: Replaces paper mapping sheets and disparate spreadsheets with a single, calibrated tablet/desktop workflow that outputs 3D DXF files directly compatible with Deswik, Surpac, Datamine, and Vulcan, while calculating stope stability and dilution in real time at the working face.
+### What It Does
+This feature establishes a continuous, transparent data pipeline where every single project variable—from project names, drive azimuth, face chainages, and cross-section spans, to Barton Q and Bieniawski RMR rock ratings—is directly supplied, reviewed, and validated by the geotechnical engineer. Impossible physical values (such as azimuths > 360°, negative pull lengths, or out-of-table friction ratings) are impossible to enter because of real-time range clamps and immediate validation feedback.
+
+### Target Audience & Persona
+- **Tunnel Geologists & Geotechnical Engineers**: Field and office engineers demanding uncompromised scientific precision and audit compliance where every reported figure is attributable to verified human inputs.
+- **Quality & Supervision Consultants**: Inspectors reviewing final engineering sheets who require clear demarcation between measured geological structures and unassessed rock parameters.
+
+### Key Value Delivered
+- Eliminates any remaining autonomous guessing or placeholder data across the entire software suite.
+- Enforces ISRM, Bieniawski, and Barton theoretical limits at the point of input.
+- Provides a frictionless, dedicated project configuration console for fast parameter entry and updates.
 
 ---
 
@@ -28,56 +33,42 @@ Comprehensive architectural blueprint to transform the ESWA Mining Window from a
 
 ### Key User Flows
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                   MINING MAIN WINDOW (3 PILLARS)                       │
-├──────────────────────────┬─────────────────────────┬───────────────────┤
-│ 1. Underground Face Map  │ 2. Core Logging         │ 3. Data Storage   │
-│    [New / Resume]        │    [New / Resume]       │    [Vault Modal]  │
-└────────────┬─────────────┴─────────────────────────┴───────────────────┘
-             │
-             ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                   MINING FACE SETUP WIZARD                             │
-│  Step 1: Project & Mine Location (Level RL, Drift/Stope Heading ID)    │
-│  Step 2: Face Station, Advance Pull (m) & Heading Azimuth              │
-│  Step 3: Stope Shape & Size (D-Arch, Horseshoe, Rectangular, DXF)     │
-│  Step 4: Mode Choice: [Field Digital Canvas] vs [Photogrammetry Photo] │
-└────────────┬───────────────────────────────────────────────────────────┘
-             │
-             ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                 MINING FACE MAPPING WORKSPACE (FACE ONLY)              │
-│  • Top Bar: Stope ID, Level RL, Pull Length, Mode Switcher            │
-│  • Left Toolbar: Ore Veins, Contacts, Faults, Joints, Channel Samples  │
-│  • Center Stage: Calibrated Stope Face Canvas with Metric Grid         │
-│  • Right Inspector Tabs:                                               │
-│    - Ore & Grade Control (Channel Assays, Dilution %, True Width)      │
-│    - Discontinuities (Dip/DipDir, JRC, Infill, Water Inflow)           │
-│    - Geotechnical Rating (Laubscher MRMR, Barton Q', Mathews N)       │
-│    - Export Center (Surpac/Deswik DXF, PDF Face Sheet, CSV Assays)     │
-└────────────────────────────────────────────────────────────────────────┘
-```
+1. **Project & Drive Setup Flow**:
+   - Geologist opens the dedicated **Project Configuration & Geotechnical Parameters Modal** from the top header or CAD ribbon.
+   - User inputs tunnel drive azimuth (e.g., typing `375` immediately clamps to `360°` with an amber advisory note: `"Drive azimuth bounded to 0°–360°"`).
+   - User inputs face chainage (e.g., `RD 1423.50m`) and round pull length (`3.50m`), with automatic chainage interval calculation (`RD 1420.00m – 1423.50m`).
+2. **Rock Mass Ratings (RMR / Q-System) Entry Flow**:
+   - Geologist enters intact rock strength (UCS in MPa), drillcore RQD %, joint spacing, joint conditions, and groundwater inflow.
+   - Values outside physical bounds (e.g., RQD > 100% or negative UCS) are instantly clamped to their theoretical maxima/minima with clear unit labels (`MPa`, `m`, `%`, `L/min`).
+   - If an optional parameter is left blank, it is retained as `null` with a clear "Pending Input" label.
+3. **Report & Engineering Sheet Generation Flow**:
+   - When generating Final Engineering Sheets, Continuous Strip Logs, or Executive Summaries, entered parameters render with tabular precision.
+   - Any parameter without field measurements displays a crisp, neutral `"Not Assessed"` badge (`border border-slate-700 text-slate-400 bg-slate-900/60`), ensuring zero ambiguity for peer review and client sign-off.
 
-### Visual Identity & Theme
-- **Aesthetic Direction**: High-precision underground mine geology instrumentation; rugged, calibrated, high contrast.
-- **Color Palette & Mood**: Deep mine obsidian (`#030712`) background with warm amber (`#F59E0B`), gold ore veins (`#EAB308`), massive sulfide copper (`#F97316`), waste rock slate (`#64748B`), and clean hairline dividers (`#1E293B`).
-- **Typography & Hierarchy**: `Plus Jakarta Sans` for clean titles, `JetBrains Mono / font-mono tabular-nums` for coordinates, strike/dip angles, assay numbers, and channel widths.
-- **Zero-Pill Discipline**: All face metadata (e.g. `Level -450m RL · Stope 402-N · Advance 3.2m · Face 142.5m`) rendered as unboxed inline typography with `·` dividers.
+### Visual Identity & Layout Architecture
+Adhering to the Science, Space & Biotech Design Reference:
+- **Palette Budget**: Deep obsidian lab base (`#07090E` / `#0B0E17`), slate card structural containers (`#111827`, `#1E293B`), laser cyan focus rings (`#06B6D4`), and telemetry amber indicators (`#F59E0B`).
+- **Typographic Precision**: Technical neo-grotesque UI typography paired with tabular monospace numerals (`font-mono tabular-nums`) for all angles, coordinates, chainages, and physical ratings.
+- **Zero-Pill Discipline**: Statuses and metadata render as clean unboxed text separated by subtle dividers (`·` or `/`); interactive switches use functional segmented buttons.
+- **Clamped Input Primitive**: Reusable `ClampedNumericInput` component with integrated min/max indicators, active unit badges (`deg`, `m`, `MPa`, `kN`), and micro-warning banners.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Strict Single-Face Focus**:
-  - *Chosen Approach*: Underground mining face mapping canvas renders exclusively the excavated face perimeter (no crown or sidewalls).
-  - *Why*: In mining stoping and drift development, geologists map the newly blasted face at every cut for grade control and blast optimization. Sidewalls are covered in shotcrete or mesh, and crown unfolding belongs to civil tunnel strip logs.
-- **Decision 2: Channel Sampling with Automatic True-Width Geometry**:
-  - *Chosen Approach*: Geologists drag a channel line across the face; the engine auto-segments it across mapped vein boundaries and calculates true thickness based on vein dip and strike.
-  - *Why*: Eliminates manual trigonometry errors during underground shift sampling; feeds direct grade composites into CSV/database.
-- **Decision 3: Complete Isolation Architecture**:
-  - *Chosen Approach*: Isolated state management with `eswa_mining_*` keys and independent React modules under `src/components/mining/` and `src/engine/miningFaceEngine.ts`.
-  - *Why*: Ensures zero regressions in NATM or TBM features while allowing mining-specific workflows to evolve freely.
+### Decision 1: Input Clamping vs. Silent Truncation vs. Soft Warnings
+- **Chosen Approach**: Hard clamping with real-time feedback banner upon blur or overflow typing.
+- **Why**: Hard clamping completely prevents impossible values from polluting downstream calculations, 3D kinematic viewports, and stereonet polar projections, while the feedback banner explains the physical constraint to the engineer.
+- **Alternative Considered**: Soft red borders allowing invalid inputs were rejected because downstream mathematical modules could crash or produce physically impossible FoS values.
+
+### Decision 2: Centralized Project Modal vs. Fragmented Screen Edits
+- **Chosen Approach**: Dedicated, full-fidelity Project & Geotechnical Configuration Modal accessible from anywhere in the app, while keeping quick-edit properties synchronized.
+- **Why**: Allows engineers in the field to update heading azimuth, chainage, or RMR sub-parameters in one cohesive place without losing canvas focus or navigating away from face tracing.
+- **Alternative Considered**: Forcing users to return to initial wizard screens caused workflow disruption and state serialization headaches.
+
+### Decision 3: "Not Assessed" Representation in Final Documents
+- **Chosen Approach**: Explicit "Not Assessed" designation with unmapped status pill/text across tables, summary boxes, and PDF exports.
+- **Why**: In tunnel engineering contracts, missing data must be explicitly reported as unassessed to avoid liability and false confidence during excavation sign-offs.
 
 ---
 
@@ -86,77 +77,77 @@ Comprehensive architectural blueprint to transform the ESWA Mining Window from a
 ### System Component Diagram
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                             App.tsx                                      │
-│         (Routes to MiningMainWindow when industryMode === 'MINING')      │
-└────────────────────────────────────┬─────────────────────────────────────┘
-                                     │
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         MiningMainWindow.tsx                             │
-│  ┌───────────────────────┬───────────────────────┬────────────────────┐  │
-│  │ 1. Face Mapping       │ 2. Core Logging       │ 3. Data Storage    │  │
-│  │    (Triggers Wizard)  │    (Core Workspace)   │    (Vault Modal)   │  │
-│  └───────────────────────┴───────────────────────┴────────────────────┘  │
-└──────────────────┬───────────────────────────────────────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                      MiningFaceSetupWizard.tsx                           │
-│  • Project / Level / Stope Heading selector                              │
-│  • Parametric Stope Geometries & DXF parser                              │
-│  • Field Canvas vs Photogrammetry Router                                 │
-└──────────────────┬───────────────────────────────────────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                     MiningFaceMappingWorkspace.tsx                       │
-│  ┌───────────────────────────────┬────────────────────────────────────┐  │
-│  │ MiningFaceCanvas.tsx          │ MiningFaceSidebar.tsx              │  │
-│  │ • Stope Face Outline (Only)   │ • Vein/Ore Grade Control Tab       │  │
-│  │ • Vein & Lithology Polygons   │ • Discontinuity & Structure Tab    │  │
-│  │ • Major Fault / Shear Lines   │ • Laubscher MRMR & Mathews Graph   │  │
-│  │ • Channel Sample Lines (1..n) │ • CAD & PDF Export Generator       │  │
-│  └───────────────────────────────┴────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Top App Header / CAD Command Bar                     │
+│  [Project Name]  ·  [Drive: 070°]  ·  [RD 1423.50m]  ·  [Configure ⚙]   │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ opens
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│             ProjectConfigurationAndGeotechModal                        │
+│ ┌───────────────────────┐  ┌─────────────────────────────────────────┐ │
+│ │ 1. Project & Heading  │  │ ClampedNumericInput:                     │ │
+│ │  - Project Name       │  │  Drive Azimuth [0° .. 360°]              │ │
+│ │  - Structure / Tunnel │  │  Pull Length   [0.5m .. 12.0m]           │ │
+│ │  - Heading / Location │  │  Span / Width  [1.0m .. 35.0m]           │ │
+│ ├───────────────────────┤  ├─────────────────────────────────────────┤ │
+│ │ 2. RMR89 Inputs       │  │ Clamped Ratings:                         │ │
+│ │  - UCS / Point Load   │  │  UCS [0.5 .. 500 MPa]                    │ │
+│ │  - RQD %              │  │  RQD [0% .. 100%]                        │ │
+│ │  - Joint Spacing      │  │  Spacing [0.01m .. 10.0m]                │ │
+│ ├───────────────────────┤  ├─────────────────────────────────────────┤ │
+│ │ 3. Barton Q Inputs    │  │ Barton Factors:                          │ │
+│ │  - RQD, Jn, Jr, Ja    │  │  Jn [0.5..20], Jr [0.5..4], Ja [0.75..20]│ │
+│ │  - Jw, SRF, ESR       │  │  Jw [0.05..1.0], SRF [0.5..200]          │ │
+│ └───────────────────────┘  └─────────────────────────────────────────┘ │
+│                     [ Apply Validated Parameters ]                     │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ syncs state
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                      Central Tunnel State Store                        │
+│  • TunnelSettings (driveDirection, chainage, roundLength, project)     │
+│  • RmrParameters (UCS, RQD, spacing, condition, groundwater | null)    │
+│  • QIndexParameters (RQD, Jn, Jr, Ja, Jw, SRF | null)                  │
+└───────────────────────┬────────────────────────┬───────────────────────┘
+                        │                        │
+                        ▼                        ▼
+        ┌───────────────────────────────┐ ┌──────────────────────────────┐
+        │  Face Canvas & 3D Analytics   │ │  Final Engineering Reports   │
+        │  - Traced Joints / Kinematics │ │  - Engineering Sheet Modal   │
+        │  - Stereo / Wedge Stability   │ │  - Word / PDF Export Engine  │
+        │  - Lockout if missing         │ │  - "Not Assessed" Badges     │
+        └───────────────────────────────┘ └──────────────────────────────┘
 ```
 
-### Data Entities & Schema (`src/types/mining.ts`)
+### Data Validation Rules & Ranges
 
-```typescript
-export interface MiningStopeDefinition {
-  id: string;
-  projectId: string;
-  levelName: string; // e.g., "Level -450m RL" or "1200L"
-  stopeId: string; // e.g., "Stope 402-N" or "XC-14 East"
-  faceChainageM: number; // e.g., 142.50
-  blastPullLengthM: number; // e.g., 3.20
-  headingAzimuthDeg: number; // e.g., 045
-  profileShape: 'd_arch' | 'horseshoe' | 'rectangular' | 'shanty' | 'gothic' | 'custom_dxf';
-  widthM: number;
-  heightM: number;
-  wallHeightM: number;
-  crownRadiusM: number;
-  customProfileDxf?: string;
-  crossSectionPoints: Array<{ x: number; y: number }>;
-}
+| Parameter | Valid Theoretical Range | Clamp Fallback | Scientific Reference |
+| :--- | :--- | :--- | :--- |
+| **Drive Direction / Azimuth** | $0^\circ \text{ to } 360^\circ$ | Clamped to $[0, 360]$ | Compass Azimuth |
+| **Tunnel Span / Width** | $1.0\text{m to } 35.0\text{m}$ | Clamped to $[1.0, 35.0]$ | ISRM Excavation |
+| **Tunnel Height** | $1.0\text{m to } 35.0\text{m}$ | Clamped to $[1.0, 35.0]$ | ISRM Excavation |
+| **Round / Pull Length** | $0.5\text{m to } 12.0\text{m}$ | Clamped to $[0.5, 12.0]$ | Drill & Blast Pull |
+| **Intact Rock UCS** | $0.5\text{ to } 500\text{ MPa}$ | Clamped to $[0.5, 500]$ | ISRM Rock Strength |
+| **Rock Quality Designation (RQD)** | $0\% \text{ to } 100\%$ | Clamped to $[0, 100]$ | Deere et al. (1967) |
+| **Discontinuity Spacing** | $0.01\text{m to } 10.0\text{m}$ | Clamped to $[0.01, 10.0]$ | ISRM Discontinuity |
+| **Barton Jn (Set Number)** | $0.5\text{ to } 20.0$ | Clamped to $[0.5, 20.0]$ | Barton et al. (1974) |
+| **Barton Jr (Roughness)** | $0.5\text{ to } 4.0$ | Clamped to $[0.5, 4.0]$ | Barton et al. (1974) |
+| **Barton Ja (Alteration)** | $0.75\text{ to } 20.0$ | Clamped to $[0.75, 20.0]$ | Barton et al. (1974) |
+| **Barton Jw (Water Factor)** | $0.05\text{ to } 1.0$ | Clamped to $[0.05, 1.0]$ | Barton et al. (1974) |
+| **Barton SRF (Stress Factor)** | $0.5\text{ to } 200.0$ | Clamped to $[0.5, 200.0]$ | Barton et al. (1974) |
 
-export interface MiningFaceMapRecord {
-  id: string;
-  stopeId: string;
-  mappingType: 'FIELD' | 'PHOTOGRAMMETRY';
-  mappedAt: string;
-  geologistName: string;
-  veins: MiningVeinRecord[];
-  structures: MiningStructureRecord[];
-  channelSamples: MiningChannelSampleLine[];
-  mrmrRating: MiningMrmrRating;
-  mathewsStability: MathewsStabilityIndex;
-}
-```
+### Implementation Phases
 
-### Verification & Delivery Plan
-1. **Lint & Build Verification**: `npm run lint` (`tsc --noEmit`) and `compile_applet`.
-2. **Setup Flow Test**: Verify step-by-step wizard transitions (Project $\rightarrow$ Location $\rightarrow$ Profile $\rightarrow$ Mode).
-3. **Canvas Drawing & Geometry Test**: Verify face boundary clipping, vein polygons, and channel sample true-width calculations.
-4. **Export Validation**: Verify DXF file syntax for CAD software and PDF sheet generation.
+1. **Phase 1: Validated Input Primitives & Engine Hooks**
+   - Implement `ClampedNumericInput` component with range warnings, unit indicators, and keyboard-safe clamping.
+   - Extend `rockMechanicsValidator.ts` with comprehensive clamping and formatting functions for all tunnel/geotech variables.
+2. **Phase 2: Project & Geotechnical Configuration Console**
+   - Create `ProjectConfigurationAndGeotechModal.tsx` consolidating Project Metadata, Drive Direction, Excavation Geometry, Chainage, RMR89, and Q-System inputs.
+   - Wire the modal launcher into the App Header, CAD Ribbon, and Setup screens.
+3. **Phase 3: Synchronized State & Screen Form Hardening**
+   - Replace raw unvalidated inputs across `DriveAndPhotosScreen.tsx`, `GeometryManualScreen.tsx`, `SheetSettingsAndStorageEditor.tsx`, and `MappingWorkspace.tsx` with validated clamped controls.
+4. **Phase 4: Final Report & Export Integrity**
+   - Update `EngineeringSheetModal.tsx`, `pdfAndWordExportEngine.ts`, and summary cards to render verified values or clean `"Not Assessed"` badges for unentered fields.
+5. **Phase 5: Verification & Compilation**
+   - Verify zero compile/lint errors with `compile_applet` and test edge-case inputs (e.g., negative chainage, >360° azimuth, impossible rock ratings).

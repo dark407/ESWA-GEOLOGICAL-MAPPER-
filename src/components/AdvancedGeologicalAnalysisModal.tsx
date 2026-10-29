@@ -73,6 +73,12 @@ import {
   FedNatmDataBundle,
 } from '../engine/advancedModelingAndAlignmentEngine';
 import {
+  assessModuleDataReadiness,
+  ModuleDataReadiness,
+  GeotechnicalActiveState,
+} from '../engine/rockMechanicsValidator';
+import { DataRequirementLockView } from './DataRequirementLockView';
+import {
   MappingDomainType,
   SurfaceGeometryParameters,
   SurfaceStabilityAnalysisResult,
@@ -214,6 +220,26 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   const [slopeBoltAngleDeg, setSlopeBoltAngleDeg] = useState<number>(15);
   const [slopeShotcreteMm, setSlopeShotcreteMm] = useState<number>(80);
   const [slopeDrainageActive, setSlopeDrainageActive] = useState<boolean>(true);
+
+  // Authoritative Geotechnical State & Data Readiness Gatekeeper
+  const activeGeotechState: GeotechnicalActiveState = useMemo(() => ({
+    geometry,
+    settings: {
+      ...settings,
+      driveDirection: customDriveAzimuth,
+    },
+    joints: joints || [],
+    jointSets: jointSets || [],
+    rmrParams: propRmrParams,
+    qIndexParams: propQIndexParams,
+    savedProjects: savedProjects || [],
+    intactUcsMpa: intactRockUcsMpa,
+    frictionAngleDeg: simulatedWedgeFrictionAngleDeg,
+  }), [geometry, settings, customDriveAzimuth, joints, jointSets, propRmrParams, propQIndexParams, savedProjects, intactRockUcsMpa, simulatedWedgeFrictionAngleDeg]);
+
+  const currentTabReadiness: ModuleDataReadiness = useMemo(() => {
+    return assessModuleDataReadiness(activeTab, activeGeotechState);
+  }, [activeTab, activeGeotechState]);
 
   // High-precision limit equilibrium stability & stabilization calculation
   const slopeStabilityCalc = useMemo(() => {
@@ -805,44 +831,54 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   const pullL = settings.roundLength || 3.0;
   const rockDensity = 2.7; // t/m3 (standard rock mass density)
 
-  // Discontinuity safe fallback
+  // Discontinuity safe extraction - strictly NO synthetic fallback joints
   const activeJoint = useMemo(() => {
     if (joints && joints.length > 0) {
       const clampedIdx = Math.min(Math.max(0, selectedJointIndex), joints.length - 1);
       return joints[clampedIdx];
     }
-    return {
-      id: 'mock-j1',
-      surface: 'face' as SurfaceType,
-      strike: 45,
-      dip: 65,
-      dipDirection: 135,
-      set: 'J1',
-      persistenceMeters: 3.5,
-    };
+    return null;
   }, [joints, selectedJointIndex]);
 
   // True orientations
-  const trueStrike = activeJoint.strike ?? 45;
-  const trueDip = activeJoint.dip ?? 65;
-  const trueDipDir = activeJoint.dipDirection ?? 135;
+  const trueStrike = activeJoint?.strike ?? 0;
+  const trueDip = activeJoint?.dip ?? 0;
+  const trueDipDir = activeJoint?.dipDirection ?? 0;
+  const activeJointSet = activeJoint?.set || 'Discontinuity (Unspecified)';
 
-  // Real-time Rock Mass Rating (Bieniawski 1989)
+  // Real-time Rock Mass Rating (Bieniawski 1989) - null when unrated
   const rmrVal = useMemo(() => {
-    const computed = calculateBieniawskiRmr(rmrParams);
-    return computed?.finalRmr ?? 62;
-  }, [rmrParams]);
+    if (!propRmrParams || (typeof propRmrParams.totalRmr !== 'number' && !propRmrParams.userConfirmed)) {
+      return null;
+    }
+    const computed = calculateBieniawskiRmr(propRmrParams);
+    return computed?.finalRmr ?? (typeof propRmrParams.totalRmr === 'number' ? propRmrParams.totalRmr : null);
+  }, [propRmrParams]);
 
-  // Real-time Barton Q-Index
+  // Real-time Barton Q-Index - null when unrated
   const qVal = useMemo(() => {
-    const rqd = Math.max(1, qParams.rqd || 75);
-    const jn = Math.max(0.5, qParams.jn || 9);
-    const jr = Math.max(0.5, qParams.jr || 1.5);
-    const ja = Math.max(0.75, qParams.ja || 2.0);
-    const jw = Math.max(0.05, qParams.jw || 1.0);
-    const srf = Math.max(0.5, qParams.srf || 1.0);
-    return Number(((rqd / jn) * (jr / ja) * (jw / srf)).toFixed(2));
-  }, [qParams]);
+    if (!propQIndexParams) return null;
+    if (typeof propQIndexParams.qValue === 'number' && propQIndexParams.qValue > 0) {
+      return propQIndexParams.qValue;
+    }
+    if (
+      typeof propQIndexParams.rqd === 'number' &&
+      typeof propQIndexParams.jn === 'number' &&
+      typeof propQIndexParams.jr === 'number' &&
+      typeof propQIndexParams.ja === 'number' &&
+      typeof propQIndexParams.jw === 'number' &&
+      typeof propQIndexParams.srf === 'number'
+    ) {
+      return Number(
+        (
+          (propQIndexParams.rqd / Math.max(0.5, propQIndexParams.jn)) *
+          (propQIndexParams.jr / Math.max(0.75, propQIndexParams.ja)) *
+          (propQIndexParams.jw / Math.max(0.5, propQIndexParams.srf))
+        ).toFixed(2)
+      );
+    }
+    return null;
+  }, [propQIndexParams]);
 
   // Integrated Strata Failure & Spot Bolting analysis
   const strataAnalysis = useMemo(() => {
@@ -2802,95 +2838,143 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
         {/* CAPABILITY 1: EXCAVATION-SPECIFIC 3D GEOLOGICAL LOGS               */}
         {/* ================================================================= */}
         {activeTab === 'EXCAVATION_3D_LOG' && (
-          <div className="h-[620px] w-full">
-            <ExcavationSpecific3DLogViewport
-              spanW={fedData.spanW}
-              heightH={fedData.heightH}
-              benchHeight={fedData.benchHeight}
-              zStart={Math.max(0, fedData.currentFaceChainageNum - fedData.pullLengthM)}
-              zEnd={fedData.currentFaceChainageNum}
-              lithologyName={fedData.lithologyName}
-              driveAzimuth={customDriveAzimuth}
+          !currentTabReadiness.canCalculate ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="3D Excavation Logs (Multi-Stage NATM)"
+              onReturnToCanvas={onClose}
             />
-          </div>
+          ) : (
+            <div className="h-[620px] w-full">
+              <ExcavationSpecific3DLogViewport
+                spanW={fedData.spanW}
+                heightH={fedData.heightH}
+                benchHeight={fedData.benchHeight}
+                zStart={Math.max(0, fedData.currentFaceChainageNum - fedData.pullLengthM)}
+                zEnd={fedData.currentFaceChainageNum}
+                lithologyName={fedData.lithologyName}
+                driveAzimuth={customDriveAzimuth}
+              />
+            </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* CAPABILITY 2: PROJECTING WEAK ZONES BEYOND TUNNEL HEADINGS        */}
         {/* ================================================================= */}
         {activeTab === 'WEAK_ZONE_PROJECTOR' && (
-          <div className="min-h-[580px] w-full">
-            <WeakZoneAheadProjectorView
-              zFaceDefault={fedData.currentFaceChainageNum}
-              alphaDriveDefault={customDriveAzimuth}
-              hTunnelDefault={fedData.heightH}
-              betaDefault={fedData.governingJoint.dip}
-              thetaDipDefault={fedData.governingJoint.dipDirection}
-              tTrueDefault={fedData.governingJoint.thicknessM}
-              lPullDefault={fedData.pullLengthM}
-              lithologyName={fedData.lithologyName}
+          !currentTabReadiness.canCalculate || !fedData.governingJoint ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Weak Zone Ahead Projector"
+              onReturnToCanvas={onClose}
             />
-          </div>
+          ) : (
+            <div className="min-h-[580px] w-full">
+              <WeakZoneAheadProjectorView
+                zFaceDefault={fedData.currentFaceChainageNum}
+                alphaDriveDefault={customDriveAzimuth}
+                hTunnelDefault={fedData.heightH}
+                betaDefault={fedData.governingJoint.dip}
+                thetaDipDefault={fedData.governingJoint.dipDirection}
+                tTrueDefault={fedData.governingJoint.thicknessM}
+                lPullDefault={fedData.pullLengthM}
+                lithologyName={fedData.lithologyName}
+              />
+            </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* CAPABILITY 3: RECONSTRUCTING 3D GEOLOGY FROM SEQUENTIAL FACE LOGS */}
         {/* ================================================================= */}
         {activeTab === 'SEQUENTIAL_3D_RECON' && (
-          <div className="h-[620px] w-full">
-            <SequentialFace3DReconstructionView
-              faceLogs={fedData.historicalFaceLogs}
-              driveAzimuth={customDriveAzimuth}
-              spanW={fedData.spanW}
-              heightH={fedData.heightH}
+          !currentTabReadiness.canCalculate || fedData.historicalFaceLogs.length < 2 ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Sequential Face 3D Reconstruction"
+              onReturnToCanvas={onClose}
             />
-          </div>
+          ) : (
+            <div className="h-[620px] w-full">
+              <SequentialFace3DReconstructionView
+                faceLogs={fedData.historicalFaceLogs}
+                driveAzimuth={customDriveAzimuth}
+                spanW={fedData.spanW}
+                heightH={fedData.heightH}
+              />
+            </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* CAPABILITY 4: COMPONENT-SPECIFIC APPARENT THICKNESS & SPACING     */}
         {/* ================================================================= */}
         {activeTab === 'APPARENT_THICKNESS_SPACING' && (
-          <div className="min-h-[580px] w-full">
-            <ComponentApparentThicknessView
-              tTrueDefault={fedData.governingJoint.thicknessM}
-              sTrueDefault={fedData.governingJoint.spacingM}
-              betaDefault={fedData.governingJoint.dip}
-              thetaDipDefault={fedData.governingJoint.dipDirection}
-              alphaDriveDefault={customDriveAzimuth}
-              gammaDriveDefault={0}
+          !currentTabReadiness.canCalculate || !fedData.governingJoint ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Component Apparent Thickness & Spacing"
+              onReturnToCanvas={onClose}
             />
-          </div>
+          ) : (
+            <div className="min-h-[580px] w-full">
+              <ComponentApparentThicknessView
+                tTrueDefault={fedData.governingJoint.thicknessM}
+                sTrueDefault={fedData.governingJoint.spacingM}
+                betaDefault={fedData.governingJoint.dip}
+                thetaDipDefault={fedData.governingJoint.dipDirection}
+                alphaDriveDefault={customDriveAzimuth}
+                gammaDriveDefault={0}
+              />
+            </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* CAPABILITY 5: EVALUATING TUNNEL ALIGNMENT ALTERNATIVES            */}
         {/* ================================================================= */}
         {activeTab === 'ALIGNMENT_ALTERNATIVES' && (
-          <div className="min-h-[580px] w-full">
-            <AlignmentAlternativesEvaluatorView
-              currentDriveAzimuth={customDriveAzimuth}
-              faults={fedData.faultsList}
-              controllingJoint={{
-                id: fedData.governingJoint.id,
-                beta: fedData.governingJoint.dip,
-                thetaDip: fedData.governingJoint.dipDirection,
-                frictionAngle: 32,
-              }}
-              sigmaHAzDefault={110}
+          !currentTabReadiness.canCalculate || !fedData.governingJoint ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Alignment Alternatives & Rose Sweep"
+              onReturnToCanvas={onClose}
             />
-          </div>
+          ) : (
+            <div className="min-h-[580px] w-full">
+              <AlignmentAlternativesEvaluatorView
+                currentDriveAzimuth={customDriveAzimuth}
+                faults={fedData.faultsList}
+                controllingJoint={{
+                  id: fedData.governingJoint.id,
+                  beta: fedData.governingJoint.dip,
+                  thetaDip: fedData.governingJoint.dipDirection,
+                  frictionAngle: 32,
+                }}
+                sigmaHAzDefault={110}
+              />
+            </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* CAPABILITY 6: POOR ROCK MASS PROPORTIONS ESTIMATOR                */}
         {/* ================================================================= */}
         {activeTab === 'POOR_ROCK_PROPORTIONS' && (
-          <div className="min-h-[580px] w-full">
-            <PoorRockProportionsEstimatorView
-              totalLengthDefault={Math.max(1200, Math.round(fedData.currentFaceChainageNum * 8))}
+          !currentTabReadiness.canCalculate ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Poor Rock Mass Proportions Estimator"
+              onReturnToCanvas={onClose}
             />
-          </div>
+          ) : (
+            <div className="min-h-[580px] w-full">
+              <PoorRockProportionsEstimatorView
+                totalLengthDefault={Math.max(1200, Math.round(fedData.currentFaceChainageNum * 8))}
+              />
+            </div>
+          )
         )}
 
         {/* ================================================================= */}
@@ -2923,20 +3007,36 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 print:border print:border-slate-300 print:p-2">
               <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700 print:bg-slate-50 print:border-slate-300">
                 <div className="text-[11px] font-mono text-slate-400 print:text-slate-600">BIENIAWSKI RMR89</div>
-                <div className="text-2xl font-extrabold font-mono text-amber-300 print:text-amber-800">{rmrVal}</div>
-                <div className="text-[11px] text-slate-300 print:text-black">{rmrVal >= 61 ? 'Class II (Good Rock)' : rmrVal >= 41 ? 'Class III (Fair Rock)' : 'Class IV (Poor Rock)'}</div>
+                <div className="text-2xl font-extrabold font-mono text-amber-300 print:text-amber-800">
+                  {rmrVal !== null ? rmrVal : 'N/A'}
+                </div>
+                <div className="text-[11px] text-slate-300 print:text-black">
+                  {rmrVal !== null
+                    ? rmrVal >= 61
+                      ? 'Class II (Good Rock)'
+                      : rmrVal >= 41
+                      ? 'Class III (Fair Rock)'
+                      : 'Class IV (Poor Rock)'
+                    : 'Unassessed'}
+                </div>
               </div>
               <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700 print:bg-slate-50 print:border-slate-300">
                 <div className="text-[11px] font-mono text-slate-400 print:text-slate-600">BARTON Q-VALUE</div>
-                <div className="text-2xl font-extrabold font-mono text-sky-300 print:text-sky-800">{qVal}</div>
-                <div className="text-[11px] text-slate-300 print:text-black">{strataAnalysis.supportCategoryLabel}</div>
+                <div className="text-2xl font-extrabold font-mono text-sky-300 print:text-sky-800">
+                  {qVal !== null ? qVal : 'N/A'}
+                </div>
+                <div className="text-[11px] text-slate-300 print:text-black">
+                  {qVal !== null ? strataAnalysis.supportCategoryLabel : 'Unassessed'}
+                </div>
               </div>
               <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700 print:bg-slate-50 print:border-slate-300">
                 <div className="text-[11px] font-mono text-slate-400 print:text-slate-600">KINEMATIC WEDGE FoS</div>
                 <div className={`text-2xl font-extrabold font-mono ${supportedFos >= 1.5 ? 'text-emerald-400 print:text-emerald-700' : 'text-rose-400 print:text-rose-700'}`}>
-                  {supportedFos.toFixed(2)}
+                  {activeJoint ? supportedFos.toFixed(2) : 'N/A'}
                 </div>
-                <div className="text-[11px] text-slate-300 print:text-black">Unreinforced: {unboltedFos.toFixed(2)}</div>
+                <div className="text-[11px] text-slate-300 print:text-black">
+                  {activeJoint ? `Unreinforced: ${unboltedFos.toFixed(2)}` : 'No Mapped Wedge'}
+                </div>
               </div>
               <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700 print:bg-slate-50 print:border-slate-300">
                 <div className="text-[11px] font-mono text-slate-400 print:text-slate-600">GEOHAZARD RATING</div>
@@ -2974,7 +3074,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
               </h3>
               <p className="text-xs text-slate-300 print:text-slate-700 leading-relaxed">
                 Roof and sidewall stability was evaluated using limit equilibrium resolving intersecting mapped discontinuity planes
-                (Set {activeJoint.set}: Strike {trueStrike}° / Dip {trueDip}°) against the tunnel drive heading (N {Math.round(customDriveAzimuth)}° E).
+                ({activeJoint ? `Set ${activeJointSet}: Strike ${trueStrike}° / Dip ${trueDip}°` : 'No Discontinuity Traces Mapped'}) against the tunnel drive heading (N {Math.round(customDriveAzimuth)}° E).
                 The critical daylighting crown wedge develops a demand driving force of <strong>{drivingForceKn} kN</strong> ({wedgeVolume} m³ / {wedgeMassT} tonnes).
                 With systematic installation of <strong>{activeBolts}x L=4.0m radial bolts</strong> (@ {simulatedBoltSpacingM.toFixed(1)}m c/c, {simulatedBoltCapacityKn} kN capacity)
                 plus <strong>{simulatedShotcreteMm}mm SFRS</strong>, the resulting Factor of Safety is <strong>{supportedFos.toFixed(2)}</strong>.
@@ -3089,6 +3189,13 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
         {/* TAB 2: 2D/3D KINEMATIC WEDGE STABILITY & FACTOR OF SAFETY (FOS)   */}
         {/* ================================================================= */}
         {activeTab === 'WEDGE_FOS' && (
+          !currentTabReadiness.canCalculate ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="2D/3D Kinematic Wedge Stability & Factor of Safety (FoS)"
+              onReturnToCanvas={onClose}
+            />
+          ) : (
           <div className="space-y-6">
             {/* REAL-TIME SIMULATION 3D VIEWPORT / 2D CANVAS + HUD */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -3406,12 +3513,20 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
               </div>
             </div>
           </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* TAB 3: FUTURE ADVANCE FORECASTING & DEEP PROBE (+3m TO +30m)      */}
         {/* ================================================================= */}
         {activeTab === 'FUTURE_FORECAST' && (
+          !currentTabReadiness.canCalculate ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Future Advance & Geohazard Forecast (+3m to +30m)"
+              onReturnToCanvas={onClose}
+            />
+          ) : (
           <div className="space-y-6">
             <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
@@ -3602,7 +3717,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                   Advance Probe &amp; Umbrella Canopy Decision Rule
                 </div>
                 <p className="text-slate-300 leading-relaxed">
-                  Based on joint set {activeJoint.set} dipping at {trueDip}° into drive azimuth {customDriveAzimuth}°,
+                  Based on joint set {activeJointSet} dipping at {trueDip}° into drive azimuth {customDriveAzimuth}°,
                   the daylighting intercept occurs within {forwardPredictions[0].daylightDistanceM.toFixed(1)}m of the working face.
                   {forwardPredictions[0].riskLevel === 'HIGH'
                     ? ' PIPE ROOFING CANOPY REQUIRED: Overlapping 12m steel pipes (Ø114mm, 40cm c/c) with polyurethane/cement pressure grouting recommended before advancing blast round.'
@@ -3611,12 +3726,20 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
               </div>
             </div>
           </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* TAB 4: 4-SURFACE APPARENT DIP SOLVER                              */}
         {/* ================================================================= */}
         {activeTab === 'APPARENT_DIP_SOLVER' && (
+          !currentTabReadiness.canCalculate || !activeJoint ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="4-Surface Apparent Dip Solver"
+              onReturnToCanvas={onClose}
+            />
+          ) : (
           <div className="space-y-6">
             <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-700/60">
               <div className="flex items-start gap-3">
@@ -3642,7 +3765,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                 <div className="flex justify-between text-xs font-mono mb-1">
                   <span className="text-slate-300">Select Analyzed Joint:</span>
                   <span className="text-sky-300 font-bold">
-                    {activeJoint.set} ({trueStrike}° / {trueDip}°)
+                    {activeJointSet} ({trueStrike}° / {trueDip}°)
                   </span>
                 </div>
                 <select
@@ -3733,12 +3856,20 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
               </div>
             </div>
           </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* TAB 5: HOEK-BROWN ENVELOPES & IN-SITU STRESS                      */}
         {/* ================================================================= */}
         {activeTab === 'HOEK_BROWN_ROCK' && (
+          !currentTabReadiness.canCalculate ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Hoek-Brown Envelopes & In-Situ Stress"
+              onReturnToCanvas={onClose}
+            />
+          ) : (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
@@ -3835,18 +3966,26 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
               </div>
             </div>
           </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* TAB 6: STAND-UP TIME & ROCK LOAD                                  */}
         {/* ================================================================= */}
         {activeTab === 'STANDUP_TIME_SPAN' && (
+          !currentTabReadiness.canCalculate ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Stand-Up Time & Rock Load"
+              onReturnToCanvas={onClose}
+            />
+          ) : (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
                 <div className="text-xs font-mono text-slate-400 mb-1">BIENIAWSKI STAND-UP TIME</div>
                 <div className="text-2xl font-bold font-mono text-amber-300">{standUpFormatted}</div>
-                <div className="text-xs text-slate-400 mt-1">Span: {spanW.toFixed(1)}m · RMR: {rmrVal}</div>
+                <div className="text-xs text-slate-400 mt-1">Span: {spanW.toFixed(1)}m · RMR: {rmrVal !== null ? rmrVal : 'Unrated'}</div>
               </div>
 
               <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
@@ -3976,12 +4115,20 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
               )}
             </div>
           </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* TAB 7: PALMSTRÖM BLOCKS & OVERBREAK FIDIC SPLIT                  */}
         {/* ================================================================= */}
         {activeTab === 'PALMSTROM_BLOCKS' && (
+          !currentTabReadiness.canCalculate ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Palmström Blocks & Overbreak FIDIC Split"
+              onReturnToCanvas={onClose}
+            />
+          ) : (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
@@ -4030,7 +4177,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                     <div className="bg-indigo-500 h-2.5 rounded-full" style={{ width: `${geologicalExcusablePct}%` }} />
                   </div>
                   <p className="text-[11px] text-slate-400 mt-2">
-                    Bound by dipping joint set {activeJoint.set} extending beyond theoretical B-line profile. Billable under FIDIC Red Book Clause 12.
+                    Bound by dipping joint set {activeJointSet} extending beyond theoretical B-line profile. Billable under FIDIC Red Book Clause 12.
                   </p>
                 </div>
 
@@ -4049,12 +4196,20 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
               </div>
             </div>
           </div>
+          )
         )}
 
         {/* ================================================================= */}
         {/* TAB 8: HYDROGEOLOGY & INFLOW ESTIMATION                           */}
         {/* ================================================================= */}
         {activeTab === 'HYDRO_INFLOW' && (
+          !currentTabReadiness.canCalculate ? (
+            <DataRequirementLockView
+              readiness={currentTabReadiness}
+              moduleTitle="Hydrogeology & Inflow Estimation"
+              onReturnToCanvas={onClose}
+            />
+          ) : (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
@@ -4081,7 +4236,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                 DRAINAGE &amp; WATERPROOFING SPECIFICATION
               </div>
               <p className="leading-relaxed">
-                Based on current water condition ({rmrParams.groundwaterDescription || 'Damp'}) and mapped discontinuity frequency,
+                Based on current water condition ({rmrParams?.groundwaterDescription || 'Damp'}) and mapped discontinuity frequency,
                 radial perforated PVC weep holes (Ø50mm, L=4.0m @ 3m c/c) are prescribed along sidewall footings to relieve hydrostatic
                 pressure behind the primary shotcrete lining.
               </p>
@@ -4097,6 +4252,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
               </div>
             </div>
           </div>
+          )
         )}
 
       </div>

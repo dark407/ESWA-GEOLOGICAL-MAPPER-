@@ -511,54 +511,12 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
   const [natmAnalyticsView, setNatmAnalyticsView] = useState<NatmAnalyticsViewMode>('ALL_4_BLOCKS');
 
   // 1. 4-Surface Apparent-to-True Dip Schedule
+  // 1. 4-Surface Apparent-to-True Dip Schedule (Ground-truth only: zero fake fallback joints)
   const fourSurfaceJointSchedule = useMemo(() => {
+    if (!joints || joints.length === 0) return [];
     const driveAzimuth = Number(settings.driveDirection) || 0;
-    const sourceJoints = joints.length > 0 ? joints : [
-      {
-        id: 'J1-01',
-        set: 'J1',
-        surface: 'FACE' as SurfaceType,
-        dip: 62,
-        dipDirection: 135,
-        strike: 45,
-        traceAngle2D: 58,
-        apertureMm: 1.5,
-        roughness: 'ROUGH' as any,
-        infilling: 'CALCITE' as any,
-        water: 'DRY' as any,
-        points: [],
-      },
-      {
-        id: 'J2-01',
-        set: 'J2',
-        surface: 'LEFT_WALL' as SurfaceType,
-        dip: 78,
-        dipDirection: 225,
-        strike: 135,
-        traceAngle2D: 72,
-        apertureMm: 2.0,
-        roughness: 'SLICKENSIDED' as any,
-        infilling: 'CLAY' as any,
-        water: 'DAMP' as any,
-        points: [],
-      },
-      {
-        id: 'J3-01',
-        set: 'J3',
-        surface: 'CROWN' as SurfaceType,
-        dip: 34,
-        dipDirection: 20,
-        strike: 290,
-        traceAngle2D: 30,
-        apertureMm: 0.8,
-        roughness: 'SMOOTH' as any,
-        infilling: 'NONE' as any,
-        water: 'DRY' as any,
-        points: [],
-      },
-    ];
 
-    return sourceJoints.map((j, idx) => {
+    return joints.map((j, idx) => {
       const rawDip = j.dip ?? (j.orientationStatus === 'CONFIRMED' ? 62 : 55);
       const rawDipDir = j.dipDirection ?? 135;
       const sol = solveTrueOrientationFromSurfaceTrace({
@@ -586,26 +544,12 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
     });
   }, [joints, jointSets, settings.driveDirection, qIndex]);
 
-  // 2. 3D Keyblock Wedge Stability & Support Adequacy Report
+  // 2. 3D Keyblock Wedge Stability & Support Adequacy Report (Zero autonomous phantom data)
   const detailedWedgeReport = useMemo(() => {
-    const rawJoints: Joint[] =
-      joints.length > 0
-        ? joints
-        : ((fourSurfaceJointSchedule.map((s) => ({
-            id: s.id,
-            set: s.set,
-            surface: s.surface,
-            dip: s.sol.dipAngle,
-            dipDirection: s.sol.dipDirection,
-            strike: s.sol.strike,
-            traceAngle: s.sol.apparentDipOnFace,
-            points: [],
-            geometry: { points: [], length: 2.0 },
-            orientationStatus: 'CONFIRMED' as const,
-          })) as unknown) as Joint[]);
+    if (!joints || joints.length < 2) return null;
 
     return evaluateDetailedWedgeAndSupportAdequacy({
-      joints: rawJoints,
+      joints,
       geometry,
       settings,
       supportParams: {
@@ -619,7 +563,7 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
         rockUnitWeightKNPerM3: 26.5,
       },
     });
-  }, [joints, fourSurfaceJointSchedule, geometry, settings]);
+  }, [joints, geometry, settings]);
 
   // 3 & 4. Multi-Round Trend, Overbreak Proof, and Look-Ahead Forepoling Report
   const multiRoundTrendReport = useMemo(() => {
@@ -5756,40 +5700,28 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                       {natmAnalyticsView === 'WEDGE_ADEQUACY' ? (
                         <g transform="translate(0, 22)">
                           {(() => {
-                            const crit = detailedWedgeReport.wedges[0] || {
-                              id: 'W1',
-                              zone: 'CROWN' as const,
-                              clockSector: '11:00 - 01:00',
-                              wedgeType: 'FALL' as const,
-                              participatingSets: ['J1', 'J2'],
-                              baseAreaM2: 3.2,
-                              perimeterM: 8.4,
-                              apexHeightM: 1.45,
-                              volumeM3: 4.28,
-                              weightKN: 113.5,
-                              weightTonnes: 11.4,
-                              drivingForceKN: 113.5,
-                              rockResistanceKN: 42.0,
-                              fosBeforeSupport: 0.92,
-                              minRequiredBoltLengthM: 2.8,
-                              isBoltLongEnough: true,
-                              anchorageEfficiencyEta: 0.85,
-                              patternBoltsCount: 6,
-                              totalBoltsCount: 6,
-                              boltCapacityKN: 180,
-                              shotcretePunchingShearKN: 85,
-                              steelRibCapacityKN: 0,
-                              totalSupportCapacityKN: 265,
-                              fosAfterSupport: 1.68,
-                              verdict: 'SAFE' as const,
-                              recommendedExtraSpotBolts: 0,
-                              spotBoltInstallationCoords: [],
-                              engineeringSummary: 'Primary systematic bolting and shotcrete adequate.',
-                            };
+                            const innerW = jointTableBlock.width - 16;
+                            const crit = detailedWedgeReport?.wedges?.[0];
+                            if (!crit) {
+                              return (
+                                <g transform="translate(8, 8)">
+                                  <rect x="0" y="0" width={innerW} height="52" fill="#F8FAFC" stroke="#CBD5E1" strokeWidth="1" rx="3" />
+                                  <rect x="0" y="0" width="6" height="52" fill="#94A3B8" rx="2" />
+                                  <text x="14" y="20" fontSize="10" fontWeight="700" fill="#475569">
+                                    3D KEYBLOCK WEDGE STABILITY: NOT ASSESSED
+                                  </text>
+                                  <text x="14" y="34" fontSize="8.5" fill="#64748B">
+                                    Kinematic block analysis requires at least 2 mapped discontinuity planes on the tunnel face.
+                                  </text>
+                                  <text x="14" y="46" fontSize="7.8" fill="#94A3B8">
+                                    Zero synthetic wedges generated · Unassessed status enforced until joints are traced.
+                                  </text>
+                                </g>
+                              );
+                            }
                             const isFosOk = crit.fosAfterSupport >= 1.5;
                             const isFosMarginal = crit.fosAfterSupport >= 1.2 && crit.fosAfterSupport < 1.5;
                             const fosBadgeColor = isFosOk ? '#10B981' : isFosMarginal ? '#F59E0B' : '#EF4444';
-                            const innerW = jointTableBlock.width - 16;
                             const spotPrescription = crit.recommendedExtraSpotBolts > 0
                               ? `${crit.recommendedExtraSpotBolts} x 25mm Swellex / Threadbar @ 1.2m spacing (Demand: ${crit.weightTonnes.toFixed(1)}t)`
                               : 'Standard systematic pattern S(fr) + b(t) satisfies FS >= 1.5';
@@ -6084,32 +6016,15 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                             const halfH = (totalH - 8) / 2;
 
                             // 1. Wedge Adequacy Data
-                            const crit = detailedWedgeReport.wedges[0] || {
-                              id: 'W1',
-                              zone: 'CROWN' as const,
-                              clockSector: '11:00 - 01:00',
-                              wedgeType: 'FALL' as const,
-                              participatingSets: ['J1', 'J2'],
-                              apexHeightM: 1.45,
-                              volumeM3: 4.28,
-                              weightTonnes: 11.4,
-                              drivingForceKN: 113.5,
-                              boltCapacityKN: 180,
-                              shotcretePunchingShearKN: 85,
-                              fosAfterSupport: 1.68,
-                              verdict: 'SAFE' as const,
-                              recommendedExtraSpotBolts: 0,
-                              minRequiredBoltLengthM: 2.8,
-                              isBoltLongEnough: true,
-                            };
-                            const isFosOk = crit.fosAfterSupport >= 1.5;
-                            const isFosMarginal = crit.fosAfterSupport >= 1.2 && crit.fosAfterSupport < 1.5;
-                            const fosBadgeColor = isFosOk ? '#10B981' : isFosMarginal ? '#F59E0B' : '#EF4444';
+                            const crit = detailedWedgeReport?.wedges?.[0];
+                            const isFosOk = crit ? crit.fosAfterSupport >= 1.5 : false;
+                            const isFosMarginal = crit ? crit.fosAfterSupport >= 1.2 && crit.fosAfterSupport < 1.5 : false;
+                            const fosBadgeColor = !crit ? '#94A3B8' : isFosOk ? '#10B981' : isFosMarginal ? '#F59E0B' : '#EF4444';
 
                             // 2. Trend & Overbreak Data
                             const d = multiRoundTrendReport.deltas;
-                            const totalObM3 = overbreakAnalysis?.overbreakVolumeCubicMeters ?? 4.18;
-                            const totalObPct = overbreakAnalysis?.overbreakPercent ?? 11.8;
+                            const totalObM3 = overbreakAnalysis?.overbreakVolumeCubicMeters ?? 0;
+                            const totalObPct = overbreakAnalysis?.overbreakPercent ?? 0;
                             const geolSharePct = 74.6;
                             const mechSharePct = 25.4;
                             const geolM3 = (totalObM3 * (geolSharePct / 100)).toFixed(2);
@@ -6128,26 +6043,43 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                                   <text x="6" y="12" fontSize="7.8" fontWeight="700" fill="#FFFFFF">
                                     1. 3D KEYBLOCK WEDGE SUPPORT ADEQUACY
                                   </text>
-                                  <rect x={halfW - 55} y="2" width="50" height="13" rx="2" fill={fosBadgeColor} />
-                                  <text x={halfW - 30} y="11" textAnchor="middle" fontSize="7" fontWeight="800" fill="#FFFFFF">
-                                    FoS {crit.fosAfterSupport.toFixed(2)}
-                                  </text>
+                                  {crit ? (
+                                    <>
+                                      <rect x={halfW - 55} y="2" width="50" height="13" rx="2" fill={fosBadgeColor} />
+                                      <text x={halfW - 30} y="11" textAnchor="middle" fontSize="7" fontWeight="800" fill="#FFFFFF">
+                                        FoS {crit.fosAfterSupport.toFixed(2)}
+                                      </text>
 
-                                  <text x="6" y="29" fontSize="7.4" fontWeight="700" fill="#0F172A">
-                                    Critical: {crit.zone.replace('_', ' ')} ({crit.clockSector}) · Sets: {crit.participatingSets.join(' ^ ')}
-                                  </text>
-                                  <text x="6" y="41" fontSize="7.2" fill="#334155">
-                                    Apex: {crit.apexHeightM.toFixed(2)}m · Vol: {crit.volumeM3.toFixed(2)}m³ · Wt: {crit.weightTonnes.toFixed(1)}t
-                                  </text>
-                                  <text x="6" y="53" fontSize="7.2" fill="#334155">
-                                    Demand: {crit.drivingForceKN.toFixed(0)}kN vs Bolt Cap: {crit.boltCapacityKN.toFixed(0)}kN · Sfr: {crit.shotcretePunchingShearKN.toFixed(0)}kN
-                                  </text>
-                                  <text x="6" y="65" fontSize="7.2" fontWeight="700" fill={crit.isBoltLongEnough ? '#059669' : '#DC2626'}>
-                                    Anchorage: {crit.isBoltLongEnough ? 'PASS (Penetrates Stable Rock)' : 'FAIL (Bolt Shorter than Wedge Apex!)'}
-                                  </text>
-                                  <text x="6" y="77" fontSize="7.2" fontWeight="700" fill={isFosOk ? '#059669' : '#D97706'}>
-                                    Verdict: {crit.verdict === 'SAFE' ? 'SAFE — SUPPORT ADEQUATE (FoS >= 1.50)' : 'MARGINAL — INSTALL EXTRA SPOT BOLTS'}
-                                  </text>
+                                      <text x="6" y="29" fontSize="7.4" fontWeight="700" fill="#0F172A">
+                                        Critical: {crit.zone.replace('_', ' ')} ({crit.clockSector}) · Sets: {crit.participatingSets.join(' ^ ')}
+                                      </text>
+                                      <text x="6" y="41" fontSize="7.2" fill="#334155">
+                                        Apex: {crit.apexHeightM.toFixed(2)}m · Vol: {crit.volumeM3.toFixed(2)}m³ · Wt: {crit.weightTonnes.toFixed(1)}t
+                                      </text>
+                                      <text x="6" y="53" fontSize="7.2" fill="#334155">
+                                        Demand: {crit.drivingForceKN.toFixed(0)}kN vs Bolt Cap: {crit.boltCapacityKN.toFixed(0)}kN · Sfr: {crit.shotcretePunchingShearKN.toFixed(0)}kN
+                                      </text>
+                                      <text x="6" y="65" fontSize="7.2" fontWeight="700" fill={crit.isBoltLongEnough ? '#059669' : '#DC2626'}>
+                                        Anchorage: {crit.isBoltLongEnough ? 'PASS (Penetrates Stable Rock)' : 'FAIL (Bolt Shorter than Wedge Apex!)'}
+                                      </text>
+                                      <text x="6" y="77" fontSize="7.2" fontWeight="700" fill={isFosOk ? '#059669' : '#D97706'}>
+                                        Verdict: {crit.verdict === 'SAFE' ? 'SAFE — SUPPORT ADEQUATE (FoS >= 1.50)' : 'MARGINAL — INSTALL EXTRA SPOT BOLTS'}
+                                      </text>
+                                    </>
+                                  ) : (
+                                    <g transform="translate(6, 26)">
+                                      <rect x="0" y="0" width={halfW - 12} height={halfH - 32} fill="#F8FAFC" stroke="#E2E8F0" rx="2" />
+                                      <text x="8" y="18" fontSize="7.5" fontWeight="700" fill="#475569">
+                                        NOT ASSESSED: NO JOINTS MAPPED
+                                      </text>
+                                      <text x="8" y="32" fontSize="6.8" fill="#64748B">
+                                        Wedge analysis requires ≥ 2 mapped discontinuities.
+                                      </text>
+                                      <text x="8" y="44" fontSize="6.5" fill="#94A3B8">
+                                        Zero autonomous phantom blocks generated.
+                                      </text>
+                                    </g>
+                                  )}
                                 </g>
 
                                 {/* QUADRANT 2: 4-SURFACE DISCONTINUITY SCHEDULE (TOP-RIGHT) */}
@@ -6165,31 +6097,42 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                                   <text x="110" y="25.5" fontSize="6.5" fontWeight="700" fill="#475569">FACE APP</text>
                                   <text x={halfW - 35} y="25.5" fontSize="6.5" fontWeight="700" fill="#475569">WALL APP</text>
 
-                                  {fourSurfaceJointSchedule.slice(0, 3).map((item, rowIdx) => {
-                                    const rY = 32 + rowIdx * 12;
-                                    return (
-                                      <g key={item.id}>
-                                        <rect x="2" y={rY - 3} width="16" height="9" rx="1.5" fill={item.color} />
-                                        <text x="10" y={rY + 4} textAnchor="middle" fontSize="6.5" fontWeight="800" fill="#FFFFFF">
-                                          {item.set}
-                                        </text>
-                                        <text x="24" y={rY + 4} fontSize="6.5" fill="#334155">
-                                          {item.surface.replace('_', ' ')}
-                                        </text>
-                                        <text x="56" y={rY + 4} fontSize="6.5" fontWeight="700" fill="#0F172A">
-                                          {item.sol.dipAngle.toFixed(0)}° / {item.sol.dipDirection.toFixed(0)}°
-                                        </text>
-                                        <text x="110" y={rY + 4} fontSize="6.5" fill="#334155">
-                                          {item.sol.apparentDipOnFace.toFixed(0)}°
-                                        </text>
-                                        <text x={halfW - 35} y={rY + 4} fontSize="6.5" fill="#334155">
-                                          {item.sol.apparentDipOnLeftWall.toFixed(0)}°
-                                        </text>
-                                      </g>
-                                    );
-                                  })}
+                                  {fourSurfaceJointSchedule.length === 0 ? (
+                                    <g transform="translate(6, 34)">
+                                      <text x="4" y="14" fontSize="7.2" fontWeight="700" fill="#64748B">
+                                        NOT ASSESSED: NO TRACES RECORDED
+                                      </text>
+                                      <text x="4" y="26" fontSize="6.5" fill="#94A3B8">
+                                        Trace joints on Face / Walls to compute 4-surface dip.
+                                      </text>
+                                    </g>
+                                  ) : (
+                                    fourSurfaceJointSchedule.slice(0, 3).map((item, rowIdx) => {
+                                      const rY = 32 + rowIdx * 12;
+                                      return (
+                                        <g key={item.id}>
+                                          <rect x="2" y={rY - 3} width="16" height="9" rx="1.5" fill={item.color} />
+                                          <text x="10" y={rY + 4} textAnchor="middle" fontSize="6.5" fontWeight="800" fill="#FFFFFF">
+                                            {item.set}
+                                          </text>
+                                          <text x="24" y={rY + 4} fontSize="6.5" fill="#334155">
+                                            {item.surface.replace('_', ' ')}
+                                          </text>
+                                          <text x="56" y={rY + 4} fontSize="6.5" fontWeight="700" fill="#0F172A">
+                                            {item.sol.dipAngle.toFixed(0)}° / {item.sol.dipDirection.toFixed(0)}°
+                                          </text>
+                                          <text x="110" y={rY + 4} fontSize="6.5" fill="#334155">
+                                            {item.sol.apparentDipOnFace.toFixed(0)}°
+                                          </text>
+                                          <text x={halfW - 35} y={rY + 4} fontSize="6.5" fill="#334155">
+                                            {item.sol.apparentDipOnLeftWall.toFixed(0)}°
+                                          </text>
+                                        </g>
+                                      );
+                                    })
+                                  )}
                                   <text x="6" y={halfH - 4} fontSize="6.8" fill="#64748B">
-                                    Params: Jr={qIndex.jr ?? 2.0} · Ja={qIndex.ja ?? 1.0} · Jw={qIndex.jw ?? 1.0} · Drive Azimuth: {settings.driveDirection}°
+                                    Drive Azimuth: {settings.driveDirection}° · Bounded [0° - 360°]
                                   </text>
                                 </g>
 

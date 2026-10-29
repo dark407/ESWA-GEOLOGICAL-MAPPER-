@@ -1019,14 +1019,17 @@ export interface FedNatmDataBundle {
     spacingM: number;
     thicknessM: number;
     type: string;
-  };
-  rmrTotal: number;
-  qValue: number;
-  gsiValue: number;
+  } | null;
+  rmrTotal: number | null;
+  qValue: number | null;
+  gsiValue: number | null;
   lithologyName: string;
   faultsList: MappedFaultInput[];
   allJointsList: MappedJointInput[];
   historicalFaceLogs: SequentialFaceLog[];
+  hasRealJoints: boolean;
+  hasRealFaults: boolean;
+  hasRealHistoricalRounds: boolean;
 }
 
 export function feedDataFromNatmActiveState(
@@ -1053,79 +1056,94 @@ export function feedDataFromNatmActiveState(
   const pullLengthM = settings.roundLength || 3.0;
   const driveAzimuth = settings.driveDirection ?? 45;
 
-  // Find governing joint or fault (prefer highest dip or marked as fault)
-  const candidateJoints = joints && joints.length > 0 ? joints : [];
+  // Strictly identify candidate joints from active mapping - NO synthetic fallback joints
+  const candidateJoints = (joints || []).filter(
+    (j) => j && typeof j.dip === 'number' && typeof j.dipDirection === 'number'
+  );
+
   const governing =
     candidateJoints.find((j) => ((j as any).type || (j.featureType as string) || '').toLowerCase().includes('fault')) ||
     candidateJoints.find((j) => (j.set as string)?.toUpperCase() === 'J1') ||
     candidateJoints[0] ||
     null;
 
-  const dip = governing ? governing.dip ?? 65 : 65;
-  const dipDirection = governing ? governing.dipDirection ?? 135 : 135;
-  const strike = governing ? governing.strike ?? (dipDirection - 90 + 360) % 360 : 45;
-  const spacingM = 0.45;
-  const thicknessM = governing && (governing as any).apertureMm ? (governing as any).apertureMm / 1000 : 0.8;
+  let governingJoint: FedNatmDataBundle['governingJoint'] = null;
+  if (governing) {
+    const dip = governing.dip;
+    const dipDirection = governing.dipDirection;
+    const strike = governing.strike ?? ((dipDirection - 90 + 360) % 360);
+    const spacingM = (governing as any).spacingM || 0.45;
+    const thicknessM = (governing as any).apertureMm ? (governing as any).apertureMm / 1000 : 0.05;
 
-  const governingJoint = {
-    id: governing?.id || 'natm-gov-1',
-    set: governing?.set || 'J1 (Main Shear)',
-    strike,
-    dip,
-    dipDirection,
-    spacingM,
-    thicknessM,
-    type: ((governing as any)?.type || (governing?.featureType as string) || 'Joint / Shear Zone') as string,
-  };
+    governingJoint = {
+      id: governing.id || 'natm-gov-1',
+      set: governing.set || 'J1',
+      strike,
+      dip,
+      dipDirection,
+      spacingM,
+      thicknessM,
+      type: (((governing as any)?.type || (governing?.featureType as string)) || 'Joint') as string,
+    };
+  }
 
-  // RMR & Q values
-  const rmrTotal = rmrParams?.totalRmr || 58;
-  const qValue = 5.5; // fallback
-  const gsiValue = Math.max(20, Math.min(85, rmrTotal - 5));
-  const lithologyName = settings.lithology || 'Quartzite / Gneiss Complex';
+  // RMR & Q values: ONLY from verified inputs, strictly NO phantom fallbacks
+  const rmrTotal =
+    rmrParams && typeof rmrParams.totalRmr === 'number' && rmrParams.totalRmr > 0
+      ? rmrParams.totalRmr
+      : null;
 
-  // Build faults list from mapped features or standard geological models
+  let qValue: number | null = null;
+  if (qIndexParams && typeof qIndexParams.qValue === 'number' && qIndexParams.qValue > 0) {
+    qValue = qIndexParams.qValue;
+  } else if (
+    qIndexParams &&
+    typeof qIndexParams.rqd === 'number' &&
+    typeof qIndexParams.jn === 'number' &&
+    typeof qIndexParams.jr === 'number' &&
+    typeof qIndexParams.ja === 'number' &&
+    typeof qIndexParams.jw === 'number' &&
+    typeof qIndexParams.srf === 'number'
+  ) {
+    qValue = Number(
+      (
+        (qIndexParams.rqd / Math.max(0.5, qIndexParams.jn)) *
+        (qIndexParams.jr / Math.max(0.75, qIndexParams.ja)) *
+        (qIndexParams.jw / Math.max(0.5, qIndexParams.srf))
+      ).toFixed(3)
+    );
+  }
+
+  const gsiValue = rmrTotal !== null ? Math.max(10, Math.min(90, rmrTotal - 5)) : null;
+  const lithologyName = settings.lithology || 'Unspecified Lithology';
+
+  // Build faults list STRICTLY from mapped features - NEVER fabricate phantom regional faults
   const faultsList: MappedFaultInput[] = [];
-  joints.forEach((j, idx) => {
+  candidateJoints.forEach((j, idx) => {
     const featTypeStr = ((j as any).type || (j.featureType as string) || '').toLowerCase();
-    if (featTypeStr.includes('fault') || j.dip > 70) {
+    if (
+      featTypeStr.includes('fault') ||
+      (j.set && j.set.toLowerCase().includes('fault')) ||
+      (j.set && j.set.toLowerCase().startsWith('f'))
+    ) {
       faultsList.push({
         id: j.id || `f-${idx}`,
         name: `Mapped Fault ${j.set || `F${idx + 1}`}`,
-        beta: j.dip ?? 72,
-        thetaDip: j.dipDirection ?? 150,
-        tTrue: 1.2,
+        beta: j.dip,
+        thetaDip: j.dipDirection,
+        tTrue: (j as any).apertureMm ? (j as any).apertureMm / 1000 : 1.0,
       });
     }
   });
 
-  if (faultsList.length === 0) {
-    faultsList.push({
-      id: 'f-default-1',
-      name: 'Regional Fault F-01 (Shear Zone)',
-      beta: dip,
-      thetaDip: dipDirection,
-      tTrue: 1.5,
-    });
-  }
-
   const allJointsList: MappedJointInput[] = candidateJoints.map((j) => ({
     id: j.id,
-    beta: j.dip ?? 60,
-    thetaDip: j.dipDirection ?? 120,
-    frictionAngle: 32,
+    beta: j.dip,
+    thetaDip: j.dipDirection,
+    frictionAngle: (j as any).frictionAngle || 32,
   }));
 
-  if (allJointsList.length === 0) {
-    allJointsList.push({
-      id: 'j-default',
-      beta: dip,
-      thetaDip: dipDirection,
-      frictionAngle: 32,
-    });
-  }
-
-  // Construct historical face logs from savedProjects or current round
+  // Construct historical face logs STRICTLY from real savedProjects - NEVER synthesize fake blast rounds
   const historicalFaceLogs: SequentialFaceLog[] = [];
   if (savedProjects && savedProjects.length > 0) {
     savedProjects.forEach((proj) => {
@@ -1134,7 +1152,7 @@ export function feedDataFromNatmActiveState(
         id: proj.id,
         chainageMeters: ch,
         faceChainageStr: proj.faceChainage || `RD ${ch.toFixed(1)}m`,
-        contacts: (proj.lithologyRegions || []).map((lr, i) => ({
+        contacts: (proj.lithologyRegions || []).map((lr) => ({
           id: lr.id,
           lithologyName: lr.lithologyName,
           polyline: lr.polygon.map((p) => ({ x: p.x, y: p.y })),
@@ -1144,74 +1162,6 @@ export function feedDataFromNatmActiveState(
         meanGsi: 50,
       });
     });
-  }
-
-  // If no saved projects, synthesize consecutive rounds relative to current face
-  if (historicalFaceLogs.length < 2) {
-    historicalFaceLogs.length = 0;
-    const baseCh = currentFaceChainageNum;
-    historicalFaceLogs.push(
-      {
-        id: 'round-prev',
-        chainageMeters: Number((baseCh - pullLengthM).toFixed(1)),
-        faceChainageStr: `RD ${(baseCh - pullLengthM).toFixed(1)}m`,
-        contacts: [
-          {
-            id: 'c-1-prev',
-            lithologyName: `${lithologyName} / Pelitic Schist`,
-            polyline: [
-              { x: -3.8, y: 1.2 },
-              { x: -1.5, y: 2.8 },
-              { x: 1.2, y: 4.1 },
-              { x: 3.8, y: 5.2 },
-            ],
-          },
-        ],
-        meanRmr: Math.max(25, rmrTotal - 4),
-        meanQ: 4.2,
-        meanGsi: Math.max(20, gsiValue - 4),
-      },
-      {
-        id: 'round-current',
-        chainageMeters: Number(baseCh.toFixed(1)),
-        faceChainageStr: faceChainageStr,
-        contacts: [
-          {
-            id: 'c-1-curr',
-            lithologyName: `${lithologyName} / Pelitic Schist`,
-            polyline: [
-              { x: -3.8, y: 1.5 },
-              { x: -1.2, y: 3.2 },
-              { x: 1.5, y: 4.5 },
-              { x: 3.8, y: 5.6 },
-            ],
-          },
-        ],
-        meanRmr: rmrTotal,
-        meanQ: 5.5,
-        meanGsi: gsiValue,
-      },
-      {
-        id: 'round-ahead',
-        chainageMeters: Number((baseCh + pullLengthM).toFixed(1)),
-        faceChainageStr: `RD ${(baseCh + pullLengthM).toFixed(1)}m`,
-        contacts: [
-          {
-            id: 'c-1-next',
-            lithologyName: `${lithologyName} / Pelitic Schist`,
-            polyline: [
-              { x: -3.8, y: 1.8 },
-              { x: -0.9, y: 3.6 },
-              { x: 1.8, y: 4.9 },
-              { x: 3.8, y: 6.0 },
-            ],
-          },
-        ],
-        meanRmr: Math.min(80, rmrTotal + 3),
-        meanQ: 6.8,
-        meanGsi: Math.min(75, gsiValue + 3),
-      }
-    );
   }
 
   return {
@@ -1231,5 +1181,8 @@ export function feedDataFromNatmActiveState(
     faultsList,
     allJointsList,
     historicalFaceLogs,
+    hasRealJoints: candidateJoints.length > 0,
+    hasRealFaults: faultsList.length > 0,
+    hasRealHistoricalRounds: historicalFaceLogs.length >= 2,
   };
 }

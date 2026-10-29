@@ -246,6 +246,10 @@ export const LithologyPanel: React.FC<LithologyPanelProps> = ({
   return (
     <ContainerTag
       style={embedded ? undefined : { width: `${panelWidthPx}px` }}
+      data-window="lithology-panel"
+      data-element-id="lithology-panel-root"
+      data-tool="lithology"
+      data-role="complementary"
       className={
         embedded
           ? 'relative w-full flex-1 bg-white text-slate-900 flex flex-col min-h-0 overflow-hidden'

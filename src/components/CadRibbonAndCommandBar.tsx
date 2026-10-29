@@ -145,6 +145,7 @@ export interface CadRibbonAndCommandBarProps {
   setShowCadPropertiesAlways: React.Dispatch<React.SetStateAction<boolean>>;
   onOpenPhotogrammetryLab: (tab: any) => void;
   onResetCalibrationToOutline: () => void;
+  onOpenProjectConfiguration?: () => void;
 }
 
 export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = memo((props) => {
@@ -232,9 +233,15 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
   };
 
   return (
-    <header className="canvas-chrome relative z-40 flex flex-col bg-white border-b border-slate-200 shrink-0">
+    <header
+      className="canvas-chrome relative z-40 flex flex-col bg-white border-b border-slate-200 shrink-0"
+      data-window="cad-ribbon"
+      data-element-id="cad-ribbon-bar"
+      data-tool="workflow-navigation"
+      data-role="banner"
+    >
       {/* ROW 1: FULL-WIDTH PROMINENT 6-STEP WORKFLOW BAR */}
-      <div className="w-full bg-slate-900 border-b border-slate-800 px-1.5 sm:px-2.5 py-1.5">
+      <div className="w-full bg-slate-900 border-b border-slate-800 px-1.5 sm:px-2.5 py-1.5" data-element-id="cad-ribbon-steps-row">
         <div className="grid grid-cols-6 gap-1 sm:gap-1.5 w-full">
           {(
             [
@@ -252,6 +259,11 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
               <button
                 key={tab.id}
                 type="button"
+                data-window="cad-ribbon"
+                data-element-id={`ribbon-tab-${tab.id.toLowerCase()}`}
+                data-tool="workflow-step"
+                data-role="tab"
+                data-action={`select-step-${tab.step}`}
                 onClick={() => {
                   setCadRibbonTab(tab.id);
                   setCadRibbonCollapsed(false);
@@ -291,6 +303,11 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={onBackToSetup}
+            data-window="cad-ribbon"
+            data-element-id="cad-btn-back-setup"
+            data-tool="setup"
+            data-role="button"
+            data-action="return-to-setup"
             className="flex items-center gap-1 px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 font-mono text-[11px] font-bold rounded-lg border border-slate-200 transition-colors cursor-pointer"
             title="Return to Project & Tunnel Photo Setup"
           >
@@ -298,9 +315,30 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
             <span>Setup</span>
           </button>
 
-          <div className="flex items-center gap-0.5 px-1 py-0.5 bg-white border border-slate-200 rounded-lg">
+          {props.onOpenProjectConfiguration && (
+            <button
+              onClick={props.onOpenProjectConfiguration}
+              data-window="cad-ribbon"
+              data-element-id="cad-btn-project-config"
+              data-tool="project-config"
+              data-role="button"
+              data-action="open-project-config"
+              className="flex items-center gap-1 px-2 py-1 bg-cyan-50 hover:bg-cyan-100 text-cyan-900 font-mono text-[11px] font-bold rounded-lg border border-cyan-300 transition-colors cursor-pointer"
+              title="Open Project Configuration & Geotechnical Console (Azimuth, Chainage, RMR, Q)"
+            >
+              <Compass className="w-3.5 h-3.5 text-cyan-700" />
+              <span>Config ({settings.driveDirection || 0}°)</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-0.5 px-1 py-0.5 bg-white border border-slate-200 rounded-lg" data-element-id="cad-ribbon-quick-actions-cluster">
             <button
               onClick={onSaveOfflineDraft}
+              data-window="cad-ribbon"
+              data-element-id="cad-btn-save-draft"
+              data-tool="save"
+              data-role="button"
+              data-action="save-local-draft"
               title="Save Field Draft Locally"
               className="p-1 text-slate-600 hover:text-sky-700 hover:bg-slate-100 rounded cursor-pointer"
             >
@@ -308,6 +346,11 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
             </button>
             <button
               onClick={() => onOpenProjectMemoryModal('projects')}
+              data-window="cad-ribbon"
+              data-element-id="cad-btn-saved-projects"
+              data-tool="database"
+              data-role="button"
+              data-action="open-project-memory"
               title="Saved Projects & Memory"
               className="p-1 text-slate-600 hover:text-sky-700 hover:bg-slate-100 rounded cursor-pointer"
             >
@@ -317,6 +360,11 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
             <button
               onClick={onUndo}
               disabled={!canUndo}
+              data-window="cad-ribbon"
+              data-element-id="cad-btn-undo"
+              data-tool="history"
+              data-role="button"
+              data-action="undo"
               className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-25 rounded cursor-pointer"
               title="Undo (Ctrl+Z)"
             >
@@ -325,6 +373,11 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
             <button
               onClick={onRedo}
               disabled={!canRedo}
+              data-window="cad-ribbon"
+              data-element-id="cad-btn-redo"
+              data-tool="history"
+              data-role="button"
+              data-action="redo"
               className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-25 rounded cursor-pointer"
               title="Redo (Ctrl+Y)"
             >
@@ -333,6 +386,11 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
             <button
               onClick={onDeleteSelected}
               disabled={!canDelete}
+              data-window="cad-ribbon"
+              data-element-id="cad-btn-delete"
+              data-tool="edit"
+              data-role="button"
+              data-action="delete-selected"
               className="p-1 text-slate-600 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-25 rounded cursor-pointer"
               title="Delete Selected Object (Del)"
             >

@@ -315,11 +315,20 @@ const StereonetAndSupportPanelComponent: React.FC<StereonetAndSupportPanelProps>
   const activeDeY = deToChartY(supportRec.equivalentDimensionDe);
 
   return (
-    <div className="space-y-4 font-mono text-xs">
+    <div
+      className="space-y-4 font-mono text-xs"
+      data-window="stereonet-panel"
+      data-element-id="stereonet-support-panel-root"
+      data-tool="stereonet"
+      data-role="region"
+    >
       {/* ====================================================================
           HEADER BAR WITH ONE-CLICK DXF SHEET EXPORT
          ==================================================================== */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-slate-900/95 border border-slate-700/80">
+      <div
+        className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-slate-900/95 border border-slate-700/80"
+        data-element-id="stereonet-header-bar"
+      >
         <div className="flex items-center gap-2">
           <Compass className="w-4 h-4 text-cyan-400" />
           <div>

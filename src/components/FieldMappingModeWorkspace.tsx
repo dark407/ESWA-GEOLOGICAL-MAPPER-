@@ -1538,6 +1538,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     points: FieldPoint2D[];
     dipDirection: number;
     dipAmount: number;
+    strike?: number;
+    crownDipSign?: '+90' | '-90';
+    editedByCompass?: boolean;
     isClosed?: boolean;
     polygon?: FieldPoint2D[];
     clickPt?: FieldPoint2D;
@@ -2702,8 +2705,34 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       activeLocation.widthM,
       activeLocation.heightM
     );
-    setLiveDipDirection(est.dipDirection);
-    setLiveDipAmount(est.dipAmount);
+
+    // CRITICAL FIX: Preserve the exact dip direction & amount shown while tracing
+    // and displayed in the live Compass & Inclinometer widget.
+    // Do NOT allow shape snapping or re-estimation to change orientation upon clicking Confirm!
+    const effectiveDipDir =
+      pendingItem.dipDirection !== undefined
+        ? pendingItem.dipDirection
+        : liveDipDirection !== undefined
+        ? liveDipDirection
+        : est.dipDirection;
+
+    const effectiveDipAmt =
+      pendingItem.dipAmount !== undefined
+        ? pendingItem.dipAmount
+        : liveDipAmount !== undefined
+        ? liveDipAmount
+        : est.dipAmount;
+
+    const effectiveStrike =
+      pendingItem.strike !== undefined
+        ? pendingItem.strike
+        : ((effectiveDipDir - 90 + 360) % 360);
+
+    const effectiveCrownSign = pendingItem.crownDipSign || liveCrownSign;
+
+    setLiveDipDirection(effectiveDipDir);
+    setLiveDipAmount(effectiveDipAmt);
+    setLiveCrownSign(effectiveCrownSign);
     pushUndoSnapshot();
 
     if (pTool === '1_lithology') {
@@ -2834,8 +2863,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         symbolSize: effectiveBandSymSize,
         symbolDensity: effectiveBandDensity,
         lineMode: effectiveToolLineMode,
-        foliationDipDirection: est.dipDirection,
-        foliationDipAmount: est.dipAmount,
+        foliationDipDirection: effectiveDipDir,
+        foliationDipAmount: effectiveDipAmt,
       };
       setSelectedVeinBandId(stroke.id);
       setSelectedTraceId(null);
@@ -2862,13 +2891,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       }));
     } else if (pTool === '3_joint_trace') {
       const tele = lastStylusTelemetryRef.current;
-      const effectiveDipDir =
-        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.inferredDipDirection : est.dipDirection;
-      const effectiveDipAmt =
-        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.inferredDipAngle : est.dipAmount;
-      const effectiveStrike =
-        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.strikeAzimuth : est.strike;
-
       const newTrace: FieldJointTrace = {
         id: `jtr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         label: 'J',
@@ -2877,9 +2899,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         dipDirection: effectiveDipDir,
         dipAmount: effectiveDipAmt,
         strike: effectiveStrike,
-        crownDipSign: liveCrownSign,
+        crownDipSign: effectiveCrownSign,
         setId: 'unassigned',
-        editedByCompass: Boolean(applyStylusTiltToDip && tele?.hasHardwareTilt),
+        editedByCompass: Boolean(pendingItem.editedByCompass),
         traceLengthM: est.traceLengthM,
         metricPoints: computePhysicalMetricPoints(shapedPts, targetPanel, activeLocation, activeRound),
         strokeWidthPx: tele?.hasHardwarePressure ? tele.strokeWidthPx : jointPencilSizePx,
@@ -2930,9 +2952,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         points: shapedPts,
         outlinePolygon: clampedOutlinePolygon,
         brushRadius: 6,
-        dipDirection: est.dipDirection,
-        dipAmount: est.dipAmount,
-        strike: est.strike,
+        dipDirection: effectiveDipDir,
+        dipAmount: effectiveDipAmt,
+        strike: effectiveStrike,
         setId: 'unassigned',
         lineMode: effectiveToolLineMode,
       };
@@ -2959,8 +2981,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         featureType: selectedGeoFeatureType,
         label: meta.shortCode,
         points: shapedPts,
-        dipDirection: est.dipDirection,
-        dipAmount: est.dipAmount,
+        dipDirection: effectiveDipDir,
+        dipAmount: effectiveDipAmt,
         strokeWidthPx: geoFeaturePencilSizePx,
         symbolSize: geoFeatureSymbolSize,
         symbolDensity: geoFeatureSymbolDensity,
@@ -3421,16 +3443,22 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeLocation.widthM,
         activeLocation.heightM
       );
-      setLiveDipDirection(est.dipDirection);
-      setLiveDipAmount(est.dipAmount);
-
       const tele = lastStylusTelemetryRef.current;
       const effectiveDipDir =
-        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.inferredDipDirection : est.dipDirection;
+        applyStylusTiltToDip && tele?.hasHardwareTilt && tele.inferredDipDirection !== undefined
+          ? tele.inferredDipDirection
+          : est.dipDirection;
       const effectiveDipAmt =
-        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.inferredDipAngle : est.dipAmount;
+        applyStylusTiltToDip && tele?.hasHardwareTilt && tele.inferredDipAngle !== undefined
+          ? tele.inferredDipAngle
+          : est.dipAmount;
       const effectiveStrike =
-        applyStylusTiltToDip && tele?.hasHardwareTilt ? tele.strikeAzimuth : est.strike;
+        applyStylusTiltToDip && tele?.hasHardwareTilt && tele.strikeAzimuth !== undefined
+          ? tele.strikeAzimuth
+          : est.strike;
+
+      setLiveDipDirection(effectiveDipDir);
+      setLiveDipAmount(effectiveDipAmt);
 
       const newTrace: FieldJointTrace = {
         id: `jtr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -3629,8 +3657,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   // Live Compass & Inclinometer reflection onto selected Joint Trace, Vein/Foliation Band, Structural Feature, or Dip Plane Surface
   const handleCompassDipDirectionChange = (newDipDir: number) => {
     setLiveDipDirection(newDipDir);
-    if (!activeRound) return;
     const newStrike = (newDipDir - 90 + 360) % 360;
+
+    // Immediately sync to active pending trace so confirming commits this exact value
+    setPending2DTrace((prev) =>
+      prev
+        ? {
+            ...prev,
+            dipDirection: newDipDir,
+            strike: newStrike,
+            editedByCompass: true,
+          }
+        : null
+    );
+
+    if (!activeRound) return;
     if (selectedTraceId) {
       updateActiveRound((r) => ({
         ...r,
@@ -3670,6 +3711,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   const handleCompassDipAmountChange = (newDipAmt: number) => {
     setLiveDipAmount(newDipAmt);
+
+    // Immediately sync to active pending trace so confirming commits this exact value
+    setPending2DTrace((prev) =>
+      prev
+        ? {
+            ...prev,
+            dipAmount: newDipAmt,
+            editedByCompass: true,
+          }
+        : null
+    );
+
     if (!activeRound) return;
     if (selectedTraceId) {
       updateActiveRound((r) => ({
@@ -3823,6 +3876,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   const handleCrownSignChange = (sign: '+90' | '-90') => {
     setLiveCrownSign(sign);
+    setPending2DTrace((prev) =>
+      prev
+        ? {
+            ...prev,
+            crownDipSign: sign,
+          }
+        : null
+    );
     if (!activeRound || !selectedTraceId) return;
     updateActiveRound((r) => ({
       ...r,
@@ -8316,10 +8377,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           <div className="flex-1 min-w-0 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-1 flex flex-col overflow-hidden">
             {/* UNIFIED FACE CANVAS CONTROLS & TOOLBAR BAR — Merged into a single div component for Photogrammetry & Face Mapping */}
             {!(stage === 'field_canvas' && is3DMappingMode && mappingDomain === 'TUNNEL') && (
-              <div className="bg-slate-950 border border-amber-500/40 rounded-xl p-1.5 mb-1 flex flex-col gap-1.5 shrink-0 shadow-lg select-none">
+              <div
+                className="bg-slate-950 border border-amber-500/40 rounded-xl p-1.5 mb-1 flex flex-col gap-1.5 shrink-0 shadow-lg select-none"
+                data-window="face-canvas-main-toolbar"
+                data-element-id="face-canvas-main-toolbar-container"
+                data-role="toolbar"
+              >
                 {/* 1. Primary Geological Mapping Tools (Hidden during Stage 5 Joint Grouping) */}
                 {stage !== 'joint_grouping' && (
-                  <div className="flex flex-wrap items-center justify-between gap-1 pb-1 border-b border-slate-800/80">
+                  <div className="flex flex-wrap items-center justify-between gap-1 pb-1 border-b border-slate-800/80" data-element-id="face-canvas-primary-tools-row">
                     <div className="flex flex-wrap items-center gap-1">
                       {(
                         [
@@ -8336,6 +8402,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         <button
                           key={tId}
                           type="button"
+                          data-window="face-canvas-main-toolbar"
+                          data-element-id={`tool-btn-${tId}`}
+                          data-tool={tId}
+                          data-role="button"
+                          data-action={`select-tool-${tId}`}
                           onClick={() => {
                             setActiveTool(tId);
                           }}
@@ -8366,6 +8437,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         type="button"
                         onClick={handleUndo}
                         disabled={undoStack.length === 0}
+                        data-window="face-canvas-main-toolbar"
+                        data-element-id="face-canvas-btn-undo"
+                        data-tool="history"
+                        data-role="button"
+                        data-action="undo"
                         className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
                         title="Undo"
                       >
@@ -8376,6 +8452,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         type="button"
                         onClick={handleRedo}
                         disabled={redoStack.length === 0}
+                        data-window="face-canvas-main-toolbar"
+                        data-element-id="face-canvas-btn-redo"
+                        data-tool="history"
+                        data-role="button"
+                        data-action="redo"
                         className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-bold text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer flex items-center gap-1"
                         title="Redo"
                       >
@@ -8743,6 +8824,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     {stage === 'field_canvas' && canShowSplitOption && (
                       <button
                         type="button"
+                        data-window="face-canvas-main-toolbar"
+                        data-element-id="face-canvas-btn-dual-canvas"
+                        data-tool="display-mode"
+                        data-role="button"
+                        data-action="toggle-dual-canvas"
                         onClick={() => {
                           setIsPhotogrammetryDualCanvas((prev) => {
                             const next = !prev;
@@ -8768,6 +8854,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     {stage === 'field_canvas' && (
                       <button
                         type="button"
+                        data-window="face-canvas-main-toolbar"
+                        data-element-id="face-canvas-btn-3d-joint-inspector"
+                        data-tool="inspector"
+                        data-role="button"
+                        data-action="open-3d-joint-inspector"
                         onClick={() => {
                           const targetId = selectedTraceId || activeRound.jointTraces[0]?.id;
                           if (targetId) {
@@ -8812,9 +8903,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     )}
 
                     {/* Small Top Button for Black & White vs Colour on Canvas */}
-                    <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700">
+                    <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700" data-element-id="face-canvas-color-mode-toggle">
                       <button
                         type="button"
+                        data-window="face-canvas-main-toolbar"
+                        data-element-id="face-canvas-btn-color-bw"
+                        data-tool="color-mode"
+                        data-role="button"
+                        data-action="switch-bw-mode"
                         onClick={() =>
                           updateActiveRound((r) => ({ ...r, reportColorMode: 'bw' }))
                         }
@@ -8829,6 +8925,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       </button>
                       <button
                         type="button"
+                        data-window="face-canvas-main-toolbar"
+                        data-element-id="face-canvas-btn-color-geological"
+                        data-tool="color-mode"
+                        data-role="button"
+                        data-action="switch-color-mode"
                         onClick={() =>
                           updateActiveRound((r) => ({ ...r, reportColorMode: 'color' }))
                         }
@@ -8847,6 +8948,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     {stage === 'field_canvas' && (
                       <button
                         type="button"
+                        data-window="face-canvas-main-toolbar"
+                        data-element-id="face-canvas-btn-layers"
+                        data-tool="layer-manager"
+                        data-role="button"
+                        data-action="open-layer-shuffle"
                         onClick={() => setIsLayerShuffleModalOpen(true)}
                         className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800"
                         title="Shuffle and reorder canvas layers (Lithology, Joints, Dip Surfaces, Features, Water, Grid, Photo)"
@@ -8916,6 +9022,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               return (
                 <div
                   ref={canvasWrapperRef}
+                  data-window="face-canvas-workspace"
+                  data-element-id="face-canvas-main-viewport"
+                  data-tool="canvas-viewport"
+                  data-role="region"
                   className={`flex-1 min-h-0 ${photoCanvasTheme === 'light' ? 'bg-slate-200' : 'bg-slate-950'} overflow-hidden flex flex-col items-stretch justify-center relative touch-none`}
                 >
                   {/* Top selector bar containing view labels, tab toggle, theme, AND rock photo extraction filters/controls — Merged into a SINGLE top div */}
@@ -9304,6 +9414,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       <div className="flex-1 min-h-0 relative flex items-center justify-center w-full h-full">
                       <svg
                         ref={canvasSvgRef}
+                        data-window="face-cad-canvas"
+                        data-element-id="face-cad-svg-canvas"
+                        data-tool="geological-cad"
+                        data-role="canvas"
                         viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
                           500 -
                           500 / canvasZoom +
@@ -10347,6 +10461,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 activeLocation.widthM,
                                 activeLocation.heightM
                               );
+                              const previewDipDir =
+                                pending2DTrace && pending2DTrace.panel === panelId && pending2DTrace.dipDirection !== undefined
+                                  ? pending2DTrace.dipDirection
+                                  : isDrawing
+                                  ? liveDipDirection ?? liveEst.dipDirection
+                                  : liveEst.dipDirection;
+                              const previewDipAmt =
+                                pending2DTrace && pending2DTrace.panel === panelId && pending2DTrace.dipAmount !== undefined
+                                  ? pending2DTrace.dipAmount
+                                  : isDrawing
+                                  ? liveDipAmount ?? liveEst.dipAmount
+                                  : liveEst.dipAmount;
+
                               const {
                                 mid,
                                 ux: tickUx,
@@ -10355,7 +10482,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               } = computeTraceScreenDipTickVector(
                                 livePreviewPts,
                                 panelId,
-                                liveEst.dipDirection,
+                                previewDipDir,
                                 activeRound.tunnelDriveDirection
                               );
                               const halfOffset =
@@ -10380,11 +10507,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                               const isCrownDrawing = panelId === 'crown';
                               const liveCrownPair = getCrownStrikePair(
-                                ((liveEst.dipDirection - 90) % 360 + 360) % 360
+                                ((previewDipDir - 90) % 360 + 360) % 360
                               );
                               const liveText = isCrownDrawing
                                 ? `${prefixTag} STR ${liveCrownPair.label}`
-                                : `${prefixTag} ${String(liveEst.dipDirection).padStart(3, '0')}°/${liveEst.dipAmount}°`;
+                                : `${prefixTag} ${String(previewDipDir).padStart(3, '0')}°/${previewDipAmt}°`;
 
                               const lblX = mid.x - tickUx * (halfOffset + (isTCanvas ? 10 : 14));
                               const lblY = mid.y - tickUy * (halfOffset + (isTCanvas ? 10 : 14));
@@ -10837,6 +10964,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               }`}>
                 <svg
                   ref={photoCanvasSvgRef}
+                  data-window="face-photo-fitted-2d"
+                  data-element-id="face-photo-fitted-svg-canvas"
+                  data-tool="photogrammetry-fit"
+                  data-role="canvas"
                   viewBox={`${(500 - 500 / canvasZoom + canvasPan.x).toFixed(1)} ${(
                     500 -
                     500 / canvasZoom +
@@ -11084,10 +11215,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     })()}
 
             {/* Bottom Bar: Stage 4 shows Face, Left Wall, Right Wall, Crown, then 3D in that exact sequence; Stage 5 shows Group Joints navigation */}
-            <div className="pt-1 mt-0.5 flex items-center justify-between gap-1 shrink-0 overflow-x-auto no-scrollbar touch-pan-x">
+            <div
+              className="pt-1 mt-0.5 flex items-center justify-between gap-1 shrink-0 overflow-x-auto no-scrollbar touch-pan-x"
+              data-window="field-bottom-panel-bar"
+              data-element-id="field-bottom-panel-switcher"
+              data-role="navigation"
+            >
               {stage === 'field_canvas' ? (
                 <>
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0" data-element-id="field-bottom-panel-tabs-group">
                     {(() => {
                       const fGeomBottom = computePanelCanvasGeometry(
                         'face',
@@ -11110,6 +11246,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         <button
                           key={pid}
                           type="button"
+                          data-window="field-bottom-panel-bar"
+                          data-element-id={`panel-tab-${pid}`}
+                          data-tool="panel-nav"
+                          data-role="tab"
+                          data-action={`switch-panel-${pid}`}
                           onClick={() => {
                             setIs3DMappingMode(false);
                             setActivePanel(pid);
@@ -11128,6 +11269,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       <>
                         <button
                           type="button"
+                          data-window="field-bottom-panel-bar"
+                          data-element-id="panel-tab-3d"
+                          data-tool="3d-mode-toggle"
+                          data-role="button"
+                          data-action="switch-3d-mapping"
                           onClick={() => setIs3DMappingMode(true)}
                           className={`px-3 py-1 rounded-lg text-[10.5px] sm:text-xs font-black uppercase transition-all whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1 ${
                             is3DMappingMode
@@ -11144,6 +11290,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                   <button
                     onClick={() => setStage('joint_grouping')}
+                    data-window="field-bottom-panel-bar"
+                    data-element-id="btn-navigate-stage-5-group-joints"
+                    data-tool="workflow-navigation"
+                    data-role="button"
+                    data-action="navigate-to-group-joints"
                     className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] sm:text-xs uppercase tracking-wider flex items-center gap-1 shadow whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <span>5. Group Joints (All 4) →</span>
@@ -11245,6 +11396,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           ) : (
           <div
             style={{ width: `${rightSidebarWidth}px` }}
+            data-window="field-right-sidebar"
+            data-element-id="field-right-sidebar-parameters-compass"
+            data-tool="geological-parameters"
+            data-role="complementary"
             className="shrink-0 min-h-0 h-full bg-slate-900/95 border border-slate-800 rounded-xl p-1.5 flex flex-col justify-between overflow-y-auto touch-pan-y"
           >
             {/* Collapse / Drag-Resize Right Sidebar Header Bar */}

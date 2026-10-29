@@ -6350,7 +6350,13 @@ export default function App({
       : null;
 
   return (
-    <div className={layoutStyles.workspaceShell}>
+    <div
+      className={layoutStyles.workspaceShell}
+      data-window="main-mapping-screen"
+      data-element-id="main-mapping-screen-shell"
+      data-tool="main-workspace"
+      data-role="application"
+    >
       <div className={layoutStyles.workspacePanel}>
         {/* Surface Mapping Mode Switcher & Romana SMR / Kinematic Check Ribbon in Photogrammetry Workspace */}
         {activeMappingDomain !== 'TUNNEL' && photoSurfaceSmrAnalysis && (
