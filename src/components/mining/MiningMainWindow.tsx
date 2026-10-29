@@ -27,6 +27,7 @@ import {
   Download,
   FolderOpen,
   Box,
+  MessageSquare,
 } from 'lucide-react';
 import { EswaAppBackgroundWatermark, EswaTunnelLogo, playEswaWelcomeChime } from '../EswaBrandIdentity';
 import { ThemeToggleButton, useTheme } from '../../context/ThemeContext';
@@ -58,6 +59,7 @@ export interface MiningMainWindowProps {
   onGoogleSignIn?: () => void;
   onGoogleSignOut?: () => void;
   isMasterSoftware?: boolean;
+  onOpenFeedback?: () => void;
 }
 
 export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
@@ -66,6 +68,7 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
   googleUser,
   activeGeologist,
   onOpenGlobalSettings,
+  onOpenFeedback,
   onOpenContinuousTunnelLog,
   onOpenCoreLogging,
   isAuthBusy = false,
@@ -155,8 +158,19 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
         </div>
       </div>
 
-      {/* Top-Right Header: Settings (Google Login, Device ID, Theme Color inside) */}
+      {/* Top-Right Header: Feedback & Settings */}
       <div className="absolute top-3 right-3 sm:top-5 sm:right-6 flex flex-wrap items-center justify-end gap-2 z-20">
+        {onOpenFeedback && (
+          <button
+            type="button"
+            onClick={onOpenFeedback}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900/90 border border-slate-700 hover:border-amber-500 text-slate-200 shadow-sm transition-all cursor-pointer active:scale-95"
+            title="Send Feedback, Geological Suggestions, or Issue Report"
+          >
+            <MessageSquare className="w-4 h-4 text-amber-400" />
+            <span className="font-semibold">Feedback</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenGlobalSettings}

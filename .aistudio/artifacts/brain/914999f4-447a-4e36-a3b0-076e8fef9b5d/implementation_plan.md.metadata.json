@@ -1,6 +1,6 @@
 {
-  "summary": "Architectural implementation plan for strict workspace isolation across Tunnel, Bench, Trench, Slope, and Outcrop domains, and decoupling Field Mapping from Photogrammetry mode.",
-  "updatedAt": "2026-10-17T15:58:00.350823963Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Redesign the Software Access Control portal to a minimal, focused interface featuring one-time 6-digit email login for akashdhanusheswar@gmail.com, streamlined user access management, and a dedicated feedback inbox. In the user application, add a feedback toggle in the top navigation header next to settings with photo attachment capability.",
+  "updatedAt":  "2026-10-29T20:26:28.047213013Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

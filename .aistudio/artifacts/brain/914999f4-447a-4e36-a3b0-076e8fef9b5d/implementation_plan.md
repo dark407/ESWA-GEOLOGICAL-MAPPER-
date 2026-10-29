@@ -1,6 +1,6 @@
-# Strict Workspace & Domain Isolation Architecture
+# Simplified Software Access Control & Field User Feedback System
 
-Isolate application state, persistent stores, geometries, and project databases across all underground and surface domains (**Tunnel**, **Bench**, **Trench**, **Slope**, and **Rock Surface Outcrop**), and completely decouple **Underground Field Mapping** from **Photogrammetry Mode** to prevent cross-contamination.
+Redesign the Master Software Access Control window into an ultra-clean, minimal management hub with one-time 6-digit email verification for `akashdhanusheswar@gmail.com`, dedicated user access authorization, and an incoming feedback inbox. In the User Application, add a streamlined feedback toggle in the top header next to Settings for field engineers to submit text reports and photo attachments.
 
 ---
 
@@ -8,23 +8,29 @@ Isolate application state, persistent stores, geometries, and project databases 
 
 > [!IMPORTANT]
 > Based on your confirmed choices in Phase 1:
-> - **Domain Partitioning**: Enforce strict domain isolation across **Tunnel**, **Bench**, **Trench**, **Slope**, and **Rock Surface Outcrop**.
-> - **Project & Geometry Storage**: Separate project libraries and geometry profiles per domain with dedicated storage keys and an explicit, optional manual copy/import tool so changes made in one domain never bleed into another.
+> - **Master One-Time Login**: Hardened 1-time login for `akashdhanusheswar@gmail.com` using a secure 6-digit verification code sent via email, persistently authenticated in local storage after installation so re-verification is never required.
+> - **Stripped-Down Master Portal**: All extraneous features (AI telemetry exporters, GitHub workflows, manual key calculators, complex packaging tabs) are completely removed. The window contains ONLY **Manage Users** and **Read Feedback**.
+> - **User Feedback Toggle**: Placed in the top navigation header directly next to the **Settings** button on the main window.
+> - **Feedback Content**: Field engineers can submit structured text messages along with optional screenshots or field photo attachments.
 
-- **Confirmed Decision 1**: Dedicated storage partitions for each domain (`TUNNEL`, `BENCH`, `TRENCH`, `SLOPE`, `ROCK_SURFACE`) so editing Slope stability never alters Bench parameters, and logging Trench intervals never touches Tunnel rounds.
-- **Confirmed Decision 2**: Strict decoupling between Underground Field Mapping and Photogrammetry. Field mapping edits stay confined to the active excavation round without mutating Photogrammetry's working canvas or draft state.
+- **Confirmed Decision 1**: One-time email code authentication for `akashdhanusheswar@gmail.com` with persistent device token caching.
+- **Confirmed Decision 2**: Software Access Control reduced strictly to two pillars: **User Authorization** (approve/revoke devices) and **Feedback Inbox** (browse reports with photo viewer).
+- **Confirmed Decision 3**: Header feedback toggle in User Application with modal submission and offline queueing for underground tunneling environments.
 
 ---
 
 ## 1. Overview & Core Concept
 
-Currently, several domains and modes share top-level React state and broad storage keys (such as `SURFACE_MAPPING_STORAGE_KEY` and shared geometry props in `App.tsx`). When an engineer edits a Slope parameter, it alters the shared surface storage and affects Bench and Trench views. Similarly, actions inside the Field Mapping workspace update the top-level Photogrammetry geometry and joint state.
+The existing Software Access Control website was overcrowded with developer-oriented diagnostic tools, GitHub Actions runners, AI fine-tuning exports, and complex licensing calculators that are unnecessary for daily administration.
 
-This architecture enforces **zero-leakage modular isolation**:
-1. **Isolated Persistent Data Stores**: Every domain maintains an independent, dedicated persistent storage bucket.
-2. **Independent Surface Geometry Profiles**: Bench, Trench, Slope, and Rock Surface each maintain isolated geometric and geotechnical parameters.
-3. **Decoupled Field vs. Photogrammetry State**: Field Mapping operates exclusively on its internal round store without triggering side-effect mutations on the Photogrammetry workspace.
-4. **Domain-Scoped Project & Memory Manager**: Projects, stations, and custom profiles belong to their respective domain, with clean cross-domain import tools when desired.
+This redesign establishes a clean, two-sided operational loop:
+1. **Master Control Hub (Admin)**:
+   - One-time passwordless 6-digit email code login for `akashdhanusheswar@gmail.com`.
+   - **Manage Users**: Approve, deny, or revoke access for PC and Android installations.
+   - **Read Feedback**: View feedback, bug reports, and attached photos sent by geologists in the field.
+2. **User Application (Field)**:
+   - A single, intuitive **Feedback** button in the top header next to **Settings**.
+   - Opens a focused modal to type feedback, attach a site photo or screenshot, and submit directly to Firestore.
 
 ---
 
@@ -33,117 +39,97 @@ This architecture enforces **zero-leakage modular isolation**:
 ### Key User Flows
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        ESWA MAIN NAVIGATION                            │
-│  [Underground Face Mapping]   [Continuous Tunnel Log]   [Surface Eng]  │
-└───────────────────┬───────────────────────────────────────────┬────────┘
-                    │                                           │
-         ┌──────────┴──────────┐                     ┌──────────┴──────────┐
-         │  UNDERGROUND DOMAIN │                     │   SURFACE DOMAIN    │
-         └──────────┬──────────┘                     └──────────┬──────────┘
-                    │                                           │
-        ┌───────────┴───────────┐                 ┌─────────────┼─────────────┐
-        ▼                       ▼                 ▼             ▼             ▼
-┌───────────────┐       ┌───────────────┐   ┌───────────┐ ┌───────────┐ ┌───────────┐
-│ Field Mapping │       │ Photogrammetry│   │   Bench   │ │   Slope   │ │  Trench   │
-│  Round Store  │  ◄-X-►│  Draft Store  │   │   Store   │ │   Store   │ │   Store   │
-│ (Independent) │       │ (Independent) │   │(Isolated) │ │(Isolated) │ │(Isolated) │
-└───────────────┘       └───────────────┘   └───────────┘ └───────────┘ └───────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                             USER APPLICATION                                     │
+│  [Logo]              [Domain: Tunnel]          [Feedback 💬]  [⚙️ Settings]       │
+└───────────────────────────────────────────────────────┬──────────────────────────┘
+                                                        │ (Click Feedback)
+                                                        ▼
+                                       ┌───────────────────────────────────┐
+                                       │       Submit Field Feedback       │
+                                       │ ───────────────────────────────── │
+                                       │ • Name & Device ID (Auto-filled)  │
+                                       │ • Message / Geotech Notes         │
+                                       │ • 📷 Attach Screenshot / Photo    │
+                                       │            [Submit Feedback]      │
+                                       └─────────────────┬─────────────────┘
+                                                         │ (Firestore Sync)
+                                                         ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                   MASTER SOFTWARE ACCESS CONTROL (ADMIN HUB)                     │
+│  Log in once as akashdhanusheswar@gmail.com (6-Digit Code)                       │
+│  ──────────────────────────────────────────────────────────────────────────────  │
+│  [ 👥 Manage Users (Approve / Revoke) ]     [ 📬 Feedback Inbox (with Photos) ]   │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Domain Context Indicator & Switcher**:
-   - A distinct visual domain badge (e.g., `[TUNNEL]`, `[BENCH]`, `[SLOPE]`, `[TRENCH]`, `[OUTCROP]`) in the header clearly indicates the active workspace.
-   - Switching domains automatically auto-saves the current workspace to its dedicated partition and loads the target domain's clean state.
-
-2. **Isolated Project Selector**:
-   - The project list in the Project Setup stage displays only projects created within the active domain (e.g., Opening Slope Mapping only shows Slope stability projects).
-   - An optional **"Import from Another Domain"** button allows copying a project header (client, contractor, consultants) without copying mismatched geometry or round data.
-
-3. **Field vs. Photogrammetry Independence**:
-   - Tracing joints, editing rock types, or adjusting dimensions in Field Mapping will **not** alter the Photogrammetry canvas, photos, or stereo camera calibrations.
-   - An explicit action **"Push to Photogrammetry"** / **"Import from Field"** is available if the geologist explicitly wishes to transfer data between the two modes.
+### Visual Identity & Theme
+- **Master Admin Portal**: Utilitarian, high-contrast dark slate theme (`#0F172A` background, amber-orange accents `#F59E0B`, emerald `#10B981` for active approvals, clean tabular cards).
+- **Zero Pill Clutter**: Metadata (device ID, date, status) displayed as unboxed typographic text separated by quiet mid-dots.
+- **Header Feedback Button**: Styled in harmony with the top navigation bar next to Settings with a subtle speech-bubble or mail icon.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-### Decision 1: Dedicated Storage Keys per Domain
-- *Chosen Approach*: Replace the shared `SURFACE_MAPPING_STORAGE_KEY` with distinct keys:
-  - `eswa_field_store_tunnel_v2`
-  - `eswa_surface_store_bench_v2`
-  - `eswa_surface_store_trench_v2`
-  - `eswa_surface_store_slope_v2`
-  - `eswa_surface_store_rock_surface_v2`
-- *Why*: Guarantees 100% collision-free persistence. Changes in one domain cannot physically overwrite or corrupt another domain's data.
-- *Alternatives Considered*: Single store with nested domain dictionary. Rejected because large photo attachments in one domain could exceed browser localStorage quotas for all other domains.
+### Decision 1: Master Email Code Verification Flow
+- **Chosen Approach**: 
+  1. Master opens Software Access Control. If unverified, they enter `akashdhanusheswar@gmail.com`.
+  2. A 6-digit cryptographic verification code is generated, stored in a secure Firestore challenge document (`master_auth_challenges`), and sent to the email address.
+  3. The master enters the code. On match, a permanent master token (`eswa_master_auth_token_v1`) is written to `localStorage`.
+  4. Subsequent openings automatically recognize the authorized installation with zero repeated logins.
+- **Why**: Eliminates third-party OAuth popup blockers on mobile while maintaining strict security for the master owner.
 
-### Decision 2: Decoupled Top-Level App State
-- *Chosen Approach*: Remove reactive two-way binding between `FieldMappingModeWorkspace` and `App.tsx` Photogrammetry state (`photos`, `geometry`, `joints`). Field mapping manages its own complete state locally in its store.
-- *Why*: Prevents unwanted mutations to Photogrammetry when working in Field mode, eliminating user frustration.
-- *Alternatives Considered*: Keeping global state with synchronization flags. Rejected because state synchronization across modal transitions is error-prone.
+### Decision 2: Complete Removal of Extraneous Admin Features
+- **Chosen Approach**: Completely strip out:
+  - GitHub Actions YAML builder and repository slug form.
+  - Gemini AI fine-tuning JSONL telemetry exporter.
+  - Manual hex license generator and hardware bypass calculator.
+  - Multi-tab navigation replaced with a simple 2-tab segmented switcher: **Manage Users** | **Feedback Inbox**.
+- **Why**: Delivers the exact minimal, focused experience requested ("i can manage users no more option i dont need in that window remove all nother futures").
 
-### Decision 3: Isolated Geometry Parameters & Canvas Transforms
-- *Chosen Approach*: Partition `loadSavedSurfaceGeometryParameters(subType)` and `loadIdealPanelTransforms(domain)` by subtype.
-- *Why*: A slope requires 65° face angles and 25m heights, while a trench requires 2.5m depth and 90° cuts. Canvas zoom, rotation, and offsets for a 25m slope must not distort a 3m trench or 8m tunnel face.
+### Decision 3: Feedback Storage & Photo Handling
+- **Chosen Approach**: Submissions are written directly to the `eswa_user_feedback` collection in Firestore with document fields:
+  - `id`: Unique timestamped ID.
+  - `userName`: Geologist name.
+  - `userEmail`: Email (if logged in).
+  - `deviceId`: Hardware/browser fingerprint.
+  - `message`: Text feedback.
+  - `photoUrl`: Base64 compressed image or storage link.
+  - `timestamp`: ISO timestamp.
+  - `status`: `'new' | 'reviewed' | 'resolved'`.
+- **Underground Resilience**: If offline, queued in `localStorage` and automatically pushed once cellular or Wi-Fi reconnects.
 
 ---
 
-## 4. Technical Architecture & Data Strategy
-
-### System Component Architecture
+## 4. Technical Architecture & Component Structure
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                              App.tsx                                   │
-│  - Active Domain State: 'TUNNEL' | 'BENCH' | 'TRENCH' | 'SLOPE' | ... │
-│  - Photogrammetry Draft Store: 'eswa_photogrammetry_draft_v2'          │
-└───────────────────┬───────────────────────────────────┬────────────────┘
-                    │                                   │
-                    ▼                                   ▼
-┌───────────────────────────────────────┐   ┌────────────────────────────┐
-│      FieldMappingModeWorkspace        │   │     MappingWorkspace       │
-│  (Isolated per Domain):               │   │     (Photogrammetry)       │
-│  - getFieldMappingStorageKey(domain)  │   │  - Independent geometry    │
-│  - getIdealTransformsStorageKey(dom)  │   │  - Independent joints      │
-│  - Isolated surfaceParams(subType)    │   │  - Independent photos      │
-└───────────────────────────────────────┘   └────────────────────────────┘
-                    │                                   │
-                    ▼                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                        Local Storage Partitions                        │
-│  ├── eswa_field_store_tunnel_v2                                        │
-│  ├── eswa_surface_store_bench_v2                                       │
-│  ├── eswa_surface_store_trench_v2                                      │
-│  ├── eswa_surface_store_slope_v2                                       │
-│  ├── eswa_surface_store_rock_surface_v2                                │
-│  ├── eswa_surface_params_bench_v2                                      │
-│  ├── eswa_surface_params_trench_v2                                     │
-│  ├── eswa_surface_params_slope_v2                                      │
-│  ├── eswa_surface_params_rock_surface_v2                               │
-│  └── eswa_photogrammetry_draft_v2                                      │
-└────────────────────────────────────────────────────────────────────────┘
+                                  Firestore Database
+                                          ▲
+                     ┌────────────────────┴────────────────────┐
+                     │                                         │
+       [eswa_license_requests]                       [eswa_user_feedback]
+                     ▲                                         ▲
+                     │                                         │
+                     ▼                                         ▼
+         MasterAdminPortalWebsite                    User Application
+     ┌───────────────────────────────┐        ┌───────────────────────────────┐
+     │ 1. Master Email Code Auth     │        │ 1. Top Header Feedback Button │
+     │ 2. User Access Table          │        │ 2. Feedback Modal with Photo  │
+     │ 3. Feedback Cards & Photos    │        │ 3. Offline Sync Queue         │
+     └───────────────────────────────┘        └───────────────────────────────┘
 ```
 
-### Key Implementation Steps
-
-1. **`src/engine/fieldMappingEngine.ts`**:
-   - Update `getFieldMappingStorageKey(domain: MappingDomainType)` to return individual keys per domain (`tunnel`, `bench`, `trench`, `slope`, `rock_surface`).
-   - Implement seamless one-time data migration from the legacy keys (`eswa_apk_field_mapping_store_v1` and `eswa_apk_surface_mapping_store_v1`) so existing user work is preserved into its respective domain.
-   - Partition `FIELD_IDEAL_PANEL_TRANSFORMS_KEY` per domain so panel positioning in one domain does not affect others.
-
-2. **`src/engine/surfaceMappingEngine.ts`**:
-   - Update `loadSavedSurfaceGeometryParameters` and `saveSurfaceGeometryParameters` to accept and store under `eswa_surface_params_${subType.toLowerCase()}_v2`.
-   - Update `SurfaceMappingResumeState` to be domain-isolated.
-
-3. **`src/components/FieldMappingModeWorkspace.tsx`**:
-   - Add state reload effect when `mappingDomain` changes: smoothly save previous domain state and load the target domain's state.
-   - Ensure stage changes, photo uploads, lithology markings, and joint sets are bound strictly to the active domain's store.
-
-4. **`src/App.tsx`**:
-   - Decouple `FieldMappingModeWorkspace` callbacks from mutating top-level Photogrammetry state (`setGeometry`, `setPhotos`, `updateJointsWithHistory`, `setRmrParams`).
-   - Retain explicit import/export bridges for users who deliberately request data transfer.
-
-5. **Verification**:
-   - Test editing Bench parameters, switch to Slope, verify Slope retains its own values without affecting Bench.
-   - Test editing joints in Field Mapping, exit to Photogrammetry, verify Photogrammetry canvas remains untouched.
-   - Validate with `compile_applet` and `lint_applet`.
+### Components to Update & Create:
+1. `src/components/MasterAdminPortalWebsite.tsx`:
+   - Replace the 4,500-line multi-tab monolithic website with a clean, streamlined component containing:
+     - One-time email code challenge gate for `akashdhanusheswar@gmail.com`.
+     - 2-Tab Switcher: **Users** and **Feedback**.
+     - User approvals table (Approve, Revoke, Delete).
+     - Feedback stream with full-screen photo modal.
+2. `src/components/UserFeedbackModal.tsx`:
+   - New dedicated modal for field users to write comments and attach an excavation photo or screenshot.
+3. `src/components/screens/WelcomeScreen.tsx` & `src/App.tsx`:
+   - Add the feedback toggle button to the top header right next to the Settings button.
+   - Wire up the feedback modal and Firestore submission pipeline.

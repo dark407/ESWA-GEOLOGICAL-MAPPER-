@@ -217,7 +217,9 @@ import {
   X,
   Keyboard,
   RotateCcw,
+  MessageSquare,
 } from 'lucide-react';
+import { UserFeedbackModal } from './components/UserFeedbackModal';
 import { MiningStopeFaceInspectorModal } from './components/MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './components/TbmShieldInspectorModal';
 import { AdvancedBruntonCompassModal } from './components/AdvancedBruntonCompassModal';
@@ -958,6 +960,7 @@ export default function App({
   const [isProjectMemoryModalOpen, setIsProjectMemoryModalOpen] = useState<boolean>(false);
   const [projectMemoryTab, setProjectMemoryTab] = useState<DataStorageTabId>('field_data');
   const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState<boolean>(false);
+  const [isUserFeedbackModalOpen, setIsUserFeedbackModalOpen] = useState<boolean>(false);
   const [isProjectConfigModalOpen, setIsProjectConfigModalOpen] = useState<boolean>(false);
   const [activeGeologist, setActiveGeologist] = useState<GeologistUserProfile | null>(() =>
     getActiveGeologistProfile()
@@ -4001,6 +4004,16 @@ export default function App({
     />
   );
 
+  const userFeedbackModalNode = (
+    <UserFeedbackModal
+      isOpen={isUserFeedbackModalOpen}
+      onClose={() => setIsUserFeedbackModalOpen(false)}
+      defaultUserName={activeGeologist?.name || googleUser?.displayName || 'Field Geologist'}
+      defaultUserEmail={activeGeologist?.email || googleUser?.email || ''}
+      industryMode={industryMode}
+    />
+  );
+
   const projectConfigModalNode = (
     <ProjectConfigurationAndGeotechModal
       isOpen={isProjectConfigModalOpen}
@@ -4213,6 +4226,7 @@ export default function App({
         {globalSettingsModalNode}
         {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
+        {userFeedbackModalNode}
       </>
     );
   }
@@ -4263,6 +4277,7 @@ export default function App({
         {globalSettingsModalNode}
         {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
+        {userFeedbackModalNode}
       </>
     );
   }
@@ -4307,6 +4322,10 @@ export default function App({
         handleOpenProjectMemoryModal={handleOpenProjectMemoryModal}
         isBootLoading={isBootLoading}
         setIsBootLoading={setIsBootLoading}
+        onEnterApp={() => {
+          setIsFirstOpening(false);
+          setScreen('start');
+        }}
         projectMemoryModalNode={projectMemoryModalNode}
         natmRockMechanicsModalNode={natmRockMechanicsModalNode}
         continuousLoggingModalsNode={continuousLoggingModalsNode}
@@ -4334,6 +4353,7 @@ export default function App({
           activeGeologist={activeGeologist}
           isMasterSoftware={isMasterSoftware}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
+          onOpenFeedback={() => setIsUserFeedbackModalOpen(true)}
           onOpenContinuousTunnelLog={() => {
             setIsContinuousLogSetupOpen(true);
           }}
@@ -4359,6 +4379,7 @@ export default function App({
         {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
         {bottomThreeTogglesNode}
+        {userFeedbackModalNode}
       </>
     );
   }
@@ -4376,6 +4397,7 @@ export default function App({
           activeGeologist={activeGeologist}
           isMasterSoftware={isMasterSoftware}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
+          onOpenFeedback={() => setIsUserFeedbackModalOpen(true)}
           onOpenContinuousTunnelLog={() => {
             setIsContinuousLogSetupOpen(true);
           }}
@@ -4403,6 +4425,7 @@ export default function App({
         {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
         {bottomThreeTogglesNode}
+        {userFeedbackModalNode}
       </>
     );
   }
@@ -4882,6 +4905,7 @@ export default function App({
         {projectMemoryModalNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
+        {userFeedbackModalNode}
       </main>
     );
   }
@@ -5093,6 +5117,16 @@ export default function App({
                 <Shield className="w-3.5 h-3.5 text-cyan-400" />
                 <span>Rock Mechanics &amp; +3m/+6m/+9m Predictor</span>
                 <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-600">v2.6 LIVE</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsUserFeedbackModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold bg-white text-stone-800 border border-orange-200/90 hover:bg-orange-50 shadow-2xs cursor-pointer transition-all active:scale-95"
+                title="Send Feedback, Geological Suggestions, or Issue Report to Master"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
+                <span>Feedback</span>
               </button>
 
               <button
@@ -6284,6 +6318,7 @@ export default function App({
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
         {bottomThreeTogglesNode}
+        {userFeedbackModalNode}
       </main>
     );
   }
@@ -6773,6 +6808,7 @@ export default function App({
       {globalSettingsModalNode}
       {projectConfigModalNode}
       {modeSwitchConfirmationModalNode}
+      {userFeedbackModalNode}
 
       <KeyboardShortcutsAndPermissionsModal
         isOpen={isShortcutsModalOpen}

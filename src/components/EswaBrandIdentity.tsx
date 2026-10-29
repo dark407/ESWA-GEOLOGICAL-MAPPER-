@@ -713,11 +713,6 @@ export const EswaTunnelLogo: React.FC<EswaTunnelLogoProps> = ({
         </g>
         </g>
       </svg>
-      {isMasterEdition && (
-        <span className="mt-1 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] tracking-widest uppercase border border-amber-300 shadow-md">
-          MASTER
-        </span>
-      )}
     </div>
   );
 
@@ -1154,13 +1149,8 @@ export const EswaLoadingScreen: React.FC<EswaLoadingScreenProps> = ({
           variant="emblem"
           eagleEntranceAnimation
           showBadge={false}
-          isMasterEdition={isMasterEdition}
+          isMasterEdition={false}
         />
-        {isMasterEdition && (
-          <div className="mt-4 inline-flex items-center gap-1.5 px-4 py-1 rounded-full bg-amber-500 text-slate-950 font-black text-xs sm:text-sm tracking-widest uppercase shadow-lg border border-amber-300">
-            MASTER EDITION
-          </div>
-        )}
       </div>
     </div>
   );

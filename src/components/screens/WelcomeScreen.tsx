@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ArrowRight,
   Cloud,
@@ -8,6 +8,7 @@ import {
   Layers,
   LogIn,
   LogOut,
+  MessageSquare,
   Mountain,
   Play,
   RefreshCw,
@@ -15,6 +16,7 @@ import {
   ShieldCheck,
   User as UserIcon,
 } from 'lucide-react';
+import { UserFeedbackModal } from '../UserFeedbackModal';
 import {
   IndustryMode,
   SavedDesignGeometryRecord,
@@ -96,6 +98,7 @@ export interface WelcomeScreenProps {
   handleOpenProjectMemoryModal: (tab: DataStorageTabId) => void;
   isBootLoading: boolean;
   setIsBootLoading: (v: boolean) => void;
+  onEnterApp?: () => void;
   projectMemoryModalNode?: React.ReactNode;
   natmRockMechanicsModalNode?: React.ReactNode;
   continuousLoggingModalsNode?: React.ReactNode;
@@ -147,6 +150,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 }) => {
   const fieldResumeMeta = loadFieldMappingResumeState('TUNNEL');
   const surfaceResumeMeta = loadSurfaceMappingResumeState();
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState<boolean>(false);
 
   return (
     <main
@@ -201,9 +205,24 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         </div>
       </div>
 
-      {/* Top-Right Controls: Settings (Google Account, Device ID, Theme Color inside) & Master Software Access Control */}
+      {/* Top-Right Controls: Settings, Feedback & Master Software Access Control */}
       {!isContinuous3DLoggerOpen && !isProjectMemoryModalOpen && (
         <div className="absolute top-3 right-3 sm:top-5 sm:right-6 flex flex-wrap items-center justify-end gap-2 z-20">
+          {/* Simple Feedback Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsFeedbackModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/95 border text-slate-800 shadow-sm transition-all cursor-pointer active:scale-95 hover:bg-stone-50"
+            style={{ borderColor: palette.primaryHex + '45' }}
+            title="Send Feedback, Geological Suggestions, or Issue Report to Master"
+          >
+            <MessageSquare
+              className="w-4 h-4"
+              style={{ color: palette.accentIconColor }}
+            />
+            <span className="font-semibold">Feedback</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsGlobalSettingsOpen(true)}
@@ -255,7 +274,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             variant="emblem"
             animated
             showBadge={false}
-            isMasterEdition={isMasterSoftware}
+            isMasterEdition={false}
           />
         </div>
 
@@ -416,15 +435,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   <Mountain className="w-3.5 h-3.5 shrink-0" />
                 </span>
                 <span className="text-black font-extrabold text-sm sm:text-base">Surface Mapping</span>
-                <span
-                  className="px-2 py-0.5 rounded font-mono text-[10px] font-bold"
-                  style={{
-                    backgroundColor: palette.primaryHex + '25',
-                    color: palette.accentColorOnLight,
-                  }}
-                >
-                  {selectedSurfaceSubType}
-                </span>
               </span>
 
               <div className="flex items-center gap-1.5 shrink-0">
@@ -588,6 +598,13 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       {globalSettingsModalNode}
       {modeSwitchConfirmationModalNode}
       {bottomThreeTogglesNode}
+      <UserFeedbackModal
+        isOpen={isFeedbackModalOpen}
+        onClose={() => setIsFeedbackModalOpen(false)}
+        defaultUserName={activeGeologist?.name || googleUser?.displayName || 'Field Geologist'}
+        defaultUserEmail={activeGeologist?.email || googleUser?.email || ''}
+        industryMode={industryMode}
+      />
     </main>
   );
 };
