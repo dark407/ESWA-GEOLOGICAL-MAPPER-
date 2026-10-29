@@ -2479,15 +2479,17 @@ export const FieldRockMassClassificationsStage: React.FC<{
                     Bieniawski (1989) Rock Mass Rating — Calculated Rating
                   </div>
                   <div className="text-xs text-slate-300 mt-0.5 font-mono">
-                    RMRbasic = UCS ({activeRound.rmrSystem?.ucsRating ?? 12}) + RQD ({activeRound.rmrSystem?.rqdRating ?? 17}) + Spacing ({activeRound.rmrSystem?.spacingRating ?? 10}) + Condition ({activeRound.rmrSystem?.conditionRating ?? 20}) + Water ({activeRound.rmrSystem?.waterRating ?? 15})
+                    RMRbasic = UCS ({activeRound.rmrSystem?.ucsRating ?? '—'}) + RQD ({activeRound.rmrSystem?.rqdRating ?? '—'}) + Spacing ({activeRound.rmrSystem?.spacingRating ?? '—'}) + Condition ({activeRound.rmrSystem?.conditionRating ?? '—'}) + Water ({activeRound.rmrSystem?.waterRating ?? '—'})
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
                     <div className="text-2xl font-black font-mono text-amber-400">
-                      RMR = {rmrRes.totalRmr}
+                      RMR = {rmrRes.totalRmr !== null ? rmrRes.totalRmr : 'Not Assessed'}
                     </div>
-                    <div className="text-xs font-bold text-emerald-400">{rmrRes.rmrClass}</div>
+                    <div className={`text-xs font-bold ${rmrRes.totalRmr !== null ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {rmrRes.rmrClass}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2500,9 +2502,16 @@ export const FieldRockMassClassificationsStage: React.FC<{
                     <span className="text-xs font-bold text-amber-300 uppercase">
                       1. Strength of Intact Rock (UCS)
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-xs font-bold">
-                      {activeRound.rmrSystem?.ucsRating ?? 12} / 15 pts
-                    </span>
+                    {activeRound.rmrSystem?.ucsRating !== null && activeRound.rmrSystem?.ucsRating !== undefined ? (
+                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-xs font-bold">
+                        {activeRound.rmrSystem.ucsRating} / 15 pts
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Not Selected
+                      </span>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                     {[
@@ -2518,7 +2527,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
                         type="button"
                         onClick={() => updateRmrRatingParam({ ucsRating: opt.r })}
                         className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
-                          (activeRound.rmrSystem?.ucsRating ?? 12) === opt.r
+                          activeRound.rmrSystem?.ucsRating === opt.r
                             ? 'bg-amber-500 text-slate-950 border-amber-300 font-bold shadow'
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
@@ -2536,9 +2545,16 @@ export const FieldRockMassClassificationsStage: React.FC<{
                     <span className="text-xs font-bold text-cyan-300 uppercase">
                       2. Drill Core RQD (%)
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono text-xs font-bold">
-                      {activeRound.rmrSystem?.rqdRating ?? 17} / 20 pts
-                    </span>
+                    {activeRound.rmrSystem?.rqdRating !== null && activeRound.rmrSystem?.rqdRating !== undefined ? (
+                      <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono text-xs font-bold">
+                        {activeRound.rmrSystem.rqdRating} / 20 pts
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Not Selected
+                      </span>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                     {[
@@ -2553,7 +2569,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
                         type="button"
                         onClick={() => updateRmrRatingParam({ rqdRating: opt.r })}
                         className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
-                          (activeRound.rmrSystem?.rqdRating ?? 17) === opt.r
+                          activeRound.rmrSystem?.rqdRating === opt.r
                             ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold shadow'
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
@@ -2571,9 +2587,16 @@ export const FieldRockMassClassificationsStage: React.FC<{
                     <span className="text-xs font-bold text-emerald-300 uppercase">
                       3. Spacing of Discontinuities
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold">
-                      {activeRound.rmrSystem?.spacingRating ?? 10} / 20 pts
-                    </span>
+                    {activeRound.rmrSystem?.spacingRating !== null && activeRound.rmrSystem?.spacingRating !== undefined ? (
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold">
+                        {activeRound.rmrSystem.spacingRating} / 20 pts
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Not Selected
+                      </span>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                     {[
@@ -2588,7 +2611,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
                         type="button"
                         onClick={() => updateRmrRatingParam({ spacingRating: opt.r })}
                         className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
-                          (activeRound.rmrSystem?.spacingRating ?? 10) === opt.r
+                          activeRound.rmrSystem?.spacingRating === opt.r
                             ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-bold shadow'
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
@@ -2606,9 +2629,16 @@ export const FieldRockMassClassificationsStage: React.FC<{
                     <span className="text-xs font-bold text-orange-300 uppercase">
                       4. Condition of Discontinuities
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 font-mono text-xs font-bold">
-                      {activeRound.rmrSystem?.conditionRating ?? 20} / 30 pts
-                    </span>
+                    {activeRound.rmrSystem?.conditionRating !== null && activeRound.rmrSystem?.conditionRating !== undefined ? (
+                      <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 font-mono text-xs font-bold">
+                        {activeRound.rmrSystem.conditionRating} / 30 pts
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Not Selected
+                      </span>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                     {[
@@ -2623,7 +2653,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
                         type="button"
                         onClick={() => updateRmrRatingParam({ conditionRating: opt.r })}
                         className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
-                          (activeRound.rmrSystem?.conditionRating ?? 20) === opt.r
+                          activeRound.rmrSystem?.conditionRating === opt.r
                             ? 'bg-orange-500 text-slate-950 border-orange-300 font-bold shadow'
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
@@ -2641,9 +2671,16 @@ export const FieldRockMassClassificationsStage: React.FC<{
                     <span className="text-xs font-bold text-sky-300 uppercase">
                       5. Groundwater Seepage Condition
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono text-xs font-bold">
-                      {activeRound.rmrSystem?.waterRating ?? 15} / 15 pts
-                    </span>
+                    {activeRound.rmrSystem?.waterRating !== null && activeRound.rmrSystem?.waterRating !== undefined ? (
+                      <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono text-xs font-bold">
+                        {activeRound.rmrSystem.waterRating} / 15 pts
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Not Selected
+                      </span>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
                     {[
@@ -2658,7 +2695,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
                         type="button"
                         onClick={() => updateRmrRatingParam({ waterRating: opt.r })}
                         className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
-                          (activeRound.rmrSystem?.waterRating ?? 15) === opt.r
+                          activeRound.rmrSystem?.waterRating === opt.r
                             ? 'bg-sky-500 text-slate-950 border-sky-300 font-bold shadow'
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
@@ -2881,7 +2918,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
             >
               <span>1. Barton Q-System</span>
               <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-amber-300 text-[11px]">
-                Q = {qRes.qValue}
+                Q = {qRes.qValue !== null ? qRes.qValue : 'Not Assessed'}
               </span>
             </button>
             <button
@@ -2909,7 +2946,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
             >
               <span>2. Bieniawski RMR89</span>
               <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-cyan-300 text-[11px]">
-                RMR = {rmrRes.totalRmr}
+                RMR = {rmrRes.totalRmr !== null ? rmrRes.totalRmr : 'Not Assessed'}
               </span>
             </button>
             <button
@@ -2937,7 +2974,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
             >
               <span>3. GSI Sheet (Hoek-Brown)</span>
               <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-emerald-300 text-[11px]">
-                GSI = {activeRound.gsiValue}
+                GSI = {activeRound.gsiValue !== null && activeRound.gsiValue !== undefined ? activeRound.gsiValue : 'Not Assessed'}
               </span>
             </button>
             <button
@@ -2985,17 +3022,19 @@ export const FieldRockMassClassificationsStage: React.FC<{
                   Barton Q-System Interactive Design Matrix
                 </div>
                 <div className="text-xs font-mono text-slate-300 mt-0.5">
-                  Q = (RQD {activeRound.qSystem.rqd} / Jn {activeRound.qSystem.jn}) × (Jr{' '}
-                  {activeRound.qSystem.jr} / Ja {activeRound.qSystem.ja}) × (Jw{' '}
-                  {activeRound.qSystem.jw} / SRF {activeRound.qSystem.srf})
+                  Q = (RQD {activeRound.qSystem?.rqd ?? '—'} / Jn {activeRound.qSystem?.jn ?? '—'}) × (Jr{' '}
+                  {activeRound.qSystem?.jr ?? '—'} / Ja {activeRound.qSystem?.ja ?? '—'}) × (Jw{' '}
+                  {activeRound.qSystem?.jw ?? '—'} / SRF {activeRound.qSystem?.srf ?? '—'})
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-right">
                   <div className="text-xl font-black font-mono text-amber-400">
-                    Q = {qRes.qValue}
+                    Q = {qRes.qValue !== null ? qRes.qValue : 'Not Assessed'}
                   </div>
-                  <div className="text-xs font-bold text-emerald-400">{qRes.rockClass}</div>
+                  <div className={`text-xs font-bold ${qRes.qValue !== null ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {qRes.rockClass}
+                  </div>
                 </div>
               </div>
             </div>
@@ -3061,7 +3100,15 @@ export const FieldRockMassClassificationsStage: React.FC<{
                     className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col gap-2"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-amber-300">{param.title}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-amber-300">{param.title}</span>
+                        {(currentVal === null || currentVal === undefined) && (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                            Not Selected
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1">
                         <span className="text-[10px] text-slate-400">Custom:</span>
                         <input
@@ -3069,13 +3116,14 @@ export const FieldRockMassClassificationsStage: React.FC<{
                           step={param.step}
                           min={param.min}
                           max={param.max}
-                          value={currentVal}
+                          value={currentVal ?? ''}
+                          placeholder="—"
                           onChange={(e) =>
                             onUpdateRound((r) => ({
                               ...r,
                               qSystem: {
                                 ...r.qSystem,
-                                [param.key]: Number(e.target.value),
+                                [param.key]: e.target.value === '' ? null : Number(e.target.value),
                               },
                             }))
                           }
@@ -3086,7 +3134,10 @@ export const FieldRockMassClassificationsStage: React.FC<{
 
                     <div className="space-y-1">
                       {param.options.map((opt) => {
-                        const isSelected = Math.abs(Number(currentVal) - opt.val) < 0.01;
+                        const isSelected =
+                          currentVal !== null &&
+                          currentVal !== undefined &&
+                          Math.abs(Number(currentVal) - opt.val) < 0.01;
                         return (
                           <button
                             key={opt.val}
@@ -3146,19 +3197,21 @@ export const FieldRockMassClassificationsStage: React.FC<{
                   Bieniawski RMR89 Interactive Rating Selector
                 </div>
                 <div className="text-xs font-mono text-slate-300 mt-0.5">
-                  RMR89 = UCS ({activeRound.rmrSystem.ucsRating}) + RQD (
-                  {activeRound.rmrSystem.rqdRating}) + Spacing (
-                  {activeRound.rmrSystem.spacingRating}) + Condition (
-                  {activeRound.rmrSystem.conditionRating}) + Water (
-                  {activeRound.rmrSystem.waterRating}) + Orientation Adj (
-                  {activeRound.rmrSystem.orientationAdj})
+                  RMR89 = UCS ({activeRound.rmrSystem?.ucsRating ?? '—'}) + RQD (
+                  {activeRound.rmrSystem?.rqdRating ?? '—'}) + Spacing (
+                  {activeRound.rmrSystem?.spacingRating ?? '—'}) + Condition (
+                  {activeRound.rmrSystem?.conditionRating ?? '—'}) + Water (
+                  {activeRound.rmrSystem?.waterRating ?? '—'}) + Orientation Adj (
+                  {activeRound.rmrSystem?.orientationAdj ?? '—'})
                 </div>
               </div>
               <div className="text-right">
                 <div className="text-xl font-black font-mono text-cyan-300">
-                  RMR89 = {rmrRes.totalRmr} / 100
+                  RMR89 = {rmrRes.totalRmr !== null ? `${rmrRes.totalRmr} / 100` : 'Not Assessed'}
                 </div>
-                <div className="text-xs font-bold text-emerald-400">{rmrRes.rmrClass}</div>
+                <div className={`text-xs font-bold ${rmrRes.totalRmr !== null ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {rmrRes.rmrClass}
+                </div>
               </div>
             </div>
 
@@ -3209,27 +3262,36 @@ export const FieldRockMassClassificationsStage: React.FC<{
                   },
                 ] as const
               ).map((param) => {
-                const currentVal = activeRound.rmrSystem[param.key];
+                const currentVal = activeRound.rmrSystem?.[param.key];
                 return (
                   <div
                     key={param.key}
                     className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col gap-2"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-cyan-300">{param.title}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-cyan-300">{param.title}</span>
+                        {(currentVal === null || currentVal === undefined) && (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                            Not Selected
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1">
                         <span className="text-[10px] text-slate-400">Pts:</span>
                         <input
                           type="number"
                           min={param.min}
                           max={param.max}
-                          value={currentVal}
+                          value={currentVal ?? ''}
+                          placeholder="—"
                           onChange={(e) =>
                             onUpdateRound((r) => ({
                               ...r,
                               rmrSystem: {
                                 ...r.rmrSystem,
-                                [param.key]: Number(e.target.value),
+                                [param.key]: e.target.value === '' ? null : Number(e.target.value),
                               },
                             }))
                           }
@@ -3240,7 +3302,8 @@ export const FieldRockMassClassificationsStage: React.FC<{
 
                     <div className="space-y-1">
                       {param.options.map((opt) => {
-                        const isSelected = Number(currentVal) === opt.val;
+                        const isSelected =
+                          currentVal !== null && currentVal !== undefined && Number(currentVal) === opt.val;
                         return (
                           <button
                             key={opt.val}
@@ -3290,7 +3353,6 @@ export const FieldRockMassClassificationsStage: React.FC<{
           </div>
         )}
 
-
         {/* ==================== TAB 3: HOEK & MARINOS INTERACTIVE 2D GSI SHEET ==================== */}
         {activeTab === 'gsi' && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-3">
@@ -3309,8 +3371,17 @@ export const FieldRockMassClassificationsStage: React.FC<{
                   <div className="text-[10px] font-bold uppercase text-slate-400">
                     Selected Structure / Surface
                   </div>
-                  <div className="text-xs font-bold text-white">
-                    {activeRound.rockMassStructuralType} • {activeRound.surfaceQualityType}
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    {activeRound.rockMassStructuralType && activeRound.surfaceQualityType ? (
+                      <span>
+                        {activeRound.rockMassStructuralType} • {activeRound.surfaceQualityType}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Not Selected
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -3319,9 +3390,13 @@ export const FieldRockMassClassificationsStage: React.FC<{
                     type="number"
                     min={5}
                     max={95}
-                    value={activeRound.gsiValue}
+                    value={activeRound.gsiValue ?? ''}
+                    placeholder="—"
                     onChange={(e) =>
-                      onUpdateRound((r) => ({ ...r, gsiValue: Number(e.target.value) }))
+                      onUpdateRound((r) => ({
+                        ...r,
+                        gsiValue: e.target.value === '' ? (null as any) : Number(e.target.value),
+                      }))
                     }
                     className="w-16 bg-slate-900 border border-emerald-500 rounded px-2 py-1 text-sm font-mono font-black text-emerald-300 text-center"
                   />

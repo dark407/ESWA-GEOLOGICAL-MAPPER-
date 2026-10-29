@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Camera,
   CheckCircle2,
+  Compass,
   Plus,
   Ruler,
   Save,
@@ -67,6 +68,7 @@ export interface DriveAndPhotosScreenProps {
     isCompactHeight?: boolean;
   };
   onBack: () => void;
+  onOpenProjectConfiguration?: () => void;
   onOpenCustomEditor: (
     initialTab: 'freeform_canvas' | 'trace_image' | 'common_variants',
     returnScreen: string
@@ -112,6 +114,7 @@ export const DriveAndPhotosScreen: React.FC<DriveAndPhotosScreenProps> = ({
   qParamStatus,
   responsive,
   onBack,
+  onOpenProjectConfiguration,
   onOpenCustomEditor,
   handleRemoveMainPhoto,
   handleUploadSurfacePhoto,
@@ -145,6 +148,17 @@ export const DriveAndPhotosScreen: React.FC<DriveAndPhotosScreenProps> = ({
             Step 3 · Add {getSurfacePanelLabelMap(activeMappingDomain).domainTitle} Surface Pictures
           </h2>
           <div className="flex items-center gap-2">
+            {onOpenProjectConfiguration && (
+              <button
+                type="button"
+                onClick={onOpenProjectConfiguration}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/50 cursor-pointer shadow-sm transition-all"
+                title="Configure Project Metadata, Drive Direction (0-360°), Chainage, RMR89 & Q-System"
+              >
+                <Compass className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Project &amp; Geotech Parameters</span>
+              </button>
+            )}
             {activeMappingDomain === 'TUNNEL' && (
               <button
                 type="button"

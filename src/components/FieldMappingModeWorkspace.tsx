@@ -183,7 +183,17 @@ import {
   TunnelGeometry,
   SavedProjectRecord,
   Joint,
+  QIndexParameters,
+  RmrParameters,
+  QSystemParamKey,
+  ParameterInputStatus,
+  TunnelSettings,
 } from '../types/tunnel';
+import {
+  createDefaultRmrParameters,
+  createDefaultQParamStatus,
+} from '../engine/rockMassClassificationEngine';
+import { ProjectConfigurationAndGeotechModal } from './ProjectConfigurationAndGeotechModal';
 import {
   loadAllContinuousStripDatasets,
   parsePullIntervalFromRecord,
@@ -986,6 +996,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     design_outline: true,
   });
   const [isLayerShuffleModalOpen, setIsLayerShuffleModalOpen] = useState<boolean>(false);
+  const [isProjectConfigModalOpen, setIsProjectConfigModalOpen] = useState<boolean>(false);
+  const [fieldRmrParams, setFieldRmrParams] = useState<RmrParameters>(() => createDefaultRmrParameters());
+  const [fieldQIndexParams, setFieldQIndexParams] = useState<QIndexParameters>(() => createDefaultQIndexParameters());
+  const [fieldQParamStatus, setFieldQParamStatus] = useState<Record<QSystemParamKey, ParameterInputStatus>>(() => createDefaultQParamStatus());
 
   // Stage 4: Field Mapping Canvas State (Single Panel in Stage 4; Full 4-Panel in Stage 5 Group Joints; or 3D Tunnel Mode)
   const [activePanel, setActivePanel] = useState<FieldPanelId>(() =>
@@ -4632,6 +4646,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsProjectConfigModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-950/70 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-500/50 text-xs font-mono font-bold transition-all cursor-pointer shadow-sm"
+            title="Configure Project, Drive Azimuth (0-360°), Chainage & Geotechnical Ratings (RMR / Q-System)"
+          >
+            <Compass className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Drive &amp; Geotech</span>
+            <span className="text-[10px] bg-cyan-500/20 px-1 py-0.2 rounded border border-cyan-500/30">
+              {activeRound?.tunnelDriveDirection ? `${activeRound.tunnelDriveDirection}°` : 'Set Dir'}
+            </span>
+          </button>
           <div className="hidden md:flex items-center gap-1 text-[10.5px] text-emerald-500 font-semibold shrink-0">
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Saved</span>
@@ -13761,6 +13787,104 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           }))
         }
         onResetDefault={() => setCanvasLayerOrder(DEFAULT_CANVAS_LAYER_ORDER)}
+      />
+
+      {/* Central Project Configuration & Geotechnical Console (Clamped Inputs & Verified Ratings) */}
+      <ProjectConfigurationAndGeotechModal
+        isOpen={isProjectConfigModalOpen}
+        onClose={() => setIsProjectConfigModalOpen(false)}
+        settings={{
+          projectName: activeProject?.projectName || 'Tunnel Project',
+          tunnelName: activeLocation?.name || 'Main Tunnel',
+          location: activeLocation?.name || 'Face North',
+          chainage: activeRound ? `CH ${activeRound.chainageTo}m` : 'CH 100.0m',
+          faceChainage: activeRound ? `CH ${activeRound.chainageTo}m` : 'CH 100.0m',
+          driveDirection: activeRound?.tunnelDriveDirection || 135,
+          driveDirectionInput: `N ${activeRound?.tunnelDriveDirection || 135}° E`,
+          roundLength: activeRound?.pullLengthMeters || 3.0,
+          pullLength: activeRound?.pullLengthMeters || 3.0,
+          geologistName: activeRound?.geologistName || 'Geologist',
+          date: activeRound?.dateAndTimeOfExcavation || activeRound?.createdAt || new Date().toISOString().split('T')[0],
+          industryMode: currentIndustryMode,
+        } as any}
+        onUpdateSettings={(updater) => {
+          if (typeof updater === 'function') {
+            const next = (updater as any)({
+              projectName: activeProject?.projectName || 'Tunnel Project',
+              tunnelName: activeLocation?.name || 'Main Tunnel',
+              location: activeLocation?.name || 'Face North',
+              chainage: activeRound ? `CH ${activeRound.chainageTo}m` : 'CH 100.0m',
+              faceChainage: activeRound ? `CH ${activeRound.chainageTo}m` : 'CH 100.0m',
+              driveDirection: activeRound?.tunnelDriveDirection || 135,
+              driveDirectionInput: `N ${activeRound?.tunnelDriveDirection || 135}° E`,
+              roundLength: activeRound?.pullLengthMeters || 3.0,
+              pullLength: activeRound?.pullLengthMeters || 3.0,
+              geologistName: activeRound?.geologistName || 'Geologist',
+              date: activeRound?.dateAndTimeOfExcavation || activeRound?.createdAt || new Date().toISOString().split('T')[0],
+              industryMode: currentIndustryMode,
+            });
+            if (activeRound) {
+              setStore((prev) => ({
+                ...prev,
+                rounds: prev.rounds.map((r) =>
+                  r.id === activeRound.id
+                    ? {
+                        ...r,
+                        tunnelDriveDirection: next.driveDirection ?? r.tunnelDriveDirection,
+                        pullLengthMeters: next.roundLength ?? r.pullLengthMeters,
+                        geologistName: next.geologistName ?? r.geologistName,
+                      }
+                    : r
+                ),
+              }));
+            }
+          }
+        }}
+        geometry={createTunnelGeometry(
+          activeLocation?.widthM || 8.5,
+          activeLocation?.heightM || 7.5,
+          activeLocation?.wallHeightM || 4.2,
+          activeLocation?.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped',
+          (activeLocation?.widthM || 8.5) / 2
+        )}
+        onUpdateGeometry={(geomUpdater) => {
+          if (typeof geomUpdater === 'function' && activeLocation) {
+            const currentGeom = createTunnelGeometry(
+              activeLocation.widthM || 8.5,
+              activeLocation.heightM || 7.5,
+              activeLocation.wallHeightM || 4.2,
+              activeLocation.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped',
+              (activeLocation.widthM || 8.5) / 2
+            );
+            const nextGeom = (geomUpdater as any)(currentGeom);
+            setStore((prev) => ({
+              ...prev,
+              projects: prev.projects.map((p) =>
+                p.id === activeProject?.id
+                  ? {
+                      ...p,
+                      locations: p.locations.map((loc) =>
+                        loc.id === activeLocation.id
+                          ? {
+                              ...loc,
+                              widthM: nextGeom.width,
+                              heightM: nextGeom.height,
+                              wallHeightM: nextGeom.wallHeight,
+                            }
+                          : loc
+                      ),
+                    }
+                  : p
+              ),
+            }));
+          }
+        }}
+        rmrParams={fieldRmrParams}
+        onUpdateRmrParams={setFieldRmrParams}
+        qIndexParams={fieldQIndexParams}
+        onUpdateQIndexParams={setFieldQIndexParams}
+        qParamStatus={fieldQParamStatus}
+        onUpdateQParamStatus={setFieldQParamStatus}
       />
 
       </div>

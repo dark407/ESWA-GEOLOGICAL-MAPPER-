@@ -108,6 +108,12 @@ export const ClampedNumericInput: React.FC<ClampedNumericInputProps> = ({
         <label className="font-medium text-slate-200 flex items-center gap-1.5">
           <span>{label}</span>
           {unit && <span className="font-mono text-[10px] text-slate-400">({unit})</span>}
+          {isUnassessed && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              Not Selected
+            </span>
+          )}
         </label>
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] text-slate-400 tabular-nums">
@@ -130,12 +136,12 @@ export const ClampedNumericInput: React.FC<ClampedNumericInputProps> = ({
               }}
               className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors cursor-pointer border ${
                 isUnassessed
-                  ? 'bg-amber-950/60 border-amber-600/50 text-amber-300 font-bold'
+                  ? 'bg-amber-950/60 border-amber-500/70 text-amber-300 font-bold'
                   : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
               }`}
               title={isUnassessed ? 'Click to enter measured parameter' : 'Mark as Not Assessed'}
             >
-              {isUnassessed ? 'Not Assessed' : 'Clear / Unassess'}
+              {isUnassessed ? 'Not Selected · Tap to enter' : 'Clear / Unselect'}
             </button>
           )}
         </div>

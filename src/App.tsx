@@ -52,6 +52,9 @@ import {
 import {
   calculateLaubscherMrmr,
   calculateMathewsStability,
+  createBlankGsiParameters,
+  createBlankQParamStatus,
+  createBlankRmrParameters,
   createDefaultGsiParameters,
   createDefaultQParamStatus,
   createDefaultRmrParameters,
@@ -71,6 +74,7 @@ import { ProjectMemoryModal } from './components/OverbreakAndProjectMemoryPanel'
 import { NatmRockMechanicsAndLookAheadHub } from './components/NatmRockMechanicsAndLookAheadHub';
 import {
   autoEstimateQIndexFromMappedJoints,
+  createBlankQIndexParameters,
   createDefaultQIndexParameters,
   createDefaultRockMassSummary,
   generatePiecewiseWarpedPhotoDataUrl,
@@ -133,6 +137,7 @@ import { FieldMappingModeWorkspace } from './components/FieldMappingModeWorkspac
 import { CoreLoggingWorkspace } from './components/CoreLoggingWorkspace';
 import { DeviceIdAndNotificationHeaderWidget } from './components/DeviceIdReviewAndNotificationCenter';
 import { GlobalSettingsModal } from './components/GlobalSettingsModal';
+import { ProjectConfigurationAndGeotechModal } from './components/ProjectConfigurationAndGeotechModal';
 import { TbmMainWindow } from './components/tbm/TbmMainWindow';
 import { MiningMainWindow } from './components/mining/MiningMainWindow';
 import { WelcomeScreen } from './components/screens/WelcomeScreen';
@@ -875,16 +880,16 @@ export default function App({
       () => (initialDraft?.selectedClassificationMethod as RockMassClassificationMethodId) || 'RMR'
     );
   const [qIndexParams, setQIndexParams] = useState<QIndexParameters>(() =>
-    initialDraft?.qIndexParams || createDefaultQIndexParameters()
+    initialDraft?.qIndexParams || createBlankQIndexParameters()
   );
   const [qParamStatus, setQParamStatus] = useState<Record<QSystemParamKey, ParameterInputStatus>>(
-    () => initialDraft?.qParamStatus || createDefaultQParamStatus()
+    () => initialDraft?.qParamStatus || createBlankQParamStatus()
   );
   const [rmrParams, setRmrParams] = useState<RmrParameters>(
-    () => initialDraft?.rmrParams || createDefaultRmrParameters()
+    () => initialDraft?.rmrParams || createBlankRmrParameters()
   );
   const [gsiParams, setGsiParams] = useState<GsiParameters>(
-    () => initialDraft?.gsiParams || createDefaultGsiParameters()
+    () => initialDraft?.gsiParams || createBlankGsiParameters()
   );
   const [rockMassSummary, setRockMassSummary] = useState<RockMassSummaryTable>(() =>
     initialDraft?.rockMassSummary || createDefaultRockMassSummary()
@@ -935,6 +940,7 @@ export default function App({
   const [isProjectMemoryModalOpen, setIsProjectMemoryModalOpen] = useState<boolean>(false);
   const [projectMemoryTab, setProjectMemoryTab] = useState<DataStorageTabId>('field_data');
   const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState<boolean>(false);
+  const [isProjectConfigModalOpen, setIsProjectConfigModalOpen] = useState<boolean>(false);
   const [activeGeologist, setActiveGeologist] = useState<GeologistUserProfile | null>(() =>
     getActiveGeologistProfile()
   );
@@ -3957,6 +3963,24 @@ export default function App({
     />
   );
 
+  const projectConfigModalNode = (
+    <ProjectConfigurationAndGeotechModal
+      isOpen={isProjectConfigModalOpen}
+      onClose={() => setIsProjectConfigModalOpen(false)}
+      settings={settings}
+      onUpdateSettings={setSettings}
+      geometry={geometry}
+      onUpdateGeometry={setGeometry}
+      rmrParams={rmrParams}
+      onUpdateRmrParams={setRmrParams}
+      qIndexParams={qIndexParams}
+      onUpdateQIndexParams={setQIndexParams}
+      qParamStatus={qParamStatus}
+      onUpdateQParamStatus={setQParamStatus}
+      onShowToast={(msg) => setStatusMessage(msg)}
+    />
+  );
+
   // Theme-aware spacing, radius, and elevation utility to eliminate boxy hardcoded containers
   const layoutStyles = {
     viewportShell: `min-h-dvh h-dvh w-full flex flex-col items-center justify-start relative overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain transition-colors duration-200 ${
@@ -4149,6 +4173,7 @@ export default function App({
           />
         </div>
         {globalSettingsModalNode}
+        {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
       </>
     );
@@ -4198,6 +4223,7 @@ export default function App({
         {projectMemoryModalNode}
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
+        {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
       </>
     );
@@ -4293,6 +4319,7 @@ export default function App({
         />
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
+        {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
         {bottomThreeTogglesNode}
       </>
@@ -4336,6 +4363,7 @@ export default function App({
         />
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
+        {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
         {bottomThreeTogglesNode}
       </>
@@ -6273,8 +6301,9 @@ export default function App({
   // ============================================================================
   if (screen === 'drive_and_photos') {
     return (
-      <DriveAndPhotosScreen
-        layoutStyles={layoutStyles}
+      <>
+        <DriveAndPhotosScreen
+          layoutStyles={layoutStyles}
         isLight={isLight}
         activeMappingDomain={activeMappingDomain}
         settings={settings}
@@ -6292,6 +6321,7 @@ export default function App({
         qParamStatus={qParamStatus}
         responsive={responsive}
         onBack={() => navigateScreen('start')}
+        onOpenProjectConfiguration={() => setIsProjectConfigModalOpen(true)}
         onOpenCustomEditor={(initialTab, returnScreen) => {
           setCustomEditorInitialTab(initialTab);
           setReturnScreenFromCustomEditor(returnScreen as ScreenStep);
@@ -6334,6 +6364,8 @@ export default function App({
         onStatusMessage={setStatusMessage}
         projectMemoryModalNode={projectMemoryModalNode}
       />
+      {projectConfigModalNode}
+    </>
     );
   }
 
@@ -6476,6 +6508,7 @@ export default function App({
           canUndo={historyPast.length > 0}
           canRedo={historyFuture.length > 0}
           onBackToSetup={() => navigateScreen('drive_and_photos')}
+          onOpenProjectConfiguration={() => setIsProjectConfigModalOpen(true)}
           onOpenExportSheet={(mode = 'FINAL_ENGINEERING_SHEET') => {
             handleSaveCurrentProjectToMemory();
             setExportModalInitialMode(mode);
@@ -6629,6 +6662,7 @@ export default function App({
       {natmRockMechanicsModalNode}
       {continuousLoggingModalsNode}
       {globalSettingsModalNode}
+      {projectConfigModalNode}
       {modeSwitchConfirmationModalNode}
 
       <KeyboardShortcutsAndPermissionsModal

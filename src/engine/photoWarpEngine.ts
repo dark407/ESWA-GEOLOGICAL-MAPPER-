@@ -776,6 +776,29 @@ export function createDefaultQIndexParameters(): QIndexParameters {
   };
 }
 
+export function createBlankQIndexParameters(): QIndexParameters {
+  return {
+    rqd: null,
+    jn: null,
+    jnDescription: 'Not Selected',
+    jr: null,
+    jrDescription: 'Not Selected',
+    ja: null,
+    jaDescription: 'Not Selected',
+    jw: null,
+    jwDescription: 'Not Selected',
+    srf: null,
+    srfDescription: 'Not Selected',
+    esr: 1.0,
+    isIntersection: false,
+    isPortal: false,
+    volumetricJointCountJv: undefined,
+    missingFields: ['rqd', 'jn', 'jr', 'ja', 'jw', 'srf'],
+    userConfirmed: false,
+    qValue: null,
+  };
+}
+
 export function createDefaultRockMassSummary(lithology = ''): RockMassSummaryTable {
   return {
     rockType: lithology || '',
@@ -797,8 +820,8 @@ export interface QIndexComputedResult {
   shearStrengthQuotient: number;// Jr / Ja
   activeStressQuotient: number; // Jw / SRF
   qValue: number;               // Final Barton Q-value
-  rockMassClass: string;        // e.g., "Class III — Fair Rock"
-  rockQualityCategory: string;  // e.g., "Fair"
+  rockMassClass: string;        // e.g., "Class III — Fair Rock" or "Not Assessed"
+  rockQualityCategory: string;  // e.g., "Fair" or "Not Assessed"
   estimatedRmr: number;         // Bieniawski RMR correlation: 9 * ln(Q) + 44
   equivalentDimensionDe: number;// Span / ESR
   recommendedSupport: string;
@@ -809,6 +832,36 @@ export function calculateBartonQSystem(
   params: QIndexParameters,
   tunnelSpanMeters = 8.4
 ): QIndexComputedResult {
+  if (
+    params.rqd === null ||
+    params.rqd === undefined ||
+    params.jn === null ||
+    params.jn === undefined ||
+    params.jr === null ||
+    params.jr === undefined ||
+    params.ja === null ||
+    params.ja === undefined ||
+    params.jw === null ||
+    params.jw === undefined ||
+    params.srf === null ||
+    params.srf === undefined
+  ) {
+    return {
+      effectiveRqd: 0,
+      effectiveJn: 0,
+      blockSizeQuotient: 0,
+      shearStrengthQuotient: 0,
+      activeStressQuotient: 0,
+      qValue: null as any,
+      rockMassClass: 'Not Assessed',
+      rockQualityCategory: 'Not Assessed',
+      estimatedRmr: null as any,
+      equivalentDimensionDe: Number((tunnelSpanMeters / Math.max(0.5, params.esr || 1.0)).toFixed(2)),
+      recommendedSupport: 'Not Assessed — complete all 6 Q-System parameters.',
+      colorHex: '#64748B',
+    };
+  }
+
   // Per Barton (1974 / 2002): Nominal minimum RQD in Q formula is 10
   const effectiveRqd = Math.max(10, Math.min(100, params.rqd));
   const jnMultiplier = params.isIntersection ? 3.0 : params.isPortal ? 2.0 : 1.0;

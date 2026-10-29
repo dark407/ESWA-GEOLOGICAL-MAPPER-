@@ -1,187 +1,141 @@
-# Underground Shaft Face Mapping, Instrumentation & Monitoring, and Forward Probe Hole Drilling
+# Zero-Default Strict Parameter Input & "Not Selected" Verification Plan
 
-Comprehensive architectural implementation plan to integrate vertical shaft sink bottom mapping, geotechnical instrumentation telemetry (convergence, MPBX, load cells, TARP alerts), and forward probe hole drilling logs (water inflow, gas, void detection, pre-grouting clearance) into the ESWA underground face mapping workflow.
+Comprehensive architectural and user-experience plan to eliminate synthetic pre-selected defaults across the entire application lifecycle (Project Setup, Tunnel Geometry, Lithology, Barton Q, Bieniawski RMR89, and Hoek-Brown GSI), enforcing high-contrast amber "Not Selected" indicators and strict "Not Assessed" classification gates.
 
 ---
 
-### User Review & Critical Decisions
+## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Please review the workflow integration model and recommended defaults before code execution begins:
-> 
-> 1. **Excavation Mode Selection (Horizontal Drift vs. Vertical Shaft Sink)**:
->    - *Recommended Default*: Unified workspace profile switcher allowing instant toggle between **Horizontal Drift/Stope** (D-arch, Horseshoe, Flat back) and **Vertical Shaft Sink** (Circular shaft bottom with polar plumb-line grid, radial sectors, depth below collar).
-> 
-> 2. **Working Window Expansion in Top Header**:
->    - *Recommended Default*: Elevate **Instrumentation & Monitoring** and **Probe Hole Drilling** as dedicated top-header working windows alongside `Face Canvas`, `Grades & Dilution`, `Channel Assays`, `Structural Geology`, `Geotech Stability`, and `Mine Exports`.
-> 
-> 3. **Forward Probe Drilling Clearance & Hazard Thresholds**:
->    - *Recommended Default*: Integrated trigger action response plans (TARP) where forward probe water inflows (>50 L/min) or void detections trigger an amber/red warning requiring mandatory pre-grouting clearance prior to blasting advance.
+> The following decisions were explicitly confirmed by the user in Phase 1 clarification:
+> - **Scope of Zero Defaults**: Applied universally across **All workflows** (Project Setup, Heading / Tunnel Geometry, Field Excavation Rounds, Lithology / Discontinuity parameters, and Geotechnical Classifications).
+> - **Unselected State Representation**: Whenever an option or field is unchosen, render a high-contrast amber status badge: `Not Selected · Tap to Choose / Enter`, with an active prompt banner indicating completion is required.
+> - **Classification Evaluation Invariant**: When any mandatory classification parameter is unselected, Barton Q, Bieniawski RMR, and Hoek-Brown GSI strictly evaluate to `Not Assessed` (never defaulting to partial synthetic scores or dummy fallback values).
+
+- **Confirmed Decision 1**: Fields will no longer initialize with synthetic boilerplate values (e.g., no default 135° drive azimuth, no auto-selected "Quartzite", no pre-checked "Dripping" water condition, and no pre-filled Barton Q numbers).
+- **Confirmed Decision 2**: Interactive controls (segmented buttons, dropdown pickers, and numeric fields) will support an explicit empty/unselected initial state `null | undefined` with amber `Not Selected` visual indicators.
 
 ---
 
-### 1. Overview & Core Concept
+## 1. Overview & Core Concept
 
-- **What It Delivers**:
-  1. **Vertical Shaft Face Mapping**: Interactive circular/rectangular shaft sink bottom CAD mapping with polar coordinate grid (radius $r$, azimuth $\theta$), laser plumb-line datums (Center, North, East), radial sector water seepage tracking, and sink depth below collar (m).
-  2. **Geotechnical Instrumentation & Monitoring**: Comprehensive monitoring console for underground convergence pins (crown-invert and sidewall-sidewall displacement), multi-point borehole extensometers (MPBX rock mass dilation), load cells, vibrating wire piezometers, interactive time-displacement velocity curves ($\text{mm/day}$), and 3-tier TARP alert levels.
-  3. **Forward Probe Hole Drilling Log**: Ahead-of-face exploratory drilling pattern (center advance, crown probe, perimeter look-out holes) logging drilling penetration rates, high-pressure water inflow ($L/\text{min}$, bar), hazardous gas detection ($CH_4, H_2S$), void/cavity warnings, and blast round excavation clearance certificates.
+Underground tunnel and mine mapping requires absolute engineering accountability. If software automatically pre-populates default rock mass parameters (such as $RQD = 75\%$, $J_n = 9$, or D-shaped 8.5m geometry), an engineer might unknowingly export reports with synthetic data rather than site-verified physical measurements.
 
-- **Target Persona**: Underground Senior Mine Geologists, Geotechnical & Rock Engineering Superintendents, Shaft Sinking Engineers, and Mine Safety Inspectors.
-- **Key Value**: Closes the critical safety loop between geological mapping, proactive advance hazard detection (probe holes), and empirical rock mass behavior (instrumentation convergence), eliminating surprise water inrushes and catastrophic ground collapse.
-
----
-
-### 2. User Experience & Visual Design
-
-#### A. Key User Flows
-
-1. **Shaft Face Mapping Flow**:
-   - In **Face Setup** or via a top profile switcher, the user selects **Vertical Shaft Sink**.
-   - The canvas transforms from a lateral tunnel section to a **circular shaft sink bottom** with polar degree markings ($0^\circ$ North to $360^\circ$), concentric radial rings (1m, 2m, 3m radius), center plumb point, and collar depth (e.g., `-482.5m Below Collar`).
-   - The user drafts geological lithologies, ore veins, faults, and water inflow seepages using Pencil, SPL, Polyline, and Eraser tools calibrated to polar coordinates.
-   - Shaft curb ring lining and advance pull per blast are calculated and displayed.
-
-2. **Instrumentation & Monitoring Working Window Flow**:
-   - The user clicks **Instrumentation & Monitoring** in the top header.
-   - The dedicated console displays 4 real-time instrument stations (Convergence Station CV-04, Extensometer MPBX-02, Piezometer VWP-01, Rockbolt Load Cell LC-03).
-   - An interactive time-series displacement graph plots measured deformation ($\text{mm}$) against days since excavation, calculating current deformation velocity ($\text{mm/day}$).
-   - If velocity exceeds the alert threshold ($>1.5\text{ mm/day}$ or $>15\text{ mm}$ total), the system automatically updates the TARP status to **LEVEL 2: AMBER ALERT** and displays required ground support rehabilitation measures.
-   - Users can add new instrument readouts, set baseline dates, and record physical sensor observations.
-
-3. **Forward Probe Hole Drilling Working Window Flow**:
-   - The user clicks **Probe Hole Drilling** in the top header.
-   - A visual 2D pattern elevation shows the probe hole layout fanning out ahead of the active face (Center lead hole at $+0^\circ$, Crown lookout hole at $+15^\circ$, Left/Right wing holes at $\pm12^\circ$).
-   - A comprehensive interactive drill log records: Hole ID, Azimuth, Dip, Drilled Length (e.g. 24m ahead), Penetration Rate ($\text{m/hr}$), Water Inflow ($L/\text{min}$), Water Pressure ($\text{kPa}$), Gas readings, Void detection (Yes/No), and Lithological contact depths.
-   - The **Excavation Clearance Verdict** updates dynamically: If water is $<15\text{ L/min}$ and no voids are hit, status reads `CLEAR TO BLAST ROUND (3.2m ADVANCE)`. If high-pressure inflow is intercepted, status triggers `MANDATORY CEMENTITIOUS PRE-GROUTING REQUIRED`.
-
-#### B. Visual Identity & Theme
-
-- **Color Discipline (60-30-10)**:
-  - *60% Deep Obsidian Field*: `#020617` / `#070B18` matching ESWA mining dark theme.
-  - *30% Structural Panels & Hairline Grids*: Slate-900 panels (`#0F172A`), hairline borders (`#1E293B`), polar coordinate lines (`#334155`).
-  - *10% Precision Accents*:
-    - Telemetry Amber (`#F59E0B`) for active working window tabs & geotechnical ratings.
-    - Laser Cyan (`#06B6D4`) for probe hole drill strings and hydrogeological inflows.
-    - Emerald (`#10B981`) for stable TARP status & clearance certificates.
-    - Rose / Crimson (`#EF4444`) for high-pressure water inrushes, void alerts, and TARP Level 3 triggers.
-- **Typography & Precision Notation**:
-  - Technical font pairing with `Plus Jakarta Sans` for clean titles and `JetBrains Mono` / `font-mono tabular-nums` for all sensor telemetry, depth coordinates, drill intervals, and displacement values.
-  - Strict unit separation: e.g. `24.5 mm` displacement, `68.2 L/min` inflow, `4.2 m` diameter.
+This update transitions the entire application to an **Explicit Field Assessment Architecture**:
+1. **Zero Pre-Selected Defaults**: All new projects, heading locations, excavation rounds, geometric cross-sections, and geotechnical matrices start in an unselected, clean state.
+2. **Prominent "Not Selected" Visual Cues**: Any unchosen option displays a high-visibility amber badge (`bg-amber-950/40 border border-amber-500/50 text-amber-300 font-mono text-xs`) prompting the user to feed authentic data.
+3. **Calculated Gating & Audit Readiness**: Rock mass classification ratings (Barton Q, RMR89, GSI) remain strictly flagged as `Not Assessed` until 100% of required parameters are explicitly entered by the geologist.
 
 ---
 
-### 3. Key Product Decisions & Trade-Offs
+## 2. User Experience & Visual Design
 
-- **Decision 1: Shaft Sink Integration Model (Unified Face Canvas vs. Separate Applet)**:
-  - *Chosen Approach*: Seamlessly integrate shaft profiles into the primary Face Mapping Canvas via an excavation profile selector (`HORIZONTAL_DRIFT` vs `VERTICAL_SHAFT_SINK`).
-  - *Why*: Eliminates fragmented state, reuses all battle-tested CAD vector tools (Pencil, SPL, Polyline, Eraser, Undo/Redo), and preserves the export pipeline.
-  - *Alternatives Considered*: Building a disconnected standalone shaft workspace was rejected because it duplicates geometry engines and fragments project storage.
-
-- **Decision 2: Top Header Navigation with Segmented Working Windows**:
-  - *Chosen Approach*: Add `Shaft Face`, `Monitoring`, and `Probe Holes` to the existing top-header segmented working window bar, with responsive scroll and active badges.
-  - *Why*: Direct 1-click access empowers the geologist to jump between mapping the face, checking convergence velocity, and reviewing forward probe clearance without multi-level modal nesting.
-
-- **Decision 3: Forward Probe Safety Grouting Logic**:
-  - *Chosen Approach*: Implement automatic safety threshold calculations based on standard mining codes: probe holes must maintain a minimum safety barrier (lead distance $\ge 5\text{m}$) ahead of the planned blast pull. If water exceeds $50\text{ L/min}$, blasting is interlocked until pressure-grouting confirmation is logged.
-  - *Why*: Adheres to global underground mine safety standards (US MSHA, Western Australia DMIRS, South African Mine Health and Safety Act).
-
----
-
-### 4. Technical Architecture & Data Strategy
-
-#### A. Architecture & Component Hierarchy
+### Key User Flows
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                 MINING TOP HEADER BAR                                  │
-│  [Main Window] · Drift/Shaft ID · Level · Depth · [WORKING WINDOW TABS] · [Vault/Save] │
-└───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │
-        ┌───────────────────────────────────┼────────────────────────────────────┐
-        ▼                                   ▼                                    ▼
-┌───────────────────────┐       ┌───────────────────────┐        ┌───────────────────────┐
-│     FACE CANVAS       │       │   INSTRUMENTATION &   │        │      PROBE HOLE       │
-│  (Drift vs. Shaft)    │       │      MONITORING       │        │        DRILLING       │
-├───────────────────────┤       ├───────────────────────┤        ├───────────────────────┤
-│ • D-Arch/Shanty/DXF   │       │ • Convergence Pins    │        │ • Ahead-of-Face 2D    │
-│ • Polar Shaft Sink    │       │ • MPBX Boreholes      │        │   Fan Pattern View    │
-│ • Laser Plumb Datums  │       │ • Displacement Graph  │        │ • Forward Drill Log   │
-│ • Pencil, SPL, Poly   │       │ • Velocity (mm/day)   │        │ • Water & Gas Inflow  │
-│ • Radial Water Seeps  │       │ • TARP Alert Triggers │        │ • Grouting Clearance  │
-└───────────────────────┘       └───────────────────────┘        └───────────────────────┘
-        │                                   │                                    │
-        └───────────────────────────────────┼────────────────────────────────────┘
-                                            ▼
-                    ┌───────────────────────────────────────────────┐
-                    │          MINING STORAGE & DATA ENGINE         │
-                    │ • LocalStorage & IndexedDB Vault Storage      │
-                    │ • 3D DXF Exporter (Shaft + Probes + Face)     │
-                    │ • CSV Lab Exporter & PDF Printable Face Sheet │
-                    └───────────────────────────────────────────────┘
+┌────────────────────────────────┐
+│  New Project / Round Launch    │ ──> All parameters blank / unselected
+└───────────────┬────────────────┘
+                │
+                ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Visual State: "Not Selected" Amber Indicators                │
+│ • Tunnel Shape: [Not Selected ⚠️]                           │
+│ • Drive Azimuth: [___° · Required]                          │
+│ • Lithology: [Not Selected · Tap to Assign]                 │
+│ • Q-System: [Not Assessed — 6 Parameters Missing]           │
+└───────────────┬─────────────────────────────────────────────┘
+                │
+                ▼ (User feeds real data)
+┌─────────────────────────────────────────────────────────────┐
+│ Real-Time Verification & Bound Clamping                     │
+│ • Verified Azimuth [000°–360°]                              │
+│ • Validated ISRM / Barton Param [Jn, Jr, Ja, Jw, SRF]       │
+│ • Status updates to [Verified ✓ Emerald]                    │
+└───────────────┬─────────────────────────────────────────────┘
+                │
+                ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Final Classification & Verified Export                      │
+│ • Barton Q & RMR89 calculate only when complete             │
+│ • Data Sheets & Reports export 100% authentic site records  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-#### B. Data Model Extensions (`src/types/mining.ts`)
+### Visual Identity & Theme Tokens
+- **"Not Selected" Badge**: High-contrast amber warning badge adhering to the anti-slop guidelines:
+  ```css
+  bg-amber-950/40 border border-amber-500/60 text-amber-300 font-mono text-xs px-2.5 py-1 rounded
+  ```
+- **"Not Assessed" Indicator**: Quiet slate badge for incomplete ratings:
+  ```css
+  bg-slate-900/60 border border-slate-700 text-slate-400 font-mono text-xs px-2.5 py-1 rounded
+  ```
+- **Prompt Banner**: Warning toast / banner above action buttons if the user attempts to proceed without selecting required fields:
+  ```css
+  bg-amber-500/10 border-l-4 border-amber-500 p-3 text-amber-200 text-xs font-mono
+  ```
 
-```typescript
-// Shaft Sink Definition
-export interface MiningShaftSinkProfile {
-  shaftDiameterM: number;
-  depthBelowCollarM: number;
-  shaftCenterCoordinates: { easting: number; northing: number };
-  plumbLineOffsets: {
-    centerPlumb: { x: number; y: number };
-    northPlumb: { x: number; y: number };
-    eastPlumb: { x: number; y: number };
-  };
-  liningRingNumber: number;
-  curbRingDistanceToFaceM: number;
-  totalWaterInflowLpm: number;
-}
+---
 
-// Instrumentation & Convergence Monitoring
-export interface GeotechInstrumentationStation {
-  id: string;
-  stationName: string;
-  type: 'CONVERGENCE_PINS' | 'MPBX' | 'PIEZOMETER_VWP' | 'LOAD_CELL';
-  chainageOrDepth: string;
-  installationDate: string;
-  baselineReadingMm: number;
-  currentReadingMm: number;
-  totalDisplacementMm: number;
-  velocityMmPerDay: number;
-  warningThresholdMm: number;
-  criticalThresholdMm: number;
-  tarpLevel: 'NORMAL' | 'AMBER_ALERT' | 'RED_EVACUATE';
-  readingsHistory: { timestamp: string; readingMm: number; velocity: number }[];
-  installedGroundSupport: string;
-}
+## 3. Key Product Decisions & Trade-Offs
 
-// Forward Probe Hole Drilling Log
-export interface ForwardProbeHoleRecord {
-  id: string;
-  holeNumber: string;
-  collarElevationM: number;
-  plannedLengthM: number;
-  drilledLengthM: number;
-  azimuthDeg: number;
-  dipDeg: number;
-  holePurpose: 'WATER_CHECK' | 'GAS_CHECK' | 'GEOTECH_PILOT' | 'GROUT_PROBE';
-  penetrationRateMPerHr: number;
-  waterInflowLpm: number;
-  waterPressureBar: number;
-  gasDetected: { ch4Pct: number; h2sPpm: number; coPpm: number };
-  cavityOrVoidEncountered: boolean;
-  voidInterval?: { fromM: number; toM: number };
-  geologicalContactNotes: string;
-  clearanceStatus: 'CLEAR_TO_ADVANCE' | 'RESTRICTED_ADVANCE' | 'MANDATORY_PREGROUTING';
-}
+### Decision 1: Nullable Parameter Types vs. Zero Sentinel Values
+- **Chosen Approach**: Transition `RmrParameters`, `QIndexParameters`, and `TunnelSettings` to strictly support nullable fields (`null | undefined`) rather than using `0` as an unassigned sentinel.
+- **Why**: In rock mechanics, `0` is a valid mathematical value (e.g., $0^\circ$ True North drive azimuth, $0\text{ MPa}$ UCS lower bound, or $0\text{ mm}$ shotcrete). Using `0` creates dangerous ambiguity between "user entered zero" and "unassigned default". `null` guarantees intentionality.
+
+### Decision 2: Clear "Tap to Select" Segmented Controls
+- **Chosen Approach**: Segmented button groups (such as Shape selection: D-Shaped, Horseshoe, Circular, or Excavation Approach: Full Face, Heading & Bench) will initialize with none active if unchosen, displaying an amber `Not Selected` prompt above the group until the user makes an explicit selection.
+- **Why**: Eliminates passive acceptance of whichever button was first in the DOM list.
+
+### Decision 3: Non-Blocking Mapping vs. Strict Classification Gating
+- **Chosen Approach**: Allow geologists to freely trace joint lines and sketch on the CAD canvas even if geotechnical classification parameters are still pending; but strictly gate the Q-System, RMR, and GSI classification results as `Not Assessed` on all canvases, inspection sheets, and exports.
+- **Why**: Respects rapid field workflows where joint geometry is traced at the face first, and laboratory UCS or joint surface roughness index is assessed later at the site office.
+
+---
+
+## 4. Technical Architecture & Data Strategy
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             Global State Store                              │
+│  • TunnelSettings: { driveDirection: number | null, ... }                   │
+│  • TunnelGeometry: { width: number | null, height: number | null, ... }     │
+│  • QIndexParameters: { rqd: number | null, jn: number | null, ... }        │
+│  • ParameterInputStatus: Record<ParamKey, 'assessed' | 'not_assessed'>      │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                   ┌───────────────────┴───────────────────┐
+                   ▼                                       ▼
+┌──────────────────────────────────────┐  ┌───────────────────────────────────┐
+│     Project & Geotech Modal UI       │  │   Field Mapping Mode Workspace    │
+│ • ClampedNumericInput (empty state)  │  │ • Empty-state segmented controls  │
+│ • Amber "Not Selected" badges        │  │ • Unassigned Lithology / Water    │
+│ • Real-time field prompts            │  │ • Explicit selection triggers     │
+└──────────────────┬───────────────────┘  └─────────────────┬─────────────────┘
+                   │                                        │
+                   └───────────────────┬────────────────────┘
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   Rock Mass Classification Engine Check                     │
+│   evaluateQSystemWithValidation() / calculateBieniawskiRmr()                │
+│   • If ANY required field is null/unassessed -> isComplete = false          │
+│   • Returns: qValue = null, label = "Not Assessed"                          │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                   ┌───────────────────┴───────────────────┐
+                   ▼                                       ▼
+┌──────────────────────────────────────┐  ┌───────────────────────────────────┐
+│    Engineering Sheet (SVG / Canvas)  │  │    PDF & Word Export Engine       │
+│ • Amber / Slate "Not Assessed" box   │  │ • Clean ISO tables:               │
+│ • Zero synthetic default values      │  │   "Not Assessed" across all rows  │
+└──────────────────────────────────────┘  └───────────────────────────────────┘
 ```
 
-#### C. New & Updated Component Modules
-
-1. `src/components/mining/MiningShaftCanvas.tsx`: Polar coordinate rendering engine for circular shaft sink mapping with radial degree ticks, concentric circles, plumb datums, and sector classification.
-2. `src/components/mining/MiningInstrumentationWindow.tsx`: Dedicated geotechnical monitoring workbench with interactive deformation velocity graphs, sensor logs, and TARP status management.
-3. `src/components/mining/MiningProbeDrillingWindow.tsx`: Dedicated forward probe drilling workbench with fan pattern cross-section, penetration logs, inflow gauges, and advance clearance certificates.
-4. `src/components/mining/MiningMappingWorkspace.tsx`: Top header navigation integration with new working window tabs, state synchronization, and profile switching.
-5. `src/engine/miningFaceEngine.ts`: Shaft polygon calculation and probe hole 3D DXF string generation.
+### Components to Update in Execution Phase:
+1. `src/types/tunnel.ts`: Allow nullable parameter values in `TunnelSettings`, `TunnelGeometry`, `RmrParameters`, and `QIndexParameters`.
+2. `src/engine/rockMassClassificationEngine.ts`: Update default parameter initializers to return unassessed (`null`) states, with validation checks ensuring no calculation occurs until all mandatory parameters are populated.
+3. `src/components/ClampedNumericInput.tsx`: Enhance support for empty/null states with an amber `Not Selected · Tap to Enter` badge and clear input placeholder.
+4. `src/components/ProjectConfigurationAndGeotechModal.tsx`: Render amber `Not Selected` indicators for unselected dropdowns and segmented controls; display prompt banners for missing data.
+5. `src/components/FieldMappingModeWorkspace.tsx`: Initialize new projects, locations, and rounds with zero defaults, showing `Not Selected` indicators across form fields.
+6. `src/engine/pdfAndWordExportEngine.ts` & `src/components/EngineeringSheetModal.tsx`: Maintain the strict `Not Assessed` status across all export channels.

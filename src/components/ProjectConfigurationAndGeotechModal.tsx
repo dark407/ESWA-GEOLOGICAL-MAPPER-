@@ -252,7 +252,9 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
                 {calculatedRmrTotal}
               </span>
             ) : (
-              <span className="text-[10px] text-amber-400">Pending</span>
+              <span className="px-1.5 py-0.2 rounded bg-amber-950/60 border border-amber-500/60 text-amber-300 text-[10px] font-bold">
+                Not Assessed
+              </span>
             )}
           </button>
 
@@ -272,7 +274,9 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
                 {calculatedQ}
               </span>
             ) : (
-              <span className="text-[10px] text-amber-400">Pending</span>
+              <span className="px-1.5 py-0.2 rounded bg-amber-950/60 border border-amber-500/60 text-amber-300 text-[10px] font-bold">
+                Not Assessed
+              </span>
             )}
           </button>
 
@@ -680,9 +684,17 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
 
                 {/* 4. Discontinuity Condition */}
                 <div className="p-4 rounded-xl bg-slate-950/40 border border-slate-800 space-y-3">
-                  <span className="text-xs font-mono font-bold text-cyan-400 block">
-                    4. CONDITION OF DISCONTINUITIES
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-cyan-400 block">
+                      4. CONDITION OF DISCONTINUITIES
+                    </span>
+                    {localRmr.conditionRating === null && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <div className="space-y-1.5">
                     <label className="text-xs text-slate-200">Joint Wall Description / Rating</label>
                     <select
@@ -693,7 +705,7 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
                       }}
                       className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono text-slate-100"
                     >
-                      <option value="">(Not Assessed)</option>
+                      <option value="">(Not Selected — Tap to choose)</option>
                       <option value="30">Very rough, unweathered, tight (30 pts)</option>
                       <option value="25">Slightly rough, separation &lt; 1mm, slightly weathered (25 pts)</option>
                       <option value="20">Slightly rough, separation &lt; 1mm, highly weathered (20 pts)</option>
@@ -705,9 +717,17 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
 
                 {/* 5. Groundwater Conditions */}
                 <div className="p-4 rounded-xl bg-slate-950/40 border border-slate-800 space-y-3">
-                  <span className="text-xs font-mono font-bold text-cyan-400 block">
-                    5. GROUNDWATER INFLOW
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-cyan-400 block">
+                      5. GROUNDWATER INFLOW
+                    </span>
+                    {localRmr.groundwaterRating === null && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <div className="space-y-1.5">
                     <label className="text-xs text-slate-200">Excavation Water State</label>
                     <select
@@ -718,7 +738,7 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
                       }}
                       className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono text-slate-100"
                     >
-                      <option value="">(Not Assessed)</option>
+                      <option value="">(Not Selected — Tap to choose)</option>
                       <option value="15">Completely Dry (15 pts)</option>
                       <option value="10">Damp (&lt; 10 L/min per 10m) (10 pts)</option>
                       <option value="7">Wet (10–25 L/min per 10m) (7 pts)</option>
@@ -730,9 +750,17 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
 
                 {/* 6. Discontinuity Orientation Adjustment */}
                 <div className="p-4 rounded-xl bg-slate-950/40 border border-slate-800 space-y-3">
-                  <span className="text-xs font-mono font-bold text-cyan-400 block">
-                    6. ORIENTATION ADJUSTMENT (TABLE B)
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-cyan-400 block">
+                      6. ORIENTATION ADJUSTMENT (TABLE B)
+                    </span>
+                    {localRmr.orientationAdjustmentRating === null && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/50 border border-amber-500/70 text-amber-300 font-mono text-[10.5px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <div className="space-y-1.5">
                     <label className="text-xs text-slate-200">Drive Direction Favorability</label>
                     <select
@@ -743,6 +771,7 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
                       }}
                       className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono text-slate-100"
                     >
+                      <option value="">(Not Selected — Tap to choose)</option>
                       <option value="0">Fair / Neutral (0 pts)</option>
                       <option value="-2">Favorable (-2 pts)</option>
                       <option value="-5">Unfavorable (-5 pts)</option>
@@ -784,61 +813,73 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
                 <ClampedNumericInput
                   label="RQD (Core Recovery)"
                   value={localQ.rqd}
-                  onChange={(val) => setLocalQ((p) => ({ ...p, rqd: val ?? 10 }))}
+                  onChange={(val) => setLocalQ((p) => ({ ...p, rqd: val }))}
                   min={10}
                   max={100}
                   step={1}
                   unit="%"
+                  allowNull
+                  nullLabel="Not Selected"
                   helperText="10% minimum per Barton"
                 />
 
                 <ClampedNumericInput
                   label="Jn (Joint Set Number)"
                   value={localQ.jn}
-                  onChange={(val) => setLocalQ((p) => ({ ...p, jn: val ?? 3.0 }))}
+                  onChange={(val) => setLocalQ((p) => ({ ...p, jn: val }))}
                   min={0.5}
                   max={20.0}
                   step={0.5}
+                  allowNull
+                  nullLabel="Not Selected"
                   helperText="0.5 (Massive) to 20 (Crushed)"
                 />
 
                 <ClampedNumericInput
                   label="Jr (Roughness Number)"
                   value={localQ.jr}
-                  onChange={(val) => setLocalQ((p) => ({ ...p, jr: val ?? 1.5 }))}
+                  onChange={(val) => setLocalQ((p) => ({ ...p, jr: val }))}
                   min={0.5}
                   max={4.0}
                   step={0.5}
+                  allowNull
+                  nullLabel="Not Selected"
                   helperText="0.5 (Slickenside) to 4 (Discontinuous)"
                 />
 
                 <ClampedNumericInput
                   label="Ja (Alteration Number)"
                   value={localQ.ja}
-                  onChange={(val) => setLocalQ((p) => ({ ...p, ja: val ?? 1.0 }))}
+                  onChange={(val) => setLocalQ((p) => ({ ...p, ja: val }))}
                   min={0.75}
                   max={20.0}
                   step={0.25}
+                  allowNull
+                  nullLabel="Not Selected"
                   helperText="0.75 (Healed) to 20 (Clay gouge)"
                 />
 
                 <ClampedNumericInput
                   label="Jw (Water Reduction Factor)"
                   value={localQ.jw}
-                  onChange={(val) => setLocalQ((p) => ({ ...p, jw: val ?? 1.0 }))}
+                  onChange={(val) => setLocalQ((p) => ({ ...p, jw: val }))}
                   min={0.05}
                   max={1.0}
                   step={0.05}
+                  allowNull
+                  nullLabel="Not Selected"
                   helperText="1.0 (Dry) to 0.05 (High pressure)"
                 />
 
                 <ClampedNumericInput
                   label="SRF (Stress Reduction Factor)"
                   value={localQ.srf}
-                  onChange={(val) => setLocalQ((p) => ({ ...p, srf: val ?? 1.0 }))}
+                  onChange={(val) => setLocalQ((p) => ({ ...p, srf: val }))}
                   min={0.5}
                   max={200.0}
                   step={0.5}
+                  allowNull
+                  nullLabel="Not Selected"
                   helperText="0.5 (Competent) to 200 (Heavy squeeze)"
                 />
               </div>

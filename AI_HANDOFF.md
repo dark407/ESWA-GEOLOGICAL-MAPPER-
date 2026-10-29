@@ -221,16 +221,37 @@ Whenever a new user prompt is received:
 
 ---
 
+- [x] **Milestone 30: Removed +3D Continue Button & Restored View Rotate Button:**
+  - Removed the `+3D Continue` button from the 3D Tunnel Canvas top controls toolbar (`Field3DTunnelCanvas.tsx`).
+  - Removed the on-canvas `⚡ +3D Continue` HUD badge from smart continuation ghost traces.
+  - Restored the `🖐 View Rotate` toggle button in the 3D Tunnel Canvas top bar that was removed previously in error.
+  - Fixed property access `traceAngle` in `EngineeringSheetModal.tsx`.
+  - Verified 100% clean TypeScript type check (`tsc --noEmit`) and successful production bundle compilation (`compile_applet`).
+
+- [x] **Milestone 31: Comprehensive Parameter Input, Physical Bound Clamping & Verified Reporting Workflow:**
+  - Integrated `ClampedNumericInput` and `rockMechanicsValidator.ts` across the application, enforcing real-time physical bounds on Drive Azimuth (0°–360°), Dip (0°–90°), UCS (0.5–500 MPa), RQD (0%–100%), Barton Q parameters (Jn, Jr, Ja, Jw, SRF), and tunnel geometry (span, height, pull length).
+  - Wired `ProjectConfigurationAndGeotechModal.tsx` into `App.tsx` (accessible from main header and workflows), `CadRibbonAndCommandBar.tsx` (quick Geotech button), `MappingWorkspace.tsx`, `DriveAndPhotosScreen.tsx`, and `FieldMappingModeWorkspace.tsx`.
+  - Replaced ambiguous 'N/A', 'Pending', or synthetic zeroes with verified `'Not Assessed'` (`border border-slate-700 text-slate-400 bg-slate-900/60`) in `EngineeringSheetModal.tsx` across SVG drawing sheets, rock mass classification boxes, and batch tables.
+  - Updated `pdfAndWordExportEngine.ts` to output `'Not Assessed'` for unassessed Barton Q, Bieniawski RMR, and Hoek-Brown GSI classifications across high-DPI PDF and Word `.doc` reports.
+  - Verified 100% clean TypeScript type check (`tsc --noEmit`) and successful production bundle compilation (`compile_applet`).
+
+---
+
 ### ACTIVE TASK CHECKPOINT
 <!-- FUTURE AI SESSIONS: Check this section first. If a task is active, resume from the first unchecked [ ] file. -->
 
-- **Current Status:** COMPLETED (Milestones 1 to 29 fully implemented & verified)
+- **Current Status:** IDLE (All tasks completed)
 - **Active Task:** None
 - **Target Files Checklist:**
-  - [x] `/src/components/Field3DTunnelCanvas.tsx` (Removed targeted View Rotate button)
-  - [x] `/AI_HANDOFF.md` (Updated permanent memory)
+  - [x] `/src/App.tsx` (Wire ProjectConfigurationAndGeotechModal into header, ribbon, and global state)
+  - [x] `/src/components/CadRibbonAndCommandBar.tsx` (Add quick Geotech / Parameters launcher)
+  - [x] `/src/components/FieldMappingModeWorkspace.tsx` (Add Geotech & Project configuration trigger)
+  - [x] `/src/components/EngineeringSheetModal.tsx` (Ensure unentered parameters badge cleanly as "Not Assessed")
+  - [x] `/src/engine/pdfAndWordExportEngine.ts` (Ensure export templates render "Not Assessed" instead of synthetic zeroes)
+  - [x] `/AI_HANDOFF.md` (Update permanent memory)
 - **Notes / Last Known State:**
-  - Zero TypeScript compiler errors (`tsc --noEmit` clean). Full production build (`compile_applet`) succeeded with 0 errors. All focus-mode targeted requirements 100% verified.
+  - Milestone 31 verified and completed. Application is in pristine working state.
+
 
 
 

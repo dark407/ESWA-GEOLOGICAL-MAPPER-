@@ -21,7 +21,12 @@ import {
 import {
   autoEstimateQIndexFromMappedJoints,
   calculateBartonQSystem,
+  createBlankQIndexParameters,
+  createDefaultQIndexParameters,
 } from './photoWarpEngine';
+
+export { createBlankQIndexParameters };
+
 
 export interface ClassificationMethodDescriptor {
   id: RockMassClassificationMethodId;
@@ -621,16 +626,16 @@ export function calculateBieniawskiRmr(params: RmrParameters): RmrCalculationRes
       orientationAdjustment: rAdj,
       finalRmr: null,
       rockMassClassNumber: 'INCOMPLETE',
-      rockMassClassLabel: 'Required input not available',
-      rockQualityDescription: 'Enter or confirm missing parameters to calculate RMR',
+      rockMassClassLabel: 'Not Assessed',
+      rockQualityDescription: 'Not Assessed — enter all 6 Bieniawski parameters to evaluate',
       colorHex: '#64748B',
-      averageStandUpTime: 'Required input not available',
-      cohesionKPa: 'Required input not available',
-      frictionAngleDeg: 'Required input not available',
+      averageStandUpTime: 'Not Assessed',
+      cohesionKPa: 'Not Assessed',
+      frictionAngleDeg: 'Not Assessed',
       deformationModulusGPa: null,
       recommendedSupportGuidelines:
-        'Required input not available — complete all 6 RMR parameters.',
-      calculationSummaryFormula: `Missing: ${missingParamLabels.join(', ')}`,
+        'Not Assessed — complete all 6 RMR parameters.',
+      calculationSummaryFormula: `Not Assessed — Missing: ${missingParamLabels.join(', ')}`,
     };
   }
 
@@ -956,15 +961,34 @@ export function evaluateQSystemWithValidation(
     }
   }
 
-  const isComplete = missingParamLabels.length === 0;
+  const isComplete =
+    missingParamLabels.length === 0 &&
+    qParams.rqd !== null &&
+    qParams.jn !== null &&
+    qParams.jr !== null &&
+    qParams.ja !== null &&
+    qParams.jw !== null &&
+    qParams.srf !== null;
   const hasUnconfirmedSuggestions = unconfirmedParamLabels.length > 0;
 
   const calculationSummaryFormula = isComplete
     ? `Q = (RQD/Jn) × (Jr/Ja) × (Jw/SRF) = (${qParams.rqd}/${baseResult.effectiveJn}) × (${qParams.jr}/${qParams.ja}) × (${qParams.jw}/${qParams.srf}) = ${baseResult.qValue.toFixed(3)}`
-    : `Required input not available — Missing: ${missingParamLabels.join(', ')}`;
+    : `Not Assessed — Missing: ${missingParamLabels.join(', ')}`;
+
+  const finalResult = isComplete
+    ? baseResult
+    : {
+        ...baseResult,
+        qValue: null as any,
+        rockMassClass: 'Not Assessed',
+        rockQualityCategory: 'Not Assessed',
+        estimatedRmr: null as any,
+        recommendedSupport: 'Not Assessed — complete all 6 Barton Q-System parameters.',
+        colorHex: '#64748B',
+      };
 
   return {
-    ...baseResult,
+    ...finalResult,
     isComplete,
     hasUnconfirmedSuggestions,
     missingParamLabels,
@@ -1089,6 +1113,24 @@ export const GSI_SURFACE_CONDITION_OPTIONS: {
   },
 ];
 
+export function createBlankGsiParameters(): GsiParameters {
+  return {
+    structureCategory: 'MISSING',
+    structureRating: null,
+    surfaceConditionCategory: 'MISSING',
+    surfaceConditionRating: null,
+    disturbanceFactorD: null,
+    intactUcsMPa: null,
+    miHoekBrownConstant: null,
+    paramStatus: {
+      structure: 'MISSING',
+      surfaceCondition: 'MISSING',
+      intactUcs: 'MISSING',
+    },
+    userConfirmed: false,
+  };
+}
+
 export function createDefaultGsiParameters(): GsiParameters {
   return {
     structureCategory: 'BLOCKY',
@@ -1152,15 +1194,15 @@ export function calculateHoekGsi(params: GsiParameters): GsiCalculationResult {
       missingParamLabels,
       unconfirmedParamLabels,
       gsiValue: null,
-      gsiRangeLabel: 'Required input not available',
-      rockMassClassLabel: 'Required input not available',
+      gsiRangeLabel: 'Not Assessed',
+      rockMassClassLabel: 'Not Assessed',
       colorHex: '#64748B',
       mbReducedConstant: null,
       sConstant: null,
       aConstant: null,
       deformationModulusGPa: null,
-      recommendedSupportGuidelines: 'Required input not available — select Structure & Surface Condition.',
-      calculationSummaryFormula: `Missing: ${missingParamLabels.join(', ')}`,
+      recommendedSupportGuidelines: 'Not Assessed — select Structure & Surface Condition.',
+      calculationSummaryFormula: `Not Assessed — Missing: ${missingParamLabels.join(', ')}`,
     };
   }
 

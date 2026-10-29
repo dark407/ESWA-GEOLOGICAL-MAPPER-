@@ -15,7 +15,6 @@ import {
   Sliders,
   Sparkles,
   Trash2,
-  Wand2,
 } from 'lucide-react';
 import {
   buildDipSurfacePolygonWithOutlineSnap,
@@ -2816,8 +2815,30 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             </div>
           )}
 
-          {/* 3D View Center Reset */}
-          <div className="flex items-center gap-1 bg-slate-900 border border-slate-700/60 rounded-md px-1.5 py-0.5">
+          {/* Top Toolbar View Toggle: Click to Rotate Any Side Using Finger */}
+          <div className="flex items-center gap-1 bg-slate-900 border border-cyan-500/50 rounded-md px-1.5 py-0.5">
+            <button
+              type="button"
+              onClick={() => setInsideNavMode((m) => (m === 'draw' ? 'rotate' : 'draw'))}
+              className={`px-2 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all flex items-center gap-1 ${
+                insideNavMode === 'rotate'
+                  ? 'bg-amber-400 text-slate-950 shadow-md ring-1 ring-amber-200'
+                  : 'bg-slate-800 text-cyan-300 hover:bg-slate-700 hover:text-white'
+              }`}
+              title="View Toggle — click to rotate the 3D tunnel to any side/angle using your finger, then click again to resume tracing!"
+            >
+              {insideNavMode === 'rotate' ? '🖐 View Rotate: ON' : '🖐 View Rotate'}
+            </button>
+            {insideNavMode === 'rotate' && (
+              <button
+                type="button"
+                onClick={() => setInsideNavMode('draw')}
+                className="px-1.5 py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[9.5px] font-black cursor-pointer"
+                title="Switch back to Trace / Draw mode"
+              >
+                ✏️ Trace
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -2879,17 +2900,6 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             </div>
           )}
 
-          {smartContinuationPreview && (
-            <button
-              type="button"
-              onClick={handleAcceptSmart3DContinuation}
-              className="px-1.5 py-0.5 rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-[9.5px] flex items-center gap-1 cursor-pointer shadow"
-              title="Extend selected trace across the other 3D tunnel walls using its true 3D Dip Direction & Dip Angle plane"
-            >
-              <Wand2 className="w-3 h-3" />
-              +3D Continue ({smartContinuationPreview.otherPanels.length})
-            </button>
-          )}
 
           <button
             type="button"
@@ -3985,30 +3995,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
                     strokeDasharray="6 4"
                     strokeLinecap="round"
                   />
-                  {mid && (
-                    <g transform={`translate(${mid.x.toFixed(1)}, ${mid.y.toFixed(1)})`}>
-                      <rect
-                        x={-40}
-                        y={-8}
-                        width={80}
-                        height={16}
-                        rx={4}
-                        fill="#0891b2"
-                        stroke="#ffffff"
-                        strokeWidth="1.2"
-                      />
-                      <text
-                        x={0}
-                        y={3}
-                        textAnchor="middle"
-                        fontSize="8.5"
-                        fontWeight="900"
-                        fill="#ffffff"
-                      >
-                        ⚡ +3D Continue
-                      </text>
-                    </g>
-                  )}
+
                 </g>
               );
             })}

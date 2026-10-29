@@ -2398,39 +2398,37 @@ export function createNewExcavationRound(
       gsi: true,
     },
     reportColorMode: 'color',
-    weatheringIndex: 'WII',
-    strengthIndex: 'S2',
-    faceStabilityStatus: 'Stable',
+    weatheringIndex: '' as any,
+    strengthIndex: '' as any,
+    faceStabilityStatus: '' as any,
     qSystem: {
-      rqd: 65,
-      jn: 9,
-      jr: 2.0,
-      ja: 1.0,
-      jw: 1.0,
-      srf: 1.0,
+      rqd: null as any,
+      jn: null as any,
+      jr: null as any,
+      ja: null as any,
+      jw: null as any,
+      srf: null as any,
     },
     rmrSystem: {
-      ucsRating: 12,
-      rqdRating: 13,
-      spacingRating: 10,
-      conditionRating: 20,
-      waterRating: 15,
-      orientationAdj: -5,
+      ucsRating: null as any,
+      rqdRating: null as any,
+      spacingRating: null as any,
+      conditionRating: null as any,
+      waterRating: null as any,
+      orientationAdj: null as any,
     },
-    gsiValue: 60,
-    rockMassStructuralType: 'Blocky',
-    surfaceQualityType: 'Good',
-    geologicalDescription:
-      'Moderately jointed, fresh to slightly weathered grey Quartzite with thin foliated Phyllite / Shale bands and minor tight quartz veins. Face is generally stable with damp seepage along J1/J2 intersections.',
-    rockSupportRecommendation:
-      'Systematic rock bolting L=3.0m @ 1.5m x 1.5m c/c + 75mm SFRS (Steel Fibre Reinforced Shotcrete).',
-    overbreakNotes: 'Minor wedge overbreak (15–25 cm) at right shoulder along J1 & J2.',
+    gsiValue: null as any,
+    rockMassStructuralType: '',
+    surfaceQualityType: '',
+    geologicalDescription: '',
+    rockSupportRecommendation: '',
+    overbreakNotes: '',
     geologistName: '',
     clientRepName: '',
     contractorRepName: '',
-    contractorGeologistName: 'Contractor Geologist',
+    contractorGeologistName: '',
     contractorGeologistSign: '',
-    clientGeologistName: 'Client Geologist',
+    clientGeologistName: '',
     clientGeologistSign: '',
     customTickBoxGroups: createDefaultCustomTickBoxGroups(),
     customTemplateFields: {},
@@ -3394,25 +3392,40 @@ export function syncDiscontinuitySetsFromCanvas(
 }
 
 export function computeFieldQValue(q?: Partial<FieldExcavationRound['qSystem']> | null): {
-  qValue: number;
+  qValue: number | null;
   rockClass: string;
 } {
-  const safeQ = q || {
-    rqd: 65,
-    jn: 9,
-    jr: 1.5,
-    ja: 1.0,
-    jw: 1.0,
-    srf: 1.0,
-  };
-  const rqd = typeof safeQ.rqd === 'number' ? safeQ.rqd : 65;
-  const jn = Math.max(0.5, safeQ.jn || 9);
-  const ja = Math.max(0.75, safeQ.ja || 1);
-  const jr = typeof safeQ.jr === 'number' ? safeQ.jr : 1.5;
-  const jw = typeof safeQ.jw === 'number' ? safeQ.jw : 1.0;
-  const srf = Math.max(0.5, safeQ.srf || 1);
+  if (
+    !q ||
+    q.rqd === null ||
+    q.rqd === undefined ||
+    q.jn === null ||
+    q.jn === undefined ||
+    q.jr === null ||
+    q.jr === undefined ||
+    q.ja === null ||
+    q.ja === undefined ||
+    q.jw === null ||
+    q.jw === undefined ||
+    q.srf === null ||
+    q.srf === undefined
+  ) {
+    return { qValue: null, rockClass: 'Not Assessed' };
+  }
+
+  const rqd = q.rqd;
+  const jn = q.jn;
+  const ja = q.ja;
+  const jr = q.jr;
+  const jw = q.jw;
+  const srf = q.srf;
+
+  if (jn <= 0 || ja <= 0 || srf <= 0) {
+    return { qValue: null, rockClass: 'Not Assessed' };
+  }
+
   const rawQ = (rqd / jn) * (jr / ja) * (jw / srf);
-  const qValue = Number(Math.max(0.001, rawQ).toFixed(2));
+  const qValue = Number(Math.max(0.001, rawQ).toFixed(3));
 
   let rockClass = 'Class D — Poor Rock';
   if (qValue > 40) rockClass = 'Class A — Very Good to Exceptionally Good Rock';
@@ -3426,37 +3439,47 @@ export function computeFieldQValue(q?: Partial<FieldExcavationRound['qSystem']> 
 }
 
 export function computeFieldRmrValue(rmr?: Partial<FieldExcavationRound['rmrSystem']> | null): {
-  totalRmr: number;
+  totalRmr: number | null;
   rmrClass: string;
 } {
-  const safeRmr = rmr || {
-    ucsRating: 7,
-    rqdRating: 13,
-    spacingRating: 10,
-    conditionRating: 16,
-    waterRating: 10,
-    orientationAdj: -5,
-  };
+  if (
+    !rmr ||
+    rmr.ucsRating === null ||
+    rmr.ucsRating === undefined ||
+    rmr.rqdRating === null ||
+    rmr.rqdRating === undefined ||
+    rmr.spacingRating === null ||
+    rmr.spacingRating === undefined ||
+    rmr.conditionRating === null ||
+    rmr.conditionRating === undefined ||
+    rmr.waterRating === null ||
+    rmr.waterRating === undefined
+  ) {
+    return { totalRmr: null, rmrClass: 'Not Assessed' };
+  }
+
   const totalRmr = Math.max(
     0,
     Math.min(
       100,
       Math.round(
-        (safeRmr.ucsRating || 0) +
-          (safeRmr.rqdRating || 0) +
-          (safeRmr.spacingRating || 0) +
-          (safeRmr.conditionRating || 0) +
-          (safeRmr.waterRating || 0) +
-          (safeRmr.orientationAdj || 0)
+        (rmr.ucsRating || 0) +
+          (rmr.rqdRating || 0) +
+          (rmr.spacingRating || 0) +
+          (rmr.conditionRating || 0) +
+          (rmr.waterRating || 0) +
+          (rmr.orientationAdj || 0)
       )
     )
   );
+
   let rmrClass = 'Class III — Fair Rock (41–60)';
   if (totalRmr >= 81) rmrClass = 'Class I — Very Good Rock (81–100)';
   else if (totalRmr >= 61) rmrClass = 'Class II — Good Rock (61–80)';
   else if (totalRmr >= 41) rmrClass = 'Class III — Fair Rock (41–60)';
   else if (totalRmr >= 21) rmrClass = 'Class IV — Poor Rock (21–40)';
   else rmrClass = 'Class V — Very Poor Rock (< 20)';
+
   return { totalRmr, rmrClass };
 }
 

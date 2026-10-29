@@ -259,6 +259,7 @@ interface MappingWorkspaceProps {
   canUndo: boolean;
   canRedo: boolean;
   onBackToSetup: () => void;
+  onOpenProjectConfiguration?: () => void;
   onOpenExportSheet: (mode?: OutputSheetMode) => void;
   onSaveOfflineDraft: () => void;
   sessionMemory: SessionLearningMemory;
@@ -343,6 +344,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
   canUndo,
   canRedo,
   onBackToSetup,
+  onOpenProjectConfiguration,
   onOpenExportSheet,
   onSaveOfflineDraft,
   sessionMemory,
@@ -4082,6 +4084,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
         windowComplexityMode={windowComplexityMode}
         setWindowComplexityMode={setWindowComplexityMode}
         onBackToSetup={onBackToSetup}
+        onOpenProjectConfiguration={onOpenProjectConfiguration}
         onSaveOfflineDraft={onSaveOfflineDraft}
         onOpenProjectMemoryModal={onOpenProjectMemoryModal}
         onOpenCustomProfileEditor={onOpenCustomProfileEditor}

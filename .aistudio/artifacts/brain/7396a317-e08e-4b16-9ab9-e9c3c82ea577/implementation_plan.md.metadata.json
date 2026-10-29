@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for Shaft Face Mapping, Geotechnical Instrumentation & Monitoring, and Forward Probe Hole Drilling within the ESWA Underground Mining & Geotechnical Face Mapping Suite.",
-  "updatedAt":  "2026-10-25T21:09:21.054654244Z",
+  "summary":  "Implementation plan for enforcing zero pre-selected defaults across all project setup, geometry, and geotechnical workflows, with high-contrast amber 'Not Selected' badges and strict 'Not Assessed' rating evaluation until explicitly chosen by the user.",
+  "updatedAt":  "2026-10-29T14:41:34.582365406Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

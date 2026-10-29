@@ -521,7 +521,7 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
       const rawDipDir = j.dipDirection ?? 135;
       const sol = solveTrueOrientationFromSurfaceTrace({
         surface: (j.surface as 'FACE' | 'LEFT_WALL' | 'CROWN' | 'RIGHT_WALL') || 'FACE',
-        traceAngle2D: j.traceAngle2D ?? 45,
+        traceAngle2D: j.traceAngle ?? 45,
         surfaceTiltAngle: rawDip,
         dip: rawDip,
         dipDirection: rawDipDir,
@@ -1068,12 +1068,12 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
               lithology: settings.lithology || rockMass.rockType || 'Unmapped',
               jointCount: joints.length,
               jointSetCount: jointSets.length,
-              qValue: qResult.isComplete ? qResult.qValue.toFixed(3) : 'N/A',
-              rmrValue: rmrResult.isComplete ? `${rmrResult.finalRmr}` : 'N/A',
+              qValue: qResult.isComplete ? qResult.qValue.toFixed(3) : 'Not Assessed',
+              rmrValue: rmrResult.isComplete ? `${rmrResult.finalRmr}` : 'Not Assessed',
               gsiValue:
                 gsiResult.isComplete && gsiResult.gsiValue !== null
                   ? `${gsiResult.gsiValue}`
-                  : 'N/A',
+                  : 'Not Assessed',
               designAreaSqM: overbreakAnalysis?.designAreaSqMeters ?? 0,
               surveyedAreaSqM: overbreakAnalysis?.surveyedAreaSqMeters ?? 0,
               overbreakAreaSqM: overbreakAnalysis?.overbreakAreaSqMeters ?? 0,
@@ -1084,7 +1084,7 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                 overbreakAnalysis?.overbreakVolumeCubicMeters !== null &&
                 overbreakAnalysis?.overbreakVolumeCubicMeters !== undefined
                   ? overbreakAnalysis.overbreakVolumeCubicMeters.toFixed(2)
-                  : 'N/A',
+                  : 'Not Assessed',
               qcStatus: qcReport.passed
                 ? 'PASSED'
                 : `${qcReport.issues.length} Flag(s)`,
@@ -6421,31 +6421,37 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                             <tspan fontWeight="700" fill="#0F172A">
                               {rmr.intactStrengthValueMPa !== null
                                 ? `${rmr.intactStrengthValueMPa}MPa (R1=${rmrResult.r1StrengthRating})`
-                                : 'N/A'}
+                                : 'Not Assessed'}
                             </tspan>{' '}
                             · RQD:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
                               {rmr.rqdPercent !== null
                                 ? `${rmr.rqdPercent}% (R2=${rmrResult.r2RqdRating})`
-                                : 'N/A'}
+                                : 'Not Assessed'}
                             </tspan>{' '}
                             · Spc:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
                               {rmr.spacingMeters !== null
                                 ? `${rmr.spacingMeters}m (R3=${rmrResult.r3SpacingRating})`
-                                : 'N/A'}
+                                : 'Not Assessed'}
                             </tspan>{' '}
                             · Cond:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              R4={rmrResult.r4ConditionRating ?? 'N/A'}
+                              {rmrResult.r4ConditionRating !== null && rmrResult.r4ConditionRating !== undefined
+                                ? `R4=${rmrResult.r4ConditionRating}`
+                                : 'Not Assessed'}
                             </tspan>{' '}
                             · Water:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              R5={rmrResult.r5GroundwaterRating ?? 'N/A'}
+                              {rmrResult.r5GroundwaterRating !== null && rmrResult.r5GroundwaterRating !== undefined
+                                ? `R5=${rmrResult.r5GroundwaterRating}`
+                                : 'Not Assessed'}
                             </tspan>{' '}
                             · Adj:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {rmrResult.orientationAdjustment ?? 'N/A'}
+                              {rmrResult.orientationAdjustment !== null && rmrResult.orientationAdjustment !== undefined
+                                ? `${rmrResult.orientationAdjustment}`
+                                : 'Not Assessed'}
                             </tspan>
                           </text>
 
@@ -6468,7 +6474,7 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                           >
                             {rmrResult.isComplete && rmrResult.finalRmr !== null
                               ? `RMR: ${rmrResult.finalRmr}`
-                              : 'RMR: N/A'}
+                              : 'RMR: Not Assessed'}
                           </text>
                           <text
                             x={qIndexAndNotesBlock.width - 82}
@@ -6635,15 +6641,15 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                           <text x="14" y="56" fontSize={contentMetrics.notesFontSize} fill="#334155">
                             Structure Rating:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {gsi.structureRating ?? 'N/A'} ({gsi.structureCategory})
+                              {gsi.structureRating !== null && gsi.structureRating !== undefined ? `${gsi.structureRating} (${gsi.structureCategory})` : 'Not Assessed'}
                             </tspan>{' '}
                             · Surface Condition:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {gsi.surfaceConditionRating ?? 'N/A'} ({gsi.surfaceConditionCategory})
+                              {gsi.surfaceConditionRating !== null && gsi.surfaceConditionRating !== undefined ? `${gsi.surfaceConditionRating} (${gsi.surfaceConditionCategory})` : 'Not Assessed'}
                             </tspan>{' '}
                             · UCS:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {gsi.intactUcsMPa ?? 'N/A'} MPa
+                              {gsi.intactUcsMPa !== null && gsi.intactUcsMPa !== undefined ? `${gsi.intactUcsMPa} MPa` : 'Not Assessed'}
                             </tspan>
                           </text>
 
@@ -6665,7 +6671,7 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                           >
                             {gsiResult.isComplete && gsiResult.gsiValue !== null
                               ? `GSI: ${gsiResult.gsiValue}`
-                              : 'GSI: N/A'}
+                              : 'GSI: Not Assessed'}
                           </text>
                           <text
                             x={qIndexAndNotesBlock.width - 82}
@@ -6723,27 +6729,27 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                           <text x="14" y="56" fontSize={contentMetrics.notesFontSize} fill="#334155">
                             RQD:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {qStatus.rqd === 'MISSING' ? 'N/A' : `${qIndex.rqd}%`}
+                              {qStatus.rqd === 'MISSING' || qIndex.rqd === null ? 'Not Assessed' : `${qIndex.rqd}%`}
                             </tspan>{' '}
                             · Jn:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {qStatus.jn === 'MISSING' ? 'N/A' : qResult.effectiveJn}
+                              {qStatus.jn === 'MISSING' || qResult.effectiveJn === null ? 'Not Assessed' : qResult.effectiveJn}
                             </tspan>{' '}
                             · Jr:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {qStatus.jr === 'MISSING' ? 'N/A' : qIndex.jr}
+                              {qStatus.jr === 'MISSING' || qIndex.jr === null ? 'Not Assessed' : qIndex.jr}
                             </tspan>{' '}
                             · Ja:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {qStatus.ja === 'MISSING' ? 'N/A' : qIndex.ja}
+                              {qStatus.ja === 'MISSING' || qIndex.ja === null ? 'Not Assessed' : qIndex.ja}
                             </tspan>{' '}
                             · Jw:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {qStatus.jw === 'MISSING' ? 'N/A' : qIndex.jw}
+                              {qStatus.jw === 'MISSING' || qIndex.jw === null ? 'Not Assessed' : qIndex.jw}
                             </tspan>{' '}
                             · SRF:{' '}
                             <tspan fontWeight="700" fill="#0F172A">
-                              {qStatus.srf === 'MISSING' ? 'N/A' : qIndex.srf}
+                              {qStatus.srf === 'MISSING' || qIndex.srf === null ? 'Not Assessed' : qIndex.srf}
                             </tspan>
                           </text>
 
@@ -6764,7 +6770,7 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
                             fontWeight="700"
                             fill="#38BDF8"
                           >
-                            {qResult.isComplete ? `Q: ${qResult.qValue.toFixed(3)}` : 'Q: N/A'}
+                            {qResult.isComplete ? `Q: ${qResult.qValue.toFixed(3)}` : 'Q: Not Assessed'}
                           </text>
                           <text
                             x={qIndexAndNotesBlock.width - 74}

@@ -1032,16 +1032,16 @@ export type OutputSheetMode =
  * Q = (RQD / Jn) * (Jr / Ja) * (Jw / SRF)
  */
 export interface QIndexParameters {
-  rqd: number;                  // Rock Quality Designation (10 to 100%)
-  jn: number;                   // Joint Set Number (0.5 to 20)
+  rqd: number | null;                  // Rock Quality Designation (10 to 100%)
+  jn: number | null;                   // Joint Set Number (0.5 to 20)
   jnDescription: string;
-  jr: number;                   // Joint Roughness Number (0.5 to 4)
+  jr: number | null;                   // Joint Roughness Number (0.5 to 4)
   jrDescription: string;
-  ja: number;                   // Joint Alteration Number (0.75 to 20)
+  ja: number | null;                   // Joint Alteration Number (0.75 to 20)
   jaDescription: string;
-  jw: number;                   // Joint Water Reduction Factor (0.05 to 1.0)
+  jw: number | null;                   // Joint Water Reduction Factor (0.05 to 1.0)
   jwDescription: string;
-  srf: number;                  // Stress Reduction Factor (0.5 to 200)
+  srf: number | null;                  // Stress Reduction Factor (0.5 to 200)
   srfDescription: string;
   excavationCategory?: string;  // Optional ESR excavation category description
   esr: number;                  // Excavation Support Ratio (default 1.0)
@@ -1053,7 +1053,7 @@ export interface QIndexParameters {
   suggestedFields?: ('rqd' | 'jn' | 'jr' | 'ja' | 'jw' | 'srf')[];
   userConfirmed?: boolean;
   confirmedAt?: string;
-  qValue?: number;
+  qValue?: number | null;
 }
 
 export type RockMassClassificationMethodId =

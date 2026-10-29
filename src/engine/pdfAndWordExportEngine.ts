@@ -297,10 +297,10 @@ function renderEngineeringSummaryCanvasPage(payload: PdfWordExportPayload): HTML
 
   ctx.fillStyle = '#0F172A';
   ctx.font = 'bold 15px monospace';
-  const qText = qRes.isComplete ? `${qRes.qValue} (${qRes.rockMassClass})` : 'Incomplete';
-  const rmrText = rmrRes ? `${rmrRes.finalRmr} (${rmrRes.rockMassClassLabel})` : 'N/A';
+  const qText = qRes.isComplete ? `${qRes.qValue} (${qRes.rockMassClass})` : 'Not Assessed';
+  const rmrText = rmrRes ? `${rmrRes.finalRmr} (${rmrRes.rockMassClassLabel})` : 'Not Assessed';
   const gsiText =
-    gsiRes?.gsiValue != null ? `${gsiRes.gsiValue} (${gsiRes.rockMassClassLabel || 'GSI'})` : 'N/A';
+    gsiRes?.gsiValue != null ? `${gsiRes.gsiValue} (${gsiRes.rockMassClassLabel || 'GSI'})` : 'Not Assessed';
 
   ctx.fillText(
     `Shape: ${geometry.width.toFixed(2)}m W × ${geometry.height.toFixed(
@@ -671,13 +671,13 @@ xmlns="http://www.w3.org/TR/REC-html40">
     <tr>
       <th>Barton Q-Index (NGI)</th>
       <td class="badge">${
-        qRes.isComplete ? `Q = ${qRes.qValue} (${qRes.rockMassClass})` : 'Pending'
+        qRes.isComplete ? `Q = ${qRes.qValue} (${qRes.rockMassClass})` : 'Not Assessed'
       }</td>
       <th>Bieniawski RMR</th>
-      <td class="badge">${rmrRes ? `RMR = ${rmrRes.finalRmr} (${rmrRes.rockMassClassLabel})` : 'N/A'}</td>
+      <td class="badge">${rmrRes ? `RMR = ${rmrRes.finalRmr} (${rmrRes.rockMassClassLabel})` : 'Not Assessed'}</td>
       <th>Hoek-Brown GSI</th>
       <td class="badge">${
-        gsiRes?.gsiValue != null ? `GSI = ${gsiRes.gsiValue} (${gsiRes.rockMassClassLabel || 'GSI'})` : 'N/A'
+        gsiRes?.gsiValue != null ? `GSI = ${gsiRes.gsiValue} (${gsiRes.rockMassClassLabel || 'GSI'})` : 'Not Assessed'
       }</td>
     </tr>
     <tr>
@@ -766,7 +766,7 @@ xmlns="http://www.w3.org/TR/REC-html40">
     qIndexParams.jr
   } · Ja = ${qIndexParams.ja} · Jw = ${qIndexParams.jw} · SRF = ${
     qIndexParams.srf
-  } → <strong>Q = ${qRes.qValue ?? 'N/A'}</strong></td>
+  } → <strong>Q = ${qRes.isComplete ? qRes.qValue : 'Not Assessed'}</strong></td>
     </tr>
     <tr>
       <th>Engineering Geologist Remarks</th>
