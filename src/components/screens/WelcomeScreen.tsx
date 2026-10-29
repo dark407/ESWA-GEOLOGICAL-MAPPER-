@@ -576,7 +576,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         </div>
       </div>
 
-      {isBootLoading && <EswaLoadingScreen onComplete={() => setIsBootLoading(false)} />}
+      {isBootLoading && (
+        <EswaLoadingScreen
+          onComplete={() => setIsBootLoading(false)}
+          isMasterEdition={isMasterSoftware}
+        />
+      )}
       {projectMemoryModalNode}
       {natmRockMechanicsModalNode}
       {continuousLoggingModalsNode}

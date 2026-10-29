@@ -3165,26 +3165,37 @@ export function computeTraceScreenDipTickVector(
  * small crisp labels ("J 045°/62°" or "J1 045°/62°") lie cleanly along the trace
  * and never collide with another joint trace or label.
  */
+export interface TraceInlineLabelPlacement {
+  x: number;
+  y: number;
+  angleDeg: number;
+  text: string;
+  boxW: number;
+  boxH: number;
+}
+
 export function computeTraceInlineLabelPlacements(
-  traces: FieldJointTrace[]
-): Record<
-  string,
-  {
+  traces: FieldJointTrace[],
+  options?: {
+    fontSize?: number;
+    extraObstacles?: { x: number; y: number; radius?: number }[];
+  }
+): Record<string, TraceInlineLabelPlacement> {
+  const result: Record<string, TraceInlineLabelPlacement> = {};
+  const placedLabels: {
+    id: string;
     x: number;
     y: number;
+    boxW: number;
+    boxH: number;
     angleDeg: number;
-    text: string;
-  }
-> {
-  const result: Record<
-    string,
-    { x: number; y: number; angleDeg: number; text: string }
-  > = {};
-  const placedCenters: { x: number; y: number }[] = [];
+  }[] = [];
+
+  const baseFontSize = options?.fontSize ?? 15;
 
   for (const tr of traces) {
     if (tr.points.length < 2) continue;
-    const prefix = tr.setId === 'unassigned' ? 'J' : tr.setId;
+    const prefix = tr.label || (tr.setId === 'unassigned' ? 'J' : tr.setId || 'J');
     const isCrown = tr.panel === 'crown';
     const strikeVal = ((tr.dipDirection - 90) % 360 + 360) % 360;
     const crownPair = getCrownStrikePair(strikeVal);
@@ -3192,11 +3203,20 @@ export function computeTraceInlineLabelPlacements(
       ? `${prefix} STR ${crownPair.label}`
       : `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`;
 
-    // Candidate fractional positions along the trace (0.5, 0.35, 0.65, 0.25, 0.75)
-    const candidateFractions = [0.5, 0.36, 0.64, 0.24, 0.76];
-    let chosenX = tr.points[Math.floor(tr.points.length / 2)].x;
-    let chosenY = tr.points[Math.floor(tr.points.length / 2)].y;
-    let chosenAngle = 0;
+    const boxW = Math.max(54, Math.round(text.length * (baseFontSize * 0.62) + 16));
+    const boxH = Math.max(22, Math.round(baseFontSize + 8));
+
+    // Multiple candidate fractions along the trace
+    const candidateFractions = [0.5, 0.38, 0.62, 0.25, 0.75, 0.15, 0.85];
+    // Multiple perpendicular offsets (both sides, varying distances)
+    const offsetMultipliers = [14, -14, 24, -24, 36, -36];
+
+    let bestCand = {
+      x: tr.points[Math.floor(tr.points.length / 2)].x,
+      y: tr.points[Math.floor(tr.points.length / 2)].y,
+      angleDeg: 0,
+      score: Infinity,
+    };
 
     for (const frac of candidateFractions) {
       const idx = Math.max(
@@ -3213,30 +3233,120 @@ export function computeTraceInlineLabelPlacements(
       if (deg < -90) deg += 180;
 
       const rad = (deg * Math.PI) / 180;
-      // Offset 11px perpendicular above the trace line so the stroke itself isn't covered
-      const nx = Math.sin(rad) * 11;
-      const ny = -Math.cos(rad) * 11;
-      const candX = mx + nx;
-      const candY = my + ny;
+      const nx = Math.sin(rad);
+      const ny = -Math.cos(rad);
 
-      const collidesWithLabel = placedCenters.some(
-        (c) => Math.hypot(c.x - candX, c.y - candY) < 48
-      );
-      if (!collidesWithLabel) {
-        chosenX = candX;
-        chosenY = candY;
-        chosenAngle = deg;
+      for (const dist of offsetMultipliers) {
+        const candX = mx + nx * dist;
+        const candY = my + ny * dist;
+
+        // Check collision with already placed labels
+        let overlapPenalty = 0;
+        for (const pl of placedLabels) {
+          const dx = Math.abs(candX - pl.x);
+          const dy = Math.abs(candY - pl.y);
+          const requiredX = (boxW + pl.boxW) / 2 + 8;
+          const requiredY = (boxH + pl.boxH) / 2 + 6;
+          if (dx < requiredX && dy < requiredY) {
+            overlapPenalty += (requiredX - dx) * 10 + (requiredY - dy) * 10 + 500;
+          }
+        }
+
+        // Check collision with extra obstacles (e.g. centroids of dip surfaces)
+        if (options?.extraObstacles) {
+          for (const obs of options.extraObstacles) {
+            const d = Math.hypot(candX - obs.x, candY - obs.y);
+            const r = obs.radius ?? 40;
+            if (d < r) {
+              overlapPenalty += (r - d) * 15 + 300;
+            }
+          }
+        }
+
+        // Check collision against other traces' points to prevent text lying right across other joint lines
+        for (const otherTr of traces) {
+          if (otherTr.id === tr.id) continue;
+          for (let pi = 0; pi < otherTr.points.length; pi += 2) {
+            const opt = otherTr.points[pi];
+            const distToOtherLine = Math.hypot(candX - opt.x, candY - opt.y);
+            if (distToOtherLine < boxH * 0.8) {
+              overlapPenalty += (boxH * 0.8 - distToOtherLine) * 8;
+            }
+          }
+        }
+
+        // Prefer centered fraction and smaller perpendicular offset
+        const centerDistPenalty = Math.abs(frac - 0.5) * 15;
+        const offsetPenalty = Math.abs(dist) * 0.4;
+        const totalScore = overlapPenalty + centerDistPenalty + offsetPenalty;
+
+        if (totalScore < bestCand.score) {
+          bestCand = {
+            x: candX,
+            y: candY,
+            angleDeg: deg,
+            score: totalScore,
+          };
+          if (overlapPenalty === 0) {
+            // Found a clear candidate position with zero overlap!
+            break;
+          }
+        }
+      }
+
+      if (bestCand.score < 20) {
+        // Clear spot found, stop searching fractions
         break;
       }
     }
 
-    placedCenters.push({ x: chosenX, y: chosenY });
+    placedLabels.push({
+      id: tr.id,
+      x: bestCand.x,
+      y: bestCand.y,
+      boxW,
+      boxH,
+      angleDeg: bestCand.angleDeg,
+    });
+
     result[tr.id] = {
-      x: chosenX,
-      y: chosenY,
-      angleDeg: chosenAngle,
+      x: bestCand.x,
+      y: bestCand.y,
+      angleDeg: bestCand.angleDeg,
       text,
+      boxW,
+      boxH,
     };
+  }
+
+  // Iterative relaxation pass: if any two label boxes still overlap, gently separate them
+  for (let iter = 0; iter < 4; iter++) {
+    let moved = false;
+    for (let i = 0; i < placedLabels.length; i++) {
+      for (let j = i + 1; j < placedLabels.length; j++) {
+        const a = placedLabels[i];
+        const b = placedLabels[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const minDist = (a.boxW + b.boxW) / 4 + (a.boxH + b.boxH) / 2 + 6;
+        if (dist < minDist) {
+          const push = (minDist - dist) * 0.5;
+          const ux = dx / dist;
+          const uy = dy / dist;
+          a.x -= ux * push;
+          a.y -= uy * push;
+          b.x += ux * push;
+          b.y += uy * push;
+          result[a.id].x = a.x;
+          result[a.id].y = a.y;
+          result[b.id].x = b.x;
+          result[b.id].y = b.y;
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
   }
 
   return result;

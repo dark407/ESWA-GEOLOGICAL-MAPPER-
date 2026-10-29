@@ -1591,16 +1591,13 @@ export const FieldLiveCompassInclinometer: React.FC<
     ? Number(tunnelDriveAzimuth)
     : 45;
   const normDrive = ((effectiveDrive % 360) + 360) % 360;
-  // Panel Top (12 o'clock) azimuth based on Tunnel Drive Direction:
-  // - Face:                Top (12 o'clock) = Drive
-  // - Left Wall & Crown:   Right (3 o'clock) = Drive -> Top = Drive + 270°
-  // - Right Wall:          Left (9 o'clock) = Drive  -> Top = Drive + 90°
-  const panelTopAz =
-    activePanel === 'left_wall' || activePanel === 'crown'
-      ? (normDrive + 270) % 360
-      : activePanel === 'right_wall'
-      ? (normDrive + 90) % 360
-      : normDrive;
+  // Tunnel Drive Quadrants: Top (12 o'clock) is ALWAYS Tunnel Drive Direction, then +90° clockwise per quadrant
+  const panelTopAz = normDrive;
+  const q1Drive = normDrive;
+  const q2Drive = (normDrive + 90) % 360;
+  const q3Drive = (normDrive + 180) % 360;
+  const q4Drive = (normDrive + 270) % 360;
+
   const safeDipDir = Number.isFinite(dipDirection) ? ((dipDirection % 360) + 360) % 360 : 135;
   const safeDipAmt = Number.isFinite(dipAmount) ? Math.max(0, Math.min(90, dipAmount)) : 60;
   const needleRelativeDeg = (((safeDipDir - panelTopAz) % 360) + 360) % 360;
@@ -1789,21 +1786,32 @@ export const FieldLiveCompassInclinometer: React.FC<
             <line x1="75" y1="21" x2="75" y2="129" stroke="#1e293b" strokeWidth="1" />
             <line x1="21" y1="75" x2="129" y2="75" stroke="#1e293b" strokeWidth="1" />
 
-            {/* Tunnel Reference Direction Labels (000° FORWARD, 090° RIGHT, 180° BACKWARD, 270° LEFT) */}
-            <polygon points="75,5 70,15 80,15" fill="#22d3ee" />
+            {/* Tunnel Reference Direction Labels (Top is always Tunnel Drive Direction, +90° each quadrant clockwise) */}
+            <polygon points="75,6 70,15 80,15" fill="#22d3ee" />
             <text
               x="75"
-              y="25"
+              y="24"
               textAnchor="middle"
               fill="#22d3ee"
-              fontSize="8.5"
+              fontSize="8"
+              fontWeight="900"
+              fontFamily="monospace"
+            >
+              {String(q1Drive).padStart(3, '0')}° FWD
+            </text>
+            <text
+              x="129"
+              y="78"
+              textAnchor="middle"
+              fill="#38bdf8"
+              fontSize="7.5"
               fontWeight="bold"
               fontFamily="monospace"
             >
-              000° FWD
+              {String(q2Drive).padStart(3, '0')}° R
             </text>
             <text
-              x="128"
+              x="21"
               y="78"
               textAnchor="middle"
               fill="#cbd5e1"
@@ -1811,18 +1819,7 @@ export const FieldLiveCompassInclinometer: React.FC<
               fontWeight="bold"
               fontFamily="monospace"
             >
-              090° R
-            </text>
-            <text
-              x="22"
-              y="78"
-              textAnchor="middle"
-              fill="#cbd5e1"
-              fontSize="7.5"
-              fontWeight="bold"
-              fontFamily="monospace"
-            >
-              270° L
+              {String(q4Drive).padStart(3, '0')}° L
             </text>
             <text
               x="75"
@@ -1833,7 +1830,7 @@ export const FieldLiveCompassInclinometer: React.FC<
               fontWeight="bold"
               fontFamily="monospace"
             >
-              180° BACK
+              {String(q3Drive).padStart(3, '0')}° BACK
             </text>
 
             {isCrown ? (

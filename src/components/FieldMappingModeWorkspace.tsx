@@ -615,6 +615,48 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     );
   }, [store.rounds, store.activeRoundId, activeProject, activeLocation]);
 
+  const activeRoundRef = useRef(activeRound);
+  activeRoundRef.current = activeRound;
+
+  const updateActiveRound = React.useCallback(
+    (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => {
+      const currentRoundId = activeRoundRef.current?.id;
+      if (!currentRoundId) return;
+      setStore((prev) => ({
+        ...prev,
+        rounds: prev.rounds.map((r) => {
+          if (r.id !== currentRoundId) return r;
+          const updated = updater(r);
+          return {
+            ...updated,
+            updatedAt: new Date().toISOString(),
+            discontinuitySets: autoComputeOrientationFromPlot(
+              updated.jointTraces,
+              updated.dipPlaneSurfaces,
+              updated.discontinuitySets
+            ),
+          };
+        }),
+      }));
+    },
+    []
+  );
+
+  const [statusMessage, setStatusMessageState] = useState<string | null>(null);
+  const statusMessageTimerRef = useRef<number | null>(null);
+  const setStatusMessage = useCallback((msg: string | null) => {
+    setStatusMessageState(msg);
+    if (statusMessageTimerRef.current) {
+      window.clearTimeout(statusMessageTimerRef.current);
+      statusMessageTimerRef.current = null;
+    }
+    if (msg) {
+      statusMessageTimerRef.current = window.setTimeout(() => {
+        setStatusMessageState(null);
+      }, 3500);
+    }
+  }, []);
+
   // Automatic non-blocking telemetry sync for AI training on key workflow milestones
   useEffect(() => {
     if (!activeRound) return;
@@ -1014,6 +1056,45 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [fieldRmrParams, setFieldRmrParams] = useState<RmrParameters>(() => createDefaultRmrParameters());
   const [fieldQIndexParams, setFieldQIndexParams] = useState<QIndexParameters>(() => createDefaultQIndexParameters());
   const [fieldQParamStatus, setFieldQParamStatus] = useState<Record<QSystemParamKey, ParameterInputStatus>>(() => createDefaultQParamStatus());
+
+  // Canvas Element Label Text Size (user-editable from toolbar, 9px to 32px)
+  const [canvasTextSize, setCanvasTextSize] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = Number(localStorage.getItem('eswa_canvas_text_size_v1'));
+      if (saved && saved >= 9 && saved <= 32) return saved;
+    }
+    return 15;
+  });
+
+  const handleUpdateCanvasTextSize = useCallback((newSize: number) => {
+    const clamped = Math.max(9, Math.min(32, Math.round(newSize)));
+    setCanvasTextSize(clamped);
+    try {
+      localStorage.setItem('eswa_canvas_text_size_v1', String(clamped));
+    } catch {
+      // safe
+    }
+  }, []);
+
+  // Double-tap & double-click tracker to jump into 3D Joint Inspector for a joint set
+  const lastJointTapTimeRef = useRef<{ id: string; time: number } | null>(null);
+  const handleOpen3DForJoint = useCallback((jointId: string) => {
+    setSelectedTraceId(jointId);
+    setInspectedJointId(jointId);
+    setIs3DJointInspectorOpen(true);
+  }, []);
+
+  const handleJointTextPointerUp = useCallback((e: React.PointerEvent, jointId: string) => {
+    e.stopPropagation();
+    const now = Date.now();
+    const prevTap = lastJointTapTimeRef.current;
+    if (prevTap && prevTap.id === jointId && now - prevTap.time < 350) {
+      lastJointTapTimeRef.current = null;
+      handleOpen3DForJoint(jointId);
+    } else {
+      lastJointTapTimeRef.current = { id: jointId, time: now };
+    }
+  }, [handleOpen3DForJoint]);
 
   // Stage 4: Field Mapping Canvas State (Single Panel in Stage 4; Full 4-Panel in Stage 5 Group Joints; or 3D Tunnel Mode)
   const [activePanel, setActivePanel] = useState<FieldPanelId>(() =>
@@ -2031,33 +2112,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       projects: prev.projects.map((p) => (p.id === activeProject.id ? updater(p) : p)),
     }));
   };
-
-  const activeRoundRef = useRef(activeRound);
-  activeRoundRef.current = activeRound;
-
-  const updateActiveRound = React.useCallback(
-    (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => {
-      const currentRoundId = activeRoundRef.current?.id;
-      if (!currentRoundId) return;
-      setStore((prev) => ({
-        ...prev,
-        rounds: prev.rounds.map((r) => {
-          if (r.id !== currentRoundId) return r;
-          const updated = updater(r);
-          return {
-            ...updated,
-            updatedAt: new Date().toISOString(),
-            discontinuitySets: autoComputeOrientationFromPlot(
-              updated.jointTraces,
-              updated.dipPlaneSurfaces,
-              updated.discontinuitySets
-            ),
-          };
-        }),
-      }));
-    },
-    []
-  );
 
   const pushUndoSnapshot = React.useCallback(() => {
     const r = activeRoundRef.current;
@@ -9455,6 +9509,33 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       </button>
                     )}
 
+                    {/* Face Canvas Element Text Size Control */}
+                    <div
+                      className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[10px]"
+                      title="Adjust font size of joint labels and geological text on canvas"
+                    >
+                      <span className="text-[10px] text-slate-400 font-bold px-1 hidden sm:inline">Text Size:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateCanvasTextSize(canvasTextSize - 2)}
+                        className="px-1.5 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white font-bold cursor-pointer transition-colors"
+                        title="Decrease canvas text size"
+                      >
+                        A-
+                      </button>
+                      <span className="font-mono text-amber-300 font-bold px-1 min-w-[28px] text-center">
+                        {canvasTextSize}px
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateCanvasTextSize(canvasTextSize + 2)}
+                        className="px-1.5 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white font-bold cursor-pointer transition-colors"
+                        title="Increase canvas text size"
+                      >
+                        A+
+                      </button>
+                    </div>
+
                   </div>
                 </div>
               </div>
@@ -10093,7 +10174,27 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       ...t,
                       points: t.points.map(ptToBox),
                     }));
-                    const pTraceLabelMap = computeTraceInlineLabelPlacements(mappedTracesForLabels);
+                    const dipObstacles = pDipSurfaces.map((ds) => {
+                      const pts = ds.points.map(ptToBox);
+                      let cx = 0;
+                      let cy = 0;
+                      pts.forEach((p) => {
+                        cx += p.x;
+                        cy += p.y;
+                      });
+                      return {
+                        x: cx / Math.max(1, pts.length),
+                        y: cy / Math.max(1, pts.length),
+                        radius: isTCanvas ? 34 : 48,
+                      };
+                    });
+                    const effectiveLabelFontSize = isTCanvas
+                      ? Math.max(9, Math.round(canvasTextSize * 0.85))
+                      : canvasTextSize;
+                    const pTraceLabelMap = computeTraceInlineLabelPlacements(mappedTracesForLabels, {
+                      fontSize: effectiveLabelFontSize,
+                      extraObstacles: dipObstacles,
+                    });
 
                     const clipId = `field-panel-clip-${panelId}`;
                     const faceOutlineDetails =
@@ -10528,16 +10629,26 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   strokeWidth={isSel ? '4' : '2.6'}
                                   strokeDasharray="8,4"
                                 />
+                                <rect
+                                  x={centroid.x - Math.max(65, (tagPrefix.length + 11) * (effectiveLabelFontSize * 0.35) + 14)}
+                                  y={centroid.y - (isTCanvas ? 16 : 22)}
+                                  width={Math.max(130, (tagPrefix.length + 11) * (effectiveLabelFontSize * 0.7) + 28)}
+                                  height={isTCanvas ? 32 : 44}
+                                  rx={5}
+                                  ry={5}
+                                  fill={photoCanvasTheme === 'light' ? '#FFFFFF' : '#0B0F19'}
+                                  fillOpacity={0.94}
+                                  stroke={isSel ? '#38BDF8' : grp.stroke}
+                                  strokeWidth={isSel ? 2.4 : 1.2}
+                                  filter="drop-shadow(0px 1px 3px rgba(0,0,0,0.4))"
+                                />
                                 <text
                                   x={centroid.x}
-                                  y={centroid.y - 3}
+                                  y={centroid.y - (isTCanvas ? 2 : 4)}
                                   textAnchor="middle"
-                                  fontSize={isTCanvas ? '13' : '17'}
+                                  fontSize={isTCanvas ? effectiveLabelFontSize * 0.85 : effectiveLabelFontSize}
                                   fontWeight="900"
                                   fill={grp.stroke}
-                                  stroke="#ffffff"
-                                  strokeWidth="3.2"
-                                  paintOrder="stroke"
                                 >
                                   {tagPrefix}Dip Surface
                                 </text>
@@ -10545,12 +10656,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   x={centroid.x}
                                   y={centroid.y + (isTCanvas ? 11 : 16)}
                                   textAnchor="middle"
-                                  fontSize={isTCanvas ? '14' : '18'}
+                                  fontSize={isTCanvas ? effectiveLabelFontSize * 0.9 : effectiveLabelFontSize * 1.05}
                                   fontWeight="900"
                                   fill={grp.stroke}
-                                  stroke="#ffffff"
-                                  strokeWidth="3.2"
-                                  paintOrder="stroke"
                                 >
                                   {String(ds.dipDirection).padStart(3, '0')}° / {ds.dipAmount}°
                                 </text>
@@ -10763,25 +10871,58 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     />
                                   </g>
                                 )}
-
                                 {placement && (
-                                  <text
-                                    x={placement.x}
-                                    y={placement.y}
-                                    textAnchor="middle"
-                                    transform={`rotate(${placement.angleDeg.toFixed(
-                                      1
-                                    )}, ${placement.x.toFixed(1)}, ${placement.y.toFixed(1)})`}
-                                    fontSize={isTCanvas ? '13' : '15.5'}
-                                    fontWeight="900"
-                                    fontFamily="Arial, sans-serif"
-                                    fill={grpColor.stroke}
-                                    stroke="#ffffff"
-                                    strokeWidth={isTCanvas ? '3.2' : '3.8'}
-                                    paintOrder="stroke"
+                                  <g
+                                    className="cursor-pointer group"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActivePanel(panelId);
+                                      setSelectedTraceId(tr.id);
+                                      setSelectedDipSurfaceId(null);
+                                      setSelectedVeinBandId(null);
+                                      setSelectedFeatureId(null);
+                                      setLiveDipDirection(tr.dipDirection);
+                                      setLiveDipAmount(tr.dipAmount);
+                                    }}
+                                    onDoubleClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpen3DForJoint(tr.id);
+                                    }}
+                                    onPointerUp={(e) => handleJointTextPointerUp(e, tr.id)}
                                   >
-                                    {inlineText}
-                                  </text>
+                                    <title>{`Joint ${prefixLabel}: ${inlineText} · Double-click or double-tap to inspect in 3D`}</title>
+                                    {/* Protective high contrast backdrop badge: prevents intersecting lines from disturbing text */}
+                                    <rect
+                                      x={placement.x - placement.boxW / 2}
+                                      y={placement.y - placement.boxH / 2}
+                                      width={placement.boxW}
+                                      height={placement.boxH}
+                                      rx={5}
+                                      ry={5}
+                                      fill={photoCanvasTheme === 'light' ? '#FFFFFF' : '#0B0F19'}
+                                      fillOpacity={0.94}
+                                      stroke={isSel ? '#38BDF8' : grpColor.stroke}
+                                      strokeWidth={isSel ? 2.2 : 1.2}
+                                      transform={`rotate(${placement.angleDeg.toFixed(
+                                        1
+                                      )}, ${placement.x.toFixed(1)}, ${placement.y.toFixed(1)})`}
+                                      filter="drop-shadow(0px 1px 2px rgba(0,0,0,0.35))"
+                                    />
+                                    <text
+                                      x={placement.x}
+                                      y={placement.y + effectiveLabelFontSize * 0.35}
+                                      textAnchor="middle"
+                                      transform={`rotate(${placement.angleDeg.toFixed(
+                                        1
+                                      )}, ${placement.x.toFixed(1)}, ${placement.y.toFixed(1)})`}
+                                      fontSize={effectiveLabelFontSize}
+                                      fontWeight="900"
+                                      fontFamily="Arial, sans-serif"
+                                      fill={grpColor.stroke}
+                                    >
+                                      {inlineText}
+                                    </text>
+                                  </g>
                                 )}
                               </g>
                             );
@@ -11422,6 +11563,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 palmRejectionMode={palmRejectionMode}
                 onChangePalmRejectionMode={setPalmRejectionMode}
               />
+
+              {/* Temporary Toast / Status Message Banner */}
+              {statusMessage && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-auto max-w-md px-3.5 py-2 rounded-lg bg-slate-900/95 border border-amber-500/80 text-amber-200 text-xs shadow-2xl flex items-center gap-2 backdrop-blur animate-fade-in">
+                  <span className="font-semibold">{statusMessage}</span>
+                  <button
+                    type="button"
+                    onClick={() => setStatusMessage(null)}
+                    className="ml-2 text-slate-400 hover:text-white p-0.5 rounded cursor-pointer leading-none text-base"
+                    aria-label="Dismiss toast"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
 
               {/* Resumable 2D Trace Confirmation Bar for Pencil, Spline & Polyline */}
               <FieldCanvasFloatingControls

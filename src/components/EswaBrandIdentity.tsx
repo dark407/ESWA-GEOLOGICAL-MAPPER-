@@ -164,28 +164,28 @@ export const EswaTunnelLogo: React.FC<EswaTunnelLogoProps> = ({
   animated = false,
   eagleEntranceAnimation = false,
   className = '',
+  isMasterEdition = false,
 }) => {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   const widthPx = SIZE_MAP[size];
   const heightPx = Math.round(widthPx * (580 / 820));
-
   const emblemNode = (
     <div
-      className={`relative inline-flex items-center justify-center select-none shrink-0 ${
+      className={`relative inline-flex flex-col items-center justify-center select-none shrink-0 ${
         eagleEntranceAnimation ? 'eswa-logo-pop-out' : ''
       } ${className}`}
       style={{ width: widthPx, height: heightPx }}
     >
       <svg
-        viewBox="0 0 820 580"
-        width={widthPx}
-        height={heightPx}
-        shapeRendering="geometricPrecision"
-        textRendering="geometricPrecision"
-        className="eswa-logo-svg overflow-visible w-full h-full drop-shadow-[0_8px_18px_rgba(0,0,0,0.22)]"
-        aria-label="ESWA Tunnel Geological Mapper Official Logo"
-      >
+          viewBox="0 0 820 580"
+          width={widthPx}
+          height={heightPx}
+          shapeRendering="geometricPrecision"
+          textRendering="geometricPrecision"
+          className="eswa-logo-svg overflow-visible w-full h-full drop-shadow-[0_8px_18px_rgba(0,0,0,0.22)]"
+          aria-label="ESWA Geological Mapper Official Logo"
+        >
         <defs>
           {/* Small Crisp White Outline Around Entire Cutout Logo for High Clarity on Bright Orange Background */}
           <filter id="eswaCrispWhiteOutline" x="-14%" y="-14%" width="128%" height="128%">
@@ -713,6 +713,11 @@ export const EswaTunnelLogo: React.FC<EswaTunnelLogoProps> = ({
         </g>
         </g>
       </svg>
+      {isMasterEdition && (
+        <span className="mt-1 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] tracking-widest uppercase border border-amber-300 shadow-md">
+          MASTER
+        </span>
+      )}
     </div>
   );
 
