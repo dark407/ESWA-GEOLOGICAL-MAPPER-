@@ -11,7 +11,18 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Zap,
+  CheckCircle2,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Cpu,
 } from 'lucide-react';
+import {
+  analyzeAndRecommendSpotBolts,
+  computeBoltTensileCapacityKn,
+  GeotechnicalSpotBoltRecommendationResult,
+} from '../engine/geotechnicalSpotBoltEngine';
 import {
   APERTURE_OPTIONS,
   buildAutoPopulatedTemplateDictionary,
@@ -44,7 +55,11 @@ import {
   createDefaultSurveyOverbreak,
   generateOverbreakSummarySentence,
   generateProfessionalGeologicalDescription,
+  getExcavationBenchConfig,
   getLocationSurfaceConfig,
+  FIELD_NMT_ROCK_CLASSES,
+  FieldNmtClassItem,
+  getNmtRockClassFromQ,
 } from '../engine/fieldMappingEngine';
 import {
   MappingDomainType,
@@ -1322,7 +1337,7 @@ export const FieldJunctionFactorSystemCard: React.FC<{
 
   const handleResetToBaseline = () => {
     if (onApplyClassPreset && support.supportClass) {
-      onApplyClassPreset(support.supportClass);
+      onApplyClassPreset(support.supportClass as any);
       setAppliedMsg(`Support parameters restored to standard ${support.supportClass} baseline`);
       setTimeout(() => setAppliedMsg(null), 4000);
     }
@@ -4675,6 +4690,18 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
       {/* 7. Spot Bolts (with exact X, Y, Pull & Angle Callout on Exact Tunnel Profile) */}
       {support.spotBoltsEnabled &&
         (support.spotBolts || []).map((sb, idx) => {
+          const benchCfg = getExcavationBenchConfig(round, location);
+          if (benchCfg.hasBenchDivision) {
+            if (benchCfg.hatchZone === 'bench_bottom' && sb.yMeters < benchCfg.benchHeightM - 0.05) {
+              return null;
+            }
+            if (
+              benchCfg.hatchZone === 'heading_top' &&
+              (sb.panel === 'crown' || sb.yMeters > benchCfg.benchHeightM + 0.05)
+            ) {
+              return null;
+            }
+          }
           const clampedXM = Math.max(-W / 2, Math.min(W / 2, sb.xMeters));
           const clampedYM = Math.max(0, Math.min(H, sb.yMeters));
           let bx0 = cx + clampedXM * scale;
@@ -4838,11 +4865,80 @@ export const FieldSupportSystemStage: React.FC<{
 
   // Default parameters for new Spot Bolt placed in 3D
   const [newSpotLengthM, setNewSpotLengthM] = useState<number>(4.0);
+  const [newSpotDiaMm, setNewSpotDiaMm] = useState<number>(25);
+  const [newSpotGradeMpa, setNewSpotGradeMpa] = useState<number>(500);
   const [newSpotAngleDeg, setNewSpotAngleDeg] = useState<number>(65);
   const [newSpotAzimuthDeg, setNewSpotAzimuthDeg] = useState<number>(
     activeRound.tunnelDriveDirection || 45
   );
   const [spot3DViewMode, setSpot3DViewMode] = useState<'3D_WEBGL' | '2D_SVG'>('3D_WEBGL');
+
+  // Intelligent Geotechnical Spot Bolt Recommendation Engine State
+  const [recommendationResult, setRecommendationResult] =
+    useState<GeotechnicalSpotBoltRecommendationResult | null>(null);
+  const [isAnalyzingRec, setIsAnalyzingRec] = useState<boolean>(false);
+  const [showRecDetails, setShowRecDetails] = useState<boolean>(true);
+
+  // Retrieve prior rounds for structural continuity inspection
+  const priorRoundsList: FieldExcavationRound[] = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('eswa_apk_field_mapping_store_tunnel_v2');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.rounds)) return parsed.rounds;
+      }
+    } catch {}
+    return [];
+  }, []);
+
+  const nominalCapKn = useMemo(
+    () => computeBoltTensileCapacityKn(newSpotDiaMm, newSpotGradeMpa),
+    [newSpotDiaMm, newSpotGradeMpa]
+  );
+
+  const handleRunSpotBoltRecommendation = () => {
+    setIsAnalyzingRec(true);
+    setTimeout(() => {
+      const result = analyzeAndRecommendSpotBolts({
+        currentRound: activeRound,
+        previousRounds: priorRoundsList,
+        location: activeLocation,
+        boltLengthM: newSpotLengthM,
+        boltDiameterMm: newSpotDiaMm,
+        steelGradeMpa: newSpotGradeMpa,
+        existingSupport: support,
+      });
+      setRecommendationResult(result);
+      setShowRecDetails(true);
+      setIsAnalyzingRec(false);
+    }, 250);
+  };
+
+  const handleApplyRecommendedBolts = (mode: 'replace' | 'append') => {
+    if (!recommendationResult || recommendationResult.recommendedSpotBolts.length === 0) return;
+    const existing = mode === 'append' ? support.spotBolts || [] : [];
+    const newItems = recommendationResult.recommendedSpotBolts.map((b, idx) => ({
+      ...b,
+      id: `sb-rec-${Date.now()}-${idx + 1}`,
+      label: `SB-${String(existing.length + idx + 1).padStart(2, '0')}`,
+    }));
+    updateSupport({
+      spotBoltsEnabled: true,
+      spotBolts: [...existing, ...newItems],
+    });
+  };
+
+  const isNmtMode = Boolean(activeRound.qSystem?.nmtModeEnabled);
+
+  const handleToggleNmtWorkflow = (enableNmt: boolean) => {
+    onUpdateRound((r) => ({
+      ...r,
+      qSystem: {
+        ...r.qSystem,
+        nmtModeEnabled: enableNmt,
+      },
+    }));
+  };
 
   const qRes = useMemo(() => computeFieldQValue(activeRound.qSystem), [activeRound.qSystem]);
   const rmrRes = useMemo(
@@ -4870,11 +4966,20 @@ export const FieldSupportSystemStage: React.FC<{
       return null;
     }, [rmrRes.totalRmr, qRes.qValue]);
 
+  // Derive calculated NMT Rock Mass Quality Class (Classes A to I) strictly from Q-System value
+  const calculatedNmtClass: FieldNmtClassItem | null = useMemo(() => {
+    if (qRes.qValue === null) return null;
+    return getNmtRockClassFromQ(qRes.qValue);
+  }, [qRes.qValue]);
+
   const isClassificationAssessed = rmrRes.totalRmr !== null || qRes.qValue !== null;
-  const isSupportClassOverridden =
-    Boolean(support.supportClass) &&
-    support.supportClass !== 'Custom' &&
-    (calculatedSupportClass === null || support.supportClass !== calculatedSupportClass);
+  const isSupportClassOverridden = isNmtMode
+    ? Boolean(support.supportClass) &&
+      support.supportClass !== 'Custom' &&
+      (calculatedNmtClass === null || support.supportClass !== calculatedNmtClass.fullName)
+    : Boolean(support.supportClass) &&
+      support.supportClass !== 'Custom' &&
+      (calculatedSupportClass === null || support.supportClass !== calculatedSupportClass);
 
   const updateSupport = (patch: Partial<FieldSupportSystemConfig>) => {
     onUpdateRound((r) => {
@@ -4886,6 +4991,170 @@ export const FieldSupportSystemStage: React.FC<{
         rockSupportRecommendation: buildSupportRecommendationText(next, r),
       };
     });
+  };
+
+  const applyNmtClassPreset = (nmtCls: FieldNmtClassItem) => {
+    if (nmtCls.code === 'A') {
+      updateSupport({
+        supportClass: nmtCls.fullName,
+        rockClass: `${nmtCls.fullName} • NMT Cat 1: Unsupported`,
+        rockBoltsEnabled: false,
+        spotBoltsEnabled: false,
+        shotcreteEnabled: false,
+        wireMeshEnabled: false,
+        latticeGirderEnabled: false,
+        ismbEnabled: false,
+      });
+    } else if (nmtCls.code === 'B') {
+      updateSupport({
+        supportClass: nmtCls.fullName,
+        rockClass: `${nmtCls.fullName} • NMT Cat 2: Spot Bolting (sb)`,
+        rockBoltsEnabled: false,
+        spotBoltsEnabled: true,
+        shotcreteEnabled: false,
+        wireMeshEnabled: false,
+        latticeGirderEnabled: false,
+        ismbEnabled: false,
+      });
+    } else if (nmtCls.code === 'C') {
+      updateSupport({
+        supportClass: nmtCls.fullName,
+        rockClass: `${nmtCls.fullName} • NMT Cat 2–3: Systematic Bolting (B)`,
+        rockBoltsEnabled: true,
+        spotBoltsEnabled: true,
+        rockBoltScope: 'crown_only',
+        rockBoltLengthM: 3.0,
+        rockBoltInPlaneSpacingM: 2.5,
+        rockBoltLongitudinalSpacingM: 2.5,
+        shotcreteEnabled: false,
+        wireMeshEnabled: false,
+        latticeGirderEnabled: false,
+        ismbEnabled: false,
+      });
+    } else if (nmtCls.code === 'D') {
+      updateSupport({
+        supportClass: nmtCls.fullName,
+        rockClass: `${nmtCls.fullName} • NMT Cat 3–4: Bolting + Sfr (50mm E500)`,
+        rockBoltsEnabled: true,
+        spotBoltsEnabled: true,
+        rockBoltScope: 'crown_only',
+        rockBoltLengthM: 3.5,
+        rockBoltInPlaneSpacingM: 2.0,
+        rockBoltLongitudinalSpacingM: 2.0,
+        shotcreteEnabled: true,
+        shotcreteScope: 'crown_only',
+        shotcreteCrownThicknessMm: 50,
+        shotcreteType: 'SFRS',
+        wireMeshEnabled: false,
+        latticeGirderEnabled: false,
+        ismbEnabled: false,
+      });
+    } else if (nmtCls.code === 'E') {
+      updateSupport({
+        supportClass: nmtCls.fullName,
+        rockClass: `${nmtCls.fullName} • NMT Cat 4–5: Sfr (70mm E700) + Bolting`,
+        rockBoltsEnabled: true,
+        spotBoltsEnabled: true,
+        rockBoltScope: 'crown_and_wall',
+        rockBoltLengthM: 4.0,
+        rockBoltInPlaneSpacingM: 1.8,
+        rockBoltLongitudinalSpacingM: 1.8,
+        shotcreteEnabled: true,
+        shotcreteScope: 'crown_and_wall',
+        shotcreteCrownThicknessMm: 70,
+        shotcreteWallThicknessMm: 50,
+        shotcreteType: 'SFRS',
+        wireMeshEnabled: false,
+        latticeGirderEnabled: false,
+        ismbEnabled: false,
+      });
+    } else if (nmtCls.code === 'F') {
+      updateSupport({
+        supportClass: nmtCls.fullName,
+        rockClass: `${nmtCls.fullName} • NMT Cat 5–6: Sfr (100mm E700) + Bolting`,
+        rockBoltsEnabled: true,
+        spotBoltsEnabled: true,
+        rockBoltScope: 'crown_and_wall',
+        rockBoltLengthM: 4.0,
+        rockBoltInPlaneSpacingM: 1.5,
+        rockBoltLongitudinalSpacingM: 1.5,
+        shotcreteEnabled: true,
+        shotcreteScope: 'crown_and_wall',
+        shotcreteCrownThicknessMm: 100,
+        shotcreteWallThicknessMm: 75,
+        shotcreteType: 'SFRS',
+        wireMeshEnabled: false,
+        latticeGirderEnabled: false,
+        ismbEnabled: false,
+      });
+    } else if (nmtCls.code === 'G') {
+      updateSupport({
+        supportClass: nmtCls.fullName,
+        rockClass: `${nmtCls.fullName} • NMT Cat 6–7: Sfr (130mm E1000) + Bolting + RRS I`,
+        rockBoltsEnabled: true,
+        spotBoltsEnabled: true,
+        rockBoltScope: 'crown_and_wall',
+        rockBoltLengthM: 4.5,
+        rockBoltInPlaneSpacingM: 1.2,
+        rockBoltLongitudinalSpacingM: 1.2,
+        shotcreteEnabled: true,
+        shotcreteScope: 'crown_and_wall',
+        shotcreteCrownThicknessMm: 130,
+        shotcreteWallThicknessMm: 100,
+        shotcreteType: 'SFRS',
+        wireMeshEnabled: true,
+        latticeGirderEnabled: true,
+        latticeGirderSpec: 'RRS I (Si30/6 ribs @ 1.5m)',
+        latticeGirderSpacingM: 1.5,
+        ismbEnabled: false,
+      });
+    } else if (nmtCls.code === 'H') {
+      updateSupport({
+        supportClass: nmtCls.fullName,
+        rockClass: `${nmtCls.fullName} • NMT Cat 8: Sfr (180mm E1000) + Bolting + RRS II/III`,
+        rockBoltsEnabled: true,
+        spotBoltsEnabled: true,
+        rockBoltScope: 'crown_and_wall',
+        rockBoltLengthM: 5.0,
+        rockBoltInPlaneSpacingM: 1.0,
+        rockBoltLongitudinalSpacingM: 1.0,
+        shotcreteEnabled: true,
+        shotcreteScope: 'crown_and_wall',
+        shotcreteCrownThicknessMm: 180,
+        shotcreteWallThicknessMm: 150,
+        shotcreteType: 'SFRS',
+        wireMeshEnabled: true,
+        latticeGirderEnabled: true,
+        latticeGirderSpec: 'RRS II/III (D45/6+2 ribs @ 1.2m)',
+        latticeGirderSpacingM: 1.2,
+        ismbEnabled: true,
+        ismbSpec: 'ISMB 150 / Heavy Steel Ribs',
+        ismbSpacingM: 1.2,
+      });
+    } else if (nmtCls.code === 'I') {
+      updateSupport({
+        supportClass: nmtCls.fullName,
+        rockClass: `${nmtCls.fullName} • NMT Cat 9: Sfr (>200mm) / Cast Concrete CCA + Heavy RRS III`,
+        rockBoltsEnabled: true,
+        spotBoltsEnabled: true,
+        rockBoltScope: 'crown_and_wall',
+        rockBoltLengthM: 6.0,
+        rockBoltInPlaneSpacingM: 1.0,
+        rockBoltLongitudinalSpacingM: 1.0,
+        shotcreteEnabled: true,
+        shotcreteScope: 'crown_and_wall',
+        shotcreteCrownThicknessMm: 250,
+        shotcreteWallThicknessMm: 200,
+        shotcreteType: 'SFRS',
+        wireMeshEnabled: true,
+        latticeGirderEnabled: true,
+        latticeGirderSpec: 'RRS III (D55/6+4 heavy ribs @ 1.0m)',
+        latticeGirderSpacingM: 1.0,
+        ismbEnabled: true,
+        ismbSpec: 'Cast Concrete Arch (CCA) / Heavy ISMB 200',
+        ismbSpacingM: 1.0,
+      });
+    }
   };
 
   const applySupportClassPreset = (
@@ -5256,6 +5525,19 @@ export const FieldSupportSystemStage: React.FC<{
       const pIn = samplePointAlongPolyline(innerRight, bestWallRatio);
       xMeters = Number((((pIn.x - (innerX + innerW / 2)) / Math.max(1, innerW)) * W).toFixed(2));
       yMeters = Number((((innerY + innerH - pIn.y) / Math.max(1, innerH)) * H).toFixed(2));
+    }
+
+    const benchCfg = getExcavationBenchConfig(activeRound, activeLocation);
+    if (benchCfg.hasBenchDivision) {
+      if (benchCfg.hatchZone === 'bench_bottom' && yMeters < benchCfg.benchHeightM) {
+        return;
+      }
+      if (
+        benchCfg.hatchZone === 'heading_top' &&
+        (panel === 'crown' || yMeters > benchCfg.benchHeightM)
+      ) {
+        return;
+      }
     }
 
     const nextIdx = (support.spotBolts?.length || 0) + 1;
@@ -6057,45 +6339,109 @@ export const FieldSupportSystemStage: React.FC<{
           <span className="text-xs font-black uppercase tracking-wider text-amber-400 whitespace-nowrap">
             Support System
           </span>
+          {/* Methodology Selector: NATM (Normal) vs NMT (Q-Chart) */}
+          <div className="flex items-center gap-0.5 bg-slate-950 border border-slate-700 rounded-lg p-0.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleToggleNmtWorkflow(false)}
+              className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap transition-all ${
+                !isNmtMode
+                  ? 'bg-sky-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Standard NATM (New Austrian Tunnelling Method) Workflow — Class I–V Prescriptions"
+            >
+              NATM
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleNmtWorkflow(true)}
+              className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap transition-all flex items-center gap-1 ${
+                isNmtMode
+                  ? 'bg-amber-500 text-slate-950 shadow'
+                  : 'text-amber-400/80 hover:text-amber-300'
+              }`}
+              title="NMT (Norwegian Method of Tunnelling) — NGI Q-Chart (Grimstad & Barton, 1993 / NGI, 2014)"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>NMT (Q-Chart)</span>
+            </button>
+          </div>
+
           {!support.supportClass && (
             <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase whitespace-nowrap">
               Not Selected — Select Class or Calculate RMR/Q
             </span>
           )}
-          {/* Support Class Selector */}
-          <div className="flex items-center gap-0.5 bg-slate-950 border border-slate-700 rounded-lg p-0.5 shrink-0">
-            {(['Class I', 'Class II', 'Class III', 'Class IV', 'Class V', 'Custom'] as const).map(
-              (cls) => {
-                const isRec = calculatedSupportClass === cls;
+          {/* Support Class Selector: 9 NGI Classes when in NMT Mode, or 5 NATM Classes */}
+          {isNmtMode ? (
+            <div className="flex items-center gap-0.5 bg-slate-950 border border-amber-500/50 rounded-lg p-0.5 shrink-0 overflow-x-auto max-w-full">
+              {FIELD_NMT_ROCK_CLASSES.map((nmtCls) => {
+                const isRec = calculatedNmtClass?.code === nmtCls.code;
+                const isSelected = support.supportClass === nmtCls.fullName;
                 return (
                   <button
-                    key={cls}
+                    key={nmtCls.code}
                     type="button"
-                    onClick={() => applySupportClassPreset(cls)}
-                    className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap transition-all flex items-center gap-1 ${
-                      support.supportClass === cls
+                    onClick={() => applyNmtClassPreset(nmtCls)}
+                    className={`px-1.5 py-0.5 rounded text-[10.5px] font-black cursor-pointer whitespace-nowrap transition-all flex items-center gap-1 ${
+                      isSelected
                         ? 'bg-amber-500 text-slate-950 shadow'
                         : isRec
                         ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-900/80'
-                        : 'text-slate-300 hover:text-white'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800'
                     }`}
-                    title={
-                      isRec
-                        ? `Calculated Rock Mass Class from RMR89/Q-System (${cls})`
-                        : `Apply ${cls} Support Prescription`
-                    }
+                    title={`${nmtCls.fullName} (Q = ${nmtCls.qMin}–${nmtCls.qMax}): ${nmtCls.description}`}
                   >
-                    <span>{cls}</span>
+                    <span
+                      className="w-2 h-2 rounded-full inline-block shrink-0"
+                      style={{ backgroundColor: nmtCls.color }}
+                    />
+                    <span>{nmtCls.code}: {nmtCls.name}</span>
                     {isRec && (
-                      <span className="text-[9px] px-1 rounded bg-emerald-500/30 text-emerald-200 font-mono">
+                      <span className="text-[8.5px] px-1 rounded bg-emerald-500/30 text-emerald-200 font-mono">
                         ★Calc
                       </span>
                     )}
                   </button>
                 );
-              }
-            )}
-          </div>
+              })}
+            </div>
+          ) : (
+            <div className="flex items-center gap-0.5 bg-slate-950 border border-slate-700 rounded-lg p-0.5 shrink-0">
+              {(['Class I', 'Class II', 'Class III', 'Class IV', 'Class V', 'Custom'] as const).map(
+                (cls) => {
+                  const isRec = calculatedSupportClass === cls;
+                  return (
+                    <button
+                      key={cls}
+                      type="button"
+                      onClick={() => applySupportClassPreset(cls)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap transition-all flex items-center gap-1 ${
+                        support.supportClass === cls
+                          ? 'bg-amber-500 text-slate-950 shadow'
+                          : isRec
+                          ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-900/80'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                      title={
+                        isRec
+                          ? `Calculated Rock Mass Class from RMR89/Q-System (${cls})`
+                          : `Apply ${cls} Support Prescription`
+                      }
+                    >
+                      <span>{cls}</span>
+                      {isRec && (
+                        <span className="text-[9px] px-1 rounded bg-emerald-500/30 text-emerald-200 font-mono">
+                          ★Calc
+                        </span>
+                      )}
+                    </button>
+                  );
+                }
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -6181,7 +6527,11 @@ export const FieldSupportSystemStage: React.FC<{
                 Engineering Override Warning
               </span>
               <span className="text-xs font-black text-amber-200">
-                {calculatedSupportClass
+                {isNmtMode
+                  ? calculatedNmtClass
+                    ? `Selected NMT Support (${support.supportClass}) Differs from Calculated Q-Class (${calculatedNmtClass.fullName} • Q=${qRes.qValue})`
+                    : `NMT Support Class (${support.supportClass}) Selected Without Completed Q-System Calculation`
+                  : calculatedSupportClass
                   ? `Selected Support (${support.supportClass}) Differs from Calculated Rock Mass Class (${calculatedSupportClass} • ${
                       rmrRes.totalRmr !== null ? `RMR89=${rmrRes.totalRmr}` : `Q=${qRes.qValue}`
                     })`
@@ -6201,7 +6551,15 @@ export const FieldSupportSystemStage: React.FC<{
               />
             </div>
           </div>
-          {calculatedSupportClass && (
+          {isNmtMode && calculatedNmtClass ? (
+            <button
+              type="button"
+              onClick={() => applyNmtClassPreset(calculatedNmtClass)}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs whitespace-nowrap cursor-pointer shrink-0 shadow"
+            >
+              Sync to Calculated {calculatedNmtClass.code}: {calculatedNmtClass.name}
+            </button>
+          ) : calculatedSupportClass ? (
             <button
               type="button"
               onClick={() => applySupportClassPreset(calculatedSupportClass)}
@@ -6209,7 +6567,7 @@ export const FieldSupportSystemStage: React.FC<{
             >
               Sync to Calculated {calculatedSupportClass}
             </button>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -6218,13 +6576,33 @@ export const FieldSupportSystemStage: React.FC<{
         {/* Left 6 Columns: NGI Q-Support Chart + Support System Configuration + 3D Spot Bolt Placement */}
         <div className="lg:col-span-6 min-h-0 overflow-y-auto space-y-2.5 pr-1">
           {/* 0A. Interactive NGI Q-System Rock Support Chart (NMT — Grimstad & Barton, 1993 / NGI, 2014) */}
-          <NgiQSupportChartInteractivePanel
-            activeLocation={activeLocation}
-            activeRound={activeRound}
-            support={support}
-            onUpdateSupport={updateSupport}
-            onUpdateRound={onUpdateRound}
-          />
+          {/* Strictly rendered ONLY in NMT Mode; hidden in normal NATM workflow */}
+          {isNmtMode ? (
+            <NgiQSupportChartInteractivePanel
+              activeLocation={activeLocation}
+              activeRound={activeRound}
+              support={support}
+              onUpdateSupport={updateSupport}
+              onUpdateRound={onUpdateRound}
+            />
+          ) : (
+            <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-sky-400"></span>
+                <span className="text-[11px] text-slate-300">
+                  Active Workflow: <strong className="text-sky-300">NATM Conventional</strong> (Classes I–V Support System)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleToggleNmtWorkflow(true)}
+                className="text-[10px] text-amber-400 hover:text-amber-300 font-mono font-bold flex items-center gap-1 cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30 transition-all"
+              >
+                <Sparkles className="w-3 h-3 text-amber-400" />
+                <span>Show NMT Q-Chart</span>
+              </button>
+            </div>
+          )}
 
           {/* 0B. Dedicated Geotechnical Junction Factor & Advance Optimization Card */}
           <FieldJunctionFactorSystemCard
@@ -6619,6 +6997,239 @@ export const FieldSupportSystemStage: React.FC<{
               </div>
             </div>
 
+            {/* Geotechnical Spot Bolt AI / Structural Recommendation Control Bar */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-2.5 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                  <Zap className="w-4 h-4 text-amber-400 fill-amber-400/20" />
+                  <span>Spot Bolt Structural Design &amp; Recommendation Engine</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    Nominal Capacity: <strong className="text-emerald-400">{nominalCapKn} kN</strong> / bolt
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleRunSpotBoltRecommendation}
+                    disabled={isAnalyzingRec}
+                    className="bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 disabled:opacity-50 text-slate-950 font-black px-3 py-1 rounded text-xs flex items-center gap-1.5 shadow-md shadow-rose-950/40 transition-all cursor-pointer"
+                  >
+                    <Zap className={`w-3.5 h-3.5 ${isAnalyzingRec ? 'animate-spin' : 'fill-current'}`} />
+                    <span>{isAnalyzingRec ? 'Analyzing Geology & Kinematics...' : '⚡ Analyze & Recommend Spot Bolts'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Bolt Specification Inputs */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div>
+                  <label className="block text-[10px] text-slate-400">Bolt Length L (m)</label>
+                  <input
+                    type="number"
+                    step={0.5}
+                    min={1.5}
+                    max={12}
+                    value={newSpotLengthM}
+                    onChange={(e) => setNewSpotLengthM(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 font-mono text-amber-300 text-center"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400">Diameter Ø (mm)</label>
+                  <select
+                    value={newSpotDiaMm}
+                    onChange={(e) => setNewSpotDiaMm(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-white text-center font-mono"
+                  >
+                    <option value={20}>Ø20 mm (High Strength)</option>
+                    <option value={25}>Ø25 mm (Standard Tunnel Rebar)</option>
+                    <option value={28}>Ø28 mm (Heavy Duty Rebar)</option>
+                    <option value={32}>Ø32 mm (Self-Drilling / Heavy Anchor)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400">Steel Grade fy (MPa)</label>
+                  <select
+                    value={newSpotGradeMpa}
+                    onChange={(e) => setNewSpotGradeMpa(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-white text-center font-mono"
+                  >
+                    <option value={400}>Fe 400 (400 MPa)</option>
+                    <option value={500}>Fe 500 (500 MPa - Standard)</option>
+                    <option value={600}>Fe 600 (600 MPa - High Tensile)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400">Default Angle (°)</label>
+                  <input
+                    type="number"
+                    step={5}
+                    min={10}
+                    max={90}
+                    value={newSpotAngleDeg}
+                    onChange={(e) => setNewSpotAngleDeg(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 font-mono text-rose-300 text-center"
+                  />
+                </div>
+              </div>
+
+              {/* Dynamic Recommendation Result Card */}
+              {recommendationResult && (
+                <div
+                  className={`border rounded-xl p-3 space-y-2 mt-2 transition-all ${
+                    recommendationResult.spotBoltsNeeded
+                      ? 'bg-rose-950/20 border-rose-500/50'
+                      : 'bg-emerald-950/20 border-emerald-500/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {recommendationResult.spotBoltsNeeded ? (
+                        <AlertTriangle className="w-4 h-4 text-rose-400" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      )}
+                      <span
+                        className={`text-xs font-black uppercase ${
+                          recommendationResult.spotBoltsNeeded ? 'text-rose-300' : 'text-emerald-300'
+                        }`}
+                      >
+                        {recommendationResult.summaryVerdict}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowRecDetails((prev) => !prev)}
+                        className="text-slate-400 hover:text-slate-200 text-xs flex items-center gap-1 px-1.5 py-0.5 rounded cursor-pointer"
+                      >
+                        <span>{showRecDetails ? 'Collapse' : 'Expand Details'}</span>
+                        {showRecDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    {recommendationResult.geotechnicalRationale}
+                  </p>
+
+                  {showRecDetails && (
+                    <div className="space-y-2 text-xs pt-1 border-t border-slate-800">
+                      {/* FEM & DEM Reflection Metrics */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-950/70 p-2 rounded-lg border border-slate-800">
+                        <div>
+                          <span className="block text-[9.5px] uppercase tracking-wider text-slate-400 font-bold">
+                            FEM Continuum Pressure Added
+                          </span>
+                          <span className="font-mono font-bold text-sky-400 text-[11px]">
+                            +{recommendationResult.femDemImpactSummary.equivalentSupportPressureAddedMpa} MPa (pi)
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-[9.5px] uppercase tracking-wider text-slate-400 font-bold">
+                            Total Tensile Capacity Added
+                          </span>
+                          <span className="font-mono font-bold text-emerald-400 text-[11px]">
+                            +{recommendationResult.femDemImpactSummary.totalTensileCapacityAddedKn} kN Total
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-[9.5px] uppercase tracking-wider text-slate-400 font-bold">
+                            DEM Key Block Stability
+                          </span>
+                          <span className="font-mono font-bold text-amber-300 text-[11px]">
+                            {recommendationResult.femDemImpactSummary.criticalWedgeFosImprovement}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Recommended Spot Bolts Preview List */}
+                      {recommendationResult.spotBoltsNeeded && (
+                        <div className="space-y-1.5">
+                          <span className="text-[10px] font-black uppercase text-slate-400">
+                            Recommended Spot Bolt Locations (RD, Offset, Height):
+                          </span>
+                          <div className="overflow-x-auto max-h-40 overflow-y-auto">
+                            <table className="w-full border-collapse border border-slate-800 text-[10px]">
+                              <thead>
+                                <tr className="bg-slate-900 text-slate-400">
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-left">Bolt ID</th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-left">Area</th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">RD (Chainage)</th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">Offset X (m)</th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">Height Y (m)</th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">L × Ø</th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">∠ Angle</th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-left">Hazard Rationale</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {recommendationResult.recommendedSpotBolts.map((b) => (
+                                  <tr key={b.id} className="bg-slate-950/60 hover:bg-slate-900/60">
+                                    <td className="border border-slate-800 px-1.5 py-0.5 font-mono font-bold text-rose-300">
+                                      {b.label}
+                                    </td>
+                                    <td className="border border-slate-800 px-1.5 py-0.5 uppercase text-slate-300">
+                                      {b.panel.replace('_', ' ')}
+                                    </td>
+                                    <td className="border border-slate-800 px-1.5 py-0.5 font-mono text-center text-amber-300">
+                                      {b.chainageMeters ? `${b.chainageMeters.toFixed(2)}m` : `${(activeRound.chainageMeters || 0) + b.pullMeter}m`}
+                                    </td>
+                                    <td className="border border-slate-800 px-1.5 py-0.5 font-mono text-center text-slate-200">
+                                      {b.offsetMeters !== undefined ? `${b.offsetMeters >= 0 ? '+' : ''}${b.offsetMeters.toFixed(2)}m` : `${b.xMeters}m`}
+                                    </td>
+                                    <td className="border border-slate-800 px-1.5 py-0.5 font-mono text-center text-slate-200">
+                                      {b.heightAboveInvertM !== undefined ? `${b.heightAboveInvertM.toFixed(2)}m` : `${b.yMeters}m`}
+                                    </td>
+                                    <td className="border border-slate-800 px-1.5 py-0.5 font-mono text-center text-emerald-400">
+                                      {b.lengthM}m × Ø{b.diameterMm || 25}mm
+                                    </td>
+                                    <td className="border border-slate-800 px-1.5 py-0.5 font-mono text-center text-rose-300">
+                                      {b.angleDeg}°
+                                    </td>
+                                    <td className="border border-slate-800 px-1.5 py-0.5 text-slate-300 text-[9.5px]">
+                                      {b.hazardReason}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Quick Apply Actions */}
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleApplyRecommendedBolts('replace')}
+                              className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-1 rounded text-xs transition-all cursor-pointer shadow"
+                            >
+                              Apply Recommended Spot Bolts ({recommendationResult.recommendedSpotBolts.length})
+                            </button>
+                            {(support.spotBolts || []).length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleApplyRecommendedBolts('append')}
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-1 rounded text-xs border border-slate-700 transition-all cursor-pointer"
+                              >
+                                Append to Existing ({support.spotBolts.length})
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setRecommendationResult(null)}
+                              className="text-slate-400 hover:text-slate-200 text-xs px-2 py-1 cursor-pointer"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* RENDER MODE 1: Interactive 3D WebGL Viewport & Angle Chooser */}
             {spot3DViewMode === '3D_WEBGL' ? (
               <FieldSupport3DInteractiveCanvas
@@ -6855,125 +7466,200 @@ export const FieldSupportSystemStage: React.FC<{
                     <tr className="bg-slate-950 text-slate-300">
                       <th className="border border-slate-800 px-1.5 py-1">Bolt</th>
                       <th className="border border-slate-800 px-1.5 py-1">Area</th>
-                      <th className="border border-slate-800 px-1.5 py-1">Pull (m)</th>
-                      <th className="border border-slate-800 px-1.5 py-1">X (m)</th>
-                      <th className="border border-slate-800 px-1.5 py-1">Y (m)</th>
-                      <th className="border border-slate-800 px-1.5 py-1">Len (m)</th>
+                      <th className="border border-slate-800 px-1.5 py-1">RD (m)</th>
+                      <th className="border border-slate-800 px-1.5 py-1">Offset X (m)</th>
+                      <th className="border border-slate-800 px-1.5 py-1">Height Y (m)</th>
+                      <th className="border border-slate-800 px-1.5 py-1">L (m)</th>
+                      <th className="border border-slate-800 px-1.5 py-1">Ø (mm)</th>
                       <th className="border border-slate-800 px-1.5 py-1">Angle (°)</th>
+                      <th className="border border-slate-800 px-1.5 py-1">Azimuth (°)</th>
+                      <th className="border border-slate-800 px-1.5 py-1">Rationale / Hazard</th>
                       <th className="border border-slate-800 px-1.5 py-1"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {support.spotBolts.map((sb) => (
-                      <tr key={sb.id} className="bg-slate-950/60">
-                        <td className="border border-slate-800 px-1.5 py-1 font-mono font-bold text-rose-300">
-                          {sb.label}
-                        </td>
-                        <td className="border border-slate-800 px-1.5 py-1 uppercase text-[10px]">
-                          {sb.panel.replace('_', ' ')}
-                        </td>
-                        <td className="border border-slate-800 px-1 py-1">
-                          <input
-                            type="number"
-                            step={0.1}
-                            value={sb.pullMeter}
-                            onChange={(e) =>
-                              updateSupport({
-                                spotBolts: support.spotBolts.map((item) =>
-                                  item.id === sb.id
-                                    ? { ...item, pullMeter: Number(e.target.value) }
-                                    : item
-                                ),
-                              })
-                            }
-                            className="w-12 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-white"
-                          />
-                        </td>
-                        <td className="border border-slate-800 px-1 py-1">
-                          <input
-                            type="number"
-                            step={0.1}
-                            value={sb.xMeters}
-                            onChange={(e) =>
-                              updateSupport({
-                                spotBolts: support.spotBolts.map((item) =>
-                                  item.id === sb.id
-                                    ? { ...item, xMeters: Number(e.target.value) }
-                                    : item
-                                ),
-                              })
-                            }
-                            className="w-12 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-white"
-                          />
-                        </td>
-                        <td className="border border-slate-800 px-1 py-1">
-                          <input
-                            type="number"
-                            step={0.1}
-                            value={sb.yMeters}
-                            onChange={(e) =>
-                              updateSupport({
-                                spotBolts: support.spotBolts.map((item) =>
-                                  item.id === sb.id
-                                    ? { ...item, yMeters: Number(e.target.value) }
-                                    : item
-                                ),
-                              })
-                            }
-                            className="w-12 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-white"
-                          />
-                        </td>
-                        <td className="border border-slate-800 px-1 py-1">
-                          <input
-                            type="number"
-                            step={0.5}
-                            value={sb.lengthM}
-                            onChange={(e) =>
-                              updateSupport({
-                                spotBolts: support.spotBolts.map((item) =>
-                                  item.id === sb.id
-                                    ? { ...item, lengthM: Number(e.target.value) }
-                                    : item
-                                ),
-                              })
-                            }
-                            className="w-12 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-white"
-                          />
-                        </td>
-                        <td className="border border-slate-800 px-1 py-1">
-                          <input
-                            type="number"
-                            step={5}
-                            value={sb.angleDeg}
-                            onChange={(e) =>
-                              updateSupport({
-                                spotBolts: support.spotBolts.map((item) =>
-                                  item.id === sb.id
-                                    ? { ...item, angleDeg: Number(e.target.value) }
-                                    : item
-                                ),
-                              })
-                            }
-                            className="w-12 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-amber-300"
-                          />
-                        </td>
-                        <td className="border border-slate-800 px-1.5 py-1 text-center">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateSupport({
-                                spotBolts: support.spotBolts.filter(
-                                  (item) => item.id !== sb.id
-                                ),
-                              })
-                            }
-                            className="text-rose-400 hover:text-rose-300 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {support.spotBolts.map((sb) => {
+                      const curRd = sb.chainageMeters ?? Number(((activeRound.chainageMeters ?? 0) + sb.pullMeter).toFixed(2));
+                      const curOff = sb.offsetMeters ?? sb.xMeters;
+                      const curH = sb.heightAboveInvertM ?? sb.yMeters;
+                      const curDia = sb.diameterMm ?? 25;
+
+                      return (
+                        <tr key={sb.id} className="bg-slate-950/60 hover:bg-slate-900/40">
+                          <td className="border border-slate-800 px-1.5 py-1 font-mono font-bold text-rose-300">
+                            {sb.label}
+                          </td>
+                          <td className="border border-slate-800 px-1.5 py-1 uppercase text-[10px]">
+                            {sb.panel.replace('_', ' ')}
+                          </td>
+                          {/* RD (Chainage) */}
+                          <td className="border border-slate-800 px-1 py-1">
+                            <input
+                              type="number"
+                              step={0.1}
+                              value={curRd}
+                              onChange={(e) => {
+                                const newRd = Number(e.target.value);
+                                const newPull = Number((newRd - (activeRound.chainageMeters ?? 0)).toFixed(2));
+                                updateSupport({
+                                  spotBolts: support.spotBolts.map((item) =>
+                                    item.id === sb.id
+                                      ? { ...item, chainageMeters: newRd, pullMeter: newPull, pullM: newPull }
+                                      : item
+                                  ),
+                                });
+                              }}
+                              className="w-16 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-amber-300"
+                              title="Tunnel Chainage RD (m)"
+                            />
+                          </td>
+                          {/* Offset X (m from Centerline) */}
+                          <td className="border border-slate-800 px-1 py-1">
+                            <input
+                              type="number"
+                              step={0.1}
+                              value={curOff}
+                              onChange={(e) => {
+                                const newOff = Number(e.target.value);
+                                updateSupport({
+                                  spotBolts: support.spotBolts.map((item) =>
+                                    item.id === sb.id
+                                      ? { ...item, offsetMeters: newOff, xMeters: newOff, xM: newOff }
+                                      : item
+                                  ),
+                                });
+                              }}
+                              className="w-14 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-white"
+                              title="Offset X from centerline (negative left, positive right)"
+                            />
+                          </td>
+                          {/* Height Y (m above Invert) */}
+                          <td className="border border-slate-800 px-1 py-1">
+                            <input
+                              type="number"
+                              step={0.1}
+                              value={curH}
+                              onChange={(e) => {
+                                const newH = Number(e.target.value);
+                                updateSupport({
+                                  spotBolts: support.spotBolts.map((item) =>
+                                    item.id === sb.id
+                                      ? { ...item, heightAboveInvertM: newH, yMeters: newH, yM: newH }
+                                      : item
+                                  ),
+                                });
+                              }}
+                              className="w-14 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-white"
+                              title="Height Y above tunnel invert"
+                            />
+                          </td>
+                          {/* Length (m) */}
+                          <td className="border border-slate-800 px-1 py-1">
+                            <input
+                              type="number"
+                              step={0.5}
+                              value={sb.lengthM}
+                              onChange={(e) =>
+                                updateSupport({
+                                  spotBolts: support.spotBolts.map((item) =>
+                                    item.id === sb.id
+                                      ? { ...item, lengthM: Number(e.target.value) }
+                                      : item
+                                  ),
+                                })
+                              }
+                              className="w-12 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-emerald-400"
+                              title="Bolt Length (m)"
+                            />
+                          </td>
+                          {/* Diameter (mm) */}
+                          <td className="border border-slate-800 px-1 py-1">
+                            <input
+                              type="number"
+                              step={1}
+                              value={curDia}
+                              onChange={(e) => {
+                                const newDia = Number(e.target.value);
+                                const newCap = computeBoltTensileCapacityKn(newDia, sb.gradeMpa ?? 500);
+                                updateSupport({
+                                  spotBolts: support.spotBolts.map((item) =>
+                                    item.id === sb.id
+                                      ? { ...item, diameterMm: newDia, tensileCapacityKn: newCap }
+                                      : item
+                                  ),
+                                });
+                              }}
+                              className="w-12 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-emerald-400"
+                              title="Rebar Diameter (mm)"
+                            />
+                          </td>
+                          {/* Angle (°) */}
+                          <td className="border border-slate-800 px-1 py-1">
+                            <input
+                              type="number"
+                              step={5}
+                              value={sb.angleDeg}
+                              onChange={(e) =>
+                                updateSupport({
+                                  spotBolts: support.spotBolts.map((item) =>
+                                    item.id === sb.id
+                                      ? { ...item, angleDeg: Number(e.target.value) }
+                                      : item
+                                  ),
+                                })
+                              }
+                              className="w-12 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-rose-300"
+                              title="Drill Look-out / Inclination Angle (°)"
+                            />
+                          </td>
+                          {/* Azimuth (°) */}
+                          <td className="border border-slate-800 px-1 py-1">
+                            <input
+                              type="number"
+                              step={5}
+                              value={sb.azimuthDeg ?? activeRound.tunnelDriveDirection ?? 45}
+                              onChange={(e) =>
+                                updateSupport({
+                                  spotBolts: support.spotBolts.map((item) =>
+                                    item.id === sb.id
+                                      ? { ...item, azimuthDeg: Number(e.target.value) }
+                                      : item
+                                  ),
+                                })
+                              }
+                              className="w-12 bg-slate-900 border border-slate-700 rounded px-1 text-center font-mono text-sky-300"
+                              title="Drill Azimuth (°)"
+                            />
+                          </td>
+                          {/* Rationale / Hazard */}
+                          <td className="border border-slate-800 px-2 py-1 max-w-[200px] truncate text-[10px] text-slate-300" title={sb.hazardReason || ''}>
+                            {sb.hazardReason ? (
+                              <span className="text-amber-300/90">{sb.hazardReason}</span>
+                            ) : sb.recommendedByEngine ? (
+                              <span className="text-emerald-400">⚡ Engine Recommended</span>
+                            ) : (
+                              <span className="text-slate-400">Manual 3D Placement</span>
+                            )}
+                          </td>
+                          <td className="border border-slate-800 px-1.5 py-1 text-center">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateSupport({
+                                  spotBolts: support.spotBolts.filter(
+                                    (item) => item.id !== sb.id
+                                  ),
+                                })
+                              }
+                              className="text-rose-400 hover:text-rose-300 cursor-pointer"
+                              title="Remove Spot Bolt"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -7445,6 +8131,16 @@ export const FieldSurveyOverbreakStage: React.FC<{
     }
     const coords = getSvgCoordinatesFromPointer(e.clientX, e.clientY);
     if (!coords) return;
+    const benchCfg = getExcavationBenchConfig(activeRound, activeLocation);
+    if (benchCfg.hasBenchDivision) {
+      const benchY = boxY + boxH * (1 - benchCfg.benchRatioFromInvert);
+      if (benchCfg.hatchZone === 'bench_bottom' && coords.y > benchY) {
+        return;
+      }
+      if (benchCfg.hatchZone === 'heading_top' && coords.y < benchY) {
+        return;
+      }
+    }
     const xM = Number((((coords.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
     const yM = Number((((boxY + boxH - coords.y) / boxH) * H).toFixed(2));
     const devMm = computePointDeviationMm(coords);
@@ -7454,8 +8150,18 @@ export const FieldSurveyOverbreakStage: React.FC<{
   };
 
   const handleFaceCanvasPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    const coords = getSvgCoordinatesFromPointer(e.clientX, e.clientY);
-    if (!coords) return;
+    const rawCoords = getSvgCoordinatesFromPointer(e.clientX, e.clientY);
+    if (!rawCoords) return;
+    const benchCfg = getExcavationBenchConfig(activeRound, activeLocation);
+    let coords = rawCoords;
+    if (benchCfg.hasBenchDivision) {
+      const benchY = boxY + boxH * (1 - benchCfg.benchRatioFromInvert);
+      if (benchCfg.hatchZone === 'bench_bottom' && coords.y > benchY) {
+        coords = { ...coords, y: Number(benchY.toFixed(1)) };
+      } else if (benchCfg.hatchZone === 'heading_top' && coords.y < benchY) {
+        coords = { ...coords, y: Number(benchY.toFixed(1)) };
+      }
+    }
     setHoverCoord(coords);
 
     if (draggingPointIdx !== null && survey.surveyPoints && draggingPointIdx < survey.surveyPoints.length) {
@@ -8130,6 +8836,18 @@ export const FieldSurveyOverbreakStage: React.FC<{
                 fill="rgba(255, 255, 255, 0.88)"
                 stroke="#0f172a"
                 strokeWidth="2.6"
+              />
+
+              {/* Dotted Bench Line & Hatched Bench / Top Portion on top of Design Tunnel Outline */}
+              <FieldTunnelBenchHatchAndLineSvg
+                location={activeLocation}
+                round={activeRound}
+                boxX={boxX}
+                boxY={boxY}
+                boxW={boxW}
+                boxH={boxH}
+                clipPathD={faceDetails.closedFillPathD}
+                idSuffix={`survey-ob-top-${activeRound.id}`}
               />
 
               {/* Connected Survey Trace & Located Survey Points */}

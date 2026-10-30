@@ -577,6 +577,16 @@ export function assessModuleDataReadiness(
 
   // Per-module validation
   switch (moduleId) {
+    case 'EXECUTIVE_REPORT': {
+      if (!hasAtLeastOneJoint) {
+        missingInputs.push('Mapped Structural Discontinuities: At least 1 joint trace, dip surface, or fault must be mapped on the active face.');
+      }
+      if (!hasValidRmr && !hasValidQ) {
+        missingInputs.push('Geotechnical Classification: Active RMR89 or Barton Q-System rating is required to synthesize the Executive Geotechnical Dossier.');
+      }
+      break;
+    }
+
     case 'WEDGE_FOS': {
       // Goodman-Shi (1985) Kinematic Wedge Stability requires:
       // 1. At least 2 structural discontinuity planes (strike/dip/dipDir)
@@ -609,15 +619,15 @@ export function assessModuleDataReadiness(
       // 2. GSI (Geological Strength Index) or valid RMR/Q
       // 3. Rock type / mi constant
       if (!hasValidRmr && !hasValidQ) {
-        missingInputs.push('Rock Mass Rating (RMR89) or Barton Q-System classification to derive GSI.');
+        missingInputs.push('Rock Mass Rating (RMR89) or Barton Q-System classification is required to derive GSI and Hoek-Brown failure envelopes.');
       }
       break;
     }
 
     case 'STANDUP_TIME_SPAN': {
-      // Bieniawski Stand-up Time requires valid RMR89 total rating
-      if (!hasValidRmr) {
-        missingInputs.push('Bieniawski RMR89 Classification (Total RMR score required to compute unsupported stand-up time).');
+      // Bieniawski Stand-up Time requires valid RMR89 or Q rating
+      if (!hasValidRmr && !hasValidQ) {
+        missingInputs.push('Bieniawski RMR89 or Barton Q-System Classification is required to compute unsupported active span and stand-up time.');
       }
       break;
     }
@@ -626,28 +636,24 @@ export function assessModuleDataReadiness(
       // Palmström 1996 volumetric joint count Jv & block sizing requires:
       // Discontinuity sets with measured true spacing S
       if (!hasAtLeastOneJoint) {
-        missingInputs.push('Mapped Discontinuities: Measured joint sets with true spacings (S1, S2, S3) required for Palmström Jv calculation.');
+        missingInputs.push('Mapped Discontinuities: Measured joint sets with true spacings (S1, S2, S3) required for Palmström Jv and block volume Vb calculation.');
       }
       break;
     }
 
     case 'HYDRO_INFLOW': {
       // Goodman / Heuer 1995 tunnel groundwater inflow requires:
-      // Tunnel depth / overburden H and piezometric head or rock permeability
-      if (!hasGeometry) {
-        missingInputs.push('Tunnel Cross-Section Geometry (Radius & Perimeter)');
+      // Tunnel geometry and active hydrogeological/classification inputs (Jw or RMR water rating or mapped wet joints)
+      if (!hasValidRmr && !hasValidQ && !hasAtLeastOneJoint) {
+        missingInputs.push('Hydrogeological & Rock Mass Input: Complete Q-System (Jw), RMR89 (Groundwater rating), or map water-bearing joints on the face.');
       }
       break;
     }
 
     case 'WEAK_ZONE_PROJECTOR': {
-      // Weak zone ahead requires genuine mapped faults or shear contacts
-      const hasMappedFault = candidateJoints.some((j) => {
-        const t = ((j as any).type || (j.featureType as string) || '').toLowerCase();
-        return t.includes('fault') || t.includes('shear');
-      });
-      if (!hasMappedFault) {
-        missingInputs.push('No Structural Faults or Shear Zones Mapped on Active Face. (Trace or mark a shear zone on the face canvas to project ahead).');
+      // Weak zone ahead requires genuine mapped faults, shear zones, or governing persistent discontinuities
+      if (!hasAtLeastOneJoint) {
+        missingInputs.push('Mapped Fault, Shear Zone, or Governing Discontinuity: Trace at least 1 structural plane or fault on the active face canvas to project intersection chainages ahead of the face.');
       }
       break;
     }
@@ -655,33 +661,45 @@ export function assessModuleDataReadiness(
     case 'SEQUENTIAL_3D_RECON': {
       // 3D face interpolation requires at least 2 consecutive face logs
       if (!savedProjects || savedProjects.length < 2) {
-        missingInputs.push('Sequential Face Logs: At least 2 mapped face rounds (chainage stations) required to interpolate 3D geological lithology ribbons.');
+        missingInputs.push('Sequential Face Logs: At least 2 mapped face rounds (chainage stations) in this location are required to interpolate 3D geological lithology ribbons.');
       }
       break;
     }
 
     case 'ALIGNMENT_ALTERNATIVES': {
       if (!hasAtLeastOneJoint) {
-        missingInputs.push('Structural Discontinuity Field: At least 1 joint or fault required to evaluate alignment strike-to-tunnel angles.');
+        missingInputs.push('Structural Discontinuity Field: At least 1 mapped joint or fault is required to evaluate alignment strike-to-tunnel angles.');
       }
-      if (!hasValidRmr) {
-        missingInputs.push('Baseline RMR Classification to compute Bieniawski R6 alignment orientation adjustment.');
+      if (!hasValidRmr && !hasValidQ) {
+        missingInputs.push('Baseline RMR89 or Q-System Classification is required to compute Bieniawski R6 alignment orientation adjustment.');
       }
       break;
     }
 
     case 'POOR_ROCK_PROPORTIONS': {
       if (!hasValidRmr && !hasValidQ) {
-        missingInputs.push('Geotechnical Classification (RMR or Q) across mapped chainage to evaluate probabilistic Class IV & V proportions.');
+        missingInputs.push('Geotechnical Classification (RMR89 or Q-System) on the active drive is required to evaluate Class IV & V poor rock proportions.');
+      }
+      break;
+    }
+
+    case 'SLOPE_STABILITY_AND_STABILIZATION': {
+      if (!hasAtLeastOneJoint) {
+        missingInputs.push('Mapped Structural Discontinuities: At least 1 joint or shear plane is required to evaluate portal cut and excavation stabilization.');
+      }
+      if (!hasValidRmr && !hasValidQ) {
+        missingInputs.push('Geotechnical Classification (RMR89 or Q-System) is required to compute rock mass cohesion, friction, and support demand.');
       }
       break;
     }
 
     case 'EXCAVATION_3D_LOG':
+    case 'FUTURE_FORECAST':
+    case 'APPARENT_DIP_SOLVER':
     case 'APPARENT_THICKNESS_SPACING':
     default: {
       if (!hasAtLeastOneJoint) {
-        missingInputs.push('Discontinuity Traces: No joints, bedding, or shear planes have been traced on the active tunnel face.');
+        missingInputs.push('Discontinuity Traces: No joints, dip planes, bedding, or shear zones have been traced on the active tunnel face.');
       }
       break;
     }

@@ -1245,10 +1245,20 @@ export function runCompleteFemDemAnalysis(
   }
 
   let spotBoltsPressureMpa = 0;
-  const spotBoltsCount = (sup.spotBolts || []).length;
+  const spotBoltsList = sup.spotBolts || [];
+  const spotBoltsCount = spotBoltsList.length;
   if (sup.spotBoltsEnabled && spotBoltsCount > 0) {
-    spotBoltsPressureMpa = Math.min(0.08, spotBoltsCount * 0.014);
-    activeSystemsSummary.push(`${spotBoltsCount} Targeted 3D Spot Bolt(s)`);
+    const totalSpotTensileKn = spotBoltsList.reduce((acc, sb) => {
+      const d = sb.diameterMm || 25;
+      const fy = sb.gradeMpa || 500;
+      const cap = sb.tensileCapacityKn || (Math.PI * Math.pow(d / 1000, 2) / 4) * (fy * 1000);
+      return acc + cap;
+    }, 0);
+    const tunnelPerimM = spanWidthM * 2 + totalHeightM;
+    const pullLenM = Math.max(1.0, round.pullLengthMeters || 3.0);
+    const addedPressureMpa = totalSpotTensileKn / Math.max(1, tunnelPerimM * pullLenM * 1000);
+    spotBoltsPressureMpa = Number(Math.min(0.12, Math.max(0.015 * spotBoltsCount, addedPressureMpa)).toFixed(3));
+    activeSystemsSummary.push(`${spotBoltsCount} Targeted Spot Bolt(s) (${Math.round(totalSpotTensileKn)} kN cap)`);
   }
 
   let shotcretePressureMpa = 0;
@@ -2106,9 +2116,33 @@ export function runCompleteFemDemAnalysis(
         ? 0.65
         : 0.25;
 
+    let spotBoltBlockResistKn = 0;
+    if (sup.spotBoltsEnabled && spotBoltsCount > 0) {
+      for (const sb of spotBoltsList) {
+        const pinsThisBlock =
+          (zone === 'Crown Arch' && (sb.panel === 'crown' || (sb.yMeters ?? 0) > totalHeightM * 0.75)) ||
+          (zone === 'Left Sidewall' && (sb.panel === 'left_wall' || (sb.xMeters ?? 0) < -spanWidthM * 0.25)) ||
+          (zone === 'Right Sidewall' && (sb.panel === 'right_wall' || (sb.xMeters ?? 0) > spanWidthM * 0.25)) ||
+          (zone === 'Shoulder Wedge' && (sb.panel === 'crown' || sb.panel === 'left_wall' || sb.panel === 'right_wall')) ||
+          (zone === 'Slope Batter');
+
+        if (pinsThisBlock) {
+          const d = sb.diameterMm || 25;
+          const fy = sb.gradeMpa || 500;
+          const nominalCapKn = sb.tensileCapacityKn || (Math.PI * Math.pow(d / 1000, 2) / 4) * (fy * 1000);
+          const sbLen = sb.lengthM || 4.0;
+          const sbAnchorage =
+            sbLen > apexDepthM + 0.5 ? 1.0 : sbLen > apexDepthM ? Math.max(0.4, (sbLen - apexDepthM) / 0.5) : 0.25;
+          spotBoltBlockResistKn += nominalCapKn * sbAnchorage;
+        }
+      }
+      if (spotBoltBlockResistKn === 0 && spotBoltsCount > 0) {
+        spotBoltBlockResistKn = 45 * Math.min(2, spotBoltsCount);
+      }
+    }
+
     const boltForceKn =
-      boltsIntersecting * (165 / boltSpLongM) * effectiveAnchorageFactor +
-      (sup.spotBoltsEnabled && spotBoltsCount > 0 ? 85 : 0);
+      boltsIntersecting * (165 / boltSpLongM) * effectiveAnchorageFactor + spotBoltBlockResistKn;
 
     // Shotcrete punching shear perimeter resistance
     const shotcreteShearKn =

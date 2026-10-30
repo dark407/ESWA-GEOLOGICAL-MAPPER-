@@ -42,6 +42,9 @@ import {
   FieldFaultElementRole,
   FieldFoldSubType,
   FieldFoldElementRole,
+  getExcavationBenchConfig,
+  getPanelActiveExcavationBounds,
+  isPointInsideFieldPanelOutline,
   pruneFullyErasedLithologyStrokes,
   resolveRockDisplayInfo,
   smoothFieldTracePoints,
@@ -1082,12 +1085,16 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       }
       const u = Math.max(0.005, Math.min(0.995, bestU));
       const v = Math.max(0.005, Math.min(0.995, bestV));
+      const facePanelPt = {
+        x: Number((faceGeom.boxX + u * faceGeom.boxW).toFixed(1)),
+        y: Number((faceGeom.boxY + v * faceGeom.boxH).toFixed(1)),
+      };
+      if (!isPointInsideFieldPanelOutline(facePanelPt, 'face', activeLocation, activeRound, 0)) {
+        return null;
+      }
       return {
         panel: 'face',
-        panelPt: {
-          x: Number((faceGeom.boxX + u * faceGeom.boxW).toFixed(1)),
-          y: Number((faceGeom.boxY + v * faceGeom.boxH).toFixed(1)),
-        },
+        panelPt: facePanelPt,
         u,
         v,
         pullMeter: Number(((u - 0.5) * activeLocation.widthM).toFixed(2)),
@@ -1170,12 +1177,25 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       perimMeter = bestNode.edgeMeterFromStart;
     }
 
+    const resolvedPanelPt = {
+      x: Number((geom.boxX + u * geom.boxW).toFixed(1)),
+      y: Number((geom.boxY + v * geom.boxH).toFixed(1)),
+    };
+    if (
+      !isPointInsideFieldPanelOutline(
+        resolvedPanelPt,
+        bestNode.panel,
+        activeLocation,
+        activeRound,
+        0
+      )
+    ) {
+      return null;
+    }
+
     return {
       panel: bestNode.panel,
-      panelPt: {
-        x: Number((geom.boxX + u * geom.boxW).toFixed(1)),
-        y: Number((geom.boxY + v * geom.boxH).toFixed(1)),
-      },
+      panelPt: resolvedPanelPt,
       u,
       v,
       pullMeter: Number((pullNorm * pullM).toFixed(2)),
@@ -3176,6 +3196,16 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             <clipPath id="clip-3d-face">
               <polygon points={surfaceMeshes.facePts} />
             </clipPath>
+            <pattern
+              id="f3d-excavation-hatch"
+              width="12"
+              height="12"
+              patternUnits="userSpaceOnUse"
+              patternTransform="rotate(45)"
+            >
+              <rect width="12" height="12" fill="rgba(15, 23, 42, 0.24)" />
+              <line x1="0" y1="0" x2="0" y2="12" stroke="#f59e0b" strokeWidth="2.4" strokeOpacity="0.6" />
+            </pattern>
 
             {/* Per-Panel Lithology Erase Masks so `lithology_erase` carves clean holes without blocking background */}
             {allPanels.map((pid) => {
@@ -3901,6 +3931,106 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
               </g>
             );
           })}
+
+          {/* 4E-Bench: 3D Hatched Unexcavated / Already-Excavated Lock Overlay & Dotted Bench Line */}
+          {(() => {
+            const benchCfg = getExcavationBenchConfig(activeRound, activeLocation);
+            if (!benchCfg.hasBenchDivision) return null;
+            return (
+              <g pointerEvents="none" className="select-none">
+                {allPanels.map((pid) => {
+                  const excBounds = getPanelActiveExcavationBounds(
+                    pid,
+                    activeLocation,
+                    activeRound
+                  );
+                  if (
+                    !excBounds.hasBenchDivision ||
+                    excBounds.hatchMinY === null ||
+                    excBounds.hatchMaxY === null ||
+                    Math.abs(excBounds.hatchMaxY - excBounds.hatchMinY) < 1
+                  ) {
+                    return null;
+                  }
+                  const geom = getPanelGeom(pid);
+                  const steps = 16;
+                  const hatchPolyPts: FieldPoint2D[] = [];
+                  for (let i = 0; i <= steps; i++) {
+                    const x = geom.boxX + (geom.boxW * i) / steps;
+                    hatchPolyPts.push(panelPointTo3DSvg(pid, { x, y: excBounds.hatchMinY }));
+                  }
+                  for (let i = 1; i <= steps; i++) {
+                    const y =
+                      excBounds.hatchMinY +
+                      ((excBounds.hatchMaxY - excBounds.hatchMinY) * i) / steps;
+                    hatchPolyPts.push(
+                      panelPointTo3DSvg(pid, { x: geom.boxX + geom.boxW, y })
+                    );
+                  }
+                  for (let i = 1; i <= steps; i++) {
+                    const x = geom.boxX + geom.boxW - (geom.boxW * i) / steps;
+                    hatchPolyPts.push(panelPointTo3DSvg(pid, { x, y: excBounds.hatchMaxY }));
+                  }
+                  for (let i = 1; i < steps; i++) {
+                    const y =
+                      excBounds.hatchMaxY -
+                      ((excBounds.hatchMaxY - excBounds.hatchMinY) * i) / steps;
+                    hatchPolyPts.push(panelPointTo3DSvg(pid, { x: geom.boxX, y }));
+                  }
+                  const hatchPtsStr = hatchPolyPts
+                    .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+                    .join(' ');
+
+                  const benchLinePts: FieldPoint2D[] = [];
+                  if (excBounds.benchY !== null && !excBounds.isPanelFullyLocked) {
+                    for (let i = 0; i <= steps; i++) {
+                      const x = geom.boxX + (geom.boxW * i) / steps;
+                      benchLinePts.push(
+                        panelPointTo3DSvg(pid, { x, y: excBounds.benchY })
+                      );
+                    }
+                  }
+                  const benchLineStr = benchLinePts
+                    .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+                    .join(' ');
+
+                  return (
+                    <g key={`3d-bench-lock-${pid}`} clipPath={`url(#clip-3d-${pid})`}>
+                      <polygon
+                        points={hatchPtsStr}
+                        fill="#ffffff"
+                        fillOpacity={0.85}
+                        stroke="none"
+                      />
+                      <polygon
+                        points={hatchPtsStr}
+                        fill="url(#f3d-excavation-hatch)"
+                        stroke="none"
+                      />
+                      {benchLinePts.length >= 2 && (
+                        <>
+                          <polyline
+                            points={benchLineStr}
+                            fill="none"
+                            stroke="#ffffff"
+                            strokeWidth="4.2"
+                            strokeOpacity="0.9"
+                          />
+                          <polyline
+                            points={benchLineStr}
+                            fill="none"
+                            stroke="#d97706"
+                            strokeWidth="2.4"
+                            strokeDasharray="6 4"
+                          />
+                        </>
+                      )}
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })()}
 
           {/* 3D Planar Cutting Disc for currently inspected/selected joint */}
           {inspectedJoint3DDisc && (

@@ -446,10 +446,173 @@ export interface FieldSpotBoltItem {
   perimeterM?: number;
   xM?: number;
   yM?: number;
+  diameterMm?: number;
+  gradeMpa?: number;
+  tensileCapacityKn?: number;
+  hazardReason?: string;
+  recommendedByEngine?: boolean;
+  chainageMeters?: number; // RD (m)
+  offsetMeters?: number;   // Offset X from tunnel centerline (m)
+  heightAboveInvertM?: number; // Height Y above invert (m)
+}
+
+export type FieldNatmSupportClass = 'Class I' | 'Class II' | 'Class III' | 'Class IV' | 'Class V';
+
+export type FieldNmtRockClass =
+  | 'Class A (Exceptionally Good)'
+  | 'Class B (Extremely Good)'
+  | 'Class C (Very Good)'
+  | 'Class D (Good)'
+  | 'Class E (Fair)'
+  | 'Class F (Poor)'
+  | 'Class G (Very Poor)'
+  | 'Class H (Extremely Poor)'
+  | 'Class I (Exceptionally Poor)';
+
+export interface FieldNmtClassItem {
+  code: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I';
+  name: string;
+  fullName: FieldNmtRockClass;
+  qMin: number;
+  qMax: number;
+  color: string;
+  badgeBg: string;
+  badgeText: string;
+  defaultCategory: number;
+  description: string;
+}
+
+export const FIELD_NMT_ROCK_CLASSES: FieldNmtClassItem[] = [
+  {
+    code: 'A',
+    name: 'Exceptionally Good',
+    fullName: 'Class A (Exceptionally Good)',
+    qMin: 400,
+    qMax: 1000,
+    color: '#10b981',
+    badgeBg: '#d1fae5',
+    badgeText: '#065f46',
+    defaultCategory: 1,
+    description: 'Massive, unjointed sound rock mass. Generally unsupported or spot bolting.',
+  },
+  {
+    code: 'B',
+    name: 'Extremely Good',
+    fullName: 'Class B (Extremely Good)',
+    qMin: 100,
+    qMax: 400,
+    color: '#059669',
+    badgeBg: '#a7f3d0',
+    badgeText: '#047857',
+    defaultCategory: 1,
+    description: 'Hard massive rock with widely spaced tight joints. Unsupported or spot bolts.',
+  },
+  {
+    code: 'C',
+    name: 'Very Good',
+    fullName: 'Class C (Very Good)',
+    qMin: 40,
+    qMax: 100,
+    color: '#0284c7',
+    badgeBg: '#bae6fd',
+    badgeText: '#0369a1',
+    defaultCategory: 2,
+    description: 'Sound interlocking rock mass with favorable roughness. Spot bolting (sb).',
+  },
+  {
+    code: 'D',
+    name: 'Good',
+    fullName: 'Class D (Good)',
+    qMin: 10,
+    qMax: 40,
+    color: '#38bdf8',
+    badgeBg: '#e0f2fe',
+    badgeText: '#0284c7',
+    defaultCategory: 3,
+    description: 'Minor jointing, sound rock. Systematic bolting (B, s=1.5-2.5m).',
+  },
+  {
+    code: 'E',
+    name: 'Fair',
+    fullName: 'Class E (Fair)',
+    qMin: 4,
+    qMax: 10,
+    color: '#f59e0b',
+    badgeBg: '#fef3c7',
+    badgeText: '#b45309',
+    defaultCategory: 4,
+    description: 'Moderately blocky, 2-3 joint sets. Systematic bolting + unreinforced/fibre shotcrete (40-60mm).',
+  },
+  {
+    code: 'F',
+    name: 'Poor',
+    fullName: 'Class F (Poor)',
+    qMin: 1,
+    qMax: 4,
+    color: '#f97316',
+    badgeBg: '#ffedd5',
+    badgeText: '#c2410c',
+    defaultCategory: 5,
+    description: 'Blocky / seamy, low RQD. Fibre-reinforced shotcrete (50-90mm) + bolting (B, s=1.3-1.8m).',
+  },
+  {
+    code: 'G',
+    name: 'Very Poor',
+    fullName: 'Class G (Very Poor)',
+    qMin: 0.1,
+    qMax: 1,
+    color: '#ef4444',
+    badgeBg: '#fee2e2',
+    badgeText: '#b91c1c',
+    defaultCategory: 6,
+    description: 'Heavily sheared / crushed rock, clay coatings. Sfr (90-150mm) + bolting (B, s=1.0-1.5m).',
+  },
+  {
+    code: 'H',
+    name: 'Extremely Poor',
+    fullName: 'Class H (Extremely Poor)',
+    qMin: 0.01,
+    qMax: 0.1,
+    color: '#b91c1c',
+    badgeBg: '#fecaca',
+    badgeText: '#7f1d1d',
+    defaultCategory: 8,
+    description: 'Fault gouge, heavy squeezing / swelling. Sfr (>150mm) + Reinforced Ribs (RRS I/II) + Bolting.',
+  },
+  {
+    code: 'I',
+    name: 'Exceptionally Poor',
+    fullName: 'Class I (Exceptionally Poor)',
+    qMin: 0.001,
+    qMax: 0.01,
+    color: '#881337',
+    badgeBg: '#ffe4e6',
+    badgeText: '#881337',
+    defaultCategory: 9,
+    description: 'Flowing / major fault collapse. Cast concrete arch (CCA) / heavy RRS III + invert strutting.',
+  },
+];
+
+export function getNmtRockClassFromQ(q: number | null | undefined): FieldNmtClassItem {
+  if (q == null || isNaN(q)) return FIELD_NMT_ROCK_CLASSES[4]; // Default Fair
+  if (q >= 400) return FIELD_NMT_ROCK_CLASSES[0];
+  if (q >= 100) return FIELD_NMT_ROCK_CLASSES[1];
+  if (q >= 40) return FIELD_NMT_ROCK_CLASSES[2];
+  if (q >= 10) return FIELD_NMT_ROCK_CLASSES[3];
+  if (q >= 4) return FIELD_NMT_ROCK_CLASSES[4];
+  if (q >= 1) return FIELD_NMT_ROCK_CLASSES[5];
+  if (q >= 0.1) return FIELD_NMT_ROCK_CLASSES[6];
+  if (q >= 0.01) return FIELD_NMT_ROCK_CLASSES[7];
+  return FIELD_NMT_ROCK_CLASSES[8];
 }
 
 export interface FieldSupportSystemConfig {
-  supportClass: 'Class I' | 'Class II' | 'Class III' | 'Class IV' | 'Class V' | 'Custom' | '';
+  supportClass:
+    | FieldNatmSupportClass
+    | FieldNmtRockClass
+    | 'Custom'
+    | ''
+    | string;
   userConfiguredSupport?: boolean;
   overrideReason?: string;
   rockClass?: string;
@@ -5228,12 +5391,25 @@ export function isPointInsideFieldPanelOutline(
   tolerancePx = 0
 ): boolean {
   const geom = computePanelCanvasGeometry(panel, location, round);
+  const excBounds = getPanelActiveExcavationBounds(panel, location, round);
+  if (excBounds.isPanelFullyLocked) {
+    return false;
+  }
+
+  // Do not allow positive outer tolerance (e.g., catchPad) to cross the dotted Bench Line into the hatched portion
+  const benchTol = Math.min(0, tolerancePx);
   const left = geom.boxX - tolerancePx;
   const right = geom.boxX + geom.boxW + tolerancePx;
-  const top = geom.boxY - tolerancePx;
-  const bottom = geom.boxY + geom.boxH + tolerancePx;
+  const top =
+    excBounds.hasBenchDivision && excBounds.hatchZone === 'heading_top'
+      ? excBounds.minY - benchTol
+      : geom.boxY - tolerancePx;
+  const bottom =
+    excBounds.hasBenchDivision && excBounds.hatchZone === 'bench_bottom'
+      ? excBounds.maxY + benchTol
+      : geom.boxY + geom.boxH + tolerancePx;
 
-  // Quick bounding-box check for all panels
+  // Quick bounding-box check for all panels (including active excavation bounds)
   if (pt.x < left || pt.x > right || pt.y < top || pt.y > bottom) {
     return false;
   }
@@ -5375,10 +5551,11 @@ export function clampPointToFieldPanelOutline(
   insetPx = 0
 ): FieldPoint2D {
   const geom = computePanelCanvasGeometry(panel, location, round);
+  const excBounds = getPanelActiveExcavationBounds(panel, location, round);
   const minX = geom.boxX + insetPx;
   const maxX = geom.boxX + geom.boxW - insetPx;
-  const minY = geom.boxY + insetPx;
-  const maxY = geom.boxY + geom.boxH - insetPx;
+  const minY = excBounds.minY + insetPx;
+  const maxY = Math.max(minY, excBounds.maxY - insetPx);
 
   const clampedX = Math.max(minX, Math.min(maxX, pt.x));
   const clampedY = Math.max(minY, Math.min(maxY, pt.y));
@@ -5395,9 +5572,11 @@ export function clampPointToFieldPanelOutline(
     return rectClamped;
   }
 
-  // Pull point radially toward the interior center of the Face until it is strictly inside the outline
+  // Pull point radially toward the interior center of the active unhatched Face portion
   const cx = geom.boxX + geom.boxW / 2;
-  const cy = geom.boxY + geom.boxH * 0.6;
+  const cy = excBounds.hasBenchDivision
+    ? (minY + maxY) * 0.5
+    : geom.boxY + geom.boxH * 0.6;
   let lo = 0;
   let hi = 1;
   for (let i = 0; i < 14; i++) {
@@ -5432,12 +5611,13 @@ export function snapPointToExactFieldPanelOutline(
   insideSnapTol = 28
 ): { point: FieldPoint2D; snapped: boolean } {
   const geom = computePanelCanvasGeometry(panel, location, round);
+  const excBounds = getPanelActiveExcavationBounds(panel, location, round);
 
   if (panel !== 'face') {
     const left = geom.boxX;
     const right = geom.boxX + geom.boxW;
-    const top = geom.boxY;
-    const bottom = geom.boxY + geom.boxH;
+    const top = excBounds.minY;
+    const bottom = excBounds.maxY;
     const cx = Math.max(left, Math.min(right, pt.x));
     const cy = Math.max(top, Math.min(bottom, pt.y));
     const isOutside = pt.x < left || pt.x > right || pt.y < top || pt.y > bottom;
@@ -5466,7 +5646,7 @@ export function snapPointToExactFieldPanelOutline(
     };
   }
 
-  // Face panel: project onto the exact Face tunnel outline perimeter segments
+  // Face panel: project onto the active Face tunnel outline perimeter segments (clipped at benchY if active)
   const details = computeFaceTunnelOutlineDetails(
     location,
     geom.boxX,
@@ -5474,17 +5654,12 @@ export function snapPointToExactFieldPanelOutline(
     geom.boxW,
     geom.boxH
   );
-  const perimLoop: FieldPoint2D[] = [
-    ...details.leftWallPoly,
-    ...details.crownPoly,
-    ...details.rightWallPoly.slice().reverse(),
-    ...(details.hasInvert ? details.invertPoly.slice().reverse() : []),
-  ];
+  const perimLoop = getExactFieldPanelPerimeterLoop(panel, location, round);
 
   if (perimLoop.length >= 2) {
     let bestPt = perimLoop[0];
     let bestDist = Infinity;
-    const segCount = details.isClosed ? perimLoop.length : perimLoop.length - 1;
+    const segCount = details.isClosed || excBounds.hasBenchDivision ? perimLoop.length : perimLoop.length - 1;
     for (let i = 0; i < segCount; i++) {
       const a = perimLoop[i];
       const b = perimLoop[(i + 1) % perimLoop.length];
@@ -8889,14 +9064,33 @@ export function getExactFieldPanelPerimeterLoop(
   round: FieldExcavationRound
 ): FieldPoint2D[] {
   const geom = computePanelCanvasGeometry(panel, location, round);
-  if (panel !== 'face') {
-    return [
-      { x: geom.boxX, y: geom.boxY },
-      { x: geom.boxX + geom.boxW, y: geom.boxY },
-      { x: geom.boxX + geom.boxW, y: geom.boxY + geom.boxH },
-      { x: geom.boxX, y: geom.boxY + geom.boxH },
-    ];
+  const excBounds = getPanelActiveExcavationBounds(panel, location, round);
+  if (excBounds.isPanelFullyLocked) {
+    return [];
   }
+
+  if (panel !== 'face') {
+    const left = geom.boxX;
+    const right = geom.boxX + geom.boxW;
+    const top = excBounds.minY;
+    const bottom = excBounds.maxY;
+    const rectPts: FieldPoint2D[] = [];
+    const steps = 10;
+    for (let i = 0; i < steps; i++) {
+      rectPts.push({ x: Number((left + ((right - left) * i) / steps).toFixed(1)), y: Number(top.toFixed(1)) });
+    }
+    for (let i = 0; i < steps; i++) {
+      rectPts.push({ x: Number(right.toFixed(1)), y: Number((top + ((bottom - top) * i) / steps).toFixed(1)) });
+    }
+    for (let i = 0; i < steps; i++) {
+      rectPts.push({ x: Number((right - ((right - left) * i) / steps).toFixed(1)), y: Number(bottom.toFixed(1)) });
+    }
+    for (let i = 0; i < steps; i++) {
+      rectPts.push({ x: Number(left.toFixed(1)), y: Number((bottom - ((bottom - top) * i) / steps).toFixed(1)) });
+    }
+    return rectPts;
+  }
+
   const details = computeFaceTunnelOutlineDetails(
     location,
     geom.boxX,
@@ -8904,12 +9098,75 @@ export function getExactFieldPanelPerimeterLoop(
     geom.boxW,
     geom.boxH
   );
-  return [
+  const rawLoop: FieldPoint2D[] = [
     ...details.leftWallPoly,
     ...details.crownPoly,
     ...details.rightWallPoly.slice().reverse(),
     ...(details.hasInvert ? details.invertPoly.slice().reverse() : []),
   ];
+
+  if (!excBounds.hasBenchDivision || excBounds.benchY === null || rawLoop.length < 3) {
+    return rawLoop;
+  }
+
+  // Sutherland-Hodgman horizontal half-plane clip against active excavation portion
+  const keepAbove = excBounds.hatchZone === 'bench_bottom'; // keep y <= benchY
+  const limitY = excBounds.benchY;
+  const isInsideY = (p: FieldPoint2D) => (keepAbove ? p.y <= limitY + 1e-4 : p.y >= limitY - 1e-4);
+  const intersectY = (a: FieldPoint2D, b: FieldPoint2D): FieldPoint2D => {
+    const dy = b.y - a.y;
+    if (Math.abs(dy) < 1e-6) {
+      return { x: Number(a.x.toFixed(1)), y: Number(limitY.toFixed(1)) };
+    }
+    const t = Math.max(0, Math.min(1, (limitY - a.y) / dy));
+    return {
+      x: Number((a.x + t * (b.x - a.x)).toFixed(1)),
+      y: Number(limitY.toFixed(1)),
+    };
+  };
+
+  const clipped: FieldPoint2D[] = [];
+  for (let i = 0; i < rawLoop.length; i++) {
+    const curr = rawLoop[i];
+    const prev = rawLoop[(i - 1 + rawLoop.length) % rawLoop.length];
+    const currIn = isInsideY(curr);
+    const prevIn = isInsideY(prev);
+    if (currIn) {
+      if (!prevIn) {
+        clipped.push(intersectY(prev, curr));
+      }
+      clipped.push(curr);
+    } else if (prevIn) {
+      clipped.push(intersectY(prev, curr));
+    }
+  }
+
+  if (clipped.length < 3) {
+    return rawLoop;
+  }
+
+  // Subdivide the horizontal chord along y = benchY so perimeter snapping and polygon closure have dense vertices along the bench line
+  const result: FieldPoint2D[] = [];
+  for (let i = 0; i < clipped.length; i++) {
+    const a = clipped[i];
+    const b = clipped[(i + 1) % clipped.length];
+    result.push(a);
+    if (
+      Math.abs(a.y - limitY) < 0.8 &&
+      Math.abs(b.y - limitY) < 0.8 &&
+      Math.hypot(b.x - a.x, b.y - a.y) > 18
+    ) {
+      const steps = 16;
+      for (let s = 1; s < steps; s++) {
+        const t = s / steps;
+        result.push({
+          x: Number((a.x + t * (b.x - a.x)).toFixed(1)),
+          y: Number(limitY.toFixed(1)),
+        });
+      }
+    }
+  }
+  return result;
 }
 
 export function projectPointOntoPerimeterLoop(
@@ -9155,6 +9412,187 @@ export function getExcavationBenchConfig(
     benchLineLabel: '',
   };
 }
+
+export interface PanelActiveExcavationBounds {
+  hasBenchDivision: boolean;
+  hatchZone: 'none' | 'bench_bottom' | 'heading_top';
+  isPanelFullyLocked: boolean;
+  /** Canonical SVG Y top of the active (unhatched) portion */
+  minY: number;
+  /** Canonical SVG Y bottom of the active (unhatched) portion */
+  maxY: number;
+  /** Canonical SVG Y of the dotted bench line on this panel, if applicable */
+  benchY: number | null;
+  /** Canonical SVG Y top of the hatched (locked) portion */
+  hatchMinY: number | null;
+  /** Canonical SVG Y bottom of the hatched (locked) portion */
+  hatchMaxY: number | null;
+  lockedReasonLabel: string;
+}
+
+/**
+ * Computes the active (excavated & mappable) vs hatched (unexcavated bench or already-excavated top heading)
+ * canonical SVG Y bounds for any panel (`face`, `crown`, `left_wall`, `right_wall`).
+ */
+export function getPanelActiveExcavationBounds(
+  panel: FieldPanelId,
+  location: FieldTunnelLocationItem,
+  round: FieldExcavationRound
+): PanelActiveExcavationBounds {
+  const geom = computePanelCanvasGeometry(panel, location, round);
+  const cfg = getExcavationBenchConfig(round, location);
+  const fullTop = geom.boxY;
+  const fullBottom = geom.boxY + geom.boxH;
+
+  if (!cfg.hasBenchDivision || cfg.hatchZone === 'none') {
+    return {
+      hasBenchDivision: false,
+      hatchZone: 'none',
+      isPanelFullyLocked: false,
+      minY: fullTop,
+      maxY: fullBottom,
+      benchY: null,
+      hatchMinY: null,
+      hatchMaxY: null,
+      lockedReasonLabel: '',
+    };
+  }
+
+  if (panel === 'crown') {
+    if (cfg.hatchZone === 'heading_top') {
+      return {
+        hasBenchDivision: true,
+        hatchZone: 'heading_top',
+        isPanelFullyLocked: true,
+        minY: fullBottom,
+        maxY: fullBottom,
+        benchY: fullBottom,
+        hatchMinY: fullTop,
+        hatchMaxY: fullBottom,
+        lockedReasonLabel: `Crown is inside the hatched Top Heading (${cfg.hatchedPortionLabel}) — already excavated and locked.`,
+      };
+    }
+    return {
+      hasBenchDivision: false,
+      hatchZone: 'none',
+      isPanelFullyLocked: false,
+      minY: fullTop,
+      maxY: fullBottom,
+      benchY: null,
+      hatchMinY: null,
+      hatchMaxY: null,
+      lockedReasonLabel: '',
+    };
+  }
+
+  if (panel === 'left_wall' || panel === 'right_wall') {
+    const wallH = Math.max(
+      0.5,
+      Number(
+        panel === 'left_wall'
+          ? location.leftWallLengthM ?? location.wallHeightM ?? location.heightM * 0.5
+          : location.rightWallLengthM ?? location.wallHeightM ?? location.heightM * 0.5
+      )
+    );
+    const clampedBenchM = Math.min(wallH, Math.max(0, cfg.benchHeightM));
+    const wallBenchRatio = clampedBenchM / wallH;
+    const benchY = Number((fullTop + geom.boxH * (1 - wallBenchRatio)).toFixed(1));
+
+    if (cfg.hatchZone === 'bench_bottom') {
+      const isFullyLocked = benchY <= fullTop + 2;
+      return {
+        hasBenchDivision: true,
+        hatchZone: 'bench_bottom',
+        isPanelFullyLocked: isFullyLocked,
+        minY: fullTop,
+        maxY: Math.max(fullTop, benchY),
+        benchY,
+        hatchMinY: benchY,
+        hatchMaxY: fullBottom,
+        lockedReasonLabel: `Hatched Bench portion (${cfg.hatchedPortionLabel}) is unexcavated — mapping is locked below the Bench Line.`,
+      };
+    } else {
+      const isFullyLocked = benchY >= fullBottom - 2;
+      return {
+        hasBenchDivision: true,
+        hatchZone: 'heading_top',
+        isPanelFullyLocked: isFullyLocked,
+        minY: Math.min(fullBottom, benchY),
+        maxY: fullBottom,
+        benchY,
+        hatchMinY: fullTop,
+        hatchMaxY: benchY,
+        lockedReasonLabel: `Hatched Top Heading portion (${cfg.hatchedPortionLabel}) is already excavated — mapping is locked above the Bench Line.`,
+      };
+    }
+  }
+
+  // Face panel
+  const benchY = Number((fullTop + geom.boxH * (1 - cfg.benchRatioFromInvert)).toFixed(1));
+  if (cfg.hatchZone === 'bench_bottom') {
+    return {
+      hasBenchDivision: true,
+      hatchZone: 'bench_bottom',
+      isPanelFullyLocked: false,
+      minY: fullTop,
+      maxY: benchY,
+      benchY,
+      hatchMinY: benchY,
+      hatchMaxY: fullBottom,
+      lockedReasonLabel: `Hatched Bench portion (${cfg.hatchedPortionLabel}) is unexcavated — mapping is locked below the Bench Line.`,
+    };
+  }
+
+  return {
+    hasBenchDivision: true,
+    hatchZone: 'heading_top',
+    isPanelFullyLocked: false,
+    minY: benchY,
+    maxY: fullBottom,
+    benchY,
+    hatchMinY: fullTop,
+    hatchMaxY: benchY,
+    lockedReasonLabel: `Hatched Top Heading portion (${cfg.hatchedPortionLabel}) is already excavated — mapping is locked above the Bench Line.`,
+  };
+}
+
+/**
+ * Returns true if the point (in canonical panel coordinates) lies inside the hatched
+ * (unexcavated bench or already-excavated top heading) portion of the panel.
+ */
+export function isPointInsideHatchedExcavationPortion(
+  pt: FieldPoint2D,
+  panel: FieldPanelId,
+  location: FieldTunnelLocationItem,
+  round: FieldExcavationRound
+): boolean {
+  const geom = computePanelCanvasGeometry(panel, location, round);
+  if (
+    pt.x < geom.boxX - 8 ||
+    pt.x > geom.boxX + geom.boxW + 8 ||
+    pt.y < geom.boxY - 8 ||
+    pt.y > geom.boxY + geom.boxH + 8
+  ) {
+    return false;
+  }
+  const excBounds = getPanelActiveExcavationBounds(panel, location, round);
+  if (!excBounds.hasBenchDivision) {
+    return false;
+  }
+  if (excBounds.isPanelFullyLocked) {
+    return true;
+  }
+  if (
+    excBounds.hatchMinY !== null &&
+    excBounds.hatchMaxY !== null &&
+    pt.y >= excBounds.hatchMinY - 0.5 &&
+    pt.y <= excBounds.hatchMaxY + 0.5
+  ) {
+    return true;
+  }
+  return false;
+}
+
 
 
 

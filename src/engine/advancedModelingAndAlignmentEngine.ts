@@ -25,6 +25,7 @@ import {
 // CAPABILITY 1: EXCAVATION-SPECIFIC 3D GEOLOGICAL LOGS
 // ----------------------------------------------------------------------------
 export type ExcavationStage = 'FULL_FACE' | 'TOP_HEADING' | 'BENCH' | 'INVERT';
+export type ExcavationStageType = ExcavationStage;
 
 export interface UnwrappedStripPoint {
   s: number; // Perimeter distance from Left Wall base (-P/2 to +P/2 or left base = 0)
@@ -461,6 +462,101 @@ export function interpolateIdwPoint(
     rmr: Number((sumRmr / sumWeights).toFixed(1)),
     q: Number((sumQ / sumWeights).toFixed(2)),
     gsi: Number((sumGsi / sumWeights).toFixed(1)),
+  };
+}
+
+/**
+ * Linear interpolation of contacts, RMR, Q, and GSI at query station Y_q between consecutive logged faces
+ */
+export function interpolateSequentialFaceLogs(
+  faces: SequentialFaceLog[],
+  targetChainage: number,
+  M: number = 16
+): {
+  lambda: number;
+  interpolatedRmr: number;
+  interpolatedQ: number;
+  interpolatedGsi: number;
+  interpolatedContacts: { id: string; lithologyName: string; points: { x: number; y: number }[] }[];
+} {
+  if (!faces || faces.length === 0) {
+    return {
+      lambda: 0,
+      interpolatedRmr: 50,
+      interpolatedQ: 2.0,
+      interpolatedGsi: 45,
+      interpolatedContacts: [],
+    };
+  }
+  const sorted = [...faces].sort((a, b) => a.chainageMeters - b.chainageMeters);
+  if (sorted.length === 1 || targetChainage <= sorted[0].chainageMeters) {
+    const f = sorted[0];
+    return {
+      lambda: 0,
+      interpolatedRmr: f.meanRmr,
+      interpolatedQ: f.meanQ,
+      interpolatedGsi: f.meanGsi,
+      interpolatedContacts: f.contacts.map((c) => ({
+        id: c.id,
+        lithologyName: c.lithologyName,
+        points: resampleFacePolyline(c.polyline, M),
+      })),
+    };
+  }
+  if (targetChainage >= sorted[sorted.length - 1].chainageMeters) {
+    const f = sorted[sorted.length - 1];
+    return {
+      lambda: 1,
+      interpolatedRmr: f.meanRmr,
+      interpolatedQ: f.meanQ,
+      interpolatedGsi: f.meanGsi,
+      interpolatedContacts: f.contacts.map((c) => ({
+        id: c.id,
+        lithologyName: c.lithologyName,
+        points: resampleFacePolyline(c.polyline, M),
+      })),
+    };
+  }
+
+  let fA = sorted[0];
+  let fB = sorted[1];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (targetChainage >= sorted[i].chainageMeters && targetChainage <= sorted[i + 1].chainageMeters) {
+      fA = sorted[i];
+      fB = sorted[i + 1];
+      break;
+    }
+  }
+
+  const span = Math.max(0.01, fB.chainageMeters - fA.chainageMeters);
+  const lambda = Math.max(0, Math.min(1, (targetChainage - fA.chainageMeters) / span));
+
+  const interpolatedRmr = (1 - lambda) * fA.meanRmr + lambda * fB.meanRmr;
+  const interpolatedQ = (1 - lambda) * fA.meanQ + lambda * fB.meanQ;
+  const interpolatedGsi = (1 - lambda) * fA.meanGsi + lambda * fB.meanGsi;
+
+  const numContacts = Math.min(fA.contacts.length, fB.contacts.length);
+  const interpolatedContacts: { id: string; lithologyName: string; points: { x: number; y: number }[] }[] = [];
+  for (let c = 0; c < numContacts; c++) {
+    const ptsA = resampleFacePolyline(fA.contacts[c].polyline, M);
+    const ptsB = resampleFacePolyline(fB.contacts[c].polyline, M);
+    const pts = ptsA.map((pA, idx) => ({
+      x: (1 - lambda) * pA.x + lambda * (ptsB[idx]?.x ?? pA.x),
+      y: (1 - lambda) * pA.y + lambda * (ptsB[idx]?.y ?? pA.y),
+    }));
+    interpolatedContacts.push({
+      id: `interp-${c}`,
+      lithologyName: fA.contacts[c].lithologyName,
+      points: pts,
+    });
+  }
+
+  return {
+    lambda,
+    interpolatedRmr,
+    interpolatedQ,
+    interpolatedGsi,
+    interpolatedContacts,
   };
 }
 
@@ -1114,27 +1210,45 @@ export function feedDataFromNatmActiveState(
     );
   }
 
-  const gsiValue = rmrTotal !== null ? Math.max(10, Math.min(90, rmrTotal - 5)) : null;
+  const gsiValue =
+    rmrTotal !== null
+      ? Math.max(10, Math.min(95, rmrTotal - 5))
+      : qValue !== null
+      ? Math.round(Math.max(10, Math.min(95, 9 * Math.log(Math.max(0.01, qValue)) + 44)))
+      : null;
   const lithologyName = settings.lithology || 'Unspecified Lithology';
 
-  // Build faults list STRICTLY from mapped features - NEVER fabricate phantom regional faults
+  // Build faults / weak-planes list strictly from mapped features on the face
   const faultsList: MappedFaultInput[] = [];
   candidateJoints.forEach((j, idx) => {
     const featTypeStr = ((j as any).type || (j.featureType as string) || '').toLowerCase();
     if (
       featTypeStr.includes('fault') ||
+      featTypeStr.includes('shear') ||
+      featTypeStr.includes('thrust') ||
       (j.set && j.set.toLowerCase().includes('fault')) ||
       (j.set && j.set.toLowerCase().startsWith('f'))
     ) {
       faultsList.push({
         id: j.id || `f-${idx}`,
-        name: `Mapped Fault ${j.set || `F${idx + 1}`}`,
+        name: `Mapped ${featTypeStr.includes('shear') ? 'Shear Zone' : 'Fault'} ${j.set || `F${idx + 1}`}`,
         beta: j.dip,
         thetaDip: j.dipDirection,
-        tTrue: (j as any).apertureMm ? (j as any).apertureMm / 1000 : 1.0,
+        tTrue: (j as any).apertureMm ? Math.max(0.05, (j as any).apertureMm / 1000) : 0.5,
       });
     }
   });
+
+  // If no explicit fault/shear was tagged, use the governing mapped discontinuity plane for kinematic projection
+  if (faultsList.length === 0 && governingJoint) {
+    faultsList.push({
+      id: governingJoint.id,
+      name: `Governing Plane ${governingJoint.set} (${governingJoint.type})`,
+      beta: governingJoint.dip,
+      thetaDip: governingJoint.dipDirection,
+      tTrue: Math.max(0.05, governingJoint.thicknessM || 0.25),
+    });
+  }
 
   const allJointsList: MappedJointInput[] = candidateJoints.map((j) => ({
     id: j.id,
@@ -1143,23 +1257,52 @@ export function feedDataFromNatmActiveState(
     frictionAngle: (j as any).frictionAngle || 32,
   }));
 
-  // Construct historical face logs STRICTLY from real savedProjects - NEVER synthesize fake blast rounds
+  // Construct historical face logs STRICTLY from real savedProjects / logged rounds
   const historicalFaceLogs: SequentialFaceLog[] = [];
   if (savedProjects && savedProjects.length > 0) {
     savedProjects.forEach((proj) => {
       const ch = proj.numericChainageMeters ?? 100;
+      const projRmr = proj.rmrParams?.totalRmr && proj.rmrParams.totalRmr > 0 ? proj.rmrParams.totalRmr : (rmrTotal ?? 50);
+      const projQ = proj.qIndexParams?.qValue && proj.qIndexParams.qValue > 0 ? proj.qIndexParams.qValue : (qValue ?? 2.0);
+      const projGsi = Math.max(10, Math.min(95, projRmr - 5));
+
+      const regionContacts = (proj.lithologyRegions || [])
+        .filter((lr) => lr.polygon && lr.polygon.length >= 2)
+        .map((lr) => ({
+          id: lr.id,
+          lithologyName: lr.lithologyName || proj.settings?.lithology || lithologyName,
+          polyline: lr.polygon.map((p) => ({ x: p.x, y: p.y })),
+        }));
+
+      const jointContacts =
+        regionContacts.length > 0
+          ? regionContacts
+          : (proj.joints || [])
+              .filter((j) => {
+                const pts = j.geometry || (j as any).points;
+                return pts && pts.length >= 2;
+              })
+              .slice(0, 4)
+              .map((j, jIdx) => {
+                const pts: { x: number; y: number }[] = j.geometry || (j as any).points || [];
+                return {
+                  id: `${proj.id}-jt-${jIdx}`,
+                  lithologyName: `${j.set || 'J1'} (${proj.settings?.lithology || lithologyName})`,
+                  polyline: pts.map((p) => ({
+                    x: (p.x - 0.5) * (proj.geometry?.width || spanW),
+                    y: (0.5 - p.y) * (proj.geometry?.height || heightH),
+                  })),
+                };
+              });
+
       historicalFaceLogs.push({
         id: proj.id,
         chainageMeters: ch,
         faceChainageStr: proj.faceChainage || `RD ${ch.toFixed(1)}m`,
-        contacts: (proj.lithologyRegions || []).map((lr) => ({
-          id: lr.id,
-          lithologyName: lr.lithologyName,
-          polyline: lr.polygon.map((p) => ({ x: p.x, y: p.y })),
-        })),
-        meanRmr: proj.rmrParams?.totalRmr || 55,
-        meanQ: 5.0,
-        meanGsi: 50,
+        contacts: jointContacts,
+        meanRmr: projRmr,
+        meanQ: projQ,
+        meanGsi: projGsi,
       });
     });
   }

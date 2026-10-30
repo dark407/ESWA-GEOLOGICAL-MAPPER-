@@ -1,528 +1,393 @@
-// ============================================================================
-// ESWA ADVANCED ANALYTICS — CAPABILITY 1: EXCAVATION-SPECIFIC 3D GEOLOGICAL LOGS
-// Multi-Stage NATM (Full Face, Top Heading, Bench, Invert),
-// Unwrapped Strip (s, Z) -> 3D Skin Coordinates (X, Y, Z), 3D Excavation Volume
-// ============================================================================
-
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
-  Box,
-  Layers,
-  RotateCcw,
-  Maximize2,
-  ZoomIn,
-  ZoomOut,
-  Info,
-  CheckCircle2,
-  Droplets,
-  Zap,
-} from 'lucide-react';
-import {
-  ExcavationStage,
+  ExcavationStageType,
   computeStageElevationBounds,
-  unwrappedToSkin3D,
 } from '../engine/advancedModelingAndAlignmentEngine';
+import { TunnelGeometry } from '../types/tunnel';
+import { RotateCcw, Eye, Layers, Compass } from 'lucide-react';
 
-export interface ExcavationSpecific3DLogViewportProps {
+export interface Mapped3DTraceItem {
+  id: string;
+  set: string;
+  dip: number;
+  dipDirection: number;
+  strike?: number;
+  type?: string;
+}
+
+interface ExcavationSpecific3DLogViewportProps {
   spanW: number;
   heightH: number;
   benchHeight: number;
-  zStart: number;
-  zEnd: number;
-  lithologyName?: string;
+  crownRadius: number;
+  pullLength: number;
+  activeStage: ExcavationStageType;
+  geometry?: TunnelGeometry;
   driveAzimuth?: number;
+  mappedTraces?: Mapped3DTraceItem[];
+  onStageSelect?: (stage: ExcavationStageType) => void;
+}
+
+function getProfilePerimeterPoints(
+  spanW: number,
+  heightH: number,
+  benchHeight: number,
+  geometry?: TunnelGeometry
+): { x: number; z: number }[] {
+  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
+    return geometry.crossSectionPoints.map((pt) => ({ x: pt.x, z: pt.y }));
+  }
+  const halfW = spanW / 2;
+  const wallH = Math.min(benchHeight, heightH * 0.6);
+  const archH = Math.max(0.5, heightH - wallH);
+  const pts: { x: number; z: number }[] = [];
+  const wallSteps = 12;
+  for (let i = 0; i <= wallSteps; i++) {
+    pts.push({ x: -halfW, z: (i / wallSteps) * wallH });
+  }
+  const archSteps = 32;
+  for (let i = 1; i < archSteps; i++) {
+    const theta = Math.PI * (1 - i / archSteps);
+    pts.push({
+      x: halfW * Math.cos(theta),
+      z: wallH + archH * Math.sin(theta),
+    });
+  }
+  for (let i = wallSteps; i >= 0; i--) {
+    pts.push({ x: halfW, z: (i / wallSteps) * wallH });
+  }
+  const invSteps = 12;
+  for (let i = 1; i < invSteps; i++) {
+    const t = i / invSteps;
+    pts.push({
+      x: halfW * (1 - 2 * t),
+      z: -0.12 * heightH * Math.sin(t * Math.PI),
+    });
+  }
+  return pts;
 }
 
 export const ExcavationSpecific3DLogViewport: React.FC<ExcavationSpecific3DLogViewportProps> = ({
   spanW,
   heightH,
   benchHeight,
-  zStart,
-  zEnd,
-  lithologyName = 'Quartzite / Gneiss Complex',
+  crownRadius,
+  pullLength,
+  activeStage,
+  geometry,
   driveAzimuth = 45,
+  mappedTraces = [],
 }) => {
-  const mountRef = useRef<HTMLDivElement | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
+  const mountRef = useRef<HTMLDivElement>(null);
+  const [wireframe, setWireframe] = useState(false);
+  const [showTraces, setShowTraces] = useState(true);
+  const [showGhostFullProfile, setShowGhostFullProfile] = useState(true);
+  const controlsRef = useRef<OrbitControls | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const animFrameRef = useRef<number | null>(null);
 
-  const [selectedStage, setSelectedStage] = useState<ExcavationStage>('TOP_HEADING');
-  const [showWireframe, setShowWireframe] = useState<boolean>(true);
-  const [showSkinContacts, setShowSkinContacts] = useState<boolean>(true);
-  const [showWaterInflow, setShowWaterInflow] = useState<boolean>(true);
-  const [cameraPreset, setCameraPreset] = useState<'ISOMETRIC' | 'FRONT_FACE' | 'PROFILE'>('ISOMETRIC');
-
-  // Mouse orbit controls
-  const isDraggingRef = useRef<boolean>(false);
-  const prevMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const orbitRef = useRef<{ theta: number; phi: number; radius: number }>({
-    theta: 0.75,
-    phi: 1.1,
-    radius: 28,
-  });
-
-  const stageBounds = useMemo(() => {
-    return computeStageElevationBounds(selectedStage, spanW, heightH, benchHeight, zStart, zEnd);
-  }, [selectedStage, spanW, heightH, benchHeight, zStart, zEnd]);
-
-  const updateCamera = () => {
-    if (!cameraRef.current) return;
-    const { theta, phi, radius } = orbitRef.current;
-    const x = radius * Math.sin(phi) * Math.sin(theta);
-    const y = radius * Math.cos(phi) + heightH * 0.5;
-    const z = radius * Math.sin(phi) * Math.cos(theta);
-    cameraRef.current.position.set(x, y, z);
-    cameraRef.current.lookAt(0, heightH * 0.45, (zStart + zEnd) * 0.5);
-  };
+  const bounds = computeStageElevationBounds(activeStage, spanW, heightH, benchHeight, 0, pullLength);
+  const profileLabel = (geometry?.crownGeometry || 'D-Shaped').replace(/_/g, ' ').toUpperCase();
 
   useEffect(() => {
-    if (cameraPreset === 'ISOMETRIC') {
-      orbitRef.current = { theta: 0.75, phi: 1.1, radius: 28 };
-    } else if (cameraPreset === 'FRONT_FACE') {
-      orbitRef.current = { theta: 0.05, phi: 1.55, radius: 22 };
-    } else if (cameraPreset === 'PROFILE') {
-      orbitRef.current = { theta: Math.PI / 2, phi: 1.55, radius: 24 };
-    }
-    updateCamera();
-  }, [cameraPreset, heightH, zStart, zEnd]);
+    const container = mountRef.current;
+    if (!container) return;
 
-  useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
-
-    const width = mount.clientWidth || 600;
-    const height = mount.clientHeight || 420;
+    const width = container.clientWidth || 720;
+    const height = container.clientHeight || 480;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b1120); // deep slate/navy
-    sceneRef.current = scene;
+    scene.background = new THREE.Color(0x060a12);
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
+    camera.position.set(spanW * 1.45, pullLength * 0.95, heightH * 1.75);
     cameraRef.current = camera;
-    updateCamera();
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    rendererRef.current = renderer;
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
 
-    mount.innerHTML = '';
-    mount.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.target.set(0, heightH * 0.42, -pullLength * 0.5);
+    controlsRef.current = controls;
 
-    // Lighting
-    const ambLight = new THREE.AmbientLight(0xffffff, 0.7);
-    scene.add(ambLight);
-
-    const dirLight1 = new THREE.DirectionalLight(0x38bdf8, 1.2);
-    dirLight1.position.set(20, 30, 20);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.72));
+    const dirLight1 = new THREE.DirectionalLight(0x38bdf8, 1.0);
+    dirLight1.position.set(18, 28, 22);
     scene.add(dirLight1);
 
-    const dirLight2 = new THREE.DirectionalLight(0xf59e0b, 0.8);
-    dirLight2.position.set(-20, 15, -15);
+    const dirLight2 = new THREE.DirectionalLight(0xf59e0b, 0.45);
+    dirLight2.position.set(-18, -10, -15);
     scene.add(dirLight2);
 
-    // Coordinate Grid at Invert Y = 0
-    const grid = new THREE.GridHelper(30, 30, 0x0284c7, 0x1e293b);
-    grid.position.set(0, 0, (zStart + zEnd) * 0.5);
+    // CAD Floor Reference Grid
+    const grid = new THREE.GridHelper(32, 32, 0x1e293b, 0x0f172a);
+    grid.position.y = -Math.abs(bounds.yMin) - 0.15;
     scene.add(grid);
 
-    // BUILD 3D TUNNEL SHELL MESH ACCORDING TO STAGE ELEVATION BOUNDS
-    const R = spanW / 2;
-    const H_wall = Math.max(0.5, heightH - R);
-    const halfArchP = (Math.PI * R) / 2;
-    const totalP = 2 * (halfArchP + H_wall);
+    const perimeterPts = getProfilePerimeterPoints(spanW, heightH, benchHeight, geometry);
+    const segY = 24;
 
-    const stepsPerim = 32;
-    const stepsZ = 12;
-    const zLen = Math.max(0.5, zEnd - zStart);
-
-    const geom = new THREE.BufferGeometry();
-    const positions: number[] = [];
-    const colors: number[] = [];
-    const uvs: number[] = [];
-
-    // Filter perimeter samples by selected stage bounds
-    const yMin = stageBounds.yMin;
-    const yMax = stageBounds.yMax;
-
-    // Build stage-specific 3D skin vertices
-    for (let iz = 0; iz <= stepsZ; iz++) {
-      const zVal = zStart + (zLen * iz) / stepsZ;
-      for (let ip = 0; ip <= stepsPerim; ip++) {
-        const sVal = -totalP * 0.5 + (totalP * ip) / stepsPerim;
-        const pt = unwrappedToSkin3D(sVal, zVal, spanW, heightH);
-
-        // Clamp or mark if inside stage elevation bounds
-        const isInsideStage = pt.y >= yMin - 0.05 && pt.y <= yMax + 0.05;
-        const finalY = Math.max(yMin, Math.min(yMax, pt.y));
-
-        positions.push(pt.x, finalY, pt.z);
-
-        // Stage-based color scheme
-        if (selectedStage === 'TOP_HEADING') {
-          // Amber / Gold arch
-          colors.push(0.95, isInsideStage ? 0.72 : 0.25, 0.15);
-        } else if (selectedStage === 'BENCH') {
-          // Cyan / Sky lower walls
-          colors.push(0.1, isInsideStage ? 0.75 : 0.2, 0.9);
-        } else if (selectedStage === 'INVERT') {
-          // Emerald invert base
-          colors.push(0.15, isInsideStage ? 0.85 : 0.25, 0.45);
-        } else {
-          // Full face slate/violet
-          colors.push(0.4, 0.6, 0.9);
-        }
-
-        uvs.push(ip / stepsPerim, iz / stepsZ);
+    // 1. Ghost Full Profile (CAD reference frame)
+    if (showGhostFullProfile && activeStage !== 'FULL_FACE') {
+      const ghostLoopPts = perimeterPts.map((p) => new THREE.Vector3(p.x, p.z, 0));
+      ghostLoopPts.push(ghostLoopPts[0].clone());
+      const ghostGeo = new THREE.BufferGeometry().setFromPoints(ghostLoopPts);
+      const ghostMat = new THREE.LineBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.45 });
+      for (const zPos of [0, -pullLength * 0.5, -pullLength]) {
+        const ring = new THREE.Line(ghostGeo, ghostMat);
+        ring.position.z = zPos;
+        scene.add(ring);
       }
     }
 
+    // 2. Active Stage Filtered Profile Extrusion
+    const stagePts = perimeterPts.filter((p) => p.z >= bounds.yMin - 0.08 && p.z <= bounds.yMax + 0.08);
+    const activePts = stagePts.length >= 3 ? stagePts : perimeterPts;
+
+    const vertices: number[] = [];
     const indices: number[] = [];
-    for (let iz = 0; iz < stepsZ; iz++) {
-      for (let ip = 0; ip < stepsPerim; ip++) {
-        const a = iz * (stepsPerim + 1) + ip;
-        const b = (iz + 1) * (stepsPerim + 1) + ip;
-        const c = (iz + 1) * (stepsPerim + 1) + (ip + 1);
-        const d = iz * (stepsPerim + 1) + (ip + 1);
+    const nPts = activePts.length;
+    const closeLoop = activeStage === 'FULL_FACE';
 
-        indices.push(a, b, d);
-        indices.push(b, c, d);
+    for (let j = 0; j <= segY; j++) {
+      const zAxial = -(j / segY) * pullLength;
+      for (let i = 0; i < nPts; i++) {
+        vertices.push(activePts[i].x, activePts[i].z, zAxial);
       }
     }
 
-    geom.setIndex(indices);
-    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geom.computeVertexNormals();
+    for (let j = 0; j < segY; j++) {
+      for (let i = 0; i < (closeLoop ? nPts : nPts - 1); i++) {
+        const nextI = (i + 1) % nPts;
+        const a = j * nPts + i;
+        const b = j * nPts + nextI;
+        const c = (j + 1) * nPts + i;
+        const d = (j + 1) * nPts + nextI;
+        indices.push(a, b, d);
+        indices.push(a, d, c);
+      }
+    }
 
-    const mat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
+    const skinGeo = new THREE.BufferGeometry();
+    skinGeo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    skinGeo.setIndex(indices);
+    skinGeo.computeVertexNormals();
+
+    const stageColor =
+      activeStage === 'TOP_HEADING'
+        ? 0x0ea5e9
+        : activeStage === 'BENCH'
+        ? 0xf59e0b
+        : activeStage === 'INVERT'
+        ? 0x10b981
+        : 0x3b82f6;
+
+    const skinMat = new THREE.MeshStandardMaterial({
+      color: stageColor,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.82,
-      roughness: 0.55,
-      metalness: 0.15,
-      wireframe: false,
+      opacity: wireframe ? 0.16 : 0.42,
+      wireframe,
+      roughness: 0.45,
+      metalness: 0.2,
     });
+    scene.add(new THREE.Mesh(skinGeo, skinMat));
 
-    const mesh = new THREE.Mesh(geom, mat);
-    scene.add(mesh);
-
-    if (showWireframe) {
-      const wireMat = new THREE.MeshBasicMaterial({
-        color: 0x38bdf8,
-        wireframe: true,
+    // 3. CAD Station Rings every 1.0m along pull length
+    const numStationRings = Math.max(2, Math.round(pullLength));
+    for (let r = 0; r <= numStationRings; r++) {
+      const zPos = -(r / numStationRings) * pullLength;
+      const isEndRing = r === 0 || r === numStationRings;
+      const ringVecs = activePts.map((p) => new THREE.Vector3(p.x, p.z, zPos));
+      if (closeLoop && ringVecs.length > 0) ringVecs.push(ringVecs[0].clone());
+      const ringGeo = new THREE.BufferGeometry().setFromPoints(ringVecs);
+      const ringMat = new THREE.LineBasicMaterial({
+        color: isEndRing ? 0x38bdf8 : 0x1e293b,
         transparent: true,
-        opacity: 0.35,
+        opacity: isEndRing ? 0.95 : 0.55,
       });
-      const wireMesh = new THREE.Mesh(geom, wireMat);
-      scene.add(wireMesh);
+      scene.add(new THREE.Line(ringGeo, ringMat));
     }
 
-    // TOP HEADING TEMPORARY INVERT / FLOOR (at Y = H_bench)
-    if (selectedStage === 'TOP_HEADING') {
-      const floorGeom = new THREE.PlaneGeometry(spanW, zLen);
-      floorGeom.rotateX(-Math.PI / 2);
-      floorGeom.translate(0, benchHeight, (zStart + zEnd) * 0.5);
-      const floorMat = new THREE.MeshStandardMaterial({
-        color: 0xb45309,
+    // 4. Stage Horizon Cut Planes (Springline / Bench Floor)
+    if (activeStage !== 'FULL_FACE') {
+      const cutY = activeStage === 'TOP_HEADING' ? bounds.yMin : bounds.yMax;
+      const cutPlaneGeo = new THREE.PlaneGeometry(spanW * 1.08, pullLength);
+      const cutPlaneMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.7,
+        opacity: 0.12,
       });
-      const floorMesh = new THREE.Mesh(floorGeom, floorMat);
-      scene.add(floorMesh);
+      const cutMesh = new THREE.Mesh(cutPlaneGeo, cutPlaneMat);
+      cutMesh.rotation.x = Math.PI / 2;
+      cutMesh.position.set(0, cutY, -pullLength * 0.5);
+      scene.add(cutMesh);
+    }
 
-      // Temporary floor center strip
-      const centerLineGeom = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, benchHeight + 0.05, zStart),
-        new THREE.Vector3(0, benchHeight + 0.05, zEnd),
-      ]);
-      const centerLineMat = new THREE.LineDashedMaterial({
-        color: 0xfef08a,
-        dashSize: 0.5,
-        gapSize: 0.3,
+    // 5. Real Mapped Discontinuity / Fault Planes Intersecting the 3D Shell
+    if (showTraces && mappedTraces.length > 0) {
+      const palette = [0xef4444, 0xf59e0b, 0x10b981, 0xa855f7, 0xec4899, 0x38bdf8];
+      mappedTraces.slice(0, 8).forEach((tr, idx) => {
+        const dipRad = THREE.MathUtils.degToRad(tr.dip);
+        const relStrikeDeg = (tr.dipDirection - 90 - driveAzimuth + 360) % 360;
+        const strikeRad = THREE.MathUtils.degToRad(relStrikeDeg);
+
+        const planeSize = Math.max(spanW, heightH, pullLength) * 1.15;
+        const planeGeo = new THREE.PlaneGeometry(planeSize, planeSize, 12, 12);
+        const colorHex = palette[idx % palette.length];
+
+        const planeMat = new THREE.MeshStandardMaterial({
+          color: colorHex,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.28,
+          roughness: 0.3,
+        });
+        const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+        const zOffset = -pullLength * ((idx + 1) / (Math.min(mappedTraces.length, 8) + 1));
+        planeMesh.position.set(0, (bounds.yMin + bounds.yMax) * 0.5, zOffset);
+        planeMesh.rotation.order = 'YXZ';
+        planeMesh.rotation.y = -strikeRad;
+        planeMesh.rotation.x = Math.PI / 2 - dipRad;
+        scene.add(planeMesh);
+
+        const edgesGeo = new THREE.EdgesGeometry(planeGeo);
+        const edgesMat = new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 });
+        const edgesLine = new THREE.LineSegments(edgesGeo, edgesMat);
+        edgesLine.position.copy(planeMesh.position);
+        edgesLine.rotation.copy(planeMesh.rotation);
+        scene.add(edgesLine);
       });
-      const centerLine = new THREE.Line(centerLineGeom, centerLineMat);
-      centerLine.computeLineDistances();
-      scene.add(centerLine);
     }
 
-    // FACE BULKHEAD AT zEnd
-    const faceProfilePts: THREE.Vector2[] = [];
-    const numFacePts = 24;
-    for (let i = 0; i <= numFacePts; i++) {
-      const sVal = -totalP * 0.5 + (totalP * i) / numFacePts;
-      const pt = unwrappedToSkin3D(sVal, zEnd, spanW, heightH);
-      const yVal = Math.max(yMin, Math.min(yMax, pt.y));
-      faceProfilePts.push(new THREE.Vector2(pt.x, yVal));
-    }
-    // Close shape along datum
-    faceProfilePts.push(new THREE.Vector2(spanW * 0.5, yMin));
-    faceProfilePts.push(new THREE.Vector2(-spanW * 0.5, yMin));
-
-    const faceShape = new THREE.Shape(faceProfilePts);
-    const faceGeom = new THREE.ShapeGeometry(faceShape);
-    faceGeom.translate(0, 0, zEnd);
-    const faceMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      side: THREE.DoubleSide,
-      roughness: 0.8,
-    });
-    const faceMesh = new THREE.Mesh(faceGeom, faceMat);
-    scene.add(faceMesh);
-
-    // LITHOLOGY CONTACT BANDS WRAPPING ACROSS SKIN
-    if (showSkinContacts) {
-      const contactCurvePts: THREE.Vector3[] = [];
-      for (let i = 0; i <= 30; i++) {
-        const t = i / 30;
-        const sVal = -totalP * 0.45 + totalP * 0.9 * t;
-        const zVal = zStart + zLen * 0.2 + zLen * 0.6 * Math.sin(t * Math.PI);
-        const pt = unwrappedToSkin3D(sVal, zVal, spanW, heightH);
-        if (pt.y >= yMin && pt.y <= yMax) {
-          contactCurvePts.push(new THREE.Vector3(pt.x * 1.02, pt.y, pt.z));
-        }
-      }
-      if (contactCurvePts.length > 2) {
-        const contactGeom = new THREE.BufferGeometry().setFromPoints(contactCurvePts);
-        const contactLine = new THREE.Line(
-          contactGeom,
-          new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 3 })
-        );
-        scene.add(contactLine);
-      }
-    }
-
-    // WATER INFLOW MARKERS (Droplets / Seepage points)
-    if (showWaterInflow) {
-      const dropGeom = new THREE.SphereGeometry(0.18, 8, 8);
-      const dropMat = new THREE.MeshStandardMaterial({
-        color: 0x06b6d4,
-        emissive: 0x0891b2,
-        roughness: 0.2,
-      });
-
-      const drop1 = new THREE.Mesh(dropGeom, dropMat);
-      drop1.position.set(-R * 0.85, Math.min(yMax - 0.5, benchHeight + 1.2), zStart + zLen * 0.4);
-      scene.add(drop1);
-
-      const drop2 = new THREE.Mesh(dropGeom, dropMat);
-      drop2.position.set(R * 0.2, Math.min(yMax - 0.2, heightH - 0.6), zStart + zLen * 0.7);
-      scene.add(drop2);
-    }
-
-    // Animation Loop
+    let reqId: number;
     const animate = () => {
-      animFrameRef.current = requestAnimationFrame(animate);
+      reqId = requestAnimationFrame(animate);
+      controls.update();
       renderer.render(scene, camera);
     };
     animate();
 
-    // Mouse Drag Handlers
-    const handleMouseDown = (e: MouseEvent) => {
-      isDraggingRef.current = true;
-      prevMouseRef.current = { x: e.clientX, y: e.clientY };
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current) return;
-      const dx = e.clientX - prevMouseRef.current.x;
-      const dy = e.clientY - prevMouseRef.current.y;
-      prevMouseRef.current = { x: e.clientX, y: e.clientY };
-
-      orbitRef.current.theta -= dx * 0.008;
-      orbitRef.current.phi = Math.max(0.15, Math.min(Math.PI - 0.15, orbitRef.current.phi - dy * 0.008));
-      updateCamera();
-    };
-
-    const handleMouseUp = () => {
-      isDraggingRef.current = false;
-    };
-
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      orbitRef.current.radius = Math.max(8, Math.min(60, orbitRef.current.radius + e.deltaY * 0.02));
-      updateCamera();
-    };
-
-    const dom = renderer.domElement;
-    dom.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    dom.addEventListener('wheel', handleWheel, { passive: false });
-
     const handleResize = () => {
-      if (!mountRef.current || !rendererRef.current || !cameraRef.current) return;
-      const w = mountRef.current.clientWidth;
-      const h = mountRef.current.clientHeight;
-      cameraRef.current.aspect = w / h;
-      cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(w, h);
+      if (!container) return;
+      const w = container.clientWidth || 720;
+      const h = container.clientHeight || 480;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      dom.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      dom.removeEventListener('wheel', handleWheel);
+      cancelAnimationFrame(reqId);
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
-      geom.dispose();
-      mat.dispose();
     };
-  }, [
-    spanW,
-    heightH,
-    benchHeight,
-    zStart,
-    zEnd,
-    selectedStage,
-    stageBounds,
-    showWireframe,
-    showSkinContacts,
-    showWaterInflow,
-  ]);
+  }, [spanW, heightH, benchHeight, crownRadius, pullLength, activeStage, geometry, driveAzimuth, mappedTraces, wireframe, showTraces, showGhostFullProfile, bounds.yMin, bounds.yMax]);
+
+  const setPresetCamera = (preset: 'ISO' | 'FACE' | 'CROWN' | 'RIGHT_WALL') => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const cam = cameraRef.current;
+    const ctrl = controlsRef.current;
+    const targetY = (bounds.yMin + bounds.yMax) * 0.5;
+    const targetZ = -pullLength * 0.5;
+
+    if (preset === 'ISO') {
+      cam.position.set(spanW * 1.45, heightH * 1.35, pullLength * 0.85);
+    } else if (preset === 'FACE') {
+      cam.position.set(0, targetY, pullLength * 1.5);
+    } else if (preset === 'CROWN') {
+      cam.position.set(0, heightH * 2.4, targetZ);
+    } else if (preset === 'RIGHT_WALL') {
+      cam.position.set(spanW * 2.2, targetY, targetZ);
+    }
+    ctrl.target.set(0, targetY, targetZ);
+    ctrl.update();
+  };
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 border border-slate-800 rounded-xl overflow-hidden font-sans text-slate-100">
-      {/* HEADER & STAGE SELECTOR */}
-      <div className="flex flex-wrap items-center justify-between px-3.5 py-2.5 bg-slate-950 border-b border-slate-800 gap-2">
+    <div className="relative w-full h-full min-h-[440px] bg-[#060a12] rounded-lg overflow-hidden border border-slate-800 flex flex-col">
+      {/* Top CAD Viewport Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-900/95 border-b border-slate-800 z-10">
         <div className="flex items-center gap-2">
-          <div className="p-1 rounded bg-amber-500/20 text-amber-400">
-            <Box className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className="font-mono font-bold text-xs text-white uppercase tracking-wider">
-              Excavation-Specific 3D Geological Shell &amp; Volume
-            </h3>
-            <span className="text-[10px] text-slate-400">
-              Unwrapped Strip (s, Z) ➔ 3D Skin Coordinates (X, Y, Z) · Round Pull {zStart}m ➔ {zEnd}m (L = {(zEnd - zStart).toFixed(1)}m)
-            </span>
-          </div>
+          <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-[10px] font-mono font-bold text-sky-300 uppercase">
+            STAGE: {activeStage.replace(/_/g, ' ')}
+          </span>
+          <span className="text-[11px] font-mono text-slate-400 tabular-nums">
+            Profile: <strong className="text-slate-200">{profileLabel}</strong> ({spanW.toFixed(2)}m × {heightH.toFixed(2)}m)
+          </span>
+          <span className="text-[11px] font-mono text-slate-400 tabular-nums hidden sm:inline">
+            | Elev Y: <strong className="text-emerald-400">{bounds.yMin.toFixed(2)}m → {bounds.yMax.toFixed(2)}m</strong>
+          </span>
         </div>
 
-        {/* 4 STAGE BUTTONS */}
-        <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
-          {(
-            [
-              { id: 'TOP_HEADING', label: 'Top Heading (TH)', desc: `Y: ${benchHeight.toFixed(1)}m ➔ ${heightH.toFixed(1)}m` },
-              { id: 'BENCH', label: 'Bench (BN)', desc: `Y: 0.0m ➔ ${benchHeight.toFixed(1)}m` },
-              { id: 'INVERT', label: 'Invert (INV)', desc: 'Concave floor' },
-              { id: 'FULL_FACE', label: 'Full Face', desc: `Y: 0.0m ➔ ${heightH.toFixed(1)}m` },
-            ] as { id: ExcavationStage; label: string; desc: string }[]
-          ).map((st) => (
+        <div className="flex items-center gap-1.5">
+          {(['ISO', 'FACE', 'CROWN', 'RIGHT_WALL'] as const).map((view) => (
             <button
-              key={st.id}
-              onClick={() => setSelectedStage(st.id)}
-              className={`px-2.5 py-1 rounded text-[11px] font-mono font-bold transition-all cursor-pointer ${
-                selectedStage === st.id
-                  ? 'bg-amber-500 text-slate-950 shadow-sm'
-                  : 'text-slate-300 hover:bg-slate-800'
-              }`}
-              title={st.desc}
+              key={view}
+              onClick={() => setPresetCamera(view)}
+              className="px-2 py-1 rounded text-[10px] font-mono font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
             >
-              {st.label}
+              {view.replace('_', ' ')}
             </button>
           ))}
+          <button
+            onClick={() => setShowTraces(!showTraces)}
+            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              showTraces
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            <Compass className="w-3 h-3" /> Planes ({mappedTraces.length})
+          </button>
+          <button
+            onClick={() => setShowGhostFullProfile(!showGhostFullProfile)}
+            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              showGhostFullProfile
+                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            <Layers className="w-3 h-3" /> Datum Frame
+          </button>
+          <button
+            onClick={() => setWireframe(!wireframe)}
+            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              wireframe
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            <Eye className="w-3 h-3" /> Mesh
+          </button>
+          <button
+            onClick={() => setPresetCamera('ISO')}
+            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+            title="Reset 3D View"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
-      {/* METRICS STRIP */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 px-3.5 py-2 bg-slate-950/60 border-b border-slate-800/80 text-xs font-mono">
-        <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
-          <div className="text-[10px] text-slate-400">Stage Elevation Datum</div>
-          <div className="text-amber-300 font-bold">
-            Y ∈ [{stageBounds.yMin.toFixed(2)}m, {stageBounds.yMax.toFixed(2)}m]
-          </div>
-        </div>
-        <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
-          <div className="text-[10px] text-slate-400">Stage Cross Section Area</div>
-          <div className="text-cyan-300 font-bold">A = {stageBounds.crossSectionArea} m²</div>
-        </div>
-        <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
-          <div className="text-[10px] text-slate-400">Excavation Pull Volume (V)</div>
-          <div className="text-emerald-300 font-bold">V_stage = {stageBounds.volume} m³</div>
-        </div>
-        <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
-          <div className="text-[10px] text-slate-400">Heading Azimuth</div>
-          <div className="text-slate-200 font-bold">N {Math.round(driveAzimuth)}° E</div>
-        </div>
-      </div>
+      {/* 3D Canvas Container */}
+      <div ref={mountRef} className="w-full flex-1 min-h-[390px] cursor-grab active:cursor-grabbing" />
 
-      {/* 3D VIEWPORT CONTAINER */}
-      <div className="relative flex-1 min-h-[360px] w-full overflow-hidden">
-        <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
-
-        {/* OVERLAY CONTROLS */}
-        <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-10 font-mono text-[11px]">
-          <div className="flex items-center gap-1 bg-slate-950/80 backdrop-blur border border-slate-700/80 p-1 rounded-lg">
-            {(['ISOMETRIC', 'FRONT_FACE', 'PROFILE'] as const).map((preset) => (
-              <button
-                key={preset}
-                onClick={() => setCameraPreset(preset)}
-                className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                  cameraPreset === preset ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {preset}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur border border-slate-700/80 px-2 py-1 rounded-lg">
-            <label className="flex items-center gap-1 cursor-pointer text-slate-300 hover:text-white">
-              <input
-                type="checkbox"
-                checked={showWireframe}
-                onChange={(e) => setShowWireframe(e.target.checked)}
-                className="rounded accent-sky-500"
-              />
-              Grid
-            </label>
-            <label className="flex items-center gap-1 cursor-pointer text-slate-300 hover:text-white">
-              <input
-                type="checkbox"
-                checked={showSkinContacts}
-                onChange={(e) => setShowSkinContacts(e.target.checked)}
-                className="rounded accent-rose-500"
-              />
-              Contact Band
-            </label>
-            <label className="flex items-center gap-1 cursor-pointer text-slate-300 hover:text-white">
-              <input
-                type="checkbox"
-                checked={showWaterInflow}
-                onChange={(e) => setShowWaterInflow(e.target.checked)}
-                className="rounded accent-cyan-500"
-              />
-              Water
-            </label>
-          </div>
+      {/* Bottom Engineering Scale & Coordinate Legend */}
+      <div className="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-slate-400 tabular-nums">
+        <div>
+          PULL LENGTH L = <span className="text-slate-200 font-bold">{pullLength.toFixed(2)}m</span> | STATION RINGS: 1.0m INTERVAL
         </div>
-
-        {/* BOTTOM HUD LEGEND */}
-        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between px-3 py-1.5 bg-slate-950/85 backdrop-blur border border-slate-800 rounded-lg text-[11px] font-mono z-10">
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1 text-slate-300">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" /> Top Heading Crown Arch (X = R·sin(s/R))
-            </span>
-            <span className="flex items-center gap-1 text-slate-300">
-              <span className="w-2.5 h-2.5 rounded-full bg-sky-500 inline-block" /> Bench Left/Right Wall (X = ±R)
-            </span>
-            <span className="flex items-center gap-1 text-rose-400">
-              <span className="w-2.5 h-1 bg-rose-500 inline-block" /> Lithology Contact Trace
-            </span>
-          </div>
-          <span className="text-slate-400 text-[10px]">
-            Drag to Rotate · Scroll to Zoom
-          </span>
+        <div>
+          MAPPED STRUCTURAL PLANES ON SHELL: <span className="text-emerald-400 font-bold">{mappedTraces.length}</span>
         </div>
       </div>
     </div>

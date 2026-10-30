@@ -79,6 +79,8 @@ import {
   resolveClosedLithologyPolygonFromTrace,
   isPointInsidePolygon,
   getExactFieldPanelPerimeterLoop,
+  getPanelActiveExcavationBounds,
+  isPointInsideHatchedExcavationPortion,
   FIELD_EXTENDED_ROCK_SUGGESTIONS,
   FIELD_EXTENDED_VEIN_FOLIATION_SUGGESTIONS,
   FIELD_FAULT_ELEMENT_ROLES,
@@ -2492,6 +2494,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       }
       panelSpacePt = tCanvasPointToPanelPoint(rawPt, hitPanel, activeLocation, activeRound);
 
+      if (isPointInsideHatchedExcavationPortion(panelSpacePt, hitPanel, activeLocation, activeRound)) {
+        const excBounds = getPanelActiveExcavationBounds(hitPanel, activeLocation, activeRound);
+        setStatusMessage(
+          excBounds.lockedReasonLabel ||
+            'Hatched excavation portion is unexcavated / already excavated and locked.'
+        );
+        return;
+      }
+
       // In Stage 5 (Group Joints), tapping or brushing near any Joint Trace or Dip Surface assigns it to activeGroupingSet
       if (stage === 'joint_grouping') {
         const hitRadius = 30;
@@ -2560,6 +2571,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         }
         return;
       }
+
+      if (
+        !isPointInsideFieldPanelOutline(
+          panelSpacePt,
+          hitPanel,
+          activeLocation,
+          activeRound,
+          52
+        )
+      ) {
+        return;
+      }
     } else {
       drawingPanelRef.current = activePanel;
       const dispGeom = computeDisplayPanelGeometry(
@@ -2591,6 +2614,25 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         );
       }
       if (
+        isPointInsideHatchedExcavationPortion(
+          panelSpacePt,
+          activePanel,
+          activeLocation,
+          activeRound
+        )
+      ) {
+        const excBounds = getPanelActiveExcavationBounds(
+          activePanel,
+          activeLocation,
+          activeRound
+        );
+        setStatusMessage(
+          excBounds.lockedReasonLabel ||
+            'Hatched excavation portion is unexcavated / already excavated and locked.'
+        );
+        return;
+      }
+      if (
         !isPointInsideFieldPanelOutline(
           panelSpacePt,
           activePanel,
@@ -2601,41 +2643,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       ) {
         return;
       }
-    }
-
-    // Handle placing of alternate lithology band on Face Canvas
-    if (activePlacingBandId && targetPanel === 'face') {
-      const targetBandId = activePlacingBandId;
-      updateActiveRound((r) => {
-        const curCfg = r.alternateLithologyConfig || {
-          enabled: true,
-          count: 2,
-          rockTypes: alternatingRockIds,
-          spacingPx: alternatingSpacingPx,
-          angleDeg: alternatingAngleDeg,
-        };
-        const prevBands =
-          curCfg.bands && curCfg.bands.length > 0 ? curCfg.bands : currentBands;
-        const nextBands = prevBands.map((b) =>
-          b.id === targetBandId ? { ...b, anchorPoint: { ...panelSpacePt }, enabled: true } : b
-        );
-        return {
-          ...r,
-          alternateLithologyConfig: {
-            ...curCfg,
-            enabled: true,
-            baseRockType: curCfg.baseRockType || selectedRockType,
-            bands: nextBands,
-          },
-        };
-      });
-      setSelectedBandId(targetBandId);
-      setActivePlacingBandId(null);
-      setHoverCanvasPoint(null);
-      setStatusMessage(
-        `Placed lithology band at (${Math.round(panelSpacePt.x)}, ${Math.round(panelSpacePt.y)})`
-      );
-      return;
     }
 
     // Snap start point to the exact tunnel outline when starting near the outline (within 30 SVG units inside or 52 outside)
@@ -2845,12 +2852,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             );
           })()
         : rawPt;
-
-    if (activePlacingBandId && hoverTargetPanel === 'face') {
-      setHoverCanvasPoint(panelSpacePt);
-    } else if (hoverCanvasPoint && !activePlacingBandId) {
-      setHoverCanvasPoint(null);
-    }
 
     // Only update hoverPanelPt when actively previewing a multi-click Spline or Polyline trace!
     // Eliminates 60fps full-workspace React re-renders when simply moving the mouse over the 2D canvas.
@@ -5159,26 +5160,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() =>
-              requestEditConfirmation(
-                'face',
-                `${activeProject ? formatDomainProjName(activeProject.projectName) : 'Project'} • ${
-                  activeLocation ? formatDomainLocName(activeLocation.name) : 'Location'
-                } (${activeRound ? `CH ${activeRound.chainageFrom}m–${activeRound.chainageTo}m` : 'Face'})`,
-                () => setIsProjectConfigModalOpen(true)
-              )
-            }
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-950/70 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-500/50 text-xs font-mono font-bold transition-all cursor-pointer shadow-sm"
-            title="Configure Project, Drive Azimuth (0-360°), Chainage & Geotechnical Ratings (RMR / Q-System)"
-          >
-            <Compass className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">Drive &amp; Geotech</span>
-            <span className="text-[10px] bg-cyan-500/20 px-1 py-0.2 rounded border border-cyan-500/30">
-              {activeRound?.tunnelDriveDirection ? `${activeRound.tunnelDriveDirection}°` : 'Set Dir'}
-            </span>
-          </button>
           <div className="hidden md:flex items-center gap-1 text-[10.5px] text-emerald-500 font-semibold shrink-0">
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Saved</span>
@@ -10486,6 +10467,26 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     });
 
                     const clipId = `field-panel-clip-${panelId}`;
+                    const activeExcavationClipId = `field-panel-active-exc-clip-${panelId}`;
+                    const excBounds = getPanelActiveExcavationBounds(
+                      panelId,
+                      activeLocation,
+                      activeRound
+                    );
+                    const activeCornerA = ptToBox({ x: pGeom.boxX, y: excBounds.minY });
+                    const activeCornerB = ptToBox({
+                      x: pGeom.boxX + pGeom.boxW,
+                      y: excBounds.maxY,
+                    });
+                    const activeClipX = Math.min(activeCornerA.x, activeCornerB.x);
+                    const activeClipY = Math.min(activeCornerA.y, activeCornerB.y);
+                    const activeClipW = excBounds.isPanelFullyLocked
+                      ? 0
+                      : Math.max(0, Math.abs(activeCornerB.x - activeCornerA.x));
+                    const activeClipH = excBounds.isPanelFullyLocked
+                      ? 0
+                      : Math.max(0, Math.abs(activeCornerB.y - activeCornerA.y));
+
                     const faceOutlineDetails =
                       panelId === 'face'
                         ? computeFaceTunnelOutlineDetails(
@@ -10523,6 +10524,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 height={targetBox.h}
                               />
                             )}
+                          </clipPath>
+                          <clipPath id={activeExcavationClipId}>
+                            <rect
+                              x={activeClipX}
+                              y={activeClipY}
+                              width={activeClipW}
+                              height={activeClipH}
+                            />
                           </clipPath>
                           {/* Red channel filter for iron oxide staining */}
                           <filter id="split-filter-red-channel" colorInterpolationFilters="sRGB">
@@ -10614,7 +10623,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                             if (layerKey === 'lithology') {
                               return (
-                                <g key="fcanv-layer-lithology">
+                                <g
+                                  key="fcanv-layer-lithology"
+                                  clipPath={
+                                    excBounds.hasBenchDivision
+                                      ? `url(#${activeExcavationClipId})`
+                                      : undefined
+                                  }
+                                >
                                   {/* 1 & 2. Lithology Region Strokes & Unified Vein / Foliation Bands */}
                                   {pLithStrokes.map((st, stIdx) => {
                             if (st.mode === 'lithology_erase') return null;
@@ -10862,7 +10878,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                     if (layerKey === 'dip_surfaces') {
                       return (
-                        <g key="fcanv-layer-dip-surfaces">
+                        <g
+                          key="fcanv-layer-dip-surfaces"
+                          clipPath={
+                            excBounds.hasBenchDivision
+                              ? `url(#${activeExcavationClipId})`
+                              : undefined
+                          }
+                        >
                           {/* 4. Dip Plane Surfaces */}
                           {pDipSurfaces.map((ds) => {
                             const mappedPts = ds.points.map(ptToBox);
@@ -10960,7 +10983,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                     if (layerKey === 'features') {
                       return (
-                        <g key="fcanv-layer-features">
+                        <g
+                          key="fcanv-layer-features"
+                          clipPath={
+                            excBounds.hasBenchDivision
+                              ? `url(#${activeExcavationClipId})`
+                              : undefined
+                          }
+                        >
                           {/* 5. Geological / Structural Features */}
                           {pFeatures.map((feat) => (
                             <FieldStructuralFeatureSvgRenderer
@@ -10991,7 +11021,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                     if (layerKey === 'water') {
                       return (
-                        <g key="fcanv-layer-water">
+                        <g
+                          key="fcanv-layer-water"
+                          clipPath={
+                            excBounds.hasBenchDivision
+                              ? `url(#${activeExcavationClipId})`
+                              : undefined
+                          }
+                        >
                           {/* 6. Water Condition Symbols */}
                           {pWaterMarks.map((wm) => (
                             <FieldWaterSymbolSvgRenderer
@@ -11010,7 +11047,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                     if (layerKey === 'joints') {
                       return (
-                        <g key="fcanv-layer-joints">
+                        <g
+                          key="fcanv-layer-joints"
+                          clipPath={
+                            excBounds.hasBenchDivision
+                              ? `url(#${activeExcavationClipId})`
+                              : undefined
+                          }
+                        >
                           {/* 3. Joint Traces */}
                           {pTraces.map((tr) => {
                             const mappedPts = tr.points.map(ptToBox);
@@ -11244,7 +11288,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                     if (layerKey === 'design_outline') {
                       return (
-                        <g key="fcanv-layer-active-draw">
+                        <g
+                          key="fcanv-layer-active-draw"
+                          clipPath={
+                            excBounds.hasBenchDivision
+                              ? `url(#${activeExcavationClipId})`
+                              : undefined
+                          }
+                        >
                           {/* Exact Outline Snap Target Ring when hovering or starting/ending near the tunnel outline */}
                           {outlineSnapPreviewPt &&
                             outlineSnapPreviewPt.panel === panelId &&
@@ -14311,39 +14362,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       {/* ==================== STAGE 12: CLEAN PROFESSIONAL GEOLOGICAL REPORT + SAVE TO PROJECT 1 ==================== */}
       {stage === 'word_template_export' && activeProject && activeLocation && activeRound && (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          <div className="bg-slate-900 border-b border-slate-800 px-3 py-1.5 flex items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-black uppercase tracking-wider text-amber-400">
-                Report Suite:
-              </span>
-              <button
-                type="button"
-                onClick={() => setStage('word_template_export')}
-                className="px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-black text-[11px] cursor-pointer"
-              >
-                1. Standard 2-Page {domainPanelMap.domainTitle} Report
-              </button>
-              <button
-                type="button"
-                onClick={() => setStage('photo_2d_report')}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/40 font-black text-[11px] cursor-pointer"
-              >
-                2. 2D Photo Report (Page 1 {domainPanelMap.face.shortLabel} • Page 2 {domainPanelMap.crown.shortLabel} &amp; Flanks) →
-              </button>
-              {(mappingDomain === 'SLOPE' || mappingDomain === 'BENCH' || mappingDomain === 'TUNNEL') && (
-                <button
-                  type="button"
-                  onClick={() => setStage('advance_analysis')}
-                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 font-black text-[11px] cursor-pointer flex items-center gap-1.5"
-                  title="Advance Geological Analysis: Wedge FoS, Slope Stability & Stabilization, 4-Surface Apparent Dip"
-                >
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  <span>3. Advance Analysis →</span>
-                </button>
-              )}
-            </div>
-          </div>
-
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <FieldTwoPageReportAndTemplateStage
               activeProject={activeProject}
@@ -14437,12 +14455,39 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               mappingDomain={mappingDomain}
               surfaceParams={surfaceParams}
               surfaceSmrAnalysis={surfaceSmrAnalysis}
-              geometry={createTunnelGeometry(
-                activeLocation?.widthM || 8.5,
-                activeLocation?.heightM || 7.5,
-                activeLocation?.wallHeightM || 4.2,
-                activeLocation?.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped'
-              )}
+              geometry={(() => {
+                const baseShape =
+                  activeLocation?.shape === 'horseshoe'
+                    ? 'horseshoe'
+                    : activeLocation?.shape === 'circular'
+                    ? 'circular'
+                    : activeLocation?.shape === 'modified_horseshoe'
+                    ? 'modified_horseshoe'
+                    : activeLocation?.shape === 'rectangular'
+                    ? 'rectangular'
+                    : activeLocation?.shape === 'freeform_custom'
+                    ? 'freeform_custom'
+                    : 'd_shaped';
+                const g =
+                  activeLocation?.customGeometry ||
+                  createTunnelGeometry(
+                    activeLocation?.widthM || 8.5,
+                    activeLocation?.heightM || 7.5,
+                    activeLocation?.wallHeightM || 4.2,
+                    baseShape
+                  );
+                return {
+                  ...g,
+                  width: activeLocation?.widthM || g.width || 8.5,
+                  height: activeLocation?.heightM || g.height || 7.5,
+                  wallHeight: activeLocation?.wallHeightM || g.wallHeight || 4.2,
+                  crossSectionPoints:
+                    activeLocation?.customCrossSectionPoints &&
+                    activeLocation.customCrossSectionPoints.length >= 3
+                      ? activeLocation.customCrossSectionPoints
+                      : g.crossSectionPoints,
+                };
+              })()}
               settings={{
                 projectName: activeProject?.projectName || 'Tunnel Field Project',
                 tunnelName: activeLocation?.name || 'Heading 1',
@@ -14455,54 +14500,329 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 roundLength: activeRound?.pullLengthMeters || 3.0,
                 date: activeRound?.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
                 mappedBy: activeRound?.geologistName || 'Geologist',
-                lithology: activeRound?.rockType || 'Granite',
+                lithology:
+                  activeRound?.rockType ||
+                  activeRound?.lithologyStrokes?.[0]?.rockName ||
+                  'Unspecified Lithology',
               }}
-              joints={(activeRound?.jointTraces || []).map((t) => ({
-                id: t.id,
-                surface: (t.panel === 'left_wall' ? 'leftWall' : t.panel === 'right_wall' ? 'rightWall' : t.panel) as SurfaceType,
-                points: t.points.map((p) => ({ x: p.x, y: p.y })),
-                dipDirection: t.dipDirection ?? 135,
-                dip: t.dipAmount ?? 65,
-                strike: t.strike ?? 45,
-                set: t.setId || 'J1',
-                persistenceMeters: (t as any).lengthMeters || 3.0,
-                spacingMeters: 0.8,
-                roughness: 'ROUGH_PLANAR' as const,
-                apertureMm: 1.5,
-                weathering: 'SLIGHTLY_WEATHERED' as const,
-                infilling: 'NONE' as const,
-                seepageCondition: 'DRY' as const,
-                visible: true,
-              })) as unknown as Joint[]}
-              jointSets={
-                activeRound?.discontinuitySets && Array.isArray(activeRound.discontinuitySets) && activeRound.discontinuitySets.length > 0
-                  ? activeRound.discontinuitySets.map((s, idx) => ({
-                      id: s.setId || `J${idx + 1}`,
-                      name: `Joint Set ${s.setId || `J${idx + 1}`}`,
-                      color: idx === 0 ? '#ef4444' : idx === 1 ? '#3b82f6' : idx === 2 ? '#10b981' : '#f59e0b',
-                      meanDipDirection: Number(s.dipDirection) || (idx === 0 ? 135 : idx === 1 ? 225 : 315),
-                      meanDip: Number(s.dipAmount) || (idx === 0 ? 70 : idx === 1 ? 65 : 45),
-                      spacing: '0.45m',
-                      persistence: '3.2m',
-                      jrc: 8,
-                      jcs: 85,
-                      roughness: 'Rough planar',
-                      traceCount: (activeRound?.jointTraces || []).filter((t) => t.setId === s.setId).length || 3,
-                    })) as unknown as JointSet[]
-                  : ['J1', 'J2', 'J3'].map((s, idx) => ({
-                      id: s,
-                      name: `Joint Set ${s}`,
-                      color: idx === 0 ? '#ef4444' : idx === 1 ? '#3b82f6' : idx === 2 ? '#10b981' : '#f59e0b',
-                      meanDipDirection: idx === 0 ? 135 : idx === 1 ? 225 : 315,
-                      meanDip: idx === 0 ? 70 : idx === 1 ? 65 : 45,
-                      spacing: '0.45m',
-                      persistence: '3.2m',
-                      jrc: 8,
-                      jcs: 85,
-                      roughness: 'Rough planar',
-                      traceCount: 4,
-                    })) as unknown as JointSet[]
-              }
+              joints={(() => {
+                const parseSpacingM = (spStr?: string) => {
+                  if (!spStr) return 0.45;
+                  if (spStr.includes('< 0.06')) return 0.04;
+                  if (spStr.includes('0.06m - 0.2m')) return 0.13;
+                  if (spStr.includes('0.2m - 0.6m')) return 0.4;
+                  if (spStr.includes('0.6m - 2m')) return 1.2;
+                  if (spStr.includes('2m - 6m')) return 3.5;
+                  if (spStr.includes('> 6m')) return 6.5;
+                  const m = spStr.match(/(\d+(?:\.\d+)?)/);
+                  return m ? parseFloat(m[1]) : 0.45;
+                };
+                const parseApertureMm = (apStr?: string) => {
+                  if (!apStr || apStr === 'None') return 0.5;
+                  if (apStr.includes('< 0.1')) return 0.1;
+                  if (apStr.includes('0.1 - 1.0')) return 0.5;
+                  if (apStr.includes('1.0 - 5.0')) return 2.5;
+                  if (apStr.includes('> 5.0')) return 8.0;
+                  return 1.0;
+                };
+
+                const traceJoints = (activeRound?.jointTraces || []).map((t) => {
+                  const setRec = activeRound?.discontinuitySets?.[t.setId as FieldJointSetId];
+                  const setDipDir = setRec ? Math.round((setRec.dipDirectionFrom + setRec.dipDirectionTo) / 2) : 135;
+                  const setDip = setRec ? Math.round((setRec.dipAmountFrom + setRec.dipAmountTo) / 2) : 65;
+                  const spacingM = parseSpacingM(setRec?.spacing);
+                  const apertureMm = parseApertureMm(setRec?.aperture);
+                  return {
+                    id: t.id,
+                    surface: (t.panel === 'left_wall'
+                      ? 'leftWall'
+                      : t.panel === 'right_wall'
+                      ? 'rightWall'
+                      : t.panel) as SurfaceType,
+                    points: t.points.map((p) => ({ x: p.x, y: p.y })),
+                    dipDirection: t.dipDirection ?? setDipDir,
+                    dip: t.dipAmount ?? setDip,
+                    strike: t.strike ?? (((t.dipDirection ?? setDipDir) - 90 + 360) % 360),
+                    set: t.setId || 'J1',
+                    featureType: 'joint',
+                    type: 'Joint',
+                    persistenceMeters: t.traceLengthM || (t as any).lengthMeters || 2.5,
+                    spacingMeters: spacingM,
+                    spacingM: spacingM,
+                    roughness: 'ROUGH_PLANAR' as const,
+                    apertureMm,
+                    weathering: 'SLIGHTLY_WEATHERED' as const,
+                    infilling: 'NONE' as const,
+                    seepageCondition: 'DRY' as const,
+                    visible: true,
+                  };
+                });
+
+                const dipSurfaceJoints = (activeRound?.dipPlaneSurfaces || []).map((s) => {
+                  const setRec = activeRound?.discontinuitySets?.[s.setId as FieldJointSetId];
+                  const setDipDir = setRec ? Math.round((setRec.dipDirectionFrom + setRec.dipDirectionTo) / 2) : 135;
+                  const setDip = setRec ? Math.round((setRec.dipAmountFrom + setRec.dipAmountTo) / 2) : 60;
+                  const spacingM = parseSpacingM(setRec?.spacing);
+                  const apertureMm = parseApertureMm(setRec?.aperture);
+                  return {
+                    id: s.id,
+                    surface: (s.panel === 'left_wall'
+                      ? 'leftWall'
+                      : s.panel === 'right_wall'
+                      ? 'rightWall'
+                      : s.panel) as SurfaceType,
+                    points: (s.outlinePolygon || s.points || []).map((p) => ({ x: p.x, y: p.y })),
+                    dipDirection: s.dipDirection ?? setDipDir,
+                    dip: s.dipAmount ?? setDip,
+                    strike: s.strike ?? (((s.dipDirection ?? setDipDir) - 90 + 360) % 360),
+                    set: s.setId || 'J1',
+                    featureType: 'joint',
+                    type: 'Dip Surface',
+                    persistenceMeters: 3.0,
+                    spacingMeters: spacingM,
+                    spacingM: spacingM,
+                    roughness: 'ROUGH_PLANAR' as const,
+                    apertureMm,
+                    weathering: 'SLIGHTLY_WEATHERED' as const,
+                    infilling: 'NONE' as const,
+                    seepageCondition: 'DRY' as const,
+                    visible: true,
+                  };
+                });
+
+                const structuralJoints = (activeRound?.structuralFeatures || []).map((f, idx) => {
+                  const isFaultOrShear =
+                    f.featureType === 'fault' ||
+                    f.featureType === 'thrust_fault' ||
+                    f.featureType === 'shear_zone';
+                  const thickMm = f.thicknessCm ? f.thicknessCm * 10 : isFaultOrShear ? 350 : 25;
+                  return {
+                    id: f.id,
+                    surface: (f.panel === 'left_wall'
+                      ? 'leftWall'
+                      : f.panel === 'right_wall'
+                      ? 'rightWall'
+                      : f.panel) as SurfaceType,
+                    points: (f.points || []).map((p) => ({ x: p.x, y: p.y })),
+                    dipDirection: f.dipDirection ?? 140,
+                    dip: f.dipAmount ?? 65,
+                    strike: (((f.dipDirection ?? 140) - 90 + 360) % 360),
+                    set: isFaultOrShear ? `F${idx + 1}` : 'J1',
+                    featureType: isFaultOrShear ? 'fault' : 'bedding',
+                    type: f.featureType,
+                    persistenceMeters: 5.0,
+                    spacingMeters: 1.0,
+                    spacingM: 1.0,
+                    roughness: 'SLICKENSIDED_PLANAR' as const,
+                    apertureMm: thickMm,
+                    weathering: 'HIGHLY_WEATHERED' as const,
+                    infilling: 'SOFT_GOUGE' as const,
+                    seepageCondition: 'DAMP' as const,
+                    visible: true,
+                  };
+                });
+
+                return [...traceJoints, ...dipSurfaceJoints, ...structuralJoints] as unknown as Joint[];
+              })()}
+              jointSets={(() => {
+                const rawSets = activeRound?.discontinuitySets
+                  ? Object.values(activeRound.discontinuitySets)
+                  : [];
+                const activeSets = rawSets.filter((s) => {
+                  const traceMatchCount =
+                    (activeRound?.jointTraces || []).filter((t) => t.setId === s.setId).length +
+                    (activeRound?.dipPlaneSurfaces || []).filter((d) => d.setId === s.setId).length;
+                  return (
+                    traceMatchCount > 0 ||
+                    (s.manualOrientationOverride && s.dipAmountTo > 0)
+                  );
+                });
+                return activeSets.map((s, idx) => {
+                  const traceCount =
+                    (activeRound?.jointTraces || []).filter((t) => t.setId === s.setId).length +
+                      (activeRound?.dipPlaneSurfaces || []).filter((d) => d.setId === s.setId).length ||
+                    1;
+                  const meanDipDirection = Math.round((s.dipDirectionFrom + s.dipDirectionTo) / 2) || 135;
+                  const meanDip = Math.round((s.dipAmountFrom + s.dipAmountTo) / 2) || 65;
+                  return {
+                    id: s.setId || `J${idx + 1}`,
+                    name: `Joint Set ${s.setId || `J${idx + 1}`}`,
+                    color:
+                      idx === 0
+                        ? '#ef4444'
+                        : idx === 1
+                        ? '#3b82f6'
+                        : idx === 2
+                        ? '#10b981'
+                        : '#f59e0b',
+                    meanDipDirection,
+                    meanDip,
+                    spacing: s.spacing || '0.2m - 0.6m',
+                    persistence: s.persistence || '3m - 10m',
+                    jrc: 8,
+                    jcs: 85,
+                    roughness: s.roughness || 'Rough planar',
+                    traceCount,
+                  };
+                }) as unknown as JointSet[];
+              })()}
+              qIndexParams={(() => {
+                if (!activeRound || activeRound.selectedClassifications?.q === false) return undefined;
+                const hasMappedFeatures =
+                  (activeRound.jointTraces?.length || 0) > 0 ||
+                  (activeRound.dipPlaneSurfaces?.length || 0) > 0 ||
+                  (activeRound.structuralFeatures?.length || 0) > 0 ||
+                  (activeRound.lithologyStrokes?.length || 0) > 0 ||
+                  (activeRound.waterMarks?.length || 0) > 0;
+                const hasEditedQ =
+                  activeRound.qSystem?.selectedRowCodes &&
+                  Object.keys(activeRound.qSystem.selectedRowCodes).length > 0;
+                if (!hasMappedFeatures && !hasEditedQ) return undefined;
+                const qCalc = computeFieldQValue(activeRound.qSystem);
+                const defQ = createDefaultQIndexParameters();
+                return {
+                  ...defQ,
+                  rqd: activeRound.qSystem.rqd,
+                  jn: activeRound.qSystem.jn,
+                  jr: activeRound.qSystem.jr,
+                  ja: activeRound.qSystem.ja,
+                  jw: activeRound.qSystem.jw,
+                  srf: activeRound.qSystem.srf,
+                  qValue: qCalc.qValue,
+                  rockClass: qCalc.rockClass,
+                };
+              })()}
+              rmrParams={(() => {
+                if (!activeRound || activeRound.selectedClassifications?.rmr === false) return undefined;
+                const hasMappedFeatures =
+                  (activeRound.jointTraces?.length || 0) > 0 ||
+                  (activeRound.dipPlaneSurfaces?.length || 0) > 0 ||
+                  (activeRound.structuralFeatures?.length || 0) > 0 ||
+                  (activeRound.lithologyStrokes?.length || 0) > 0 ||
+                  (activeRound.waterMarks?.length || 0) > 0;
+                const rmrSys = activeRound.rmrSystem;
+                const hasEditedRmr =
+                  rmrSys &&
+                  (rmrSys.ucsRating !== 12 ||
+                    rmrSys.rqdRating !== 13 ||
+                    rmrSys.spacingRating !== 10 ||
+                    rmrSys.conditionRating !== 20 ||
+                    rmrSys.waterRating !== 10);
+                if (!hasMappedFeatures && !hasEditedRmr) return undefined;
+                const totalRmr = Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    (rmrSys?.ucsRating ?? 12) +
+                      (rmrSys?.rqdRating ?? 13) +
+                      (rmrSys?.spacingRating ?? 10) +
+                      (rmrSys?.conditionRating ?? 20) +
+                      (rmrSys?.waterRating ?? 10) +
+                      (rmrSys?.orientationAdj ?? -5)
+                  )
+                );
+                const defRmr = createDefaultRmrParameters();
+                return {
+                  ...defRmr,
+                  ucsRating: rmrSys?.ucsRating ?? 12,
+                  rqdRating: rmrSys?.rqdRating ?? 13,
+                  spacingRating: rmrSys?.spacingRating ?? 10,
+                  conditionRating: rmrSys?.conditionRating ?? 20,
+                  groundwaterRating: rmrSys?.waterRating ?? 10,
+                  orientationAdjustment: rmrSys?.orientationAdj ?? -5,
+                  totalRmr,
+                };
+              })()}
+              savedProjects={(() => {
+                if (!activeLocation) return [];
+                const locRounds = (store.rounds || []).filter(
+                  (r) =>
+                    r.locationId === activeLocation.id &&
+                    ((r.jointTraces?.length || 0) > 0 ||
+                      (r.dipPlaneSurfaces?.length || 0) > 0 ||
+                      (r.structuralFeatures?.length || 0) > 0 ||
+                      (r.lithologyStrokes?.length || 0) > 0)
+                );
+                return locRounds.map((r) => {
+                  const pullLen = r.pullLengthMeters || 3.0;
+                  const parsed = parsePullIntervalFromRecord(r.chainageFrom || '', r.chainageTo || '', pullLen);
+                  const qCalc = computeFieldQValue(r.qSystem);
+                  const rmrSys = r.rmrSystem;
+                  const totalRmr = Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      (rmrSys?.ucsRating ?? 12) +
+                        (rmrSys?.rqdRating ?? 13) +
+                        (rmrSys?.spacingRating ?? 10) +
+                        (rmrSys?.conditionRating ?? 20) +
+                        (rmrSys?.waterRating ?? 10) +
+                        (rmrSys?.orientationAdj ?? -5)
+                    )
+                  );
+                  return {
+                    id: r.id,
+                    projectName: activeProject?.projectName || 'Tunnel Project',
+                    tunnelName: activeLocation.name,
+                    location: activeLocation.name,
+                    chainage: `RD ${r.chainageFrom || '0.00'}m - ${r.chainageTo || '3.00'}m`,
+                    faceChainage: `RD ${r.chainageTo || parsed.toRd.toFixed(1)}m`,
+                    numericChainageMeters: parsed.toRd,
+                    date: r.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
+                    savedAt: r.updatedAt || new Date().toISOString(),
+                    mappingMode: 'tunnel_3d',
+                    geometry:
+                      activeLocation.customGeometry ||
+                      createTunnelGeometry(
+                        activeLocation.widthM || 8.5,
+                        activeLocation.heightM || 7.5,
+                        activeLocation.wallHeightM || 4.2,
+                        activeLocation.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped'
+                      ),
+                    settings: {
+                      projectName: activeProject?.projectName || 'Tunnel Project',
+                      tunnelName: activeLocation.name,
+                      location: activeLocation.name,
+                      driveDirectionInput: String(r.tunnelDriveDirection || 0),
+                      driveDirection: r.tunnelDriveDirection || 0,
+                      chainage: `RD ${r.chainageFrom || '0.00'}m - ${r.chainageTo || '3.00'}m`,
+                      faceChainage: `RD ${r.chainageTo || parsed.toRd.toFixed(1)}m`,
+                      roundLength: pullLen,
+                      date: r.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
+                      mappedBy: r.geologistName || 'Geologist',
+                      lithology: r.rockType || r.lithologyStrokes?.[0]?.rockName || 'Rock Mass',
+                    },
+                    joints: (r.jointTraces || []).map((jt) => ({
+                      id: jt.id,
+                      surface: 'face',
+                      points: jt.points,
+                      dipDirection: jt.dipDirection ?? 135,
+                      dip: jt.dipAmount ?? 65,
+                      strike: jt.strike ?? 45,
+                      set: jt.setId || 'J1',
+                    })),
+                    lithologyRegions: (r.lithologyStrokes || [])
+                      .filter((st) => st.mode !== 'lithology_erase')
+                      .map((st) => ({
+                        id: st.id,
+                        surface: 'face',
+                        polygon: (st.polygon && st.polygon.length >= 2 ? st.polygon : st.points).map((pt) => ({
+                          x: (pt.x - 0.5) * (activeLocation.widthM || 8.5),
+                          y: (0.5 - pt.y) * (activeLocation.heightM || 7.5),
+                        })),
+                        lithologyName: st.rockName || r.rockType || 'Rock Mass',
+                      })),
+                    qIndexParams: {
+                      ...createDefaultQIndexParameters(),
+                      qValue: qCalc.qValue,
+                    },
+                    rmrParams: {
+                      ...createDefaultRmrParameters(),
+                      totalRmr,
+                    },
+                  } as unknown as SavedProjectRecord;
+                });
+              })()}
             />
           </div>
         </div>

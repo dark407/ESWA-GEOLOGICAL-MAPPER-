@@ -1,581 +1,427 @@
-// ============================================================================
-// ESWA ADVANCED ANALYTICS — 3D KINEMATIC WEDGE & KEYBLOCK VIEWPORT
-// Interactive Three.js 3D Viewport: Real-time 3D Tunnel Arch, Daylighting
-// Tetrahedral Wedge, Parametric Pattern Rock Bolts, Shotcrete Shell,
-// Gravity Vector & Sliding Displacement Simulation.
-// ============================================================================
-
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import {
-  RotateCcw,
-  Eye,
-  Play,
-  Pause,
-  Box,
-  Layers,
-  ShieldCheck,
-  AlertTriangle,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
-} from 'lucide-react';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { Play, RotateCcw, Shield, Layers, Eye, AlertTriangle } from 'lucide-react';
+import { TunnelGeometry } from '../types/tunnel';
 
 export interface KinematicWedge3DViewportProps {
   spanW: number;
   heightH: number;
-  pullL: number;
-  trueDip: number;
-  trueDipDir: number;
-  trueStrike: number;
-  wedgeVolume: number;
+  wallHeight?: number;
+  geometry?: TunnelGeometry;
+  wedgeVolumeM3: number;
   wedgeWeightKn: number;
-  drivingForceKn: number;
-  supportedFos: number;
-  unboltedFos: number;
+  apexHeightM: number;
+  fosUnbolted: number;
+  fosBolted: number;
+  boltLengthM: number;
   boltSpacingM: number;
-  boltCapacityKn: number;
-  shotcreteMm: number;
-  jointSetLabel?: string;
+  governingStrike: number;
+  governingDip: number;
+  governingDipDirection?: number;
+  driveAzimuth?: number;
+  failureMode: 'ROOF_FALL' | 'SLIDING_J1' | 'SLIDING_J2' | 'STABLE';
+}
+
+function getExactProfileOutline(
+  spanW: number,
+  heightH: number,
+  wallHeight: number,
+  geometry?: TunnelGeometry
+): { x: number; y: number }[] {
+  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
+    return geometry.crossSectionPoints;
+  }
+  const halfW = spanW / 2;
+  const wallH = Math.min(wallHeight, heightH * 0.6);
+  const archH = Math.max(0.5, heightH - wallH);
+  const pts: { x: number; y: number }[] = [];
+  pts.push({ x: -halfW, y: 0 });
+  pts.push({ x: -halfW, y: wallH });
+  const archSteps = 32;
+  for (let i = 1; i < archSteps; i++) {
+    const theta = Math.PI * (1 - i / archSteps);
+    pts.push({
+      x: halfW * Math.cos(theta),
+      y: wallH + archH * Math.sin(theta),
+    });
+  }
+  pts.push({ x: halfW, y: wallH });
+  pts.push({ x: halfW, y: 0 });
+  return pts;
 }
 
 export const KinematicWedge3DViewport: React.FC<KinematicWedge3DViewportProps> = ({
   spanW,
   heightH,
-  pullL,
-  trueDip,
-  trueDipDir,
-  trueStrike,
-  wedgeVolume,
+  wallHeight,
+  geometry,
+  wedgeVolumeM3,
   wedgeWeightKn,
-  drivingForceKn,
-  supportedFos,
-  unboltedFos,
+  apexHeightM,
+  fosUnbolted,
+  fosBolted,
+  boltLengthM,
   boltSpacingM,
-  boltCapacityKn,
-  shotcreteMm,
-  jointSetLabel = 'J1',
+  governingStrike,
+  governingDip,
+  driveAzimuth = 45,
+  failureMode,
 }) => {
-  const mountRef = useRef<HTMLDivElement | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const animFrameRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [showBolts, setShowBolts] = useState(true);
+  const [showBoundingPlanes, setShowBoundingPlanes] = useState(true);
+  const [wireframeTunnel, setWireframeTunnel] = useState(false);
+  const [detachSimulation, setDetachSimulation] = useState(false);
 
-  // Dynamic mesh references for slider reactions
-  const wedgeMeshRef = useRef<THREE.Mesh | null>(null);
-  const boltsGroupRef = useRef<THREE.Group | null>(null);
-  const shotcreteMeshRef = useRef<THREE.Mesh | null>(null);
+  const detachProgressRef = useRef(0);
+  const wedgeGroupRef = useRef<THREE.Group | null>(null);
 
-  // Interactive controls state
-  const [isSlidingSimActive, setIsSlidingSimActive] = useState<boolean>(false);
-  const [wireframeMode, setWireframeMode] = useState<boolean>(false);
-  const [viewPreset, setViewPreset] = useState<'ISO' | 'FRONT' | 'SIDE' | 'TOP'>('ISO');
+  const effectiveFoS = showBolts ? fosBolted : fosUnbolted;
+  const isUnstable = effectiveFoS < 1.0;
+  const isMarginal = effectiveFoS >= 1.0 && effectiveFoS < 1.5;
 
-  // Mouse orbit state
-  const isDraggingRef = useRef<boolean>(false);
-  const prevMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const orbitAngleRef = useRef<{ theta: number; phi: number; radius: number }>({
-    theta: 0.78, // ~45 deg
-    phi: 1.1,
-    radius: 18,
-  });
-
-  const targetLookAt = useRef<THREE.Vector3>(new THREE.Vector3(0, heightH * 0.45, 0));
-
-  // Update camera position from spherical coords
-  const updateCameraPosition = useCallback(() => {
-    if (!cameraRef.current) return;
-    const { theta, phi, radius } = orbitAngleRef.current;
-    const x = radius * Math.sin(phi) * Math.sin(theta);
-    const y = radius * Math.cos(phi) + targetLookAt.current.y;
-    const z = radius * Math.sin(phi) * Math.cos(theta);
-    cameraRef.current.position.set(x, y, z);
-    cameraRef.current.lookAt(targetLookAt.current);
-  }, [heightH]);
-
-  // View Presets
-  const setCameraPreset = (preset: 'ISO' | 'FRONT' | 'SIDE' | 'TOP') => {
-    setViewPreset(preset);
-    if (preset === 'ISO') {
-      orbitAngleRef.current = { theta: 0.78, phi: 1.1, radius: 18 };
-    } else if (preset === 'FRONT') {
-      orbitAngleRef.current = { theta: 0, phi: 1.57, radius: 16 };
-    } else if (preset === 'SIDE') {
-      orbitAngleRef.current = { theta: 1.57, phi: 1.57, radius: 18 };
-    } else if (preset === 'TOP') {
-      orbitAngleRef.current = { theta: 0, phi: 0.05, radius: 20 };
-    }
-    updateCameraPosition();
-  };
-
-  // --------------------------------------------------------------------------
-  // INITIALIZE THREE.JS SCENE
-  // --------------------------------------------------------------------------
   useEffect(() => {
-    const container = mountRef.current;
+    const container = containerRef.current;
     if (!container) return;
 
-    const width = container.clientWidth || 600;
-    const height = container.clientHeight || 420;
+    const width = container.clientWidth || 720;
+    const height = container.clientHeight || 460;
 
-    // 1. Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b1120); // Dark Engineering Viewport (slate-950)
-    sceneRef.current = scene;
+    scene.background = new THREE.Color(0x060a12);
 
-    // 2. Camera
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 200);
-    cameraRef.current = camera;
-    updateCameraPosition();
+    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 500);
+    camera.position.set(spanW * 1.15, heightH * 0.9, spanW * 1.65);
 
-    // 3. Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    rendererRef.current = renderer;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // 4. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-    scene.add(ambientLight);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, heightH * 0.62, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
 
-    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight1.position.set(10, 20, 15);
-    scene.add(dirLight1);
+    scene.add(new THREE.AmbientLight(0x94a3b8, 0.85));
+    const dirLight = new THREE.DirectionalLight(0xf8fafc, 1.15);
+    dirLight.position.set(15, 25, 20);
+    scene.add(dirLight);
 
-    const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.6);
-    dirLight2.position.set(-15, 10, -10);
-    scene.add(dirLight2);
+    const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.45);
+    fillLight.position.set(-15, -5, -15);
+    scene.add(fillLight);
 
-    // 5. Ground Grid
-    const gridHelper = new THREE.GridHelper(30, 30, 0x334155, 0x1e293b);
-    gridHelper.position.y = -0.01;
+    const gridHelper = new THREE.GridHelper(32, 32, 0x1e293b, 0x0f172a);
+    gridHelper.position.y = -0.05;
     scene.add(gridHelper);
 
-    // 6. Coordinate Compass / Axes Helper at origin
-    const axesHelper = new THREE.AxesHelper(3);
-    axesHelper.position.set(-spanW * 0.7, 0, pullL);
-    scene.add(axesHelper);
+    const wallH = wallHeight || geometry?.wallHeight || heightH * 0.55;
+    const profilePts = getExactProfileOutline(spanW, heightH, wallH, geometry);
+    const tunnelLength = 14;
 
-    // ------------------------------------------------------------------------
-    // BUILD 3D TUNNEL TUBE (HORSESHOE GEOMETRY)
-    // ------------------------------------------------------------------------
-    const tunnelGroup = new THREE.Group();
-    const halfW = spanW / 2;
-    const wallH = heightH * 0.55;
-    const archRadius = halfW;
-
-    // Build 2D cross section shape
-    const shape = new THREE.Shape();
-    shape.moveTo(-halfW, 0);
-    shape.lineTo(-halfW, wallH);
-    // Upper horseshoe arch
-    const steps = 32;
-    for (let i = 0; i <= steps; i++) {
-      const angle = Math.PI - (i / steps) * Math.PI;
-      const x = Math.cos(angle) * archRadius;
-      const y = wallH + Math.sin(angle) * (heightH - wallH);
-      shape.lineTo(x, y);
-    }
-    shape.lineTo(halfW, 0);
-    shape.lineTo(-halfW, 0);
-
-    // Extrude tunnel geometry along Z-axis (Pull Length)
-    const extrudeSettings: THREE.ExtrudeGeometryOptions = {
-      depth: pullL * 2,
-      bevelEnabled: false,
-    };
-    const tunnelGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    // Center geometry on Z
-    tunnelGeo.translate(0, 0, -pullL);
-
-    // Wireframe perimeter edges
-    const edgesGeo = new THREE.EdgesGeometry(tunnelGeo, 25);
-    const edgesMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
-    const edgesMesh = new THREE.LineSegments(edgesGeo, edgesMat);
-    tunnelGroup.add(edgesMesh);
-
-    // Transparent tunnel wall surface
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.8,
-      metalness: 0.2,
-      transparent: true,
-      opacity: 0.35,
-      side: THREE.DoubleSide,
+    // 1. Exact Tunnel Profile Extrusion
+    const tunnelShape = new THREE.Shape();
+    profilePts.forEach((p, idx) => {
+      if (idx === 0) tunnelShape.moveTo(p.x, p.y);
+      else tunnelShape.lineTo(p.x, p.y);
     });
-    const tunnelMesh = new THREE.Mesh(tunnelGeo, wallMat);
-    tunnelGroup.add(tunnelMesh);
-    scene.add(tunnelGroup);
+    tunnelShape.closePath();
 
-    // ------------------------------------------------------------------------
-    // BUILD 3D CRITICAL KEYBLOCK / WEDGE (TETRAHEDRAL MESH)
-    // ------------------------------------------------------------------------
+    const extrudeGeo = new THREE.ExtrudeGeometry(tunnelShape, {
+      steps: 14,
+      depth: tunnelLength,
+      bevelEnabled: false,
+    });
+    extrudeGeo.translate(0, 0, -tunnelLength / 2);
+
+    const tunnelMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      roughness: 0.75,
+      metalness: 0.15,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: wireframeTunnel ? 0.15 : 0.48,
+      wireframe: wireframeTunnel,
+    });
+    scene.add(new THREE.Mesh(extrudeGeo, tunnelMat));
+
+    // CAD Profile Station Rings
+    for (let z = -tunnelLength / 2; z <= tunnelLength / 2; z += 2.0) {
+      const ringVecs = profilePts.map((p) => new THREE.Vector3(p.x, p.y, z));
+      if (ringVecs.length > 0) ringVecs.push(ringVecs[0].clone());
+      const ringGeo = new THREE.BufferGeometry().setFromPoints(ringVecs);
+      const isFaceRing = Math.abs(z - tunnelLength / 2) < 0.01;
+      const ringMat = new THREE.LineBasicMaterial({
+        color: isFaceRing ? 0x38bdf8 : 0x334155,
+        transparent: true,
+        opacity: isFaceRing ? 0.95 : 0.5,
+      });
+      scene.add(new THREE.Line(ringGeo, ringMat));
+    }
+
+    // 2. 3D Tetrahedral Wedge at Crown / Haunch
+    const wedgeGroup = new THREE.Group();
+    wedgeGroupRef.current = wedgeGroup;
+
+    const baseHalfSpan = Math.min(spanW * 0.34, Math.max(0.8, Math.cbrt(Math.max(0.2, wedgeVolumeM3)) * 0.72));
+    const baseHalfLen = Math.min(4.2, Math.max(1.0, baseHalfSpan * 1.25));
+    const clampedApex = Math.min(4.5, Math.max(0.45, apexHeightM));
+
+    const relSkewRad = THREE.MathUtils.degToRad((governingStrike - driveAzimuth + 360) % 180);
+    const skewX = Math.sin(relSkewRad) * 0.45;
+
+    const v0 = new THREE.Vector3(skewX, heightH + clampedApex, 0); // Apex inside rock mass
+    const v1 = new THREE.Vector3(-baseHalfSpan, heightH - 0.3, -baseHalfLen);
+    const v2 = new THREE.Vector3(baseHalfSpan, heightH - 0.3, -baseHalfLen * 0.65);
+    const v3 = new THREE.Vector3(0, heightH - 0.15, baseHalfLen);
+
     const wedgeGeo = new THREE.BufferGeometry();
-    const apexH = heightH;
-    const wedgeBaseHalfW = halfW * 0.55;
-    const wedgeBaseY = wallH + (heightH - wallH) * 0.5;
-
-    // Vertices of the tetrahedral wedge (Apex at crown, base daylighting into tunnel)
-    const vApex = new THREE.Vector3(0, apexH, 0);
-    const vLeftFront = new THREE.Vector3(-wedgeBaseHalfW, wedgeBaseY, pullL * 0.6);
-    const vRightFront = new THREE.Vector3(wedgeBaseHalfW, wedgeBaseY, pullL * 0.6);
-    const vLeftBack = new THREE.Vector3(-wedgeBaseHalfW, wedgeBaseY, -pullL * 0.6);
-    const vRightBack = new THREE.Vector3(wedgeBaseHalfW, wedgeBaseY, -pullL * 0.6);
-
-    // Create 6 triangular faces for the 3D block
-    const positions: number[] = [
-      // Base Face 1 (Daylighting into crown)
-      vLeftFront.x, vLeftFront.y, vLeftFront.z,
-      vRightFront.x, vRightFront.y, vRightFront.z,
-      vRightBack.x, vRightBack.y, vRightBack.z,
-      // Base Face 2
-      vLeftFront.x, vLeftFront.y, vLeftFront.z,
-      vRightBack.x, vRightBack.y, vRightBack.z,
-      vLeftBack.x, vLeftBack.y, vLeftBack.z,
-      // Left Joint Plane (J1)
-      vApex.x, vApex.y, vApex.z,
-      vLeftBack.x, vLeftBack.y, vLeftBack.z,
-      vLeftFront.x, vLeftFront.y, vLeftFront.z,
-      // Right Joint Plane (J2)
-      vApex.x, vApex.y, vApex.z,
-      vRightFront.x, vRightFront.y, vRightFront.z,
-      vRightBack.x, vRightBack.y, vRightBack.z,
-      // Front Tunnel Face Joint
-      vApex.x, vApex.y, vApex.z,
-      vLeftFront.x, vLeftFront.y, vLeftFront.z,
-      vRightFront.x, vRightFront.y, vRightFront.z,
-      // Back Joint Plane
-      vApex.x, vApex.y, vApex.z,
-      vRightBack.x, vRightBack.y, vRightBack.z,
-      vLeftBack.x, vLeftBack.y, vLeftBack.z,
-    ];
-
-    wedgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const vertices = new Float32Array([
+      v0.x, v0.y, v0.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z,
+      v0.x, v0.y, v0.z, v2.x, v2.y, v2.z, v3.x, v3.y, v3.z,
+      v0.x, v0.y, v0.z, v3.x, v3.y, v3.z, v1.x, v1.y, v1.z,
+      v1.x, v1.y, v1.z, v3.x, v3.y, v3.z, v2.x, v2.y, v2.z,
+    ]);
+    wedgeGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
     wedgeGeo.computeVertexNormals();
 
-    const wedgeColor = supportedFos >= 1.5 ? 0x10b981 : supportedFos >= 1.0 ? 0xf59e0b : 0xf43f5e;
+    const wedgeColor = isUnstable ? 0xef4444 : isMarginal ? 0xf59e0b : 0x10b981;
     const wedgeMat = new THREE.MeshStandardMaterial({
       color: wedgeColor,
-      roughness: 0.4,
-      metalness: 0.1,
+      roughness: 0.35,
+      metalness: 0.15,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.86,
       side: THREE.DoubleSide,
     });
     const wedgeMesh = new THREE.Mesh(wedgeGeo, wedgeMat);
-    wedgeMeshRef.current = wedgeMesh;
-    scene.add(wedgeMesh);
+    wedgeGroup.add(wedgeMesh);
 
-    // Wedge edges highlight
-    const wedgeEdgesGeo = new THREE.EdgesGeometry(wedgeGeo);
-    const wedgeEdgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
-    const wedgeEdgesMesh = new THREE.LineSegments(wedgeEdgesGeo, wedgeEdgesMat);
-    wedgeMesh.add(wedgeEdgesMesh);
-
-    // Driving Force Vector Arrow (Downward Gravity + Sliding component)
-    const arrowDir = new THREE.Vector3(0, -1, 0.35).normalize();
-    const arrowOrigin = new THREE.Vector3(0, apexH * 0.82, 0);
-    const arrowHelper = new THREE.ArrowHelper(arrowDir, arrowOrigin, 2.8, 0xf43f5e, 0.6, 0.3);
-    scene.add(arrowHelper);
-
-    // ------------------------------------------------------------------------
-    // 3D DYNAMIC ROCK BOLT ARRAY (GROUP)
-    // ------------------------------------------------------------------------
-    const boltsGroup = new THREE.Group();
-    boltsGroupRef.current = boltsGroup;
-    scene.add(boltsGroup);
-
-    // ------------------------------------------------------------------------
-    // SHOTCRETE SHELL (CURVED RIBBON MESH)
-    // ------------------------------------------------------------------------
-    const shotcreteGeo = new THREE.CylinderGeometry(
-      archRadius + 0.05,
-      archRadius + 0.05,
-      pullL * 1.8,
-      32,
-      1,
-      true,
-      0,
-      Math.PI
+    const wedgeEdges = new THREE.EdgesGeometry(wedgeGeo);
+    wedgeGroup.add(
+      new THREE.LineSegments(
+        wedgeEdges,
+        new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 })
+      )
     );
-    shotcreteGeo.rotateZ(Math.PI / 2);
-    shotcreteGeo.translate(0, wallH, 0);
-    const shotcreteMat = new THREE.MeshStandardMaterial({
-      color: 0xa855f7,
-      transparent: true,
-      opacity: Math.min(0.7, shotcreteMm / 150),
-      side: THREE.DoubleSide,
-    });
-    const shotcreteMesh = new THREE.Mesh(shotcreteGeo, shotcreteMat);
-    shotcreteMeshRef.current = shotcreteMesh;
-    scene.add(shotcreteMesh);
 
-    // ------------------------------------------------------------------------
-    // ANIMATION & RENDER LOOP
-    // ------------------------------------------------------------------------
-    let slideOffset = 0;
-    const renderLoop = () => {
-      // If sliding simulation is active, animate the wedge dropping along plunge vector
-      if (wedgeMeshRef.current) {
-        if (isSlidingSimActive && unboltedFos < 1.0) {
-          slideOffset = (slideOffset + 0.015) % 1.5;
-          wedgeMeshRef.current.position.y = -slideOffset * 1.2;
-          wedgeMeshRef.current.position.z = slideOffset * 0.5;
-        } else {
-          // Keep firmly pinned by rock bolts
-          wedgeMeshRef.current.position.set(0, 0, 0);
-        }
+    // Gravity Resultant Vector Arrow
+    const arrowOrigin = new THREE.Vector3(0, heightH - 0.15, 0);
+    const arrowHelper = new THREE.ArrowHelper(
+      new THREE.Vector3(0, -1, 0),
+      arrowOrigin,
+      Math.min(2.4, Math.max(1.1, wedgeWeightKn / 220)),
+      wedgeColor,
+      0.4,
+      0.26
+    );
+    wedgeGroup.add(arrowHelper);
+    scene.add(wedgeGroup);
+
+    // 3. Bounding Discontinuity Planes (J1, J2) oriented by real strike/dip
+    if (showBoundingPlanes) {
+      const dipRad = THREE.MathUtils.degToRad(governingDip || 60);
+      const planeSize = Math.max(spanW, heightH) * 0.9;
+      const pGeo = new THREE.PlaneGeometry(planeSize, planeSize);
+
+      const p1Mat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.14,
+        side: THREE.DoubleSide,
+      });
+      const p1 = new THREE.Mesh(pGeo, p1Mat);
+      p1.position.set(-baseHalfSpan * 0.45, heightH + clampedApex * 0.35, 0);
+      p1.rotation.z = -dipRad;
+      p1.rotation.y = relSkewRad * 0.35;
+      scene.add(p1);
+
+      const p2Mat = new THREE.MeshBasicMaterial({
+        color: 0xa855f7,
+        transparent: true,
+        opacity: 0.14,
+        side: THREE.DoubleSide,
+      });
+      const p2 = new THREE.Mesh(pGeo, p2Mat);
+      p2.position.set(baseHalfSpan * 0.45, heightH + clampedApex * 0.35, 0);
+      p2.rotation.z = dipRad;
+      p2.rotation.y = -relSkewRad * 0.35;
+      scene.add(p2);
+    }
+
+    // 4. Radial Pattern Rockbolts Normal to True Crown Perimeter
+    if (showBolts) {
+      const boltGroup = new THREE.Group();
+      const boltMat = new THREE.MeshStandardMaterial({
+        color: 0x22d3ee,
+        metalness: 0.7,
+        roughness: 0.2,
+        emissive: 0x0891b2,
+        emissiveIntensity: 0.35,
+      });
+      const plateMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.25 });
+
+      const crownPts = profilePts.filter((p) => p.y >= wallH * 0.75);
+      const stepIdx = Math.max(1, Math.floor(crownPts.length / Math.max(3, Math.round(spanW / boltSpacingM))));
+      const sampledCrownPts = crownPts.filter((_, idx) => idx % stepIdx === 0);
+
+      for (let z = -3.0; z <= 3.0; z += Math.max(1.0, boltSpacingM)) {
+        sampledCrownPts.forEach((pt) => {
+          const centerY = wallH;
+          const dir = new THREE.Vector3(pt.x, Math.max(0.25, pt.y - centerY), 0).normalize();
+          const startPos = new THREE.Vector3(pt.x, pt.y, z);
+          const midPos = startPos.clone().addScaledVector(dir, boltLengthM / 2);
+
+          const cylGeo = new THREE.CylinderGeometry(0.04, 0.04, boltLengthM, 8);
+          const boltMesh = new THREE.Mesh(cylGeo, boltMat);
+          boltMesh.position.copy(midPos);
+          boltMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+          boltGroup.add(boltMesh);
+
+          const plateGeo = new THREE.BoxGeometry(0.26, 0.06, 0.26);
+          const plateMesh = new THREE.Mesh(plateGeo, plateMat);
+          plateMesh.position.copy(startPos);
+          plateMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+          boltGroup.add(plateMesh);
+        });
       }
+      scene.add(boltGroup);
+    }
 
+    let animId: number;
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      if (detachSimulation && wedgeGroupRef.current) {
+        detachProgressRef.current = Math.min(1, detachProgressRef.current + 0.018);
+        const dropY = detachProgressRef.current * detachProgressRef.current * (heightH * 0.52);
+        wedgeGroupRef.current.position.y = -dropY;
+      } else if (wedgeGroupRef.current) {
+        detachProgressRef.current = 0;
+        wedgeGroupRef.current.position.y = 0;
+      }
+      controls.update();
       renderer.render(scene, camera);
-      animFrameRef.current = requestAnimationFrame(renderLoop);
     };
-    renderLoop();
+    animate();
 
-    // ------------------------------------------------------------------------
-    // RESIZE OBSERVER
-    // ------------------------------------------------------------------------
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width: w, height: h } = entry.contentRect;
-        if (w > 0 && h > 0 && cameraRef.current && rendererRef.current) {
-          cameraRef.current.aspect = w / h;
-          cameraRef.current.updateProjectionMatrix();
-          rendererRef.current.setSize(w, h);
-        }
-      }
-    });
-    resizeObserver.observe(container);
+    const handleResize = () => {
+      if (!container) return;
+      const w = container.clientWidth || 720;
+      const h = container.clientHeight || 460;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    };
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      resizeObserver.disconnect();
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (rendererRef.current && rendererRef.current.domElement) {
-        container.innerHTML = '';
-        rendererRef.current.dispose();
-      }
-      scene.clear();
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', handleResize);
+      renderer.dispose();
     };
-  }, [spanW, heightH, pullL, supportedFos, unboltedFos, updateCameraPosition]);
-
-  // --------------------------------------------------------------------------
-  // RE-BUILD BOLTS & SHOTCRETE WHEN SLIDERS CHANGE
-  // --------------------------------------------------------------------------
-  useEffect(() => {
-    const boltsGroup = boltsGroupRef.current;
-    if (!boltsGroup) return;
-
-    // Clear existing bolts
-    while (boltsGroup.children.length > 0) {
-      const child = boltsGroup.children[0];
-      boltsGroup.remove(child);
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
-        else child.material.dispose();
-      }
-    }
-
-    const halfW = spanW / 2;
-    const wallH = heightH * 0.55;
-    const boltLength = 4.0; // 4.0m standard radial bolt
-
-    // Calculate number of radial rows along crown arch based on spacing
-    const numRadialBolts = Math.max(3, Math.min(9, Math.round(spanW / boltSpacingM)));
-    const numPullRows = Math.max(2, Math.round(pullL / boltSpacingM));
-
-    const boltGeo = new THREE.CylinderGeometry(0.04, 0.04, boltLength, 8);
-    boltGeo.translate(0, boltLength / 2, 0); // Origin at bearing plate
-
-    const plateGeo = new THREE.BoxGeometry(0.25, 0.04, 0.25);
-    const boltMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      metalness: 0.8,
-      roughness: 0.2,
-    });
-    const plateMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
-
-    for (let r = 0; r < numPullRows; r++) {
-      const z = -pullL * 0.6 + r * boltSpacingM;
-      for (let i = 0; i < numRadialBolts; i++) {
-        // Angle along arch (from -60 deg to +60 deg from vertical)
-        const angle = -Math.PI / 3 + (i / (numRadialBolts - 1)) * ((2 * Math.PI) / 3);
-        const px = Math.sin(angle) * halfW;
-        const py = wallH + Math.cos(angle) * (heightH - wallH);
-
-        const singleBolt = new THREE.Group();
-        singleBolt.position.set(px, py, z);
-
-        // Orient bolt outward perpendicular to the arch
-        singleBolt.rotation.z = -angle;
-
-        const rodMesh = new THREE.Mesh(boltGeo, boltMat);
-        const plateMesh = new THREE.Mesh(plateGeo, plateMat);
-        singleBolt.add(rodMesh);
-        singleBolt.add(plateMesh);
-
-        boltsGroup.add(singleBolt);
-      }
-    }
-
-    // Update shotcrete thickness opacity
-    if (shotcreteMeshRef.current) {
-      const mat = shotcreteMeshRef.current.material as THREE.MeshStandardMaterial;
-      mat.opacity = shotcreteMm > 0 ? Math.min(0.7, 0.2 + shotcreteMm / 200) : 0;
-      mat.visible = shotcreteMm > 0;
-    }
-  }, [spanW, heightH, pullL, boltSpacingM, boltCapacityKn, shotcreteMm]);
-
-  // Update wireframe mode
-  useEffect(() => {
-    if (wedgeMeshRef.current) {
-      const mat = wedgeMeshRef.current.material as THREE.MeshStandardMaterial;
-      mat.wireframe = wireframeMode;
-    }
-  }, [wireframeMode]);
-
-  // --------------------------------------------------------------------------
-  // POINTER & MOUSE DRAG LISTENERS FOR ORBITING
-  // --------------------------------------------------------------------------
-  const handlePointerDown = (e: React.PointerEvent) => {
-    isDraggingRef.current = true;
-    prevMouseRef.current = { x: e.clientX, y: e.clientY };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDraggingRef.current) return;
-    const deltaX = e.clientX - prevMouseRef.current.x;
-    const deltaY = e.clientY - prevMouseRef.current.y;
-    prevMouseRef.current = { x: e.clientX, y: e.clientY };
-
-    orbitAngleRef.current.theta -= deltaX * 0.008;
-    orbitAngleRef.current.phi = Math.max(
-      0.05,
-      Math.min(Math.PI / 2 + 0.1, orbitAngleRef.current.phi - deltaY * 0.008)
-    );
-    updateCameraPosition();
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    isDraggingRef.current = false;
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      // Ignored
-    }
-  };
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    orbitAngleRef.current.radius = Math.max(
-      6,
-      Math.min(40, orbitAngleRef.current.radius + e.deltaY * 0.02)
-    );
-    updateCameraPosition();
-  };
+  }, [
+    spanW,
+    heightH,
+    wallHeight,
+    geometry,
+    wedgeVolumeM3,
+    wedgeWeightKn,
+    apexHeightM,
+    fosUnbolted,
+    fosBolted,
+    boltLengthM,
+    boltSpacingM,
+    governingStrike,
+    governingDip,
+    driveAzimuth,
+    showBolts,
+    showBoundingPlanes,
+    wireframeTunnel,
+    detachSimulation,
+    isUnstable,
+    isMarginal,
+  ]);
 
   return (
-    <div className="relative w-full h-[360px] sm:h-[440px] bg-slate-950 rounded-xl border border-slate-800 overflow-hidden flex flex-col select-none">
-      {/* 3D CANVAS VIEWPORT CONTAINER */}
-      <div
-        ref={mountRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onWheel={handleWheel}
-        className="w-full h-full cursor-grab active:cursor-grabbing touch-none"
-      />
-
-      {/* TOP HUD BAR */}
-      <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="px-2.5 py-1 rounded bg-slate-900/90 border border-slate-700/80 backdrop-blur-xs flex items-center gap-2 text-xs font-mono text-white">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                supportedFos >= 1.5 ? 'bg-emerald-400' : 'bg-rose-400'
-              } animate-pulse`}
-            />
-            <span>3D KINEMATIC WEDGE STABILITY CORE</span>
-          </div>
-
+    <div className="relative w-full h-full min-h-[440px] rounded-lg overflow-hidden border border-slate-800 bg-[#060a12] flex flex-col">
+      {/* Top CAD Viewport Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-900/95 border-b border-slate-800 z-10">
+        <div className="flex items-center gap-2">
           <span
-            className={`px-2 py-1 rounded text-xs font-mono font-bold backdrop-blur-xs border ${
-              supportedFos >= 1.5
-                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/60'
-                : 'bg-rose-950/80 text-rose-300 border-rose-600/60'
+            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase border flex items-center gap-1 ${
+              isUnstable
+                ? 'bg-rose-500/15 text-rose-300 border-rose-500/40'
+                : isMarginal
+                ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
             }`}
           >
-            FoS: {supportedFos.toFixed(2)} ({supportedFos >= 1.5 ? 'PASS SAFE' : 'CRITICAL'})
+            {isUnstable && <AlertTriangle className="w-3 h-3" />}
+            FoS = {effectiveFoS.toFixed(2)} ({failureMode.replace(/_/g, ' ')})
+          </span>
+          <span className="text-[11px] font-mono text-slate-400 tabular-nums">
+            V = <strong className="text-slate-200">{wedgeVolumeM3.toFixed(2)} m³</strong> | W = <strong className="text-amber-300">{wedgeWeightKn.toFixed(0)} kN</strong> | Apex = <strong className="text-sky-300">{apexHeightM.toFixed(2)} m</strong>
           </span>
         </div>
 
-        {/* VIEW PRESET BUTTONS */}
-        <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-700/80 rounded-lg p-1 backdrop-blur-xs pointer-events-auto">
-          {(['ISO', 'FRONT', 'SIDE', 'TOP'] as const).map((preset) => (
-            <button
-              key={preset}
-              onClick={() => setCameraPreset(preset)}
-              className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded transition-colors cursor-pointer ${
-                viewPreset === preset ? 'bg-sky-600 text-white' : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              {preset}
-            </button>
-          ))}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowBolts(!showBolts)}
+            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              showBolts
+                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            <Shield className="w-3 h-3" /> Bolts ({boltLengthM}m @ {boltSpacingM}m)
+          </button>
+          <button
+            onClick={() => setShowBoundingPlanes(!showBoundingPlanes)}
+            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              showBoundingPlanes
+                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            <Layers className="w-3 h-3" /> J1/J2 Planes
+          </button>
+          <button
+            onClick={() => setWireframeTunnel(!wireframeTunnel)}
+            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              wireframeTunnel
+                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            <Eye className="w-3 h-3" /> Shell
+          </button>
+          <button
+            onClick={() => setDetachSimulation(!detachSimulation)}
+            className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              detachSimulation
+                ? 'bg-rose-600 text-white border-rose-400'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+          >
+            {detachSimulation ? <RotateCcw className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+            {detachSimulation ? 'Reset Wedge' : 'Test Kinematic Drop'}
+          </button>
         </div>
       </div>
 
-      {/* BOTTOM OVERLAY INFO & SIMULATION CONTROLS */}
-      <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-        <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-700/80 px-3 py-1.5 rounded-lg text-xs font-mono text-slate-300 backdrop-blur-xs pointer-events-auto">
-          <span>Wedge: <strong>{wedgeVolume} m³ ({wedgeWeightKn} kN)</strong></span>
-          <span className="text-slate-600">|</span>
-          <span>Joint: <strong>{jointSetLabel} (Dip {trueDip}° ∠ {trueDipDir}°)</strong></span>
-          <span className="text-slate-600">|</span>
-          <span className="text-sky-300">Bolts: <strong>@{boltSpacingM.toFixed(1)}m c/c</strong></span>
-          <span className="text-slate-600">|</span>
-          <span className="text-purple-300">SFRS: <strong>{shotcreteMm}mm</strong></span>
+      {/* 3D Canvas Container */}
+      <div ref={containerRef} className="w-full flex-1 min-h-[390px] cursor-grab active:cursor-grabbing" />
+
+      {/* Bottom Engineering Status Bar */}
+      <div className="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-slate-400 tabular-nums">
+        <div>
+          UNBOLTED FoS: <span className="text-rose-400 font-bold">{fosUnbolted.toFixed(2)}</span> → BOLTED FoS: <span className="text-emerald-400 font-bold">{fosBolted.toFixed(2)}</span>
         </div>
-
-        <div className="flex items-center gap-1.5 bg-slate-900/90 border border-slate-700/80 p-1 rounded-lg backdrop-blur-xs pointer-events-auto">
-          {/* Wireframe toggle */}
-          <button
-            onClick={() => setWireframeMode(!wireframeMode)}
-            className={`p-1.5 rounded text-xs transition-colors cursor-pointer ${
-              wireframeMode ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-            }`}
-            title="Toggle Wireframe Mesh"
-          >
-            <Box className="w-4 h-4" />
-          </button>
-
-          {/* Sliding Simulation Toggle */}
-          <button
-            onClick={() => setIsSlidingSimActive(!isSlidingSimActive)}
-            className={`flex items-center gap-1 px-2.5 py-1 text-xs font-mono font-bold rounded transition-colors cursor-pointer ${
-              isSlidingSimActive
-                ? 'bg-rose-600 text-white animate-pulse'
-                : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-            }`}
-            title="Simulate Gravitational Keyblock Release"
-          >
-            {isSlidingSimActive ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-            <span>{isSlidingSimActive ? 'Simulating Release' : 'Simulate Release'}</span>
-          </button>
-
-          {/* Reset Camera */}
-          <button
-            onClick={() => setCameraPreset('ISO')}
-            className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-            title="Reset Camera View"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
+        <div>
+          BOLT EMBEDMENT PAST APEX: <span className={boltLengthM > apexHeightM + 0.5 ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>{(boltLengthM - apexHeightM).toFixed(2)} m</span>
         </div>
       </div>
     </div>

@@ -35,10 +35,7 @@ export interface AlignmentAlternativesEvaluatorViewProps {
 
 export const AlignmentAlternativesEvaluatorView: React.FC<AlignmentAlternativesEvaluatorViewProps> = ({
   currentDriveAzimuth = 45,
-  faults = [
-    { id: 'f-1', name: 'Fault Zone F-01 (Shear)', beta: 70, thetaDip: 145, tTrue: 1.8 },
-    { id: 'f-2', name: 'Contact Shear F-02', beta: 60, thetaDip: 85, tTrue: 1.2 },
-  ],
+  faults = [],
   controllingJoint = { id: 'j-ctrl', beta: 65, thetaDip: 135, frictionAngle: 32 },
   sigmaHAzDefault = 110,
 }) => {

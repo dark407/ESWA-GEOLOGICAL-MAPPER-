@@ -31,74 +31,26 @@ export interface PoorRockProportionsEstimatorViewProps {
 }
 
 export const PoorRockProportionsEstimatorView: React.FC<PoorRockProportionsEstimatorViewProps> = ({
-  totalLengthDefault = 1600,
-  initialDomains = [
-    {
-      id: 'dom-1',
-      name: 'Domain 1: Massive Quartzite Host',
-      startChainage: 0,
-      endChainage: 450,
-      lengthM: 450,
-      meanRmr: 68,
-      stdDevRmr: 8.5,
-      meanQ: 12.5,
-      lithology: 'Quartzite',
-    },
-    {
-      id: 'dom-2',
-      name: 'Domain 2: Foliated Pelitic Schist Band',
-      startChainage: 450,
-      endChainage: 950,
-      lengthM: 500,
-      meanRmr: 42,
-      stdDevRmr: 11.0,
-      meanQ: 3.2,
-      lithology: 'Schist',
-    },
-    {
-      id: 'dom-3',
-      name: 'Domain 3: Fault Damage & Shear Halo',
-      startChainage: 950,
-      endChainage: 1250,
-      lengthM: 300,
-      meanRmr: 34,
-      stdDevRmr: 9.5,
-      meanQ: 0.8,
-      lithology: 'Cataclasite / Gouge',
-    },
-    {
-      id: 'dom-4',
-      name: 'Domain 4: Jointed Gneiss Complex',
-      startChainage: 1250,
-      endChainage: 1600,
-      lengthM: 350,
-      meanRmr: 56,
-      stdDevRmr: 7.0,
-      meanQ: 6.0,
-      lithology: 'Biotite Gneiss',
-    },
-  ],
-  initialFaults = [
-    {
-      id: 'flt-1',
-      name: 'Major Thrust Fault F-1',
-      coreThicknessM: 2.2,
-      damageHaloMultiplier: 2.5,
-      intersectionAnglePsiDeg: 40,
-    },
-    {
-      id: 'flt-2',
-      name: 'Regional Contact Shear F-2',
-      coreThicknessM: 1.4,
-      damageHaloMultiplier: 2.0,
-      intersectionAnglePsiDeg: 55,
-    },
-  ],
+  totalLengthDefault = 100,
+  initialDomains = [],
+  initialFaults = [],
 }) => {
   const [totalLength, setTotalLength] = useState<number>(totalLengthDefault);
   const [domains, setDomains] = useState<AlignmentDomainSegment[]>(initialDomains);
   const [faults, setFaults] = useState<FaultZoneCrossing[]>(initialFaults);
   const [poorRmrThreshold, setPoorRmrThreshold] = useState<number>(40);
+
+  React.useEffect(() => {
+    setTotalLength(totalLengthDefault);
+  }, [totalLengthDefault]);
+
+  React.useEffect(() => {
+    setDomains(initialDomains);
+  }, [initialDomains]);
+
+  React.useEffect(() => {
+    setFaults(initialFaults);
+  }, [initialFaults]);
 
   const result: PoorRockProportionResult = useMemo(() => {
     return estimatePoorRockMassProportions(totalLength, domains, faults, poorRmrThreshold);

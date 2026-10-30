@@ -31,6 +31,7 @@ import {
   computeTraceOrientationFromTunnelDrive,
   computeTraceScreenDipTickVector,
   buildSmoothSvgPath,
+  clampPointToFieldPanelOutline,
   convertPhysicalMetricPointsToCanvas,
   createDefaultSupportSystem,
   exportFieldMappingTwoPagePdfSheet,
@@ -402,7 +403,7 @@ export const FieldStripAlignmentStage: React.FC<{
       };
     }
     const [canvasPt] = convertPhysicalMetricPointsToCanvas([metricPt], panel, activeLocation, activeRound);
-    return canvasPt;
+    return clampPointToFieldPanelOutline(canvasPt, panel, activeLocation, activeRound, 0);
   };
 
   // Collect all alignable items (Joint Traces, Vein/Foliation Bands, Structural Features) on Left Wall, Crown, Right Wall

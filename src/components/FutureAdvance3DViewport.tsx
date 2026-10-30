@@ -1,461 +1,392 @@
-// ============================================================================
-// ESWA ADVANCED ANALYTICS — 3D FUTURE ADVANCE & GEOHAZARD FORECAST VIEWPORT
-// Interactive Three.js 3D Viewport: Multi-round Forward Extrapolation
-// (+3m, +6m, +9m, +15m, +30m), 3D Striking Discontinuity Plane Daylighting,
-// Forward Probe Hole Arrays (5° Look-up), Mountain Overburden & Stress Halo.
-// ============================================================================
-
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import {
-  RotateCcw,
-  Eye,
-  TrendingUp,
-  Box,
-  Layers,
-  Compass,
-  AlertTriangle,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
-} from 'lucide-react';
-
-export interface FuturePredictionItem {
-  advanceDelta: number;
-  label: string;
-  horizon: string;
-  targetChainage: string;
-  daylightDistanceM: number;
-  willIntersectInHorizon: boolean;
-  riskLevel: 'HIGH' | 'MODERATE' | 'LOW';
-  predictedClass: string;
-  waterForecast: string;
-  recommendedSupport: string;
-}
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { Play, Pause, RotateCcw, Eye, Layers } from 'lucide-react';
+import { TunnelGeometry } from '../types/tunnel';
 
 export interface FutureAdvance3DViewportProps {
   spanW: number;
   heightH: number;
-  currentChainageNum: number;
-  trueDip: number;
-  trueDipDir: number;
-  trueStrike: number;
-  customDriveAzimuth: number;
-  predictions: FuturePredictionItem[];
-  overburdenDepthM: number;
-  activeJointSet?: string;
+  wallHeight?: number;
+  geometry?: TunnelGeometry;
+  pullLength: number;
+  currentFaceChainage: number;
+  driveAzimuth: number;
+  governingStrike: number;
+  governingDip: number;
+  governingDipDirection: number;
+  governingSet: string;
+  governingType: string;
+  apparentDipDeg: number;
+  advanceRatePerVerticalMeter: number;
+}
+
+function getProfileOutline(
+  spanW: number,
+  heightH: number,
+  wallHeight: number,
+  geometry?: TunnelGeometry
+): { x: number; y: number }[] {
+  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
+    return geometry.crossSectionPoints;
+  }
+  const halfW = spanW / 2;
+  const wallH = Math.min(wallHeight, heightH * 0.6);
+  const archH = Math.max(0.5, heightH - wallH);
+  const pts: { x: number; y: number }[] = [];
+  pts.push({ x: -halfW, y: 0 });
+  pts.push({ x: -halfW, y: wallH });
+  const archSteps = 32;
+  for (let i = 1; i < archSteps; i++) {
+    const theta = Math.PI * (1 - i / archSteps);
+    pts.push({
+      x: halfW * Math.cos(theta),
+      y: wallH + archH * Math.sin(theta),
+    });
+  }
+  pts.push({ x: halfW, y: wallH });
+  pts.push({ x: halfW, y: 0 });
+  return pts;
 }
 
 export const FutureAdvance3DViewport: React.FC<FutureAdvance3DViewportProps> = ({
   spanW,
   heightH,
-  currentChainageNum,
-  trueDip,
-  trueDipDir,
-  trueStrike,
-  customDriveAzimuth,
-  predictions,
-  overburdenDepthM,
-  activeJointSet = 'J1',
+  wallHeight,
+  geometry,
+  pullLength,
+  currentFaceChainage,
+  driveAzimuth,
+  governingStrike,
+  governingDip,
+  governingDipDirection,
+  governingSet,
+  governingType,
+  apparentDipDeg,
+  advanceRatePerVerticalMeter,
 }) => {
-  const mountRef = useRef<HTMLDivElement | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const animFrameRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [selectedAdvanceDist, setSelectedAdvanceDist] = useState<number>(Math.max(3, pullLength * 3));
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [showAllRings, setShowAllRings] = useState<boolean>(true);
+  const [showPlaneMesh, setShowPlaneMesh] = useState<boolean>(true);
 
-  // View state
-  const [viewPreset, setViewPreset] = useState<'3D_AHEAD' | 'SIDE_PROFILE' | 'TOP_PLAN' | 'TUNNEL_INSIDE'>('3D_AHEAD');
-  const [showProbeHoles, setShowProbeHoles] = useState<boolean>(true);
-  const [showGeologicalPlanes, setShowGeologicalPlanes] = useState<boolean>(true);
-
-  // Mouse orbit state
-  const isDraggingRef = useRef<boolean>(false);
-  const prevMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const orbitAngleRef = useRef<{ theta: number; phi: number; radius: number }>({
-    theta: 0.65,
-    phi: 1.15,
-    radius: 36,
-  });
-
-  const targetLookAt = useRef<THREE.Vector3>(new THREE.Vector3(0, heightH * 0.45, 10));
-
-  const updateCameraPosition = useCallback(() => {
-    if (!cameraRef.current) return;
-    const { theta, phi, radius } = orbitAngleRef.current;
-    const x = radius * Math.sin(phi) * Math.sin(theta);
-    const y = radius * Math.cos(phi) + targetLookAt.current.y;
-    const z = radius * Math.sin(phi) * Math.cos(theta) + targetLookAt.current.z;
-    cameraRef.current.position.set(x, y, z);
-    cameraRef.current.lookAt(targetLookAt.current);
-  }, [heightH]);
-
-  const setCameraPreset = (preset: '3D_AHEAD' | 'SIDE_PROFILE' | 'TOP_PLAN' | 'TUNNEL_INSIDE') => {
-    setViewPreset(preset);
-    if (preset === '3D_AHEAD') {
-      orbitAngleRef.current = { theta: 0.65, phi: 1.15, radius: 36 };
-      targetLookAt.current.set(0, heightH * 0.45, 10);
-    } else if (preset === 'SIDE_PROFILE') {
-      orbitAngleRef.current = { theta: 1.57, phi: 1.57, radius: 42 };
-      targetLookAt.current.set(0, heightH * 0.45, 12);
-    } else if (preset === 'TOP_PLAN') {
-      orbitAngleRef.current = { theta: 0, phi: 0.05, radius: 45 };
-      targetLookAt.current.set(0, 0, 12);
-    } else if (preset === 'TUNNEL_INSIDE') {
-      // Driver inside tunnel looking forward into mountain
-      orbitAngleRef.current = { theta: 3.14, phi: 1.57, radius: 6 };
-      targetLookAt.current.set(0, heightH * 0.4, 25);
-    }
-    updateCameraPosition();
-  };
-
-  // --------------------------------------------------------------------------
-  // BUILD 3D SCENE
-  // --------------------------------------------------------------------------
   useEffect(() => {
-    const container = mountRef.current;
+    if (!isPlaying) return;
+    const timer = setInterval(() => {
+      setSelectedAdvanceDist((prev) => {
+        if (prev >= 30) return 0;
+        return Number((prev + 0.5).toFixed(1));
+      });
+    }, 60);
+    return () => clearInterval(timer);
+  }, [isPlaying]);
+
+  useEffect(() => {
+    const container = containerRef.current;
     if (!container) return;
 
-    const width = container.clientWidth || 600;
-    const height = container.clientHeight || 420;
+    const width = container.clientWidth || 720;
+    const height = container.clientHeight || 460;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0f1d);
-    sceneRef.current = scene;
+    scene.background = new THREE.Color(0x060a12);
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 300);
-    cameraRef.current = camera;
-    updateCameraPosition();
+    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
+    camera.position.set(spanW * 2.1, heightH * 1.65, 16);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    rendererRef.current = renderer;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // Lights
-    scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight1.position.set(20, 40, 20);
-    scene.add(dirLight1);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, heightH * 0.45, -10);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
 
-    const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.6);
-    dirLight2.position.set(-20, 20, -20);
-    scene.add(dirLight2);
+    scene.add(new THREE.AmbientLight(0x94a3b8, 0.8));
+    const dirLight = new THREE.DirectionalLight(0xf8fafc, 1.1);
+    dirLight.position.set(22, 34, 18);
+    scene.add(dirLight);
 
-    // Grid Floor
-    const grid = new THREE.GridHelper(60, 30, 0x334155, 0x1e293b);
-    grid.position.set(0, -0.01, 15);
-    scene.add(grid);
+    const gridHelper = new THREE.GridHelper(60, 30, 0x1e293b, 0x0f172a);
+    gridHelper.position.set(0, -0.05, -10);
+    scene.add(gridHelper);
 
-    const halfW = spanW / 2;
-    const wallH = heightH * 0.55;
-    const archRadius = halfW;
+    const wallH = wallHeight || geometry?.wallHeight || heightH * 0.55;
+    const profilePts = getProfileOutline(spanW, heightH, wallH, geometry);
 
-    // Helper: Create 2D horseshoe shape
-    const makeHorseshoeShape = () => {
-      const shape = new THREE.Shape();
-      shape.moveTo(-halfW, 0);
-      shape.lineTo(-halfW, wallH);
-      const steps = 24;
-      for (let i = 0; i <= steps; i++) {
-        const angle = Math.PI - (i / steps) * Math.PI;
-        const x = Math.cos(angle) * archRadius;
-        const y = wallH + Math.sin(angle) * (heightH - wallH);
-        shape.lineTo(x, y);
-      }
-      shape.lineTo(halfW, 0);
-      shape.lineTo(-halfW, 0);
-      return shape;
-    };
+    const tunnelShape = new THREE.Shape();
+    profilePts.forEach((p, idx) => {
+      if (idx === 0) tunnelShape.moveTo(p.x, p.y);
+      else tunnelShape.lineTo(p.x, p.y);
+    });
+    tunnelShape.closePath();
 
-    const hsShape = makeHorseshoeShape();
-
-    // ------------------------------------------------------------------------
-    // 1. EXCAVATED TUNNEL SECTION (Behind current face: Z from -12m to 0m)
-    // ------------------------------------------------------------------------
-    const excavatedGeo = new THREE.ExtrudeGeometry(hsShape, { depth: 14, bevelEnabled: false });
-    excavatedGeo.translate(0, 0, -14); // Z: -14 to 0
-
+    // 1. Excavated Tunnel Behind Active Face (Z = +10m to Z = 0m)
+    const excavatedLen = 10;
+    const excavatedGeo = new THREE.ExtrudeGeometry(tunnelShape, {
+      steps: 5,
+      depth: excavatedLen,
+      bevelEnabled: false,
+    });
     const excavatedMat = new THREE.MeshStandardMaterial({
       color: 0x1e293b,
-      roughness: 0.8,
-      metalness: 0.1,
-      transparent: true,
-      opacity: 0.45,
+      roughness: 0.75,
+      metalness: 0.15,
       side: THREE.DoubleSide,
-    });
-    const excavatedMesh = new THREE.Mesh(excavatedGeo, excavatedMat);
-    scene.add(excavatedMesh);
-
-    const excavatedEdges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(excavatedGeo, 25),
-      new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 })
-    );
-    scene.add(excavatedEdges);
-
-    // ------------------------------------------------------------------------
-    // 2. ACTIVE EXCAVATION FACE (At Z = 0)
-    // ------------------------------------------------------------------------
-    const faceGeo = new THREE.ShapeGeometry(hsShape);
-    const faceMat = new THREE.MeshStandardMaterial({
-      color: 0xf43f5e,
-      roughness: 0.6,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.85,
-    });
-    const faceMesh = new THREE.Mesh(faceGeo, faceMat);
-    faceMesh.position.set(0, 0, 0);
-    scene.add(faceMesh);
-
-    // Glowing face boundary line
-    const faceLineGeo = new THREE.BufferGeometry().setFromPoints(hsShape.getPoints());
-    const faceLine = new THREE.Line(
-      faceLineGeo,
-      new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 })
-    );
-    scene.add(faceLine);
-
-    // ------------------------------------------------------------------------
-    // 3. PROJECTED ADVANCE ROUND RINGS (+3m, +6m, +9m, +15m, +30m)
-    // ------------------------------------------------------------------------
-    const advanceGroup = new THREE.Group();
-    const roundDistances = [3, 6, 9, 15, 30];
-
-    roundDistances.forEach((dist) => {
-      // Ring boundary
-      const ringLine = new THREE.Line(
-        faceLineGeo,
-        new THREE.LineBasicMaterial({
-          color: dist <= 9 ? 0xf59e0b : dist === 15 ? 0x10b981 : 0xa855f7,
-          transparent: true,
-          opacity: 0.75,
-        })
-      );
-      ringLine.position.set(0, 0, dist);
-      advanceGroup.add(ringLine);
-
-      // Station chainage marker post
-      const postGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.2, 6);
-      const postMat = new THREE.MeshBasicMaterial({ color: 0x64748b });
-      const postMesh = new THREE.Mesh(postGeo, postMat);
-      postMesh.position.set(-halfW - 0.4, 0.6, dist);
-      advanceGroup.add(postMesh);
-    });
-
-    // Ghosted mountain rock mass wireframe block ahead
-    const ghostGeo = new THREE.BoxGeometry(spanW * 1.6, heightH * 1.5, 30);
-    ghostGeo.translate(0, heightH * 0.7, 15);
-    const ghostEdges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(ghostGeo),
-      new THREE.LineBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.4 })
-    );
-    advanceGroup.add(ghostEdges);
-    scene.add(advanceGroup);
-
-    // ------------------------------------------------------------------------
-    // 4. 3D PROJECTED DISCONTINUITY PLANE (Mapped Strike & Dip)
-    // ------------------------------------------------------------------------
-    const planeGroup = new THREE.Group();
-    const planeW = spanW * 2.2;
-    const planeH = heightH * 2.2;
-    const discGeo = new THREE.PlaneGeometry(planeW, planeH);
-
-    // Calculate rotation to match strike and dip relative to tunnel drive
-    // In Three.js: Z is tunnel drive axis, X is lateral, Y is vertical
-    const angleDiffRad = ((trueDipDir - customDriveAzimuth) * Math.PI) / 180;
-    const dipRad = (trueDip * Math.PI) / 180;
-
-    discGeo.rotateX(-dipRad);
-    discGeo.rotateY(angleDiffRad);
-
-    // Position plane where it daylights into crown ahead of face
-    const daylightDist = predictions[0]?.daylightDistanceM || 6.0;
-    discGeo.translate(0, heightH * 0.6, Math.min(26, daylightDist));
-
-    const discMat = new THREE.MeshStandardMaterial({
-      color: 0xf43f5e,
-      roughness: 0.4,
       transparent: true,
       opacity: 0.55,
+    });
+    scene.add(new THREE.Mesh(excavatedGeo, excavatedMat));
+
+    // 2. Future Unexcavated Corridor Ahead (Z = -30m to Z = 0m)
+    const futureLen = 30;
+    const futureGeo = new THREE.ExtrudeGeometry(tunnelShape, {
+      steps: 15,
+      depth: futureLen,
+      bevelEnabled: false,
+    });
+    futureGeo.translate(0, 0, -futureLen);
+    const futureMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      roughness: 0.5,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.18,
+      wireframe: true,
+    });
+    scene.add(new THREE.Mesh(futureGeo, futureMat));
+
+    // 3. Future Blast Pull Rings (+3m to +30m)
+    if (showAllRings) {
+      const stepPull = Math.max(1.5, pullLength || 3.0);
+      for (let d = 0; d <= 30; d += stepPull) {
+        const ringVecs = profilePts.map((p) => new THREE.Vector3(p.x, p.y, -d));
+        if (ringVecs.length > 0) ringVecs.push(ringVecs[0].clone());
+        const ringGeo = new THREE.BufferGeometry().setFromPoints(ringVecs);
+        const isCurrentFace = d === 0;
+        const ringMat = new THREE.LineBasicMaterial({
+          color: isCurrentFace ? 0x10b981 : 0x334155,
+          transparent: true,
+          opacity: isCurrentFace ? 0.95 : 0.55,
+        });
+        scene.add(new THREE.Line(ringGeo, ringMat));
+      }
+    }
+
+    // 4. Active Probe Face Plane at Z = -selectedAdvanceDist
+    const probeGeo = new THREE.ShapeGeometry(tunnelShape);
+    const probeMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.24,
       side: THREE.DoubleSide,
     });
-    const discMesh = new THREE.Mesh(discGeo, discMat);
-    planeGroup.add(discMesh);
+    const probeMesh = new THREE.Mesh(probeGeo, probeMat);
+    probeMesh.position.z = -selectedAdvanceDist;
+    scene.add(probeMesh);
 
-    const discEdges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(discGeo),
-      new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 })
+    const probeRingVecs = profilePts.map((p) => new THREE.Vector3(p.x, p.y, -selectedAdvanceDist));
+    if (probeRingVecs.length > 0) probeRingVecs.push(probeRingVecs[0].clone());
+    scene.add(
+      new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(probeRingVecs),
+        new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 })
+      )
     );
-    planeGroup.add(discEdges);
-    scene.add(planeGroup);
 
-    // ------------------------------------------------------------------------
-    // 5. 3D FORWARD PROBE HOLE DRILLING ARRAY (15m @ 5° look-up)
-    // ------------------------------------------------------------------------
-    const probeGroup = new THREE.Group();
-    const probeLength = 16.0;
-    const probeGeo = new THREE.CylinderGeometry(0.04, 0.04, probeLength, 8);
-    probeGeo.translate(0, probeLength / 2, 0);
+    // 5. 3D Governing Structural Discontinuity / Fault Plane
+    const strikeRelRad = THREE.MathUtils.degToRad(governingStrike - driveAzimuth);
+    const dipRad = THREE.MathUtils.degToRad(governingDip);
+    const isFault = governingType.toLowerCase().includes('fault') || governingType.toLowerCase().includes('shear');
+    const planeColor = isFault ? 0xef4444 : 0xf59e0b;
 
-    const probeMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+    if (showPlaneMesh) {
+      const planeGroup = new THREE.Group();
+      const planeGeo = new THREE.PlaneGeometry(spanW * 2.5, 42, 18, 18);
+      const planeMat = new THREE.MeshStandardMaterial({
+        color: planeColor,
+        roughness: 0.35,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.38,
+        side: THREE.DoubleSide,
+      });
+      const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+      planeMesh.rotation.order = 'YXZ';
+      planeMesh.rotation.y = -strikeRelRad;
+      planeMesh.rotation.x = Math.PI / 2 - dipRad;
+      planeGroup.add(planeMesh);
 
-    // 3 probe holes: Center Crown (5° up), Left Arch (7° out), Right Arch (7° out)
-    const probeAngles = [
-      { rx: Math.PI / 2 - 0.09, ry: 0, px: 0, py: heightH * 0.8 },
-      { rx: Math.PI / 2 - 0.09, ry: 0.12, px: halfW * 0.6, py: heightH * 0.75 },
-      { rx: Math.PI / 2 - 0.09, ry: -0.12, px: -halfW * 0.6, py: heightH * 0.75 },
-    ];
+      const planeWire = new THREE.LineSegments(
+        new THREE.EdgesGeometry(planeGeo),
+        new THREE.LineBasicMaterial({ color: planeColor, transparent: true, opacity: 0.9 })
+      );
+      planeWire.rotation.copy(planeMesh.rotation);
+      planeGroup.add(planeWire);
 
-    probeAngles.forEach((p) => {
-      const rod = new THREE.Mesh(probeGeo, probeMat);
-      rod.position.set(p.px, p.py, 0);
-      rod.rotation.x = p.rx;
-      rod.rotation.y = p.ry;
-      probeGroup.add(rod);
-    });
-    scene.add(probeGroup);
+      planeGroup.position.set(0, heightH, 0);
+      scene.add(planeGroup);
+    }
 
-    // ------------------------------------------------------------------------
-    // RENDER LOOP
-    // ------------------------------------------------------------------------
-    const renderLoop = () => {
+    // 6. Trace Line on Active Probe Face
+    const tanApp = Math.tan(THREE.MathUtils.degToRad(apparentDipDeg));
+    const traceYCenter = heightH - selectedAdvanceDist * tanApp;
+    if (traceYCenter >= -1.0 && traceYCenter <= heightH + 1.0) {
+      const clampedY = Math.max(0.1, Math.min(heightH - 0.1, traceYCenter));
+      const halfW = spanW / 2;
+      const tiltY = Math.sin(strikeRelRad) * 1.1;
+      const traceGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-halfW * 0.92, Math.max(0.1, Math.min(heightH - 0.1, clampedY - tiltY)), -selectedAdvanceDist + 0.04),
+        new THREE.Vector3(halfW * 0.92, Math.max(0.1, Math.min(heightH - 0.1, clampedY + tiltY)), -selectedAdvanceDist + 0.04),
+      ]);
+      scene.add(
+        new THREE.Line(
+          traceGeo,
+          new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 })
+        )
+      );
+    }
+
+    let animId: number;
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      controls.update();
       renderer.render(scene, camera);
-      animFrameRef.current = requestAnimationFrame(renderLoop);
     };
-    renderLoop();
+    animate();
 
-    // Resize observer
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width: w, height: h } = entry.contentRect;
-        if (w > 0 && h > 0 && cameraRef.current && rendererRef.current) {
-          cameraRef.current.aspect = w / h;
-          cameraRef.current.updateProjectionMatrix();
-          rendererRef.current.setSize(w, h);
-        }
-      }
-    });
-    resizeObserver.observe(container);
+    const handleResize = () => {
+      if (!container) return;
+      const w = container.clientWidth || 720;
+      const h = container.clientHeight || 460;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    };
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      resizeObserver.disconnect();
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (rendererRef.current && rendererRef.current.domElement) {
-        container.innerHTML = '';
-        rendererRef.current.dispose();
-      }
-      scene.clear();
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', handleResize);
+      renderer.dispose();
     };
-  }, [spanW, heightH, trueDip, trueDipDir, customDriveAzimuth, predictions, updateCameraPosition]);
+  }, [
+    spanW,
+    heightH,
+    wallHeight,
+    geometry,
+    pullLength,
+    driveAzimuth,
+    governingStrike,
+    governingDip,
+    governingDipDirection,
+    governingType,
+    apparentDipDeg,
+    selectedAdvanceDist,
+    showAllRings,
+    showPlaneMesh,
+  ]);
 
-  // Orbit controls listeners
-  const handlePointerDown = (e: React.PointerEvent) => {
-    isDraggingRef.current = true;
-    prevMouseRef.current = { x: e.clientX, y: e.clientY };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDraggingRef.current) return;
-    const deltaX = e.clientX - prevMouseRef.current.x;
-    const deltaY = e.clientY - prevMouseRef.current.y;
-    prevMouseRef.current = { x: e.clientX, y: e.clientY };
-
-    orbitAngleRef.current.theta -= deltaX * 0.008;
-    orbitAngleRef.current.phi = Math.max(
-      0.05,
-      Math.min(Math.PI / 2 + 0.1, orbitAngleRef.current.phi - deltaY * 0.008)
-    );
-    updateCameraPosition();
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    isDraggingRef.current = false;
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {}
-  };
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    orbitAngleRef.current.radius = Math.max(
-      12,
-      Math.min(70, orbitAngleRef.current.radius + e.deltaY * 0.02)
-    );
-    updateCameraPosition();
-  };
+  const tanApp = Math.tan((apparentDipDeg * Math.PI) / 180);
+  const traceElevAtProbe = heightH - selectedAdvanceDist * tanApp;
+  const isIntersectingFace = traceElevAtProbe >= 0 && traceElevAtProbe <= heightH;
 
   return (
-    <div className="relative w-full h-[360px] sm:h-[440px] bg-slate-950 rounded-xl border border-slate-800 overflow-hidden flex flex-col select-none">
-      <div
-        ref={mountRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onWheel={handleWheel}
-        className="w-full h-full cursor-grab active:cursor-grabbing touch-none"
-      />
-
-      {/* TOP HUD BAR */}
-      <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="px-2.5 py-1 rounded bg-slate-900/90 border border-slate-700/80 backdrop-blur-xs flex items-center gap-2 text-xs font-mono text-white">
-            <TrendingUp className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
-            <span>3D FORWARD ADVANCE &amp; DISCONTINUITY EXTRAPOLATION</span>
-          </div>
-
-          <span className="px-2 py-1 rounded text-xs font-mono font-bold backdrop-blur-xs border bg-slate-900/90 text-amber-300 border-amber-600/60">
-            Active Face: RD {currentChainageNum}m
+    <div className="relative w-full h-full min-h-[440px] rounded-lg overflow-hidden border border-slate-800 bg-[#060a12] flex flex-col">
+      {/* Top CAD Viewport Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-900/95 border-b border-slate-800 z-10">
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-[10px] font-mono font-bold text-sky-300 uppercase">
+            PROBE: RD {(currentFaceChainage + selectedAdvanceDist).toFixed(1)}m (+{selectedAdvanceDist.toFixed(1)}m)
+          </span>
+          <span className="text-[11px] font-mono text-slate-400 tabular-nums">
+            Plane: <strong className="text-slate-200">{governingSet} ({governingType})</strong> | α_app = <strong className="text-amber-300">{apparentDipDeg.toFixed(1)}°</strong>
           </span>
         </div>
 
-        {/* VIEW PRESET BUTTONS */}
-        <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-700/80 rounded-lg p-1 backdrop-blur-xs pointer-events-auto">
-          {(
-            [
-              { id: '3D_AHEAD', label: '3D Ahead' },
-              { id: 'SIDE_PROFILE', label: 'Side Profile' },
-              { id: 'TOP_PLAN', label: 'Top Plan' },
-              { id: 'TUNNEL_INSIDE', label: 'Driver View' },
-            ] as const
-          ).map((preset) => (
-            <button
-              key={preset.id}
-              onClick={() => setCameraPreset(preset.id)}
-              className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded transition-colors cursor-pointer ${
-                viewPreset === preset.id
-                  ? 'bg-sky-600 text-white'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              {preset.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setIsPlaying(!isPlaying)}
+            className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              isPlaying
+                ? 'bg-amber-600 text-white border-amber-400'
+                : 'bg-sky-600 hover:bg-sky-500 text-white border-sky-400'
+            }`}
+          >
+            {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+            {isPlaying ? 'Pause Probe' : 'Sweep +30m'}
+          </button>
+          <button
+            onClick={() => {
+              setIsPlaying(false);
+              setSelectedAdvanceDist(0);
+            }}
+            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+            title="Reset to Current Face (0m)"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setShowPlaneMesh(!showPlaneMesh)}
+            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              showPlaneMesh
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            <Layers className="w-3 h-3" /> 3D Plane
+          </button>
+          <button
+            onClick={() => setShowAllRings(!showAllRings)}
+            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+              showAllRings
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            <Eye className="w-3 h-3" /> Pull Rings
+          </button>
         </div>
       </div>
 
-      {/* BOTTOM INFO BAR */}
-      <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-        <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-700/80 px-3 py-1.5 rounded-lg text-xs font-mono text-slate-300 backdrop-blur-xs pointer-events-auto">
-          <span>Target Joint: <strong className="text-rose-400">{activeJointSet} ({trueDip}° ∠ {trueDipDir}°)</strong></span>
-          <span className="text-slate-600">|</span>
-          <span>Daylight Intercept: <strong className="text-white">+{predictions[0]?.daylightDistanceM.toFixed(1)}m ahead</strong></span>
-          <span className="text-slate-600">|</span>
-          <span className="text-emerald-400">Probe Array: <strong>15m @ 5° Look-up</strong></span>
-          <span className="text-slate-600">|</span>
-          <span>Cover: <strong>{overburdenDepthM}m Overburden</strong></span>
-        </div>
+      {/* Advance Distance Scrubber Bar */}
+      <div className="px-3 py-1.5 bg-slate-900/60 border-b border-slate-800/80 flex items-center gap-3 z-10">
+        <span className="text-[10px] font-mono text-slate-400 uppercase shrink-0">Advance Distance (+m):</span>
+        <input
+          type="range"
+          min={0}
+          max={30}
+          step={0.5}
+          value={selectedAdvanceDist}
+          onChange={(e) => {
+            setIsPlaying(false);
+            setSelectedAdvanceDist(Number(e.target.value));
+          }}
+          className="flex-1 accent-sky-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+        />
+        <span className="text-[11px] font-mono font-bold text-sky-300 tabular-nums w-14 text-right">
+          +{selectedAdvanceDist.toFixed(1)}m
+        </span>
+      </div>
 
-        <button
-          onClick={() => setCameraPreset('3D_AHEAD')}
-          className="p-1.5 rounded bg-slate-900/90 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer pointer-events-auto"
-          title="Reset Camera View"
-        >
-          <RotateCcw className="w-4 h-4" />
-        </button>
+      {/* 3D Canvas Container */}
+      <div ref={containerRef} className="w-full flex-1 min-h-[360px] cursor-grab active:cursor-grabbing" />
+
+      {/* Bottom Engineering Readout */}
+      <div className="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-slate-400 tabular-nums">
+        <div>
+          TRACE ELEVATION AT PROBE: {' '}
+          <span className={isIntersectingFace ? 'text-emerald-400 font-bold' : 'text-slate-500 font-bold'}>
+            {isIntersectingFace ? `${traceElevAtProbe.toFixed(2)}m above invert` : 'Exited Tunnel Profile'}
+          </span>
+        </div>
+        <div>
+          ADVANCE PER 1m VERTICAL DROP: <span className="text-sky-300 font-bold">{advanceRatePerVerticalMeter.toFixed(2)}m / m</span>
+        </div>
       </div>
     </div>
   );

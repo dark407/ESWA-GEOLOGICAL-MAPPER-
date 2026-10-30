@@ -1,67 +1,39 @@
-// ============================================================================
-// ESWA ADVANCE GEOLOGICAL ANALYTICS & ROCK MECHANICS ENGINE
-// High-Precision Real-Time Geomechanics, Kinematic Wedge Stability Solver,
-// Forward Look-Ahead & Geohazard Forecasting (+3m to +30m),
-// 4-Surface Apparent Dip Alignment, Hoek-Brown Strength Envelopes,
-// Palmström Block Sizing, Hydrogeology Inflow, and Executive Engineering Report.
-// ============================================================================
-
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Activity,
-  AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
-  BarChart3,
-  CheckCircle2,
-  Clock,
-  Compass,
-  Cpu,
-  Database,
-  Download,
-  Droplets,
-  Eye,
-  FileSpreadsheet,
-  FileText,
-  HelpCircle,
-  Info,
-  Layers,
-  Maximize2,
-  Printer,
-  RefreshCw,
-  Ruler,
-  Save,
-  Share2,
-  ShieldCheck,
-  Sliders,
-  Sparkles,
-  TrendingUp,
   X,
-  Zap,
-  FileDown,
-  GitFork,
-  Check,
-  FolderOpen,
+  Compass,
+  ShieldAlert,
+  TrendingUp,
+  Layers,
+  Activity,
+  Droplets,
+  Clock,
   Box,
+  CheckCircle2,
+  AlertTriangle,
+  ArrowRight,
+  Sliders,
+  Eye,
+  FileText,
+  Printer,
+  Mountain,
+  Wrench,
+  Anchor,
+  ChevronRight,
+  Lock,
 } from 'lucide-react';
 import {
+  TunnelGeometry,
+  TunnelSettings,
   Joint,
   JointSet,
   LithologyRegion,
-  OverbreakUndercutAnalysis,
   QIndexParameters,
   RmrParameters,
-  RockMassSummaryTable,
   SavedProjectRecord,
-  TunnelGeometry,
-  TunnelSettings,
-  SurfaceType,
 } from '../types/tunnel';
-import { calculateBieniawskiRmr } from '../engine/rockMassClassificationEngine';
-import { computeRockStrataSupportSpotBoltingAndFailureFos } from '../engine/supportSpotBoltFailureEngine';
 import { KinematicWedge3DViewport } from './KinematicWedge3DViewport';
 import { FutureAdvance3DViewport } from './FutureAdvance3DViewport';
-import { JunctionFactorResult } from './TunnelJunctionFactorModal';
 import { ExcavationSpecific3DLogViewport } from './ExcavationSpecific3DLogViewport';
 import { WeakZoneAheadProjectorView } from './WeakZoneAheadProjectorView';
 import { SequentialFace3DReconstructionView } from './SequentialFace3DReconstructionView';
@@ -69,88 +41,256 @@ import { ComponentApparentThicknessView } from './ComponentApparentThicknessView
 import { AlignmentAlternativesEvaluatorView } from './AlignmentAlternativesEvaluatorView';
 import { PoorRockProportionsEstimatorView } from './PoorRockProportionsEstimatorView';
 import {
+  ExcavationStageType,
+  computeStageElevationBounds,
   feedDataFromNatmActiveState,
-  FedNatmDataBundle,
+  AlignmentDomainSegment,
+  FaultZoneCrossing,
 } from '../engine/advancedModelingAndAlignmentEngine';
 import {
   assessModuleDataReadiness,
-  ModuleDataReadiness,
   GeotechnicalActiveState,
+  clampDiscontinuityDip,
+  clampDiscontinuityDipDirection,
+  clampDriveAzimuth,
+  clampUcsMpa,
 } from '../engine/rockMechanicsValidator';
 import { DataRequirementLockView } from './DataRequirementLockView';
-import {
-  MappingDomainType,
-  SurfaceGeometryParameters,
-  SurfaceStabilityAnalysisResult,
-  evaluateSurfaceStabilityAndRomanaSmr,
-} from '../engine/surfaceMappingEngine';
-
-export type AdvancedAnalysisTab =
-  | 'SLOPE_STABILITY_AND_STABILIZATION'
-  | 'EXCAVATION_3D_LOG'
-  | 'WEAK_ZONE_PROJECTOR'
-  | 'SEQUENTIAL_3D_RECON'
-  | 'APPARENT_THICKNESS_SPACING'
-  | 'ALIGNMENT_ALTERNATIVES'
-  | 'POOR_ROCK_PROPORTIONS'
-  | 'EXECUTIVE_REPORT'
-  | 'WEDGE_FOS'
-  | 'FUTURE_FORECAST'
-  | 'APPARENT_DIP_SOLVER'
-  | 'HOEK_BROWN_ROCK'
-  | 'STANDUP_TIME_SPAN'
-  | 'PALMSTROM_BLOCKS'
-  | 'HYDRO_INFLOW';
 
 export interface AdvancedGeologicalAnalysisModalProps {
-  isOpen?: boolean;
+  isOpen: boolean;
   onClose: () => void;
   fullPage?: boolean;
   geometry: TunnelGeometry;
   settings: TunnelSettings;
   joints: Joint[];
   jointSets: JointSet[];
+  lithologyRegions?: LithologyRegion[];
   qIndexParams?: QIndexParameters;
   rmrParams?: RmrParameters;
-  rockMassSummary?: RockMassSummaryTable;
-  overbreakAnalysis?: OverbreakUndercutAnalysis;
-  lithologyRegions?: LithologyRegion[];
-  junctionFactorData?: JunctionFactorResult | null;
+  mappingDomain?: string | any;
+  surfaceParams?: any;
+  surfaceSmrAnalysis?: any;
   savedProjects?: SavedProjectRecord[];
-  mappingDomain?: MappingDomainType;
-  surfaceParams?: SurfaceGeometryParameters;
-  surfaceSmrAnalysis?: SurfaceStabilityAnalysisResult | null;
+  rockMassSummary?: any;
+  overbreakAnalysis?: any;
+  junctionFactorData?: any;
   onOpenJunctionCalculator?: () => void;
   onClearJunctionFactor?: () => void;
 }
 
+type AdvancedAnalysisTab =
+  | 'EXCAVATION_3D_LOG'
+  | 'WEAK_ZONE_PROJECTOR'
+  | 'SEQUENTIAL_3D_RECON'
+  | 'FUTURE_FORECAST'
+  | 'WEDGE_FOS'
+  | 'APPARENT_DIP_SOLVER'
+  | 'APPARENT_THICKNESS_SPACING'
+  | 'PALMSTROM_BLOCKS'
+  | 'HOEK_BROWN_ROCK'
+  | 'STANDUP_TIME_SPAN'
+  | 'HYDRO_INFLOW'
+  | 'SLOPE_STABILITY_AND_STABILIZATION'
+  | 'ALIGNMENT_ALTERNATIVES'
+  | 'POOR_ROCK_PROPORTIONS'
+  | 'EXECUTIVE_REPORT';
+
+interface SidebarCategoryGroup {
+  id: string;
+  title: string;
+  items: {
+    id: AdvancedAnalysisTab;
+    label: string;
+    shortDesc: string;
+    icon: React.FC<{ className?: string }>;
+  }[];
+}
+
+const SIDEBAR_CATEGORIES: SidebarCategoryGroup[] = [
+  {
+    id: 'excavation_3d',
+    title: '1. 3D Excavation & Ahead Projection',
+    items: [
+      {
+        id: 'EXCAVATION_3D_LOG',
+        label: '3D Stage Shell Log',
+        shortDesc: 'Heading / Bench / Invert 3D CAD',
+        icon: Layers,
+      },
+      {
+        id: 'WEAK_ZONE_PROJECTOR',
+        label: 'Weak Zone Projector',
+        shortDesc: 'Crown & Invert Entry/Exit RD',
+        icon: TrendingUp,
+      },
+      {
+        id: 'FUTURE_FORECAST',
+        label: 'Future Advance (+30m)',
+        shortDesc: '3D Plane Sweep Ahead of Face',
+        icon: Eye,
+      },
+      {
+        id: 'SEQUENTIAL_3D_RECON',
+        label: 'Sequential Face 3D',
+        shortDesc: 'Multi-Round Ribbon Interpolation',
+        icon: Box,
+      },
+    ],
+  },
+  {
+    id: 'structural_kinematics',
+    title: '2. Structural & Kinematics',
+    items: [
+      {
+        id: 'WEDGE_FOS',
+        label: '3D Wedge & Bolt FoS',
+        shortDesc: 'Goodman-Shi Tetrahedral Block',
+        icon: ShieldAlert,
+      },
+      {
+        id: 'APPARENT_DIP_SOLVER',
+        label: 'Apparent Dip & Stereo',
+        shortDesc: '3D Wall/Face Trace & Stereonet',
+        icon: Compass,
+      },
+      {
+        id: 'APPARENT_THICKNESS_SPACING',
+        label: 'Thickness & Spacing',
+        shortDesc: 'Directional Cosines (x, y, z)',
+        icon: Sliders,
+      },
+      {
+        id: 'PALMSTROM_BLOCKS',
+        label: 'Palmström Jv & Block Vb',
+        shortDesc: '3D Block Sieve & RQD Correlation',
+        icon: Box,
+      },
+    ],
+  },
+  {
+    id: 'rock_mechanics',
+    title: '3. Rock Mass & Support Mechanics',
+    items: [
+      {
+        id: 'HOEK_BROWN_ROCK',
+        label: 'Hoek-Brown (2002)',
+        shortDesc: 'GSI, Erm & Failure Envelope',
+        icon: Activity,
+      },
+      {
+        id: 'STANDUP_TIME_SPAN',
+        label: 'Stand-Up Time & Span',
+        shortDesc: 'Bieniawski Unsupported Chart',
+        icon: Clock,
+      },
+      {
+        id: 'HYDRO_INFLOW',
+        label: 'Hydro Inflow & Grout',
+        shortDesc: 'Goodman L/min/100m & Pressure',
+        icon: Droplets,
+      },
+      {
+        id: 'SLOPE_STABILITY_AND_STABILIZATION',
+        label: 'Portal Cut & Stabilization',
+        shortDesc: 'Romana SMR & Anchor Design',
+        icon: Mountain,
+      },
+    ],
+  },
+  {
+    id: 'alignment_dossier',
+    title: '4. Alignment & Executive Dossier',
+    items: [
+      {
+        id: 'ALIGNMENT_ALTERNATIVES',
+        label: 'Alignment Optimizer',
+        shortDesc: '360° Polar Azimuth Hazard Sweep',
+        icon: Compass,
+      },
+      {
+        id: 'POOR_ROCK_PROPORTIONS',
+        label: 'Class IV/V Rock Proportions',
+        shortDesc: 'Gaussian CDF & Fault Halo Share',
+        icon: Activity,
+      },
+      {
+        id: 'EXECUTIVE_REPORT',
+        label: 'Executive Geotech Dossier',
+        shortDesc: 'Consolidated ISRM Summary Sheet',
+        icon: FileText,
+      },
+    ],
+  },
+];
+
+/**
+ * Builds an exact SVG path string from TunnelGeometry.crossSectionPoints or standard dimensions.
+ * Coordinates in crossSectionPoints have x in [-W/2, W/2] and y in [invert, H].
+ * In SVG: x_svg = cx + x * scale, y_svg = baseY - y * scale.
+ */
+function buildSvgTunnelProfilePath(
+  geometry: TunnelGeometry,
+  spanW: number,
+  heightH: number,
+  wallH: number,
+  cx: number,
+  baseY: number,
+  scale: number
+): { pathD: string; pointsSvg: { x: number; y: number; rawX: number; rawY: number }[] } {
+  let rawPts: { x: number; y: number }[] = [];
+  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
+    rawPts = geometry.crossSectionPoints;
+  } else {
+    const halfW = spanW / 2;
+    const clampedWall = Math.min(wallH, heightH * 0.6);
+    const archH = Math.max(0.5, heightH - clampedWall);
+    rawPts.push({ x: -halfW, y: 0 });
+    rawPts.push({ x: -halfW, y: clampedWall });
+    for (let i = 1; i < 28; i++) {
+      const theta = Math.PI * (1 - i / 28);
+      rawPts.push({
+        x: halfW * Math.cos(theta),
+        y: clampedWall + archH * Math.sin(theta),
+      });
+    }
+    rawPts.push({ x: halfW, y: clampedWall });
+    rawPts.push({ x: halfW, y: 0 });
+  }
+
+  const pointsSvg = rawPts.map((pt) => ({
+    x: cx + pt.x * scale,
+    y: baseY - pt.y * scale,
+    rawX: pt.x,
+    rawY: pt.y,
+  }));
+
+  const pathD =
+    pointsSvg.length > 0
+      ? pointsSvg.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ') + ' Z'
+      : '';
+
+  return { pathD, pointsSvg };
+}
+
 export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysisModalProps> = ({
-  isOpen = true,
+  isOpen,
   onClose,
   fullPage = false,
   geometry,
   settings,
-  joints,
-  jointSets,
+  joints = [],
+  jointSets = [],
   qIndexParams: propQIndexParams,
   rmrParams: propRmrParams,
-  rockMassSummary,
-  overbreakAnalysis,
-  lithologyRegions = [],
-  junctionFactorData = null,
-  savedProjects = [],
-  mappingDomain,
+  mappingDomain = 'tunnel',
   surfaceParams,
-  surfaceSmrAnalysis: propSurfaceSmrAnalysis,
-  onOpenJunctionCalculator,
-  onClearJunctionFactor,
+  surfaceSmrAnalysis,
+  savedProjects = [],
 }) => {
-  const isSlopeOrBench = mappingDomain === 'SLOPE' || mappingDomain === 'BENCH';
-  const [activeTab, setActiveTab] = useState<AdvancedAnalysisTab>(
-    isSlopeOrBench ? 'SLOPE_STABILITY_AND_STABILIZATION' : 'EXCAVATION_3D_LOG'
-  );
+  const [activeTab, setActiveTab] = useState<AdvancedAnalysisTab>('EXCAVATION_3D_LOG');
 
-  // Compute live fed data bundle from NATM active state
+  // Authoritative Live Data Bundle from Active Workspace
   const fedData = useMemo(() => {
     return feedDataFromNatmActiveState(
       geometry,
@@ -163,4129 +303,2055 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     );
   }, [geometry, settings, joints, jointSets, propRmrParams, propQIndexParams, savedProjects]);
 
-  const [feedNotification, setFeedNotification] = useState<string>('Connected to Active NATM Face');
-
-  // Interactive controls for Apparent Dip vs Drive Direction Solver
-  const [customDriveAzimuth, setCustomDriveAzimuth] = useState<number>(
-    settings.driveDirection ?? fedData.driveAzimuth
-  );
-  const [selectedJointIndex, setSelectedJointIndex] = useState<number>(0);
-
-  const handleRefreshFeed = () => {
-    setCustomDriveAzimuth(settings.driveDirection ?? fedData.driveAzimuth);
-    setFeedNotification(
-      `Synchronized with Active Face (${fedData.faceChainageStr}) at ${new Date().toLocaleTimeString()} · Geometry ${fedData.spanW}m W × ${fedData.heightH}m H, RMR ${fedData.rmrTotal}, ${joints.length} joints & ${fedData.historicalFaceLogs.length} face logs fed.`
-    );
-    setTimeout(() => setFeedNotification('Connected to Active NATM Face'), 4500);
-  };
-
-  // Interactive controls for Wedge FoS sensitivity
-  const [simulatedBoltCapacityKn, setSimulatedBoltCapacityKn] = useState<number>(200);
-  const [simulatedBoltSpacingM, setSimulatedBoltSpacingM] = useState<number>(1.5);
-  const [simulatedShotcreteMm, setSimulatedShotcreteMm] = useState<number>(75);
-  const [simulatedWedgeFrictionAngleDeg, setSimulatedWedgeFrictionAngleDeg] = useState<number>(32);
-  const [wedgeVisualMode, setWedgeVisualMode] = useState<'3D' | '2D'>('3D');
-  const [futureVisualMode, setFutureVisualMode] = useState<'3D' | '2D'>('3D');
-
-  // Interactive controls for In-situ Stress & Overburden (Futures & Hoek-Brown)
-  const [overburdenDepthM, setOverburdenDepthM] = useState<number>(280);
-  const [intactRockUcsMpa, setIntactRockUcsMpa] = useState<number>(95);
-  const [gsiValue, setGsiValue] = useState<number>(55);
-  const [blastDisturbanceD, setBlastDisturbanceD] = useState<number>(0.2);
-
-  // Dedicated Interactive controls for Slope & Bench Stability and Stabilization
-  const [slopeHeightM, setSlopeHeightM] = useState<number>(
-    surfaceParams?.slopeHeightMeters || (surfaceParams?.benchHeightMeters ? surfaceParams.benchHeightMeters * 2 : 18)
-  );
-  const [slopeFaceAngleDeg, setSlopeFaceAngleDeg] = useState<number>(
-    surfaceParams?.faceDipAngleDeg || 65
-  );
-  const [bermWidthM, setBermWidthM] = useState<number>(
-    surfaceParams?.bermWidthMeters || 4.5
-  );
-  const [slopeJointDipDeg, setSlopeJointDipDeg] = useState<number>(48);
-  const [slopeJointDipDirDeg, setSlopeJointDipDirDeg] = useState<number>(
-    surfaceParams?.faceDipDirectionDeg || 135
-  );
-  const [slopeUnitWeightKnM3, setSlopeUnitWeightKnM3] = useState<number>(26.5);
-  const [slopeCohesionKpa, setSlopeCohesionKpa] = useState<number>(35);
-  const [slopeFrictionAngleDeg, setSlopeFrictionAngleDeg] = useState<number>(
-    surfaceParams?.frictionAngleDeg || 33
-  );
-  const [slopeWaterRatioRu, setSlopeWaterRatioRu] = useState<number>(0.15);
-  const [slopeSeismicKh, setSlopeSeismicKh] = useState<number>(0.08);
-  const [slopeBoltCapKn, setSlopeBoltCapKn] = useState<number>(250);
-  const [slopeBoltSpacingH, setSlopeBoltSpacingH] = useState<number>(2.0);
-  const [slopeBoltSpacingV, setSlopeBoltSpacingV] = useState<number>(2.0);
-  const [slopeBoltAngleDeg, setSlopeBoltAngleDeg] = useState<number>(15);
-  const [slopeShotcreteMm, setSlopeShotcreteMm] = useState<number>(80);
-  const [slopeDrainageActive, setSlopeDrainageActive] = useState<boolean>(true);
-
-  // Authoritative Geotechnical State & Data Readiness Gatekeeper
-  const activeGeotechState: GeotechnicalActiveState = useMemo(() => ({
-    geometry,
-    settings: {
-      ...settings,
-      driveDirection: customDriveAzimuth,
-    },
-    joints: joints || [],
-    jointSets: jointSets || [],
-    rmrParams: propRmrParams,
-    qIndexParams: propQIndexParams,
-    savedProjects: savedProjects || [],
-    intactUcsMpa: intactRockUcsMpa,
-    frictionAngleDeg: simulatedWedgeFrictionAngleDeg,
-  }), [geometry, settings, customDriveAzimuth, joints, jointSets, propRmrParams, propQIndexParams, savedProjects, intactRockUcsMpa, simulatedWedgeFrictionAngleDeg]);
-
-  const currentTabReadiness: ModuleDataReadiness = useMemo(() => {
-    return assessModuleDataReadiness(activeTab, activeGeotechState);
-  }, [activeTab, activeGeotechState]);
-
-  // High-precision limit equilibrium stability & stabilization calculation
-  const slopeStabilityCalc = useMemo(() => {
-    const H = Math.max(3, slopeHeightM);
-    const betaS = Math.max(20, Math.min(88, slopeFaceAngleDeg));
-    const betaJ = Math.max(10, Math.min(betaS - 2, slopeJointDipDeg));
-    const phi = Math.max(15, Math.min(50, slopeFrictionAngleDeg));
-    const c = Math.max(5, slopeCohesionKpa);
-    const gamma = Math.max(20, slopeUnitWeightKnM3);
-    const ru = Math.max(0, Math.min(0.5, slopeWaterRatioRu));
-    const kh = Math.max(0, Math.min(0.3, slopeSeismicKh));
-
-    const rad = Math.PI / 180;
-    const betaSRad = betaS * rad;
-    const betaJRad = betaJ * rad;
-    const phiRad = phi * rad;
-
-    const isDaylighting = betaJ < betaS;
-
-    // 1. Planar Limit Equilibrium
-    const cotBetaJ = 1 / Math.tan(betaJRad);
-    const cotBetaS = 1 / Math.tan(betaSRad);
-    const blockWeightKn = 0.5 * gamma * (H * H) * Math.max(0.1, cotBetaJ - cotBetaS);
-    const slidingLengthM = H / Math.sin(betaJRad);
-
-    const waterReduction = slopeDrainageActive ? 0.25 : 1.0;
-    const waterUpliftKn = 0.5 * 9.81 * (H * ru) * slidingLengthM * waterReduction;
-
-    // Static
-    const drivingStaticKn = blockWeightKn * Math.sin(betaJRad);
-    const normalStaticKn = Math.max(0, blockWeightKn * Math.cos(betaJRad) - waterUpliftKn);
-    const resistingStaticKn = (c * slidingLengthM) + (normalStaticKn * Math.tan(phiRad));
-    const staticUnreinforcedFos = Number((resistingStaticKn / Math.max(1, drivingStaticKn)).toFixed(2));
-
-    // Seismic (Pseudo-static)
-    const drivingSeismicKn = (blockWeightKn * Math.sin(betaJRad)) + (kh * blockWeightKn * Math.cos(betaJRad));
-    const normalSeismicKn = Math.max(0, (blockWeightKn * Math.cos(betaJRad)) - (kh * blockWeightKn * Math.sin(betaJRad)) - waterUpliftKn);
-    const resistingSeismicKn = (c * slidingLengthM) + (normalSeismicKn * Math.tan(phiRad));
-    const seismicUnreinforcedFos = Number((resistingSeismicKn / Math.max(1, drivingSeismicKn)).toFixed(2));
-
-    // Bolt Reinforcement Contribution
-    const boltDensityPerM2 = 1 / Math.max(0.25, slopeBoltSpacingH * slopeBoltSpacingV);
-    const totalBoltForceKnPerM = slopeBoltCapKn * boltDensityPerM2;
-    const boltAngleToJointRad = (betaJ + slopeBoltAngleDeg) * rad;
-
-    const deltaResistingKn = totalBoltForceKnPerM * Math.sin(boltAngleToJointRad) * Math.tan(phiRad);
-    const deltaDrivingReductionKn = totalBoltForceKnPerM * Math.cos(boltAngleToJointRad);
-
-    const shotcreteShearKn = (slopeShotcreteMm / 1000) * 850;
-
-    const staticReinforcedFos = Number(
-      ((resistingStaticKn + deltaResistingKn + shotcreteShearKn) / Math.max(1, drivingStaticKn - deltaDrivingReductionKn)).toFixed(2)
-    );
-    const seismicReinforcedFos = Number(
-      ((resistingSeismicKn + deltaResistingKn + shotcreteShearKn) / Math.max(1, drivingSeismicKn - deltaDrivingReductionKn)).toFixed(2)
-    );
-
-    // 2. Wedge Failure FoS
-    const wedgePlungeDeg = Math.max(15, Math.min(75, betaJ - 5));
-    const wedgeFosUnreinforced = Number((staticUnreinforcedFos * 1.15).toFixed(2));
-    const wedgeFosReinforced = Number((staticReinforcedFos * 1.18).toFixed(2));
-
-    // 3. Toppling Potential
-    const topplingIndex = (betaS - betaJ) - (90 - phi);
-    const isTopplingSusceptible = topplingIndex > 0;
-
-    // 4. Ritchie (1963) Catchment Berm Evaluation
-    const ritchieMinBermWidthM = Number((0.2 * H + 4.5).toFixed(1));
-    const isBermAdequate = bermWidthM >= ritchieMinBermWidthM;
-    const catchmentRetentionPct = isBermAdequate ? 95 : Math.round(Math.max(40, (bermWidthM / ritchieMinBermWidthM) * 90));
-
-    return {
-      H,
-      betaS,
-      betaJ,
-      phi,
-      c,
-      gamma,
-      blockWeightKn: Math.round(blockWeightKn),
-      slidingLengthM: Number(slidingLengthM.toFixed(1)),
-      waterUpliftKn: Math.round(waterUpliftKn),
-      isDaylighting,
-      staticUnreinforcedFos,
-      seismicUnreinforcedFos,
-      staticReinforcedFos,
-      seismicReinforcedFos,
-      wedgePlungeDeg,
-      wedgeFosUnreinforced,
-      wedgeFosReinforced,
-      isTopplingSusceptible,
-      topplingIndex: Math.round(topplingIndex),
-      ritchieMinBermWidthM,
-      isBermAdequate,
-      catchmentRetentionPct,
-      totalBoltForceKnPerM: Math.round(totalBoltForceKnPerM),
-      requiredEmbedmentM: Number((slidingLengthM * 0.45 + 4.0).toFixed(1)),
-    };
-  }, [
-    slopeHeightM,
-    slopeFaceAngleDeg,
-    bermWidthM,
-    slopeJointDipDeg,
-    slopeFrictionAngleDeg,
-    slopeCohesionKpa,
-    slopeUnitWeightKnM3,
-    slopeWaterRatioRu,
-    slopeSeismicKh,
-    slopeBoltCapKn,
-    slopeBoltSpacingH,
-    slopeBoltSpacingV,
-    slopeBoltAngleDeg,
-    slopeShotcreteMm,
-    slopeDrainageActive,
-  ]);
-
-  // Sub-tab selection for Slope & Bench Stability Advance Analysis
-  const [slopeSubTab, setSlopeSubTab] = useState<
-    'OVERVIEW' | 'BISHOP_JANBU' | 'MARKLAND' | 'MONTE_CARLO' | 'CROSS_SECTION'
-  >('OVERVIEW');
-
-  // Layer toggles for 2D interactive cross section
-  const [crossSectionLayers, setCrossSectionLayers] = useState({
-    bishopArc: true,
-    slices: true,
-    janbuSlip: true,
-    phreaticLine: true,
-    soilNails: true,
-    wireMeshFacing: true,
-  });
-
-  // --------------------------------------------------------------------------
-  // BISHOP SIMPLIFIED METHOD OF SLICES & JANBU NON-CIRCULAR COMPOSITE SOLVER
-  // --------------------------------------------------------------------------
-  const bishopCalc = useMemo(() => {
-    const H = Math.max(4, slopeHeightM);
-    const betaSRad = (Math.max(20, Math.min(88, slopeFaceAngleDeg)) * Math.PI) / 180;
-    const phiRad = (Math.max(15, Math.min(50, slopeFrictionAngleDeg)) * Math.PI) / 180;
-    const c = Math.max(5, slopeCohesionKpa);
-    const gamma = Math.max(18, slopeUnitWeightKnM3);
-    const ru = Math.max(0, Math.min(0.5, slopeWaterRatioRu)) * (slopeDrainageActive ? 0.25 : 1.0);
-
-    const toeX = 0;
-    const toeY = 0;
-    const crestX = H / Math.tan(betaSRad);
-    const crestY = H;
-
-    // Trial slip circle passing near toe
-    const xc = crestX * 0.45;
-    const yc = H * 1.35;
-    const R = Math.sqrt((xc - toeX) ** 2 + (yc - toeY) ** 2);
-
-    const dyCrest = crestY - yc;
-    const dxRightSq = R * R - dyCrest * dyCrest;
-    const xExitCrest = dxRightSq > 0 ? xc + Math.sqrt(dxRightSq) : crestX + 5;
-
-    const numSlices = 14;
-    const sliceWidth = (xExitCrest - toeX) / numSlices;
-
-    interface BishopSlice {
-      index: number;
-      xMid: number;
-      width: number;
-      yBase: number;
-      yTop: number;
-      height: number;
-      alphaDeg: number;
-      alphaRad: number;
-      weightKn: number;
-      porePressureU: number;
-    }
-
-    const slices: BishopSlice[] = [];
-    for (let i = 0; i < numSlices; i++) {
-      const xMid = toeX + (i + 0.5) * sliceWidth;
-      const dySq = R * R - (xMid - xc) ** 2;
-      const yBase = dySq > 0 ? yc - Math.sqrt(dySq) : 0;
-
-      let yTop = H;
-      if (xMid < crestX) {
-        yTop = xMid * Math.tan(betaSRad);
-      }
-      const height = Math.max(0.1, yTop - yBase);
-      const alphaRad = Math.asin(Math.max(-0.95, Math.min(0.95, (xMid - xc) / R)));
-      const alphaDeg = (alphaRad * 180) / Math.PI;
-      const weightKn = gamma * sliceWidth * height;
-      const porePressureU = ru * gamma * height;
-
-      slices.push({
-        index: i + 1,
-        xMid: Number(xMid.toFixed(2)),
-        width: Number(sliceWidth.toFixed(2)),
-        yBase: Number(yBase.toFixed(2)),
-        yTop: Number(yTop.toFixed(2)),
-        height: Number(height.toFixed(2)),
-        alphaDeg: Number(alphaDeg.toFixed(1)),
-        alphaRad,
-        weightKn: Number(weightKn.toFixed(1)),
-        porePressureU: Number(porePressureU.toFixed(1)),
-      });
-    }
-
-    // Iterative solve for unreinforced FoS
-    let fos = 1.30;
-    for (let iter = 0; iter < 30; iter++) {
-      let sumNumerator = 0;
-      let sumDenominator = 0;
-
-      for (const s of slices) {
-        const cosA = Math.cos(s.alphaRad);
-        const tanA = Math.tan(s.alphaRad);
-        const mAlpha = cosA * (1 + (tanA * Math.tan(phiRad)) / fos);
-        const effectiveN = s.weightKn - s.porePressureU * s.width;
-        const shearResist = (c * s.width + effectiveN * Math.tan(phiRad)) / Math.max(0.1, mAlpha);
-
-        sumNumerator += shearResist;
-        sumDenominator += s.weightKn * Math.sin(s.alphaRad);
-      }
-
-      const newFos = sumNumerator / Math.max(1, sumDenominator);
-      if (Math.abs(newFos - fos) < 0.001) {
-        fos = newFos;
-        break;
-      }
-      fos = 0.5 * (fos + newFos);
-    }
-    const unreinforcedBishopFos = Number(Math.max(0.4, Math.min(6.0, fos)).toFixed(2));
-
-    // Reinforced Bishop FoS with Soil Nails / Rock Anchors
-    const boltDensityPerM2 = 1 / Math.max(0.25, slopeBoltSpacingH * slopeBoltSpacingV);
-    const totalBoltForcePerM = slopeBoltCapKn * boltDensityPerM2;
-    const numNailRows = Math.max(2, Math.round(H / slopeBoltSpacingV));
-    const nailResistingMoment = numNailRows * (totalBoltForcePerM / numNailRows) * R * 0.92;
-    const sumDriveMoment = slices.reduce((acc, s) => acc + s.weightKn * Math.sin(s.alphaRad) * R, 0);
-    const shotcreteBonus = (slopeShotcreteMm / 1000) * 450 * R;
-
-    const reinforcedBishopFos = Number(
-      Math.max(
-        unreinforcedBishopFos + 0.3,
-        Math.min(
-          6.5,
-          (slices.reduce((acc, s) => {
-            const mAlpha = Math.cos(s.alphaRad) * (1 + (Math.tan(s.alphaRad) * Math.tan(phiRad)) / fos);
-            return acc + ((c * s.width + (s.weightKn - s.porePressureU * s.width) * Math.tan(phiRad)) / Math.max(0.1, mAlpha)) * R;
-          }, 0) +
-            nailResistingMoment +
-            shotcreteBonus) /
-            Math.max(1, sumDriveMoment)
-        )
-      ).toFixed(2)
-    );
-
-    // Janbu's Simplified & Non-Circular Method
-    const dMax = Math.max(2, H * 0.35);
-    const LSlip = xExitCrest - toeX;
-    const dOverL = dMax / Math.max(5, LSlip);
-    const janbuCorrectionF0 = Number((1 + 0.5 * (dOverL - 1.4 * dOverL * dOverL)).toFixed(3));
-
-    const janbuUnreinforcedFos = Number((unreinforcedBishopFos * 0.94 * janbuCorrectionF0).toFixed(2));
-    const janbuReinforcedFos = Number((reinforcedBishopFos * 0.95 * janbuCorrectionF0).toFixed(2));
-
-    return {
-      radiusM: Number(R.toFixed(1)),
-      centerX: Number(xc.toFixed(1)),
-      centerY: Number(yc.toFixed(1)),
-      exitX: Number(xExitCrest.toFixed(1)),
-      crestX: Number(crestX.toFixed(1)),
-      crestY: Number(crestY.toFixed(1)),
-      slices,
-      unreinforcedBishopFos,
-      reinforcedBishopFos,
-      janbuCorrectionF0,
-      janbuUnreinforcedFos,
-      janbuReinforcedFos,
-      totalDriveMomentKnm: Math.round(sumDriveMoment),
-      nailResistingMomentKnm: Math.round(nailResistingMoment),
-    };
-  }, [
-    slopeHeightM,
-    slopeFaceAngleDeg,
-    slopeFrictionAngleDeg,
-    slopeCohesionKpa,
-    slopeUnitWeightKnM3,
-    slopeWaterRatioRu,
-    slopeDrainageActive,
-    slopeBoltSpacingH,
-    slopeBoltSpacingV,
-    slopeBoltCapKn,
-    slopeShotcreteMm,
-  ]);
-
-  // --------------------------------------------------------------------------
-  // MARKLAND KINEMATIC STEREOGRAPHIC FEASIBILITY ANALYSIS
-  // --------------------------------------------------------------------------
-  const marklandKinematics = useMemo(() => {
-    const slopeDip = slopeFaceAngleDeg;
-    const slopeDipDir = surfaceParams?.faceDipDirectionDeg || 135;
-    const jointDip = slopeJointDipDeg;
-    const jointDipDir = slopeJointDipDirDeg;
-    const phi = slopeFrictionAngleDeg;
-
-    // Secondary Joint Set J2 for wedge intersection
-    const j2Dip = Math.max(25, Math.min(85, jointDip + 12));
-    const j2DipDir = (jointDipDir + 70) % 360;
-
-    // 1. Planar failure criteria
-    const dipDiff = Math.abs(((jointDipDir - slopeDipDir + 540) % 360) - 180);
-    const isPlanarDirectional = dipDiff <= 20;
-    const isPlanarDaylighting = jointDip < slopeDip;
-    const isPlanarFriction = jointDip > phi;
-    const isPlanarCritical = isPlanarDirectional && isPlanarDaylighting && isPlanarFriction;
-
-    // 2. Wedge failure criteria (Line of intersection between J1 and J2)
-    const rad = Math.PI / 180;
-    const d1 = jointDip * rad;
-    const a1 = jointDipDir * rad;
-    const d2 = j2Dip * rad;
-    const a2 = j2DipDir * rad;
-
-    const n1 = [Math.sin(d1) * Math.sin(a1), Math.sin(d1) * Math.cos(a1), Math.cos(d1)];
-    const n2 = [Math.sin(d2) * Math.sin(a2), Math.sin(d2) * Math.cos(a2), Math.cos(d2)];
-    const vx = n1[1] * n2[2] - n1[2] * n2[1];
-    const vy = n1[2] * n2[0] - n1[0] * n2[2];
-    const vz = n1[0] * n2[1] - n1[1] * n2[0];
-    const vLen = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
-    const nx = vx / vLen;
-    const ny = vy / vLen;
-    const nz = vz / vLen;
-
-    const plungeDeg = Math.round((Math.asin(Math.abs(nz)) * 180) / Math.PI);
-    let trendDeg = Math.round((Math.atan2(nx, ny) * 180) / Math.PI);
-    if (trendDeg < 0) trendDeg += 360;
-
-    const wedgeTrendDiff = Math.abs(((trendDeg - slopeDipDir + 540) % 360) - 180);
-    const isWedgeDaylighting = plungeDeg < slopeDip && wedgeTrendDiff <= 90;
-    const isWedgeFriction = plungeDeg > phi;
-    const isWedgeCritical = isWedgeDaylighting && isWedgeFriction;
-
-    // 3. Goodman & Bray Toppling criteria
-    const topplingDipDiff = Math.abs(((jointDipDir - ((slopeDipDir + 180) % 360) + 540) % 360) - 180);
-    const isTopplingDirectional = topplingDipDiff <= 30;
-    const isTopplingKinematic = slopeDip - jointDip >= 90 - phi;
-    const isTopplingCritical = isTopplingDirectional && isTopplingKinematic;
-
-    return {
-      slopeDip,
-      slopeDipDir,
-      jointDip,
-      jointDipDir,
-      phi,
-      j2Dip,
-      j2DipDir,
-      dipDiff,
-      isPlanarDirectional,
-      isPlanarDaylighting,
-      isPlanarFriction,
-      isPlanarCritical,
-      plungeDeg,
-      trendDeg,
-      wedgeTrendDiff,
-      isWedgeDaylighting,
-      isWedgeFriction,
-      isWedgeCritical,
-      topplingDipDiff,
-      isTopplingDirectional,
-      isTopplingKinematic,
-      isTopplingCritical,
-    };
-  }, [slopeFaceAngleDeg, slopeJointDipDeg, slopeJointDipDirDeg, slopeFrictionAngleDeg, surfaceParams]);
-
-  // --------------------------------------------------------------------------
-  // MONTE CARLO PROBABILISTIC STABILITY SIMULATION (5,000 ITERATIONS)
-  // --------------------------------------------------------------------------
-  const monteCarloResults = useMemo(() => {
-    const N = 5000;
-    const meanC = Math.max(5, slopeCohesionKpa);
-    const stdC = meanC * 0.25;
-
-    const meanPhi = Math.max(15, slopeFrictionAngleDeg);
-    const stdPhi = meanPhi * 0.12;
-
-    const meanRu = Math.max(0.02, slopeWaterRatioRu * (slopeDrainageActive ? 0.25 : 1.0));
-    const stdRu = meanRu * 0.30;
-
-    const H = slopeHeightM;
-    const betaS = slopeFaceAngleDeg;
-    const betaJ = slopeJointDipDeg;
-    const gamma = slopeUnitWeightKnM3;
-
-    const rad = Math.PI / 180;
-    const betaSRad = betaS * rad;
-    const betaJRad = betaJ * rad;
-    const cotBetaJ = 1 / Math.tan(betaJRad);
-    const cotBetaS = 1 / Math.tan(betaSRad);
-    const blockWeightKn = 0.5 * gamma * (H * H) * Math.max(0.1, cotBetaJ - cotBetaS);
-    const slidingLengthM = H / Math.sin(betaJRad);
-    const drivingKn = blockWeightKn * Math.sin(betaJRad);
-
-    const boltDensityPerM2 = 1 / Math.max(0.25, slopeBoltSpacingH * slopeBoltSpacingV);
-    const totalBoltForcePerM = slopeBoltCapKn * boltDensityPerM2;
-    const boltAngleRad = (betaJ + slopeBoltAngleDeg) * rad;
-    const deltaDrivingReductionKn = totalBoltForcePerM * Math.cos(boltAngleRad);
-    const shotcreteShearKn = (slopeShotcreteMm / 1000) * 850;
-
-    let failCountUnreinforced = 0;
-    let failCountReinforced = 0;
-    const fosListUnreinforced: number[] = [];
-    const fosListReinforced: number[] = [];
-
-    let seed = 42;
-    const pseudoRandom = () => {
-      seed = (seed * 9301 + 49297) % 233280;
-      return seed / 233280;
-    };
-    const nextGaussian = (mu: number, sigma: number) => {
-      const u1 = Math.max(1e-6, pseudoRandom());
-      const u2 = pseudoRandom();
-      const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
-      return mu + z * sigma;
-    };
-
-    for (let i = 0; i < N; i++) {
-      const c = Math.max(2, nextGaussian(meanC, stdC));
-      const phi = Math.max(10, Math.min(60, nextGaussian(meanPhi, stdPhi)));
-      const ru = Math.max(0, Math.min(0.45, nextGaussian(meanRu, stdRu)));
-      const phiR = phi * rad;
-
-      const waterUpliftKn = 0.5 * 9.81 * (H * ru) * slidingLengthM;
-      const normalStaticKn = Math.max(0, blockWeightKn * Math.cos(betaJRad) - waterUpliftKn);
-
-      const resistUnreinforced = c * slidingLengthM + normalStaticKn * Math.tan(phiR);
-      const fosUnref = resistUnreinforced / Math.max(1, drivingKn);
-      if (fosUnref < 1.0) failCountUnreinforced++;
-      fosListUnreinforced.push(fosUnref);
-
-      const deltaResist = totalBoltForcePerM * Math.sin(boltAngleRad) * Math.tan(phiR);
-      const resistReinforced = resistUnreinforced + deltaResist + shotcreteShearKn;
-      const fosRef = resistReinforced / Math.max(1, drivingKn - deltaDrivingReductionKn);
-      if (fosRef < 1.0) failCountReinforced++;
-      fosListReinforced.push(fosRef);
-    }
-
-    fosListReinforced.sort((a, b) => a - b);
-    fosListUnreinforced.sort((a, b) => a - b);
-
-    const pfUnreinforced = Number(((failCountUnreinforced / N) * 100).toFixed(2));
-    const pfReinforced = Number(((failCountReinforced / N) * 100).toFixed(2));
-
-    const meanFosRef = fosListReinforced.reduce((a, b) => a + b, 0) / N;
-    const stdFosRef = Math.sqrt(fosListReinforced.reduce((a, b) => a + (b - meanFosRef) ** 2, 0) / N);
-    const betaRef = Number(((meanFosRef - 1.0) / Math.max(0.01, stdFosRef)).toFixed(2));
-
-    const p10 = Number(fosListReinforced[Math.floor(N * 0.1)].toFixed(2));
-    const p50 = Number(fosListReinforced[Math.floor(N * 0.5)].toFixed(2));
-    const p90 = Number(fosListReinforced[Math.floor(N * 0.9)].toFixed(2));
-
-    // Histogram bins (20 bins between 0.6 and 2.8)
-    const minBin = 0.6;
-    const maxBin = 2.8;
-    const numBins = 22;
-    const binWidth = (maxBin - minBin) / numBins;
-    const histogramBins: { binStart: number; binEnd: number; countUnref: number; countRef: number }[] = [];
-    for (let b = 0; b < numBins; b++) {
-      const bStart = minBin + b * binWidth;
-      const bEnd = bStart + binWidth;
-      histogramBins.push({
-        binStart: Number(bStart.toFixed(2)),
-        binEnd: Number(bEnd.toFixed(2)),
-        countUnref: 0,
-        countRef: 0,
-      });
-    }
-
-    for (let i = 0; i < N; i++) {
-      const vRef = fosListReinforced[i];
-      const vUnref = fosListUnreinforced[i];
-      const idxRef = Math.max(0, Math.min(numBins - 1, Math.floor((vRef - minBin) / binWidth)));
-      histogramBins[idxRef].countRef++;
-      const idxUnref = Math.max(0, Math.min(numBins - 1, Math.floor((vUnref - minBin) / binWidth)));
-      histogramBins[idxUnref].countUnref++;
-    }
-
-    const maxBinCount = Math.max(1, ...histogramBins.map((b) => Math.max(b.countRef, b.countUnref)));
-
-    return {
-      numRuns: N,
-      pfUnreinforced,
-      pfReinforced,
-      meanFosRef: Number(meanFosRef.toFixed(2)),
-      stdFosRef: Number(stdFosRef.toFixed(2)),
-      betaRef,
-      p10,
-      p50,
-      p90,
-      histogramBins,
-      maxBinCount,
-    };
-  }, [
-    slopeHeightM,
-    slopeFaceAngleDeg,
-    slopeJointDipDeg,
-    slopeCohesionKpa,
-    slopeFrictionAngleDeg,
-    slopeUnitWeightKnM3,
-    slopeWaterRatioRu,
-    slopeDrainageActive,
-    slopeBoltCapKn,
-    slopeBoltSpacingH,
-    slopeBoltSpacingV,
-    slopeBoltAngleDeg,
-    slopeShotcreteMm,
-  ]);
-
-  // Print ref
-  const reportPrintRef = useRef<HTMLDivElement | null>(null);
-
-  // Default fallback parameters
-  const qParams: QIndexParameters = useMemo(() => {
-    return (
-      propQIndexParams || {
-        rqd: 75,
-        jn: 9,
-        jnDescription: '3 joint sets',
-        jr: 1.5,
-        jrDescription: 'Rough or irregular, planar',
-        ja: 2.0,
-        jaDescription: 'Slightly altered joint walls',
-        jw: 1.0,
-        jwDescription: 'Dry excavations or minor inflow',
-        srf: 1.0,
-        srfDescription: 'Medium stress, favorable condition',
-        esr: 1.0,
-      }
-    );
-  }, [propQIndexParams]);
-
-  const rmrParams: RmrParameters = useMemo(() => {
-    return (
-      propRmrParams || ({
-        version: 'RMR89',
-        strengthInputType: 'UCS_MPA',
-        intactStrengthValueMPa: intactRockUcsMpa,
-        intactStrengthDescription: 'Strong rock (50–100 MPa)',
-        intactStrengthRating: 12,
-        rqdPercent: 75,
-        rqdDescription: 'Fair quality (75%)',
-        rqdRating: 13,
-        spacingMeters: 0.35,
-        spacingDescription: '0.2–0.6m (Moderate)',
-        spacingRating: 10,
-        conditionDescription: 'Slightly rough surfaces, separation < 1mm',
-        conditionRating: 20,
-        conditionSubRatings: {
-          useDetailedSubRatings: false,
-          persistenceValue: '1–3m',
-          persistenceRating: 4,
-          apertureValue: '0.1–1.0mm',
-          apertureRating: 4,
-          roughnessValue: 'Slightly rough',
-          roughnessRating: 4,
-          infillingValue: 'Hard filling < 5mm',
-          infillingRating: 4,
-          weatheringValue: 'Slightly weathered',
-          weatheringRating: 4,
-        },
-        groundwaterInflowLPerMin10m: 5,
-        groundwaterDescription: 'Damp / minor seepage',
-        groundwaterRating: 10,
-        strikeDipOrientationDescription: 'Fair orientation relative to drive',
-        orientationAdjustment: -5,
-        tunnelDriveDirectionDeg: customDriveAzimuth,
-        orientationFavourability: 'Fair',
-        orientationAdjustmentRating: -5,
-        paramStatus: {
-          intactStrength: 'CONFIRMED',
-          rqd: 'CONFIRMED',
-          spacing: 'CONFIRMED',
-          condition: 'CONFIRMED',
-          groundwater: 'CONFIRMED',
-          orientationAdjustment: 'CONFIRMED',
-        },
-        userConfirmed: true,
-      } as unknown as RmrParameters)
-    );
-  }, [propRmrParams, intactRockUcsMpa, customDriveAzimuth]);
-
-  // Basic geometrical dimensions
-  const spanW = geometry?.width || 8.5;
-  const heightH = geometry?.height || 7.5;
-  const pullL = settings.roundLength || 3.0;
-  const rockDensity = 2.7; // t/m3 (standard rock mass density)
-
-  // Discontinuity safe extraction - strictly NO synthetic fallback joints
-  const activeJoint = useMemo(() => {
-    if (joints && joints.length > 0) {
-      const clampedIdx = Math.min(Math.max(0, selectedJointIndex), joints.length - 1);
-      return joints[clampedIdx];
-    }
-    return null;
-  }, [joints, selectedJointIndex]);
-
-  // True orientations
-  const trueStrike = activeJoint?.strike ?? 0;
-  const trueDip = activeJoint?.dip ?? 0;
-  const trueDipDir = activeJoint?.dipDirection ?? 0;
-  const activeJointSet = activeJoint?.set || 'Discontinuity (Unspecified)';
-
-  // Real-time Rock Mass Rating (Bieniawski 1989) - null when unrated
-  const rmrVal = useMemo(() => {
-    if (!propRmrParams || (typeof propRmrParams.totalRmr !== 'number' && !propRmrParams.userConfirmed)) {
-      return null;
-    }
-    const computed = calculateBieniawskiRmr(propRmrParams);
-    return computed?.finalRmr ?? (typeof propRmrParams.totalRmr === 'number' ? propRmrParams.totalRmr : null);
-  }, [propRmrParams]);
-
-  // Real-time Barton Q-Index - null when unrated
-  const qVal = useMemo(() => {
-    if (!propQIndexParams) return null;
-    if (typeof propQIndexParams.qValue === 'number' && propQIndexParams.qValue > 0) {
-      return propQIndexParams.qValue;
-    }
-    if (
-      typeof propQIndexParams.rqd === 'number' &&
-      typeof propQIndexParams.jn === 'number' &&
-      typeof propQIndexParams.jr === 'number' &&
-      typeof propQIndexParams.ja === 'number' &&
-      typeof propQIndexParams.jw === 'number' &&
-      typeof propQIndexParams.srf === 'number'
-    ) {
-      return Number(
-        (
-          (propQIndexParams.rqd / Math.max(0.5, propQIndexParams.jn)) *
-          (propQIndexParams.jr / Math.max(0.75, propQIndexParams.ja)) *
-          (propQIndexParams.jw / Math.max(0.5, propQIndexParams.srf))
-        ).toFixed(2)
-      );
-    }
-    return null;
-  }, [propQIndexParams]);
-
-  // Integrated Strata Failure & Spot Bolting analysis
-  const strataAnalysis = useMemo(() => {
-    return computeRockStrataSupportSpotBoltingAndFailureFos(
+  const activeGeotechnicalState: GeotechnicalActiveState = useMemo(
+    () => ({
       geometry,
       settings,
       joints,
       jointSets,
-      qParams,
-      rmrParams,
-      rockMassSummary,
-      overbreakAnalysis
-    );
-  }, [geometry, settings, joints, jointSets, qParams, rmrParams, rockMassSummary, overbreakAnalysis]);
-
-  // --------------------------------------------------------------------------
-  // 1. KINEMATIC WEDGE STABILITY & FACTOR OF SAFETY (FOS)
-  // --------------------------------------------------------------------------
-  // Tetrahedral roof wedge geometry formed by J1 + J2 + Tunnel Crown Arch
-  const wedgeVolume = useMemo(() => {
-    const apexHeight = Math.min(heightH * 0.45, (spanW / 2) * Math.tan((trueDip * Math.PI) / 180));
-    return Number(((1 / 3) * (spanW * 0.65) * pullL * apexHeight).toFixed(2));
-  }, [spanW, pullL, heightH, trueDip]);
-
-  const wedgeMassT = Number((wedgeVolume * rockDensity).toFixed(1));
-  const wedgeWeightKn = Number((wedgeMassT * 9.81).toFixed(1));
-
-  // Kinematic sliding driving force (sliding on joint plane inclined at trueDip)
-  const drivingForceKn = Number(
-    (wedgeWeightKn * Math.sin((Math.min(75, Math.max(25, trueDip)) * Math.PI) / 180)).toFixed(1)
+      rmrParams: propRmrParams,
+      qIndexParams: propQIndexParams,
+      savedProjects,
+    }),
+    [geometry, settings, joints, jointSets, propRmrParams, propQIndexParams, savedProjects]
   );
 
-  // Normal force acting on the sliding plane
-  const normalForceKn = Number(
-    (wedgeWeightKn * Math.cos((Math.min(75, Math.max(25, trueDip)) * Math.PI) / 180)).toFixed(1)
-  );
+  // Per-module readiness map for sidebar badges and active gatekeeper
+  const readinessByTab = useMemo(() => {
+    const map = {} as Record<AdvancedAnalysisTab, ReturnType<typeof assessModuleDataReadiness>>;
+    SIDEBAR_CATEGORIES.forEach((cat) => {
+      cat.items.forEach((item) => {
+        map[item.id] = assessModuleDataReadiness(item.id, activeGeotechnicalState);
+      });
+    });
+    return map;
+  }, [activeGeotechnicalState]);
 
-  // Shear resistance from joint cohesion and friction
-  const frictionRad = (simulatedWedgeFrictionAngleDeg * Math.PI) / 180;
-  const jointFrictionResistanceKn = Number((normalForceKn * Math.tan(frictionRad)).toFixed(1));
-  const jointCohesionResistanceKn = Number((spanW * pullL * 0.4 * 25).toFixed(1)); // 25 kPa residual cohesion
-  const totalUnreinforcedResistingKn = jointFrictionResistanceKn + jointCohesionResistanceKn;
+  const currentModuleReadiness = readinessByTab[activeTab];
 
-  // Unbolted Factor of Safety
-  const unboltedFos = Number(
-    Math.max(0.2, totalUnreinforcedResistingKn / Math.max(1, drivingForceKn)).toFixed(2)
-  );
+  // Interactive Solver Controls (initialized from live fedData)
+  const [activeExcavationStage, setActiveExcavationStage] = useState<ExcavationStageType>('FULL_FACE');
+  const [customDriveAzimuth, setCustomDriveAzimuth] = useState<number>(fedData.driveAzimuth);
+  const [customStrike, setCustomStrike] = useState<number>(fedData.governingJoint?.strike ?? 125);
+  const [customDip, setCustomDip] = useState<number>(fedData.governingJoint?.dip ?? 60);
+  const [customDipDirection, setCustomDipDirection] = useState<number>(fedData.governingJoint?.dipDirection ?? 215);
 
-  // Installed rock bolts intersecting the wedge
-  const activeBolts = useMemo(() => {
-    const boltsPerRow = Math.max(1, Math.round((spanW * 0.7) / simulatedBoltSpacingM));
-    const rowsInPull = Math.max(1, Math.round(pullL / simulatedBoltSpacingM));
-    return boltsPerRow * rowsInPull;
-  }, [spanW, pullL, simulatedBoltSpacingM]);
+  // Wedge & Bolt Solver Controls
+  const [frictionAngleDeg, setFrictionAngleDeg] = useState<number>(32);
+  const [cohesionKpa, setCohesionKpa] = useState<number>(25);
+  const [rockUnitWeight, setRockUnitWeight] = useState<number>(26.5);
+  const [boltCapacityKn, setBoltCapacityKn] = useState<number>(150);
+  const [boltSpacingM, setBoltSpacingM] = useState<number>(1.5);
+  const [boltLengthM, setBoltLengthM] = useState<number>(4.0);
 
-  const rockBoltsResistanceKn = activeBolts * simulatedBoltCapacityKn * 0.85; // 0.85 orientation angle factor
+  // Hoek-Brown Solver Controls
+  const [intactUcsMpa, setIntactUcsMpa] = useState<number>(75);
+  const [hoekBrownMi, setHoekBrownMi] = useState<number>(17);
+  const [disturbanceFactorD, setDisturbanceFactorD] = useState<number>(0.2);
+  const [overburdenDepthM, setOverburdenDepthM] = useState<number>(180);
 
-  // Shotcrete perimeter shear resistance
-  const slidingAreaSqM = Number(((spanW * 0.65 + pullL) * 1.8).toFixed(1));
-  const shotcreteShearStrengthMpa = 1.8; // 28-day SFRS shear strength
-  const shotcreteResistanceKn =
-    simulatedShotcreteMm > 0
-      ? Number(
-          (2 * (spanW * 0.65 + pullL) * (simulatedShotcreteMm / 1000) * shotcreteShearStrengthMpa * 1000).toFixed(1)
-        )
-      : 0;
+  // Hydrogeology Controls
+  const [waterHeadM, setWaterHeadM] = useState<number>(95);
+  const [groutReductionPct, setGroutReductionPct] = useState<number>(75);
 
-  const totalSupportedResistingKn = totalUnreinforcedResistingKn + rockBoltsResistanceKn + shotcreteResistanceKn;
-  const supportedFos = Number((totalSupportedResistingKn / Math.max(1, drivingForceKn)).toFixed(2));
+  // Portal Cut & Stabilization Controls
+  const [slopeAngleDeg, setSlopeAngleDeg] = useState<number>(surfaceParams?.slopeAngle ?? 65);
+  const [slopeHeightM, setSlopeHeightM] = useState<number>(surfaceParams?.slopeHeight ?? 24);
+  const [slopeDipDirDeg, setSlopeDipDirDeg] = useState<number>(surfaceParams?.slopeDipDirection ?? fedData.driveAzimuth);
+  const [seismicKh, setSeismicKh] = useState<number>(0.12);
+  const [porePressureRu, setPorePressureRu] = useState<number>(0.15);
+  const [anchorTensionKnPerM, setAnchorTensionKnPerM] = useState<number>(180);
 
-  // --------------------------------------------------------------------------
-  // 2. 4-SURFACE APPARENT DIP & DRILL GUIDE
-  // --------------------------------------------------------------------------
-  const deltaFace = Math.abs(((trueStrike - customDriveAzimuth + 540) % 360) - 180);
-  const faceApparentDipRad = Math.atan(
-    Math.tan((trueDip * Math.PI) / 180) * Math.abs(Math.sin((deltaFace * Math.PI) / 180))
-  );
-  const faceApparentDipDeg = Number(((faceApparentDipRad * 180) / Math.PI).toFixed(1));
-
-  const deltaLeftWall = Math.abs(((trueStrike - (customDriveAzimuth + 90) + 540) % 360) - 180);
-  const leftWallApparentDipRad = Math.atan(
-    Math.tan((trueDip * Math.PI) / 180) * Math.abs(Math.sin((deltaLeftWall * Math.PI) / 180))
-  );
-  const leftWallApparentDipDeg = Number(((leftWallApparentDipRad * 180) / Math.PI).toFixed(1));
-
-  const deltaRightWall = Math.abs(((trueStrike - (customDriveAzimuth - 90) + 540) % 360) - 180);
-  const rightWallApparentDipRad = Math.atan(
-    Math.tan((trueDip * Math.PI) / 180) * Math.abs(Math.sin((deltaRightWall * Math.PI) / 180))
-  );
-  const rightWallApparentDipDeg = Number(((rightWallApparentDipRad * 180) / Math.PI).toFixed(1));
-
-  const crownTraceAngleDeg = Number(
-    Math.abs(((trueStrike - customDriveAzimuth + 540) % 360) - 180).toFixed(1)
-  );
-
-  // --------------------------------------------------------------------------
-  // 3. IN-SITU STRESS, OVERBURDEN & HOEK-BROWN ENVELOPE
-  // --------------------------------------------------------------------------
-  // Vertical in-situ stress sigma_v = rho * g * H
-  const sigmaVMpa = Number(((rockDensity * 9.81 * overburdenDepthM) / 1000).toFixed(2));
-  // Horizontal stress ratio k0 (Sheorey / Brown & Hoek model)
-  const k0Ratio = Number((0.25 + 7 * (0.001 + 1 / overburdenDepthM)).toFixed(2));
-  const sigmaHMpa = Number((k0Ratio * sigmaVMpa).toFixed(2));
-  // Maximum tangential stress at boundary sigma_theta (Kirsch solution approx 2.5 * sigma_v)
-  const maxTangentialStressMpa = Number((Math.max(sigmaVMpa, sigmaHMpa) * 2.5).toFixed(1));
-
-  // Hoek-Brown parameters (Hoek, Carranza-Torres, Corkum 2002)
-  const miConstant = 25; // Standard igneous/metamorphic intact rock constant
-  const hbMb = Number((miConstant * Math.exp((gsiValue - 100) / (28 - 14 * blastDisturbanceD))).toFixed(4));
-  const hbS = Number((Math.exp((gsiValue - 100) / (9 - 3 * blastDisturbanceD))).toFixed(6));
-  const hbA = Number((0.5 + (1 / 6) * (Math.exp(-gsiValue / 15) - Math.exp(-20 / 3))).toFixed(4));
-  const rockMassUcsSigmaCmMpa = Number((intactRockUcsMpa * Math.pow(hbS, hbA)).toFixed(1));
-  const rockMassModulusEmGpa = Number(
-    (
-      (100 * (1 - blastDisturbanceD / 2)) /
-      (1 + Math.exp((75 + 25 * blastDisturbanceD - gsiValue) / 11))
-    ).toFixed(1)
-  );
-
-  // Rockburst Severity Criterion (Wang, Hoek & Brown: sigma_theta / sigma_ci)
-  const rockburstRatio = Number((maxTangentialStressMpa / Math.max(10, intactRockUcsMpa)).toFixed(2));
-  const rockburstEvaluation = useMemo(() => {
-    if (rockburstRatio < 0.3) {
-      return { level: 'NONE / STABLE', color: 'text-emerald-400', badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', desc: 'No strain-bursting risk. Standard rock mass slabbing controls.' };
-    } else if (rockburstRatio < 0.5) {
-      return { level: 'SLIGHT / ACOUSTIC POPPING', color: 'text-sky-400', badge: 'bg-sky-500/20 text-sky-300 border-sky-500/30', desc: 'Minor micro-cracking and shallow acoustic pops. Install systematic mesh + rock bolts.' };
-    } else if (rockburstRatio < 0.7) {
-      return { level: 'MODERATE ROCKBURST', color: 'text-amber-400', badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30', desc: 'Violent ejection of small rock slabs and keyblocks. Yielding D-bolts & high-energy mesh required.' };
-    } else {
-      return { level: 'SEVERE / HEAVY ROCKBURST', color: 'text-rose-400', badge: 'bg-rose-500/20 text-rose-300 border-rose-500/30', desc: 'CRITICAL HIGH-ENERGY HAZARD. Deep dynamic rock fracturing. De-stress blasting and sacrificial yield canopy mandatory.' };
+  // Sync solver states when live mapped data updates
+  useEffect(() => {
+    setCustomDriveAzimuth(fedData.driveAzimuth);
+    if (fedData.governingJoint) {
+      setCustomStrike(fedData.governingJoint.strike);
+      setCustomDip(fedData.governingJoint.dip);
+      setCustomDipDirection(fedData.governingJoint.dipDirection);
     }
-  }, [rockburstRatio]);
+  }, [
+    fedData.driveAzimuth,
+    fedData.governingJoint?.id,
+    fedData.governingJoint?.strike,
+    fedData.governingJoint?.dip,
+    fedData.governingJoint?.dipDirection,
+  ]);
 
-  // Squeezing Ground Criterion (Hoek & Marinos: sigma_cm / p_0)
-  const squeezingRatio = Number((rockMassUcsSigmaCmMpa / Math.max(0.1, sigmaVMpa)).toFixed(2));
-  const squeezingEvaluation = useMemo(() => {
-    if (squeezingRatio > 0.4) {
-      return { level: 'NO SQUEEZING (< 1% Strain)', color: 'text-emerald-400', desc: 'Elastic behavior. Standard rigid shotcrete & lattice girder support.' };
-    } else if (squeezingRatio >= 0.2) {
-      return { level: 'MODERATE SQUEEZING (1% - 2.5% Strain)', color: 'text-amber-400', desc: 'Minor ductile convergence. Allow 100mm clearance margin with yielding lining slots.' };
-    } else {
-      return { level: 'SEVERE SQUEEZING (> 2.5% Strain)', color: 'text-rose-400', desc: 'Heavy plastic convergence. Yielding steel TH-arches and compressible lining backfill required.' };
-    }
-  }, [squeezingRatio]);
+  if (!isOpen) return null;
+
+  const spanW = fedData.spanW;
+  const heightH = fedData.heightH;
+  const wallH = geometry.wallHeight || fedData.benchHeight || heightH * 0.55;
+  const pullLength = fedData.pullLengthM;
+  const currentFaceChainageNum = fedData.currentFaceChainageNum;
+  const shapeLabel = (geometry.crownGeometry || 'd_shaped').replace(/_/g, ' ').toUpperCase();
+
+  // Derived Validated Ratings
+  const rmrVal = fedData.rmrTotal;
+  const qVal = fedData.qValue;
+  const gsiVal = fedData.gsiValue;
+  const safeRmrForCalc = rmrVal ?? (qVal ? Math.round(9 * Math.log(Math.max(0.01, qVal)) + 44) : 55);
+  const safeQForCalc = qVal ?? (rmrVal ? Number(Math.exp((rmrVal - 44) / 9).toFixed(2)) : 3.5);
+  const safeGsiForCalc = gsiVal ?? Math.max(15, Math.min(90, safeRmrForCalc - 5));
 
   // --------------------------------------------------------------------------
-  // 4. FORWARD ADVANCE FORECASTING (+3m, +6m, +9m, +15m, +30m)
+  // 1. APPARENT DIP & FUTURE ADVANCE CALCULATIONS
   // --------------------------------------------------------------------------
-  const currentChNum = parseFloat((settings.chainage || '100').replace(/[^\d.]/g, '')) || 100;
-  const forwardPredictions = useMemo(() => {
-    const steps = [
-      { advanceDelta: 3, label: 'Immediate Next Blast Round', horizon: 'Immediate Face' },
-      { advanceDelta: 6, label: 'Round 2 Advance', horizon: 'Near Forecast' },
-      { advanceDelta: 9, label: 'Round 3 Advance', horizon: 'Medium Forecast' },
-      { advanceDelta: 15, label: 'Mid-Term Advance Stage', horizon: 'Probe Target' },
-      { advanceDelta: 30, label: 'Deep Probe Drilling Extent', horizon: 'Regional Core Horizon' },
-    ];
+  const apparentCalculations = useMemo(() => {
+    const betaRad = ((customStrike - customDriveAzimuth) * Math.PI) / 180;
+    const dipRad = (customDip * Math.PI) / 180;
 
-    const angleDiffRad = ((trueDipDir - customDriveAzimuth) * Math.PI) / 180;
-    const cosAngle = Math.cos(angleDiffRad);
-    const daylightDistanceM =
-      Math.abs(cosAngle) > 0.05
-        ? Number((heightH / (Math.tan((trueDip * Math.PI) / 180) * Math.abs(cosAngle))).toFixed(1))
-        : 99.9;
+    const sinBeta = Math.abs(Math.sin(betaRad));
+    const cosBeta = Math.abs(Math.cos(betaRad));
 
-    return steps.map((s) => {
-      const targetChainage = currentChNum + s.advanceDelta;
-      const willIntersectInHorizon = daylightDistanceM <= s.advanceDelta + 2.5 && daylightDistanceM >= s.advanceDelta - 2.5;
-      const isDaylightPast = daylightDistanceM < s.advanceDelta - 2.5;
+    const tanAppWall = Math.tan(dipRad) * sinBeta;
+    const apparentDipWallDeg = (Math.atan(tanAppWall) * 180) / Math.PI;
 
-      let riskLevel: 'HIGH' | 'MODERATE' | 'LOW' = 'LOW';
-      if (willIntersectInHorizon) {
-        riskLevel = activeJoint.set.startsWith('F') || unboltedFos < 1.0 ? 'HIGH' : 'MODERATE';
-      } else if (s.advanceDelta >= 15 && rockburstRatio >= 0.5) {
-        riskLevel = 'HIGH';
-      } else if (s.advanceDelta === 3 && unboltedFos < 1.0) {
-        riskLevel = 'HIGH';
+    const tanAppFace = Math.tan(dipRad) * cosBeta;
+    const apparentDipFaceDeg = (Math.atan(tanAppFace) * 180) / Math.PI;
+
+    const advanceRatePerVerticalMeter = tanAppWall > 0.01 ? 1 / tanAppWall : 99.9;
+    const distanceCrownToInvert = heightH * advanceRatePerVerticalMeter;
+
+    const forecastDistances = [3, 6, 9, 12, 15, 20, 25, 30];
+    const forecastTable = forecastDistances.map((distAhead) => {
+      const targetChainage = currentFaceChainageNum + distAhead;
+      const elevationShift = distAhead * tanAppWall;
+      const currentElevation = Math.max(0, heightH - ( elevationShift % (heightH * 1.4) ));
+
+      let zoneLocation = 'Mid-Face / Springline';
+      let riskLevel: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' = 'MODERATE';
+      if (currentElevation > heightH * 0.72) {
+        zoneLocation = 'Crown / Arch Roof';
+        riskLevel = customDip < 45 ? 'CRITICAL' : 'HIGH';
+      } else if (currentElevation < heightH * 0.25) {
+        zoneLocation = 'Invert / Footwall';
+        riskLevel = 'LOW';
       }
 
-      // Predicted rock mass class drift
-      const predictedClass =
-        s.advanceDelta <= 6
-          ? rmrVal >= 61 ? 'Class II (Good)' : 'Class III (Fair)'
-          : s.advanceDelta <= 15
-          ? willIntersectInHorizon ? 'Class IV (Poor - Shear)' : 'Class III (Fair)'
-          : 'Class III - IV Transition';
-
       return {
-        advanceDelta: s.advanceDelta,
-        label: s.label,
-        horizon: s.horizon,
-        targetChainage: `RD ${targetChainage.toFixed(1)}m`,
-        daylightDistanceM,
-        willIntersectInHorizon,
-        isDaylightPast,
+        distAhead,
+        targetChainage: targetChainage.toFixed(1),
+        elevationAboveInvert: currentElevation.toFixed(2),
+        zoneLocation,
         riskLevel,
-        predictedClass,
-        waterForecast: s.advanceDelta >= 15 ? 'Likely Water Bearing Joint Zone' : 'Damp / Low Seepage',
-        recommendedSupport:
-          riskLevel === 'HIGH'
-            ? 'Forepoling Umbrella (Ø114mm x 12m) + HEB-160 Steel Arches @ 0.8m + 150mm SFRS'
-            : riskLevel === 'MODERATE'
-            ? 'Radial Resin Bolts L=4.0m @ 1.2m c/c + 100mm SFRS + Crown Keyblock Spot Bolting'
-            : 'Standard Systematic Rock Bolts L=3.5m @ 1.5m c/c + 75mm SFRS',
       };
     });
-  }, [currentChNum, trueDipDir, customDriveAzimuth, heightH, trueDip, activeJoint, unboltedFos, rockburstRatio, rmrVal]);
 
-  // --------------------------------------------------------------------------
-  // 5. STAND-UP TIME & MAXIMUM UNSUPPORTED SPAN (BIENIAWSKI & BARTON)
-  // --------------------------------------------------------------------------
-  const baseStandUpHours = Math.pow(10, (rmrVal - 20) / 13);
-  const adjustedStandUpHours = Number(Math.max(0.1, baseStandUpHours / Math.pow(spanW / 2.5, 1.8)).toFixed(1));
-  const standUpFormatted =
-    adjustedStandUpHours >= 24 * 30
-      ? `${(adjustedStandUpHours / (24 * 30)).toFixed(1)} Months`
-      : adjustedStandUpHours >= 24
-      ? `${(adjustedStandUpHours / 24).toFixed(1)} Days (${adjustedStandUpHours.toFixed(0)} hrs)`
-      : adjustedStandUpHours >= 1
-      ? `${adjustedStandUpHours.toFixed(1)} Hours`
-      : `${Math.round(adjustedStandUpHours * 60)} Minutes`;
-
-  const effectiveSpanW = junctionFactorData ? junctionFactorData.diagonalSpanM : spanW;
-  const esrVal = qParams.esr || 1.0;
-  const effectiveEsr = junctionFactorData ? junctionFactorData.junctionEsr : esrVal;
-  const maxUnsupportedSpanM = Number((2 * effectiveEsr * Math.pow(Math.max(0.01, qVal), 0.44)).toFixed(2));
-  const isSpanUnsupportedSafe = effectiveSpanW <= maxUnsupportedSpanM;
-
-  const standardPRoofKpa = Number(
-    (
-      ((2 * Math.sqrt(Math.max(0.5, qParams.jn || 9))) / (3 * Math.max(0.5, qParams.jr || 1.5))) *
-      Math.pow(Math.max(0.01, qVal), -1 / 3) *
-      100
-    ).toFixed(1)
-  );
-  const pRoofKpa = junctionFactorData
-    ? Number((standardPRoofKpa * junctionFactorData.junctionFactorKj).toFixed(1))
-    : standardPRoofKpa;
-
-  const terzaghiHpMeters = Number(
-    (
-      rmrVal >= 81
-        ? 0.05 * effectiveSpanW
-        : rmrVal >= 61
-        ? 0.2 * effectiveSpanW
-        : rmrVal >= 41
-        ? 0.45 * (effectiveSpanW + heightH)
-        : rmrVal >= 21
-        ? 1.1 * (effectiveSpanW + heightH)
-        : 2.1 * (effectiveSpanW + heightH)
-    ).toFixed(2)
-  );
-  const terzaghiLoadKpa = Number((terzaghiHpMeters * rockDensity * 9.81).toFixed(1));
-
-  // --------------------------------------------------------------------------
-  // 6. PALMSTRÖM VOLUMETRIC JOINT COUNT (Jv) & BLOCK SIZING
-  // --------------------------------------------------------------------------
-  const jointSpacings = jointSets.map((js) => {
-    const match = (js.spacing || '').match(/([\d.]+)/);
-    return match ? parseFloat(match[1]) : 0.45;
-  });
-  const avgSpacing = jointSpacings.length > 0 ? jointSpacings.reduce((a, b) => a + b, 0) / jointSpacings.length : 0.4;
-  const palmstromJv = Number(
-    (
-      jointSpacings.reduce((sum, s) => sum + 1 / Math.max(0.05, s), 0) +
-      (joints.length > 6 ? 1.5 : 0.8)
-    ).toFixed(1)
-  );
-
-  const blockVolumeM3 = Number((Math.pow(avgSpacing, 3) * 1.15).toFixed(4));
-  const blockCategory =
-    blockVolumeM3 > 8
-      ? 'Very Large Blocks (> 8 m³)'
-      : blockVolumeM3 >= 0.2
-      ? 'Large Blocks (0.2–8 m³)'
-      : blockVolumeM3 >= 0.005
-      ? 'Medium Blocks (5–200 dm³)'
-      : blockVolumeM3 >= 0.0002
-      ? 'Small Blocks (0.2–5 dm³)'
-      : 'Crushed / Multi-Fractured Rock Mass (< 0.2 dm³)';
-
-  const palmstromRqdPct = Math.max(10, Math.min(100, Math.round(115 - 3.3 * palmstromJv)));
-
-  const obHazardScore = Number(
-    Math.min(
-      95,
-      Math.max(
-        15,
-        (100 - rmrVal) * 0.45 +
-          (unboltedFos < 1.0 ? 35 : unboltedFos < 1.3 ? 20 : 5) +
-          (activeJoint.dip > 45 && activeJoint.dip < 80 ? 15 : 5)
-      )
-    ).toFixed(0)
-  );
-  const obHazardLevel =
-    Number(obHazardScore) >= 65 ? 'HIGH RISK' : Number(obHazardScore) >= 40 ? 'MODERATE RISK' : 'LOW RISK';
-
-  const geologicalExcusablePct = Number((unboltedFos < 1.0 ? 78 : unboltedFos < 1.4 ? 62 : 45).toFixed(0));
-  const contractorMechanicalPct = 100 - geologicalExcusablePct;
-
-  // --------------------------------------------------------------------------
-  // 7. HYDROGEOLOGY & GROUNDWATER INFLOW
-  // --------------------------------------------------------------------------
-  const waterHeadM = Math.max(15, Math.round(overburdenDepthM * 0.4));
-  const hydraulicPermeabilityK = rmrParams.groundwaterRating && rmrParams.groundwaterRating <= 4 ? 5e-5 : 1e-6;
-  const inflowLPerMin10m = Number(
-    Math.max(
-      2,
-      Math.min(
-        1400,
-        ((2 * Math.PI * hydraulicPermeabilityK * waterHeadM) /
-          Math.log((2 * waterHeadM) / (spanW / 2))) *
-          10 *
-          60 *
-          1000
-      )
-    ).toFixed(1)
-  );
-
-  const groutTakeBagsPerRound =
-    Number(inflowLPerMin10m) > 100
-      ? Math.round(Number(inflowLPerMin10m) * 0.8)
-      : Number(inflowLPerMin10m) > 25
-      ? Math.round(Number(inflowLPerMin10m) * 0.4)
-      : 0;
-
-  // --------------------------------------------------------------------------
-  // REPORT GENERATION & EXPORTS (PRINT / PDF / HTML / JSON)
-  // --------------------------------------------------------------------------
-  const handlePrintReport = () => {
-    window.print();
-  };
-
-  const handleExportHtmlReport = () => {
-    const reportHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Geotechnical Engineering Assessment Report - ${settings.tunnelName || 'Tunnel'} - ${settings.chainage || 'Active Round'}</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.5; padding: 32px; background: #fff; margin: 0; }
-    h1, h2, h3 { color: #0f172a; margin-top: 0; }
-    .header-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; border-bottom: 2px solid #0284c7; padding-bottom: 12px; }
-    .header-table td { padding: 4px 8px; vertical-align: top; }
-    .badge { display: inline-block; padding: 4px 8px; font-weight: bold; border-radius: 4px; font-size: 12px; }
-    .badge-pass { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
-    .badge-alert { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
-    table.data-table { width: 100%; border-collapse: collapse; margin-top: 12px; margin-bottom: 24px; font-size: 13px; }
-    table.data-table th { background: #f1f5f9; text-align: left; padding: 8px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #334155; }
-    table.data-table td { padding: 8px 10px; border: 1px solid #cbd5e1; }
-    .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-    .signatures { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 24px; border-top: 1px dashed #94a3b8; }
-    .sign-box { width: 30%; text-align: center; }
-    .sign-line { border-bottom: 1px solid #475569; height: 40px; margin-bottom: 8px; }
-  </style>
-</head>
-<body>
-  <table class="header-table">
-    <tr>
-      <td>
-        <h2>TUNNEL GEOTECHNICAL &amp; ROCK MECHANICS ASSESSMENT</h2>
-        <div style="font-size: 13px; color: #64748b;">Contract / Project: <strong>${settings.projectName || 'Tunnel Construction Project'}</strong></div>
-      </td>
-      <td style="text-align: right; font-size: 12px; color: #475569;">
-        <div>Station / Chainage: <strong>${settings.chainage || 'RD 100.0m'}</strong></div>
-        <div>Date of Assessment: <strong>${settings.date || new Date().toISOString().slice(0, 10)}</strong></div>
-        <div>Heading Axis: <strong>N ${Math.round(customDriveAzimuth)}° E</strong></div>
-      </td>
-    </tr>
-  </table>
-
-  <h3>1. Executive Classification &amp; Safety Compliance</h3>
-  <table class="data-table">
-    <tr>
-      <th>Bieniawski RMR89</th>
-      <th>Barton Q-Value</th>
-      <th>Hoek GSI</th>
-      <th>Kinematic FoS (Supported)</th>
-      <th>Compliance Status</th>
-    </tr>
-    <tr>
-      <td><strong>${rmrVal}</strong> (${rmrVal >= 61 ? 'Class II' : rmrVal >= 41 ? 'Class III' : 'Class IV'})</td>
-      <td><strong>${qVal}</strong> (${strataAnalysis.supportCategoryLabel})</td>
-      <td><strong>${gsiValue}</strong></td>
-      <td><strong style="color: ${supportedFos >= 1.5 ? '#15803d' : '#b91c1c'};">${supportedFos.toFixed(2)}</strong> (Unbolted: ${unboltedFos.toFixed(2)})</td>
-      <td><span class="badge ${supportedFos >= 1.5 ? 'badge-pass' : 'badge-alert'}">${supportedFos >= 1.5 ? 'CERTIFIED ADEQUATE (Target ≥ 1.50)' : 'SUPPORT REINFORCEMENT REQUIRED'}</span></td>
-    </tr>
-  </table>
-
-  <h3>2. Discontinuity Apparent Dip on 4 Excavation Faces</h3>
-  <table class="data-table">
-    <tr>
-      <th>Discontinuity</th>
-      <th>True Strike / Dip</th>
-      <th>Tunnel Face</th>
-      <th>Crown Arch Trace</th>
-      <th>Left Wall</th>
-      <th>Right Wall</th>
-    </tr>
-    <tr>
-      <td><strong>${activeJoint.set}</strong></td>
-      <td>${trueStrike}° / ${trueDip}° ∠ ${trueDipDir}°</td>
-      <td><strong>${faceApparentDipDeg}°</strong></td>
-      <td><strong>${crownTraceAngleDeg}°</strong></td>
-      <td><strong>${leftWallApparentDipDeg}°</strong></td>
-      <td><strong>${rightWallApparentDipDeg}°</strong></td>
-    </tr>
-  </table>
-
-  <h3>3. Forward Look-Ahead &amp; Geohazard Predictions (+3m to +30m)</h3>
-  <table class="data-table">
-    <tr>
-      <th>Advance Horizon</th>
-      <th>Target Chainage</th>
-      <th>Predicted Class</th>
-      <th>Daylighting Distance</th>
-      <th>Hazard Evaluation</th>
-      <th>Prescribed Pre-Support</th>
-    </tr>
-    ${forwardPredictions.map(p => `
-    <tr>
-      <td><strong>${p.label}</strong></td>
-      <td>${p.targetChainage}</td>
-      <td>${p.predictedClass}</td>
-      <td>${p.daylightDistanceM.toFixed(1)}m</td>
-      <td>${p.riskLevel} RISK</td>
-      <td>${p.recommendedSupport}</td>
-    </tr>
-    `).join('')}
-  </table>
-
-  <h3>4. Geotechnical Stress &amp; Hydrogeology Overview</h3>
-  <div class="card">
-    <p><strong>Overburden Depth:</strong> ${overburdenDepthM} m | <strong>In-situ Vertical Stress:</strong> ${sigmaVMpa} MPa | <strong>Max Tangential Boundary Stress:</strong> ${maxTangentialStressMpa} MPa</p>
-    <p><strong>Rockburst Potential:</strong> ${rockburstEvaluation.level} (${rockburstRatio} ratio) - ${rockburstEvaluation.desc}</p>
-    <p><strong>Squeezing Potential:</strong> ${squeezingEvaluation.level} - ${squeezingEvaluation.desc}</p>
-    <p><strong>Groundwater Inflow Rate:</strong> ~${inflowLPerMin10m} L/min per 10m round | <strong>Pre-Grouting Estimate:</strong> ${groutTakeBagsPerRound} bags microfine cement</p>
-  </div>
-
-  <div class="signatures">
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div><strong>${settings.mappedBy || 'Shift Geologist'}</strong><br><span style="font-size: 11px; color: #64748b;">Engineering Geologist</span></div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div><strong>Registered Geotechnical Engineer</strong><br><span style="font-size: 11px; color: #64748b;">Lead Tunnel Consultant</span></div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div><strong>Tunnel Construction Manager</strong><br><span style="font-size: 11px; color: #64748b;">Contractor In-Charge</span></div>
-    </div>
-  </div>
-</body>
-</html>`;
-
-    const blob = new Blob([reportHtml], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Geotechnical_Assessment_Report_${settings.tunnelName || 'Tunnel'}_RD${currentChNum}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportSummaryReport = () => {
-    const reportData = {
-      project: settings.projectName || 'Tunnel Face Mapping Project',
-      tunnel: settings.tunnelName || 'Tunnel 1',
-      chainage: settings.chainage || 'RD 100.0m',
-      date: new Date().toISOString(),
-      geometry: { spanW, heightH, pullL, customDriveAzimuth },
-      rockMassClassification: {
-        rmr89: rmrVal,
-        qValue: qVal,
-        gsi: gsiValue,
-        palmstromJv,
-        blockVolumeM3,
-        palmstromRqdPct,
-      },
-      kinematicWedgeStability: {
-        wedgeVolumeM3: wedgeVolume,
-        wedgeWeightKn,
-        drivingForceKn,
-        unboltedFos,
-        supportedFos,
-        targetFos: 1.5,
-        status: supportedFos >= 1.5 ? 'PASS_SAFE' : 'INADEQUATE',
-      },
-      stressAndFutures: {
-        overburdenDepthM,
-        sigmaVMpa,
-        maxTangentialStressMpa,
-        rockburstRatio,
-        rockburstLevel: rockburstEvaluation.level,
-        squeezingRatio,
-        squeezingLevel: squeezingEvaluation.level,
-        forwardPredictions,
-      },
-      apparentDip4Surfaces: {
-        joint: activeJoint.set,
-        trueStrike,
-        trueDip,
-        trueDipDir,
-        driveAzimuth: customDriveAzimuth,
-        faceApparentDipDeg,
-        leftWallApparentDipDeg,
-        rightWallApparentDipDeg,
-        crownTraceAngleDeg,
-      },
-      standUpTimeAndSupportPressure: {
-        standUpTime: standUpFormatted,
-        maxUnsupportedSpanM,
-        isSpanUnsupportedSafe,
-        bartonRoofPressureKpa: pRoofKpa,
-        terzaghiRockLoadHpM: terzaghiHpMeters,
-        terzaghiPressureKpa: terzaghiLoadKpa,
-      },
-      overbreakHazardAndFIDIC: {
-        obHazardScore,
-        obHazardLevel,
-        geologicalExcusablePct,
-        contractorMechanicalPct,
-      },
-      hydrogeology: {
-        estimatedInflowLPerMin10m: inflowLPerMin10m,
-        preGroutingBagsPerRound: groutTakeBagsPerRound,
-      },
+    return {
+      betaDeg: Math.abs((customStrike - customDriveAzimuth + 360) % 180),
+      apparentDipWallDeg,
+      apparentDipFaceDeg,
+      advanceRatePerVerticalMeter,
+      distanceCrownToInvert,
+      forecastTable,
     };
+  }, [customStrike, customDriveAzimuth, customDip, heightH, currentFaceChainageNum]);
 
-    const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Advanced_Geological_Analysis_${settings.tunnelName || 'Tunnel'}_RD${currentChNum}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // --------------------------------------------------------------------------
+  // 2. 3D TETRAHEDRAL WEDGE & ROCKBOLT FOS CALCULATIONS
+  // --------------------------------------------------------------------------
+  const wedgeAnalysis = useMemo(() => {
+    const j1Dip = customDip;
+    const j2Dip = jointSets[1]?.meanDip ?? Math.max(35, Math.min(82, 115 - j1Dip));
+    const avgDipRad = (((j1Dip + j2Dip) / 2) * Math.PI) / 180;
+    const effectiveSpan = spanW * 0.65;
+    const apexHeightM = Math.min(heightH * 0.75, (effectiveSpan / 2) * Math.tan(avgDipRad) * 0.55);
 
-  const contentNode = (
+    const baseAreaM2 = effectiveSpan * Math.min(pullLength * 1.35, effectiveSpan * 0.85);
+    const wedgeVolumeM3 = (1 / 3) * baseAreaM2 * apexHeightM;
+    const wedgeWeightKn = wedgeVolumeM3 * rockUnitWeight;
+
+    const slipAngleRad = (Math.min(j1Dip, j2Dip) * Math.PI) / 180;
+    const phiRad = (frictionAngleDeg * Math.PI) / 180;
+    const contactAreaM2 = Math.max(1.2, baseAreaM2 * 0.75);
+
+    const drivingForceKn = Math.max(1, wedgeWeightKn * Math.sin(slipAngleRad));
+    const normalForceKn = wedgeWeightKn * Math.cos(slipAngleRad);
+
+    const resistingUnboltedKn = normalForceKn * Math.tan(phiRad) + cohesionKpa * contactAreaM2 * 0.35;
+    const fosUnbolted =
+      j1Dip + j2Dip > 125 && Math.abs(customStrike - customDriveAzimuth) < 30
+        ? Math.min(0.92, resistingUnboltedKn / (wedgeWeightKn + 1))
+        : resistingUnboltedKn / drivingForceKn;
+
+    const numBoltsInWedge = Math.max(2, Math.floor(baseAreaM2 / (boltSpacingM * boltSpacingM)));
+    const anchorageFactor =
+      boltLengthM > apexHeightM + 0.5
+        ? 1.0
+        : Math.max(0.15, (boltLengthM - apexHeightM * 0.4) / Math.max(0.5, apexHeightM));
+    const totalBoltForceKn = numBoltsInWedge * boltCapacityKn * anchorageFactor;
+
+    const resistingBoltedKn =
+      resistingUnboltedKn +
+      totalBoltForceKn * (Math.cos(slipAngleRad) * Math.tan(phiRad) + Math.sin(slipAngleRad));
+    const fosBolted = resistingBoltedKn / drivingForceKn;
+
+    const requiredSupportPressureKpa = wedgeWeightKn / Math.max(1, baseAreaM2);
+    const installedSupportPressureKpa = totalBoltForceKn / Math.max(1, baseAreaM2);
+
+    const failureMode: 'ROOF_FALL' | 'SLIDING_J1' | 'SLIDING_J2' | 'STABLE' =
+      fosBolted >= 1.5 ? 'STABLE' : j1Dip > 65 && j2Dip > 65 ? 'ROOF_FALL' : 'SLIDING_J1';
+
+    return {
+      apexHeightM,
+      baseAreaM2,
+      wedgeVolumeM3,
+      wedgeWeightKn,
+      drivingForceKn,
+      resistingUnboltedKn,
+      resistingBoltedKn,
+      fosUnbolted,
+      fosBolted,
+      numBoltsInWedge,
+      anchorageFactor,
+      requiredSupportPressureKpa,
+      installedSupportPressureKpa,
+      failureMode,
+    };
+  }, [
+    customDip,
+    customStrike,
+    customDriveAzimuth,
+    jointSets,
+    spanW,
+    heightH,
+    pullLength,
+    rockUnitWeight,
+    frictionAngleDeg,
+    cohesionKpa,
+    boltCapacityKn,
+    boltSpacingM,
+    boltLengthM,
+  ]);
+
+  // --------------------------------------------------------------------------
+  // 3. HOEK-BROWN (2002) ROCK MASS MECHANICS
+  // --------------------------------------------------------------------------
+  const hoekBrownAnalysis = useMemo(() => {
+    const gsi = safeGsiForCalc;
+    const mb = hoekBrownMi * Math.exp((gsi - 100) / (28 - 14 * disturbanceFactorD));
+    const s = Math.exp((gsi - 100) / (9 - 3 * disturbanceFactorD));
+    const a = 0.5 + (1 / 6) * (Math.exp(-gsi / 15) - Math.exp(-20 / 3));
+
+    const rockMassUcsMpa = intactUcsMpa * Math.pow(s, a);
+    const globalStrengthSigmaCmMpa =
+      intactUcsMpa *
+      ((mb + 4 * s - a * (mb - 8 * s)) * Math.pow(mb / 4 + s, a - 1)) /
+      (2 * (1 + a) * (2 + a));
+
+    const deformationModulusGpa =
+      intactUcsMpa <= 100
+        ? (1 - disturbanceFactorD / 2) * Math.sqrt(intactUcsMpa / 100) * Math.pow(10, (gsi - 10) / 40)
+        : (1 - disturbanceFactorD / 2) * Math.pow(10, (gsi - 10) / 40);
+
+    const inSituStressPoMpa = (rockUnitWeight * overburdenDepthM) / 1000;
+    const sigma3MaxMpa = Math.max(0.5, 0.47 * globalStrengthSigmaCmMpa * Math.pow(globalStrengthSigmaCmMpa / Math.max(0.1, inSituStressPoMpa), -0.94));
+    const s3n = sigma3MaxMpa / Math.max(1, intactUcsMpa);
+
+    const sinPhi =
+      (6 * a * mb * Math.pow(s + mb * s3n, a - 1)) /
+      (2 * (1 + a) * (2 + a) + 6 * a * mb * Math.pow(s + mb * s3n, a - 1));
+    const equivalentFrictionDeg = (Math.asin(Math.min(0.98, Math.max(0.05, sinPhi))) * 180) / Math.PI;
+
+    const equivalentCohesionMpa =
+      (intactUcsMpa * ((1 + 2 * a) * s + (1 - a) * mb * s3n) * Math.pow(s + mb * s3n, a - 1)) /
+      ((1 + a) * (2 + a) * Math.sqrt(1 + (6 * a * mb * Math.pow(s + mb * s3n, a - 1)) / ((1 + a) * (2 + a))));
+
+    const strengthToStressRatio = globalStrengthSigmaCmMpa / Math.max(0.1, inSituStressPoMpa);
+    const squeezingStrainPct = 0.2 * Math.pow(strengthToStressRatio, -2);
+
+    const envelopePoints = Array.from({ length: 20 }, (_, idx) => {
+      const sig3 = (idx / 19) * (intactUcsMpa * 0.25);
+      const sig1 = sig3 + intactUcsMpa * Math.pow(mb * (sig3 / intactUcsMpa) + s, a);
+      return { sig3, sig1 };
+    });
+
+    return {
+      gsi,
+      mb,
+      s,
+      a,
+      rockMassUcsMpa,
+      globalStrengthSigmaCmMpa,
+      deformationModulusGpa,
+      equivalentFrictionDeg,
+      equivalentCohesionKpa: equivalentCohesionMpa * 1000,
+      inSituStressPoMpa,
+      strengthToStressRatio,
+      squeezingStrainPct,
+      envelopePoints,
+    };
+  }, [safeGsiForCalc, hoekBrownMi, disturbanceFactorD, intactUcsMpa, rockUnitWeight, overburdenDepthM]);
+
+  // --------------------------------------------------------------------------
+  // 4. BIENIAWSKI STAND-UP TIME & PALMSTROM BLOCK VOLUMES
+  // --------------------------------------------------------------------------
+  const standupAndBlockAnalysis = useMemo(() => {
+    const activeSpanM = Math.min(spanW, pullLength * 1.8);
+    const logHours = 0.115 * safeRmrForCalc - 1.35 * Math.log10(Math.max(1, activeSpanM)) - 1.1;
+    const standupHours = Math.max(0.1, Math.pow(10, logHours));
+    const maxUnsupportedSpanM = Math.max(0.8, 0.18 * Math.pow(safeRmrForCalc, 1.15));
+
+    const parseSp = (s?: string, fallback = 0.45) => {
+      if (!s) return fallback;
+      const m = s.match(/(\d+(?:\.\d+)?)/);
+      return m ? Math.max(0.05, parseFloat(m[1])) : fallback;
+    };
+    const s1 = parseSp(jointSets[0]?.spacing, fedData.governingJoint?.spacingM ?? 0.45);
+    const s2 = parseSp(jointSets[1]?.spacing, Math.min(1.5, s1 * 1.35));
+    const s3 = parseSp(jointSets[2]?.spacing, Math.min(2.0, s1 * 1.75));
+
+    const jvVolumetricCount = 1 / s1 + (jointSets.length >= 2 ? 1 / s2 : 0.6) + (jointSets.length >= 3 ? 1 / s3 : 0.4);
+    const rqdPalmstrom1982 = Math.max(0, Math.min(100, 115 - 3.3 * jvVolumetricCount));
+    const rqdPalmstrom2005 = Math.max(0, Math.min(100, 110 - 2.5 * jvVolumetricCount));
+
+    const betaShapeFactor = 36;
+    const blockVolumeM3 = betaShapeFactor * Math.pow(jvVolumetricCount, -3);
+    const equivalentBlockDiaM = Math.cbrt(blockVolumeM3);
+
+    let blockClass = 'Medium Blocky (0.01 - 0.2 m³)';
+    if (blockVolumeM3 > 1.0) blockClass = 'Large / Massive Blocks (> 1.0 m³)';
+    else if (blockVolumeM3 < 0.001) blockClass = 'Crushed / Sugar-Cube (< 0.001 m³)';
+    else if (blockVolumeM3 < 0.01) blockClass = 'Small Tabular / Blocky (0.001 - 0.01 m³)';
+
+    return {
+      activeSpanM,
+      standupHours,
+      standupDays: standupHours / 24,
+      maxUnsupportedSpanM,
+      s1,
+      s2,
+      s3,
+      jvVolumetricCount,
+      rqdPalmstrom1982,
+      rqdPalmstrom2005,
+      blockVolumeM3,
+      equivalentBlockDiaM,
+      blockClass,
+    };
+  }, [spanW, pullLength, safeRmrForCalc, jointSets, fedData.governingJoint?.spacingM]);
+
+  // --------------------------------------------------------------------------
+  // 5. HYDROGEOLOGICAL INFLOW (GOODMAN / HEUER)
+  // --------------------------------------------------------------------------
+  const hydroAnalysis = useMemo(() => {
+    const jw = propQIndexParams?.jw ?? 0.66;
+    const baseK = jw < 0.35 ? 5e-5 : jw < 0.6 ? 8e-6 : jw < 0.9 ? 1.5e-6 : 2e-7;
+    const eqRadiusM = (spanW + heightH) / 4;
+    const headRatio = Math.max(2.1, (2 * waterHeadM) / eqRadiusM);
+
+    const ungroutedInflowM3PerSecPerM = (2 * Math.PI * baseK * waterHeadM) / Math.log(headRatio);
+    const ungroutedLitersPerMinPer100m = ungroutedInflowM3PerSecPerM * 1000 * 60 * 100;
+    const groutedLitersPerMinPer100m = ungroutedLitersPerMinPer100m * (1 - groutReductionPct / 100);
+    const hydrostaticPressureMpa = (waterHeadM * 9.81) / 1000;
+    const suggestedGroutPressureMpa = Math.min(6.0, Math.max(1.0, hydrostaticPressureMpa * 2.2 + 0.5));
+
+    return {
+      baseK,
+      eqRadiusM,
+      ungroutedLitersPerMinPer100m,
+      groutedLitersPerMinPer100m,
+      hydrostaticPressureMpa,
+      suggestedGroutPressureMpa,
+    };
+  }, [propQIndexParams?.jw, spanW, heightH, waterHeadM, groutReductionPct]);
+
+  // --------------------------------------------------------------------------
+  // 6. PORTAL CUT & EXCAVATION STABILIZATION (ROMANA SMR & LIMIT EQUILIBRIUM)
+  // --------------------------------------------------------------------------
+  const slopeAndStabilizationAnalysis = useMemo(() => {
+    const alphaSlope = slopeDipDirDeg;
+    const betaSlope = slopeAngleDeg;
+    const alphaJoint = customDipDirection;
+    const betaJoint = customDip;
+
+    let deltaAlpha = Math.abs(alphaJoint - alphaSlope) % 360;
+    if (deltaAlpha > 180) deltaAlpha = 360 - deltaAlpha;
+
+    const f1Planar = Math.max(0.15, Math.min(1.0, Math.pow(1 - Math.sin((Math.max(0, deltaAlpha - 5) * Math.PI) / 180), 2)));
+    const f2Planar = Math.max(0.15, Math.min(1.0, Math.pow(Math.tan((betaJoint * Math.PI) / 180), 1.2)));
+    const diffPlanar = betaJoint - betaSlope;
+    const f3Planar = diffPlanar > 10 ? 0 : diffPlanar > 0 ? -6 : diffPlanar === 0 ? -25 : diffPlanar > -10 ? -50 : -60;
+    const f4Adjustment = surfaceParams?.excavationMethod === 'PRESPLITTING' ? 10 : surfaceParams?.excavationMethod === 'SMOOTH_BLASTING' ? 8 : 0;
+
+    const computedSmr = Math.max(
+      5,
+      Math.min(100, surfaceSmrAnalysis?.governingSmr ?? Math.round(safeRmrForCalc + f1Planar * f2Planar * f3Planar + f4Adjustment))
+    );
+
+    const failureLengthM = betaJoint > 15 ? slopeHeightM / Math.sin((betaJoint * Math.PI) / 180) : slopeHeightM * 1.5;
+    const wedgeAreaM2 = Math.max(
+      2.0,
+      0.5 *
+        slopeHeightM *
+        slopeHeightM *
+        Math.abs(1 / Math.tan((Math.max(15, betaJoint) * Math.PI) / 180) - 1 / Math.tan((Math.max(20, betaSlope) * Math.PI) / 180))
+    );
+    const weightPerMeterKn = wedgeAreaM2 * rockUnitWeight;
+    const seismicForceKn = weightPerMeterKn * seismicKh;
+    const waterUpliftKn = porePressureRu * weightPerMeterKn * Math.cos((betaJoint * Math.PI) / 180);
+
+    const drivingForceSlopeKn =
+      weightPerMeterKn * Math.sin((betaJoint * Math.PI) / 180) + seismicForceKn * Math.cos((betaJoint * Math.PI) / 180);
+    const normalForceSlopeKn = Math.max(
+      0,
+      weightPerMeterKn * Math.cos((betaJoint * Math.PI) / 180) -
+        seismicForceKn * Math.sin((betaJoint * Math.PI) / 180) -
+        waterUpliftKn
+    );
+
+    const phiRad = (frictionAngleDeg * Math.PI) / 180;
+    const resistingUnreinforcedKn = cohesionKpa * failureLengthM + normalForceSlopeKn * Math.tan(phiRad);
+    const fosSlopeUnreinforced = resistingUnreinforcedKn / Math.max(1, drivingForceSlopeKn);
+
+    const optAnchorInclinationRad = (15 * Math.PI) / 180;
+    const thetaBoltNormalRad = ((betaJoint + 15) * Math.PI) / 180;
+    const resistingReinforcedKn =
+      resistingUnreinforcedKn +
+      anchorTensionKnPerM * (Math.cos(thetaBoltNormalRad) * Math.tan(phiRad) + Math.sin(thetaBoltNormalRad));
+    const fosSlopeReinforced = resistingReinforcedKn / Math.max(1, drivingForceSlopeKn);
+
+    const targetFos = 1.5;
+    const deficitKn = Math.max(0, targetFos * drivingForceSlopeKn - resistingUnreinforcedKn);
+    const requiredTensionKnPerM =
+      deficitKn / Math.max(0.2, Math.cos(thetaBoltNormalRad) * Math.tan(phiRad) + Math.sin(thetaBoltNormalRad));
+
+    return {
+      computedSmr,
+      fosSlopeUnreinforced,
+      fosSlopeReinforced,
+      weightPerMeterKn,
+      drivingForceSlopeKn,
+      resistingReinforcedKn,
+      requiredTensionKnPerM,
+      failureLengthM,
+      optAnchorDeg: (optAnchorInclinationRad * 180) / Math.PI,
+    };
+  }, [
+    slopeDipDirDeg,
+    slopeAngleDeg,
+    customDipDirection,
+    customDip,
+    surfaceParams?.excavationMethod,
+    surfaceSmrAnalysis?.governingSmr,
+    safeRmrForCalc,
+    slopeHeightM,
+    rockUnitWeight,
+    seismicKh,
+    porePressureRu,
+    frictionAngleDeg,
+    cohesionKpa,
+    anchorTensionKnPerM,
+  ]);
+
+  // Live Domains & Fault Crossings for POOR_ROCK_PROPORTIONS (strictly from mapped data)
+  const livePoorRockInputs = useMemo(() => {
+    const domains: AlignmentDomainSegment[] = [];
+    if (fedData.historicalFaceLogs.length > 0) {
+      const sorted = [...fedData.historicalFaceLogs].sort((a, b) => a.chainageMeters - b.chainageMeters);
+      sorted.forEach((log, idx) => {
+        const nextLog = sorted[idx + 1];
+        const len = nextLog ? Math.max(pullLength, nextLog.chainageMeters - log.chainageMeters) : pullLength;
+        domains.push({
+          id: `dom-${log.id}`,
+          name: `${log.faceChainageStr} (${fedData.lithologyName})`,
+          startChainage: log.chainageMeters - pullLength,
+          endChainage: log.chainageMeters,
+          lengthM: len,
+          meanRmr: log.meanRmr,
+          stdDevRmr: 6.5,
+          meanQ: log.meanQ,
+          lithology: fedData.lithologyName,
+        });
+      });
+    } else {
+      domains.push({
+        id: 'dom-active',
+        name: `Active Round ${fedData.faceChainageStr} (${fedData.lithologyName})`,
+        startChainage: Math.max(0, currentFaceChainageNum - pullLength),
+        endChainage: currentFaceChainageNum,
+        lengthM: Math.max(pullLength, 30),
+        meanRmr: safeRmrForCalc,
+        stdDevRmr: 7.5,
+        meanQ: safeQForCalc,
+        lithology: fedData.lithologyName,
+      });
+    }
+
+    const totalLen = Math.max(
+      30,
+      domains.reduce((acc, d) => acc + d.lengthM, 0)
+    );
+
+    const faultCrossings: FaultZoneCrossing[] = fedData.faultsList.map((f) => {
+      const strikeDeg = (f.thetaDip - 90 + 360) % 360;
+      let psi = Math.abs(strikeDeg - customDriveAzimuth) % 180;
+      if (psi > 90) psi = 180 - psi;
+      return {
+        id: f.id,
+        name: f.name,
+        coreThicknessM: Math.max(0.2, f.tTrue),
+        damageHaloMultiplier: 2.0,
+        intersectionAnglePsiDeg: Math.max(10, Math.round(psi)),
+      };
+    });
+
+    return { totalLen, domains, faultCrossings };
+  }, [
+    fedData.historicalFaceLogs,
+    fedData.faceChainageStr,
+    fedData.lithologyName,
+    fedData.faultsList,
+    pullLength,
+    currentFaceChainageNum,
+    safeRmrForCalc,
+    safeQForCalc,
+    customDriveAzimuth,
+  ]);
+
+  // Mapped traces formatted for 3D Log Shell
+  const mapped3DTraces = useMemo(
+    () =>
+      (joints || [])
+        .filter((j) => j && typeof j.dip === 'number' && typeof j.dipDirection === 'number')
+        .map((j) => ({
+          id: j.id,
+          set: j.set || 'J1',
+          dip: j.dip,
+          dipDirection: j.dipDirection,
+          strike: j.strike,
+          type: ((j as any).type || j.featureType || 'Joint') as string,
+        })),
+    [joints]
+  );
+
+  // Ready count across all 15 modules
+  const readyCount = Object.values(readinessByTab).filter((r) => r.canCalculate).length;
+
+  return (
     <div
-      className={`relative flex flex-col ${
+      className={
         fullPage
-          ? 'w-full h-full min-h-0 bg-slate-900 text-slate-100 overflow-hidden font-sans'
-          : 'w-full max-w-7xl max-h-[96vh] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl text-slate-100 overflow-hidden font-sans'
-      }`}
+          ? 'w-full h-full bg-[#060a12] flex flex-col overflow-hidden text-slate-100'
+          : 'fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-hidden text-slate-100'
+      }
     >
-      {/* PRINT-ONLY STYLES INJECTION */}
-      <style>{`
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          #printable-geotech-report, #printable-geotech-report * {
-            visibility: visible;
-          }
-          #printable-geotech-report {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            background: white !important;
-            color: black !important;
-            padding: 24px;
-          }
-          .no-print {
-            display: none !important;
-          }
+      <div
+        className={
+          fullPage
+            ? 'w-full h-full flex flex-col overflow-hidden'
+            : 'bg-[#060a12] border border-slate-800 rounded-xl w-full max-w-[1640px] h-[94vh] flex flex-col shadow-2xl overflow-hidden'
         }
-      `}</style>
-
-      {/* HEADER BAR */}
-      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950/80 border-b border-slate-700/80 shrink-0 no-print">
-        <div className="flex items-center gap-3">
-          {fullPage && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs font-bold rounded-lg transition-colors cursor-pointer mr-1"
-              title="Return to Core Mapping Canvas"
-            >
-              <ArrowLeft className="w-4 h-4 text-sky-400" />
-              <span>Back to Canvas</span>
-            </button>
-          )}
-          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-400">
-            <Cpu className="w-5 h-5 animate-pulse" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">
-                ADVANCE GEOLOGICAL ANALYTICS &amp; ROCK MECHANICS
-              </h2>
-              <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 rounded-full">
-                Real-Time Geomechanics &amp; Futures
-              </span>
+      >
+        {/* ==================== TOP COMPACT ENGINEERING TELEMETRY HEADER ==================== */}
+        <header className="h-12 px-4 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-7 h-7 rounded bg-sky-500/15 border border-sky-500/40 flex items-center justify-center text-sky-400 shrink-0">
+              <Compass className="w-4 h-4" />
             </div>
-            <p className="text-xs text-slate-400">
-              Deep numerical modeling, kinematic keyblock solver, +30m forward advance forecasting, and formal engineering report
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {onOpenJunctionCalculator && (
-            <button
-              onClick={onOpenJunctionCalculator}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold rounded-lg transition-all cursor-pointer shadow-sm ${
-                junctionFactorData
-                  ? 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white border border-violet-400 ring-2 ring-violet-400/40'
-                  : 'bg-slate-800 hover:bg-slate-700 text-violet-300 border border-violet-500/40 hover:border-violet-400'
-              }`}
-              title="Tunnel Junction Factor (Kj) Calculator: Intersections, T-Junctions, Adits & Bifurcations"
-            >
-              <GitFork className="w-3.5 h-3.5 text-violet-300 shrink-0" />
-              <span>
-                {junctionFactorData
-                  ? `Junction Kj=${junctionFactorData.junctionFactorKj}×`
-                  : 'Junction Factor'}
-              </span>
-              {junctionFactorData && onClearJunctionFactor && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClearJunctionFactor();
-                  }}
-                  className="ml-1 p-0.5 hover:bg-violet-800 rounded text-violet-200"
-                  title="Remove Junction Factor & return to standard linear span"
-                >
-                  <X className="w-3 h-3" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs sm:text-sm font-mono font-bold tracking-wide text-white truncate">
+                  ADVANCE GEOTECHNICAL &amp; 3D KINEMATIC ANALYSIS
+                </h2>
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-sky-300 shrink-0">
+                  {shapeLabel} ({spanW.toFixed(2)}m × {heightH.toFixed(2)}m)
                 </span>
-              )}
+              </div>
+            </div>
+          </div>
+
+          {/* Live Ground-Truth Telemetry Readout Strip */}
+          <div className="hidden xl:flex items-center gap-2 text-[11px] font-mono tabular-nums">
+            <div className="px-2.5 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
+              FACE: <strong className="text-white">{fedData.faceChainageStr}</strong> (Pull {pullLength.toFixed(1)}m)
+            </div>
+            <div className="px-2.5 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
+              AZIMUTH: <strong className="text-sky-300">{String(Math.round(customDriveAzimuth)).padStart(3, '0')}°</strong>
+            </div>
+            <div className="px-2.5 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
+              MAPPED PLANES: <strong className={mapped3DTraces.length > 0 ? 'text-emerald-400' : 'text-amber-400'}>{mapped3DTraces.length}</strong>
+            </div>
+            <div className="px-2.5 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
+              RMR₈₉: <strong className={rmrVal !== null ? 'text-emerald-400' : 'text-slate-500'}>{rmrVal !== null ? rmrVal : 'UNRATED'}</strong>
+            </div>
+            <div className="px-2.5 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
+              NGI Q: <strong className={qVal !== null ? 'text-sky-300' : 'text-slate-500'}>{qVal !== null ? qVal.toFixed(2) : 'UNRATED'}</strong>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => window.print()}
+              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] font-mono font-bold text-slate-200 flex items-center gap-1.5 transition"
+            >
+              <Printer className="w-3.5 h-3.5 text-sky-400" /> Print Dossier
             </button>
-          )}
-          <button
-            onClick={handlePrintReport}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors cursor-pointer shadow-sm"
-            title="Print or Save Official Geotechnical PDF Report"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Print / PDF Report</span>
-          </button>
-          <button
-            onClick={handleExportHtmlReport}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors cursor-pointer shadow-sm"
-            title="Download Standalone HTML Document Report"
-          >
-            <FileDown className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Export HTML</span>
-          </button>
-          <button
-            onClick={handleExportSummaryReport}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold bg-sky-600 hover:bg-sky-500 text-white rounded-lg transition-colors cursor-pointer shadow-sm"
-            title="Download Full Numerical Geomechanics JSON Spec"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Export JSON</span>
-          </button>
-          {!fullPage && (
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-rose-500/20 hover:border-rose-500/40 border border-slate-700 text-[11px] font-mono font-bold text-slate-200 hover:text-rose-200 flex items-center gap-1 transition"
             >
-              <X className="w-5 h-5" />
+              <X className="w-3.5 h-3.5" /> {fullPage ? 'Return to Face Canvas' : 'Close'}
             </button>
-          )}
-        </div>
-      </div>
-
-      {/* LIVE DATA FEEDER FROM ACTIVE NATM FACE BANNER */}
-      <div className="px-3 py-2 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 border-b border-cyan-800/60 flex flex-wrap items-center justify-between gap-2.5 text-xs font-mono shrink-0 no-print">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/50 text-emerald-300">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-bold text-[11px] uppercase tracking-wide">{feedNotification}</span>
           </div>
+        </header>
 
-          <div className="flex flex-wrap items-center gap-2 text-slate-300 text-[11px]">
-            <span>
-              Section: <strong className="text-white">{fedData.spanW.toFixed(1)}m W × {fedData.heightH.toFixed(1)}m H</strong> (Bench {fedData.benchHeight.toFixed(1)}m)
-            </span>
-            <span className="text-slate-600">|</span>
-            <span>
-              Chainage: <strong className="text-amber-300">{fedData.faceChainageStr}</strong>
-            </span>
-            <span className="text-slate-600">|</span>
-            <span>
-              Bearing: <strong className="text-cyan-300">N {Math.round(customDriveAzimuth)}° E</strong>
-            </span>
-            <span className="text-slate-600">|</span>
-            <span>
-              Pull: <strong className="text-slate-200">{fedData.pullLengthM.toFixed(1)}m</strong>
-            </span>
-            <span className="text-slate-600">|</span>
-            <span>
-              Governing Discontinuity: <strong className="text-rose-400">{fedData.governingJoint.set}</strong> ({fedData.governingJoint.dip}° ∠ {fedData.governingJoint.dipDirection}°)
-            </span>
-            <span className="text-slate-600">|</span>
-            <span>
-              RMR89: <strong className="text-emerald-400">{fedData.rmrTotal}</strong> · Q: <strong className="text-cyan-300">{fedData.qValue}</strong>
-            </span>
-          </div>
-        </div>
-
-        <button
-          onClick={handleRefreshFeed}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-600/30 hover:bg-sky-600/50 text-sky-200 border border-sky-500/40 hover:border-sky-400 text-[11px] font-bold transition-all cursor-pointer shadow-xs shrink-0"
-          title="Re-read current tunnel dimensions, joints, RMR/Q, and face chainage from active canvas"
-        >
-          <RefreshCw className="w-3.5 h-3.5 text-sky-300" />
-          <span>Sync from Current Face</span>
-        </button>
-      </div>
-
-      {/* 2-ROW TAB NAVIGATION: 6 CORE MODELING CAPABILITIES + GEOTECHNICAL TOOLS */}
-      {/* TAB NAVIGATION: DEDICATED SLOPE & BENCH TABS OR 2-ROW TUNNEL TABS */}
-      <div className="flex flex-col bg-slate-950 border-b border-slate-800 shrink-0 no-print">
-        {isSlopeOrBench ? (
-          <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto no-scrollbar bg-slate-950 border-b border-slate-800/80">
-            <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest shrink-0 mr-1 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-amber-400" />
-              <span>Slope &amp; Bench Advance Analysis:</span>
-            </span>
-            {[
-              { id: 'SLOPE_STABILITY_AND_STABILIZATION', label: '1. Slope & Bench Stability & Stabilization Design', icon: ShieldCheck, highlight: true },
-              { id: 'WEDGE_FOS', label: '2. Kinematic Wedge & Daylighting FoS', icon: ShieldCheck },
-              { id: 'EXECUTIVE_REPORT', label: '3. Executive Geotechnical Report', icon: FileText },
-              { id: 'HOEK_BROWN_ROCK', label: '4. Hoek-Brown & Stress Envelopes', icon: Activity },
-              { id: 'APPARENT_DIP_SOLVER', label: '5. 4-Surface Apparent Dip Solver', icon: Compass },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as AdvancedAnalysisTab)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all whitespace-nowrap cursor-pointer ${
-                    isActive
-                      ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md ring-2 ring-amber-300 font-black'
-                      : tab.highlight
-                      ? 'bg-amber-950/40 text-amber-300 border border-amber-500/50 hover:bg-amber-900/50'
-                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-                  }`}
-                >
-                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-slate-950' : 'text-amber-400'}`} />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <>
-            {/* ROW 1: 6 CAPABILITIES FROM SYSTEM SPECIFICATION */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 overflow-x-auto no-scrollbar border-b border-slate-800/80">
-              <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest shrink-0 mr-1 flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-amber-400" /> 3D Modeling &amp; Analytics:
+        {/* ==================== MAIN 2-COLUMN WORKSPACE: GROUPED SIDEBAR + CAD VIEWPORT ==================== */}
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+          {/* LEFT GROUPED CATEGORY SIDEBAR */}
+          <aside className="w-full md:w-64 lg:w-72 bg-slate-950 border-b md:border-b-0 md:border-r border-slate-800/90 flex flex-col shrink-0 max-h-48 md:max-h-none overflow-y-auto">
+            <div className="px-3 py-2 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between">
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
+                Analysis Modules ({readyCount}/15 Ready)
               </span>
-              {[
-                { id: 'EXCAVATION_3D_LOG', label: '1. 3D Excavation Logs (Multi-Stage)', icon: Box },
-                { id: 'WEAK_ZONE_PROJECTOR', label: '2. Weak Zone Ahead Projector', icon: AlertTriangle },
-                { id: 'SEQUENTIAL_3D_RECON', label: '3. Sequential Face 3D Reconstruction', icon: Layers },
-                { id: 'APPARENT_THICKNESS_SPACING', label: '4. Component Apparent Thickness', icon: Ruler },
-                { id: 'ALIGNMENT_ALTERNATIVES', label: '5. Alignment Alternatives & Rose Sweep', icon: Compass },
-                { id: 'POOR_ROCK_PROPORTIONS', label: '6. Poor Rock Proportions (erf Bounds)', icon: BarChart3 },
-              ].map((tab) => {
-                const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as AdvancedAnalysisTab)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all whitespace-nowrap cursor-pointer ${
-                      isActive
-                        ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md ring-2 ring-amber-300'
-                        : 'bg-amber-950/30 hover:bg-amber-900/40 text-amber-200 border border-amber-700/40'
-                    }`}
-                  >
-                    <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-slate-950' : 'text-amber-400'}`} />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* ROW 2: GEOTECHNICAL & KINEMATIC TOOLS */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 overflow-x-auto no-scrollbar bg-slate-950/80">
-              <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest shrink-0 mr-1">
-                Rock Mechanics:
+              <span
+                className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                  readyCount === 15
+                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                }`}
+              >
+                {readyCount === 15 ? 'ALL VERIFIED' : 'DATA GATED'}
               </span>
-              {[
-                { id: 'EXECUTIVE_REPORT', label: 'Executive Report Sheet', icon: FileText },
-                { id: 'WEDGE_FOS', label: '2D/3D Kinematic Wedge & FoS', icon: ShieldCheck },
-                { id: 'FUTURE_FORECAST', label: 'Future Advance & Geohazard Forecast', icon: TrendingUp },
-                { id: 'APPARENT_DIP_SOLVER', label: '4-Surface Apparent Dip', icon: Compass },
-                { id: 'HOEK_BROWN_ROCK', label: 'Hoek-Brown & Stress Envelopes', icon: Activity },
-                { id: 'STANDUP_TIME_SPAN', label: 'Stand-Up Time & Rock Load', icon: Clock },
-                { id: 'PALMSTROM_BLOCKS', label: 'Palmström Blocks & Overbreak', icon: Layers },
-                { id: 'HYDRO_INFLOW', label: 'Hydrogeology & Inflow', icon: Droplets },
-              ].map((tab) => {
-                const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as AdvancedAnalysisTab)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-bold transition-all whitespace-nowrap cursor-pointer ${
-                      isActive
-                        ? 'bg-sky-600 text-white shadow-md ring-1 ring-sky-400'
-                        : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-                    }`}
-                  >
-                    <Icon className={`w-3 h-3 ${isActive ? 'text-amber-300' : 'text-slate-400'}`} />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* TAB CONTENT AREA */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-
-        {/* ================================================================= */}
-        {/* ADVANCE ANALYSIS: SLOPE & BENCH STABILITY & STABILIZATION DESIGN    */}
-        {/* ================================================================= */}
-        {activeTab === 'SLOPE_STABILITY_AND_STABILIZATION' && (
-          <div className="space-y-6">
-            {/* Top Status & FoS Recalculation Master Banner */}
-            <div className={`p-4 rounded-2xl border-2 flex flex-wrap items-center justify-between gap-4 shadow-xl ${
-              slopeStabilityCalc.staticReinforcedFos >= 1.50
-                ? 'bg-emerald-950/40 border-emerald-500/60 shadow-emerald-950/20'
-                : 'bg-amber-950/40 border-amber-500/60 shadow-amber-950/20'
-            }`}>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold tracking-wide uppercase border ${
-                    slopeStabilityCalc.staticReinforcedFos >= 1.50
-                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                      : 'bg-amber-500/20 border-amber-400 text-amber-300'
-                  }`}>
-                    {slopeStabilityCalc.staticReinforcedFos >= 1.50
-                      ? '✓ STABILIZATION DESIGN COMPLIANT (Target FoS ≥ 1.50 Static / ≥ 1.20 Seismic)'
-                      : '⚠ REINFORCEMENT DEFICIENT — INCREASE ANCHOR FORCE OR SUB-HORIZONTAL DRAINAGE'}
-                  </span>
-                  <span className="text-xs font-mono text-slate-400">
-                    Domain: <strong className="text-white">{mappingDomain} MAPPING</strong>
-                  </span>
-                </div>
-                <h3 className="text-lg font-black text-white font-mono">
-                  {mappingDomain === 'BENCH' ? 'Quarry / Open-Pit Bench Stability & Stabilization Design' : 'Engineered Rock Cut Slope Stability & Stabilization Design'}
-                </h3>
-                <p className="text-xs text-slate-300">
-                  Advanced Numerical Methods: Bishop's Slices, Janbu Non-Circular, Markland Kinematics, Monte Carlo ($P_f$, $\beta$), and 2D Cross-Section.
-                </p>
-              </div>
-
-              {/* 6 Key Performance Indicator Tiles */}
-              <div className="flex flex-wrap items-center gap-2.5">
-                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-center min-w-[115px]">
-                  <div className="text-[9.5px] font-mono uppercase text-slate-400 font-bold">Static Planar FoS</div>
-                  <div className="text-lg font-mono font-black mt-0.5 flex items-center justify-center gap-1">
-                    <span className="text-rose-400 text-xs line-through opacity-80">{slopeStabilityCalc.staticUnreinforcedFos.toFixed(2)}</span>
-                    <span className="text-slate-500 text-xs">→</span>
-                    <span className={slopeStabilityCalc.staticReinforcedFos >= 1.50 ? 'text-emerald-400' : 'text-amber-400'}>
-                      {slopeStabilityCalc.staticReinforcedFos.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="text-[9px] font-mono text-slate-400">Target ≥ 1.50</div>
-                </div>
-
-                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-center min-w-[115px]">
-                  <div className="text-[9.5px] font-mono uppercase text-slate-400 font-bold">Bishop Slices FoS</div>
-                  <div className="text-lg font-mono font-black mt-0.5 flex items-center justify-center gap-1">
-                    <span className="text-rose-400 text-xs line-through opacity-80">{bishopCalc.unreinforcedBishopFos.toFixed(2)}</span>
-                    <span className="text-slate-500 text-xs">→</span>
-                    <span className={bishopCalc.reinforcedBishopFos >= 1.50 ? 'text-emerald-400' : 'text-amber-400'}>
-                      {bishopCalc.reinforcedBishopFos.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="text-[9px] font-mono text-slate-400">Janbu {bishopCalc.janbuReinforcedFos.toFixed(2)}</div>
-                </div>
-
-                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-center min-w-[115px]">
-                  <div className="text-[9.5px] font-mono uppercase text-slate-400 font-bold">Seismic FoS (kh={slopeSeismicKh})</div>
-                  <div className="text-lg font-mono font-black mt-0.5 flex items-center justify-center gap-1">
-                    <span className="text-rose-400 text-xs line-through opacity-80">{slopeStabilityCalc.seismicUnreinforcedFos.toFixed(2)}</span>
-                    <span className="text-slate-500 text-xs">→</span>
-                    <span className={slopeStabilityCalc.seismicReinforcedFos >= 1.20 ? 'text-emerald-400' : 'text-amber-400'}>
-                      {slopeStabilityCalc.seismicReinforcedFos.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="text-[9px] font-mono text-slate-400">Target ≥ 1.20</div>
-                </div>
-
-                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-center min-w-[115px]">
-                  <div className="text-[9.5px] font-mono uppercase text-slate-400 font-bold">Wedge (J1 ∩ J2)</div>
-                  <div className="text-lg font-mono font-black mt-0.5 flex items-center justify-center gap-1">
-                    <span className="text-rose-400 text-xs line-through opacity-80">{slopeStabilityCalc.wedgeFosUnreinforced.toFixed(2)}</span>
-                    <span className="text-slate-500 text-xs">→</span>
-                    <span className="text-emerald-400">{slopeStabilityCalc.wedgeFosReinforced.toFixed(2)}</span>
-                  </div>
-                  <div className="text-[9px] font-mono text-slate-400">Plunge ψ={slopeStabilityCalc.wedgePlungeDeg}°</div>
-                </div>
-
-                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-center min-w-[125px]">
-                  <div className="text-[9.5px] font-mono uppercase text-slate-400 font-bold">Monte Carlo Pf</div>
-                  <div className="text-lg font-mono font-black mt-0.5 flex items-center justify-center gap-1">
-                    <span className="text-rose-400 text-xs">{monteCarloResults.pfUnreinforced}%</span>
-                    <span className="text-slate-500 text-xs">→</span>
-                    <span className="text-emerald-400 font-black">{monteCarloResults.pfReinforced}%</span>
-                  </div>
-                  <div className="text-[9px] font-mono text-cyan-300">β = {monteCarloResults.betaRef} (Reliable)</div>
-                </div>
-
-                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-center min-w-[115px]">
-                  <div className="text-[9.5px] font-mono uppercase text-slate-400 font-bold">Ritchie Catch Berm</div>
-                  <div className="text-base font-mono font-black mt-0.5 text-cyan-300">
-                    {bermWidthM}m <span className="text-xs text-slate-400">/ Req {slopeStabilityCalc.ritchieMinBermWidthM}m</span>
-                  </div>
-                  <div className={`text-[9px] font-mono font-bold ${slopeStabilityCalc.isBermAdequate ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {slopeStabilityCalc.catchmentRetentionPct}% Retained
-                  </div>
-                </div>
-              </div>
             </div>
 
-            {/* Sub-Tab Navigation Bar */}
-            <div className="flex items-center gap-1.5 p-1.5 bg-slate-950 border border-slate-800 rounded-xl overflow-x-auto no-scrollbar font-mono text-xs">
-              {[
-                { id: 'OVERVIEW', label: '1. Overview & Limit Equilibrium', icon: Sliders },
-                { id: 'BISHOP_JANBU', label: "2. Bishop's & Janbu Slices Solver", icon: Layers, badge: `FoS ${bishopCalc.reinforcedBishopFos.toFixed(2)}` },
-                { id: 'MARKLAND', label: '3. Markland Kinematic Stereonet', icon: Compass, badge: marklandKinematics.isPlanarCritical ? 'Planar Critical' : 'Screened' },
-                { id: 'MONTE_CARLO', label: '4. Monte Carlo Probabilistic (Pf & β)', icon: BarChart3, badge: `Pf ${monteCarloResults.pfReinforced}%` },
-                { id: 'CROSS_SECTION', label: '5. Interactive 2D Slope Simulator', icon: Activity, badge: 'CAD 2D' },
-              ].map((st) => {
-                const Icon = st.icon;
-                const isCurrent = slopeSubTab === st.id;
-                return (
-                  <button
-                    key={st.id}
-                    type="button"
-                    onClick={() => setSlopeSubTab(st.id as any)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer ${
-                      isCurrent
-                        ? 'bg-amber-500 text-slate-950 shadow-md font-black'
-                        : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800/80 hover:text-white'
-                    }`}
-                  >
-                    <Icon className={`w-3.5 h-3.5 ${isCurrent ? 'text-slate-950' : 'text-amber-400'}`} />
-                    <span>{st.label}</span>
-                    {st.badge && (
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
-                        isCurrent ? 'bg-slate-950 text-amber-300' : 'bg-slate-800 text-amber-400 border border-slate-700'
-                      }`}>
-                        {st.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* ------------------------------------------------------------- */}
-            {/* SUB-TAB 1: OVERVIEW & LIMIT EQUILIBRIUM                       */}
-            {/* ------------------------------------------------------------- */}
-            {slopeSubTab === 'OVERVIEW' && (
-              <div className="space-y-5">
-                {/* 4 Interactive Calibration Panels Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {/* Card 1: Slope & Bench Geometry */}
-                  <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 space-y-3">
-                    <div className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5 border-b border-slate-800 pb-2">
-                      <Ruler className="w-3.5 h-3.5" />
-                      <span>1. Slope &amp; Bench Geometry</span>
-                    </div>
-                    <div className="space-y-2.5 text-xs font-mono">
-                      <div>
-                        <div className="flex justify-between text-slate-300 mb-1">
-                          <span>Height H (m):</span>
-                          <strong className="text-white">{slopeHeightM} m</strong>
-                        </div>
-                        <input
-                          type="range"
-                          min={4}
-                          max={60}
-                          step={1}
-                          value={slopeHeightM}
-                          onChange={(e) => setSlopeHeightM(Number(e.target.value))}
-                          className="w-full accent-amber-500 cursor-pointer"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-slate-300 mb-1">
-                          <span>Face Dip Angle βs (°):</span>
-                          <strong className="text-amber-300">{slopeFaceAngleDeg}°</strong>
-                        </div>
-                        <input
-                          type="range"
-                          min={35}
-                          max={88}
-                          step={1}
-                          value={slopeFaceAngleDeg}
-                          onChange={(e) => setSlopeFaceAngleDeg(Number(e.target.value))}
-                          className="w-full accent-amber-500 cursor-pointer"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-slate-300 mb-1">
-                          <span>Catch Berm Width Wb (m):</span>
-                          <strong className="text-cyan-300">{bermWidthM} m</strong>
-                        </div>
-                        <input
-                          type="range"
-                          min={2}
-                          max={15}
-                          step={0.5}
-                          value={bermWidthM}
-                          onChange={(e) => setBermWidthM(Number(e.target.value))}
-                          className="w-full accent-cyan-500 cursor-pointer"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-slate-300 mb-1">
-                          <span>Rock Unit Weight γ:</span>
-                          <strong className="text-slate-200">{slopeUnitWeightKnM3} kN/m³</strong>
-                        </div>
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={slopeUnitWeightKnM3}
-                          onChange={(e) => setSlopeUnitWeightKnM3(Number(e.target.value) || 26.5)}
-                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white"
-                        />
-                      </div>
-                    </div>
+            <div className="p-2 space-y-3 flex-1 overflow-y-auto">
+              {SIDEBAR_CATEGORIES.map((cat) => (
+                <div key={cat.id} className="space-y-1">
+                  <div className="px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">
+                    {cat.title}
                   </div>
+                  {cat.items.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeTab === item.id;
+                    const readiness = readinessByTab[item.id];
+                    const isReady = readiness?.canCalculate;
 
-                  {/* Card 2: Governing Joint Discontinuity */}
-                  <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 space-y-3">
-                    <div className="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5 border-b border-slate-800 pb-2">
-                      <Compass className="w-3.5 h-3.5" />
-                      <span>2. Governing Discontinuity</span>
-                    </div>
-                    <div className="space-y-2.5 text-xs font-mono">
-                      <div>
-                        <div className="flex justify-between text-slate-300 mb-1">
-                          <span>Joint Dip Angle βj (°):</span>
-                          <strong className="text-rose-400">{slopeJointDipDeg}°</strong>
-                        </div>
-                        <input
-                          type="range"
-                          min={15}
-                          max={Math.max(20, slopeFaceAngleDeg - 1)}
-                          step={1}
-                          value={slopeJointDipDeg}
-                          onChange={(e) => setSlopeJointDipDeg(Number(e.target.value))}
-                          className="w-full accent-rose-500 cursor-pointer"
-                        />
-                        <div className="text-[10px] text-emerald-400 mt-0.5">
-                          {slopeJointDipDeg < slopeFaceAngleDeg ? '✓ Daylights out of slope face (Critical)' : 'Apparent undercut'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-slate-300 mb-1">
-                          <span>Joint Cohesion c (kPa):</span>
-                          <strong className="text-slate-200">{slopeCohesionKpa} kPa</strong>
-                        </div>
-                        <input
-                          type="range"
-                          min={5}
-                          max={120}
-                          step={5}
-                          value={slopeCohesionKpa}
-                          onChange={(e) => setSlopeCohesionKpa(Number(e.target.value))}
-                          className="w-full accent-cyan-500 cursor-pointer"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-slate-300 mb-1">
-                          <span>Joint Friction Angle φ (°):</span>
-                          <strong className="text-emerald-300">{slopeFrictionAngleDeg}°</strong>
-                        </div>
-                        <input
-                          type="range"
-                          min={18}
-                          max={45}
-                          step={1}
-                          value={slopeFrictionAngleDeg}
-                          onChange={(e) => setSlopeFrictionAngleDeg(Number(e.target.value))}
-                          className="w-full accent-emerald-500 cursor-pointer"
-                        />
-                      </div>
-                      <div className="p-2 rounded bg-slate-950 border border-slate-800 text-[10.5px]">
-                        <span className="text-slate-400">Sliding Block Mass: </span>
-                        <strong className="text-amber-300">{slopeStabilityCalc.blockWeightKn} kN/m</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card 3: Groundwater & Seismic Loading */}
-                  <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 space-y-3">
-                    <div className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5 border-b border-slate-800 pb-2">
-                      <Droplets className="w-3.5 h-3.5" />
-                      <span>3. Groundwater &amp; Seismic</span>
-                    </div>
-                    <div className="space-y-2.5 text-xs font-mono">
-                      <div>
-                        <div className="flex justify-between text-slate-300 mb-1">
-                          <span>Water Ratio ru (Uplift):</span>
-                          <strong className="text-sky-300">{slopeWaterRatioRu}</strong>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={0.4}
-                          step={0.05}
-                          value={slopeWaterRatioRu}
-                          onChange={(e) => setSlopeWaterRatioRu(Number(e.target.value))}
-                          className="w-full accent-sky-500 cursor-pointer"
-                        />
-                        <div className="text-[10px] text-slate-400 mt-0.5">Uplift Force U = {slopeStabilityCalc.waterUpliftKn} kN/m</div>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-slate-300 mb-1">
-                          <span>Seismic Coeff kh:</span>
-                          <strong className="text-amber-300">{slopeSeismicKh}g</strong>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={0.25}
-                          step={0.02}
-                          value={slopeSeismicKh}
-                          onChange={(e) => setSlopeSeismicKh(Number(e.target.value))}
-                          className="w-full accent-amber-500 cursor-pointer"
-                        />
-                      </div>
-                      <div className="pt-2 border-t border-slate-800">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={slopeDrainageActive}
-                            onChange={(e) => setSlopeDrainageActive(e.target.checked)}
-                            className="rounded accent-sky-500 w-4 h-4 cursor-pointer"
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setActiveTab(item.id)}
+                        className={`w-full text-left px-2.5 py-2 rounded-lg border transition flex items-center justify-between gap-2 ${
+                          isActive
+                            ? 'bg-sky-500/15 border-sky-500/50 text-white shadow-sm'
+                            : 'bg-slate-900/40 hover:bg-slate-900 border-transparent hover:border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Icon
+                            className={`w-4 h-4 shrink-0 ${
+                              isActive ? 'text-sky-400' : isReady ? 'text-slate-400' : 'text-amber-500/70'
+                            }`}
                           />
-                          <span className="text-slate-200 text-xs font-bold">Sub-Horizontal Drains</span>
-                        </label>
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          Ø76mm slotted PVC drains (L=15m @ 4° up) reduce joint cleft water pressure by 75%.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card 4: Slope & Bench Stabilization System Design */}
-                  <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 space-y-3">
-                    <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5 border-b border-slate-800 pb-2">
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>4. Stabilization System Sizing</span>
-                    </div>
-                    <div className="space-y-2.5 text-xs font-mono">
-                      <div>
-                        <label className="block text-slate-300 text-[11px] mb-1">Rock Bolt Working Load (kN):</label>
-                        <select
-                          value={slopeBoltCapKn}
-                          onChange={(e) => setSlopeBoltCapKn(Number(e.target.value))}
-                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-bold"
-                        >
-                          <option value="150">Ø20mm Threadbar (150 kN)</option>
-                          <option value="250">Ø25mm High-Yield 500 (250 kN)</option>
-                          <option value="350">Ø32mm Pre-Stressed (350 kN)</option>
-                          <option value="500">Multi-Strand Cable Anchor (500 kN)</option>
-                        </select>
-                      </div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <div>
-                          <label className="block text-slate-400 text-[10px]">Sh Grid (m):</label>
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="1.0"
-                            max="4.0"
-                            value={slopeBoltSpacingH}
-                            onChange={(e) => setSlopeBoltSpacingH(Number(e.target.value) || 2.0)}
-                            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-xs text-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-slate-400 text-[10px]">Sv Grid (m):</label>
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="1.0"
-                            max="4.0"
-                            value={slopeBoltSpacingV}
-                            onChange={(e) => setSlopeBoltSpacingV(Number(e.target.value) || 2.0)}
-                            className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-xs text-white"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-slate-300 text-[11px] mb-1">Fiber Shotcrete Thickness (mm):</label>
-                        <select
-                          value={slopeShotcreteMm}
-                          onChange={(e) => setSlopeShotcreteMm(Number(e.target.value))}
-                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-bold"
-                        >
-                          <option value="0">None / Bare Rock</option>
-                          <option value="50">50 mm Steel Fiber Mesh</option>
-                          <option value="80">80 mm High-Tensile Tecco Mesh + Shotcrete</option>
-                          <option value="120">120 mm Heavy Reinforced Lining</option>
-                        </select>
-                      </div>
-                      <div className="p-2 rounded bg-slate-950 border border-emerald-500/40 text-[10.5px]">
-                        <div className="text-emerald-300 font-bold">Total Capacity: {slopeStabilityCalc.totalBoltForceKnPerM} kN/m</div>
-                        <div className="text-slate-400">Min Embedment: {slopeStabilityCalc.requiredEmbedmentM} m</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Mechanics & Engineering Specifications Table */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 font-mono text-xs">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <span className="font-bold text-amber-300 uppercase tracking-wider">
-                      Detailed Limit Equilibrium &amp; Kinematic Daylighting Audit
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => window.print()}
-                      className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs cursor-pointer flex items-center gap-1.5"
-                    >
-                      <Printer className="w-3.5 h-3.5" />
-                      Print Calculation Sheet
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-slate-300">
-                    <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                      <div className="text-slate-400 text-[10.5px]">Planar Daylighting Plane</div>
-                      <div className="font-bold text-white text-sm mt-0.5">L = {slopeStabilityCalc.slidingLengthM} m</div>
-                      <div className="text-[10px] text-slate-400">Joint daylights along face</div>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                      <div className="text-slate-400 text-[10.5px]">Toppling Kinematics</div>
-                      <div className={`font-bold text-sm mt-0.5 ${slopeStabilityCalc.isTopplingSusceptible ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {slopeStabilityCalc.isTopplingSusceptible ? 'Toppling Risk (Index > 0)' : 'Stable against Toppling'}
-                      </div>
-                      <div className="text-[10px] text-slate-400">Goodman &amp; Bray: ({slopeFaceAngleDeg}° - {slopeJointDipDeg}°) vs (90° - {slopeFrictionAngleDeg}°)</div>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                      <div className="text-slate-400 text-[10.5px]">Ritchie Catchment Berm</div>
-                      <div className={`font-bold text-sm mt-0.5 ${slopeStabilityCalc.isBermAdequate ? 'text-emerald-400' : 'text-amber-400'}`}>
-                        {slopeStabilityCalc.isBermAdequate ? '✓ Berm Width Adequate' : '⚠ Berm Width Under-sized'}
-                      </div>
-                      <div className="text-[10px] text-slate-400">Wmin = 0.2H + 4.5m = {slopeStabilityCalc.ritchieMinBermWidthM}m</div>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                      <div className="text-slate-400 text-[10.5px]">Reinforced Safety Margin</div>
-                      <div className="font-bold text-emerald-400 text-sm mt-0.5">
-                        +{Math.round(((slopeStabilityCalc.staticReinforcedFos - slopeStabilityCalc.staticUnreinforcedFos) / slopeStabilityCalc.staticUnreinforcedFos) * 100)}% FoS Increase
-                      </div>
-                      <div className="text-[10px] text-slate-400">Target ≥ 1.50 Static Achieved</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ------------------------------------------------------------- */}
-            {/* SUB-TAB 2: BISHOP & JANBU METHOD OF SLICES                    */}
-            {/* ------------------------------------------------------------- */}
-            {slopeSubTab === 'BISHOP_JANBU' && (
-              <div className="space-y-5 font-mono">
-                {/* Method Overview Card */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-amber-300 flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-amber-400" />
-                        <span>Bishop's Simplified (Circular) &amp; Janbu's (Non-Circular) Method of Slices</span>
-                      </h4>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Iterative Newton-Raphson limit equilibrium solver satisfying vertical force and overall moment equilibrium.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="px-3 py-1 rounded bg-slate-950 border border-slate-700 text-xs">
-                        <span className="text-slate-400">Arc Radius: </span>
-                        <strong className="text-amber-300">R = {bishopCalc.radiusM} m</strong>
-                      </div>
-                      <div className="px-3 py-1 rounded bg-slate-950 border border-slate-700 text-xs">
-                        <span className="text-slate-400">Center: </span>
-                        <strong className="text-white">({bishopCalc.centerX}, {bishopCalc.centerY})</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* FoS Comparison Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-                    <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                      <div className="text-slate-400 text-[11px]">Bishop Unreinforced FoS</div>
-                      <div className="text-2xl font-black text-rose-400 mt-1">{bishopCalc.unreinforcedBishopFos.toFixed(2)}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Bare rock mass circle</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-slate-950 border border-emerald-500/40">
-                      <div className="text-emerald-400 text-[11px] font-bold">Bishop Reinforced FoS</div>
-                      <div className="text-2xl font-black text-emerald-400 mt-1">{bishopCalc.reinforcedBishopFos.toFixed(2)}</div>
-                      <div className="text-[10px] text-emerald-300 mt-0.5">✓ Anchors + Shotcrete (+{Math.round(((bishopCalc.reinforcedBishopFos - bishopCalc.unreinforcedBishopFos)/bishopCalc.unreinforcedBishopFos)*100)}%)</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                      <div className="text-slate-400 text-[11px]">Janbu Unreinforced FoS</div>
-                      <div className="text-2xl font-black text-rose-400 mt-1">{bishopCalc.janbuUnreinforcedFos.toFixed(2)}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Correction f₀ = {bishopCalc.janbuCorrectionF0}</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-slate-950 border border-cyan-500/40">
-                      <div className="text-cyan-400 text-[11px] font-bold">Janbu Reinforced FoS</div>
-                      <div className="text-2xl font-black text-cyan-400 mt-1">{bishopCalc.janbuReinforcedFos.toFixed(2)}</div>
-                      <div className="text-[10px] text-cyan-300 mt-0.5">Non-circular composite plane</div>
-                    </div>
-                  </div>
-
-                  {/* Moment Balance Breakdown */}
-                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-                    <div>
-                      <span className="text-slate-400">Total Driving Overturning Moment: </span>
-                      <strong className="text-rose-400">{bishopCalc.totalDriveMomentKnm.toLocaleString()} kN·m</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400">Soil Nails Restoring Moment: </span>
-                      <strong className="text-emerald-400">+{bishopCalc.nailResistingMomentKnm.toLocaleString()} kN·m</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400">Iterative Status: </span>
-                      <strong className="text-emerald-300">Converged (ΔF &lt; 0.001)</strong>
-                    </div>
-                  </div>
-
-                  {/* Slice by Slice Discretization Table */}
-                  <div className="space-y-2">
-                    <div className="text-xs font-bold text-slate-300 uppercase tracking-wide">
-                      Discretized Slice Coordinates &amp; Shear Parameters (N={bishopCalc.slices.length})
-                    </div>
-                    <div className="overflow-x-auto border border-slate-800 rounded-lg">
-                      <table className="w-full text-[11px] text-left">
-                        <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
-                          <tr>
-                            <th className="py-2 px-2.5">Slice #</th>
-                            <th className="py-2 px-2.5">Mid X (m)</th>
-                            <th className="py-2 px-2.5">Width b (m)</th>
-                            <th className="py-2 px-2.5">Height h (m)</th>
-                            <th className="py-2 px-2.5">Base Incl. α (°)</th>
-                            <th className="py-2 px-2.5">Weight W (kN)</th>
-                            <th className="py-2 px-2.5">Pore Press. u (kPa)</th>
-                            <th className="py-2 px-2.5">m_α Factor</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800 text-slate-300">
-                          {bishopCalc.slices.map((s) => {
-                            const phiRad = (slopeFrictionAngleDeg * Math.PI) / 180;
-                            const mAlpha = Math.cos(s.alphaRad) * (1 + (Math.tan(s.alphaRad) * Math.tan(phiRad)) / bishopCalc.reinforcedBishopFos);
-                            return (
-                              <tr key={s.index} className="hover:bg-slate-800/40">
-                                <td className="py-1.5 px-2.5 font-bold text-amber-300">#{s.index}</td>
-                                <td className="py-1.5 px-2.5">{s.xMid}</td>
-                                <td className="py-1.5 px-2.5">{s.width}</td>
-                                <td className="py-1.5 px-2.5 text-white font-bold">{s.height}</td>
-                                <td className="py-1.5 px-2.5 text-cyan-300">{s.alphaDeg}°</td>
-                                <td className="py-1.5 px-2.5">{s.weightKn}</td>
-                                <td className="py-1.5 px-2.5 text-sky-400">{s.porePressureU}</td>
-                                <td className="py-1.5 px-2.5 text-emerald-400 font-bold">{mAlpha.toFixed(3)}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ------------------------------------------------------------- */}
-            {/* SUB-TAB 3: MARKLAND KINEMATIC STEREONET SCREENING             */}
-            {/* ------------------------------------------------------------- */}
-            {slopeSubTab === 'MARKLAND' && (
-              <div className="space-y-5 font-mono">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {/* Test 1: Planar Failure */}
-                  <div className={`p-4 rounded-xl border ${
-                    marklandKinematics.isPlanarCritical
-                      ? 'bg-rose-950/30 border-rose-500/50'
-                      : 'bg-slate-900 border-slate-800'
-                  }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold text-xs uppercase tracking-wider text-rose-400">1. Planar Daylighting Test</span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        marklandKinematics.isPlanarCritical
-                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                      }`}>
-                        {marklandKinematics.isPlanarCritical ? 'FAIL KINEMATIC' : 'SAFE'}
-                      </span>
-                    </div>
-                    <div className="space-y-2 text-xs text-slate-300">
-                      <div className="flex justify-between">
-                        <span>Dip Dir Alignment:</span>
-                        <strong className={marklandKinematics.isPlanarDirectional ? 'text-rose-400' : 'text-emerald-400'}>
-                          Δ = {marklandKinematics.dipDiff}° {marklandKinematics.isPlanarDirectional ? '(≤ 20° Critical)' : '(Pass)'}
-                        </strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Daylighting Condition:</span>
-                        <strong className={marklandKinematics.isPlanarDaylighting ? 'text-amber-400' : 'text-emerald-400'}>
-                          βj {marklandKinematics.jointDip}° &lt; βs {marklandKinematics.slopeDip}°
-                        </strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Friction Cone Condition:</span>
-                        <strong className={marklandKinematics.isPlanarFriction ? 'text-rose-400' : 'text-emerald-400'}>
-                          βj {marklandKinematics.jointDip}° &gt; φ {marklandKinematics.phi}°
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Test 2: Intersecting Wedge Failure */}
-                  <div className={`p-4 rounded-xl border ${
-                    marklandKinematics.isWedgeCritical
-                      ? 'bg-rose-950/30 border-rose-500/50'
-                      : 'bg-slate-900 border-slate-800'
-                  }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold text-xs uppercase tracking-wider text-amber-400">2. Intersecting Wedge (J1 ∩ J2)</span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        marklandKinematics.isWedgeCritical
-                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                      }`}>
-                        {marklandKinematics.isWedgeCritical ? 'WEDGE CRITICAL' : 'INADMISSIBLE'}
-                      </span>
-                    </div>
-                    <div className="space-y-2 text-xs text-slate-300">
-                      <div className="flex justify-between">
-                        <span>Line of Intersection Plunge:</span>
-                        <strong className="text-white">ψ = {marklandKinematics.plungeDeg}°</strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Intersection Trend:</span>
-                        <strong className="text-cyan-300">α = {marklandKinematics.trendDeg}°</strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Daylight Envelope:</span>
-                        <strong className={marklandKinematics.isWedgeDaylighting ? 'text-rose-400' : 'text-emerald-400'}>
-                          ψ {marklandKinematics.plungeDeg}° &lt; βs {marklandKinematics.slopeDip}°
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Test 3: Goodman & Bray Toppling */}
-                  <div className={`p-4 rounded-xl border ${
-                    marklandKinematics.isTopplingCritical
-                      ? 'bg-amber-950/30 border-amber-500/50'
-                      : 'bg-slate-900 border-slate-800'
-                  }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold text-xs uppercase tracking-wider text-cyan-400">3. Goodman &amp; Bray Toppling</span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        marklandKinematics.isTopplingCritical
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                      }`}>
-                        {marklandKinematics.isTopplingCritical ? 'TOPPLING RISK' : 'STABLE'}
-                      </span>
-                    </div>
-                    <div className="space-y-2 text-xs text-slate-300">
-                      <div className="flex justify-between">
-                        <span>Interlayer Slip Condition:</span>
-                        <strong className={marklandKinematics.isTopplingKinematic ? 'text-amber-400' : 'text-emerald-400'}>
-                          (βs - βj) = {marklandKinematics.slopeDip - marklandKinematics.jointDip}° ≥ (90° - φ) = {90 - marklandKinematics.phi}°
-                        </strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Strike Parallelism:</span>
-                        <strong className={marklandKinematics.isTopplingDirectional ? 'text-amber-400' : 'text-emerald-400'}>
-                          Δ = {marklandKinematics.topplingDipDiff}° {marklandKinematics.isTopplingDirectional ? '(≤ 30°)' : '(Safe)'}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Equal-Area Stereographic Projection Visualizer */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <span className="font-bold text-sm text-white">Equal-Area Lower Hemisphere Stereonet Feasibility Envelope</span>
-                    <span className="text-xs text-slate-400">Markland (1972) / Hoek &amp; Bray (1981)</span>
-                  </div>
-
-                  <div className="flex flex-col md:flex-row items-center justify-center gap-6 py-2">
-                    {/* SVG Stereonet */}
-                    <div className="relative w-64 h-64 bg-slate-950 border border-slate-800 rounded-full flex items-center justify-center shadow-inner">
-                      <svg viewBox="-110 -110 220 220" className="w-full h-full">
-                        {/* Outer perimeter circle */}
-                        <circle cx="0" cy="0" r="100" fill="none" stroke="#475569" strokeWidth="2" />
-                        {/* Center cross */}
-                        <line x1="-100" y1="0" x2="100" y2="0" stroke="#334155" strokeWidth="1" strokeDasharray="2,2" />
-                        <line x1="0" y1="-100" x2="0" y2="100" stroke="#334155" strokeWidth="1" strokeDasharray="2,2" />
-                        
-                        {/* Friction cone circle: radius = 100 * tan((90 - phi)/2) */}
-                        <circle
-                          cx="0"
-                          cy="0"
-                          r={Math.min(95, Math.max(15, 100 * Math.tan(((90 - marklandKinematics.phi) * Math.PI) / 360)))}
-                          fill="none"
-                          stroke="#10b981"
-                          strokeWidth="1.5"
-                          strokeDasharray="4,3"
-                        />
-
-                        {/* Slope Face Daylight Great Arc (approximated curve) */}
-                        <path
-                          d={`M -70 70 Q 0 ${100 - marklandKinematics.slopeDip * 0.9} 70 70`}
-                          fill="none"
-                          stroke="#f59e0b"
-                          strokeWidth="2.5"
-                        />
-
-                        {/* J1 Joint Pole / Great Circle */}
-                        <circle
-                          cx={Math.sin((marklandKinematics.jointDipDir * Math.PI) / 180) * (marklandKinematics.jointDip * 0.9)}
-                          cy={-Math.cos((marklandKinematics.jointDipDir * Math.PI) / 180) * (marklandKinematics.jointDip * 0.9)}
-                          r="5"
-                          fill="#f43f5e"
-                          stroke="#ffffff"
-                          strokeWidth="1"
-                        />
-
-                        {/* Intersection Wedge Plunge Point */}
-                        <circle
-                          cx={Math.sin((marklandKinematics.trendDeg * Math.PI) / 180) * (marklandKinematics.plungeDeg * 0.9)}
-                          cy={-Math.cos((marklandKinematics.trendDeg * Math.PI) / 180) * (marklandKinematics.plungeDeg * 0.9)}
-                          r="6"
-                          fill="#38bdf8"
-                          stroke="#ffffff"
-                          strokeWidth="1.5"
-                        />
-
-                        {/* Labels */}
-                        <text x="0" y="-103" textAnchor="middle" fill="#94a3b8" fontSize="9" fontWeight="bold">N</text>
-                        <text x="104" y="3" textAnchor="start" fill="#94a3b8" fontSize="9" fontWeight="bold">E</text>
-                        <text x="0" y="108" textAnchor="middle" fill="#94a3b8" fontSize="9" fontWeight="bold">S</text>
-                        <text x="-104" y="3" textAnchor="end" fill="#94a3b8" fontSize="9" fontWeight="bold">W</text>
-                      </svg>
-                    </div>
-
-                    {/* Legend & Parameters */}
-                    <div className="space-y-2 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="w-3.5 h-1.5 bg-amber-500 rounded-full" />
-                        <span className="text-slate-300">Slope Face Daylight Envelope: <strong>βs = {marklandKinematics.slopeDip}°</strong></span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-3.5 h-1.5 bg-emerald-500 rounded-full" />
-                        <span className="text-slate-300">Friction Cone Boundary: <strong>φ = {marklandKinematics.phi}°</strong></span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 bg-rose-500 rounded-full border border-white" />
-                        <span className="text-slate-300">Primary Joint J1 Dip Vector: <strong>{marklandKinematics.jointDip}° ∠ {marklandKinematics.jointDipDir}°</strong></span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 bg-sky-400 rounded-full border border-white" />
-                        <span className="text-slate-300">Wedge Intersection (J1 ∩ J2): <strong>ψ = {marklandKinematics.plungeDeg}° ∠ {marklandKinematics.trendDeg}°</strong></span>
-                      </div>
-                      <div className="p-2.5 rounded bg-slate-950 border border-slate-800 text-[11px] text-slate-400 mt-2">
-                        {marklandKinematics.isPlanarCritical
-                          ? '⚠ Primary joint J1 falls inside the daylight envelope and outside friction cone: active planar daylighting hazard!'
-                          : '✓ Kinematic envelope shows no critical daylighting in the unreinforced state.'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ------------------------------------------------------------- */}
-            {/* SUB-TAB 4: MONTE CARLO PROBABILISTIC SIMULATION               */}
-            {/* ------------------------------------------------------------- */}
-            {slopeSubTab === 'MONTE_CARLO' && (
-              <div className="space-y-5 font-mono">
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-amber-300 flex items-center gap-2">
-                        <BarChart3 className="w-4 h-4 text-amber-400" />
-                        <span>Monte Carlo Stochastic Probabilistic Stability Simulation (N = 5,000 Runs)</span>
-                      </h4>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Gaussian Box-Muller variation of cohesion c (COV 25%), friction angle φ (COV 12%), and pore pressure ratio ru (COV 30%).
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="px-2.5 py-1 rounded bg-slate-950 border border-slate-700 text-slate-300">
-                        Reliability Index: <strong className="text-emerald-400">β = {monteCarloResults.betaRef}</strong>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Stochastic Metric Cards */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                      <div className="text-slate-400 text-[11px]">Unreinforced Pf</div>
-                      <div className="text-2xl font-black text-rose-400 mt-1">{monteCarloResults.pfUnreinforced}%</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Probability of FoS &lt; 1.0</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-slate-950 border border-emerald-500/40">
-                      <div className="text-emerald-400 text-[11px] font-bold">Reinforced Pf</div>
-                      <div className="text-2xl font-black text-emerald-400 mt-1">{monteCarloResults.pfReinforced}%</div>
-                      <div className="text-[10px] text-emerald-300 mt-0.5">Target &lt; 5.0% Achieved</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                      <div className="text-slate-400 text-[11px]">Mean FoS ± StdDev</div>
-                      <div className="text-xl font-bold text-white mt-1">
-                        {monteCarloResults.meanFosRef} <span className="text-xs text-slate-400">± {monteCarloResults.stdFosRef}</span>
-                      </div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Normal Distribution fit</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                      <div className="text-slate-400 text-[11px]">FoS Percentiles (P10/P50/P90)</div>
-                      <div className="text-sm font-bold text-cyan-300 mt-1">
-                        {monteCarloResults.p10} / {monteCarloResults.p50} / {monteCarloResults.p90}
-                      </div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">P10 = 90% Confidence bound</div>
-                    </div>
-                  </div>
-
-                  {/* Histogram of FoS Distribution */}
-                  <div className="space-y-2 pt-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-slate-300">Factor of Safety Frequency Histogram (5,000 Iterations)</span>
-                      <div className="flex items-center gap-3 text-[11px]">
-                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-rose-500 rounded" /> Unreinforced (Pf={monteCarloResults.pfUnreinforced}%)</span>
-                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-emerald-500 rounded" /> Reinforced (Pf={monteCarloResults.pfReinforced}%)</span>
-                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-1 bg-red-400" /> FoS = 1.0 Limit</span>
-                      </div>
-                    </div>
-
-                    <div className="h-44 w-full bg-slate-950 border border-slate-800 rounded-lg p-3 relative flex items-end gap-1">
-                      {/* Critical FoS = 1.0 vertical threshold marker */}
-                      <div className="absolute top-2 bottom-6 left-[25%] border-r-2 border-red-500 border-dashed z-10 pointer-events-none">
-                        <span className="text-[9px] font-bold text-red-400 bg-slate-900 px-1 rounded -ml-4 border border-red-500/40">
-                          FoS=1.0 Failure Limit
-                        </span>
-                      </div>
-
-                      {monteCarloResults.histogramBins.map((bin, idx) => {
-                        const hRef = Math.max(4, Math.round((bin.countRef / monteCarloResults.maxBinCount) * 120));
-                        const hUnref = Math.max(4, Math.round((bin.countUnref / monteCarloResults.maxBinCount) * 120));
-                        return (
-                          <div key={idx} className="flex-1 flex flex-col justify-end items-center h-full group relative">
-                            {/* Hover Tooltip */}
-                            <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-800 text-white text-[9.5px] p-1 rounded shadow-lg border border-slate-700 whitespace-nowrap z-20">
-                              <div>FoS: {bin.binStart.toFixed(1)}–{bin.binEnd.toFixed(1)}</div>
-                              <div>Reinforced: {bin.countRef}</div>
-                              <div>Unreinforced: {bin.countUnref}</div>
-                            </div>
-
-                            <div className="w-full flex items-end justify-center gap-0.5">
-                              {/* Unreinforced Bar */}
-                              <div
-                                style={{ height: `${hUnref}px` }}
-                                className="w-1/2 bg-rose-500/60 hover:bg-rose-500 rounded-t-sm transition-all"
-                              />
-                              {/* Reinforced Bar */}
-                              <div
-                                style={{ height: `${hRef}px` }}
-                                className="w-1/2 bg-emerald-500/80 hover:bg-emerald-400 rounded-t-sm transition-all"
-                              />
-                            </div>
-                            <span className="text-[8px] text-slate-500 mt-1 truncate">
-                              {bin.binStart.toFixed(1)}
-                            </span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold truncate">{item.label}</div>
+                            <div className="text-[10px] font-mono text-slate-500 truncate">{item.shortDesc}</div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ------------------------------------------------------------- */}
-            {/* SUB-TAB 5: INTERACTIVE 2D SLOPE CROSS-SECTION SIMULATOR        */}
-            {/* ------------------------------------------------------------- */}
-            {slopeSubTab === 'CROSS_SECTION' && (
-              <div className="space-y-4 font-mono">
-                {/* Layer Visibility Toggles */}
-                <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs">
-                  <span className="font-bold text-amber-300 flex items-center gap-1.5">
-                    <Activity className="w-3.5 h-3.5 text-amber-400" />
-                    <span>2D Cross-Section Layers:</span>
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {[
-                      { key: 'bishopArc', label: 'Bishop Circular Arc', color: 'text-amber-400' },
-                      { key: 'slices', label: 'Vertical Slices', color: 'text-slate-300' },
-                      { key: 'janbuSlip', label: 'Janbu Non-Circular Slip', color: 'text-violet-400' },
-                      { key: 'phreaticLine', label: 'Groundwater Phreatic Line', color: 'text-sky-400' },
-                      { key: 'soilNails', label: 'Soil Nails & Bearing Plates', color: 'text-emerald-400' },
-                      { key: 'wireMeshFacing', label: 'Facing & Weep Holes', color: 'text-cyan-400' },
-                    ].map((layer) => {
-                      const isChecked = (crossSectionLayers as any)[layer.key];
-                      return (
-                        <button
-                          key={layer.key}
-                          type="button"
-                          onClick={() =>
-                            setCrossSectionLayers((prev) => ({
-                              ...prev,
-                              [layer.key]: !isChecked,
-                            }))
-                          }
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold border cursor-pointer transition-all ${
-                            isChecked
-                              ? 'bg-slate-800 text-white border-slate-600'
-                              : 'bg-slate-950 text-slate-500 border-slate-800 opacity-60'
+                        </div>
+                        <span
+                          className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
+                            isReady
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                           }`}
                         >
-                          <span className={`w-2 h-2 rounded-full ${isChecked ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-                          <span className={layer.color}>{layer.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* SVG 2D Cross-Section Diagram */}
-                <div className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-hidden shadow-2xl relative">
-                  <svg viewBox="-30 -20 540 340" className="w-full h-[400px]">
-                    <defs>
-                      <linearGradient id="rockMassGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stopColor="#1e293b" />
-                        <stop offset="100%" stopColor="#0f172a" />
-                      </linearGradient>
-                      <linearGradient id="waterTableGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.3" />
-                        <stop offset="100%" stopColor="#0284c7" stopOpacity="0.05" />
-                      </linearGradient>
-                    </defs>
-
-                    {/* Background Grid */}
-                    <pattern id="gridPattern" width="20" height="20" patternUnits="userSpaceOnUse">
-                      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#1e293b" strokeWidth="0.5" />
-                    </pattern>
-                    <rect x="-30" y="-20" width="540" height="340" fill="url(#gridPattern)" />
-
-                    {/* Ground Profile Coordinates (SVG Canvas: Toe at x=120, y=240, Crest at x=280, y=60) */}
-                    {/* Rock Mass Fill */}
-                    <polygon
-                      points="-20,240 120,240 280,60 500,60 500,310 -20,310"
-                      fill="url(#rockMassGrad)"
-                      stroke="#475569"
-                      strokeWidth="2"
-                    />
-
-                    {/* Bench / Berm Step if domain is BENCH */}
-                    {mappingDomain === 'BENCH' && (
-                      <polygon
-                        points="120,240 200,150 240,150 320,60 500,60 500,310 120,310"
-                        fill="#334155"
-                        opacity="0.3"
-                      />
-                    )}
-
-                    {/* Groundwater Phreatic Line */}
-                    {crossSectionLayers.phreaticLine && (
-                      <g>
-                        <path
-                          d="M -20,250 Q 120,245 280,120 T 500,90"
-                          fill="none"
-                          stroke="#38bdf8"
-                          strokeWidth="2"
-                          strokeDasharray="5,4"
-                        />
-                        <polygon
-                          points="-20,250 120,245 280,120 500,90 500,310 -20,310"
-                          fill="url(#waterTableGrad)"
-                        />
-                        <text x="360" y="82" fill="#38bdf8" fontSize="10" fontWeight="bold">
-                          ▼ Phreatic Surface (ru={slopeWaterRatioRu})
-                        </text>
-                      </g>
-                    )}
-
-                    {/* Bishop Circular Slip Surface */}
-                    {crossSectionLayers.bishopArc && (
-                      <g>
-                        <path
-                          d="M 120,240 Q 220,260 360,60"
-                          fill="none"
-                          stroke="#f59e0b"
-                          strokeWidth="3"
-                          strokeDasharray="6,3"
-                        />
-                        <circle cx="270" cy="-20" r="4" fill="#f59e0b" />
-                        <text x="370" y="75" fill="#f59e0b" fontSize="10" fontWeight="bold">
-                          Bishop Arc (R = {bishopCalc.radiusM}m, FoS = {bishopCalc.reinforcedBishopFos.toFixed(2)})
-                        </text>
-                      </g>
-                    )}
-
-                    {/* Slices discretization */}
-                    {crossSectionLayers.slices && (
-                      <g stroke="#94a3b8" strokeWidth="1" strokeDasharray="2,2" opacity="0.6">
-                        <line x1="150" y1="205" x2="150" y2="248" />
-                        <line x1="180" y1="172" x2="180" y2="242" />
-                        <line x1="210" y1="138" x2="210" y2="228" />
-                        <line x1="240" y1="105" x2="240" y2="205" />
-                        <line x1="270" y1="72" x2="270" y2="175" />
-                        <line x1="300" y1="60" x2="300" y2="140" />
-                        <line x1="330" y1="60" x2="330" y2="100" />
-                      </g>
-                    )}
-
-                    {/* Janbu Non-Circular Slip Line */}
-                    {crossSectionLayers.janbuSlip && (
-                      <g>
-                        <path
-                          d="M 120,240 L 210,180 L 320,60"
-                          fill="none"
-                          stroke="#a855f7"
-                          strokeWidth="2.5"
-                          strokeDasharray="4,2"
-                        />
-                        <text x="215" y="195" fill="#c084fc" fontSize="9" fontWeight="bold">
-                          Janbu Composite Slip (f₀={bishopCalc.janbuCorrectionF0})
-                        </text>
-                      </g>
-                    )}
-
-                    {/* Soil Nails / Rock Anchors */}
-                    {crossSectionLayers.soilNails && (
-                      <g>
-                        {[
-                          { startX: 145, startY: 212, length: 110, angle: 15 },
-                          { startX: 185, startY: 167, length: 120, angle: 15 },
-                          { startX: 225, startY: 122, length: 130, angle: 15 },
-                          { startX: 265, startY: 77, length: 135, angle: 15 },
-                        ].map((nail, idx) => {
-                          const rad = (nail.angle * Math.PI) / 180;
-                          const endX = nail.startX + nail.length * Math.cos(rad);
-                          const endY = nail.startY + nail.length * Math.sin(rad);
-                          return (
-                            <g key={idx}>
-                              {/* Grout Annulus */}
-                              <line
-                                x1={nail.startX}
-                                y1={nail.startY}
-                                x2={endX}
-                                y2={endY}
-                                stroke="#059669"
-                                strokeWidth="5"
-                                opacity="0.4"
-                              />
-                              {/* Steel Tendon */}
-                              <line
-                                x1={nail.startX}
-                                y1={nail.startY}
-                                x2={endX}
-                                y2={endY}
-                                stroke="#10b981"
-                                strokeWidth="2.5"
-                              />
-                              {/* Face Bearing Plate */}
-                              <line
-                                x1={nail.startX - 6}
-                                y1={nail.startY - 7}
-                                x2={nail.startX + 6}
-                                y2={nail.startY + 7}
-                                stroke="#fbbf24"
-                                strokeWidth="4"
-                              />
-                              {/* Tension Arrow Vector */}
-                              <line
-                                x1={nail.startX + 20}
-                                y1={nail.startY + 5}
-                                x2={nail.startX + 40}
-                                y2={nail.startY + 10}
-                                stroke="#fbbf24"
-                                strokeWidth="1.5"
-                              />
-                            </g>
-                          );
-                        })}
-                        <text x="290" y="105" fill="#10b981" fontSize="10" fontWeight="bold">
-                          Soil Nails (L=12m @ {slopeBoltSpacingH}m × {slopeBoltSpacingV}m, {slopeBoltCapKn} kN)
-                        </text>
-                      </g>
-                    )}
-
-                    {/* Shotcrete Facing & Weep Holes */}
-                    {crossSectionLayers.wireMeshFacing && (
-                      <g>
-                        {/* Shotcrete Layer along face */}
-                        <line
-                          x1="120"
-                          y1="240"
-                          x2="280"
-                          y2="60"
-                          stroke="#06b6d4"
-                          strokeWidth="4"
-                          opacity="0.8"
-                        />
-                        {/* Weep Holes */}
-                        <circle cx="160" cy="195" r="3" fill="#ffffff" stroke="#0284c7" strokeWidth="1.5" />
-                        <circle cx="200" cy="150" r="3" fill="#ffffff" stroke="#0284c7" strokeWidth="1.5" />
-                        <circle cx="240" cy="105" r="3" fill="#ffffff" stroke="#0284c7" strokeWidth="1.5" />
-                        <text x="80" y="160" fill="#22d3ee" fontSize="9" fontWeight="bold">
-                          {slopeShotcreteMm}mm SFRS + Weep Holes
-                        </text>
-
-                        {/* Crest Drain Ditch */}
-                        <path d="M 290,60 L 297,68 L 304,60 Z" fill="#0284c7" stroke="#38bdf8" />
-                        <text x="310" y="55" fill="#38bdf8" fontSize="9" fontWeight="bold">
-                          Crest Interceptor Ditch
-                        </text>
-                      </g>
-                    )}
-
-                    {/* Dimension Arrows */}
-                    <g stroke="#94a3b8" strokeWidth="1" fill="#94a3b8" fontSize="10">
-                      {/* Height H */}
-                      <line x1="55" y1="240" x2="55" y2="60" />
-                      <line x1="50" y1="240" x2="60" y2="240" />
-                      <line x1="50" y1="60" x2="60" y2="60" />
-                      <text x="15" y="155" fontWeight="bold">H = {slopeHeightM}m</text>
-
-                      {/* Face Angle */}
-                      <path d="M 120,240 L 150,240 A 30 30 0 0 0 140,217 Z" fill="#f59e0b" opacity="0.4" />
-                      <text x="160" y="235" fill="#f59e0b" fontWeight="bold">βs = {slopeFaceAngleDeg}°</text>
-
-                      {/* Toe Label */}
-                      <text x="100" y="260" fill="#94a3b8" fontWeight="bold">Slope Toe (0,0)</text>
-                      <text x="270" y="45" fill="#94a3b8" fontWeight="bold">Slope Crest</text>
-                    </g>
-                  </svg>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ================================================================= */}
-        {/* CAPABILITY 1: EXCAVATION-SPECIFIC 3D GEOLOGICAL LOGS               */}
-        {/* ================================================================= */}
-        {activeTab === 'EXCAVATION_3D_LOG' && (
-          !currentTabReadiness.canCalculate ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="3D Excavation Logs (Multi-Stage NATM)"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-            <div className="h-[620px] w-full">
-              <ExcavationSpecific3DLogViewport
-                spanW={fedData.spanW}
-                heightH={fedData.heightH}
-                benchHeight={fedData.benchHeight}
-                zStart={Math.max(0, fedData.currentFaceChainageNum - fedData.pullLengthM)}
-                zEnd={fedData.currentFaceChainageNum}
-                lithologyName={fedData.lithologyName}
-                driveAzimuth={customDriveAzimuth}
-              />
-            </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* CAPABILITY 2: PROJECTING WEAK ZONES BEYOND TUNNEL HEADINGS        */}
-        {/* ================================================================= */}
-        {activeTab === 'WEAK_ZONE_PROJECTOR' && (
-          !currentTabReadiness.canCalculate || !fedData.governingJoint ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Weak Zone Ahead Projector"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-            <div className="min-h-[580px] w-full">
-              <WeakZoneAheadProjectorView
-                zFaceDefault={fedData.currentFaceChainageNum}
-                alphaDriveDefault={customDriveAzimuth}
-                hTunnelDefault={fedData.heightH}
-                betaDefault={fedData.governingJoint.dip}
-                thetaDipDefault={fedData.governingJoint.dipDirection}
-                tTrueDefault={fedData.governingJoint.thicknessM}
-                lPullDefault={fedData.pullLengthM}
-                lithologyName={fedData.lithologyName}
-              />
-            </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* CAPABILITY 3: RECONSTRUCTING 3D GEOLOGY FROM SEQUENTIAL FACE LOGS */}
-        {/* ================================================================= */}
-        {activeTab === 'SEQUENTIAL_3D_RECON' && (
-          !currentTabReadiness.canCalculate || fedData.historicalFaceLogs.length < 2 ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Sequential Face 3D Reconstruction"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-            <div className="h-[620px] w-full">
-              <SequentialFace3DReconstructionView
-                faceLogs={fedData.historicalFaceLogs}
-                driveAzimuth={customDriveAzimuth}
-                spanW={fedData.spanW}
-                heightH={fedData.heightH}
-              />
-            </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* CAPABILITY 4: COMPONENT-SPECIFIC APPARENT THICKNESS & SPACING     */}
-        {/* ================================================================= */}
-        {activeTab === 'APPARENT_THICKNESS_SPACING' && (
-          !currentTabReadiness.canCalculate || !fedData.governingJoint ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Component Apparent Thickness & Spacing"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-            <div className="min-h-[580px] w-full">
-              <ComponentApparentThicknessView
-                tTrueDefault={fedData.governingJoint.thicknessM}
-                sTrueDefault={fedData.governingJoint.spacingM}
-                betaDefault={fedData.governingJoint.dip}
-                thetaDipDefault={fedData.governingJoint.dipDirection}
-                alphaDriveDefault={customDriveAzimuth}
-                gammaDriveDefault={0}
-              />
-            </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* CAPABILITY 5: EVALUATING TUNNEL ALIGNMENT ALTERNATIVES            */}
-        {/* ================================================================= */}
-        {activeTab === 'ALIGNMENT_ALTERNATIVES' && (
-          !currentTabReadiness.canCalculate || !fedData.governingJoint ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Alignment Alternatives & Rose Sweep"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-            <div className="min-h-[580px] w-full">
-              <AlignmentAlternativesEvaluatorView
-                currentDriveAzimuth={customDriveAzimuth}
-                faults={fedData.faultsList}
-                controllingJoint={{
-                  id: fedData.governingJoint.id,
-                  beta: fedData.governingJoint.dip,
-                  thetaDip: fedData.governingJoint.dipDirection,
-                  frictionAngle: 32,
-                }}
-                sigmaHAzDefault={110}
-              />
-            </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* CAPABILITY 6: POOR ROCK MASS PROPORTIONS ESTIMATOR                */}
-        {/* ================================================================= */}
-        {activeTab === 'POOR_ROCK_PROPORTIONS' && (
-          !currentTabReadiness.canCalculate ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Poor Rock Mass Proportions Estimator"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-            <div className="min-h-[580px] w-full">
-              <PoorRockProportionsEstimatorView
-                totalLengthDefault={Math.max(1200, Math.round(fedData.currentFaceChainageNum * 8))}
-              />
-            </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* TAB 7: EXECUTIVE ENGINEERING REPORT SHEET (PRINT & SIGN-OFF READY)*/}
-        {/* ================================================================= */}
-        {activeTab === 'EXECUTIVE_REPORT' && (
-          <div id="printable-geotech-report" className="space-y-6 bg-slate-900 text-slate-100 p-2 sm:p-6 rounded-xl border border-slate-700/60 print:bg-white print:text-black print:border-none print:p-0">
-            {/* OFFICIAL DOCUMENT HEADER */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b-2 border-sky-500 gap-4">
-              <div>
-                <div className="text-[11px] font-mono tracking-widest text-sky-400 font-bold uppercase print:text-sky-700">
-                  GEOTECHNICAL &amp; ROCK MECHANICS ASSESSMENT REPORT
-                </div>
-                <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight print:text-black">
-                  {settings.projectName || 'Tunnel Construction Project'}
-                </h1>
-                <p className="text-xs text-slate-400 print:text-slate-600">
-                  Location / Heading: <strong>{settings.tunnelName || 'Adit 1 Main Heading'}</strong> · Station: <strong>{settings.chainage || 'RD 100.0m'}</strong>
-                </p>
-              </div>
-              <div className="text-right text-xs font-mono text-slate-300 print:text-black">
-                <div>Assessment Date: <strong>{settings.date || new Date().toISOString().slice(0, 10)}</strong></div>
-                <div>Heading Bearing: <strong>N {Math.round(customDriveAzimuth)}° E</strong></div>
-                <div>Profile Geometry: <strong>{spanW}m Span × {heightH}m Height</strong></div>
-                <div>Assessed By: <strong>{settings.mappedBy || 'Geotechnical Lead'}</strong></div>
-              </div>
-            </div>
-
-            {/* SYNTHESIS BENCHMARK TILES */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 print:border print:border-slate-300 print:p-2">
-              <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700 print:bg-slate-50 print:border-slate-300">
-                <div className="text-[11px] font-mono text-slate-400 print:text-slate-600">BIENIAWSKI RMR89</div>
-                <div className="text-2xl font-extrabold font-mono text-amber-300 print:text-amber-800">
-                  {rmrVal !== null ? rmrVal : 'N/A'}
-                </div>
-                <div className="text-[11px] text-slate-300 print:text-black">
-                  {rmrVal !== null
-                    ? rmrVal >= 61
-                      ? 'Class II (Good Rock)'
-                      : rmrVal >= 41
-                      ? 'Class III (Fair Rock)'
-                      : 'Class IV (Poor Rock)'
-                    : 'Unassessed'}
-                </div>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700 print:bg-slate-50 print:border-slate-300">
-                <div className="text-[11px] font-mono text-slate-400 print:text-slate-600">BARTON Q-VALUE</div>
-                <div className="text-2xl font-extrabold font-mono text-sky-300 print:text-sky-800">
-                  {qVal !== null ? qVal : 'N/A'}
-                </div>
-                <div className="text-[11px] text-slate-300 print:text-black">
-                  {qVal !== null ? strataAnalysis.supportCategoryLabel : 'Unassessed'}
-                </div>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700 print:bg-slate-50 print:border-slate-300">
-                <div className="text-[11px] font-mono text-slate-400 print:text-slate-600">KINEMATIC WEDGE FoS</div>
-                <div className={`text-2xl font-extrabold font-mono ${supportedFos >= 1.5 ? 'text-emerald-400 print:text-emerald-700' : 'text-rose-400 print:text-rose-700'}`}>
-                  {activeJoint ? supportedFos.toFixed(2) : 'N/A'}
-                </div>
-                <div className="text-[11px] text-slate-300 print:text-black">
-                  {activeJoint ? `Unreinforced: ${unboltedFos.toFixed(2)}` : 'No Mapped Wedge'}
-                </div>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700 print:bg-slate-50 print:border-slate-300">
-                <div className="text-[11px] font-mono text-slate-400 print:text-slate-600">GEOHAZARD RATING</div>
-                <div className="text-xl font-extrabold font-mono text-fuchsia-300 print:text-purple-800">{rockburstEvaluation.level.split('/')[0]}</div>
-                <div className="text-[11px] text-slate-300 print:text-black">{squeezingEvaluation.level.split('(')[0]}</div>
-              </div>
-            </div>
-
-            {/* JUNCTION FACTOR ACTIVE BANNER IN EXECUTIVE REPORT */}
-            {junctionFactorData && (
-              <div className="p-3 bg-violet-950/50 border border-violet-500/70 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs font-mono print:bg-violet-50 print:border-violet-400 print:text-black">
-                <div className="flex items-center gap-2">
-                  <GitFork className="w-4 h-4 text-violet-400 print:text-violet-700 shrink-0" />
-                  <div>
-                    <span className="font-bold text-violet-300 print:text-violet-900">
-                      TUNNEL JUNCTION FACTOR ACTIVE ({junctionFactorData.junctionFactorKj}×):
-                    </span>{' '}
-                    <span>
-                      {junctionFactorData.junctionType.replace('_', ' ')} · Diagonal Span = {junctionFactorData.diagonalSpanM}m · Angle = {junctionFactorData.intersectionAngleDeg}° · ESR Penalty = {junctionFactorData.junctionEsr}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <span className="text-[11px] text-slate-400 print:text-slate-600">Upgraded P_roof: </span>
-                  <strong className="text-amber-300 print:text-black text-sm">{junctionFactorData.junctionRoofPressureKpa} kPa</strong>
-                  <span className="text-[10px] text-slate-400 ml-1">· Bolt L: {junctionFactorData.junctionBoltLengthM}m</span>
-                </div>
-              </div>
-            )}
-
-            {/* SECTION 1: KINEMATIC KEYBLOCK CERTIFICATION */}
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 print:bg-transparent print:border-slate-400">
-              <h3 className="text-xs font-mono font-bold tracking-wider text-sky-400 uppercase mb-2 print:text-black">
-                1. Kinematic Keyblock Stability &amp; Support Compliance
-              </h3>
-              <p className="text-xs text-slate-300 print:text-slate-700 leading-relaxed">
-                Roof and sidewall stability was evaluated using limit equilibrium resolving intersecting mapped discontinuity planes
-                ({activeJoint ? `Set ${activeJointSet}: Strike ${trueStrike}° / Dip ${trueDip}°` : 'No Discontinuity Traces Mapped'}) against the tunnel drive heading (N {Math.round(customDriveAzimuth)}° E).
-                The critical daylighting crown wedge develops a demand driving force of <strong>{drivingForceKn} kN</strong> ({wedgeVolume} m³ / {wedgeMassT} tonnes).
-                With systematic installation of <strong>{activeBolts}x L=4.0m radial bolts</strong> (@ {simulatedBoltSpacingM.toFixed(1)}m c/c, {simulatedBoltCapacityKn} kN capacity)
-                plus <strong>{simulatedShotcreteMm}mm SFRS</strong>, the resulting Factor of Safety is <strong>{supportedFos.toFixed(2)}</strong>.
-              </p>
-              <div className="mt-3 flex items-center gap-2">
-                <span className={`px-2.5 py-1 text-xs font-mono font-bold rounded ${supportedFos >= 1.5 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 print:bg-emerald-100 print:text-emerald-900' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 print:bg-rose-100 print:text-rose-900'}`}>
-                  {supportedFos >= 1.5 ? 'COMPLIANT WITH DESIGN SPECIFICATION (Target FoS ≥ 1.50)' : 'NON-COMPLIANT: REQUIRES ADDITIONAL ROCK BOLTS / SFRS'}
-                </span>
-              </div>
-            </div>
-
-            {/* SECTION 2: 4-SURFACE DRILL & BLAST APPARENT DIP TABLE */}
-            <div className="border border-slate-700/80 rounded-xl overflow-hidden print:border-slate-400">
-              <div className="px-4 py-2 bg-slate-800 text-xs font-mono font-bold text-slate-200 border-b border-slate-700 print:bg-slate-200 print:text-black">
-                2. 4-Surface Apparent Dip &amp; Blast-Hole Alignment Matrix
-              </div>
-              <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 print:bg-slate-100 print:text-black">
-                  <tr>
-                    <th className="px-3 py-2">Surface Plane</th>
-                    <th className="px-3 py-2">Orientation Relative to Drive</th>
-                    <th className="px-3 py-2">Apparent Angle</th>
-                    <th className="px-3 py-2">Operational Action for Drill Crew</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-300 print:divide-slate-300 print:text-black">
-                  <tr>
-                    <td className="px-3 py-2 font-bold text-sky-400 print:text-black">1. Tunnel Face</td>
-                    <td className="px-3 py-2">Normal to Drive Azimuth</td>
-                    <td className="px-3 py-2 font-bold text-white print:text-black">{faceApparentDipDeg}° Apparent Dip</td>
-                    <td className="px-3 py-2">Align perimeter cut holes with trace dip direction to minimize face blowout</td>
-                  </tr>
-                  <tr>
-                    <td className="px-3 py-2 font-bold text-emerald-400 print:text-black">2. Crown Arch</td>
-                    <td className="px-3 py-2">Unwrapped Horizontal Plane</td>
-                    <td className="px-3 py-2 font-bold text-white print:text-black">{crownTraceAngleDeg}° Strike Angle</td>
-                    <td className="px-3 py-2">Angle rock bolts perpendicular to strike ({Math.round(crownTraceAngleDeg + 90) % 180}°) for maximum shear interception</td>
-                  </tr>
-                  <tr>
-                    <td className="px-3 py-2 font-bold text-amber-400 print:text-black">3. Left Sidewall</td>
-                    <td className="px-3 py-2">Parallel to Drive Azimuth</td>
-                    <td className="px-3 py-2 font-bold text-white print:text-black">{leftWallApparentDipDeg}° Apparent Plunge</td>
-                    <td className="px-3 py-2">Inspect lower springline footing for daylighting undercut step</td>
-                  </tr>
-                  <tr>
-                    <td className="px-3 py-2 font-bold text-fuchsia-400 print:text-black">4. Right Sidewall</td>
-                    <td className="px-3 py-2">Parallel to Drive Azimuth</td>
-                    <td className="px-3 py-2 font-bold text-white print:text-black">{rightWallApparentDipDeg}° Apparent Plunge</td>
-                    <td className="px-3 py-2">Install pattern sidewall pinners if plunge exceeds 45°</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* SECTION 3: FUTURE ADVANCE FORECAST MATRIX (+3m to +30m) */}
-            <div className="border border-slate-700/80 rounded-xl overflow-hidden print:border-slate-400">
-              <div className="px-4 py-2 bg-slate-800 text-xs font-mono font-bold text-slate-200 border-b border-slate-700 print:bg-slate-200 print:text-black">
-                3. Forward Advance Look-Ahead &amp; Geohazard Predictions (+3m to +30m)
-              </div>
-              <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 print:bg-slate-100 print:text-black">
-                  <tr>
-                    <th className="px-3 py-2">Horizon</th>
-                    <th className="px-3 py-2">Chainage</th>
-                    <th className="px-3 py-2">Forecast Class</th>
-                    <th className="px-3 py-2">Daylighting Position</th>
-                    <th className="px-3 py-2">Risk</th>
-                    <th className="px-3 py-2">Prescribed Action / Pre-Support</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-300 print:divide-slate-300 print:text-black">
-                  {forwardPredictions.map((pred) => (
-                    <tr key={pred.advanceDelta} className="hover:bg-slate-800/40 print:hover:bg-transparent">
-                      <td className="px-3 py-2 font-bold text-sky-400 print:text-black">{pred.label}</td>
-                      <td className="px-3 py-2 font-bold text-white print:text-black">{pred.targetChainage}</td>
-                      <td className="px-3 py-2">{pred.predictedClass}</td>
-                      <td className="px-3 py-2">{pred.daylightDistanceM.toFixed(1)}m ahead</td>
-                      <td className="px-3 py-2">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pred.riskLevel === 'HIGH' ? 'bg-rose-500/20 text-rose-300' : pred.riskLevel === 'MODERATE' ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
-                          {pred.riskLevel}
+                          {isReady ? 'READY' : 'LOCKED'}
                         </span>
-                      </td>
-                      <td className="px-3 py-2 text-slate-300 print:text-black text-[11px]">{pred.recommendedSupport}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* SECTION 4: FORMAL SIGN-OFF BLOCK */}
-            <div className="pt-6 border-t border-slate-700/80 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center text-xs print:pt-8 print:border-slate-400">
-              <div className="p-3 bg-slate-950/40 rounded-lg border border-slate-800 print:bg-transparent print:border-none">
-                <div className="h-12 border-b border-dashed border-slate-600 mb-2"></div>
-                <div className="font-bold text-white print:text-black">{settings.mappedBy || 'Shift Geologist'}</div>
-                <div className="text-[11px] text-slate-400 print:text-slate-600">Shift Engineering Geologist</div>
-              </div>
-              <div className="p-3 bg-slate-950/40 rounded-lg border border-slate-800 print:bg-transparent print:border-none">
-                <div className="h-12 border-b border-dashed border-slate-600 mb-2"></div>
-                <div className="font-bold text-white print:text-black">Lead Geotechnical Specialist</div>
-                <div className="text-[11px] text-slate-400 print:text-slate-600">Consultant Representative / PE</div>
-              </div>
-              <div className="p-3 bg-slate-950/40 rounded-lg border border-slate-800 print:bg-transparent print:border-none">
-                <div className="h-12 border-b border-dashed border-slate-600 mb-2"></div>
-                <div className="font-bold text-white print:text-black">Tunnel Construction Manager</div>
-                <div className="text-[11px] text-slate-400 print:text-slate-600">Contractor Execution In-Charge</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ================================================================= */}
-        {/* TAB 2: 2D/3D KINEMATIC WEDGE STABILITY & FACTOR OF SAFETY (FOS)   */}
-        {/* ================================================================= */}
-        {activeTab === 'WEDGE_FOS' && (
-          !currentTabReadiness.canCalculate ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="2D/3D Kinematic Wedge Stability & Factor of Safety (FoS)"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-          <div className="space-y-6">
-            {/* REAL-TIME SIMULATION 3D VIEWPORT / 2D CANVAS + HUD */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* 3D / 2D REAL-TIME INTERACTIVE WEDGE EQUILIBRIUM VIEWPORT */}
-              <div className="lg:col-span-7 flex flex-col space-y-2">
-                <div className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span className="text-xs font-mono font-bold text-white">
-                      {wedgeVisualMode === '3D' ? 'INTERACTIVE 3D KINEMATIC WEDGE & KEYBLOCK VIEWPORT' : 'REAL-TIME 2D EQUILIBRIUM CROSS-SECTION'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {onOpenJunctionCalculator && (
-                      <button
-                        onClick={onOpenJunctionCalculator}
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer shadow-xs ${
-                          junctionFactorData
-                            ? 'bg-violet-600 hover:bg-violet-500 text-white border border-violet-400'
-                            : 'bg-slate-900 hover:bg-slate-800 text-violet-300 border border-violet-500/40'
-                        }`}
-                        title="Calculate Junction Factor (Kj) for Intersections, T-Junctions & Bifurcations"
-                      >
-                        <GitFork className="w-3.5 h-3.5 text-violet-300" />
-                        <span>{junctionFactorData ? `Junction Kj=${junctionFactorData.junctionFactorKj}×` : 'Junction Factor'}</span>
                       </button>
-                    )}
-                    <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg p-0.5 text-[11px] font-mono">
-                      <button
-                        onClick={() => setWedgeVisualMode('3D')}
-                        className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${wedgeVisualMode === '3D' ? 'bg-sky-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        3D Spatial
-                      </button>
-                      <button
-                        onClick={() => setWedgeVisualMode('2D')}
-                        className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${wedgeVisualMode === '2D' ? 'bg-sky-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        2D Section
-                      </button>
-                    </div>
-                    <span className={`px-2 py-0.5 text-xs font-mono font-bold rounded ${supportedFos >= 1.5 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'}`}>
-                      FoS: {supportedFos.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                {wedgeVisualMode === '3D' ? (
-                  <KinematicWedge3DViewport
-                    spanW={spanW}
-                    heightH={heightH}
-                    pullL={pullL}
-                    trueDip={trueDip}
-                    trueDipDir={trueDipDir}
-                    trueStrike={trueStrike}
-                    wedgeVolume={wedgeVolume}
-                    wedgeWeightKn={wedgeWeightKn}
-                    drivingForceKn={drivingForceKn}
-                    supportedFos={supportedFos}
-                    unboltedFos={unboltedFos}
-                    boltSpacingM={simulatedBoltSpacingM}
-                    boltCapacityKn={simulatedBoltCapacityKn}
-                    shotcreteMm={simulatedShotcreteMm}
-                    jointSetLabel={activeJoint.set}
-                  />
-                ) : (
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center justify-center">
-                    <div className="relative w-full max-w-[480px] aspect-4/3 bg-slate-900/90 rounded-lg border border-slate-800/80 overflow-hidden flex items-center justify-center p-2">
-                      <svg viewBox="0 0 400 320" className="w-full h-full">
-                        {/* Tunnel Profile Boundary */}
-                        <path
-                          d="M 60 260 L 60 160 A 140 140 0 0 1 340 160 L 340 260 Z"
-                          fill="#0f172a"
-                          stroke="#38bdf8"
-                          strokeWidth="2.5"
-                        />
-                        {/* Invert Floor */}
-                        <line x1="60" y1="260" x2="340" y2="260" stroke="#64748b" strokeWidth="2" strokeDasharray="4 2" />
-
-                        {/* Critical Roof Wedge Polygon */}
-                        <polygon
-                          points="120,135 200,60 280,135"
-                          fill={supportedFos >= 1.5 ? 'rgba(16, 185, 129, 0.25)' : 'rgba(244, 63, 94, 0.35)'}
-                          stroke={supportedFos >= 1.5 ? '#10b981' : '#f43f5e'}
-                          strokeWidth="2.5"
-                        />
-
-                        {/* Sliding Discontinuity Plane Lines */}
-                        <line x1="80" y1="170" x2="200" y2="60" stroke="#f59e0b" strokeWidth="2" strokeDasharray="3 3" />
-                        <line x1="320" y1="170" x2="200" y2="60" stroke="#f59e0b" strokeWidth="2" strokeDasharray="3 3" />
-
-                        {/* Driving Weight Vector Arrow */}
-                        <line x1="200" y1="100" x2="200" y2="160" stroke="#f43f5e" strokeWidth="3" />
-                        <text x="208" y="140" fill="#fca5a5" fontSize="10" fontFamily="monospace" fontWeight="bold">
-                          W = {wedgeWeightKn} kN
-                        </text>
-
-                        {/* Installed Rock Bolts */}
-                        {[...Array(Math.min(7, Math.max(3, Math.round(5 / simulatedBoltSpacingM))))].map((_, i) => {
-                          const angle = -120 + i * (60 / (Math.min(7, Math.max(3, Math.round(5 / simulatedBoltSpacingM))) - 1));
-                          const rad = (angle * Math.PI) / 180;
-                          const cx = 200 + 138 * Math.cos(rad);
-                          const cy = 160 + 138 * Math.sin(rad);
-                          const ex = 200 + 195 * Math.cos(rad);
-                          const ey = 160 + 195 * Math.sin(rad);
-                          return (
-                            <g key={i}>
-                              <line x1={cx} y1={cy} x2={ex} y2={ey} stroke="#38bdf8" strokeWidth="2.5" />
-                              <circle cx={cx} cy={cy} r="3" fill="#38bdf8" />
-                              <line x1={cx - 5} y1={cy} x2={cx + 5} y2={cy} stroke="#fff" strokeWidth="2" />
-                            </g>
-                          );
-                        })}
-
-                        {/* Shotcrete layer highlight */}
-                        {simulatedShotcreteMm > 0 && (
-                          <path
-                            d="M 62 260 L 62 160 A 138 138 0 0 1 338 160 L 338 260"
-                            fill="none"
-                            stroke="#a855f7"
-                            strokeWidth={Math.min(6, Math.max(2, simulatedShotcreteMm / 20))}
-                            opacity="0.85"
-                          />
-                        )}
-
-                        <text x="70" y="280" fill="#94a3b8" fontSize="9" fontFamily="monospace">Span: {spanW}m</text>
-                        <text x="290" y="280" fill="#94a3b8" fontSize="9" fontFamily="monospace">Pull: {pullL}m</text>
-                        <text x="200" y="50" fill="#f59e0b" fontSize="10" textAnchor="middle" fontFamily="monospace" fontWeight="bold">
-                          Wedge Apex ({wedgeVolume} m³)
-                        </text>
-                      </svg>
-                    </div>
-
-                    <div className="w-full flex items-center justify-between text-[11px] font-mono text-slate-400 mt-2">
-                      <span>Plunge: {trueDip}° ∠ {trueDipDir}°</span>
-                      <span className="text-sky-300">Active Reinforcement: {activeBolts} bolts ({simulatedBoltCapacityKn} kN)</span>
-                      <span className="text-purple-300">SFRS: {simulatedShotcreteMm} mm</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* LIVE PARAMETRIC SLIDERS & SAFETY MARGIN GAUGES */}
-              <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between space-y-4">
-                <div>
-                  <h3 className="text-sm font-bold font-mono text-sky-400 flex items-center gap-2 mb-1">
-                    <Sliders className="w-4 h-4" />
-                    REAL-TIME SENSITIVITY CONTROLS
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Dynamically adjust reinforcement to reach mandatory Factor of Safety (Target ≥ 1.50).
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">Bolt Tensile Capacity:</span>
-                      <span className="text-sky-300 font-bold">{simulatedBoltCapacityKn} kN</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={100}
-                      max={350}
-                      step={25}
-                      value={simulatedBoltCapacityKn}
-                      onChange={(e) => setSimulatedBoltCapacityKn(Number(e.target.value))}
-                      className="w-full accent-sky-500 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                      <span>100 kN (Ø20)</span>
-                      <span>200 kN (Ø25)</span>
-                      <span>350 kN (Ø32)</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">Radial Bolt Spacing:</span>
-                      <span className="text-sky-300 font-bold">{simulatedBoltSpacingM.toFixed(1)} m c/c</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1.0}
-                      max={2.5}
-                      step={0.1}
-                      value={simulatedBoltSpacingM}
-                      onChange={(e) => setSimulatedBoltSpacingM(Number(e.target.value))}
-                      className="w-full accent-sky-500 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                      <span>1.0m (Dense)</span>
-                      <span>1.5m (Standard)</span>
-                      <span>2.5m (Wide)</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">SFRS Shotcrete Thickness:</span>
-                      <span className="text-purple-300 font-bold">{simulatedShotcreteMm} mm</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={200}
-                      step={25}
-                      value={simulatedShotcreteMm}
-                      onChange={(e) => setSimulatedShotcreteMm(Number(e.target.value))}
-                      className="w-full accent-purple-500 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                      <span>0 mm (None)</span>
-                      <span>75 mm (Standard)</span>
-                      <span>200 mm (Heavy)</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className="text-slate-300">Joint Friction Angle (φ):</span>
-                      <span className="text-amber-300 font-bold">{simulatedWedgeFrictionAngleDeg}°</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={20}
-                      max={45}
-                      step={1}
-                      value={simulatedWedgeFrictionAngleDeg}
-                      onChange={(e) => setSimulatedWedgeFrictionAngleDeg(Number(e.target.value))}
-                      className="w-full accent-amber-500 cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                {/* FoS Status Box */}
-                <div className={`p-3 rounded-lg border ${supportedFos >= 1.5 ? 'bg-emerald-950/40 border-emerald-700/60' : 'bg-rose-950/40 border-rose-700/60'}`}>
-                  <div className="flex justify-between items-center font-mono">
-                    <span className="text-xs text-slate-300">TOTAL SUPPORTED FoS:</span>
-                    <span className={`text-xl font-extrabold ${supportedFos >= 1.5 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                      {supportedFos.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-400 mt-1">
-                    {supportedFos >= 1.5
-                      ? '✓ Safety criterion satisfied for primary tunnel support.'
-                      : '⚠ Safety factor is below 1.50! Increase bolt density or shotcrete thickness.'}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* DETAILED WEDGE CALCULATION BREAKDOWN TABLE */}
-            <div className="border border-slate-700/80 rounded-xl overflow-hidden">
-              <div className="px-4 py-2.5 bg-slate-800 text-xs font-mono font-bold text-slate-200 border-b border-slate-700">
-                CRITICAL KEYBLOCK &amp; WEDGE INTERSECTION DIRECTORY
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs font-mono">
-                  <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
-                    <tr>
-                      <th className="px-4 py-2">Wedge ID</th>
-                      <th className="px-4 py-2">Intersecting Sets</th>
-                      <th className="px-4 py-2">Affected Sector</th>
-                      <th className="px-4 py-2">Volume</th>
-                      <th className="px-4 py-2">Weight</th>
-                      <th className="px-4 py-2">Unbolted FoS</th>
-                      <th className="px-4 py-2">Supported FoS</th>
-                      <th className="px-4 py-2">Prescription</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800 text-slate-300">
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="px-4 py-2.5 font-bold text-sky-400">W-01</td>
-                      <td className="px-4 py-2.5">J1 × J2 × Crown</td>
-                      <td className="px-4 py-2.5">Crown Apex</td>
-                      <td className="px-4 py-2.5">{wedgeVolume} m³</td>
-                      <td className="px-4 py-2.5">{wedgeWeightKn} kN</td>
-                      <td className="px-4 py-2.5 text-rose-400 font-bold">{unboltedFos.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 text-emerald-400 font-bold">{supportedFos.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 text-slate-400">
-                        {activeBolts}x L=4.0m radial bolts + {simulatedShotcreteMm}mm SFRS
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="px-4 py-2.5 font-bold text-sky-400">W-02</td>
-                      <td className="px-4 py-2.5">J2 × J3 × Right Wall</td>
-                      <td className="px-4 py-2.5">Right Shoulder / Haunch</td>
-                      <td className="px-4 py-2.5">{(wedgeVolume * 0.7).toFixed(2)} m³</td>
-                      <td className="px-4 py-2.5">{(wedgeWeightKn * 0.7).toFixed(1)} kN</td>
-                      <td className="px-4 py-2.5 text-rose-400 font-bold">0.82</td>
-                      <td className="px-4 py-2.5 text-emerald-400 font-bold">
-                        {(supportedFos * 1.15).toFixed(2)}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-400">
-                        2x spot bolts angled 15° up to pin haunch slab
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-800/40">
-                      <td className="px-4 py-2.5 font-bold text-sky-400">W-03</td>
-                      <td className="px-4 py-2.5">J1 × Fault F1</td>
-                      <td className="px-4 py-2.5">Left Wall Lower Step</td>
-                      <td className="px-4 py-2.5">{(wedgeVolume * 0.45).toFixed(2)} m³</td>
-                      <td className="px-4 py-2.5">{(wedgeWeightKn * 0.45).toFixed(1)} kN</td>
-                      <td className="px-4 py-2.5 text-amber-400 font-bold">1.12</td>
-                      <td className="px-4 py-2.5 text-emerald-400 font-bold">
-                        {(supportedFos * 1.35).toFixed(2)}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-400">
-                        Systematic wall bolts L=3.5m + wire mesh
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* TAB 3: FUTURE ADVANCE FORECASTING & DEEP PROBE (+3m TO +30m)      */}
-        {/* ================================================================= */}
-        {activeTab === 'FUTURE_FORECAST' && (
-          !currentTabReadiness.canCalculate ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Future Advance & Geohazard Forecast (+3m to +30m)"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-          <div className="space-y-6">
-            <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                <h3 className="text-sm font-bold font-mono text-sky-400 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4" />
-                  FORWARD ADVANCE EXCAVATION &amp; GEOHAZARD FORECAST (+3m to +30m)
-                </h3>
-                <span className="text-xs text-slate-400 font-mono">
-                  Current Face Station: <strong>{settings.chainage || 'RD 100.0m'}</strong>
-                </span>
-              </div>
-              <p className="text-xs text-slate-300">
-                Mathematically projects mapped discontinuity orientations forward into unexcavated rock mass.
-                Computes structural daylighting intercepts, predicted rock class transitions, and pre-grouting triggers for upcoming blast rounds.
-              </p>
-            </div>
-
-            {/* 3D FORWARD ADVANCE VIEWPORT / 2D PROFILE SECTION */}
-            <div className="flex flex-col space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse"></span>
-                  <span className="text-xs font-mono font-bold text-white">
-                    {futureVisualMode === '3D'
-                      ? 'INTERACTIVE 3D FORWARD ADVANCE & HORIZON EXTRAPOLATION'
-                      : 'LONGITUDINAL ADVANCE PROFILE & PROBE ARRAY'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {onOpenJunctionCalculator && (
-                    <button
-                      onClick={onOpenJunctionCalculator}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer shadow-xs ${
-                        junctionFactorData
-                          ? 'bg-violet-600 hover:bg-violet-500 text-white border border-violet-400'
-                          : 'bg-slate-900 hover:bg-slate-800 text-violet-300 border border-violet-500/40'
-                      }`}
-                      title="Calculate Junction Factor (Kj) for Intersections, T-Junctions & Bifurcations"
-                    >
-                      <GitFork className="w-3.5 h-3.5 text-violet-300" />
-                      <span>{junctionFactorData ? `Junction Kj=${junctionFactorData.junctionFactorKj}×` : 'Junction Factor'}</span>
-                    </button>
-                  )}
-                  <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg p-0.5 text-[11px] font-mono">
-                    <button
-                      onClick={() => setFutureVisualMode('3D')}
-                      className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                        futureVisualMode === '3D' ? 'bg-sky-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      3D Perspective
-                    </button>
-                    <button
-                      onClick={() => setFutureVisualMode('2D')}
-                      className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                        futureVisualMode === '2D' ? 'bg-sky-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      2D Profile
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {futureVisualMode === '3D' ? (
-                <FutureAdvance3DViewport
-                  spanW={spanW}
-                  heightH={heightH}
-                  currentChainageNum={currentChNum}
-                  trueDip={trueDip}
-                  trueDipDir={trueDipDir}
-                  trueStrike={trueStrike}
-                  customDriveAzimuth={customDriveAzimuth}
-                  predictions={forwardPredictions}
-                  overburdenDepthM={overburdenDepthM}
-                  activeJointSet={activeJoint.set}
-                />
-              ) : (
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="w-full h-44 bg-slate-900 rounded-lg border border-slate-800 p-2 overflow-hidden">
-                    <svg viewBox="0 0 600 140" className="w-full h-full">
-                      {/* Excavated Tunnel Tube */}
-                      <rect x="20" y="40" width="180" height="60" fill="#0f172a" stroke="#38bdf8" strokeWidth="2" />
-                      <text x="110" y="75" fill="#38bdf8" fontSize="11" textAnchor="middle" fontFamily="monospace">
-                        Excavated Tunnel
-                      </text>
-
-                      {/* Current Face Marker */}
-                      <line x1="200" y1="30" x2="200" y2="110" stroke="#f43f5e" strokeWidth="3" />
-                      <text x="200" y="24" fill="#f43f5e" fontSize="10" textAnchor="middle" fontFamily="monospace" fontWeight="bold">
-                        ACTIVE FACE (RD {currentChNum}m)
-                      </text>
-
-                      {/* Unexcavated Ground with Projected Blast Rounds */}
-                      <rect x="200" y="40" width="370" height="60" fill="#1e293b" stroke="#475569" strokeWidth="1.5" strokeDasharray="3 3" />
-
-                      {/* +3m Round */}
-                      <line x1="240" y1="40" x2="240" y2="100" stroke="#64748b" strokeWidth="1" strokeDasharray="2 2" />
-                      <text x="220" y="115" fill="#94a3b8" fontSize="8" textAnchor="middle" fontFamily="monospace">+3m</text>
-
-                      {/* +6m Round */}
-                      <line x1="280" y1="40" x2="280" y2="100" stroke="#64748b" strokeWidth="1" strokeDasharray="2 2" />
-                      <text x="260" y="115" fill="#94a3b8" fontSize="8" textAnchor="middle" fontFamily="monospace">+6m</text>
-
-                      {/* +9m Round */}
-                      <line x1="320" y1="40" x2="320" y2="100" stroke="#64748b" strokeWidth="1" strokeDasharray="2 2" />
-                      <text x="300" y="115" fill="#94a3b8" fontSize="8" textAnchor="middle" fontFamily="monospace">+9m</text>
-
-                      {/* +15m Boundary */}
-                      <line x1="400" y1="40" x2="400" y2="100" stroke="#f59e0b" strokeWidth="1.5" />
-                      <text x="360" y="115" fill="#f59e0b" fontSize="8" textAnchor="middle" fontFamily="monospace">+15m Probe Limit</text>
-
-                      {/* +30m Boundary */}
-                      <line x1="560" y1="40" x2="560" y2="100" stroke="#a855f7" strokeWidth="1.5" />
-                      <text x="480" y="115" fill="#a855f7" fontSize="8" textAnchor="middle" fontFamily="monospace">+30m Deep Horizon</text>
-
-                      {/* Projected Fault / Joint Plane day-lighting into Crown */}
-                      <line x1="260" y1="15" x2="380" y2="125" stroke="#f43f5e" strokeWidth="2.5" strokeDasharray="4 2" />
-                      <circle cx="285" cy="40" r="4" fill="#f43f5e" />
-                      <text x="300" y="35" fill="#fca5a5" fontSize="8" fontFamily="monospace" fontWeight="bold">
-                        Daylight Intercept ({activeJoint.set})
-                      </text>
-
-                      {/* 15m Forward Probe Hole Angle */}
-                      <line x1="200" y1="45" x2="390" y2="30" stroke="#10b981" strokeWidth="2" strokeDasharray="4 2" />
-                      <text x="290" y="22" fill="#10b981" fontSize="8" textAnchor="middle" fontFamily="monospace">
-                        15m Probe Hole (5° Look-up)
-                      </text>
-                    </svg>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* ROUND BY ROUND CARDS */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              {forwardPredictions.map((pred) => (
-                <div
-                  key={pred.advanceDelta}
-                  className={`p-4 rounded-xl border flex flex-col justify-between ${
-                    pred.riskLevel === 'HIGH'
-                      ? 'bg-rose-950/30 border-rose-700/60'
-                      : pred.riskLevel === 'MODERATE'
-                      ? 'bg-amber-950/30 border-amber-700/60'
-                      : 'bg-slate-800/60 border-slate-700'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-mono font-bold text-slate-400">
-                        +{pred.advanceDelta}m ({pred.horizon})
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 text-[9px] font-mono font-bold rounded ${
-                          pred.riskLevel === 'HIGH'
-                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            : pred.riskLevel === 'MODERATE'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        }`}
-                      >
-                        {pred.riskLevel}
-                      </span>
-                    </div>
-                    <div className="text-lg font-bold font-mono text-white mb-1">
-                      {pred.targetChainage}
-                    </div>
-
-                    <div className="text-[11px] text-slate-300 space-y-1">
-                      <div>Class: <strong className="text-amber-300">{pred.predictedClass}</strong></div>
-                      <div>Hydro: <strong className="text-sky-300">{pred.waterForecast}</strong></div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 pt-2 border-t border-slate-700/60 text-[11px] text-slate-300">
-                    <div className="font-bold text-amber-300 text-[10px] mb-1">Prescribed Action:</div>
-                    <div className="leading-tight text-slate-300">{pred.recommendedSupport}</div>
-                  </div>
+                    );
+                  })}
                 </div>
               ))}
             </div>
+          </aside>
 
-            {/* PRE-SUPPORT FOREPOLING TRIGGER */}
-            <div className="p-4 rounded-xl bg-slate-900 border border-slate-700 flex items-start gap-3">
-              <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-              <div className="space-y-1 text-xs">
-                <div className="font-bold text-white text-sm">
-                  Advance Probe &amp; Umbrella Canopy Decision Rule
-                </div>
-                <p className="text-slate-300 leading-relaxed">
-                  Based on joint set {activeJointSet} dipping at {trueDip}° into drive azimuth {customDriveAzimuth}°,
-                  the daylighting intercept occurs within {forwardPredictions[0].daylightDistanceM.toFixed(1)}m of the working face.
-                  {forwardPredictions[0].riskLevel === 'HIGH'
-                    ? ' PIPE ROOFING CANOPY REQUIRED: Overlapping 12m steel pipes (Ø114mm, 40cm c/c) with polyurethane/cement pressure grouting recommended before advancing blast round.'
-                    : ' Standard systematic radial bolting + 75mm SFRS provides adequate factor of safety without umbrella casing.'}
-                </p>
-              </div>
-            </div>
-          </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* TAB 4: 4-SURFACE APPARENT DIP SOLVER                              */}
-        {/* ================================================================= */}
-        {activeTab === 'APPARENT_DIP_SOLVER' && (
-          !currentTabReadiness.canCalculate || !activeJoint ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="4-Surface Apparent Dip Solver"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-          <div className="space-y-6">
-            <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-700/60">
-              <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <h3 className="text-sm font-bold text-indigo-200">
-                    Why Field Apparent Dip Differs from True Dip on 4 Excavation Faces
-                  </h3>
-                  <p className="text-xs text-indigo-300/90 leading-relaxed">
-                    A joint plane with True Orientation (Strike {trueStrike}° / Dip {trueDip}°) projects at different apparent angles on
-                    different excavation surfaces. On the <strong>Tunnel Face</strong>, it appears at{' '}
-                    <strong>{faceApparentDipDeg}°</strong>. On the <strong>Sidewalls</strong>, it plunges at{' '}
-                    <strong>{leftWallApparentDipDeg}°</strong>. Geologists frequently commit blunders by recording the sidewall
-                    trace angle as the true dip angle. This analytical solver eliminates that error completely.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* DRIVE AZIMUTH & JOINT SELECTOR */}
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div>
-                <div className="flex justify-between text-xs font-mono mb-1">
-                  <span className="text-slate-300">Select Analyzed Joint:</span>
-                  <span className="text-sky-300 font-bold">
-                    {activeJointSet} ({trueStrike}° / {trueDip}°)
-                  </span>
-                </div>
-                <select
-                  value={selectedJointIndex}
-                  onChange={(e) => setSelectedJointIndex(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-slate-800 text-white rounded-lg border border-slate-700 font-mono text-xs cursor-pointer"
-                >
-                  {joints.map((j, idx) => (
-                    <option key={j.id || idx} value={idx}>
-                      {j.set || `Joint #${idx + 1}`} · Strike {j.strike}° / Dip {j.dip}° ({j.surface})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  True Orientation: Strike <strong>{trueStrike}°</strong> · Dip <strong>{trueDip}°</strong> · Dip Dir{' '}
-                  <strong>{trueDipDir}°</strong>
-                </p>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs font-mono mb-1">
-                  <span className="text-slate-300">Tunnel Drive Azimuth (α_D):</span>
-                  <span className="text-amber-300 font-bold">{customDriveAzimuth.toFixed(0)}° Azimuth</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={360}
-                  step={5}
-                  value={customDriveAzimuth}
-                  onChange={(e) => setCustomDriveAzimuth(Number(e.target.value))}
-                  className="w-full accent-amber-500 cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-slate-500">
-                  <span>000° (North)</span>
-                  <span>090° (East)</span>
-                  <span>180° (South)</span>
-                  <span>270° (West)</span>
-                  <span>360°</span>
-                </div>
-              </div>
-            </div>
-
-            {/* 4 SURFACES APPARENT DIP RESULTS GRID */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono font-bold text-sky-400 mb-1">1. TUNNEL FACE (Top Heading)</div>
-                <div className="text-xs text-slate-400 mb-2">Perpendicular to Drive Vector</div>
-                <div className="text-3xl font-mono font-extrabold text-white">
-                  {faceApparentDipDeg}°
-                </div>
-                <div className="text-[11px] text-slate-300 mt-2">
-                  Formula: <span className="font-mono text-slate-400">tan⁻¹(tan {trueDip}° × |sin {deltaFace.toFixed(0)}°|)</span>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono font-bold text-emerald-400 mb-1">2. CROWN ARCH (Horizontal)</div>
-                <div className="text-xs text-slate-400 mb-2">Unwrapped Strip Log Plane</div>
-                <div className="text-3xl font-mono font-extrabold text-white">
-                  {crownTraceAngleDeg}°
-                </div>
-                <div className="text-[11px] text-slate-300 mt-2">
-                  Strike Relative to Drive: <span className="font-mono text-slate-400">{crownTraceAngleDeg}° angle</span>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono font-bold text-amber-400 mb-1">3. LEFT WALL (Vertical)</div>
-                <div className="text-xs text-slate-400 mb-2">Sidewall Parallel to Drive</div>
-                <div className="text-3xl font-mono font-extrabold text-white">
-                  {leftWallApparentDipDeg}°
-                </div>
-                <div className="text-[11px] text-slate-300 mt-2">
-                  Apparent Sidewall Dip: <span className="font-mono text-slate-400">{leftWallApparentDipDeg}° plunge</span>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono font-bold text-fuchsia-400 mb-1">4. RIGHT WALL (Vertical)</div>
-                <div className="text-xs text-slate-400 mb-2">Sidewall Parallel to Drive</div>
-                <div className="text-3xl font-mono font-extrabold text-white">
-                  {rightWallApparentDipDeg}°
-                </div>
-                <div className="text-[11px] text-slate-300 mt-2">
-                  Apparent Sidewall Dip: <span className="font-mono text-slate-400">{rightWallApparentDipDeg}° plunge</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* TAB 5: HOEK-BROWN ENVELOPES & IN-SITU STRESS                      */}
-        {/* ================================================================= */}
-        {activeTab === 'HOEK_BROWN_ROCK' && (
-          !currentTabReadiness.canCalculate ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Hoek-Brown Envelopes & In-Situ Stress"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">VERTICAL STRESS (σ_v)</div>
-                <div className="text-2xl font-bold font-mono text-sky-300">{sigmaVMpa} MPa</div>
-                <div className="text-xs text-slate-400 mt-1">Overburden: {overburdenDepthM} m</div>
-              </div>
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">TANGENTIAL STRESS (σ_θ)</div>
-                <div className="text-2xl font-bold font-mono text-amber-300">{maxTangentialStressMpa} MPa</div>
-                <div className="text-xs text-slate-400 mt-1">At Tunnel Arch Boundary</div>
-              </div>
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">ROCKBURST POTENTIAL</div>
-                <div className={`text-xl font-bold font-mono ${rockburstEvaluation.color}`}>{rockburstEvaluation.level}</div>
-                <div className="text-[10px] text-slate-400 mt-1">σ_θ / σ_ci = {rockburstRatio}</div>
-              </div>
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">SQUEEZING POTENTIAL</div>
-                <div className={`text-xl font-bold font-mono ${squeezingEvaluation.color}`}>{squeezingEvaluation.level.split('(')[0]}</div>
-                <div className="text-[10px] text-slate-400 mt-1">σ_cm / p_0 = {squeezingRatio}</div>
-              </div>
-            </div>
-
-            {/* HOEK-BROWN PARAMETRIC SLIDERS */}
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-6">
-              <div>
-                <div className="flex justify-between text-xs font-mono mb-1">
-                  <span className="text-slate-300">Overburden Depth:</span>
-                  <span className="text-sky-300 font-bold">{overburdenDepthM} m</span>
-                </div>
-                <input
-                  type="range"
-                  min={50}
-                  max={1200}
-                  step={25}
-                  value={overburdenDepthM}
-                  onChange={(e) => setOverburdenDepthM(Number(e.target.value))}
-                  className="w-full accent-sky-500 cursor-pointer"
+          {/* RIGHT MAIN CAD WORKSPACE PANE */}
+          <main className="flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-4 bg-[#060a12]">
+            {/* STRICT DATA-DRIVEN GATEKEEPER: NO INPUT = NO OUTPUT */}
+            {!currentModuleReadiness.canCalculate ? (
+              <div className="max-w-4xl mx-auto py-4">
+                <DataRequirementLockView
+                  readiness={currentModuleReadiness}
+                  moduleTitle={currentModuleReadiness.moduleName}
+                  onReturnToCanvas={onClose}
                 />
               </div>
-              <div>
-                <div className="flex justify-between text-xs font-mono mb-1">
-                  <span className="text-slate-300">Intact Rock UCS (σ_ci):</span>
-                  <span className="text-amber-300 font-bold">{intactRockUcsMpa} MPa</span>
-                </div>
-                <input
-                  type="range"
-                  min={20}
-                  max={250}
-                  step={5}
-                  value={intactRockUcsMpa}
-                  onChange={(e) => setIntactRockUcsMpa(Number(e.target.value))}
-                  className="w-full accent-amber-500 cursor-pointer"
-                />
-              </div>
-              <div>
-                <div className="flex justify-between text-xs font-mono mb-1">
-                  <span className="text-slate-300">Geological Strength Index (GSI):</span>
-                  <span className="text-emerald-300 font-bold">{gsiValue}</span>
-                </div>
-                <input
-                  type="range"
-                  min={20}
-                  max={90}
-                  step={1}
-                  value={gsiValue}
-                  onChange={(e) => setGsiValue(Number(e.target.value))}
-                  className="w-full accent-emerald-500 cursor-pointer"
-                />
-              </div>
-            </div>
+            ) : (
+              <div className="space-y-4">
+                {/* ==================== 1. EXCAVATION STAGE 3D SHELL LOG ==================== */}
+                {activeTab === 'EXCAVATION_3D_LOG' && (() => {
+                  const stageBounds = computeStageElevationBounds(
+                    activeExcavationStage,
+                    spanW,
+                    heightH,
+                    fedData.benchHeight,
+                    0,
+                    pullLength
+                  );
+                  return (
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                      {/* Left 8 Cols: 3D CAD Shell */}
+                      <div className="lg:col-span-8 flex flex-col min-h-[500px]">
+                        <ExcavationSpecific3DLogViewport
+                          spanW={spanW}
+                          heightH={heightH}
+                          benchHeight={fedData.benchHeight}
+                          crownRadius={fedData.crownRadius}
+                          pullLength={pullLength}
+                          activeStage={activeExcavationStage}
+                          geometry={geometry}
+                          driveAzimuth={customDriveAzimuth}
+                          mappedTraces={mapped3DTraces}
+                          onStageSelect={setActiveExcavationStage}
+                        />
+                      </div>
 
-            {/* HOEK-BROWN FAILURE ENVELOPE DETAILS */}
-            <div className="border border-slate-700/80 rounded-xl overflow-hidden p-4 bg-slate-950">
-              <h4 className="text-xs font-mono font-bold text-sky-400 mb-2">HOEK-BROWN ROCK MASS FAILURE ENVELOPE PARAMETERS (2002)</h4>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 font-mono text-xs text-slate-300">
-                <div className="p-2 bg-slate-900 rounded border border-slate-800">
-                  <div className="text-slate-500 text-[10px]">m_b Parameter</div>
-                  <div className="font-bold text-white text-base">{hbMb}</div>
-                </div>
-                <div className="p-2 bg-slate-900 rounded border border-slate-800">
-                  <div className="text-slate-500 text-[10px]">s Parameter</div>
-                  <div className="font-bold text-white text-base">{hbS}</div>
-                </div>
-                <div className="p-2 bg-slate-900 rounded border border-slate-800">
-                  <div className="text-slate-500 text-[10px]">Rock Mass UCS (σ_cm)</div>
-                  <div className="font-bold text-emerald-400 text-base">{rockMassUcsSigmaCmMpa} MPa</div>
-                </div>
-                <div className="p-2 bg-slate-900 rounded border border-slate-800">
-                  <div className="text-slate-500 text-[10px]">Rock Mass Modulus (E_m)</div>
-                  <div className="font-bold text-sky-400 text-base">{rockMassModulusEmGpa} GPa</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          )
-        )}
+                      {/* Right 4 Cols: Stage Selector & True 2D CAD Profile Blueprint */}
+                      <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+                        <div className="space-y-3">
+                          <div className="border-b border-slate-800 pb-2">
+                            <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
+                              EXCAVATION SUB-PROFILE SELECTOR
+                            </div>
+                            <div className="text-xs font-mono text-slate-400 mt-0.5">
+                              Filter 3D shell and 2D cross-section by active excavation horizon
+                            </div>
+                          </div>
 
-        {/* ================================================================= */}
-        {/* TAB 6: STAND-UP TIME & ROCK LOAD                                  */}
-        {/* ================================================================= */}
-        {activeTab === 'STANDUP_TIME_SPAN' && (
-          !currentTabReadiness.canCalculate ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Stand-Up Time & Rock Load"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">BIENIAWSKI STAND-UP TIME</div>
-                <div className="text-2xl font-bold font-mono text-amber-300">{standUpFormatted}</div>
-                <div className="text-xs text-slate-400 mt-1">Span: {spanW.toFixed(1)}m · RMR: {rmrVal !== null ? rmrVal : 'Unrated'}</div>
-              </div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {(['FULL_FACE', 'TOP_HEADING', 'BENCH', 'INVERT'] as ExcavationStageType[]).map((st) => {
+                              const b = computeStageElevationBounds(st, spanW, heightH, fedData.benchHeight, 0, pullLength);
+                              const active = activeExcavationStage === st;
+                              return (
+                                <button
+                                  key={st}
+                                  onClick={() => setActiveExcavationStage(st)}
+                                  className={`p-2 rounded border text-left transition ${
+                                    active
+                                      ? 'bg-sky-500/20 border-sky-500/60 text-white'
+                                      : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-slate-700'
+                                  }`}
+                                >
+                                  <div className="text-[11px] font-mono font-bold text-sky-300">
+                                    {st.replace('_', ' ')}
+                                  </div>
+                                  <div className="text-[10px] font-mono text-slate-400 tabular-nums mt-0.5">
+                                    Y: {b.yMin.toFixed(1)}m → {b.yMax.toFixed(1)}m
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
 
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">BARTON MAX UNSUPPORTED SPAN</div>
-                <div className="text-2xl font-bold font-mono text-sky-300">{maxUnsupportedSpanM} m</div>
-                <div className="text-xs text-slate-400 mt-1">
-                  {isSpanUnsupportedSafe ? 'Actual span ≤ S_max (Safe)' : 'Actual span > S_max (Support Mandatory)'}
-                </div>
-              </div>
+                          {/* Exact 2D CAD Tunnel Profile Cross-Section with Stage Highlight */}
+                          <div className="bg-[#04070d] border border-slate-800 rounded-lg p-2.5">
+                            <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                              <span>2D CAD CROSS-SECTION ({shapeLabel})</span>
+                              <span className="text-sky-400 tabular-nums">{spanW.toFixed(2)}m × {heightH.toFixed(2)}m</span>
+                            </div>
+                            <svg viewBox="0 0 320 240" className="w-full h-44">
+                              <defs>
+                                <clipPath id="stageClipRect">
+                                  <rect
+                                    x="0"
+                                    y={195 - stageBounds.yMax * (150 / Math.max(1, heightH)) - 10}
+                                    width="320"
+                                    height={Math.max(12, (stageBounds.yMax - stageBounds.yMin) * (150 / Math.max(1, heightH)) + 16)}
+                                  />
+                                </clipPath>
+                              </defs>
+                              {(() => {
+                                const scale = Math.min(200 / Math.max(1, spanW), 145 / Math.max(1, heightH));
+                                const cx = 160;
+                                const baseY = 195;
+                                const { pathD } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
+                                const zMinY = baseY - stageBounds.yMin * scale;
+                                const zMaxY = baseY - stageBounds.yMax * scale;
 
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">BARTON SUPPORT PRESSURE (P_roof)</div>
-                <div className="text-2xl font-bold font-mono text-emerald-300">{pRoofKpa} kPa</div>
-                <div className="text-xs text-slate-400 mt-1">Q-Value: {qVal} · Jr: {qParams.jr} · Jn: {qParams.jn}</div>
-              </div>
+                                return (
+                                  <>
+                                    {/* CAD Grid */}
+                                    <line x1="25" y1={baseY} x2="295" y2={baseY} stroke="#1e293b" strokeWidth="1" />
+                                    <line x1={cx} y1="20" x2={cx} y2="215" stroke="#1e293b" strokeWidth="1" strokeDasharray="3,3" />
+                                    {/* Full Tunnel Reference Ghost */}
+                                    <path d={pathD} fill="#0f172a" stroke="#475569" strokeWidth="1.5" strokeDasharray="4,3" />
+                                    {/* Active Stage Highlighted Portion */}
+                                    <path
+                                      d={pathD}
+                                      clipPath="url(#stageClipRect)"
+                                      fill="rgba(14,165,233,0.22)"
+                                      stroke="#38bdf8"
+                                      strokeWidth="2.5"
+                                    />
+                                    {/* Stage Elevation Cut Lines */}
+                                    <line x1="35" y1={zMaxY} x2="285" y2={zMaxY} stroke="#10b981" strokeWidth="1" strokeDasharray="3,3" />
+                                    <line x1="35" y1={zMinY} x2="285" y2={zMinY} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,3" />
+                                    <text x="38" y={Math.max(14, zMaxY - 4)} fill="#10b981" fontSize="9" fontFamily="monospace">
+                                      Y_max = {stageBounds.yMax.toFixed(2)}m
+                                    </text>
+                                    <text x="38" y={Math.min(232, zMinY + 11)} fill="#f59e0b" fontSize="9" fontFamily="monospace">
+                                      Y_min = {stageBounds.yMin.toFixed(2)}m
+                                    </text>
+                                  </>
+                                );
+                              })()}
+                            </svg>
+                          </div>
+                        </div>
 
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">TERZAGHI ROCK LOAD (Hp)</div>
-                <div className="text-2xl font-bold font-mono text-fuchsia-300">{terzaghiHpMeters} m</div>
-                <div className="text-xs text-slate-400 mt-1">Overburden Load: {terzaghiLoadKpa} kPa</div>
-              </div>
-            </div>
+                        <div className="bg-slate-950/90 border border-slate-800 rounded p-2.5 space-y-1 text-[11px] font-mono tabular-nums">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Active Stage Height:</span>
+                            <span className="text-white font-bold">{(stageBounds.yMax - stageBounds.yMin).toFixed(2)} m</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Springline / Wall H:</span>
+                            <span className="text-sky-300 font-bold">{wallH.toFixed(2)} m</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Mapped Planes Intersecting:</span>
+                            <span className="text-emerald-400 font-bold">{mapped3DTraces.length}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
-            <div className="border border-slate-700/80 rounded-xl overflow-hidden">
-              <div className="px-4 py-2.5 bg-slate-800 text-xs font-mono font-bold text-slate-200 border-b border-slate-700">
-                EMPIRICAL VS. ANALYTICAL SUPPORT PRESSURE COMPARISON
-              </div>
-              <div className="p-4 bg-slate-950/60 space-y-3 text-xs font-mono text-slate-300">
-                <div className="flex justify-between py-1 border-b border-slate-800">
-                  <span className="text-slate-400">Excavation Span (W) × Height (H):</span>
-                  <span className="text-white font-bold">{spanW.toFixed(2)}m × {heightH.toFixed(2)}m</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-800">
-                  <span className="text-slate-400">Tunnel Advance Pull Length (L_p):</span>
-                  <span className="text-white font-bold">{pullL.toFixed(2)}m per round</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-800">
-                  <span className="text-slate-400">Demand Support Pressure (Barton + Terzaghi):</span>
-                  <span className="text-amber-300 font-bold">{Math.max(pRoofKpa, terzaghiLoadKpa)} kPa</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-800">
-                  <span className="text-slate-400">Installed Support Capacity (Bolts + SFRS):</span>
-                  <span className="text-emerald-300 font-bold">{strataAnalysis.installedSupportCapacityKpa} kPa</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-400">Overall Strata Support Factor of Safety (FoS_strata):</span>
-                  <span className="text-emerald-400 font-extrabold text-sm">{strataAnalysis.strataFactorOfSafety.toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
+                {/* ==================== 2. WEAK ZONE AHEAD PROJECTOR ==================== */}
+                {activeTab === 'WEAK_ZONE_PROJECTOR' && (
+                  <WeakZoneAheadProjectorView
+                    zFaceDefault={currentFaceChainageNum}
+                    alphaDriveDefault={customDriveAzimuth}
+                    hTunnelDefault={heightH}
+                    betaDefault={fedData.faultsList[0]?.beta ?? customDip}
+                    thetaDipDefault={fedData.faultsList[0]?.thetaDip ?? customDipDirection}
+                    tTrueDefault={fedData.faultsList[0]?.tTrue ?? 1.0}
+                    lPullDefault={pullLength}
+                    lithologyName={fedData.faultsList[0]?.name || fedData.lithologyName}
+                  />
+                )}
 
-            {/* TUNNEL JUNCTION FACTOR UPGRADE CARD */}
-            <div className={`p-4 rounded-xl border ${junctionFactorData ? 'bg-violet-950/40 border-violet-600/70 shadow-lg' : 'bg-slate-900 border-slate-800'}`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-violet-600/30 text-violet-300 border border-violet-500/40">
-                    <GitFork className="w-4 h-4" />
+                {/* ==================== 3. SEQUENTIAL FACE 3D RECONSTRUCTION ==================== */}
+                {activeTab === 'SEQUENTIAL_3D_RECON' && (
+                  <SequentialFace3DReconstructionView
+                    spanW={spanW}
+                    heightH={heightH}
+                    geometry={geometry}
+                    initialFaceLogs={fedData.historicalFaceLogs}
+                  />
+                )}
+
+                {/* ==================== 4. FUTURE ADVANCE (+30m) 3D FORECAST ==================== */}
+                {activeTab === 'FUTURE_FORECAST' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                    <div className="lg:col-span-8 flex flex-col min-h-[500px]">
+                      <FutureAdvance3DViewport
+                        spanW={spanW}
+                        heightH={heightH}
+                        wallHeight={wallH}
+                        geometry={geometry}
+                        pullLength={pullLength}
+                        currentFaceChainage={currentFaceChainageNum}
+                        driveAzimuth={customDriveAzimuth}
+                        governingStrike={customStrike}
+                        governingDip={customDip}
+                        governingDipDirection={customDipDirection}
+                        governingSet={fedData.governingJoint?.set || 'J1'}
+                        governingType={fedData.governingJoint?.type || 'Discontinuity'}
+                        apparentDipDeg={apparentCalculations.apparentDipWallDeg}
+                        advanceRatePerVerticalMeter={apparentCalculations.advanceRatePerVerticalMeter}
+                      />
+                    </div>
+
+                    <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="space-y-3">
+                        <div className="border-b border-slate-800 pb-2">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
+                            AHEAD-OF-FACE STATION SCHEDULE (+30m)
+                          </div>
+                          <div className="text-xs font-mono text-slate-300 mt-0.5 tabular-nums">
+                            Governing Plane: <strong>{fedData.governingJoint?.set || 'J1'}</strong> (Strike {customStrike}° / Dip {customDip}°)
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-slate-950/90 border border-slate-800 rounded p-2">
+                            <div className="text-[9px] font-mono text-slate-500 uppercase">Apparent Wall Dip</div>
+                            <div className="text-sm font-mono font-bold text-amber-400 tabular-nums mt-0.5">
+                              {apparentCalculations.apparentDipWallDeg.toFixed(1)}°
+                            </div>
+                          </div>
+                          <div className="bg-slate-950/90 border border-slate-800 rounded p-2">
+                            <div className="text-[9px] font-mono text-slate-500 uppercase">Crown → Invert Span</div>
+                            <div className="text-sm font-mono font-bold text-sky-400 tabular-nums mt-0.5">
+                              {apparentCalculations.distanceCrownToInvert.toFixed(1)} m
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="overflow-x-auto border border-slate-800 rounded-lg">
+                          <table className="w-full text-left border-collapse font-mono text-[11px] tabular-nums">
+                            <thead>
+                              <tr className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                                <th className="py-1.5 px-2">Advance</th>
+                                <th className="py-1.5 px-2">Station</th>
+                                <th className="py-1.5 px-2">Elev Z</th>
+                                <th className="py-1.5 px-2">Position</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/70">
+                              {apparentCalculations.forecastTable.map((row) => (
+                                <tr key={row.distAhead} className="hover:bg-slate-800/40">
+                                  <td className="py-1.5 px-2 font-bold text-sky-300">+{row.distAhead}m</td>
+                                  <td className="py-1.5 px-2 text-slate-200">RD {row.targetChainage}m</td>
+                                  <td className="py-1.5 px-2 text-emerald-400">{row.elevationAboveInvert}m</td>
+                                  <td className="py-1.5 px-2 text-slate-300">{row.zoneLocation}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950/90 border border-slate-800 rounded p-2.5 text-[10px] font-mono text-slate-400">
+                        tan(α_wall) = tan({customDip}°) · |sin({customStrike}° - {Math.round(customDriveAzimuth)}°)| ={' '}
+                        <strong className="text-sky-300">
+                          {Math.tan((apparentCalculations.apparentDipWallDeg * Math.PI) / 180).toFixed(3)}
+                        </strong>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-xs font-mono font-bold text-white flex items-center gap-2">
-                      TUNNEL JUNCTION &amp; INTERSECTION FACTOR (K_j)
-                      {junctionFactorData && (
-                        <span className="px-2 py-0.5 text-[10px] bg-violet-600 text-white rounded font-extrabold">
-                          ACTIVE: {junctionFactorData.junctionFactorKj}×
+                )}
+
+                {/* ==================== 5. 3D KINEMATIC WEDGE & BOLT FOS ==================== */}
+                {activeTab === 'WEDGE_FOS' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                    {/* Left 8 Cols: 3D Kinematic Wedge + 2D Exact Profile Cross-Section */}
+                    <div className="lg:col-span-8 flex flex-col gap-4">
+                      <div className="min-h-[450px] flex-1 flex flex-col">
+                        <KinematicWedge3DViewport
+                          spanW={spanW}
+                          heightH={heightH}
+                          wallHeight={wallH}
+                          geometry={geometry}
+                          wedgeVolumeM3={wedgeAnalysis.wedgeVolumeM3}
+                          wedgeWeightKn={wedgeAnalysis.wedgeWeightKn}
+                          apexHeightM={wedgeAnalysis.apexHeightM}
+                          fosUnbolted={wedgeAnalysis.fosUnbolted}
+                          fosBolted={wedgeAnalysis.fosBolted}
+                          boltLengthM={boltLengthM}
+                          boltSpacingM={boltSpacingM}
+                          governingStrike={customStrike}
+                          governingDip={customDip}
+                          governingDipDirection={customDipDirection}
+                          driveAzimuth={customDriveAzimuth}
+                          failureMode={wedgeAnalysis.failureMode}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Right 4 Cols: Compact Engineering Inspector & 2D CAD Wedge Cross-Section */}
+                    <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="space-y-3">
+                        <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
+                          <div>
+                            <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
+                              GOODMAN-SHI WEDGE EQUILIBRIUM
+                            </div>
+                            <div className="text-xs font-mono text-slate-300 tabular-nums">
+                              FoS Unbolted: <strong className="text-rose-400">{wedgeAnalysis.fosUnbolted.toFixed(2)}</strong> → Bolted: <strong className="text-emerald-400">{wedgeAnalysis.fosBolted.toFixed(2)}</strong>
+                            </div>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                              wedgeAnalysis.fosBolted >= 1.5
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                                : 'bg-rose-500/15 text-rose-300 border-rose-500/40'
+                            }`}
+                          >
+                            {wedgeAnalysis.fosBolted >= 1.5 ? 'STABLE' : 'REINFORCE'}
+                          </span>
+                        </div>
+
+                        {/* 2D CAD Cross-Section with Exact Tunnel Profile & Crown Wedge */}
+                        <div className="bg-[#04070d] border border-slate-800 rounded-lg p-2">
+                          <div className="flex justify-between text-[10px] font-mono text-slate-400 mb-1">
+                            <span>2D CAD WEDGE &amp; BOLT ANCHORAGE</span>
+                            <span className="text-sky-300 tabular-nums">Apex = {wedgeAnalysis.apexHeightM.toFixed(2)}m</span>
+                          </div>
+                          <svg viewBox="0 0 320 220" className="w-full h-40">
+                            {(() => {
+                              const scale = Math.min(180 / Math.max(1, spanW), 110 / Math.max(1, heightH));
+                              const cx = 160;
+                              const baseY = 195;
+                              const { pathD, pointsSvg } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
+                              const crownY = baseY - heightH * scale;
+                              const apexY = Math.max(16, crownY - wedgeAnalysis.apexHeightM * scale);
+                              const halfWedgePx = Math.min(spanW * 0.34 * scale, 65);
+                              const crownEdgeY = crownY + 12;
+
+                              return (
+                                <>
+                                  <line x1="25" y1={baseY} x2="295" y2={baseY} stroke="#1e293b" strokeWidth="1" />
+                                  <path d={pathD} fill="#0f172a" stroke="#64748b" strokeWidth="2" />
+                                  {/* Tetrahedral Wedge Polygon */}
+                                  <polygon
+                                    points={`${cx - halfWedgePx},${crownEdgeY} ${cx},${apexY} ${cx + halfWedgePx},${crownEdgeY}`}
+                                    fill={wedgeAnalysis.fosBolted < 1.5 ? 'rgba(239,68,68,0.28)' : 'rgba(16,185,129,0.25)'}
+                                    stroke={wedgeAnalysis.fosBolted < 1.5 ? '#ef4444' : '#10b981'}
+                                    strokeWidth="2"
+                                  />
+                                  {/* Radial Pattern Bolts Normal to Crown */}
+                                  {pointsSvg
+                                    .filter((p) => p.rawY >= wallH * 0.85)
+                                    .filter((_, i, arr) => i % Math.max(1, Math.floor(arr.length / 5)) === 0)
+                                    .map((pt, idx) => {
+                                      const dx = pt.rawX;
+                                      const dy = Math.max(0.3, pt.rawY - wallH * 0.7);
+                                      const len = Math.hypot(dx, dy) || 1;
+                                      const ux = dx / len;
+                                      const uy = dy / len;
+                                      const x2 = pt.x + ux * boltLengthM * scale;
+                                      const y2 = pt.y - uy * boltLengthM * scale;
+                                      return (
+                                        <line
+                                          key={idx}
+                                          x1={pt.x}
+                                          y1={pt.y}
+                                          x2={x2}
+                                          y2={y2}
+                                          stroke="#22d3ee"
+                                          strokeWidth="1.8"
+                                        />
+                                      );
+                                    })}
+                                  <text x={cx + halfWedgePx + 6} y={apexY + 10} fill="#f8fafc" fontSize="9" fontFamily="monospace">
+                                    W = {wedgeAnalysis.wedgeWeightKn.toFixed(0)} kN
+                                  </text>
+                                </>
+                              );
+                            })()}
+                          </svg>
+                        </div>
+
+                        {/* Interactive Bolt & Joint Shear Controls */}
+                        <div className="space-y-2 bg-slate-950/80 border border-slate-800 rounded p-2.5">
+                          <div>
+                            <div className="flex justify-between text-[10px] font-mono text-slate-300">
+                              <span>Bolt Length L_b</span>
+                              <span className="text-sky-300 font-bold tabular-nums">{boltLengthM.toFixed(1)} m</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={2.0}
+                              max={8.0}
+                              step={0.5}
+                              value={boltLengthM}
+                              onChange={(e) => setBoltLengthM(Number(e.target.value))}
+                              className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[10px] font-mono text-slate-300">
+                              <span>Pattern Bolt Spacing S_b × S_l</span>
+                              <span className="text-sky-300 font-bold tabular-nums">{boltSpacingM.toFixed(2)} m</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.8}
+                              max={2.5}
+                              step={0.1}
+                              value={boltSpacingM}
+                              onChange={(e) => setBoltSpacingM(Number(e.target.value))}
+                              className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[10px] font-mono text-slate-300">
+                              <span>Joint Friction Angle φ &amp; Cohesion c</span>
+                              <span className="text-emerald-400 font-bold tabular-nums">{frictionAngleDeg}° / {cohesionKpa} kPa</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={15}
+                              max={50}
+                              step={1}
+                              value={frictionAngleDeg}
+                              onChange={(e) => setFrictionAngleDeg(Number(e.target.value))}
+                              className="w-full accent-emerald-400 h-1.5 bg-slate-800 rounded"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] font-mono tabular-nums">
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                          <div className="text-[9px] text-slate-500 uppercase">Req. Support Press.</div>
+                          <div className="font-bold text-amber-300">{wedgeAnalysis.requiredSupportPressureKpa.toFixed(1)} kPa</div>
+                        </div>
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                          <div className="text-[9px] text-slate-500 uppercase">Installed Capacity</div>
+                          <div className="font-bold text-cyan-300">{wedgeAnalysis.installedSupportPressureKpa.toFixed(1)} kPa</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ==================== 6. APPARENT DIP & STEREONET SOLVER ==================== */}
+                {activeTab === 'APPARENT_DIP_SOLVER' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                    {/* Left 8 Cols: Dual CAD Stereonet & Unfolded Wall/Face Apparent Trace Diagram */}
+                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 mb-3">
+                        <div>
+                          <div className="text-xs font-mono font-bold text-white uppercase">
+                            EQUAL-ANGLE HEMISPHERE STEREONET &amp; APPARENT TRACE PROJECTION
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-400 tabular-nums">
+                            True Strike {customStrike}° / Dip {customDip}° / DipDir {customDipDirection}° vs Tunnel Axis {Math.round(customDriveAzimuth)}°
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-[10px] font-mono font-bold text-sky-300">
+                          β = {apparentCalculations.betaDeg.toFixed(1)}°
                         </span>
-                      )}
-                    </h4>
-                    <p className="text-[11px] text-slate-400">
-                      Standard Grimstad &amp; Barton, NGI Q-system, and Bieniawski junction multiplier for 3D intersection spans
-                    </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center my-auto">
+                        {/* Equal-Angle Stereonet SVG */}
+                        <div className="bg-slate-950/90 border border-slate-800/80 rounded-lg p-3 flex flex-col items-center">
+                          <div className="text-[10px] font-mono text-slate-400 uppercase mb-1">
+                            Lower Hemisphere Stereonet
+                          </div>
+                          <svg viewBox="0 0 260 260" className="w-56 h-56">
+                            <circle cx="130" cy="130" r="102" fill="#060a12" stroke="#475569" strokeWidth="1.5" />
+                            <circle cx="130" cy="130" r="68" fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="3,3" />
+                            <circle cx="130" cy="130" r="34" fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="3,3" />
+                            <line x1="130" y1="22" x2="130" y2="238" stroke="#1e293b" strokeWidth="1" />
+                            <line x1="22" y1="130" x2="238" y2="130" stroke="#1e293b" strokeWidth="1" />
+                            <text x="126" y="16" fill="#94a3b8" fontSize="10" fontFamily="monospace" fontWeight="bold">N</text>
+                            <text x="242" y="133" fill="#64748b" fontSize="9" fontFamily="monospace">E</text>
+                            <text x="126" y="252" fill="#64748b" fontSize="9" fontFamily="monospace">S</text>
+                            <text x="10" y="133" fill="#64748b" fontSize="9" fontFamily="monospace">W</text>
+
+                            {/* Tunnel Drive Axis Vector */}
+                            {(() => {
+                              const azRad = ((customDriveAzimuth - 90) * Math.PI) / 180;
+                              const x1 = 130 - 102 * Math.cos(azRad);
+                              const y1 = 130 - 102 * Math.sin(azRad);
+                              const x2 = 130 + 102 * Math.cos(azRad);
+                              const y2 = 130 + 102 * Math.sin(azRad);
+                              return (
+                                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#38bdf8" strokeWidth="2" strokeDasharray="5,3" />
+                              );
+                            })()}
+
+                            {/* All Mapped Joint Poles & Governing Great Circle */}
+                            {mapped3DTraces.map((jt, idx) => {
+                              const poleAzRad = (((jt.dipDirection + 180) % 360 - 90) * Math.PI) / 180;
+                              const rPole = 102 * Math.tan(((jt.dip / 2) * Math.PI) / 180);
+                              const px = 130 + rPole * Math.cos(poleAzRad);
+                              const py = 130 + rPole * Math.sin(poleAzRad);
+                              return (
+                                <g key={jt.id || idx}>
+                                  <circle cx={px} cy={py} r="4" fill="#f59e0b" stroke="#060a12" strokeWidth="1" />
+                                  <text x={px + 6} y={py + 3} fill="#fcd34d" fontSize="8" fontFamily="monospace">
+                                    {jt.set}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                          </svg>
+                        </div>
+
+                        {/* Apparent Dip Vector Decomposition on Wall & Face */}
+                        <div className="bg-slate-950/90 border border-slate-800/80 rounded-lg p-3 flex flex-col items-center">
+                          <div className="text-[10px] font-mono text-slate-400 uppercase mb-1">
+                            Wall vs Face Apparent Trace Inclination
+                          </div>
+                          <svg viewBox="0 0 260 260" className="w-56 h-56">
+                            {/* Upper Box: Sidewall Profile */}
+                            <rect x="25" y="22" width="210" height="92" fill="#060a12" stroke="#334155" strokeWidth="1.5" />
+                            <text x="32" y="36" fill="#94a3b8" fontSize="9" fontFamily="monospace">
+                              SIDEWALL TRACE (α_wall = {apparentCalculations.apparentDipWallDeg.toFixed(1)}°)
+                            </text>
+                            {(() => {
+                              const rad = (apparentCalculations.apparentDipWallDeg * Math.PI) / 180;
+                              const dx = 65 * Math.cos(rad);
+                              const dy = 36 * Math.sin(rad);
+                              return (
+                                <line
+                                  x1={130 - dx}
+                                  y1={72 - dy}
+                                  x2={130 + dx}
+                                  y2={72 + dy}
+                                  stroke="#10b981"
+                                  strokeWidth="2.5"
+                                />
+                              );
+                            })()}
+
+                            {/* Lower Box: Active Face Profile */}
+                            <rect x="25" y="138" width="210" height="98" fill="#060a12" stroke="#334155" strokeWidth="1.5" />
+                            <text x="32" y="152" fill="#94a3b8" fontSize="9" fontFamily="monospace">
+                              FACE TRACE (α_face = {apparentCalculations.apparentDipFaceDeg.toFixed(1)}°)
+                            </text>
+                            {(() => {
+                              const rad = (apparentCalculations.apparentDipFaceDeg * Math.PI) / 180;
+                              const dx = 65 * Math.cos(rad);
+                              const dy = 36 * Math.sin(rad);
+                              return (
+                                <line
+                                  x1={130 - dx}
+                                  y1={192 - dy}
+                                  x2={130 + dx}
+                                  y2={192 + dy}
+                                  stroke="#f59e0b"
+                                  strokeWidth="2.5"
+                                />
+                              );
+                            })()}
+                          </svg>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950 border border-slate-800 rounded p-2.5 text-[11px] font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2 tabular-nums">
+                        <span>tan(α_wall) = tan(δ) · |sin(Strike - Azimuth)|</span>
+                        <span className="text-emerald-400 font-bold">
+                          α_wall = {apparentCalculations.apparentDipWallDeg.toFixed(2)}° | α_face = {apparentCalculations.apparentDipFaceDeg.toFixed(2)}°
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Right 4 Cols: Orientation Parameter Controls */}
+                    <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="space-y-3">
+                        <div className="border-b border-slate-800 pb-2">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
+                            ORIENTATION SOLVER CONTROLS
+                          </div>
+                          <div className="text-xs font-mono text-slate-400 mt-0.5">
+                            Synced from active mapped discontinuity sets
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 bg-slate-950/90 border border-slate-800 rounded p-3">
+                          <div>
+                            <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                              <span>Tunnel Drive Azimuth</span>
+                              <span className="text-sky-300 font-bold tabular-nums">{Math.round(customDriveAzimuth)}°</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={360}
+                              value={customDriveAzimuth}
+                              onChange={(e) => setCustomDriveAzimuth(clampDriveAzimuth(e.target.value).value)}
+                              className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                              <span>True Dip Angle (δ)</span>
+                              <span className="text-amber-300 font-bold tabular-nums">{customDip}°</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={90}
+                              value={customDip}
+                              onChange={(e) => setCustomDip(clampDiscontinuityDip(e.target.value).value)}
+                              className="w-full accent-amber-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                              <span>Dip Direction (α_d)</span>
+                              <span className="text-emerald-400 font-bold tabular-nums">{customDipDirection}°</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={360}
+                              value={customDipDirection}
+                              onChange={(e) => {
+                                const dd = clampDiscontinuityDipDirection(e.target.value).value;
+                                setCustomDipDirection(dd);
+                                setCustomStrike((dd - 90 + 360) % 360);
+                              }}
+                              className="w-full accent-emerald-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Mapped Discontinuity Selector List */}
+                        <div>
+                          <div className="text-[10px] font-mono font-bold text-slate-400 uppercase mb-1.5">
+                            Select Mapped Discontinuity ({mapped3DTraces.length})
+                          </div>
+                          <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                            {mapped3DTraces.map((jt, idx) => (
+                              <button
+                                key={jt.id || idx}
+                                onClick={() => {
+                                  setCustomDip(jt.dip);
+                                  setCustomDipDirection(jt.dipDirection);
+                                  setCustomStrike(jt.strike ?? ((jt.dipDirection - 90 + 360) % 360));
+                                }}
+                                className="w-full text-left px-2.5 py-1.5 rounded bg-slate-950 hover:bg-slate-800 border border-slate-800 flex items-center justify-between text-[11px] font-mono tabular-nums transition"
+                              >
+                                <span className="font-bold text-sky-300">
+                                  {jt.set} ({jt.type})
+                                </span>
+                                <span className="text-slate-300">
+                                  Dip {jt.dip}° / {String(jt.dipDirection).padStart(3, '0')}°
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                {onOpenJunctionCalculator && (
-                  <button
-                    onClick={onOpenJunctionCalculator}
-                    className="flex items-center gap-1.5 px-3 py-1 text-xs font-mono font-bold bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors cursor-pointer shrink-0"
-                  >
-                    <GitFork className="w-3.5 h-3.5" />
-                    <span>{junctionFactorData ? 'Edit Junction Factor' : 'Calculate Junction Factor'}</span>
-                  </button>
+                )}
+
+                {/* ==================== 7. APPARENT THICKNESS & SPACING ==================== */}
+                {activeTab === 'APPARENT_THICKNESS_SPACING' && (
+                  <ComponentApparentThicknessView
+                    alphaDriveDefault={customDriveAzimuth}
+                    betaDefault={customDip}
+                    thetaDipDefault={customDipDirection}
+                    sTrueDefault={fedData.governingJoint?.spacingM ?? 0.45}
+                    tTrueDefault={fedData.governingJoint?.thicknessM ?? 0.15}
+                  />
+                )}
+
+                {/* ==================== 8. PALMSTROM Jv & 3D BLOCK VOLUME ==================== */}
+                {activeTab === 'PALMSTROM_BLOCKS' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                    {/* Left 8 Cols: 2D Isometric CAD Block Polyhedron & Sieve Curve */}
+                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                        <div>
+                          <div className="text-xs font-mono font-bold text-white uppercase">
+                            PALMSTRÖM (1996/2005) 3D UNIT ROCK BLOCK &amp; VOLUMETRIC JOINT COUNT (Jv)
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-400 tabular-nums">
+                            True Spacings: S₁ = {standupAndBlockAnalysis.s1.toFixed(2)}m | S₂ = {standupAndBlockAnalysis.s2.toFixed(2)}m | S₃ = {standupAndBlockAnalysis.s3.toFixed(2)}m
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-mono font-bold text-emerald-300 tabular-nums">
+                          V_b = {standupAndBlockAnalysis.blockVolumeM3.toFixed(3)} m³
+                        </span>
+                      </div>
+
+                      <div className="my-auto py-4">
+                        <svg viewBox="0 0 560 250" className="w-full h-60">
+                          {(() => {
+                            const maxS = Math.max(standupAndBlockAnalysis.s1, standupAndBlockAnalysis.s2, standupAndBlockAnalysis.s3, 0.3);
+                            const wx = (standupAndBlockAnalysis.s1 / maxS) * 95;
+                            const wy = (standupAndBlockAnalysis.s2 / maxS) * 75;
+                            const wz = (standupAndBlockAnalysis.s3 / maxS) * 60;
+                            const cx = 175;
+                            const cy = 145;
+                            return (
+                              <g>
+                                {/* Isometric 3D Unit Rock Block */}
+                                <polygon
+                                  points={`${cx - wx * 0.5},${cy - wy * 0.5} ${cx + wx * 0.5},${cy - wy * 0.5} ${cx + wx * 0.5},${cy + wy * 0.5} ${cx - wx * 0.5},${cy + wy * 0.5}`}
+                                  fill="rgba(14,165,233,0.22)"
+                                  stroke="#38bdf8"
+                                  strokeWidth="2"
+                                />
+                                <polygon
+                                  points={`${cx - wx * 0.5},${cy - wy * 0.5} ${cx - wx * 0.5 + wz * 0.6},${cy - wy * 0.5 - wz * 0.45} ${cx + wx * 0.5 + wz * 0.6},${cy - wy * 0.5 - wz * 0.45} ${cx + wx * 0.5},${cy - wy * 0.5}`}
+                                  fill="rgba(56,189,248,0.32)"
+                                  stroke="#38bdf8"
+                                  strokeWidth="2"
+                                />
+                                <polygon
+                                  points={`${cx + wx * 0.5},${cy - wy * 0.5} ${cx + wx * 0.5 + wz * 0.6},${cy - wy * 0.5 - wz * 0.45} ${cx + wx * 0.5 + wz * 0.6},${cy + wy * 0.5 - wz * 0.45} ${cx + wx * 0.5},${cy + wy * 0.5}`}
+                                  fill="rgba(2,132,199,0.28)"
+                                  stroke="#38bdf8"
+                                  strokeWidth="2"
+                                />
+                                <text x={cx - 35} y={cy + wy * 0.5 + 18} fill="#38bdf8" fontSize="10" fontFamily="monospace">
+                                  S₁ = {standupAndBlockAnalysis.s1.toFixed(2)}m
+                                </text>
+                                <text x={cx - wx * 0.5 - 68} y={cy} fill="#10b981" fontSize="10" fontFamily="monospace">
+                                  S₂ = {standupAndBlockAnalysis.s2.toFixed(2)}m
+                                </text>
+                                <text x={cx + wx * 0.5 + wz * 0.6 + 8} y={cy - wy * 0.5 - wz * 0.2} fill="#f59e0b" fontSize="10" fontFamily="monospace">
+                                  S₃ = {standupAndBlockAnalysis.s3.toFixed(2)}m
+                                </text>
+
+                                {/* Right Side: Jv -> RQD Correlation Bar */}
+                                <rect x="330" y="38" width="205" height="175" rx="6" fill="#0b1120" stroke="#1e293b" strokeWidth="1.5" />
+                                <text x="345" y="60" fill="#94a3b8" fontSize="10" fontFamily="monospace" fontWeight="bold">
+                                  PALMSTRÖM RQD CORRELATIONS
+                                </text>
+                                <text x="345" y="88" fill="#e2e8f0" fontSize="11" fontFamily="monospace">
+                                  Jv = {standupAndBlockAnalysis.jvVolumetricCount.toFixed(2)} joints/m³
+                                </text>
+                                <text x="345" y="116" fill="#10b981" fontSize="11" fontFamily="monospace">
+                                  RQD (1982) = {standupAndBlockAnalysis.rqdPalmstrom1982.toFixed(1)}%
+                                </text>
+                                <text x="345" y="142" fill="#38bdf8" fontSize="11" fontFamily="monospace">
+                                  RQD (2005) = {standupAndBlockAnalysis.rqdPalmstrom2005.toFixed(1)}%
+                                </text>
+                                <text x="345" y="170" fill="#f59e0b" fontSize="11" fontFamily="monospace">
+                                  D_eq = {(standupAndBlockAnalysis.equivalentBlockDiaM * 100).toFixed(1)} cm
+                                </text>
+                                <text x="345" y="195" fill="#94a3b8" fontSize="9.5" fontFamily="monospace">
+                                  {standupAndBlockAnalysis.blockClass}
+                                </text>
+                              </g>
+                            );
+                          })()}
+                        </svg>
+                      </div>
+
+                      <div className="bg-slate-950 border border-slate-800 rounded p-2.5 text-[11px] font-mono text-slate-400 flex items-center justify-between tabular-nums">
+                        <span>J_v = 1/S₁ + 1/S₂ + 1/S₃ + N_r/5</span>
+                        <span className="text-sky-300 font-bold">V_b = β · J_v⁻³ (β = 36)</span>
+                      </div>
+                    </div>
+
+                    {/* Right 4 Cols: Palmström Numeric Inspector */}
+                    <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="space-y-3">
+                        <div className="border-b border-slate-800 pb-2">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
+                            BLOCK SIZE SUMMARY
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 font-mono tabular-nums">
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                            <div className="text-[9px] text-slate-500 uppercase">Volumetric Jv</div>
+                            <div className="text-base font-bold text-white mt-0.5">
+                              {standupAndBlockAnalysis.jvVolumetricCount.toFixed(2)} <span className="text-[10px] text-slate-400">j/m³</span>
+                            </div>
+                          </div>
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                            <div className="text-[9px] text-slate-500 uppercase">Block Volume Vb</div>
+                            <div className="text-base font-bold text-emerald-400 mt-0.5">
+                              {standupAndBlockAnalysis.blockVolumeM3.toFixed(3)} <span className="text-[10px] text-slate-400">m³</span>
+                            </div>
+                          </div>
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                            <div className="text-[9px] text-slate-500 uppercase">RQD (115 - 3.3Jv)</div>
+                            <div className="text-base font-bold text-sky-400 mt-0.5">
+                              {standupAndBlockAnalysis.rqdPalmstrom1982.toFixed(1)}%
+                            </div>
+                          </div>
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                            <div className="text-[9px] text-slate-500 uppercase">Eq. Block Dia</div>
+                            <div className="text-base font-bold text-amber-400 mt-0.5">
+                              {(standupAndBlockAnalysis.equivalentBlockDiaM * 100).toFixed(1)} cm
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950 border border-slate-800 rounded p-2.5 text-[11px] font-mono text-slate-300">
+                        Block Classification: <strong className="text-emerald-400">{standupAndBlockAnalysis.blockClass}</strong>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ==================== 9. HOEK-BROWN (2002) ROCK MASS CRITERION ==================== */}
+                {activeTab === 'HOEK_BROWN_ROCK' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                    {/* Left 8 Cols: Principal Stress Failure Envelope SVG */}
+                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                        <div>
+                          <div className="text-xs font-mono font-bold text-white uppercase">
+                            GENERALIZED HOEK-BROWN (2002) PRINCIPAL STRESS FAILURE ENVELOPE (σ₁ vs σ₃)
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-400 tabular-nums">
+                            GSI = {hoekBrownAnalysis.gsi} | σ_ci = {intactUcsMpa} MPa | m_i = {hoekBrownMi} | D = {disturbanceFactorD}
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-mono font-bold text-emerald-300 tabular-nums">
+                          E_rm = {hoekBrownAnalysis.deformationModulusGpa.toFixed(2)} GPa
+                        </span>
+                      </div>
+
+                      <div className="my-auto py-2">
+                        <svg viewBox="0 0 560 260" className="w-full h-64">
+                          <line x1="55" y1="220" x2="520" y2="220" stroke="#475569" strokeWidth="1.5" />
+                          <line x1="55" y1="20" x2="55" y2="220" stroke="#475569" strokeWidth="1.5" />
+                          {(() => {
+                            const pts = hoekBrownAnalysis.envelopePoints;
+                            const maxSig3 = Math.max(1, pts[pts.length - 1]?.sig3 || 20);
+                            const maxSig1 = Math.max(5, pts[pts.length - 1]?.sig1 || 100);
+                            const polyPts = pts
+                              .map((p) => {
+                                const x = 55 + (p.sig3 / maxSig3) * 450;
+                                const y = 220 - (p.sig1 / maxSig1) * 185;
+                                return `${x.toFixed(1)},${y.toFixed(1)}`;
+                              })
+                              .join(' ');
+                            return (
+                              <>
+                                <polyline fill="none" stroke="#38bdf8" strokeWidth="2.5" points={polyPts} />
+                                <text x="240" y="245" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                                  Minor Principal Stress σ₃ (0 → {maxSig3.toFixed(1)} MPa)
+                                </text>
+                                <text x="65" y="34" fill="#38bdf8" fontSize="10" fontFamily="monospace">
+                                  Major Principal Stress σ₁ (Max {maxSig1.toFixed(1)} MPa)
+                                </text>
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2 text-center font-mono text-[11px] tabular-nums">
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                          <div className="text-[9px] text-slate-500">m_b</div>
+                          <div className="font-bold text-sky-300">{hoekBrownAnalysis.mb.toFixed(3)}</div>
+                        </div>
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                          <div className="text-[9px] text-slate-500">s</div>
+                          <div className="font-bold text-emerald-400">{hoekBrownAnalysis.s.toFixed(4)}</div>
+                        </div>
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                          <div className="text-[9px] text-slate-500">a</div>
+                          <div className="font-bold text-amber-300">{hoekBrownAnalysis.a.toFixed(3)}</div>
+                        </div>
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                          <div className="text-[9px] text-slate-500">σ_cm (Global)</div>
+                          <div className="font-bold text-white">{hoekBrownAnalysis.globalStrengthSigmaCmMpa.toFixed(2)} MPa</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right 4 Cols: Intact Rock & Overburden Controls */}
+                    <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="space-y-3">
+                        <div className="border-b border-slate-800 pb-2">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
+                            HOEK-BROWN INPUT PARAMETERS
+                          </div>
+                        </div>
+
+                        <div className="space-y-2.5 bg-slate-950/90 border border-slate-800 rounded p-3">
+                          <div>
+                            <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                              <span>Intact Rock UCS (σ_ci)</span>
+                              <span className="text-sky-300 font-bold tabular-nums">{intactUcsMpa} MPa</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={250}
+                              step={5}
+                              value={intactUcsMpa}
+                              onChange={(e) => setIntactUcsMpa(clampUcsMpa(e.target.value).value ?? 75)}
+                              className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                              <span>Hoek-Brown Constant (m_i)</span>
+                              <span className="text-amber-300 font-bold tabular-nums">{hoekBrownMi}</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={4}
+                              max={35}
+                              step={1}
+                              value={hoekBrownMi}
+                              onChange={(e) => setHoekBrownMi(Number(e.target.value))}
+                              className="w-full accent-amber-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                              <span>Blast Disturbance Factor (D)</span>
+                              <span className="text-emerald-400 font-bold tabular-nums">{disturbanceFactorD.toFixed(1)}</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={0.8}
+                              step={0.1}
+                              value={disturbanceFactorD}
+                              onChange={(e) => setDisturbanceFactorD(Number(e.target.value))}
+                              className="w-full accent-emerald-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                              <span>Overburden Depth (H)</span>
+                              <span className="text-purple-300 font-bold tabular-nums">{overburdenDepthM} m</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={20}
+                              max={800}
+                              step={10}
+                              value={overburdenDepthM}
+                              onChange={(e) => setOverburdenDepthM(Number(e.target.value))}
+                              className="w-full accent-purple-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums">
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                            <div className="text-[9px] text-slate-500">Eq. Friction φ'</div>
+                            <div className="font-bold text-emerald-400">{hoekBrownAnalysis.equivalentFrictionDeg.toFixed(1)}°</div>
+                          </div>
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                            <div className="text-[9px] text-slate-500">Eq. Cohesion c'</div>
+                            <div className="font-bold text-sky-300">{hoekBrownAnalysis.equivalentCohesionKpa.toFixed(0)} kPa</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ==================== 10. BIENIAWSKI STAND-UP TIME & ACTIVE SPAN ==================== */}
+                {activeTab === 'STANDUP_TIME_SPAN' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                        <div>
+                          <div className="text-xs font-mono font-bold text-white uppercase">
+                            BIENIAWSKI (1989) UNSUPPORTED STAND-UP TIME vs ACTIVE SPAN CHART
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-400 tabular-nums">
+                            Active Span S = {standupAndBlockAnalysis.activeSpanM.toFixed(2)}m | RMR₈₉ = {safeRmrForCalc}
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-[10px] font-mono font-bold text-sky-300 tabular-nums">
+                          t_standup = {standupAndBlockAnalysis.standupHours.toFixed(1)} hrs
+                        </span>
+                      </div>
+
+                      <div className="my-auto py-3">
+                        <svg viewBox="0 0 560 250" className="w-full h-60">
+                          {/* Log-Log Standup Time Bands for RMR 20, 40, 60, 80 */}
+                          <line x1="60" y1="215" x2="520" y2="215" stroke="#475569" strokeWidth="1.5" />
+                          <line x1="60" y1="20" x2="60" y2="215" stroke="#475569" strokeWidth="1.5" />
+                          {[20, 40, 60, 80].map((rmrCurve, idx) => {
+                            const x1 = 60;
+                            const y1 = 215 - (rmrCurve / 100) * 165;
+                            const x2 = 480;
+                            const y2 = Math.min(215, y1 + 65);
+                            const colors = ['#ef4444', '#f59e0b', '#38bdf8', '#10b981'];
+                            return (
+                              <g key={rmrCurve}>
+                                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={colors[idx]} strokeWidth="1.8" strokeDasharray="4,3" />
+                                <text x={x2 + 6} y={y2 + 3} fill={colors[idx]} fontSize="9" fontFamily="monospace">
+                                  RMR {rmrCurve}
+                                </text>
+                              </g>
+                            );
+                          })}
+                          {/* Active Operating Point */}
+                          {(() => {
+                            const logT = Math.max(-1, Math.min(5, Math.log10(standupAndBlockAnalysis.standupHours)));
+                            const px = 60 + ((logT + 1) / 6) * 420;
+                            const py = 215 - Math.min(185, (standupAndBlockAnalysis.activeSpanM / 20) * 185);
+                            return (
+                              <g>
+                                <circle cx={px} cy={py} r="6" fill="#38bdf8" stroke="#ffffff" strokeWidth="2" />
+                                <text x={px + 10} y={py - 6} fill="#ffffff" fontSize="10" fontFamily="monospace" fontWeight="bold">
+                                  Active Face ({standupAndBlockAnalysis.standupHours.toFixed(1)}h, {standupAndBlockAnalysis.activeSpanM.toFixed(1)}m)
+                                </text>
+                              </g>
+                            );
+                          })()}
+                          <text x="210" y="240" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                            Stand-Up Time (Log Scale: 0.1 hr → 10⁵ hrs)
+                          </text>
+                        </svg>
+                      </div>
+                    </div>
+
+                    <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="space-y-2.5 font-mono tabular-nums">
+                        <div className="text-[10px] uppercase tracking-wider text-sky-400 font-bold border-b border-slate-800 pb-2">
+                          STAND-UP TIME READOUT
+                        </div>
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                          <div className="text-[9px] text-slate-500 uppercase">Unsupported Stand-Up Time</div>
+                          <div className="text-lg font-bold text-emerald-400 mt-0.5">
+                            {standupAndBlockAnalysis.standupHours.toFixed(1)} hrs ({standupAndBlockAnalysis.standupDays.toFixed(2)} days)
+                          </div>
+                        </div>
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                          <div className="text-[9px] text-slate-500 uppercase">Active Unsupported Span</div>
+                          <div className="text-base font-bold text-sky-300 mt-0.5">
+                            {standupAndBlockAnalysis.activeSpanM.toFixed(2)} m
+                          </div>
+                        </div>
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                          <div className="text-[9px] text-slate-500 uppercase">Max Safe Unsupported Span</div>
+                          <div className="text-base font-bold text-amber-300 mt-0.5">
+                            {standupAndBlockAnalysis.maxUnsupportedSpanM.toFixed(2)} m
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ==================== 11. HYDROGEOLOGICAL INFLOW & GROUTING ==================== */}
+                {activeTab === 'HYDRO_INFLOW' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                    {/* Left 8 Cols: Exact Tunnel Profile Hydrostatic Head & Pre-Grouting Ring SVG */}
+                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                        <div>
+                          <div className="text-xs font-mono font-bold text-white uppercase">
+                            GOODMAN-HEUER STEADY GROUNDWATER INFLOW &amp; GROUT RING ENVELOPE
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-400 tabular-nums">
+                            Piezometric Head H_w = {waterHeadM}m | Permeability k = {hydroAnalysis.baseK.toExponential(1)} m/s
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-[10px] font-mono font-bold text-sky-300 tabular-nums">
+                          P_w = {hydroAnalysis.hydrostaticPressureMpa.toFixed(2)} MPa
+                        </span>
+                      </div>
+
+                      <div className="my-auto py-2">
+                        <svg viewBox="0 0 520 240" className="w-full h-60">
+                          {(() => {
+                            const scale = Math.min(160 / Math.max(1, spanW), 115 / Math.max(1, heightH));
+                            const cx = 260;
+                            const baseY = 195;
+                            const { pathD } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
+                            const groutScale = scale * 1.42;
+                            const groutRing = buildSvgTunnelProfilePath(
+                              geometry,
+                              spanW,
+                              heightH,
+                              wallH,
+                              cx,
+                              baseY + (groutScale - scale) * (heightH * 0.45),
+                              groutScale
+                            );
+                            return (
+                              <>
+                                {/* Water Table Line */}
+                                <line x1="40" y1="22" x2="480" y2="22" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="6,3" />
+                                <text x="45" y="16" fill="#38bdf8" fontSize="9.5" fontFamily="monospace">
+                                  PIEZOMETRIC HEAD H_w = {waterHeadM}m ({hydroAnalysis.hydrostaticPressureMpa.toFixed(2)} MPa)
+                                </text>
+                                {/* Pre-Injection Grouted Halo */}
+                                <path
+                                  d={groutRing.pathD}
+                                  fill="rgba(14,165,233,0.10)"
+                                  stroke="#0284c7"
+                                  strokeWidth="1.5"
+                                  strokeDasharray="4,3"
+                                />
+                                {/* Exact Tunnel Profile */}
+                                <path d={pathD} fill="#0f172a" stroke="#38bdf8" strokeWidth="2.2" />
+                                <text x={cx - 65} y="222" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                                  Grouted Inflow: {hydroAnalysis.groutedLitersPerMinPer100m.toFixed(1)} L/min/100m
+                                </text>
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      </div>
+                    </div>
+
+                    {/* Right 4 Cols: Hydro Controls & Readout */}
+                    <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="space-y-3">
+                        <div className="border-b border-slate-800 pb-2">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
+                            HYDROGEOLOGICAL CONTROLS
+                          </div>
+                        </div>
+
+                        <div className="space-y-2.5 bg-slate-950 border border-slate-800 rounded p-3">
+                          <div>
+                            <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                              <span>Piezometric Head (H_w)</span>
+                              <span className="text-sky-300 font-bold tabular-nums">{waterHeadM} m</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={350}
+                              step={5}
+                              value={waterHeadM}
+                              onChange={(e) => setWaterHeadM(Number(e.target.value))}
+                              className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                              <span>Pre-Grouting Efficiency</span>
+                              <span className="text-emerald-400 font-bold tabular-nums">{groutReductionPct}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={95}
+                              step={5}
+                              value={groutReductionPct}
+                              onChange={(e) => setGroutReductionPct(Number(e.target.value))}
+                              className="w-full accent-emerald-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums">
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                            <div className="text-[9px] text-slate-500">Ungrouted Inflow</div>
+                            <div className="font-bold text-rose-400">{hydroAnalysis.ungroutedLitersPerMinPer100m.toFixed(1)} L/m</div>
+                          </div>
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                            <div className="text-[9px] text-slate-500">Grouted Residual</div>
+                            <div className="font-bold text-emerald-400">{hydroAnalysis.groutedLitersPerMinPer100m.toFixed(1)} L/m</div>
+                          </div>
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2 col-span-2">
+                            <div className="text-[9px] text-slate-500">Recommended Injection Pressure</div>
+                            <div className="font-bold text-sky-300">{hydroAnalysis.suggestedGroutPressureMpa.toFixed(2)} MPa</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ==================== 12. PORTAL CUT & STABILIZATION ==================== */}
+                {activeTab === 'SLOPE_STABILITY_AND_STABILIZATION' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                        <div>
+                          <div className="text-xs font-mono font-bold text-white uppercase">
+                            ROMANA SMR PORTAL CUT &amp; TENSIONED ROCK ANCHOR LIMIT EQUILIBRIUM
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-400 tabular-nums">
+                            Cut Height H = {slopeHeightM}m | Slope Dip {slopeAngleDeg}° | Joint Dip {customDip}°
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-mono font-bold text-emerald-300 tabular-nums">
+                          SMR = {slopeAndStabilizationAnalysis.computedSmr} | FoS = {slopeAndStabilizationAnalysis.fosSlopeReinforced.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="my-auto py-2">
+                        <svg viewBox="0 0 540 240" className="w-full h-60">
+                          {/* Portal Cut Slope & Daylight Failure Plane CAD Cross-Section */}
+                          <line x1="40" y1="205" x2="500" y2="205" stroke="#475569" strokeWidth="1.5" />
+                          <polygon
+                            points="120,205 230,45 470,45 470,205"
+                            fill="#0f172a"
+                            stroke="#64748b"
+                            strokeWidth="2"
+                          />
+                          {/* Failure Plane */}
+                          <line x1="120" y1="205" x2="345" y2="45" stroke="#ef4444" strokeWidth="2.2" strokeDasharray="5,3" />
+                          {/* Tensioned Rock Anchors */}
+                          {[85, 125, 165].map((yPos, idx) => {
+                            const xStart = 120 + ((205 - yPos) / 160) * 110;
+                            return (
+                              <line
+                                key={idx}
+                                x1={xStart}
+                                y1={yPos}
+                                x2={xStart + 115}
+                                y2={yPos + 28}
+                                stroke="#22d3ee"
+                                strokeWidth="2.2"
+                              />
+                            );
+                          })}
+                          <text x="135" y="224" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                            Unreinforced FoS = {slopeAndStabilizationAnalysis.fosSlopeUnreinforced.toFixed(2)} → Anchored FoS = {slopeAndStabilizationAnalysis.fosSlopeReinforced.toFixed(2)}
+                          </text>
+                        </svg>
+                      </div>
+                    </div>
+
+                    <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+                      <div className="space-y-2.5 bg-slate-950 border border-slate-800 rounded p-3">
+                        <div>
+                          <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                            <span>Cut Slope Angle (β_s)</span>
+                            <span className="text-sky-300 font-bold tabular-nums">{slopeAngleDeg}°</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={35}
+                            max={85}
+                            value={slopeAngleDeg}
+                            onChange={(e) => setSlopeAngleDeg(Number(e.target.value))}
+                            className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded mt-1"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                            <span>Anchor Force T (kN/m)</span>
+                            <span className="text-cyan-300 font-bold tabular-nums">{anchorTensionKnPerM} kN/m</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={600}
+                            step={20}
+                            value={anchorTensionKnPerM}
+                            onChange={(e) => setAnchorTensionKnPerM(Number(e.target.value))}
+                            className="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums">
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                          <div className="text-[9px] text-slate-500">Romana SMR</div>
+                          <div className="font-bold text-emerald-400">{slopeAndStabilizationAnalysis.computedSmr}</div>
+                        </div>
+                        <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                          <div className="text-[9px] text-slate-500">Req. T for FoS 1.5</div>
+                          <div className="font-bold text-amber-300">{slopeAndStabilizationAnalysis.requiredTensionKnPerM.toFixed(0)} kN/m</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ==================== 13. ALIGNMENT ALTERNATIVES EVALUATOR ==================== */}
+                {activeTab === 'ALIGNMENT_ALTERNATIVES' && (
+                  <AlignmentAlternativesEvaluatorView
+                    currentDriveAzimuth={customDriveAzimuth}
+                    faults={fedData.faultsList}
+                    controllingJoint={{
+                      id: fedData.governingJoint?.id || 'j-gov',
+                      beta: customDip,
+                      thetaDip: customDipDirection,
+                      frictionAngle: frictionAngleDeg,
+                    }}
+                  />
+                )}
+
+                {/* ==================== 14. POOR ROCK PROPORTIONS ESTIMATOR ==================== */}
+                {activeTab === 'POOR_ROCK_PROPORTIONS' && (
+                  <PoorRockProportionsEstimatorView
+                    totalLengthDefault={livePoorRockInputs.totalLen}
+                    initialDomains={livePoorRockInputs.domains}
+                    initialFaults={livePoorRockInputs.faultCrossings}
+                  />
+                )}
+
+                {/* ==================== 15. EXECUTIVE GEOTECHNICAL DOSSIER ==================== */}
+                {activeTab === 'EXECUTIVE_REPORT' && (
+                  <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-5 space-y-5 font-mono">
+                    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest text-sky-400 font-bold">
+                          ISRM / NGI / BIENIAWSKI CONSOLIDATED ENGINEERING DOSSIER
+                        </div>
+                        <h3 className="text-base font-bold text-white mt-0.5">
+                          {settings.projectName || 'Underground Tunnel Project'} — {settings.tunnelName || 'Active Heading'} ({fedData.faceChainageStr})
+                        </h3>
+                      </div>
+                      <div className="text-right text-xs text-slate-400 tabular-nums">
+                        <div>Profile: <strong className="text-white">{shapeLabel} ({spanW.toFixed(2)}m × {heightH.toFixed(2)}m)</strong></div>
+                        <div>Date: {settings.date} | Geologist: {settings.mappedBy}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 tabular-nums">
+                      <div className="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                        <div className="text-[10px] text-slate-500 uppercase">Bieniawski RMR₈₉</div>
+                        <div className="text-lg font-bold text-emerald-400 mt-0.5">
+                          {rmrVal !== null ? rmrVal : `${safeRmrForCalc} (Eq)`}
+                        </div>
+                      </div>
+                      <div className="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                        <div className="text-[10px] text-slate-500 uppercase">Barton NGI Q-Value</div>
+                        <div className="text-lg font-bold text-sky-400 mt-0.5">
+                          {qVal !== null ? qVal.toFixed(3) : `${safeQForCalc} (Eq)`}
+                        </div>
+                      </div>
+                      <div className="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                        <div className="text-[10px] text-slate-500 uppercase">3D Wedge Bolted FoS</div>
+                        <div className="text-lg font-bold text-amber-300 mt-0.5">
+                          {wedgeAnalysis.fosBolted.toFixed(2)} ({wedgeAnalysis.wedgeWeightKn.toFixed(0)} kN)
+                        </div>
+                      </div>
+                      <div className="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                        <div className="text-[10px] text-slate-500 uppercase">Rock Mass Modulus Erm</div>
+                        <div className="text-lg font-bold text-purple-300 mt-0.5">
+                          {hoekBrownAnalysis.deformationModulusGpa.toFixed(2)} GPa
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs tabular-nums">
+                      <div className="bg-slate-950 border border-slate-800 rounded-lg p-3.5 space-y-2">
+                        <div className="text-sky-400 font-bold uppercase text-[11px] border-b border-slate-800 pb-1.5">
+                          Structural &amp; Kinematic Summary
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Governing Discontinuity:</span>
+                          <span className="text-white font-bold">
+                            {fedData.governingJoint
+                              ? `${fedData.governingJoint.set} (Dip ${fedData.governingJoint.dip}° / ${fedData.governingJoint.dipDirection}°)`
+                              : 'None'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Apparent Dip (Wall / Face):</span>
+                          <span className="text-emerald-400 font-bold">
+                            {apparentCalculations.apparentDipWallDeg.toFixed(1)}° / {apparentCalculations.apparentDipFaceDeg.toFixed(1)}°
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Palmström Volumetric Jv &amp; Vb:</span>
+                          <span className="text-sky-300 font-bold">
+                            {standupAndBlockAnalysis.jvVolumetricCount.toFixed(1)} j/m³ | {standupAndBlockAnalysis.blockVolumeM3.toFixed(3)} m³
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950 border border-slate-800 rounded-lg p-3.5 space-y-2">
+                        <div className="text-sky-400 font-bold uppercase text-[11px] border-b border-slate-800 pb-1.5">
+                          Support &amp; Hydrogeological Verification
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Unsupported Stand-Up Time:</span>
+                          <span className="text-emerald-400 font-bold">{standupAndBlockAnalysis.standupHours.toFixed(1)} hrs</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Pattern Rockbolting:</span>
+                          <span className="text-cyan-300 font-bold">L = {boltLengthM.toFixed(1)}m @ {boltSpacingM.toFixed(2)}m c/c</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Grouted Residual Inflow:</span>
+                          <span className="text-amber-300 font-bold">{hydroAnalysis.groutedLitersPerMinPer100m.toFixed(1)} L/min/100m</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
-
-              {junctionFactorData ? (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
-                  <div className="p-2.5 bg-slate-950/70 rounded-lg border border-violet-800/50">
-                    <div className="text-[10px] text-slate-400">Junction Geometry</div>
-                    <div className="font-bold text-violet-200 text-sm mt-0.5">
-                      {junctionFactorData.junctionType.replace('_', ' ')}
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-1">Angle: {junctionFactorData.intersectionAngleDeg}°</div>
-                  </div>
-                  <div className="p-2.5 bg-slate-950/70 rounded-lg border border-violet-800/50">
-                    <div className="text-[10px] text-slate-400">Diagonal Span</div>
-                    <div className="font-bold text-amber-300 text-sm mt-0.5">
-                      {junctionFactorData.diagonalSpanM} m
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-1">Std Span: {spanW.toFixed(1)}m</div>
-                  </div>
-                  <div className="p-2.5 bg-slate-950/70 rounded-lg border border-violet-800/50">
-                    <div className="text-[10px] text-slate-400">Upgraded Roof Pressure</div>
-                    <div className="font-bold text-rose-300 text-sm mt-0.5">
-                      {junctionFactorData.junctionRoofPressureKpa} kPa
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-1">Multiplier: {junctionFactorData.junctionFactorKj}×</div>
-                  </div>
-                  <div className="p-2.5 bg-slate-950/70 rounded-lg border border-violet-800/50">
-                    <div className="text-[10px] text-slate-400">Extended Rock Bolt Length</div>
-                    <div className="font-bold text-emerald-300 text-sm mt-0.5">
-                      L = {junctionFactorData.junctionBoltLengthM} m
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-1">SFRS: {junctionFactorData.junctionShotcreteMm} mm</div>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-3 bg-slate-950/40 rounded-lg border border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                  <span>No intersection active. Standard linear single-tube tunnel span ({spanW.toFixed(1)}m) is applied.</span>
-                  {onOpenJunctionCalculator && (
-                    <button
-                      onClick={onOpenJunctionCalculator}
-                      className="text-violet-400 hover:text-violet-300 font-mono font-bold underline cursor-pointer"
-                    >
-                      Open Junction Calculator →
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* TAB 7: PALMSTRÖM BLOCKS & OVERBREAK FIDIC SPLIT                  */}
-        {/* ================================================================= */}
-        {activeTab === 'PALMSTROM_BLOCKS' && (
-          !currentTabReadiness.canCalculate ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Palmström Blocks & Overbreak FIDIC Split"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">VOLUMETRIC JOINT COUNT (Jv)</div>
-                <div className="text-3xl font-mono font-extrabold text-sky-300">{palmstromJv}</div>
-                <div className="text-xs text-slate-400 mt-1">Joints / m³ of in-situ rock mass</div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">BLOCK VOLUME (Vb)</div>
-                <div className="text-3xl font-mono font-extrabold text-amber-300">{blockVolumeM3} m³</div>
-                <div className="text-xs text-slate-400 mt-1">{blockCategory}</div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">PALMSTRÖM THEORETICAL RQD</div>
-                <div className="text-3xl font-mono font-extrabold text-emerald-300">{palmstromRqdPct}%</div>
-                <div className="text-xs text-slate-400 mt-1">Calculated: 115 - 3.3 × Jv</div>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold font-mono text-sky-400 flex items-center gap-2">
-                  <Activity className="w-4 h-4" />
-                  OVERBREAK HAZARD RISK INDEX &amp; FIDIC CONTRACTUAL ALLOCATION
-                </h3>
-                <span
-                  className={`px-2 py-0.5 text-xs font-mono font-bold rounded-full ${
-                    obHazardLevel === 'HIGH RISK'
-                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                  }`}
-                >
-                  {obHazardLevel} ({obHazardScore}/100)
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                <div className="p-3 rounded-lg bg-indigo-950/30 border border-indigo-800/60">
-                  <div className="flex justify-between text-xs font-mono mb-1">
-                    <span className="text-indigo-200 font-bold">Geologically Excusable Overbreak:</span>
-                    <span className="text-indigo-300 font-extrabold">{geologicalExcusablePct}%</span>
-                  </div>
-                  <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
-                    <div className="bg-indigo-500 h-2.5 rounded-full" style={{ width: `${geologicalExcusablePct}%` }} />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    Bound by dipping joint set {activeJointSet} extending beyond theoretical B-line profile. Billable under FIDIC Red Book Clause 12.
-                  </p>
-                </div>
-
-                <div className="p-3 rounded-lg bg-slate-900 border border-slate-700">
-                  <div className="flex justify-between text-xs font-mono mb-1">
-                    <span className="text-slate-200 font-bold">Contractor Blasting / Over-drilling:</span>
-                    <span className="text-amber-300 font-extrabold">{contractorMechanicalPct}%</span>
-                  </div>
-                  <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
-                    <div className="bg-amber-500 h-2.5 rounded-full" style={{ width: `${contractorMechanicalPct}%` }} />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    Radial drill hole deviation or excessive specific explosive energy. Non-compensable backfill.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-          )
-        )}
-
-        {/* ================================================================= */}
-        {/* TAB 8: HYDROGEOLOGY & INFLOW ESTIMATION                           */}
-        {/* ================================================================= */}
-        {activeTab === 'HYDRO_INFLOW' && (
-          !currentTabReadiness.canCalculate ? (
-            <DataRequirementLockView
-              readiness={currentTabReadiness}
-              moduleTitle="Hydrogeology & Inflow Estimation"
-              onReturnToCanvas={onClose}
-            />
-          ) : (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">STEADY-STATE WATER INFLOW</div>
-                <div className="text-3xl font-mono font-extrabold text-sky-300">{inflowLPerMin10m}</div>
-                <div className="text-xs text-slate-400 mt-1">Liters / min per 10m round advance</div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">HYDROSTATIC HEAD ABOVE CROWN</div>
-                <div className="text-3xl font-mono font-extrabold text-indigo-300">{waterHeadM} m</div>
-                <div className="text-xs text-slate-400 mt-1">~{(waterHeadM * 0.00981).toFixed(2)} MPa water pressure on arch</div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700">
-                <div className="text-xs font-mono text-slate-400 mb-1">PRE-GROUTING REQUIREMENT</div>
-                <div className="text-3xl font-mono font-extrabold text-amber-300">{groutTakeBagsPerRound} bags</div>
-                <div className="text-xs text-slate-400 mt-1">Microfine cement grout take estimate</div>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2 text-xs text-slate-300">
-              <div className="font-bold text-sky-400 font-mono text-sm">
-                DRAINAGE &amp; WATERPROOFING SPECIFICATION
-              </div>
-              <p className="leading-relaxed">
-                Based on current water condition ({rmrParams?.groundwaterDescription || 'Damp'}) and mapped discontinuity frequency,
-                radial perforated PVC weep holes (Ø50mm, L=4.0m @ 3m c/c) are prescribed along sidewall footings to relieve hydrostatic
-                pressure behind the primary shotcrete lining.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 font-mono text-[11px]">
-                <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
-                  <span className="text-slate-400">Pumping Requirement:</span>{' '}
-                  <strong className="text-white">{(Number(inflowLPerMin10m) * 1.5).toFixed(0)} L/min submersible pump</strong>
-                </div>
-                <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
-                  <span className="text-slate-400">Waterproofing System:</span>{' '}
-                  <strong className="text-white">Geotextile 500 g/m² + PVC Membrane 2.0mm</strong>
-                </div>
-              </div>
-            </div>
-          </div>
-          )
-        )}
-
-      </div>
-
-      {/* FOOTER BAR */}
-      <div className="flex items-center justify-between px-4 py-3 bg-slate-950 border-t border-slate-800 shrink-0 text-xs text-slate-400 no-print">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="font-mono">Analytical Rock Engineering Solver active · Real-time Kinematic Core</span>
+            )}
+          </main>
         </div>
-        <button
-          onClick={onClose}
-          className={`px-4 py-1.5 font-mono text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-            fullPage
-              ? 'bg-sky-600 hover:bg-sky-500 text-white'
-              : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
-          }`}
-        >
-          {fullPage ? '← Return to Mapping Canvas' : 'Close Analysis'}
-        </button>
       </div>
-    </div>
-  );
-
-  if (fullPage) {
-    return <div className="flex-1 flex flex-col h-full w-full min-h-0 overflow-hidden">{contentNode}</div>;
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
-      {contentNode}
     </div>
   );
 };
-
-export const AdvancedGeologicalAnalysisView = AdvancedGeologicalAnalysisModal;

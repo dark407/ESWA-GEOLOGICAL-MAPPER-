@@ -55,6 +55,7 @@ import {
   FieldTunnelLocationItem,
   getFieldPhotoFitConfig,
   getLocationSurfaceConfig,
+  getPanelActiveExcavationBounds,
   processCleanFieldCameraFrame,
   pruneFullyErasedLithologyStrokes,
   renderSvgElementToHighResPngDataUrl,
@@ -4332,6 +4333,9 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
     dragRef.current = null;
   };
 
+  const excBounds = getPanelActiveExcavationBounds(panel, location, round);
+  const activeGeoClipId = `${clipId}-active-exc`;
+
   return (
     <g
       onPointerDown={handlePointerDown}
@@ -4347,6 +4351,18 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
           ) : (
             <rect x={targetX} y={targetY} width={targetW} height={targetH} />
           )}
+        </clipPath>
+        <clipPath id={activeGeoClipId}>
+          <rect
+            x={pGeom.boxX}
+            y={excBounds.minY}
+            width={excBounds.isPanelFullyLocked ? 0 : pGeom.boxW}
+            height={
+              excBounds.isPanelFullyLocked
+                ? 0
+                : Math.max(0, excBounds.maxY - excBounds.minY)
+            }
+          />
         </clipPath>
       </defs>
 
@@ -4406,10 +4422,11 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
 
       {/* Mapped Geological Overlay (Lithology, Veins, Dip Surfaces, Features, Joint Traces, Water) */}
       {showGeologicalOverlay && (
-        <g
-          clipPath={`url(#${clipId})`}
-          transform={`translate(${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`}
-        >
+        <g clipPath={`url(#${clipId})`}>
+          <g
+            transform={`translate(${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`}
+            clipPath={excBounds.hasBenchDivision ? `url(#${activeGeoClipId})` : undefined}
+          >
           {strokes.map((st) => {
             if (st.points.length === 0 || st.mode === 'lithology_erase') return null;
             const isBand = st.mode === 'vein_band' || st.mode === 'foliation_plane';
@@ -4545,6 +4562,7 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
           {waters.map((wm) => (
             <FieldWaterSymbolSvgElement key={wm.id} mark={wm} colorMode={colorMode} />
           ))}
+          </g>
         </g>
       )}
 

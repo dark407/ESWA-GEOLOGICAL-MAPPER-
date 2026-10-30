@@ -27,6 +27,7 @@ import {
   FieldWaterCondition,
   FieldWaterMark,
   getExcavationBenchConfig,
+  getPanelActiveExcavationBounds,
   pruneFullyErasedLithologyStrokes,
   resolveRockDisplayInfo,
 } from '../engine/fieldMappingEngine';
@@ -3476,6 +3477,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
         }
         clipPath={`url(#${clipId})`}
       >
+        <g clipPath={!useContinuousCadMapping && panel === 'face' ? 'url(#clip-sheet-face-active)' : undefined}>
         {/* 1. Lithology fills (masked by any subsequent lithology_erase strokes), veins & foliation bands */}
         {strokes.map((st, idx) => {
           if (st.points.length === 0 || st.mode === 'lithology_erase') return null;
@@ -3732,6 +3734,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             colorMode={colorMode}
           />
         ))}
+        </g>
       </g>
     );
   };
@@ -3920,30 +3923,77 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
         <clipPath id="clip-sheet-face">
           <path d={facePath} />
         </clipPath>
-        <clipPath id="clip-sheet-left-wall">
-          <rect
-            x={leftWallX}
-            y={stripY}
-            width={stripLeftWallW}
-            height={stripLeftWallH}
-          />
-        </clipPath>
-        <clipPath id="clip-sheet-crown">
-          <rect
-            x={crownX}
-            y={stripY}
-            width={stripCrownW}
-            height={stripCrownH}
-          />
-        </clipPath>
-        <clipPath id="clip-sheet-right-wall">
-          <rect
-            x={rightWallX}
-            y={stripY}
-            width={stripRightWallW}
-            height={stripRightWallH}
-          />
-        </clipPath>
+        {(() => {
+          const benchCfg = getExcavationBenchConfig(round, location);
+          const faceExc = getPanelActiveExcavationBounds('face', location, round);
+          const wallBenchM = Math.min(leftWallLengthM, benchCfg.benchHeightM);
+          const lwBenchW = Math.min(stripLeftWallW, wallBenchM * stripPxPerMeter);
+          const rwBenchW = Math.min(stripRightWallW, wallBenchM * stripPxPerMeter);
+
+          const lwActiveX = !benchCfg.hasBenchDivision
+            ? leftWallX
+            : benchCfg.hatchZone === 'bench_bottom'
+            ? leftWallX + lwBenchW
+            : leftWallX;
+          const lwActiveW = !benchCfg.hasBenchDivision
+            ? stripLeftWallW
+            : benchCfg.hatchZone === 'bench_bottom'
+            ? Math.max(0, stripLeftWallW - lwBenchW)
+            : lwBenchW;
+
+          const crActiveW =
+            benchCfg.hasBenchDivision && benchCfg.hatchZone === 'heading_top'
+              ? 0
+              : stripCrownW;
+
+          const rwActiveX = !benchCfg.hasBenchDivision
+            ? rightWallX
+            : benchCfg.hatchZone === 'bench_bottom'
+            ? rightWallX
+            : rightWallX + Math.max(0, stripRightWallW - rwBenchW);
+          const rwActiveW = !benchCfg.hasBenchDivision
+            ? stripRightWallW
+            : benchCfg.hatchZone === 'bench_bottom'
+            ? Math.max(0, stripRightWallW - rwBenchW)
+            : rwBenchW;
+
+          return (
+            <>
+              <clipPath id="clip-sheet-face-active">
+                <rect
+                  x={faceGeom.boxX}
+                  y={faceExc.minY}
+                  width={faceGeom.boxW}
+                  height={Math.max(0, faceExc.maxY - faceExc.minY)}
+                />
+              </clipPath>
+              <clipPath id="clip-sheet-left-wall">
+                <rect
+                  x={lwActiveX}
+                  y={stripY}
+                  width={lwActiveW}
+                  height={stripLeftWallH}
+                />
+              </clipPath>
+              <clipPath id="clip-sheet-crown">
+                <rect
+                  x={crownX}
+                  y={stripY}
+                  width={crActiveW}
+                  height={stripCrownH}
+                />
+              </clipPath>
+              <clipPath id="clip-sheet-right-wall">
+                <rect
+                  x={rwActiveX}
+                  y={stripY}
+                  width={rwActiveW}
+                  height={stripRightWallH}
+                />
+              </clipPath>
+            </>
+          );
+        })()}
       </defs>
 
       {/* Top Row: Compact Continuous CAD Unfolded Strip [ Left Wall | Crown | Right Wall ] */}
@@ -4297,6 +4347,115 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               </g>
             );
           })}
+
+          {/* Strip Hatched Bench / Top Heading Lock Overlay (Rendered in both Stage 6 Strip Align & Stage 11 Report) */}
+          {(() => {
+            const benchCfg = getExcavationBenchConfig(round, location);
+            if (!benchCfg.hasBenchDivision) return null;
+            const wallBenchM = Math.min(leftWallLengthM, benchCfg.benchHeightM);
+            const lwBenchX = leftWallX + wallBenchM * stripPxPerMeter;
+            const rwBenchX = rightWallX + (rightWallLengthM - wallBenchM) * stripPxPerMeter;
+            const patId = `strip-bench-hatch-top-${round.id}-${colorMode}`;
+            const strokeCol = colorMode === 'bw' ? '#0f172a' : '#d97706';
+            return (
+              <g pointerEvents="none">
+                <defs>
+                  <pattern
+                    id={patId}
+                    width="10"
+                    height="10"
+                    patternUnits="userSpaceOnUse"
+                    patternTransform="rotate(45)"
+                  >
+                    <rect width="10" height="10" fill="rgba(241, 245, 249, 0.72)" />
+                    <line
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="10"
+                      stroke={strokeCol}
+                      strokeWidth="2"
+                      strokeOpacity="0.58"
+                    />
+                  </pattern>
+                </defs>
+                {benchCfg.hatchZone === 'bench_bottom' ? (
+                  <>
+                    {faceGeom.hasLeftWall && wallBenchM > 0.05 && (
+                      <rect
+                        x={leftWallX}
+                        y={stripY}
+                        width={Math.min(stripLeftWallW, wallBenchM * stripPxPerMeter)}
+                        height={stripH}
+                        fill={`url(#${patId})`}
+                      />
+                    )}
+                    {faceGeom.hasRightWall && wallBenchM > 0.05 && (
+                      <rect
+                        x={Math.max(rightWallX, rwBenchX)}
+                        y={stripY}
+                        width={Math.min(stripRightWallW, wallBenchM * stripPxPerMeter)}
+                        height={stripH}
+                        fill={`url(#${patId})`}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {faceGeom.hasCrown && (
+                      <rect
+                        x={crownX}
+                        y={stripY}
+                        width={stripCrownW}
+                        height={stripH}
+                        fill={`url(#${patId})`}
+                      />
+                    )}
+                    {faceGeom.hasLeftWall && leftWallLengthM > wallBenchM && (
+                      <rect
+                        x={lwBenchX}
+                        y={stripY}
+                        width={Math.max(0, (leftWallLengthM - wallBenchM) * stripPxPerMeter)}
+                        height={stripH}
+                        fill={`url(#${patId})`}
+                      />
+                    )}
+                    {faceGeom.hasRightWall && rightWallLengthM > wallBenchM && (
+                      <rect
+                        x={rightWallX}
+                        y={stripY}
+                        width={Math.max(0, (rightWallLengthM - wallBenchM) * stripPxPerMeter)}
+                        height={stripH}
+                        fill={`url(#${patId})`}
+                      />
+                    )}
+                  </>
+                )}
+                {faceGeom.hasLeftWall && wallBenchM > 0.05 && wallBenchM < leftWallLengthM && (
+                  <line
+                    x1={lwBenchX}
+                    y1={stripY}
+                    x2={lwBenchX}
+                    y2={stripY + stripH}
+                    stroke={strokeCol}
+                    strokeWidth="2.2"
+                    strokeDasharray="6,4"
+                  />
+                )}
+                {faceGeom.hasRightWall && wallBenchM > 0.05 && wallBenchM < rightWallLengthM && (
+                  <line
+                    x1={rwBenchX}
+                    y1={stripY}
+                    x2={rwBenchX}
+                    y2={stripY + stripH}
+                    stroke={strokeCol}
+                    strokeWidth="2.2"
+                    strokeDasharray="6,4"
+                  />
+                )}
+              </g>
+            );
+          })()}
         </>
       </g>
 
@@ -4533,7 +4692,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   'clip-sheet-face'
                 )}
 
-                {/* 3B. Bench Line (Dotted) & Hatched Bench / Top Heading Portion on Face & Strip Walls */}
+                {/* 3B. Bench Line (Dotted) & Hatched Bench / Top Heading Portion on Face */}
                 <g
                   transform={`translate(${faceOffsetX}, ${faceOffsetY}) scale(${faceScaleX}, ${faceScaleY})`}
                 >
@@ -4549,112 +4708,6 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                     idSuffix={`sketch-face-${round.id}`}
                   />
                 </g>
-                {(() => {
-                  const benchCfg = getExcavationBenchConfig(round, location);
-                  if (!benchCfg.hasBenchDivision) return null;
-                  const wallBenchM = Math.min(leftWallLengthM, benchCfg.benchHeightM);
-                  const lwBenchX = leftWallX + wallBenchM * stripPxPerMeter;
-                  const rwBenchX = rightWallX + (rightWallLengthM - wallBenchM) * stripPxPerMeter;
-                  const patId = `strip-bench-hatch-${round.id}-${colorMode}`;
-                  const strokeCol = colorMode === 'bw' ? '#0f172a' : '#d97706';
-                  return (
-                    <g pointerEvents="none">
-                      <defs>
-                        <pattern
-                          id={patId}
-                          width="10"
-                          height="10"
-                          patternUnits="userSpaceOnUse"
-                          patternTransform="rotate(45)"
-                        >
-                          <line
-                            x1="0"
-                            y1="0"
-                            x2="0"
-                            y2="10"
-                            stroke={strokeCol}
-                            strokeWidth="2"
-                            strokeOpacity="0.55"
-                          />
-                        </pattern>
-                      </defs>
-                      {benchCfg.hatchZone === 'bench_bottom' ? (
-                        <>
-                          {faceGeom.hasLeftWall && wallBenchM > 0.05 && (
-                            <rect
-                              x={leftWallX}
-                              y={stripY}
-                              width={Math.min(stripLeftWallW, wallBenchM * stripPxPerMeter)}
-                              height={stripH}
-                              fill={`url(#${patId})`}
-                            />
-                          )}
-                          {faceGeom.hasRightWall && wallBenchM > 0.05 && (
-                            <rect
-                              x={Math.max(rightWallX, rwBenchX)}
-                              y={stripY}
-                              width={Math.min(stripRightWallW, wallBenchM * stripPxPerMeter)}
-                              height={stripH}
-                              fill={`url(#${patId})`}
-                            />
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          {faceGeom.hasCrown && (
-                            <rect
-                              x={crownX}
-                              y={stripY}
-                              width={stripCrownW}
-                              height={stripH}
-                              fill={`url(#${patId})`}
-                            />
-                          )}
-                          {faceGeom.hasLeftWall && leftWallLengthM > wallBenchM && (
-                            <rect
-                              x={lwBenchX}
-                              y={stripY}
-                              width={Math.max(0, (leftWallLengthM - wallBenchM) * stripPxPerMeter)}
-                              height={stripH}
-                              fill={`url(#${patId})`}
-                            />
-                          )}
-                          {faceGeom.hasRightWall && rightWallLengthM > wallBenchM && (
-                            <rect
-                              x={rightWallX}
-                              y={stripY}
-                              width={Math.max(0, (rightWallLengthM - wallBenchM) * stripPxPerMeter)}
-                              height={stripH}
-                              fill={`url(#${patId})`}
-                            />
-                          )}
-                        </>
-                      )}
-                      {faceGeom.hasLeftWall && wallBenchM > 0.05 && wallBenchM < leftWallLengthM && (
-                        <line
-                          x1={lwBenchX}
-                          y1={stripY}
-                          x2={lwBenchX}
-                          y2={stripY + stripH}
-                          stroke={strokeCol}
-                          strokeWidth="2.2"
-                          strokeDasharray="6,4"
-                        />
-                      )}
-                      {faceGeom.hasRightWall && wallBenchM > 0.05 && wallBenchM < rightWallLengthM && (
-                        <line
-                          x1={rwBenchX}
-                          y1={stripY}
-                          x2={rwBenchX}
-                          y2={stripY + stripH}
-                          stroke={strokeCol}
-                          strokeWidth="2.2"
-                          strokeDasharray="6,4"
-                        />
-                      )}
-                    </g>
-                  );
-                })()}
 
                 {/* 4. Design Tunnel Profile Stroke, Payline & Survey Overbreak Outline */}
                 <g

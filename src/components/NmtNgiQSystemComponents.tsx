@@ -15,6 +15,9 @@ import {
   FieldSupportSystemConfig,
   FieldTunnelLocationItem,
   getLocationSurfaceConfig,
+  FIELD_NMT_ROCK_CLASSES,
+  FieldNmtClassItem,
+  getNmtRockClassFromQ,
 } from '../engine/fieldMappingEngine';
 
 // ============================================================================
@@ -581,7 +584,7 @@ export interface NgiSupportPrescription {
   categoryNumber: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   categoryCode: string;
   categoryTitle: string;
-  rockMassClassCode: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+  rockMassClassCode: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I';
   rockMassClassLabel: string;
   boltType: 'none' | 'spot_bolts' | 'systematic_bolts';
   boltLengthM: number;
@@ -629,35 +632,35 @@ export function computeNgiWallQValue(qRoof: number): {
 }
 
 export function getNgiRockMassClass(q: number): {
-  code: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+  code: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I';
   shortTitle: string;
   fullTitle: string;
 } {
-  if (q > 400) {
-    return { code: 'A', shortTitle: 'Exc. Good', fullTitle: 'Class A — Exceptionally Good (Q > 400)' };
+  if (q >= 400) {
+    return { code: 'A', shortTitle: 'Exc. Good', fullTitle: 'Class A — Exceptionally Good (400 ≤ Q ≤ 1000)' };
   }
-  if (q > 100) {
-    return { code: 'A', shortTitle: 'Ext. Good', fullTitle: 'Class A — Extremely Good (100 < Q ≤ 400)' };
+  if (q >= 100) {
+    return { code: 'B', shortTitle: 'Ext. Good', fullTitle: 'Class B — Extremely Good (100 ≤ Q < 400)' };
   }
-  if (q > 40) {
-    return { code: 'A', shortTitle: 'Very Good', fullTitle: 'Class A — Very Good (40 < Q ≤ 100)' };
+  if (q >= 40) {
+    return { code: 'C', shortTitle: 'Very Good', fullTitle: 'Class C — Very Good (40 ≤ Q < 100)' };
   }
-  if (q > 10) {
-    return { code: 'B', shortTitle: 'Good', fullTitle: 'Class B — Good Rock (10 < Q ≤ 40)' };
+  if (q >= 10) {
+    return { code: 'D', shortTitle: 'Good', fullTitle: 'Class D — Good Rock (10 ≤ Q < 40)' };
   }
-  if (q > 4) {
-    return { code: 'C', shortTitle: 'Fair', fullTitle: 'Class C — Fair Rock (4 < Q ≤ 10)' };
+  if (q >= 4) {
+    return { code: 'E', shortTitle: 'Fair', fullTitle: 'Class E — Fair Rock (4 ≤ Q < 10)' };
   }
-  if (q > 1) {
-    return { code: 'D', shortTitle: 'Poor', fullTitle: 'Class D — Poor Rock (1 < Q ≤ 4)' };
+  if (q >= 1) {
+    return { code: 'F', shortTitle: 'Poor', fullTitle: 'Class F — Poor Rock (1 ≤ Q < 4)' };
   }
-  if (q > 0.1) {
-    return { code: 'E', shortTitle: 'Very Poor', fullTitle: 'Class E — Very Poor Rock (0.1 < Q ≤ 1)' };
+  if (q >= 0.1) {
+    return { code: 'G', shortTitle: 'Very Poor', fullTitle: 'Class G — Very Poor Rock (0.1 ≤ Q < 1)' };
   }
-  if (q > 0.01) {
-    return { code: 'F', shortTitle: 'Ext. Poor', fullTitle: 'Class F — Extremely Poor Rock (0.01 < Q ≤ 0.1)' };
+  if (q >= 0.01) {
+    return { code: 'H', shortTitle: 'Ext. Poor', fullTitle: 'Class H — Extremely Poor Rock (0.01 ≤ Q < 0.1)' };
   }
-  return { code: 'G', shortTitle: 'Exc. Poor', fullTitle: 'Class G — Exceptionally Poor Rock (Q ≤ 0.01)' };
+  return { code: 'I', shortTitle: 'Exc. Poor', fullTitle: 'Class I — Exceptionally Poor Rock (0.001 ≤ Q < 0.01)' };
 }
 
 /**
@@ -2250,18 +2253,12 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
     const isRrsOrCca =
       roofPrescription.categoryNumber >= 8 || roofPrescription.rrsClass !== 'None';
 
-    let mappedSupportClass: FieldSupportSystemConfig['supportClass'] = 'Class III';
-    if (roofPrescription.categoryNumber <= 2) mappedSupportClass = 'Class I';
-    else if (roofPrescription.categoryNumber === 3 || roofPrescription.categoryNumber === 4)
-      mappedSupportClass = 'Class II';
-    else if (roofPrescription.categoryNumber === 5 || roofPrescription.categoryNumber === 6)
-      mappedSupportClass = 'Class III';
-    else if (roofPrescription.categoryNumber === 7) mappedSupportClass = 'Class IV';
-    else mappedSupportClass = 'Class V';
+    const nmtClassItem = getNmtRockClassFromQ(qRoof);
+    const mappedSupportClass: FieldSupportSystemConfig['supportClass'] = nmtClassItem.fullName;
 
     onUpdateSupport({
       supportClass: mappedSupportClass,
-      rockClass: `${roofPrescription.rockMassClassLabel} • NMT ${roofPrescription.categoryCode}`,
+      rockClass: `${nmtClassItem.fullName} • NMT ${roofPrescription.categoryCode} (${roofPrescription.categoryTitle})`,
       rockBoltsEnabled: roofPrescription.boltType === 'systematic_bolts',
       spotBoltsEnabled: roofPrescription.boltType === 'spot_bolts' || support.spotBoltsEnabled,
       rockBoltScope:
@@ -2287,7 +2284,7 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
     });
 
     setAppliedBanner(
-      `Applied NMT ${roofPrescription.categoryCode}: Bolts L=${roofPrescription.boltLengthM}m @ ${boltSpacing}×${boltSpacing}m, Crown Sfr=${roofPrescription.shotcreteThicknessMm}mm (${roofPrescription.energyAbsorptionClass}), Wall Sfr=${wallPrescription.shotcreteThicknessMm}mm${
+      `Applied ${nmtClassItem.fullName} • NMT ${roofPrescription.categoryCode}: Bolts L=${roofPrescription.boltLengthM}m @ ${boltSpacing}×${boltSpacing}m, Crown Sfr=${roofPrescription.shotcreteThicknessMm}mm (${roofPrescription.energyAbsorptionClass}), Wall Sfr=${wallPrescription.shotcreteThicknessMm}mm${
         roofPrescription.rrsClass !== 'None' ? `, ${roofPrescription.rrsClass} (${roofPrescription.rrsSpec})` : ''
       }`
     );
@@ -2352,9 +2349,9 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
         <div className="space-y-2.5">
           {/* High-Contrast Engineering Paper SVG Reproduction of Figure 1: The Q-System Rock Support Chart */}
           <div className="bg-white rounded-xl border-2 border-slate-800 p-1.5 overflow-x-auto">
-            <svg viewBox="0 0 850 455" className="w-full h-auto min-w-[680px] block select-none">
+            <svg viewBox="0 0 850 465" className="w-full h-auto min-w-[680px] block select-none">
               {/* Background Paper */}
-              <rect x="0" y="0" width="850" height="455" fill="#ffffff" />
+              <rect x="0" y="0" width="850" height="465" fill="#ffffff" />
 
               {/* Top Bolt Spacing Header Band (Figure 1 Top Axis) */}
               <rect
@@ -2743,40 +2740,65 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
                 );
               })}
 
-              {/* Bottom Rock Mass Class Band (G, F, E, D, C, B, A) */}
+              {/* Bottom Rock Mass Class Band — Authentic 9 NGI Rock Mass Quality Classes (Barton et al., 1974 / NGI 2014) */}
               {[
-                { code: 'G', q0: 0.001, q1: 0.01, label: 'Exc. poor' },
-                { code: 'F', q0: 0.01, q1: 0.1, label: 'Ext. poor' },
-                { code: 'E', q0: 0.1, q1: 1.0, label: 'Very poor' },
-                { code: 'D', q0: 1.0, q1: 4.0, label: 'Poor' },
-                { code: 'C', q0: 4.0, q1: 10.0, label: 'Fair' },
-                { code: 'B', q0: 10.0, q1: 40.0, label: 'Good' },
-                { code: 'A', q0: 40.0, q1: 1000.0, label: 'Very good / Exc. good' },
+                { code: 'I', q0: 0.001, q1: 0.01, label: 'Exc. Poor', bg: '#ffe4e6', text: '#881337', stroke: '#e11d48' },
+                { code: 'H', q0: 0.01, q1: 0.1, label: 'Ext. Poor', bg: '#fecaca', text: '#7f1d1d', stroke: '#b91c1c' },
+                { code: 'G', q0: 0.1, q1: 1.0, label: 'Very Poor', bg: '#fee2e2', text: '#b91c1c', stroke: '#ef4444' },
+                { code: 'F', q0: 1.0, q1: 4.0, label: 'Poor', bg: '#ffedd5', text: '#c2410c', stroke: '#f97316' },
+                { code: 'E', q0: 4.0, q1: 10.0, label: 'Fair', bg: '#fef3c7', text: '#b45309', stroke: '#f59e0b' },
+                { code: 'D', q0: 10.0, q1: 40.0, label: 'Good', bg: '#e0f2fe', text: '#0284c7', stroke: '#38bdf8' },
+                { code: 'C', q0: 40.0, q1: 100.0, label: 'V. Good', bg: '#bae6fd', text: '#0369a1', stroke: '#0284c7' },
+                { code: 'B', q0: 100.0, q1: 400.0, label: 'Ext. Good', bg: '#a7f3d0', text: '#047857', stroke: '#059669' },
+                { code: 'A', q0: 400.0, q1: 1000.0, label: 'Exc. Good', bg: '#d1fae5', text: '#065f46', stroke: '#10b981' },
               ].map((cls) => {
                 const x0 = mapQToX(cls.q0);
                 const x1 = mapQToX(cls.q1);
+                const w = x1 - x0;
+                const isRoofIn =
+                  qRoof !== null &&
+                  qRoof >= cls.q0 &&
+                  (cls.q1 === 1000 ? qRoof <= cls.q1 : qRoof < cls.q1);
+                const isWallIn =
+                  qWallInfo !== null &&
+                  qWallInfo.qWall >= cls.q0 &&
+                  (cls.q1 === 1000 ? qWallInfo.qWall <= cls.q1 : qWallInfo.qWall < cls.q1);
                 return (
                   <g key={cls.code}>
                     <rect
                       x={x0}
                       y={plotYBottom + 18}
-                      width={x1 - x0}
-                      height="22"
-                      fill="#f1f5f9"
-                      stroke="#0f172a"
-                      strokeWidth="1.0"
+                      width={w}
+                      height="23"
+                      fill={isRoofIn ? cls.bg : '#f8fafc'}
+                      stroke={isRoofIn ? cls.stroke : '#0f172a'}
+                      strokeWidth={isRoofIn ? '2.0' : '1.0'}
                     />
                     <text
                       x={(x0 + x1) / 2}
-                      y={plotYBottom + 32}
+                      y={plotYBottom + 33}
                       textAnchor="middle"
-                      fontSize="8.2"
+                      fontSize={w < 50 ? '7.5' : '8.2'}
                       fontWeight="900"
                       fontFamily="IBM Plex Mono, monospace"
-                      fill="#0f172a"
+                      fill={isRoofIn ? cls.text : '#0f172a'}
                     >
-                      {cls.code} ({cls.label})
+                      {cls.code} {w > 50 ? `(${cls.label})` : ''}
                     </text>
+                    {isRoofIn && (
+                      <path
+                        d={`M ${(x0 + x1) / 2 - 4},${plotYBottom + 18} L ${(x0 + x1) / 2},${plotYBottom + 13} L ${(x0 + x1) / 2 + 4},${plotYBottom + 18} Z`}
+                        fill="#dc2626"
+                      />
+                    )}
+                    {isWallIn && (
+                      <circle
+                        cx={(x0 + x1) / 2}
+                        cy={plotYBottom + 38}
+                        r="2.5"
+                        fill="#0284c7"
+                      />
+                    )}
                   </g>
                 );
               })}
@@ -2820,7 +2842,7 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
               {/* Axis Titles */}
               <text
                 x={(plotX0 + plotX1) / 2}
-                y="445"
+                y="450"
                 textAnchor="middle"
                 fontSize="10.5"
                 fontWeight="900"

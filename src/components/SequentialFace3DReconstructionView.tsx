@@ -1,425 +1,398 @@
-// ============================================================================
-// ESWA ADVANCED ANALYTICS — CAPABILITY 3: RECONSTRUCTING 3D GEOLOGY FROM FACE LOGS
-// Triangulated 3D Contact Ribbons, Inferred True Dip/DipDir from Consecutive Shifts,
-// and 3D Inverse Distance Weighting (IDW) Block/Voxel Interpolation (RMR, Q, GSI)
-// ============================================================================
-
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import {
-  Layers,
-  Box,
-  Sliders,
-  Maximize2,
-  RotateCcw,
-  Sparkles,
-  Info,
-  TrendingUp,
-  Database,
-  Eye,
-} from 'lucide-react';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   SequentialFaceLog,
-  TriangulatedRibbonMesh,
-  reconstruct3DGeologicalRibbons,
-  interpolateIdwPoint,
+  interpolateSequentialFaceLogs,
 } from '../engine/advancedModelingAndAlignmentEngine';
+import { TunnelGeometry } from '../types/tunnel';
+import { Layers, RotateCcw, Eye } from 'lucide-react';
 
-export interface SequentialFace3DReconstructionViewProps {
-  faceLogs: SequentialFaceLog[];
-  driveAzimuth?: number;
-  spanW?: number;
-  heightH?: number;
+interface SequentialFace3DReconstructionViewProps {
+  spanW: number;
+  heightH: number;
+  geometry?: TunnelGeometry;
+  initialFaceLogs?: SequentialFaceLog[];
+}
+
+function getExactFaceOutlinePoints(
+  spanW: number,
+  heightH: number,
+  geometry?: TunnelGeometry
+): { x: number; y: number }[] {
+  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
+    return geometry.crossSectionPoints;
+  }
+  const halfW = spanW / 2;
+  const wallH = geometry?.wallHeight ? Math.min(geometry.wallHeight, heightH * 0.6) : heightH * 0.55;
+  const archH = Math.max(0.5, heightH - wallH);
+  const pts: { x: number; y: number }[] = [];
+  pts.push({ x: -halfW, y: 0 });
+  pts.push({ x: -halfW, y: wallH });
+  for (let i = 1; i < 28; i++) {
+    const theta = Math.PI * (1 - i / 28);
+    pts.push({
+      x: halfW * Math.cos(theta),
+      y: wallH + archH * Math.sin(theta),
+    });
+  }
+  pts.push({ x: halfW, y: wallH });
+  pts.push({ x: halfW, y: 0 });
+  return pts;
 }
 
 export const SequentialFace3DReconstructionView: React.FC<SequentialFace3DReconstructionViewProps> = ({
-  faceLogs,
-  driveAzimuth = 45,
-  spanW = 8.4,
-  heightH = 7.2,
+  spanW,
+  heightH,
+  geometry,
+  initialFaceLogs = [],
 }) => {
-  const mountRef = useRef<HTMLDivElement | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
+  const mountRef = useRef<HTMLDivElement>(null);
+  const [faceLogs, setFaceLogs] = useState<SequentialFaceLog[]>(initialFaceLogs);
+  const [selectedStation, setSelectedStation] = useState<number>(
+    initialFaceLogs.length > 0 ? initialFaceLogs[0].chainageMeters : 100
+  );
+  const [showShell, setShowShell] = useState<boolean>(true);
+  const [showRibbons, setShowRibbons] = useState<boolean>(true);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const animFrameRef = useRef<number | null>(null);
-
-  const [activePropertyMap, setActivePropertyMap] = useState<'RMR' | 'Q' | 'GSI'>('RMR');
-  const [sliceChainage, setSliceChainage] = useState<number>(() => {
-    return faceLogs && faceLogs.length > 0 ? faceLogs[Math.floor(faceLogs.length / 2)].chainageMeters : 100;
-  });
-  const [showVoxelGrid, setShowVoxelGrid] = useState<boolean>(true);
-  const [showRibbonSurfaces, setShowRibbonSurfaces] = useState<boolean>(true);
-
-  // Compute 3D triangulated ribbons between all consecutive face pairs
-  const ribbons: TriangulatedRibbonMesh[] = useMemo(() => {
-    if (!faceLogs || faceLogs.length < 2) return [];
-    const allRibbons: TriangulatedRibbonMesh[] = [];
-    for (let i = 0; i < faceLogs.length - 1; i++) {
-      const segRibbons = reconstruct3DGeologicalRibbons(faceLogs[i], faceLogs[i + 1], driveAzimuth, 20);
-      allRibbons.push(...segRibbons);
-    }
-    return allRibbons;
-  }, [faceLogs, driveAzimuth]);
-
-  // IDW value at current slice chainage
-  const currentSliceProperty = useMemo(() => {
-    return interpolateIdwPoint({ x: 0, y: heightH * 0.5, z: sliceChainage }, faceLogs);
-  }, [sliceChainage, faceLogs, heightH]);
-
-  // Camera Orbit controls
-  const isDraggingRef = useRef<boolean>(false);
-  const prevMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const orbitRef = useRef<{ theta: number; phi: number; radius: number }>({
-    theta: 0.8,
-    phi: 1.15,
-    radius: 32,
-  });
-
-  const updateCamera = () => {
-    if (!cameraRef.current) return;
-    const { theta, phi, radius } = orbitRef.current;
-    const midZ = faceLogs.length > 0 ? (faceLogs[0].chainageMeters + faceLogs[faceLogs.length - 1].chainageMeters) * 0.5 : 100;
-    const x = radius * Math.sin(phi) * Math.sin(theta);
-    const y = radius * Math.cos(phi) + heightH * 0.5;
-    const z = radius * Math.sin(phi) * Math.cos(theta) + midZ;
-    cameraRef.current.position.set(x, y, z);
-    cameraRef.current.lookAt(0, heightH * 0.45, midZ);
-  };
+  const controlsRef = useRef<OrbitControls | null>(null);
 
   useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
+    setFaceLogs(initialFaceLogs);
+    if (initialFaceLogs.length > 0) {
+      setSelectedStation(initialFaceLogs[0].chainageMeters);
+    }
+  }, [initialFaceLogs]);
 
-    const width = mount.clientWidth || 600;
-    const height = mount.clientHeight || 420;
+  const sortedLogs = [...faceLogs].sort((a, b) => a.chainageMeters - b.chainageMeters);
+  const minY = sortedLogs.length > 0 ? sortedLogs[0].chainageMeters : 0;
+  const maxY = sortedLogs.length > 0 ? sortedLogs[sortedLogs.length - 1].chainageMeters : 10;
+  const interpolated = interpolateSequentialFaceLogs(sortedLogs, selectedStation, 16);
+
+  useEffect(() => {
+    const container = mountRef.current;
+    if (!container || sortedLogs.length === 0) return;
+
+    const width = container.clientWidth || 720;
+    const height = container.clientHeight || 460;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0f1d);
-    sceneRef.current = scene;
+    scene.background = new THREE.Color(0x060a12);
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    const spanDrive = Math.max(6, maxY - minY);
+    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
+    camera.position.set(spanW * 1.9, heightH * 1.6, spanDrive * 1.15);
     cameraRef.current = camera;
-    updateCamera();
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    rendererRef.current = renderer;
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
 
-    mount.innerHTML = '';
-    mount.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.target.set(0, heightH * 0.45, -spanDrive * 0.45);
+    controlsRef.current = controls;
 
-    // Lights
-    const amb = new THREE.AmbientLight(0xffffff, 0.75);
-    scene.add(amb);
-    const dir = new THREE.DirectionalLight(0x38bdf8, 1.2);
-    dir.position.set(15, 25, 20);
-    scene.add(dir);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.78));
+    const dirLight = new THREE.DirectionalLight(0x38bdf8, 1.0);
+    dirLight.position.set(16, 26, 18);
+    scene.add(dirLight);
 
-    const midZ = faceLogs.length > 0 ? (faceLogs[0].chainageMeters + faceLogs[faceLogs.length - 1].chainageMeters) * 0.5 : 100;
-    const grid = new THREE.GridHelper(35, 35, 0x0284c7, 0x1e293b);
-    grid.position.set(0, 0, midZ);
+    const grid = new THREE.GridHelper(Math.max(40, spanDrive * 2), 24, 0x1e293b, 0x0f172a);
+    grid.position.set(0, -0.05, -spanDrive * 0.5);
     scene.add(grid);
 
-    // RENDER LOGGED 2D FACE PLANES AS 3D BULKHEAD FRAMES
-    faceLogs.forEach((face, fIdx) => {
-      const z = face.chainageMeters;
-      // Outline frame
-      const framePts: THREE.Vector3[] = [
-        new THREE.Vector3(-spanW * 0.5, 0, z),
-        new THREE.Vector3(-spanW * 0.5, heightH - spanW * 0.5, z),
-        new THREE.Vector3(0, heightH, z),
-        new THREE.Vector3(spanW * 0.5, heightH - spanW * 0.5, z),
-        new THREE.Vector3(spanW * 0.5, 0, z),
-        new THREE.Vector3(-spanW * 0.5, 0, z),
-      ];
-      const frameGeom = new THREE.BufferGeometry().setFromPoints(framePts);
-      const frameMat = new THREE.LineBasicMaterial({
-        color: fIdx === 0 ? 0x38bdf8 : fIdx === faceLogs.length - 1 ? 0xf59e0b : 0x94a3b8,
-        linewidth: 2,
-      });
-      const frameLine = new THREE.Line(frameGeom, frameMat);
-      scene.add(frameLine);
+    const outlinePts = getExactFaceOutlinePoints(spanW, heightH, geometry);
 
-      // Contact lines on this face
-      face.contacts.forEach((c) => {
-        if (c.polyline && c.polyline.length > 1) {
-          const cPts = c.polyline.map((p) => new THREE.Vector3(p.x, p.y, z));
-          const cGeom = new THREE.BufferGeometry().setFromPoints(cPts);
-          const cLine = new THREE.Line(cGeom, new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 3 }));
-          scene.add(cLine);
+    // 1. Optional Transparent Tunnel Corridor Shell
+    if (showShell && spanDrive > 0.1) {
+      const shape = new THREE.Shape();
+      outlinePts.forEach((p, idx) => {
+        if (idx === 0) shape.moveTo(p.x, p.y);
+        else shape.lineTo(p.x, p.y);
+      });
+      shape.closePath();
+      const shellGeo = new THREE.ExtrudeGeometry(shape, {
+        steps: 10,
+        depth: spanDrive,
+        bevelEnabled: false,
+      });
+      shellGeo.translate(0, 0, -spanDrive);
+      const shellMat = new THREE.MeshStandardMaterial({
+        color: 0x1e293b,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.22,
+        wireframe: false,
+      });
+      scene.add(new THREE.Mesh(shellGeo, shellMat));
+    }
+
+    // 2. Render Exact Tunnel Profile Frame & Mapped Contacts at Each Logged Face Station
+    sortedLogs.forEach((face) => {
+      const zOffset = -(face.chainageMeters - minY);
+      const ringVecs = outlinePts.map((p) => new THREE.Vector3(p.x, p.y, zOffset));
+      if (ringVecs.length > 0) ringVecs.push(ringVecs[0].clone());
+
+      const frameGeo = new THREE.BufferGeometry().setFromPoints(ringVecs);
+      const frameMat = new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.85 });
+      scene.add(new THREE.Line(frameGeo, frameMat));
+
+      face.contacts.forEach((c, cIdx) => {
+        const cPts = c.polyline.map((pt) => new THREE.Vector3(pt.x, Math.max(0, pt.y), zOffset));
+        if (cPts.length >= 2) {
+          const cGeo = new THREE.BufferGeometry().setFromPoints(cPts);
+          const cMat = new THREE.LineBasicMaterial({
+            color: cIdx === 0 ? 0xf59e0b : cIdx === 1 ? 0x10b981 : 0x38bdf8,
+          });
+          scene.add(new THREE.Line(cGeo, cMat));
         }
       });
     });
 
-    // RENDER 3D TRIANGULATED RIBBON SURFACES BETWEEN CONSECUTIVE FACES
-    if (showRibbonSurfaces) {
-      ribbons.forEach((ribbon, rIdx) => {
-        const ribbonGeom = new THREE.BufferGeometry();
-        const pos: number[] = [];
-        ribbon.vertices.forEach((v) => pos.push(v.x, v.y, v.z));
-        ribbonGeom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-        ribbonGeom.setIndex(ribbon.indices);
-        ribbonGeom.computeVertexNormals();
+    // 3. Render 3D Interpolated Lithology / Structural Ribbon Surfaces Between Consecutive Faces
+    if (showRibbons && sortedLogs.length >= 2) {
+      for (let fIdx = 0; fIdx < sortedLogs.length - 1; fIdx++) {
+        const fA = sortedLogs[fIdx];
+        const fB = sortedLogs[fIdx + 1];
+        const zA = -(fA.chainageMeters - minY);
+        const zB = -(fB.chainageMeters - minY);
+        const numContacts = Math.min(fA.contacts.length, fB.contacts.length);
 
-        const ribbonMat = new THREE.MeshStandardMaterial({
-          color: rIdx % 2 === 0 ? 0xf59e0b : 0xec4899,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.65,
-          roughness: 0.6,
-        });
-        const ribbonMesh = new THREE.Mesh(ribbonGeom, ribbonMat);
-        scene.add(ribbonMesh);
+        for (let cIdx = 0; cIdx < numContacts; cIdx++) {
+          const polyA = fA.contacts[cIdx].polyline;
+          const polyB = fB.contacts[cIdx].polyline;
+          const nPts = Math.min(polyA.length, polyB.length);
+          if (nPts < 2) continue;
 
-        // Wireframe overlay on ribbons
-        const ribbonWire = new THREE.Mesh(
-          ribbonGeom,
-          new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.25 })
-        );
-        scene.add(ribbonWire);
-      });
-    }
-
-    // RENDER 3D VOXEL / IDW BLOCK MODEL SAMPLES
-    if (showVoxelGrid && faceLogs.length > 1) {
-      const zMin = faceLogs[0].chainageMeters;
-      const zMax = faceLogs[faceLogs.length - 1].chainageMeters;
-      const voxelGroup = new THREE.Group();
-
-      const numZ = 6;
-      const numX = 5;
-      const numY = 4;
-      const boxSize = 0.55;
-      const boxGeom = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
-
-      for (let iz = 0; iz < numZ; iz++) {
-        const vz = zMin + ((zMax - zMin) * (iz + 0.5)) / numZ;
-        for (let ix = 0; ix < numX; ix++) {
-          const vx = -spanW * 0.4 + (spanW * 0.8 * ix) / (numX - 1);
-          for (let iy = 0; iy < numY; iy++) {
-            const vy = 1.0 + (heightH - 2.0) * (iy / (numY - 1));
-
-            const val = interpolateIdwPoint({ x: vx, y: vy, z: vz }, faceLogs);
-            let colorHex = 0x22c55e; // green (good)
-            if (activePropertyMap === 'RMR') {
-              colorHex = val.rmr >= 61 ? 0x22c55e : val.rmr >= 41 ? 0x0ea5e9 : val.rmr >= 21 ? 0xf59e0b : 0xef4444;
-            } else if (activePropertyMap === 'Q') {
-              colorHex = val.q >= 10 ? 0x22c55e : val.q >= 4 ? 0x0ea5e9 : val.q >= 1 ? 0xf59e0b : 0xef4444;
-            } else {
-              colorHex = val.gsi >= 60 ? 0x22c55e : val.gsi >= 45 ? 0x0ea5e9 : val.gsi >= 30 ? 0xf59e0b : 0xef4444;
-            }
-
-            const boxMat = new THREE.MeshStandardMaterial({
-              color: colorHex,
-              transparent: true,
-              opacity: 0.5,
-              roughness: 0.5,
-            });
-            const boxMesh = new THREE.Mesh(boxGeom, boxMat);
-            boxMesh.position.set(vx, vy, vz);
-            voxelGroup.add(boxMesh);
+          const vertices: number[] = [];
+          const indices: number[] = [];
+          for (let i = 0; i < nPts; i++) {
+            vertices.push(polyA[i].x, Math.max(0, polyA[i].y), zA);
+            vertices.push(polyB[i].x, Math.max(0, polyB[i].y), zB);
           }
+          for (let i = 0; i < nPts - 1; i++) {
+            const a = i * 2;
+            const b = i * 2 + 1;
+            const c = (i + 1) * 2;
+            const d = (i + 1) * 2 + 1;
+            indices.push(a, b, d);
+            indices.push(a, d, c);
+          }
+
+          const ribGeo = new THREE.BufferGeometry();
+          ribGeo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+          ribGeo.setIndex(indices);
+          ribGeo.computeVertexNormals();
+
+          const ribMat = new THREE.MeshStandardMaterial({
+            color: cIdx === 0 ? 0xf59e0b : cIdx === 1 ? 0x10b981 : 0x38bdf8,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.48,
+            roughness: 0.4,
+          });
+          scene.add(new THREE.Mesh(ribGeo, ribMat));
         }
       }
-      scene.add(voxelGroup);
     }
 
-    // INTERACTIVE SLICE PLANE AT sliceChainage
-    const sliceGeom = new THREE.PlaneGeometry(spanW * 1.2, heightH * 1.2);
-    sliceGeom.translate(0, heightH * 0.5, sliceChainage);
-    const sliceMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.18,
-      side: THREE.DoubleSide,
-    });
-    const sliceMesh = new THREE.Mesh(sliceGeom, sliceMat);
-    scene.add(sliceMesh);
+    // 4. Active Interpolated Probe Slice Plane at selectedStation
+    const zSlice = -(selectedStation - minY);
+    const sliceRingVecs = outlinePts.map((p) => new THREE.Vector3(p.x, p.y, zSlice));
+    if (sliceRingVecs.length > 0) sliceRingVecs.push(sliceRingVecs[0].clone());
+    scene.add(
+      new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(sliceRingVecs),
+        new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 })
+      )
+    );
 
-    // Render loop
+    interpolated.interpolatedContacts.forEach((ic) => {
+      if (ic.points.length < 2) return;
+      const sPts = ic.points.map((p) => new THREE.Vector3(p.x, Math.max(0, p.y), zSlice));
+      scene.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(sPts),
+          new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 })
+        )
+      );
+    });
+
+    let reqId: number;
     const animate = () => {
-      animFrameRef.current = requestAnimationFrame(animate);
+      reqId = requestAnimationFrame(animate);
+      controls.update();
       renderer.render(scene, camera);
     };
     animate();
 
-    // Mouse Controls
-    const handleMouseDown = (e: MouseEvent) => {
-      isDraggingRef.current = true;
-      prevMouseRef.current = { x: e.clientX, y: e.clientY };
+    const handleResize = () => {
+      if (!container) return;
+      const w = container.clientWidth || 720;
+      const h = container.clientHeight || 460;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
     };
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current) return;
-      const dx = e.clientX - prevMouseRef.current.x;
-      const dy = e.clientY - prevMouseRef.current.y;
-      prevMouseRef.current = { x: e.clientX, y: e.clientY };
-
-      orbitRef.current.theta -= dx * 0.008;
-      orbitRef.current.phi = Math.max(0.15, Math.min(Math.PI - 0.15, orbitRef.current.phi - dy * 0.008));
-      updateCamera();
-    };
-    const handleMouseUp = () => {
-      isDraggingRef.current = false;
-    };
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      orbitRef.current.radius = Math.max(8, Math.min(70, orbitRef.current.radius + e.deltaY * 0.02));
-      updateCamera();
-    };
-
-    const dom = renderer.domElement;
-    dom.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    dom.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      dom.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      dom.removeEventListener('wheel', handleWheel);
+      cancelAnimationFrame(reqId);
+      window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
-  }, [faceLogs, ribbons, activePropertyMap, sliceChainage, showVoxelGrid, showRibbonSurfaces, spanW, heightH]);
-
-  const minCh = faceLogs.length > 0 ? faceLogs[0].chainageMeters : 90;
-  const maxCh = faceLogs.length > 0 ? faceLogs[faceLogs.length - 1].chainageMeters : 110;
+  }, [sortedLogs, selectedStation, spanW, heightH, geometry, minY, maxY, showShell, showRibbons]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 border border-slate-800 rounded-xl overflow-hidden font-sans text-slate-100">
-      {/* HEADER BAR */}
-      <div className="flex flex-wrap items-center justify-between px-4 py-2.5 bg-slate-950 border-b border-slate-800 gap-2">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-            <Layers className="w-5 h-5 animate-pulse" />
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+      {/* Left 8 Cols: 3D CAD Sequential Face Ribbon Reconstruction */}
+      <div className="lg:col-span-8 bg-[#060a12] border border-slate-800 rounded-lg overflow-hidden flex flex-col min-h-[480px]">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-900/95 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-[10px] font-mono font-bold text-sky-300 uppercase">
+              3D SEQUENTIAL FACE INTERPOLATION
+            </span>
+            <span className="text-[11px] font-mono text-slate-400 tabular-nums">
+              Logged Faces: <strong className="text-slate-200">{sortedLogs.length}</strong> | Drive Span: <strong className="text-emerald-400">RD {minY.toFixed(1)}m → {maxY.toFixed(1)}m</strong>
+            </span>
           </div>
-          <div>
-            <h3 className="font-mono font-bold text-sm text-white tracking-wide uppercase">
-              3D Geology Reconstruction from Sequential Face Logs
-            </h3>
-            <p className="text-xs text-slate-400">
-              Triangulated contact ribbon meshes &amp; 3D Inverse Distance Weighting (IDW w_i = 1/d_i²)
-            </p>
-          </div>
-        </div>
 
-        {/* PROPERTY SWITCHER (RMR, Q, GSI) */}
-        <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800 font-mono text-xs">
-          {(['RMR', 'Q', 'GSI'] as const).map((prop) => (
+          <div className="flex items-center gap-1.5">
             <button
-              key={prop}
-              onClick={() => setActivePropertyMap(prop)}
-              className={`px-3 py-1 rounded font-bold transition-all cursor-pointer ${
-                activePropertyMap === prop
-                  ? 'bg-indigo-600 text-white shadow'
-                  : 'text-slate-400 hover:text-white'
+              onClick={() => setShowRibbons(!showRibbons)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+                showRibbons
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : 'bg-slate-800 text-slate-400 border-slate-700'
               }`}
             >
-              {prop} Block Heatmap
+              <Layers className="w-3 h-3" /> 3D Ribbons
             </button>
-          ))}
+            <button
+              onClick={() => setShowShell(!showShell)}
+              className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
+                showShell
+                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                  : 'bg-slate-800 text-slate-400 border-slate-700'
+              }`}
+            >
+              <Eye className="w-3 h-3" /> Profile Shell
+            </button>
+            <button
+              onClick={() => {
+                if (cameraRef.current && controlsRef.current) {
+                  const spanDrive = Math.max(6, maxY - minY);
+                  cameraRef.current.position.set(spanW * 1.9, heightH * 1.6, spanDrive * 1.15);
+                  controlsRef.current.target.set(0, heightH * 0.45, -spanDrive * 0.45);
+                  controlsRef.current.update();
+                }
+              }}
+              className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+              title="Reset 3D View"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* METRICS & SLICE SLIDER STRIP */}
-      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 px-4 py-2.5 bg-slate-950/70 border-b border-slate-800 text-xs font-mono items-center">
-        <div className="sm:col-span-5 flex items-center gap-3">
-          <span className="text-slate-400 text-[11px] whitespace-nowrap">Chainage Slice:</span>
+        {/* Station Interpolation Scrubber */}
+        <div className="px-3 py-1.5 bg-slate-900/60 border-b border-slate-800/80 flex items-center gap-3">
+          <span className="text-[10px] font-mono text-slate-400 uppercase shrink-0">
+            Interpolate Station (Y_q):
+          </span>
           <input
             type="range"
-            min={minCh}
-            max={maxCh}
-            step={0.5}
-            value={sliceChainage}
-            onChange={(e) => setSliceChainage(Number(e.target.value))}
-            className="flex-1 accent-indigo-500 cursor-pointer"
+            min={minY}
+            max={Math.max(minY + 0.1, maxY)}
+            step={0.1}
+            value={selectedStation}
+            onChange={(e) => setSelectedStation(Number(e.target.value))}
+            className="flex-1 accent-sky-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
           />
-          <strong className="text-amber-300 w-16 text-right">RD {sliceChainage.toFixed(1)}m</strong>
+          <span className="text-[11px] font-mono font-bold text-sky-300 tabular-nums w-24 text-right">
+            RD {selectedStation.toFixed(1)}m
+          </span>
         </div>
 
-        <div className="sm:col-span-4 flex items-center gap-3 bg-slate-900/80 px-3 py-1.5 rounded border border-slate-800 justify-around">
-          <div>
-            <span className="text-slate-400 text-[10px] block">Interpolated RMR:</span>
-            <strong className="text-emerald-400">{currentSliceProperty.rmr} / 100</strong>
-          </div>
-          <div>
-            <span className="text-slate-400 text-[10px] block">Barton Q:</span>
-            <strong className="text-cyan-400">{currentSliceProperty.q}</strong>
-          </div>
-          <div>
-            <span className="text-slate-400 text-[10px] block">Hoek GSI:</span>
-            <strong className="text-indigo-300">{currentSliceProperty.gsi}</strong>
-          </div>
-        </div>
-
-        <div className="sm:col-span-3 flex items-center justify-end gap-3">
-          <label className="flex items-center gap-1.5 cursor-pointer text-slate-300 hover:text-white text-[11px]">
-            <input
-              type="checkbox"
-              checked={showVoxelGrid}
-              onChange={(e) => setShowVoxelGrid(e.target.checked)}
-              className="rounded accent-indigo-500"
-            />
-            3D Voxel Blocks
-          </label>
-          <label className="flex items-center gap-1.5 cursor-pointer text-slate-300 hover:text-white text-[11px]">
-            <input
-              type="checkbox"
-              checked={showRibbonSurfaces}
-              onChange={(e) => setShowRibbonSurfaces(e.target.checked)}
-              className="rounded accent-amber-500"
-            />
-            Contact Ribbons
-          </label>
-        </div>
+        <div ref={mountRef} className="w-full flex-1 min-h-[390px] cursor-grab active:cursor-grabbing" />
       </div>
 
-      {/* 3D VIEWPORT CONTAINER */}
-      <div className="relative flex-1 min-h-[380px] w-full overflow-hidden">
-        <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+      {/* Right 4 Cols: Compact Engineering Inspector */}
+      <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
+        <div className="space-y-3">
+          <div className="border-b border-slate-800 pb-2">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
+              INTERPOLATED SLICE READOUT
+            </div>
+            <div className="text-xs font-mono text-slate-300 mt-0.5 tabular-nums">
+              Station Y_q = <strong>RD {selectedStation.toFixed(2)}m</strong> (λ = {(interpolated.lambda * 100).toFixed(0)}%)
+            </div>
+          </div>
 
-        {/* INFERRED ATTITUDE OVERLAY */}
-        {ribbons.length > 0 && (
-          <div className="absolute top-3 right-3 bg-slate-950/85 backdrop-blur border border-slate-700 p-2.5 rounded-xl font-mono text-xs z-10 space-y-1.5 shadow-lg">
-            <span className="font-bold text-amber-300 block text-[11px] uppercase tracking-wider">
-              Inferred Discontinuity Attitudes:
-            </span>
-            {ribbons.map((rib, i) => (
-              <div key={i} className="text-[11px] text-slate-300 border-b border-slate-800 pb-1">
-                <span className="text-slate-400">{rib.contactName}:</span>{' '}
-                <strong className="text-cyan-300">
-                  Dip {rib.inferredDipDeg}° ∠ {rib.inferredDipDirDeg}°
-                </strong>{' '}
-                <span className="text-[10px] text-slate-400">
-                  ({rib.fromChainage}m ➔ {rib.toChainage}m)
-                </span>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-slate-950/90 border border-slate-800 rounded p-2 text-center">
+              <div className="text-[9px] font-mono text-slate-500 uppercase">Interp RMR</div>
+              <div className="text-sm font-mono font-bold text-emerald-400 tabular-nums mt-0.5">
+                {interpolated.interpolatedRmr.toFixed(1)}
               </div>
-            ))}
+            </div>
+            <div className="bg-slate-950/90 border border-slate-800 rounded p-2 text-center">
+              <div className="text-[9px] font-mono text-slate-500 uppercase">Interp Q</div>
+              <div className="text-sm font-mono font-bold text-sky-400 tabular-nums mt-0.5">
+                {interpolated.interpolatedQ.toFixed(2)}
+              </div>
+            </div>
+            <div className="bg-slate-950/90 border border-slate-800 rounded p-2 text-center">
+              <div className="text-[9px] font-mono text-slate-500 uppercase">Interp GSI</div>
+              <div className="text-sm font-mono font-bold text-amber-400 tabular-nums mt-0.5">
+                {interpolated.interpolatedGsi.toFixed(1)}
+              </div>
+            </div>
           </div>
-        )}
 
-        {/* BOTTOM HUD LEGEND */}
-        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between px-3 py-1.5 bg-slate-950/85 backdrop-blur border border-slate-800 rounded-lg text-[11px] font-mono z-10">
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1 text-emerald-400">
-              <span className="w-2.5 h-2.5 bg-emerald-500 inline-block rounded-xs" /> Good Rock (RMR &gt; 60 / Q &gt; 10)
-            </span>
-            <span className="flex items-center gap-1 text-sky-400">
-              <span className="w-2.5 h-2.5 bg-sky-500 inline-block rounded-xs" /> Fair Rock (RMR 41-60)
-            </span>
-            <span className="flex items-center gap-1 text-amber-400">
-              <span className="w-2.5 h-2.5 bg-amber-500 inline-block rounded-xs" /> Poor Rock (RMR 21-40)
-            </span>
-            <span className="flex items-center gap-1 text-rose-400">
-              <span className="w-2.5 h-2.5 bg-rose-500 inline-block rounded-xs" /> Very Poor (RMR &lt; 20)
-            </span>
+          <div>
+            <div className="text-[10px] font-mono font-bold text-slate-400 uppercase mb-1.5">
+              Logged Face Stations ({sortedLogs.length})
+            </div>
+            <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
+              {sortedLogs.map((log) => {
+                const isSelected = Math.abs(selectedStation - log.chainageMeters) < 0.25;
+                return (
+                  <button
+                    key={log.id}
+                    onClick={() => setSelectedStation(log.chainageMeters)}
+                    className={`w-full text-left p-2 rounded border transition flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-sky-500/15 border-sky-500/50 text-white'
+                        : 'bg-slate-950/70 border-slate-800/80 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-[11px] font-mono font-bold text-sky-300 tabular-nums">
+                        {log.faceChainageStr}
+                      </div>
+                      <div className="text-[10px] font-mono text-slate-400">
+                        {log.contacts.length} Mapped Horizon(s)
+                      </div>
+                    </div>
+                    <div className="text-right font-mono text-[10px] tabular-nums">
+                      <div className="text-emerald-400 font-bold">RMR {log.meanRmr.toFixed(0)}</div>
+                      <div className="text-slate-400">Q {log.meanQ.toFixed(2)}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <span className="text-slate-400 text-[10px]">
-            Sequential Face Logs: {faceLogs.length} Rounds Stitched
-          </span>
+        </div>
+
+        <div className="bg-slate-950/90 border border-slate-800/80 rounded p-2.5 text-[10px] font-mono text-slate-400 leading-relaxed">
+          <div className="text-slate-300 font-bold mb-0.5">FORMULATION</div>
+          P(u, λ) = (1 - λ)·P_i(u) + λ·P_&#123;i+1&#125;(u), where λ = (Y_q - Y_i) / (Y_&#123;i+1&#125; - Y_i)
         </div>
       </div>
     </div>
