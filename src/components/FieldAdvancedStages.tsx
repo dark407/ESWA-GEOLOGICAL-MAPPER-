@@ -5226,7 +5226,7 @@ export const FieldSupportSystemStage: React.FC<{
               onClick={onContinueToSurvey}
               className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer"
             >
-              <span>Next: Clean Report</span>
+              <span>Next: FEM &amp; DEM Analysis</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -5844,7 +5844,7 @@ export const FieldSupportSystemStage: React.FC<{
             onClick={onContinueToSurvey}
             className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer whitespace-nowrap"
           >
-            <span>Next: Survey Overbreak</span>
+            <span>Next: FEM &amp; DEM Analysis</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -6674,11 +6674,17 @@ export const FieldSurveyOverbreakStage: React.FC<{
   onContinueToReport,
 }) => {
   const faceSvgRef = useRef<SVGSVGElement | null>(null);
+  const csvFileInputRef = useRef<HTMLInputElement | null>(null);
   const [showTemplateEditor, setShowTemplateEditor] = useState<boolean>(false);
   const [draggingPointIdx, setDraggingPointIdx] = useState<number | null>(null);
   const [hoverCoord, setHoverCoord] = useState<{ x: number; y: number } | null>(null);
   const [selectedPointIdx, setSelectedPointIdx] = useState<number | null>(null);
   const [customDevMmInput, setCustomDevMmInput] = useState<string>('');
+  const [csvImportStatus, setCsvImportStatus] = useState<{
+    type: 'success' | 'error';
+    message: string;
+    fileName?: string;
+  } | null>(null);
   const survey = useMemo(
     () => ({
       ...createDefaultSurveyOverbreak(activeLocation),
@@ -7122,6 +7128,328 @@ export const FieldSurveyOverbreakStage: React.FC<{
     });
   };
 
+  const handleDownloadSampleTotalStationCsv = () => {
+    const cx = boxX + boxW / 2;
+    const cy = boxY + boxH * 0.65;
+    const rows = [
+      'Point_ID,Zone,Design_X_m,Design_Y_m,Survey_X_m,Survey_Y_m,Deviation_mm',
+      ...designPolyPts.map((p, idx) => {
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const extraPx = idx > 3 && idx < designPolyPts.length - 3 ? 16 + (idx % 3) * 5 : 5;
+        const sx = p.x + (dx / len) * extraPx;
+        const sy = p.y + (dy / len) * extraPx;
+        const desXM = Number((((p.x - (boxX + boxW / 2)) / boxW) * W).toFixed(3));
+        const desYM = Number((((boxY + boxH - p.y) / boxH) * H).toFixed(3));
+        const survXM = Number((((sx - (boxX + boxW / 2)) / boxW) * W).toFixed(3));
+        const survYM = Number((((boxY + boxH - sy) / boxH) * H).toFixed(3));
+        const devMm = computePointDeviationMm({ x: sx, y: sy });
+        const zone =
+          desYM > H * 0.65
+            ? 'Crown'
+            : desXM < 0
+            ? 'Left_Wall'
+            : 'Right_Wall';
+        return `P${idx + 1},${zone},${desXM},${desYM},${survXM},${survYM},${devMm}`;
+      }),
+    ];
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `TotalStation_Overbreak_${activeLocation.name.replace(/\s+/g, '_')}_${activeRound.chainageMeters}m.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleTotalStationCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = String(event.target?.result || '').trim();
+        if (!text) {
+          setCsvImportStatus({
+            type: 'error',
+            message: 'The selected CSV file is empty.',
+          });
+          return;
+        }
+
+        const lines = text
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0 && !l.startsWith('#'));
+
+        if (lines.length === 0) {
+          setCsvImportStatus({
+            type: 'error',
+            message: 'No valid rows found in the CSV file.',
+          });
+          return;
+        }
+
+        const splitCsvLine = (line: string) =>
+          line.split(/[,;\t]/).map((cell) => cell.trim().replace(/^["']|["']$/g, ''));
+
+        const firstRow = splitCsvLine(lines[0]);
+        const hasHeader = firstRow.some((cell) => isNaN(Number(cell)) && cell !== '');
+        const headers = hasHeader
+          ? firstRow.map((h) => h.toLowerCase().replace(/[^a-z0-9_]/g, ''))
+          : [];
+        const dataLines = hasHeader ? lines.slice(1) : lines;
+
+        // Check if CSV is a summary-only table (OB_Area, OB_Vol, Max_Depth)
+        const obAreaCol = headers.findIndex(
+          (h) => h.includes('ob_area') || h.includes('overbreakarea') || h === 'area_m2'
+        );
+        const obVolCol = headers.findIndex(
+          (h) => h.includes('ob_vol') || h.includes('overbreakvol') || h.includes('amount') || h === 'vol_m3'
+        );
+        const maxDepthCol = headers.findIndex(
+          (h) => h.includes('max_depth') || h.includes('maxdepth') || h === 'depth_m'
+        );
+
+        // Identify survey coordinate columns
+        const survXCol = headers.findIndex(
+          (h) =>
+            h === 'survey_x_m' ||
+            h === 'survey_x' ||
+            h === 'actual_x' ||
+            h === 'x_m' ||
+            h === 'xm' ||
+            h === 'x' ||
+            h === 'offset_x' ||
+            h === 'easting_offset'
+        );
+        const survYCol = headers.findIndex(
+          (h) =>
+            h === 'survey_y_m' ||
+            h === 'survey_y' ||
+            h === 'actual_y' ||
+            h === 'y_m' ||
+            h === 'ym' ||
+            h === 'y' ||
+            h === 'height_m' ||
+            h === 'elevation_offset' ||
+            h === 'z_m' ||
+            h === 'z'
+        );
+        const devMmCol = headers.findIndex(
+          (h) =>
+            h.includes('deviation') ||
+            h.includes('dev_mm') ||
+            h.includes('overbreak_mm') ||
+            h.includes('offset_mm') ||
+            h === 'mm'
+        );
+
+        const rawCoords: { xM?: number; yM?: number; devMm?: number }[] = [];
+        let summaryArea: number | null = null;
+        let summaryVol: number | null = null;
+        let summaryDepth: number | null = null;
+
+        for (const line of dataLines) {
+          const cols = splitCsvLine(line);
+          if (cols.length === 0) continue;
+
+          if (obAreaCol >= 0 && survXCol < 0 && devMmCol < 0) {
+            const aVal = Number(cols[obAreaCol]);
+            const vVal = obVolCol >= 0 ? Number(cols[obVolCol]) : NaN;
+            const dVal = maxDepthCol >= 0 ? Number(cols[maxDepthCol]) : NaN;
+            if (!isNaN(aVal)) summaryArea = aVal;
+            if (!isNaN(vVal)) summaryVol = vVal;
+            if (!isNaN(dVal)) summaryDepth = dVal;
+            continue;
+          }
+
+          if ( hasHeader ) {
+            const xVal = survXCol >= 0 ? Number(cols[survXCol]) : NaN;
+            const yVal = survYCol >= 0 ? Number(cols[survYCol]) : NaN;
+            const dVal = devMmCol >= 0 ? Number(cols[devMmCol]) : NaN;
+            if (!isNaN(xVal) && !isNaN(yVal)) {
+              rawCoords.push({
+                xM: xVal,
+                yM: yVal,
+                devMm: !isNaN(dVal) ? dVal : undefined,
+              });
+            } else if (!isNaN(dVal)) {
+              rawCoords.push({ devMm: dVal });
+            }
+          } else {
+            // Headerless row: check numeric columns
+            const nums = cols.map((c) => Number(c)).filter((n) => !isNaN(n));
+            if (nums.length >= 2) {
+              // If 2+ numbers: (X_m, Y_m, [Deviation_mm])
+              rawCoords.push({
+                xM: nums[0],
+                yM: nums[1],
+                devMm: nums.length >= 3 ? nums[2] : undefined,
+              });
+            } else if (nums.length === 1) {
+              rawCoords.push({ devMm: nums[0] });
+            }
+          }
+        }
+
+        if (rawCoords.length > 0) {
+          // Determine whether X_m values are centered around 0 [-W/2, +W/2] or starting from left wall [0, W]
+          const validXs = rawCoords.map((r) => r.xM).filter((v): v is number => v !== undefined);
+          const minXM = validXs.length > 0 ? Math.min(...validXs) : -W / 2;
+          const maxXM = validXs.length > 0 ? Math.max(...validXs) : W / 2;
+          const isZeroToW = minXM >= -0.05 && maxXM > W * 0.55;
+
+          const importedPts: FieldPoint2D[] = rawCoords.map((rc, idx) => {
+            if (rc.xM !== undefined && rc.yM !== undefined) {
+              const centeredXM = isZeroToW ? rc.xM - W / 2 : rc.xM;
+              const svgX = Number(
+                Math.max(
+                  10,
+                  Math.min(590, boxX + boxW / 2 + (centeredXM / W) * boxW)
+                ).toFixed(1)
+              );
+              const svgY = Number(
+                Math.max(
+                  10,
+                  Math.min(450, boxY + boxH - (rc.yM / H) * boxH)
+                ).toFixed(1)
+              );
+              const computedDevMm =
+                rc.devMm !== undefined
+                  ? Math.round(rc.devMm)
+                  : computePointDeviationMm({ x: svgX, y: svgY });
+              return {
+                x: svgX,
+                y: svgY,
+                xM: Number(centeredXM.toFixed(2)),
+                yM: Number(rc.yM.toFixed(2)),
+                deviationMm: computedDevMm,
+              };
+            } else {
+              // Map deviation_mm onto corresponding design polygon vertex
+              const dp =
+                designPolyPts[idx % designPolyPts.length] || {
+                  x: boxX + boxW / 2,
+                  y: boxY,
+                };
+              const { nearestDp, nx, ny } = getDesignNormalAtPoint(dp);
+              const avgPxPerM = (scaleX + scaleY) / 2;
+              const devMm = Math.round(rc.devMm || 0);
+              const offsetPx = (devMm / 1000) * avgPxPerM;
+              const svgX = Number((nearestDp.x + nx * offsetPx).toFixed(1));
+              const svgY = Number((nearestDp.y + ny * offsetPx).toFixed(1));
+              const xM = Number((((svgX - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
+              const yM = Number((((boxY + boxH - svgY) / boxH) * H).toFixed(2));
+              return {
+                x: svgX,
+                y: svgY,
+                xM,
+                yM,
+                deviationMm: devMm,
+              };
+            }
+          });
+
+          recomputeOverbreakMetrics(importedPts, 'completed', {
+            overbreakCause:
+              survey.overbreakCause === 'no_overbreak' ? 'geological' : survey.overbreakCause,
+          });
+          setSelectedPointIdx(0);
+          setCsvImportStatus({
+            type: 'success',
+            fileName: file.name,
+            message: `Imported ${importedPts.length} Total Station survey points from "${file.name}" and plotted overbreak profile.`,
+          });
+        } else if (summaryArea !== null) {
+          const obArea = Math.max(0, Number(summaryArea.toFixed(2)));
+          const obVol =
+            summaryVol !== null
+              ? Math.max(0, Number(summaryVol.toFixed(2)))
+              : Number((obArea * pullM).toFixed(2));
+          const maxDepth = summaryDepth !== null ? Math.max(0, Number(summaryDepth.toFixed(2))) : 0;
+
+          onUpdateRound((r) => {
+            const currSurv = r.surveyOverbreak || createDefaultSurveyOverbreak(activeLocation);
+            const allowArea = Math.max(
+              0,
+              (currSurv.paylineAreaM2 || paylineAreaM2) - designAreaM2
+            );
+            const isPayEnabled = currSurv.paylineEnabled !== false;
+            const permArea = isPayEnabled ? Number(Math.min(obArea, allowArea).toFixed(2)) : 0;
+            const realArea = isPayEnabled
+              ? Number(Math.max(0, obArea - allowArea).toFixed(2))
+              : obArea;
+            const isReal = realArea > 0.01;
+            const nextSurv: FieldSurveyOverbreakData = {
+              ...currSurv,
+              status: 'completed',
+              overbreakCause:
+                obArea > 0 && currSurv.overbreakCause === 'no_overbreak'
+                  ? 'geological'
+                  : currSurv.overbreakCause,
+              overbreakAreaM2: obArea,
+              overbreakPercent: Number(((obArea / Math.max(1, designAreaM2)) * 100).toFixed(1)),
+              overbreakVolumeM3: obVol,
+              maxOverbreakDepthM: maxDepth,
+              permissibleOverbreakAreaM2: permArea,
+              permissibleOverbreakVolumeM3: Number((permArea * pullM).toFixed(2)),
+              realOverbreakAreaM2: realArea,
+              realOverbreakPercent: Number(
+                ((realArea / Math.max(1, designAreaM2)) * 100).toFixed(1)
+              ),
+              realOverbreakVolumeM3: Number((realArea * pullM).toFixed(2)),
+              isRealOverbreak: isReal,
+              overbreakContractStatus: isReal
+                ? 'real_overbreak'
+                : obArea > 0
+                ? 'within_payline'
+                : 'exact_design',
+            };
+            const tempRound = { ...r, surveyOverbreak: nextSurv };
+            const autoReason = generateOverbreakSummarySentence(tempRound, activeLocation);
+            nextSurv.overbreakReason = autoReason;
+            return {
+              ...r,
+              surveyOverbreak: nextSurv,
+              geologicalDescription: generateProfessionalGeologicalDescription(
+                { ...tempRound, surveyOverbreak: nextSurv },
+                activeLocation
+              ),
+              overbreakNotes: autoReason,
+            };
+          });
+
+          setCsvImportStatus({
+            type: 'success',
+            fileName: file.name,
+            message: `Imported Total Station summary values (OB Area: ${obArea} m², Volume: ${obVol} m³) from "${file.name}".`,
+          });
+        } else {
+          setCsvImportStatus({
+            type: 'error',
+            message:
+              'Could not parse survey coordinates. Use columns like Survey_X_m, Survey_Y_m, Deviation_mm (or click Download Sample CSV).',
+          });
+        }
+      } catch (err) {
+        setCsvImportStatus({
+          type: 'error',
+          message: `Failed to parse CSV file: ${err instanceof Error ? err.message : 'Invalid format'}`,
+        });
+      } finally {
+        if (csvFileInputRef.current) {
+          csvFileInputRef.current.value = '';
+        }
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleRegenerateProfessionalDescription = () => {
     onUpdateRound((r) => {
       const currSurv = r.surveyOverbreak || createDefaultSurveyOverbreak(activeLocation);
@@ -7220,7 +7548,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
             className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Support System
+            FEM &amp; DEM Analysis
           </button>
           <button
             type="button"
@@ -7633,13 +7961,13 @@ export const FieldSurveyOverbreakStage: React.FC<{
         </div>
 
         {/* Right Columns (4 of 12 in landscape/desktop): Calculated Overbreak Metrics + Mechanical / Geological Cause & Overall Geological Description */}
-        <div className="landscape:col-span-4 lg:col-span-4 xl:col-span-4 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2.5 overflow-y-auto no-scrollbar mouse-scrollable">
+        <div className="landscape:col-span-4 lg:col-span-4 xl:col-span-4 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col gap-3 overflow-y-auto overscroll-contain mouse-scrollable">
           {survey.status !== 'completed' ? (
-            <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-xs text-amber-200 space-y-1">
+            <div className="shrink-0 p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-xs text-amber-200 space-y-1">
               <div className="font-black uppercase">
                 Survey Status: {survey.status === 'skipped' ? 'SKIPPED' : 'FEED LATER (PENDING)'}
               </div>
-              <p className="text-[11px] text-amber-300/90">
+              <p className="text-[11px] text-amber-300/90 leading-relaxed">
                 Because survey data is marked as{' '}
                 <strong>{survey.status === 'skipped' ? 'Skipped' : 'Feed Later'}</strong>, no survey overbreak outline or overbreak table will be shown on the Report face drawing. You can return anytime to feed the survey points.
               </p>
@@ -7647,10 +7975,10 @@ export const FieldSurveyOverbreakStage: React.FC<{
           ) : null}
 
           {/* Point Overbreak / Undercut (mm) Quick-Selector & Fine Tuning Panel */}
-          <div className="bg-slate-950 border border-amber-500/40 rounded-xl p-2.5 space-y-2">
-            <div className="flex items-center justify-between">
+          <div className="shrink-0 bg-slate-950 border border-amber-500/40 rounded-xl p-2.5 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
               <div className="flex items-center gap-1.5">
-                <Crosshair className="w-4 h-4 text-amber-400" />
+                <Crosshair className="w-4 h-4 text-amber-400 shrink-0" />
                 <span className="text-xs font-black uppercase tracking-wider text-amber-400">
                   Point Overbreak / Undercut (mm)
                 </span>
@@ -7662,12 +7990,12 @@ export const FieldSurveyOverbreakStage: React.FC<{
               )}
             </div>
 
-            <p className="text-[11px] text-slate-400 leading-tight">
+            <p className="text-[11px] text-slate-400 leading-relaxed">
               Select any surveyed point to choose its exact offset in millimeters (Overbreak +mm / Undercut −mm). Shown as small, subtle badges near each point.
             </p>
 
             {/* Horizontal Point Selector Pills */}
-            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1">
               {(survey.surveyPoints || []).map((p, pIdx) => {
                 const devMm =
                   p.deviationMm !== undefined
@@ -7679,7 +8007,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                     key={`pt-sel-btn-${pIdx}`}
                     type="button"
                     onClick={() => setSelectedPointIdx(pIdx)}
-                    className={`px-2 py-1 rounded-lg text-[10.5px] font-mono font-bold whitespace-nowrap border transition-all cursor-pointer ${
+                    className={`shrink-0 px-2 py-1 rounded-lg text-[10.5px] font-mono font-bold whitespace-nowrap border transition-all cursor-pointer ${
                       isSel
                         ? 'bg-amber-500 text-slate-950 border-amber-300 font-black shadow'
                         : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-amber-400/60'
@@ -7691,7 +8019,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
               })}
               {(survey.surveyPoints || []).length === 0 && (
                 <div className="text-[11px] text-slate-500 italic py-1">
-                  Click on face canvas to plot survey points
+                  Click on face canvas or import Total Station CSV to plot survey points
                 </div>
               )}
             </div>
@@ -7699,7 +8027,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
             {selectedPointIdx !== null &&
               survey.surveyPoints &&
               survey.surveyPoints[selectedPointIdx] && (
-                <div className="space-y-1.5 pt-1 border-t border-slate-800">
+                <div className="space-y-2 pt-1.5 border-t border-slate-800">
                   <div className="text-[10px] font-bold text-slate-400 uppercase">
                     Choose offset for P{selectedPointIdx + 1}:
                   </div>
@@ -7742,7 +8070,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                   </div>
 
                   {/* Custom Millimeter Input */}
-                  <div className="flex items-center gap-1.5 pt-1">
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
                     <span className="text-[10px] text-slate-400">Custom mm:</span>
                     <input
                       type="number"
@@ -7784,15 +8112,15 @@ export const FieldSurveyOverbreakStage: React.FC<{
           </div>
 
           {/* Payline Input & Real Overbreak Contract Calculator */}
-          <div className="bg-slate-950 border border-emerald-500/40 rounded-xl p-2.5 space-y-2">
+          <div className="shrink-0 bg-slate-950 border border-emerald-500/40 rounded-xl p-2.5 space-y-2">
             <div className="flex items-center justify-between gap-1.5">
               <div className="flex items-center gap-1.5">
-                <Shield className="w-4 h-4 text-emerald-400" />
+                <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
                   Site Payline &amp; Real Overbreak
                 </span>
               </div>
-              <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-300 cursor-pointer">
+              <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-300 cursor-pointer shrink-0">
                 <input
                   type="checkbox"
                   checked={survey.paylineEnabled !== false}
@@ -7809,7 +8137,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
               </label>
             </div>
 
-            <p className="text-[11px] text-slate-400 leading-tight">
+            <p className="text-[11px] text-slate-400 leading-relaxed">
               Feed site authorized excavation boundary (Payline). Over-excavation within Payline is contractually <strong>Permissible</strong>; any profile exceeding Payline is <strong>Real Overbreak</strong> (Contractor loss / non-payable).
             </p>
 
@@ -7855,7 +8183,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
             {/* Custom Offset Entry */}
             <div className="grid grid-cols-2 gap-2 text-xs pt-1">
               <div>
-                <label className="block text-[10px] font-bold text-slate-400">
+                <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
                   Payline Offset (mm)
                 </label>
                 <div className="flex items-center gap-1">
@@ -7882,7 +8210,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                 </div>
               </div>
               <div>
-                <label className="block text-[10px] font-bold text-slate-400">
+                <label className="block text-[10px] font-bold text-slate-400 mb-0.5">
                   Payline Area (m²)
                 </label>
                 <div className="bg-slate-900 border border-slate-800 rounded px-2 py-1 font-mono font-bold text-emerald-400">
@@ -7894,7 +8222,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
             {/* Real Overbreak Verdict Banner */}
             {survey.status === 'completed' && (
               <div
-                className={`p-2 rounded-lg border text-xs space-y-0.5 ${
+                className={`p-2.5 rounded-lg border text-xs space-y-1 ${
                   survey.isRealOverbreak && (survey.realOverbreakAreaM2 || 0) > 0.01
                     ? 'bg-rose-950/80 border-rose-500 text-rose-200 shadow-md'
                     : (survey.overbreakAreaM2 || 0) > 0
@@ -7902,22 +8230,22 @@ export const FieldSurveyOverbreakStage: React.FC<{
                     : 'bg-slate-900 border-slate-700 text-slate-300'
                 }`}
               >
-                <div className="font-black uppercase flex items-center gap-1.5 text-[11px]">
+                <div className="font-black uppercase flex items-center gap-1.5 text-[11px] leading-snug">
                   {survey.isRealOverbreak && (survey.realOverbreakAreaM2 || 0) > 0.01 ? (
                     <>
-                      <span className="text-sm">⚠</span>
+                      <span className="text-sm shrink-0">⚠</span>
                       <span>REAL OVERBREAK DETECTED (Exceeds Payline)</span>
                     </>
                   ) : (survey.overbreakAreaM2 || 0) > 0 ? (
                     <>
-                      <span className="text-sm">✓</span>
+                      <span className="text-sm shrink-0">✓</span>
                       <span>WITHIN PAYLINE (Permissible Overbreak)</span>
                     </>
                   ) : (
                     <span>✓ EXACT DESIGN PROFILE (No Overbreak)</span>
                   )}
                 </div>
-                <div className="text-[10.5px] leading-snug">
+                <div className="text-[10.5px] leading-relaxed">
                   {survey.isRealOverbreak && (survey.realOverbreakAreaM2 || 0) > 0.01 ? (
                     <>
                       Excavation exceeds the <strong>+{survey.paylineOffsetMm ?? 150}mm Payline</strong> by{' '}
@@ -7940,79 +8268,202 @@ export const FieldSurveyOverbreakStage: React.FC<{
           </div>
 
           {/* Calculated 6-Metric Breakdown Cards */}
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2">
-              <div className="text-[9.5px] font-bold uppercase text-slate-400">
+          <div className="shrink-0 grid grid-cols-2 gap-2">
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col justify-between">
+              <div className="text-[10px] font-bold uppercase text-slate-400 leading-tight">
                 Design Face Area
               </div>
-              <div className="text-base font-black font-mono text-white">
+              <div className="text-sm sm:text-base font-black font-mono text-white mt-1">
                 {survey.designAreaM2 || designAreaM2} m²
               </div>
             </div>
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2">
-              <div className="text-[9.5px] font-bold uppercase text-slate-400">
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col justify-between">
+              <div className="text-[10px] font-bold uppercase text-slate-400 leading-tight">
                 Excavated Survey Area
               </div>
-              <div className="text-base font-black font-mono text-cyan-300">
+              <div className="text-sm sm:text-base font-black font-mono text-cyan-300 mt-1">
                 {survey.excavatedAreaM2 || designAreaM2} m²
               </div>
             </div>
 
-            <div className="bg-slate-950 border border-emerald-500/40 rounded-xl p-2">
-              <div className="text-[9.5px] font-bold uppercase text-emerald-300">
+            <div className="bg-slate-950 border border-emerald-500/40 rounded-xl p-2.5 flex flex-col justify-between">
+              <div className="text-[10px] font-bold uppercase text-emerald-300 leading-tight">
                 Permissible OB (Payable)
               </div>
-              <div className="text-base font-black font-mono text-emerald-400">
-                {survey.permissibleOverbreakAreaM2 ?? 0} m²
-                <span className="text-[10px] text-emerald-300/80 font-normal ml-1">
+              <div className="mt-1">
+                <div className="text-sm sm:text-base font-black font-mono text-emerald-400 leading-tight">
+                  {survey.permissibleOverbreakAreaM2 ?? 0} m²
+                </div>
+                <div className="text-[10px] text-emerald-300/80 font-mono mt-0.5">
                   ({survey.permissibleOverbreakVolumeM3 ?? 0} m³)
-                </span>
+                </div>
               </div>
             </div>
             <div
-              className={`rounded-xl p-2 border ${
+              className={`rounded-xl p-2.5 border flex flex-col justify-between ${
                 survey.isRealOverbreak && (survey.realOverbreakAreaM2 || 0) > 0.01
                   ? 'bg-rose-950/60 border-rose-500 text-rose-300'
                   : 'bg-slate-950 border-slate-800 text-slate-400'
               }`}
             >
-              <div className="text-[9.5px] font-bold uppercase">
+              <div className="text-[10px] font-bold uppercase leading-tight">
                 Real Overbreak (Site Loss)
               </div>
-              <div className="text-base font-black font-mono text-rose-400">
-                {survey.realOverbreakAreaM2 ?? 0} m²
-                <span className="text-[10px] text-rose-300/80 font-normal ml-1">
+              <div className="mt-1">
+                <div className="text-sm sm:text-base font-black font-mono text-rose-400 leading-tight">
+                  {survey.realOverbreakAreaM2 ?? 0} m²
+                </div>
+                <div className="text-[10px] text-rose-300/80 font-mono mt-0.5">
                   ({survey.realOverbreakPercent ?? 0}% | {survey.realOverbreakVolumeM3 ?? 0} m³)
-                </span>
+                </div>
               </div>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2">
-              <div className="text-[9.5px] font-bold uppercase text-slate-400">
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col justify-between">
+              <div className="text-[10px] font-bold uppercase text-slate-400 leading-tight">
                 Total Overbreak
               </div>
-              <div className="text-sm font-black font-mono text-slate-200">
+              <div className="text-xs sm:text-sm font-black font-mono text-slate-200 mt-1">
                 {survey.overbreakAreaM2} m² ({survey.overbreakPercent}%)
               </div>
             </div>
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2">
-              <div className="text-[9.5px] font-bold uppercase text-slate-400">
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col justify-between">
+              <div className="text-[10px] font-bold uppercase text-slate-400 leading-tight">
                 Max Overbreak Depth
               </div>
-              <div className="text-sm font-black font-mono text-amber-300">
+              <div className="text-xs sm:text-sm font-black font-mono text-amber-300 mt-1">
                 {survey.maxOverbreakDepthM ?? 0} m
               </div>
             </div>
           </div>
 
-          {/* Direct Numeric Override if Survey Team provides exact numbers */}
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 space-y-2">
-            <div className="text-xs font-bold uppercase text-slate-300">
-              Manual / Total Station Overbreak Entry (Optional)
+          {/* Direct Numeric Override & Total Station CSV Import */}
+          <div className="shrink-0 bg-slate-950 border border-cyan-500/40 rounded-xl p-2.5 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <div className="text-xs font-black uppercase text-cyan-400">
+                Survey Details &amp; Total Station CSV Data
+              </div>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/70 border border-cyan-500/40 text-cyan-300">
+                {(survey.surveyPoints || []).length} pts plotted
+              </span>
+            </div>
+
+            {/* CSV Upload & Sample Template Bar */}
+            <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
+              <div className="text-[10.5px] text-slate-300 leading-snug">
+                Import Total Station overbreak profile points (<code className="text-cyan-300 font-mono">X_m, Y_m, Deviation_mm</code>) or summary CSV directly:
+              </div>
+              <input
+                ref={csvFileInputRef}
+                type="file"
+                accept=".csv,.txt"
+                onChange={handleTotalStationCsvUpload}
+                className="hidden"
+              />
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => csvFileInputRef.current?.click()}
+                  className="flex-1 min-w-[140px] px-2.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-[11px] flex items-center justify-center gap-1.5 shadow cursor-pointer transition-all"
+                >
+                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                  <span>Upload Total Station CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadSampleTotalStationCsv}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-bold text-[10.5px] flex items-center gap-1 cursor-pointer transition-all"
+                  title="Download a ready-to-use Total Station CSV template matching this tunnel profile"
+                >
+                  <FileText className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <span>Sample CSV</span>
+                </button>
+              </div>
+
+              {csvImportStatus && (
+                <div
+                  className={`p-2 rounded-lg border text-[10.5px] leading-snug flex items-start justify-between gap-2 ${
+                    csvImportStatus.type === 'success'
+                      ? 'bg-emerald-950/70 border-emerald-500/60 text-emerald-200'
+                      : 'bg-rose-950/70 border-rose-500/60 text-rose-200'
+                  }`}
+                >
+                  <span>{csvImportStatus.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => setCsvImportStatus(null)}
+                    className="text-[10px] font-bold underline shrink-0 cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {/* Compact scrollable table of Surveyed / Imported Total Station Points */}
+              {(survey.surveyPoints || []).length > 0 && (
+                <div className="max-h-28 overflow-y-auto rounded border border-slate-800 bg-slate-950">
+                  <table className="w-full text-left border-collapse text-[10px] font-mono">
+                    <thead className="bg-slate-900 text-slate-400 sticky top-0">
+                      <tr>
+                        <th className="py-1 px-2 border-b border-slate-800">Pt</th>
+                        <th className="py-1 px-2 border-b border-slate-800">X (m)</th>
+                        <th className="py-1 px-2 border-b border-slate-800">Y (m)</th>
+                        <th className="py-1 px-2 border-b border-slate-800 text-right">OB/UC (mm)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(survey.surveyPoints || []).map((pt, idx) => {
+                        const xMVal =
+                          pt.xM !== undefined
+                            ? pt.xM
+                            : Number((((pt.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
+                        const yMVal =
+                          pt.yM !== undefined
+                            ? pt.yM
+                            : Number((((boxY + boxH - pt.y) / boxH) * H).toFixed(2));
+                        const devVal =
+                          pt.deviationMm !== undefined
+                            ? pt.deviationMm
+                            : computePointDeviationMm(pt);
+                        return (
+                          <tr
+                            key={`csv-pt-row-${idx}`}
+                            onClick={() => setSelectedPointIdx(idx)}
+                            className={`border-b border-slate-900 cursor-pointer ${
+                              selectedPointIdx === idx
+                                ? 'bg-amber-500/20 text-amber-200 font-bold'
+                                : 'text-slate-300 hover:bg-slate-900/60'
+                            }`}
+                          >
+                            <td className="py-0.5 px-2 font-bold">P{idx + 1}</td>
+                            <td className="py-0.5 px-2">{xMVal >= 0 ? `+${xMVal}` : xMVal}</td>
+                            <td className="py-0.5 px-2">{yMVal}</td>
+                            <td
+                              className={`py-0.5 px-2 text-right font-bold ${
+                                devVal > 0
+                                  ? 'text-amber-400'
+                                  : devVal < 0
+                                  ? 'text-cyan-400'
+                                  : 'text-slate-400'
+                              }`}
+                            >
+                              {devVal > 0 ? `+${devVal}` : devVal}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="text-[10.5px] font-bold uppercase text-slate-400 pt-0.5">
+              Manual Overbreak Summary Override (Optional)
             </div>
             <div className="grid grid-cols-3 gap-2 text-xs">
               <div>
-                <label className="block text-[10px] text-slate-400">OB Area (m²)</label>
+                <label className="block text-[10px] text-slate-400 mb-0.5">OB Area (m²)</label>
                 <input
                   type="number"
                   step={0.1}
@@ -8082,7 +8533,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-slate-400">OB Amount (m³)</label>
+                <label className="block text-[10px] text-slate-400 mb-0.5">OB Amount (m³)</label>
                 <input
                   type="number"
                   step={0.1}
@@ -8122,7 +8573,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-slate-400">Max Depth (m)</label>
+                <label className="block text-[10px] text-slate-400 mb-0.5">Max Depth (m)</label>
                 <input
                   type="number"
                   step={0.05}
@@ -8161,23 +8612,23 @@ export const FieldSurveyOverbreakStage: React.FC<{
           </div>
 
           {/* Overbreak Classification (including No Overbreak) + Overall Geological & Overbreak Description */}
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2 flex-1 flex flex-col">
+          <div className="shrink-0 bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2.5 flex flex-col">
             <div className="flex flex-wrap items-center justify-between gap-1.5">
-              <span className="text-xs font-black uppercase text-amber-400">
-                Overbreak Classification &amp; Overall Geological Description
+              <span className="text-xs font-black uppercase text-amber-400 leading-snug">
+                Overbreak Classification &amp; Geological Description
               </span>
               <button
                 type="button"
                 onClick={handleRegenerateProfessionalDescription}
-                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 text-[10.5px] font-bold flex items-center gap-1 cursor-pointer"
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 text-[10.5px] font-bold flex items-center gap-1 cursor-pointer shrink-0"
                 title="Automatically generate a professional engineering geological & overbreak description from your mapped lithology, joints, classifications, and overbreak data"
               >
-                <Sparkles className="w-3 h-3" />
-                <span>Auto-Generate from Data</span>
+                <Sparkles className="w-3 h-3 shrink-0" />
+                <span>Auto-Generate</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            <div className="grid grid-cols-2 gap-1.5">
               {(
                 [
                   { id: 'no_overbreak', label: 'No Overbreak' },
@@ -8234,7 +8685,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                         };
                       })
                     }
-                    className={`py-1.5 px-2 rounded-lg border text-[11px] font-bold cursor-pointer transition-all ${
+                    className={`py-1.5 px-2 rounded-lg border text-[11px] font-bold leading-tight cursor-pointer transition-all ${
                       isSelected
                         ? item.id === 'no_overbreak'
                           ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-black shadow'
@@ -8248,8 +8699,8 @@ export const FieldSurveyOverbreakStage: React.FC<{
               })}
             </div>
 
-            <div className="flex-1 flex flex-col gap-1">
-              <label className="text-[10.5px] font-bold text-slate-300">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10.5px] font-bold text-slate-300 leading-snug">
                 Overall Geological Description (Lithology, Structure, Rock Mass &amp; Overbreak — Auto-Generated &amp; Editable):
               </label>
               <textarea
@@ -8267,7 +8718,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                   }));
                 }}
                 placeholder="Professional geological & overbreak description auto-generated from mapped lithology, discontinuity sets, Q/RMR/GSI ratings, and overbreak survey..."
-                className="flex-1 w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs leading-relaxed text-white"
+                className="w-full min-h-[110px] bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs leading-relaxed text-white resize-y"
               />
             </div>
           </div>

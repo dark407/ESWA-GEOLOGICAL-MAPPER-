@@ -83,6 +83,8 @@ import {
   SurfaceGeometryParameters,
   evaluateSurfaceStabilityAndRomanaSmr,
 } from '../engine/surfaceMappingEngine';
+import { FieldFemDemReportEmbedSection } from './FieldFemDemAnalysisStage';
+import { createDefaultFemDemConfig } from '../engine/femDemAnalysisEngine';
 
 type StripAlignItemKind = 'joint' | 'vein' | 'feature' | 'lithology' | 'dip_plane';
 type JointPointActionMode = 'add_point' | 'bend' | 'move' | 'extend';
@@ -180,12 +182,14 @@ function deformPolylineEndpointSmoothly(
 export const FieldStripAlignmentStage: React.FC<{
   activeLocation: FieldTunnelLocationItem;
   activeRound: FieldExcavationRound;
+  rememberedRocks?: FieldRememberedRockItem[];
   onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
   onBackToCanvas: () => void;
   onCompleteAndContinue: () => void;
 }> = ({
   activeLocation,
   activeRound,
+  rememberedRocks = [],
   onUpdateRound,
   onBackToCanvas,
   onCompleteAndContinue,
@@ -484,39 +488,20 @@ export const FieldStripAlignmentStage: React.FC<{
     }
   });
   activeRound.lithologyStrokes.forEach((st) => {
+    const isVeinOrFol = st.mode === 'vein_band' || st.mode === 'foliation_plane';
     if (
+      isVeinOrFol &&
       (st.panel === 'left_wall' || st.panel === 'crown' || st.panel === 'right_wall') &&
       st.points.length >= 2
     ) {
-      const isVeinOrFol = st.mode === 'vein_band' || st.mode === 'foliation_plane';
       alignableItems.push({
         id: st.id,
-        kind: isVeinOrFol ? 'vein' : 'lithology',
+        kind: 'vein',
         panel: st.panel,
-        label: (st.rockName || st.rockType || 'Lithology').slice(0, 10),
+        label: (st.rockName || st.rockType || 'Vein').slice(0, 10),
         color: st.customColor || st.color || '#0d9488',
         points: st.polygon && st.polygon.length >= 3 ? st.polygon : st.points,
         rawItem: st,
-      });
-    }
-  });
-  activeRound.dipPlaneSurfaces.forEach((ds) => {
-    if (
-      (ds.panel === 'left_wall' || ds.panel === 'crown' || ds.panel === 'right_wall') &&
-      ds.points.length >= 2
-    ) {
-      const col = FIELD_JOINT_GROUP_COLORS[ds.setId || 'unassigned']?.stroke || '#0284c7';
-      alignableItems.push({
-        id: ds.id,
-        kind: 'dip_plane',
-        panel: ds.panel,
-        label:
-          ds.setId === 'unassigned'
-            ? `DS ${ds.dipDirection}°/${ds.dipAmount}°`
-            : `${ds.setId} ${ds.dipDirection}°/${ds.dipAmount}°`,
-        color: col,
-        points: ds.outlinePolygon && ds.outlinePolygon.length >= 3 ? ds.outlinePolygon : ds.points,
-        rawItem: ds,
       });
     }
   });
@@ -1901,10 +1886,6 @@ export const FieldStripAlignmentStage: React.FC<{
               <span className="text-xs font-bold text-white uppercase tracking-wider">
                 {selectedTraceItem.kind === 'joint'
                   ? 'Joint Trace Inspector'
-                  : selectedTraceItem.kind === 'lithology'
-                  ? 'Lithology Zone Inspector'
-                  : selectedTraceItem.kind === 'dip_plane'
-                  ? 'Dip Plane Surface Inspector'
                   : selectedTraceItem.kind === 'vein'
                   ? 'Vein / Foliation Inspector'
                   : 'Structural Feature Inspector'}
@@ -2221,304 +2202,6 @@ export const FieldStripAlignmentStage: React.FC<{
             );
           })()}
 
-          {/* Lithology Inspector Body */}
-          {selectedTraceItem.kind === 'lithology' && (() => {
-            const st = activeRound.lithologyStrokes.find((s) => s.id === selectedTraceItem.id);
-            if (!st) return null;
-
-            return (
-              <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 text-xs">
-                {/* Rock Type Selector */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-400 font-medium">Rock Type:</span>
-                  <select
-                    value={st.rockType}
-                    onChange={(e) => {
-                      const newType = e.target.value;
-                      const catalogItem = FIELD_LITHOLOGY_CATALOG.find((c) => c.id === newType);
-                      pushUndo();
-                      onUpdateRound((r) => ({
-                        ...r,
-                        lithologyStrokes: r.lithologyStrokes.map((s) =>
-                          s.id === st.id
-                            ? {
-                                ...s,
-                                rockType: newType,
-                                rockName: catalogItem?.name || s.rockName,
-                                patternId: catalogItem?.patternId || s.patternId,
-                                color: s.customColor || catalogItem?.colorTint || s.color,
-                              }
-                            : s
-                        ),
-                      }));
-                    }}
-                    className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-xs font-semibold focus:outline-none"
-                  >
-                    {FIELD_LITHOLOGY_CATALOG.map((rc) => (
-                      <option key={rc.id} value={rc.id}>
-                        {rc.name} ({rc.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Rock Name Custom Input */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-400 font-medium">Name:</span>
-                  <input
-                    type="text"
-                    value={st.rockName || ''}
-                    onChange={(e) => {
-                      const nextName = e.target.value;
-                      onUpdateRound((r) => ({
-                        ...r,
-                        lithologyStrokes: r.lithologyStrokes.map((s) =>
-                          s.id === st.id ? { ...s, rockName: nextName } : s
-                        ),
-                      }));
-                    }}
-                    className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono w-28 focus:outline-none"
-                  />
-                </div>
-
-                {/* Rock Custom Color Picker */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-400 font-medium">Color:</span>
-                  <input
-                    type="color"
-                    value={st.customColor || st.color || '#fef08a'}
-                    onChange={(e) => {
-                      const nextCol = e.target.value;
-                      onUpdateRound((r) => ({
-                        ...r,
-                        lithologyStrokes: r.lithologyStrokes.map((s) =>
-                          s.id === st.id ? { ...s, customColor: nextCol, color: nextCol } : s
-                        ),
-                      }));
-                    }}
-                    className="w-7 h-7 rounded border border-slate-700 bg-transparent cursor-pointer"
-                  />
-                </div>
-
-                {/* Symbol Density */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-400 font-medium">Density:</span>
-                  <input
-                    type="range"
-                    min="30"
-                    max="180"
-                    step="5"
-                    value={st.symbolDensity ?? 85}
-                    onChange={(e) => {
-                      const nextDens = Number(e.target.value);
-                      onUpdateRound((r) => ({
-                        ...r,
-                        lithologyStrokes: r.lithologyStrokes.map((s) =>
-                          s.id === st.id ? { ...s, symbolDensity: nextDens } : s
-                        ),
-                      }));
-                    }}
-                    className="w-24 accent-amber-500 cursor-pointer"
-                  />
-                  <span className="font-mono text-[10px] text-amber-400 w-8">
-                    {st.symbolDensity ?? 85}%
-                  </span>
-                </div>
-
-                {/* Delete button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    pushUndo();
-                    onUpdateRound((r) => ({
-                      ...r,
-                      lithologyStrokes: r.lithologyStrokes.filter((s) => s.id !== st.id),
-                    }));
-                    setSelectedTraceItem(null);
-                  }}
-                  className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1 cursor-pointer ml-auto"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Zone
-                </button>
-              </div>
-            );
-          })()}
-
-          {/* Dip Plane Surface Inspector Body */}
-          {selectedTraceItem.kind === 'dip_plane' && (() => {
-            const ds = activeRound.dipPlaneSurfaces.find((d) => d.id === selectedTraceItem.id);
-            if (!ds) return null;
-
-            return (
-              <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 text-xs">
-                {/* Joint Set Selector */}
-                <div className="flex items-center gap-1 flex-wrap">
-                  <span className="text-slate-400 font-medium">Set:</span>
-                  {(
-                    ['unassigned', 'J1', 'J2', 'J3', 'J4', 'J5', 'J-Bedding', 'J-Random'] as FieldJointGroupingId[]
-                  ).map((setId) => {
-                    const isCur = ds.setId === setId;
-                    const col = FIELD_JOINT_GROUP_COLORS[setId]?.stroke || '#0f172a';
-                    return (
-                      <button
-                        key={setId}
-                        type="button"
-                        onClick={() => {
-                          pushUndo();
-                          onUpdateRound((r) => ({
-                            ...r,
-                            dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
-                              d.id === ds.id ? { ...d, setId } : d
-                            ),
-                          }));
-                        }}
-                        style={{
-                          borderColor: isCur ? col : undefined,
-                          backgroundColor: isCur ? `${col}33` : undefined,
-                          color: isCur ? '#ffffff' : '#94a3b8',
-                        }}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                          isCur
-                            ? 'font-black shadow'
-                            : 'border-slate-800 bg-slate-950 hover:border-slate-700'
-                        } cursor-pointer transition-colors`}
-                      >
-                        {setId === 'unassigned' ? 'Unassigned' : setId}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Dip Direction & Amount */}
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1">
-                    <span className="text-slate-400 font-medium">Dip Dir:</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        pushUndo();
-                        const nextDipDir = (ds.dipDirection - 5 + 360) % 360;
-                        onUpdateRound((r) => ({
-                          ...r,
-                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
-                            d.id === ds.id ? { ...d, dipDirection: nextDipDir } : d
-                          ),
-                        }));
-                      }}
-                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
-                    >
-                      -
-                    </button>
-                    <input
-                      type="number"
-                      min="0"
-                      max="360"
-                      value={ds.dipDirection}
-                      onChange={(e) => {
-                        const val = Math.max(0, Math.min(360, Number(e.target.value) || 0));
-                        onUpdateRound((r) => ({
-                          ...r,
-                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
-                            d.id === ds.id ? { ...d, dipDirection: val } : d
-                          ),
-                        }));
-                      }}
-                      className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-center text-cyan-300 font-mono font-bold text-xs w-14 focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        pushUndo();
-                        const nextDipDir = (ds.dipDirection + 5) % 360;
-                        onUpdateRound((r) => ({
-                          ...r,
-                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
-                            d.id === ds.id ? { ...d, dipDirection: nextDipDir } : d
-                          ),
-                        }));
-                      }}
-                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
-                    >
-                      +
-                    </button>
-                    <span className="text-slate-500 text-[10px]">°</span>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <span className="text-slate-400 font-medium">Dip Amt:</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        pushUndo();
-                        const nextDipAmt = Math.max(0, ds.dipAmount - 5);
-                        onUpdateRound((r) => ({
-                          ...r,
-                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
-                            d.id === ds.id ? { ...d, dipAmount: nextDipAmt } : d
-                          ),
-                        }));
-                      }}
-                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
-                    >
-                      -
-                    </button>
-                    <input
-                      type="number"
-                      min="0"
-                      max="90"
-                      value={ds.dipAmount}
-                      onChange={(e) => {
-                        const val = Math.max(0, Math.min(90, Number(e.target.value) || 0));
-                        onUpdateRound((r) => ({
-                          ...r,
-                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
-                            d.id === ds.id ? { ...d, dipAmount: val } : d
-                          ),
-                        }));
-                      }}
-                      className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-center text-cyan-300 font-mono font-bold text-xs w-12 focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        pushUndo();
-                        const nextDipAmt = Math.min(90, ds.dipAmount + 5);
-                        onUpdateRound((r) => ({
-                          ...r,
-                          dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
-                            d.id === ds.id ? { ...d, dipAmount: nextDipAmt } : d
-                          ),
-                        }));
-                      }}
-                      className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold flex items-center justify-center cursor-pointer"
-                    >
-                      +
-                    </button>
-                    <span className="text-slate-500 text-[10px]">°</span>
-                  </div>
-                </div>
-
-                {/* Delete Surface */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    pushUndo();
-                    onUpdateRound((r) => ({
-                      ...r,
-                      dipPlaneSurfaces: r.dipPlaneSurfaces.filter((d) => d.id !== ds.id),
-                    }));
-                    setSelectedTraceItem(null);
-                  }}
-                  className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1 cursor-pointer ml-auto"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Surface
-                </button>
-              </div>
-            );
-          })()}
-
           {/* Vein / Foliation Inspector Body */}
           {selectedTraceItem.kind === 'vein' && (() => {
             const st = activeRound.lithologyStrokes.find((s) => s.id === selectedTraceItem.id);
@@ -2656,6 +2339,7 @@ export const FieldStripAlignmentStage: React.FC<{
           svgRef={stripSvgRef}
           location={activeLocation}
           round={activeRound}
+          rememberedRocks={rememberedRocks}
           colorMode="color"
           topStripOnly={true}
           customViewBox={`${(460 - 460 / stripZoom + stripPan.x).toFixed(1)} ${(
@@ -5032,6 +4716,15 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
               </tr>
             </tbody>
           </table>
+          {activeRound.femDemAnalysis?.includeInEswaReport && (
+            <FieldFemDemReportEmbedSection
+              activeProject={activeProject}
+              activeLocation={activeLocation}
+              activeRound={activeRound}
+              mappingDomain={mappingDomain}
+              surfaceParams={surfaceParams}
+            />
+          )}
         </div>
 
         {/* Bottom Signatures */}
@@ -5322,6 +5015,29 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                 Black &amp; White
               </button>
             </div>
+
+            {/* Option B: Include FEM & DEM Analysis Summary Toggle */}
+            <label
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-cyan-500/50 text-[11px] font-bold text-cyan-300 cursor-pointer hover:bg-slate-900"
+              title="Option B: Append FEM & DEM Continuum/Discontinuum Analysis Summary to this ESWA Geological Report"
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(activeRound.femDemAnalysis?.includeInEswaReport)}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  onUpdateRound((r) => ({
+                    ...r,
+                    femDemAnalysis: {
+                      ...(r.femDemAnalysis || createDefaultFemDemConfig()),
+                      includeInEswaReport: checked,
+                    },
+                  }));
+                }}
+                className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+              />
+              <span>+ FEM &amp; DEM Summary</span>
+            </label>
 
             <button
               type="button"
@@ -6079,6 +5795,17 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                   </tr>
                 </tbody>
               </table>
+
+              {/* Optional Section 7: Integrated FEM & DEM Analysis Summary (Option B) */}
+              {activeRound.femDemAnalysis?.includeInEswaReport && (
+                <FieldFemDemReportEmbedSection
+                  activeProject={activeProject}
+                  activeLocation={activeLocation}
+                  activeRound={activeRound}
+                  mappingDomain={mappingDomain}
+                  surfaceParams={surfaceParams}
+                />
+              )}
             </div>
 
             {/* BOTTOM: Compact Single-Row Geologist Sign Block (Small in size, zero wasted space) */}

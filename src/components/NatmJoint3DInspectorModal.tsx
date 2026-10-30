@@ -79,6 +79,7 @@ import {
   FaceTraceHingePlaneResult,
   TraceHingePlaneResult,
   JointFractureIntensityAndAreaResult,
+  pointToTunnel3DMetric,
 } from '../engine/joint3DInspectorEngine';
 import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
 import { createTunnelGeometry } from '../engine/geometryEngine';
@@ -372,7 +373,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     setDipDirection(currentJoint.dipDirection ?? 135);
     setDipAmount(resolvedDip);
     setHingeDipDeg(resolvedDip);
-    setIsHingeRotationActive(currentJoint.panel === 'face');
+    setIsHingeRotationActive(true);
     setJointSetId(currentJoint.setId || 'unassigned');
     setMeasurementSource(
       currentJoint.inspection3D?.measurementSource || (currentJoint.editedByCompass ? 'MANUAL_COMPASS' : 'GEOMETRIC_FIT')
@@ -408,8 +409,9 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   // Toggle for interior plane sheet (default true to immediately display the colored cutting plane)
   const [showInteriorPlane, setShowInteriorPlane] = useState<boolean>(true);
 
-  // Plane Display Mode: Complete Extended Plane (Default) scaled to tunnel dimensions
-  const [planeDisplayMode, setPlaneDisplayMode] = useState<'EXTENDED' | 'CLIPPED'>('EXTENDED');
+  // Plane Display Mode: 'TRACED_LENGTH' (exact 2D traced joint length plane) | 'EXTENDED' (current full extended plane) | 'CLIPPED' (clipped to tunnel box)
+  const [planeDisplayMode, setPlaneDisplayMode] = useState<'TRACED_LENGTH' | 'EXTENDED' | 'CLIPPED'>('TRACED_LENGTH');
+  const [tracedPlaneDepthMode, setTracedPlaneDepthMode] = useState<'MATCH_TRACE' | 'ONE_SIDED' | 'HALF_TRACE'>('MATCH_TRACE');
   const defaultCalculatedExt = useMemo(() => {
     const w = tunnelGeometry.widthM || 8.5;
     const h = tunnelGeometry.heightM || 7.5;
@@ -566,6 +568,15 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       tunnelGeometry
     );
   }, [isHingeRotationActive, currentJoint.points, currentJoint.panel, hingeDipDeg, hingeDipSide, tunnelGeometry]);
+
+  // Exact 2D Traced Joint Length in Meters
+  const currentTraceLengthM = useMemo(() => {
+    const rawLen =
+      hingePlaneResult?.traceLengthM ||
+      calculatePolylineLengthM(currentJoint.points, currentJoint.panel || 'face', tunnelGeometry) ||
+      1.2;
+    return Number(Math.max(0.2, rawLen).toFixed(2));
+  }, [hingePlaneResult, currentJoint.points, currentJoint.panel, tunnelGeometry]);
 
   // 3b. ISRM & Rock Mechanics Fracture Intensity & Occupied Area Calculation
   const fractureIntensityResult = useMemo<JointFractureIntensityAndAreaResult>(() => {
@@ -1304,9 +1315,13 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
     // Three.js anchor & orientation vectors:
     // ax = width (anchorPoint.y), ay = elevation (anchorPoint.z), az = advance (anchorPoint.x)
-    const ax = anchorPoint.y;
-    const ay = anchorPoint.z;
-    const az = anchorPoint.x;
+    const effectiveAnchor =
+      planeDisplayMode === 'TRACED_LENGTH' && hingePlaneResult
+        ? hingePlaneResult.traceMidPoint
+        : anchorPoint;
+    const ax = effectiveAnchor.y;
+    const ay = effectiveAnchor.z;
+    const az = effectiveAnchor.x;
 
     const sx = plane.strikeVector.y;
     const sy = plane.strikeVector.z;
@@ -1320,12 +1335,145 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     const ny = plane.normal.z;
     const nz = plane.normal.x;
 
+    const tracedHalfLen = Math.max(0.15, currentTraceLengthM / 2);
+
     // 1. 3D Joint Cutting Plane Mesh
-    // By default, renders the COMPLETE EXTENDED PLANE extending freely from our mapped line through the rock mass and tunnel void!
     if (showInteriorPlane) {
       const grpColor = FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#d97706';
 
-      if (planeDisplayMode === 'EXTENDED') {
+      if (planeDisplayMode === 'TRACED_LENGTH') {
+        // Traced Joint Length Plane: spans strictly the exact 2D traced joint length (-R_s to +R_s along the traced axis)
+        const R_s = tracedHalfLen;
+        let R_up = R_s;
+        let R_down = R_s;
+        if (tracedPlaneDepthMode === 'ONE_SIDED') {
+          R_up = 0;
+          R_down = R_s * 2;
+        } else if (tracedPlaneDepthMode === 'HALF_TRACE') {
+          R_up = R_s * 0.5;
+          R_down = R_s * 0.5;
+        } else {
+          // MATCH_TRACE: square patch of exact traced length (2 * R_s by 2 * R_s) centered on the 2D trace
+          R_up = R_s;
+          R_down = R_s;
+        }
+
+        const numCols = 10;
+        const numRows = 10;
+        const tracedPositions: number[] = [];
+        const tracedNormals: number[] = [];
+        const tracedUvs: number[] = [];
+        const tracedIndices: number[] = [];
+
+        for (let r = 0; r <= numRows; r++) {
+          const vFrac = r / numRows;
+          const vDist = -R_up + vFrac * (R_up + R_down);
+          for (let c = 0; c <= numCols; c++) {
+            const uFrac = c / numCols;
+            const uDist = -R_s + uFrac * (2 * R_s);
+
+            const px = ax + uDist * sx + vDist * dx;
+            const py = ay + uDist * sy + vDist * dy;
+            const pz = az + uDist * sz + vDist * dz;
+
+            tracedPositions.push(px, py, pz);
+            tracedNormals.push(nx, ny, nz);
+            tracedUvs.push(uFrac, vFrac);
+          }
+        }
+
+        for (let r = 0; r < numRows; r++) {
+          for (let c = 0; c < numCols; c++) {
+            const i0 = r * (numCols + 1) + c;
+            const i1 = i0 + 1;
+            const i2 = (r + 1) * (numCols + 1) + c;
+            const i3 = i2 + 1;
+
+            tracedIndices.push(i0, i2, i1);
+            tracedIndices.push(i1, i2, i3);
+          }
+        }
+
+        const tracedGeo = new THREE.BufferGeometry();
+        tracedGeo.setAttribute('position', new THREE.Float32BufferAttribute(tracedPositions, 3));
+        tracedGeo.setAttribute('normal', new THREE.Float32BufferAttribute(tracedNormals, 3));
+        tracedGeo.setAttribute('uv', new THREE.Float32BufferAttribute(tracedUvs, 2));
+        tracedGeo.setIndex(tracedIndices);
+
+        const tracedPlaneMat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(grpColor),
+          transparent: true,
+          opacity: 0.68,
+          side: THREE.DoubleSide,
+          roughness: 0.3,
+          metalness: 0.08,
+          depthWrite: false,
+        });
+
+        const tracedPlaneMesh = new THREE.Mesh(tracedGeo, tracedPlaneMat);
+        group.add(tracedPlaneMesh);
+
+        // Exact Traced Length Plane Perimeter Outline
+        const c00 = [ax - R_s * sx - R_up * dx, ay - R_s * sy - R_up * dy, az - R_s * sz - R_up * dz];
+        const c10 = [ax + R_s * sx - R_up * dx, ay + R_s * sy - R_up * dy, az + R_s * sz - R_up * dz];
+        const c11 = [ax + R_s * sx + R_down * dx, ay + R_s * sy + R_down * dy, az + R_s * sz + R_down * dz];
+        const c01 = [ax - R_s * sx + R_down * dx, ay - R_s * sy + R_down * dy, az - R_s * sz + R_down * dz];
+
+        const borderPos = [
+          ...c00, ...c10,
+          ...c10, ...c11,
+          ...c11, ...c01,
+          ...c01, ...c00,
+        ];
+        const borderGeo = new THREE.BufferGeometry();
+        borderGeo.setAttribute('position', new THREE.Float32BufferAttribute(borderPos, 3));
+        const borderMat = new THREE.LineBasicMaterial({
+          color: 0xfbbf24,
+          linewidth: 2.5,
+          transparent: true,
+          opacity: 0.95,
+        });
+        group.add(new THREE.LineSegments(borderGeo, borderMat));
+
+        // Proportional internal subdivision grid lines on the traced-length plane
+        const gridStep = Math.max(0.25, Number((currentTraceLengthM / 4).toFixed(2)));
+        const gridPositions: number[] = [];
+        for (let step = -R_up + gridStep; step < R_down - 0.02; step += gridStep) {
+          if (Math.abs(step) < 0.05) continue;
+          gridPositions.push(
+            ax - R_s * sx + step * dx, ay - R_s * sy + step * dy, az - R_s * sz + step * dz,
+            ax + R_s * sx + step * dx, ay + R_s * sy + step * dy, az + R_s * sz + step * dz
+          );
+        }
+        for (let step = -R_s + gridStep; step < R_s - 0.02; step += gridStep) {
+          if (Math.abs(step) < 0.05) continue;
+          gridPositions.push(
+            ax + step * sx - R_up * dx, ay + step * sy - R_up * dy, az + step * sz - R_up * dz,
+            ax + step * sx + R_down * dx, ay + step * sy + R_down * dy, az + step * sz + R_down * dz
+          );
+        }
+        if (gridPositions.length > 0) {
+          const gridGeo = new THREE.BufferGeometry();
+          gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
+          const gridMat = new THREE.LineBasicMaterial({
+            color: new THREE.Color(grpColor).getHex(),
+            transparent: true,
+            opacity: 0.35,
+          });
+          group.add(new THREE.LineSegments(gridGeo, gridMat));
+        }
+
+        // Exact 3D Polyline of the 2D Mapped Trace Points on the surface
+        if (currentJoint.points && currentJoint.points.length >= 2) {
+          const polyPts = currentJoint.points.map((pt) => {
+            const m = pointToTunnel3DMetric(pt, currentJoint.panel || 'face', tunnelGeometry);
+            return new THREE.Vector3(m.y, m.z, m.x);
+          });
+          const polyGeo = new THREE.BufferGeometry().setFromPoints(polyPts);
+          const polyMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 4 });
+          group.add(new THREE.Line(polyGeo, polyMat));
+        }
+      } else if (planeDisplayMode === 'EXTENDED') {
         const wTunnel = tunnelGeometry.widthM || 8.5;
         const hTunnel = tunnelGeometry.heightM || 7.5;
         // Dynamically sized to tunnel dimensions: just slightly larger than tunnel size (~1.15x - 1.25x), not too large!
@@ -1501,9 +1649,12 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       }
     }
 
-    // 2. Horizontal Strike Vector Line at Anchor / Crown Cut Point (Sharp Blue, Extended)
+    // 2. Strike Vector Line at Anchor / Crown Cut Point (Bounded to traced length in TRACED_LENGTH mode)
     const currentPlaneExt = planeExtensionM && planeExtensionM <= 9.0 ? planeExtensionM : 5.5;
-    const sLen = Math.max(3.8, currentPlaneExt * 0.95);
+    const sLen =
+      planeDisplayMode === 'TRACED_LENGTH'
+        ? tracedHalfLen
+        : Math.max(3.8, currentPlaneExt * 0.95);
     const sPos = [
       ax - sx * sLen,
       ay - sy * sLen,
@@ -1518,6 +1669,10 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     group.add(new THREE.LineSegments(sGeo, sMat));
 
     // 3. Downward Dip Direction Arrow (Vibrant Amber / Gold)
+    const dipArrowLen =
+      planeDisplayMode === 'TRACED_LENGTH'
+        ? Math.max(0.65, Math.min(2.2, tracedHalfLen * 1.15))
+        : 2.4;
     const rawDipDir = new THREE.Vector3(plane.dipVector.y, plane.dipVector.z, plane.dipVector.x);
     const dipArrowOrigin = new THREE.Vector3(
       isNaN(ax) ? 4.25 : ax,
@@ -1526,21 +1681,39 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     );
     if (rawDipDir.length() > 0.001 && !isNaN(rawDipDir.x) && !isNaN(rawDipDir.y) && !isNaN(rawDipDir.z)) {
       const dipArrowDir = rawDipDir.clone().normalize();
-      const dipArrow = new THREE.ArrowHelper(dipArrowDir, dipArrowOrigin, 2.4, 0xd97706, 0.5, 0.28);
+      const dipArrow = new THREE.ArrowHelper(
+        dipArrowDir,
+        dipArrowOrigin,
+        dipArrowLen,
+        0xd97706,
+        Math.min(0.45, dipArrowLen * 0.25),
+        Math.min(0.26, dipArrowLen * 0.15)
+      );
       group.add(dipArrow);
     }
 
     // 4. Plane Normal Vector Arrow (Forest Green)
+    const normalArrowLen =
+      planeDisplayMode === 'TRACED_LENGTH'
+        ? Math.max(0.55, Math.min(1.8, tracedHalfLen * 0.95))
+        : 1.9;
     const rawNormalDir = new THREE.Vector3(plane.normal.y, plane.normal.z, plane.normal.x);
     if (rawNormalDir.length() > 0.001 && !isNaN(rawNormalDir.x) && !isNaN(rawNormalDir.y) && !isNaN(rawNormalDir.z)) {
       const normalDir = rawNormalDir.clone().normalize();
-      const normalArrow = new THREE.ArrowHelper(normalDir, dipArrowOrigin, 1.9, 0x15803d, 0.4, 0.22);
+      const normalArrow = new THREE.ArrowHelper(
+        normalDir,
+        dipArrowOrigin,
+        normalArrowLen,
+        0x15803d,
+        Math.min(0.38, normalArrowLen * 0.25),
+        Math.min(0.2, normalArrowLen * 0.15)
+      );
       group.add(normalArrow);
     }
 
     // 5. Anchor Point Sphere directly on user trace location / crown strike cut point
     const isCrownJoint = currentJoint.panel === 'crown';
-    const anchorGeo = new THREE.SphereGeometry(isCrownJoint ? 0.22 : 0.16, 20, 20);
+    const anchorGeo = new THREE.SphereGeometry(isCrownJoint ? 0.2 : 0.14, 20, 20);
     const anchorMat = new THREE.MeshBasicMaterial({ color: isCrownJoint ? 0xef4444 : 0xdc2626 });
     const anchorMesh = new THREE.Mesh(anchorGeo, anchorMat);
     anchorMesh.position.copy(dipArrowOrigin);
@@ -1620,79 +1793,81 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
 
     // 5b. Billboard directly at Anchor / Crown Strike Cut Point
     const billboardLabelText = isHingeRotationActive && hingePlaneResult
-      ? `DIP: ${hingePlaneResult.derivedDipDeg}° ➔ ${hingePlaneResult.derivedDipDirectionDeg}° (${currentJoint.panel === 'crown' ? 'CROWN TILTED' : 'HINGED'})`
+      ? `DIP: ${hingePlaneResult.derivedDipDeg}° ➔ ${hingePlaneResult.derivedDipDirectionDeg}° | L=${currentTraceLengthM}m`
       : isCrownJoint
       ? `CROWN STRIKE: ${strikeInfo.strikePairLabel}`
-      : `DIP: ${dipAmount}° ➔ ${dipDirection}°`;
+      : `DIP: ${dipAmount}° ➔ ${dipDirection}° | L=${currentTraceLengthM}m`;
     const planeDipSprite = createBillboardLabel(
       billboardLabelText,
       '#0F172A',
       isCrownJoint ? '#38BDF8' : '#FCD34D',
-      isCrownJoint ? 3.6 : 2.5,
+      isCrownJoint ? 3.6 : 2.8,
       0.65
     );
     planeDipSprite.position.set(ax, ay + (isCrownJoint ? 0.55 : 0.42), az);
     group.add(planeDipSprite);
 
-    // 6. Clean Multi-Surface Intersection Traces in 3D (Face, Left Wall, Right Wall, Crown)
-    const pullL = tunnelGeometry.pullLengthM || 3.0;
-    const w = tunnelGeometry.widthM || 8.5;
-    const hw = tunnelGeometry.wallHeightM || 4.2;
-    const h = tunnelGeometry.heightM || 7.5;
-    const cx = w / 2;
-    const archRise = h - hw;
+    // 6. Clean Multi-Surface Intersection Traces in 3D (Shown for EXTENDED and CLIPPED full-tunnel modes)
+    if (planeDisplayMode !== 'TRACED_LENGTH') {
+      const pullL = tunnelGeometry.pullLengthM || 3.0;
+      const w = tunnelGeometry.widthM || 8.5;
+      const hw = tunnelGeometry.wallHeightM || 4.2;
+      const h = tunnelGeometry.heightM || 7.5;
+      const cx = w / 2;
+      const archRise = h - hw;
 
-    // Face Intersection Trace (at z = pullL) in Electric Blue
-    if (surfaceIntersections.face) {
-      const f1 = surfaceIntersections.face.p1;
-      const f2 = surfaceIntersections.face.p2;
-      const faceTraceGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(f1.x, f1.y, pullL),
-        new THREE.Vector3(f2.x, f2.y, pullL),
-      ]);
-      const faceTraceMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3.5 });
-      group.add(new THREE.Line(faceTraceGeo, faceTraceMat));
-    }
+      // Face Intersection Trace (at z = pullL) in Electric Blue
+      if (surfaceIntersections.face) {
+        const f1 = surfaceIntersections.face.p1;
+        const f2 = surfaceIntersections.face.p2;
+        const faceTraceGeo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(f1.x, f1.y, pullL),
+          new THREE.Vector3(f2.x, f2.y, pullL),
+        ]);
+        const faceTraceMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3.5 });
+        group.add(new THREE.Line(faceTraceGeo, faceTraceMat));
+      }
 
-    // Left Wall Intersection Trace (at x = 0) in Amber
-    if (surfaceIntersections.leftWall) {
-      const l1 = surfaceIntersections.leftWall.p1;
-      const l2 = surfaceIntersections.leftWall.p2;
-      const leftTraceGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, l1.y, l1.x),
-        new THREE.Vector3(0, l2.y, l2.x),
-      ]);
-      const leftTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3.5 });
-      group.add(new THREE.Line(leftTraceGeo, leftTraceMat));
-    }
+      // Left Wall Intersection Trace (at x = 0) in Amber
+      if (surfaceIntersections.leftWall) {
+        const l1 = surfaceIntersections.leftWall.p1;
+        const l2 = surfaceIntersections.leftWall.p2;
+        const leftTraceGeo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, l1.y, l1.x),
+          new THREE.Vector3(0, l2.y, l2.x),
+        ]);
+        const leftTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3.5 });
+        group.add(new THREE.Line(leftTraceGeo, leftTraceMat));
+      }
 
-    // Right Wall Intersection Trace (at x = w) in Amber
-    if (surfaceIntersections.rightWall) {
-      const r1 = surfaceIntersections.rightWall.p1;
-      const r2 = surfaceIntersections.rightWall.p2;
-      const rightTraceGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(w, r1.y, r1.x),
-        new THREE.Vector3(w, r2.y, r2.x),
-      ]);
-      const rightTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3.5 });
-      group.add(new THREE.Line(rightTraceGeo, rightTraceMat));
-    }
+      // Right Wall Intersection Trace (at x = w) in Amber
+      if (surfaceIntersections.rightWall) {
+        const r1 = surfaceIntersections.rightWall.p1;
+        const r2 = surfaceIntersections.rightWall.p2;
+        const rightTraceGeo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(w, r1.y, r1.x),
+          new THREE.Vector3(w, r2.y, r2.x),
+        ]);
+        const rightTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3.5 });
+        group.add(new THREE.Line(rightTraceGeo, rightTraceMat));
+      }
 
-    // Crown Arch Intersection Trace in Emerald Green
-    if (surfaceIntersections.crown) {
-      const c1 = surfaceIntersections.crown.p1;
-      const c2 = surfaceIntersections.crown.p2;
-      const getCrownY = (xVal: number) => {
-        const dx = (xVal - cx) / (w / 2);
-        const clamped = Math.max(-1, Math.min(1, dx));
-        return hw + archRise * Math.sqrt(Math.max(0, 1 - clamped * clamped));
-      };
-      const crownTraceGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(c1.y, getCrownY(c1.y), c1.x),
-        new THREE.Vector3(c2.y, getCrownY(c2.y), c2.x),
-      ]);
-      const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.5 });
-      group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
+      // Crown Arch Intersection Trace in Emerald Green
+      if (surfaceIntersections.crown) {
+        const c1 = surfaceIntersections.crown.p1;
+        const c2 = surfaceIntersections.crown.p2;
+        const getCrownY = (xVal: number) => {
+          const dx = (xVal - cx) / (w / 2);
+          const clamped = Math.max(-1, Math.min(1, dx));
+          return hw + archRise * Math.sqrt(Math.max(0, 1 - clamped * clamped));
+        };
+        const crownTraceGeo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(c1.y, getCrownY(c1.y), c1.x),
+          new THREE.Vector3(c2.y, getCrownY(c2.y), c2.x),
+        ]);
+        const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.5 });
+        group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
+      }
     }
   }, [
     activeTab,
@@ -1704,11 +1879,13 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     tunnelGeometry,
     showInteriorPlane,
     planeDisplayMode,
+    tracedPlaneDepthMode,
     planeExtensionM,
     currentJoint,
     currentJoint.panel,
     hingePlaneResult,
     hingeDipDeg,
+    currentTraceLengthM,
   ]);
 
   // -------------------------------------------------------------------------
@@ -2736,36 +2913,86 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="font-bold text-slate-300 flex items-center gap-1.5">
                     <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>3D Plane Extent:</span>
+                    <span>3D Plane Mode:</span>
                   </span>
-                  <span className="font-mono font-bold text-cyan-400 text-[10px]">
-                    {planeDisplayMode === 'EXTENDED' ? `Extended (${planeExtensionM}m)` : 'Clipped to Tunnel'}
+                  <span className="font-mono font-bold text-emerald-400 text-[10px]">
+                    {planeDisplayMode === 'TRACED_LENGTH'
+                      ? `Traced Length (${currentTraceLengthM}m)`
+                      : planeDisplayMode === 'EXTENDED'
+                      ? `Full Extended (${planeExtensionM}m)`
+                      : 'Clipped to Tunnel'}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-1 gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setPlaneDisplayMode('EXTENDED')}
-                    className={`py-1 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
-                      planeDisplayMode === 'EXTENDED'
-                        ? 'bg-cyan-600 text-white border-cyan-400 shadow-sm shadow-cyan-950'
+                    onClick={() => setPlaneDisplayMode('TRACED_LENGTH')}
+                    className={`py-1.5 px-2.5 rounded text-[10.5px] font-bold cursor-pointer transition-all border flex items-center justify-between ${
+                      planeDisplayMode === 'TRACED_LENGTH'
+                        ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm shadow-emerald-950'
                         : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
                     }`}
                   >
-                    Complete Extended (Default)
+                    <span>Traced 2D Joint Length Plane</span>
+                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-black/25">
+                      {currentTraceLengthM}m
+                    </span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setPlaneDisplayMode('CLIPPED')}
-                    className={`py-1 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
-                      planeDisplayMode === 'CLIPPED'
-                        ? 'bg-amber-600 text-white border-amber-400 shadow-sm shadow-amber-950'
-                        : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
-                    }`}
-                  >
-                    Clipped to Tunnel Box
-                  </button>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPlaneDisplayMode('EXTENDED')}
+                      className={`py-1 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                        planeDisplayMode === 'EXTENDED'
+                          ? 'bg-cyan-600 text-white border-cyan-400 shadow-sm shadow-cyan-950'
+                          : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
+                      }`}
+                    >
+                      Full Extended (Current)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlaneDisplayMode('CLIPPED')}
+                      className={`py-1 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                        planeDisplayMode === 'CLIPPED'
+                          ? 'bg-amber-600 text-white border-amber-400 shadow-sm shadow-amber-950'
+                          : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
+                      }`}
+                    >
+                      Clipped to Tunnel Box
+                    </button>
+                  </div>
                 </div>
+                {planeDisplayMode === 'TRACED_LENGTH' && (
+                  <div className="space-y-1 pt-1 border-t border-slate-700/80">
+                    <div className="flex items-center justify-between text-[9.5px] text-slate-400">
+                      <span>Dip Depth Profile (Along Dip Vector):</span>
+                      <span className="font-mono text-emerald-300 font-bold">{currentTraceLengthM}m Trace</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(
+                        [
+                          { id: 'MATCH_TRACE', label: '1:1 Square' },
+                          { id: 'ONE_SIDED', label: 'Into Rock' },
+                          { id: 'HALF_TRACE', label: 'Slim Band' },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setTracedPlaneDepthMode(opt.id)}
+                          className={`py-0.5 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
+                            tracedPlaneDepthMode === opt.id
+                              ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-bold shadow-sm'
+                              : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {planeDisplayMode === 'EXTENDED' && (
                   <div className="space-y-1 pt-1 border-t border-slate-700/80">
                     <div className="flex items-center justify-between text-[9.5px] text-slate-400">
@@ -3236,6 +3463,56 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     <Box className="w-3.5 h-3.5" />
                     <span>{showInteriorPlane ? 'Cutting Plane: ON' : 'Cutting Plane: OFF'}</span>
                   </button>
+
+                  {/* Quick Toggle: Traced 2D Joint Length Plane vs Full Extended Plane (Current) */}
+                  <div
+                    className={`flex items-center rounded-lg p-0.5 border ${
+                      isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-slate-700'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setPlaneDisplayMode('TRACED_LENGTH')}
+                      className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                        planeDisplayMode === 'TRACED_LENGTH'
+                          ? 'bg-emerald-500 text-slate-950 shadow font-black'
+                          : isLight
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                      title="Show 3D joint plane strictly matching the 2D traced joint length"
+                    >
+                      Traced Length ({currentTraceLengthM}m)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlaneDisplayMode('EXTENDED')}
+                      className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                        planeDisplayMode === 'EXTENDED'
+                          ? 'bg-cyan-500 text-slate-950 shadow font-black'
+                          : isLight
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                      title="Show full extended cutting plane across the tunnel"
+                    >
+                      Full Plane (Current)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlaneDisplayMode('CLIPPED')}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                        planeDisplayMode === 'CLIPPED'
+                          ? 'bg-amber-500 text-slate-950 shadow font-black'
+                          : isLight
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                      title="Show plane clipped to the tunnel bounding box"
+                    >
+                      Clipped
+                    </button>
+                  </div>
 
                   <button
                     type="button"

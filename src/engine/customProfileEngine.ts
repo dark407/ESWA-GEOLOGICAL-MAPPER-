@@ -472,6 +472,53 @@ export function inferSegmentZoneRole(
   return 'crown';
 }
 
+/**
+ * Solves exact circular arc chord span (d), bulge (b = 2h/d), and radius (R)
+ * given the user's exact Length of Curve (C, meters) and Height from Center / Sagitta (h, meters).
+ */
+export function solveCircularArcFromCurveLengthAndHeight(
+  curveLengthM: number,
+  heightFromCenterM: number,
+  directionSign: 1 | -1 = 1
+): { chordLength: number; bulge: number; radiusMeters: number } {
+  const C = Math.max(0.05, curveLengthM);
+  const h = Math.max(0, Math.abs(heightFromCenterM));
+  if (h < 1e-4) {
+    return {
+      chordLength: Number(C.toFixed(4)),
+      bulge: 0,
+      radiusMeters: 9999,
+    };
+  }
+  // For a circular arc: C = 2*h * ((1 + b^2) / b^2) * atan(b), where b = 2*h / d in (0, 2.4].
+  // Note that g(b) = ((1 + b^2) / b^2) * atan(b) is strictly decreasing with b.
+  const targetG = C / (2 * h);
+  let bestB = 0.001;
+  if (targetG >= ((1 + 0.001 * 0.001) / (0.001 * 0.001)) * Math.atan(0.001)) {
+    bestB = 0.001;
+  } else {
+    let low = 0.001;
+    let high = 2.4;
+    for (let iter = 0; iter < 40; iter++) {
+      const mid = 0.5 * (low + high);
+      const g = ((1 + mid * mid) / (mid * mid)) * Math.atan(mid);
+      if (g > targetG) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    bestB = 0.5 * (low + high);
+  }
+  const chordLength = (2 * h) / bestB;
+  const radiusMeters = (chordLength * (1 + bestB * bestB)) / (4 * bestB);
+  return {
+    chordLength: Number(chordLength.toFixed(4)),
+    bulge: Number((directionSign * bestB).toFixed(5)),
+    radiusMeters: Number(radiusMeters.toFixed(4)),
+  };
+}
+
 export function evaluateCustomProfileGeometry(
   profile: CustomTunnelProfileDefinition
 ): EvaluatedCustomProfileResult {
@@ -514,24 +561,32 @@ export function evaluateCustomProfileGeometry(
   const ptMap = new Map<string, ProfileControlPoint>();
   for (const p of pts) ptMap.set(p.id, p);
 
-  // Ensure segments exist for consecutive control points
+  // If explicit segments are provided and valid, preserve their exact order and connectivity;
+  // otherwise build consecutive segments across controlPoints.
   const activeSegments: ProfileSegment[] = [];
-  const segCount = profile.isClosed ? pts.length : pts.length - 1;
-  for (let i = 0; i < segCount; i++) {
-    const pFrom = pts[i];
-    const pTo = pts[(i + 1) % pts.length];
-    const existingSeg = profile.segments.find(
-      (s) => s.fromPointId === pFrom.id && s.toPointId === pTo.id
-    );
-    if (existingSeg) {
-      activeSegments.push(existingSeg);
-    } else {
-      activeSegments.push({
-        id: `seg-${pFrom.id}-${pTo.id}`,
-        fromPointId: pFrom.id,
-        toPointId: pTo.id,
-        type: 'line',
-      });
+  const validExplicitSegments = (profile.segments || []).filter(
+    (s) => ptMap.has(s.fromPointId) && ptMap.has(s.toPointId)
+  );
+  if (validExplicitSegments.length > 0 && validExplicitSegments.length >= pts.length - 1) {
+    activeSegments.push(...validExplicitSegments);
+  } else {
+    const segCount = profile.isClosed ? pts.length : pts.length - 1;
+    for (let i = 0; i < segCount; i++) {
+      const pFrom = pts[i];
+      const pTo = pts[(i + 1) % pts.length];
+      const existingSeg = profile.segments.find(
+        (s) => s.fromPointId === pFrom.id && s.toPointId === pTo.id
+      );
+      if (existingSeg) {
+        activeSegments.push(existingSeg);
+      } else {
+        activeSegments.push({
+          id: `seg-${pFrom.id}-${pTo.id}`,
+          fromPointId: pFrom.id,
+          toPointId: pTo.id,
+          type: 'line',
+        });
+      }
     }
   }
 
@@ -610,37 +665,39 @@ export function evaluateCustomProfileGeometry(
       midHandlePoint = evalBez.points[Math.floor(evalBez.points.length / 2)];
     }
 
-    // Append sampled vertices (avoid duplicating shared start vertex)
+    // Append sampled vertices (avoid duplicating shared start vertex when chained)
     for (let k = 0; k < sampled.length; k++) {
-      if (idx > 0 && k === 0) continue;
+      if (idx > 0 && k === 0) {
+        const prevPt = crossSectionPoints[crossSectionPoints.length - 1];
+        if (prevPt && Math.hypot(prevPt.x - sampled[0].x, prevPt.y - sampled[0].y) < 0.05) {
+          continue;
+        }
+      }
       if (idx === activeSegments.length - 1 && profile.isClosed && k === sampled.length - 1) {
-        continue;
+        const firstPt = crossSectionPoints[0];
+        if (firstPt && Math.hypot(firstPt.x - sampled[k].x, firstPt.y - sampled[k].y) < 0.05) {
+          continue;
+        }
       }
       crossSectionPoints.push(sampled[k]);
     }
 
-    const isIncludedInTopStrip = seg.includeInTopStrip !== false;
+    const isIncludedInTopStrip = seg.includeInTopStrip !== false && zoneRole !== 'open';
 
-    if (zoneRole === 'leftWall') {
+    if (zoneRole === 'leftWall' && isIncludedInTopStrip) {
       hasDrawnLeftWallSeg = true;
-      if (isIncludedInTopStrip) {
-        leftWallArcLength += segArcLength;
-      }
+      leftWallArcLength += segArcLength;
       leftWallMaxY = Math.max(leftWallMaxY, pFrom.y, pTo.y);
       leftWallMinY = Math.min(leftWallMinY, pFrom.y, pTo.y);
-    } else if (zoneRole === 'rightWall') {
+    } else if (zoneRole === 'rightWall' && isIncludedInTopStrip) {
       hasDrawnRightWallSeg = true;
-      if (isIncludedInTopStrip) {
-        rightWallArcLength += segArcLength;
-      }
+      rightWallArcLength += segArcLength;
       rightWallMaxY = Math.max(rightWallMaxY, pFrom.y, pTo.y);
       rightWallMinY = Math.min(rightWallMinY, pFrom.y, pTo.y);
-    } else if (zoneRole === 'crown') {
+    } else if (zoneRole === 'crown' && isIncludedInTopStrip) {
       hasDrawnCrownSeg = true;
-      if (isIncludedInTopStrip) {
-        crownArcLength += segArcLength;
-      }
-    } else {
+      crownArcLength += segArcLength;
+    } else if (zoneRole === 'invert' && isIncludedInTopStrip) {
       hasDrawnInvertSeg = true;
       invertLength += segArcLength;
     }

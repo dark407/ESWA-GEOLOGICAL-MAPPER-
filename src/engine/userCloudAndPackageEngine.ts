@@ -137,10 +137,11 @@ export const FIELD_STAGE_LABELS: Record<string, string> = {
   discontinuity_sets: '8. Joint Table & Dip',
   q_rmr_gsi: '9. Q / RMR / GSI',
   support_system: '10. Rock Support',
-  survey_overbreak: '11. Survey & OB',
-  word_template_export: '12. Clean Report',
-  photo_2d_report: '13. 2D Photo Report',
-  geology_3d_report: '14. 3D Geology Report',
+  fem_dem_analysis: '11. FEM & DEM Analysis',
+  survey_overbreak: '12. Survey & OB',
+  word_template_export: '13. Clean Report',
+  photo_2d_report: '14. 2D Photo Report',
+  geology_3d_report: '15. 3D Geology Report',
 };
 
 export const PHOTOGRAMMETRY_SCREEN_LABELS: Record<string, string> = {

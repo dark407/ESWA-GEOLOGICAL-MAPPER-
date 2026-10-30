@@ -372,9 +372,260 @@ CRITICAL GEOLOGICAL REALISM & MAIN PHOTO RULES:
         imageBase64,
         strokes = [],
         textAnnotations = [],
+        clientMetrics = null,
+        userParameters = null,
         tunnelName = 'Custom Tunnel',
         userSymmetryPreference = 'auto',
       } = req.body || {};
+
+      // Normalize annotations to { text, x, y }
+      const normalizedAnnotations: { text: string; x: number; y: number }[] = Array.isArray(
+        textAnnotations
+      )
+        ? textAnnotations
+            .map((ann: any) => {
+              if (typeof ann === 'string') return { text: ann.trim(), x: 0, y: 0 };
+              if (ann && typeof ann.text === 'string') {
+                return {
+                  text: ann.text.trim(),
+                  x: typeof ann.x === 'number' ? ann.x : 0,
+                  y: typeof ann.y === 'number' ? ann.y : 0,
+                };
+              }
+              return null;
+            })
+            .filter((a): a is { text: string; x: number; y: number } => Boolean(a && a.text))
+        : [];
+
+      // Flatten all stroke points (already in real-world meters: origin (0,0) at centerline invert)
+      const allPts: { x: number; y: number }[] = [];
+      if (Array.isArray(strokes)) {
+        for (const s of strokes) {
+          if (Array.isArray(s)) {
+            for (const pt of s) {
+              if (pt && typeof pt.x === 'number' && typeof pt.y === 'number') {
+                allPts.push({ x: pt.x, y: pt.y });
+              }
+            }
+          } else if (s && Array.isArray(s.points)) {
+            for (const pt of s.points) {
+              if (pt && typeof pt.x === 'number' && typeof pt.y === 'number') {
+                allPts.push({ x: pt.x, y: pt.y });
+              }
+            }
+          }
+        }
+      }
+
+      // Deterministic geometric analysis of meter-space strokes
+      let strokeSpanM = clientMetrics?.span ?? 8.5;
+      let strokeHeightM = clientMetrics?.totalH ?? 7.5;
+      let strokeLeftSpanM = clientMetrics?.leftSpan ?? strokeSpanM / 2;
+      let strokeRightSpanM = clientMetrics?.rightSpan ?? strokeSpanM / 2;
+      let strokeLeftWallHM = clientMetrics?.leftWallH ?? 3.8;
+      let strokeRightWallHM = clientMetrics?.rightWallH ?? 3.8;
+      let strokeLeftAngleDeg = clientMetrics?.leftAngle ?? 90;
+      let strokeRightAngleDeg = clientMetrics?.rightAngle ?? 90;
+      let strokeApexOffsetXM = clientMetrics?.apexOffsetX ?? 0;
+      let strokeCrownType: 'circular_arc' | 'basket_handle_3arc' | 'flat' =
+        clientMetrics?.crownType || 'circular_arc';
+      let strokeInvertType: 'flat' | 'curved_dish' = clientMetrics?.invertType || 'flat';
+      let strokeInvertSagittaM = clientMetrics?.invertSagittaM ?? 0.3;
+      let strokeOpenWall: 'none' | 'left' | 'right' = clientMetrics?.openWall || 'none';
+      let strokeIsSymmetric: boolean =
+        typeof clientMetrics?.isSymmetric === 'boolean'
+          ? clientMetrics.isSymmetric
+          : userSymmetryPreference !== 'non-symmetric';
+
+      if (!clientMetrics && allPts.length >= 3) {
+        const xs = allPts.map((p) => p.x);
+        const ys = allPts.map((p) => p.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const baseY = Math.abs(minY) <= 0.85 ? 0 : minY;
+
+        strokeSpanM = Number(Math.max(1.5, Math.min(30.0, maxX - minX)).toFixed(2));
+        strokeHeightM = Number(Math.max(1.5, Math.min(30.0, maxY - baseY)).toFixed(2));
+        const midX = (minX + maxX) / 2;
+        strokeLeftSpanM = Number(
+          Math.max(0.5, Math.abs(minX) > 0.5 ? Math.abs(minX) : strokeSpanM / 2).toFixed(2)
+        );
+        strokeRightSpanM = Number(
+          Math.max(0.5, maxX > 0.5 ? maxX : strokeSpanM / 2).toFixed(2)
+        );
+
+        const leftBand = allPts.filter((p) => p.x <= minX + strokeSpanM * 0.22);
+        const rightBand = allPts.filter((p) => p.x >= maxX - strokeSpanM * 0.22);
+        strokeLeftWallHM =
+          leftBand.length > 0
+            ? Number(
+                Math.max(
+                  0.5,
+                  Math.min(strokeHeightM - 0.2, Math.max(...leftBand.map((p) => p.y - baseY)))
+                ).toFixed(2)
+              )
+            : Number((strokeHeightM * 0.52).toFixed(2));
+        strokeRightWallHM =
+          rightBand.length > 0
+            ? Number(
+                Math.max(
+                  0.5,
+                  Math.min(strokeHeightM - 0.2, Math.max(...rightBand.map((p) => p.y - baseY)))
+                ).toFixed(2)
+              )
+            : Number((strokeHeightM * 0.52).toFixed(2));
+        const highestPt = allPts.reduce((best, p) => (p.y > best.y ? p : best), allPts[0]);
+        strokeApexOffsetXM = Number((highestPt.x - midX).toFixed(2));
+      }
+
+      // Parse explicit annotations & spatial dimension pins
+      let ovrWidth: number | null = null;
+      let ovrLeftSpan: number | null = null;
+      let ovrRightSpan: number | null = null;
+      let ovrHeight: number | null = null;
+      let ovrLeftWallH: number | null = null;
+      let ovrRightWallH: number | null = null;
+      let ovrLeftAngle: number | null = null;
+      let ovrRightAngle: number | null = null;
+      let ovrCrownArcLen: number | null = null;
+      let ovrInvertDish: number | null = null;
+      let ovrOpenWall: 'none' | 'left' | 'right' | null = null;
+      let ovrCrownType: 'circular_arc' | 'basket_handle_3arc' | 'flat' | null = null;
+      let ovrInvertType: 'flat' | 'curved_dish' | null = null;
+
+      const sketchMinX = allPts.length >= 2 ? Math.min(...allPts.map((p) => p.x)) : -strokeLeftSpanM;
+      const sketchMaxX = allPts.length >= 2 ? Math.max(...allPts.map((p) => p.x)) : strokeRightSpanM;
+      const sketchMidX = (sketchMinX + sketchMaxX) / 2;
+      const sketchMaxY = allPts.length >= 2 ? Math.max(...allPts.map((p) => p.y)) : strokeHeightM;
+
+      for (const ann of normalizedAnnotations) {
+        const str = ann.text;
+        const annX = ann.x;
+        const annY = ann.y;
+
+        if (/(?:^|\b)open\b/i.test(str) || /slashing|drift/i.test(str)) {
+          if (/right/i.test(str) || (!/left/i.test(str) && annX > sketchMidX + 0.5)) {
+            ovrOpenWall = 'right';
+          } else {
+            ovrOpenWall = 'left';
+          }
+        }
+        if (/flat\s*(?:roof|crown|back)/i.test(str) || /box|rectangular/i.test(str)) {
+          ovrCrownType = 'flat';
+        } else if (/basket|3\s*-?\s*arc/i.test(str)) {
+          ovrCrownType = 'basket_handle_3arc';
+        }
+        if (/dish|curved\s*invert/i.test(str)) {
+          ovrInvertType = 'curved_dish';
+        } else if (/flat\s*(?:invert|floor)/i.test(str)) {
+          ovrInvertType = 'flat';
+        }
+
+        const matchC =
+          str.match(/(?:^|\b)c\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i) ||
+          str.match(/(?:^|\b)(?:arc|curve)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
+        const matchDeg = str.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:°|deg|degrees)\b/i) ||
+          (/(?:angle|batter|incline)/i.test(str) ? str.match(/([0-9]+(?:\.[0-9]+)?)/) : null);
+
+        if (matchC) {
+          ovrCrownArcLen = Number(matchC[1]);
+          ovrCrownType = 'circular_arc';
+          continue;
+        }
+
+        if (matchDeg) {
+          const degVal = Math.max(45, Math.min(135, Number(matchDeg[1])));
+          if (/right|r-wall|r\s*wall/i.test(str)) {
+            ovrRightAngle = degVal;
+          } else if (/left|l-wall|l\s*wall/i.test(str)) {
+            ovrLeftAngle = degVal;
+          } else if (annX > sketchMidX + strokeSpanM * 0.15) {
+            ovrRightAngle = degVal;
+          } else if (annX < sketchMidX - strokeSpanM * 0.15) {
+            ovrLeftAngle = degVal;
+            if (strokeIsSymmetric && ovrRightAngle === null) ovrRightAngle = degVal;
+          } else {
+            ovrLeftAngle = degVal;
+            ovrRightAngle = degVal;
+          }
+        }
+
+        // Remove degree numbers before matching metric lengths
+        const strWithoutDeg = str.replace(/[0-9]+(?:\.[0-9]+)?\s*(?:°|deg|degrees)/gi, '');
+        const matchM = strWithoutDeg.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
+        if (matchM) {
+          const val = Number(matchM[1]);
+          if (val <= 0) continue;
+
+          if (/dish|invert\s*depth|sagitta/i.test(str)) {
+            ovrInvertDish = val;
+            ovrInvertType = 'curved_dish';
+          } else if (/left\s*span|l-span/i.test(str)) {
+            ovrLeftSpan = val;
+          } else if (/right\s*span|r-span/i.test(str)) {
+            ovrRightSpan = val;
+          } else if (/width|span|\bw\b|floor|invert|base/i.test(str)) {
+            ovrWidth = val;
+          } else if (/height|\bh\b|total|apex|crown\s*h/i.test(str)) {
+            ovrHeight = val;
+          } else if (/right\s*wall|r-wall|r\s*wall|\brw\b/i.test(str)) {
+            ovrRightWallH = val;
+          } else if (/left\s*wall|l-wall|l\s*wall|\blw\b/i.test(str)) {
+            ovrLeftWallH = val;
+          } else if (/wall|shoulder|wh|springline/i.test(str)) {
+            if (ovrOpenWall === 'left' || strokeOpenWall === 'left') {
+              ovrRightWallH = val;
+            } else if (ovrOpenWall === 'right' || strokeOpenWall === 'right') {
+              ovrLeftWallH = val;
+            } else if (annX > sketchMidX + strokeSpanM * 0.15) {
+              ovrRightWallH = val;
+            } else if (annX < sketchMidX - strokeSpanM * 0.15) {
+              ovrLeftWallH = val;
+              if (strokeIsSymmetric && ovrRightWallH === null) ovrRightWallH = val;
+            } else {
+              ovrLeftWallH = val;
+              ovrRightWallH = val;
+            }
+          } else {
+            // Bare number pin (e.g., "6m", "8m", "3.2m") — classify using spatial (x, y) pin position!
+            const isNearFloor = annY <= Math.max(0.8, sketchMaxY * 0.2);
+            const isNearRoof = annY >= sketchMaxY * 0.75;
+            const isLeftFlank = annX < sketchMidX - strokeSpanM * 0.18;
+            const isRightFlank = annX > sketchMidX + strokeSpanM * 0.18;
+
+            if (isNearFloor && !isLeftFlank && !isRightFlank) {
+              ovrWidth = val;
+            } else if (isNearRoof && !isLeftFlank && !isRightFlank) {
+              ovrHeight = val;
+            } else if (isLeftFlank) {
+              if ((ovrOpenWall === 'left' || strokeOpenWall === 'left') && val > strokeRightWallHM) {
+                ovrHeight = val;
+              } else {
+                ovrLeftWallH = val;
+                if (strokeIsSymmetric && ovrRightWallH === null) ovrRightWallH = val;
+              }
+            } else if (isRightFlank) {
+              if ((ovrOpenWall === 'right' || strokeOpenWall === 'right') && val > strokeLeftWallHM) {
+                ovrHeight = val;
+              } else {
+                ovrRightWallH = val;
+              }
+            } else {
+              // Fallback if placed near center: assign unassigned dimensions logically
+              if (ovrWidth === null && Math.abs(val - strokeSpanM) <= Math.abs(val - strokeHeightM)) {
+                ovrWidth = val;
+              } else if (ovrHeight === null) {
+                ovrHeight = val;
+              } else if (ovrLeftWallH === null) {
+                ovrLeftWallH = val;
+                ovrRightWallH = val;
+              }
+            }
+          }
+        }
+      }
 
       const ai = getGeminiClient();
       let aiResult: any = null;
@@ -382,84 +633,50 @@ CRITICAL GEOLOGICAL REALISM & MAIN PHOTO RULES:
       if (ai && imageBase64 && typeof imageBase64 === 'string') {
         const base64Clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
         const prompt = `You are a licensed underground civil/mining tunnel engineer and computer vision specialist.
-The user has sketched a rough tunnel cross-section on an engineering drafting canvas.
-They may have also written or annotated numbers indicating lengths/dimensions (e.g. Span/Width in meters like "9.2m", "8.5m", "10m", Height in meters like "7.5m", "8m", Wall height in meters like "4.0m", or wall angles in degrees like "90°", "85°", "80°", "75°").
+The user has sketched a tunnel cross-section on an 800x480 engineering drafting canvas.
+CANVAS COORDINATE SYSTEM & EXACT SCALE:
+- Canvas resolution: 800px wide by 480px high.
+- Scale: 36 pixels = 1.00 meter (5-meter major grid squares = 180px).
+- Tunnel Centerline (CL, X = 0.00m) is the vertical dashed amber line at X = 400px.
+- Invert Datum (Floor RL 0.00m, Y = 0.00m) is the horizontal green line at Y = 380px.
+
+PRE-COMPUTED GEOMETRIC METRICS FROM USER'S DRAWN STROKES (IN METERS):
+${JSON.stringify(
+  {
+    drawnPointCount: allPts.length,
+    measuredSpanM: strokeSpanM,
+    measuredLeftSpanM: strokeLeftSpanM,
+    measuredRightSpanM: strokeRightSpanM,
+    measuredTotalHeightM: strokeHeightM,
+    measuredLeftWallHeightM: strokeLeftWallHM,
+    measuredRightWallHeightM: strokeRightWallHM,
+    measuredLeftWallAngleDeg: strokeLeftAngleDeg,
+    measuredRightWallAngleDeg: strokeRightAngleDeg,
+    measuredApexOffsetXM: strokeApexOffsetXM,
+    detectedCrownType: strokeCrownType,
+    detectedInvertType: strokeInvertType,
+    detectedOpenWall: ovrOpenWall || strokeOpenWall,
+  },
+  null,
+  2
+)}
+
+USER EXPLICIT PARAMETER OVERRIDES (IF ANY):
+${JSON.stringify(userParameters || {}, null, 2)}
+
+USER ANNOTATIONS / DIMENSION PINS ON CANVAS (with X, Y meter coordinates):
+${JSON.stringify(normalizedAnnotations, null, 2)}
 
 USER SYMMETRY PREFERENCE: ${userSymmetryPreference}
-CRITICAL NON-SYMMETRIC / ASYMMETRIC RULES:
-${
-  userSymmetryPreference === 'non-symmetric'
-    ? `- The user EXPLICITLY selected "Non-Symmetric" mode.
-- isSymmetric MUST be set to FALSE.
-- DO NOT force left and right wall heights or angles to match!
-- Measure leftWallHeightM and rightWallHeightM independently from the sketch.
-- Measure leftWallAngleDeg and rightWallAngleDeg independently.
-- If left half-span (distance from center to left wall) differs from right half-span, report leftSpanM and rightSpanM.
-- If the crown apex (peak) is offset from center x=0, report apexOffsetXM (negative for left, positive for right).`
-    : `- If the user's sketch exhibits clear asymmetry between left and right walls/angles/spans, set isSymmetric to false and report leftWallHeightM, rightWallHeightM, leftWallAngleDeg, and rightWallAngleDeg independently.`
-}
+CRITICAL RULES:
+1. If the user placed dimension pins/annotations (e.g. "W = 6.0m", "H = 8.0m", "Wall = 3.2m", "c 10.2m", "80°", "open") or explicit userParameters, those exact numbers MUST take highest priority!
+2. If no annotation overrides a dimension and the user drew strokes on the canvas (drawnPointCount >= 3), use the PRE-COMPUTED GEOMETRIC METRICS from the user's strokes so the output matches the drawn shape on the meter grid with 100% accuracy!
+3. In tunnel drawings, "c <number>m" (e.g., "c 10.2m", "c 10.6m") denotes the exact CURVED CROWN ARC LENGTH in meters (crownArcLengthM).
+4. If one wall is marked "open" (or openWall is "left" or "right"), set openWall accordingly, hasLeftWall / hasRightWall, isSymmetric = false, and archetype = "open_slashing_drift".
+5. If userSymmetryPreference === "non-symmetric" or the sketch/annotations have different left vs right wall heights, angles, or half-spans, set isSymmetric = false and report leftWallHeightM, rightWallHeightM, leftWallAngleDeg, rightWallAngleDeg, leftSpanM, and rightSpanM independently.
+6. If the drawn roof is flat/rectangular, set crownType = "flat" and archetype = "box_portal".`;
 
-CRITICAL ENGINEERING NOTATION RULE FOR "c <length>" (e.g. "c 10.6m", "C 10.6m", "C: 10.6m", "c=10.6m", "c 10.6"):
-In tunnel and mining civil engineering drawings, "c" denotes a CURVED PORTION or ARC LENGTH.
-If the user has written or annotated "c <number>m" or "C <number>m" (such as "c 10.2m" or "c 10.6m") along the upper/crown portion:
-1. That portion MUST be solved as a genuine CURVED ARC (crownType = "circular_arc" or "basket_handle_3arc").
-2. Set crownArcLengthM to that exact number (e.g. 10.2).
-3. Compute crownSagittaM and heightM so that the mathematical arc length of the crown matches this specified curve length.
-
-OPEN TUNNELS / SLASHING / SLUICING / DRIFTS:
-In underground mining and tunneling, slashing / sluicing / drift enlargement headings often do NOT have one wall (it is OPEN into an adjacent void, stope, or pre-existing drift).
-If the sketch or annotations indicate "open" on one wall (e.g. "open" written on the left or right, or an arrow indicating an open boundary):
-1. Determine which wall is open: "left", "right", or "none".
-2. If left wall is open:
-   - openWall = "left"
-   - hasLeftWall = false
-   - hasRightWall = true
-   - isSymmetric = false
-   - archetype = "open_slashing_drift"
-   - The sketch typically shows the floor (invert width, e.g. 6m), right solid rock wall (e.g. 3.2m), the left open boundary height (e.g. 8m with angle ~80°), and a continuous curved crown arc (e.g. c 10.2m) connecting the top left apex down to the right wall shoulder.
-3. If right wall is open:
-   - openWall = "right"
-   - hasRightWall = false
-   - hasLeftWall = true
-   - isSymmetric = false
-   - archetype = "open_slashing_drift"
-
-User annotations / text notes: ${JSON.stringify(textAnnotations)}
-
-Task:
-1. Examine the user's rough sketch drawing and any written/drawn dimensions or angles.
-2. Determine the engineering tunnel shape archetype:
-   - "open_slashing_drift" (one wall is open to void/adjacent drift, common in mining slashing/sluicing)
-   - "horseshoe" (standard NATM/drill & blast horseshoe with arched crown, slightly inclined/vertical sidewalls, flat or dished invert)
-   - "d_shaped" (straight vertical sidewalls with semicircular crown arch)
-   - "modified_horseshoe" (high-arch 3-centered basket-handle arch with dished invert)
-   - "circular" (full circular or TBM profile)
-   - "box_portal" (rectangular/culvert portal with flat or slight arch roof)
-   - "cavern" (large span cavern/powerhouse with high vertical walls and arch roof)
-3. Extract accurate numerical values for:
-   - openWall ("none" | "left" | "right")
-   - hasLeftWall (boolean)
-   - hasRightWall (boolean)
-   - widthM (Total span/width at floor or widest point, in meters)
-   - leftSpanM (Half-span from centerline to left wall base, in meters)
-   - rightSpanM (Half-span from centerline to right wall base, in meters)
-   - heightM (Total height from invert to highest apex/datum, in meters)
-   - apexOffsetXM (Horizontal offset of highest apex from centerline x=0, in meters; 0 if centered)
-   - leftWallHeightM (Height from left invert to springline/shoulder, in meters)
-   - rightWallHeightM (Height from right invert to springline/shoulder, in meters)
-   - leftWallAngleDeg (Sidewall angle in degrees: 90 is vertical, <90 is inward battered/slanted, e.g. 80, >90 is flared)
-   - rightWallAngleDeg (Sidewall angle in degrees)
-   - crownSagittaM (Rise/sagitta of the crown arch from the springline level to apex, in meters)
-   - crownArcLengthM (Exact curve/arc length in meters if specified with "c <length>", e.g. 10.2)
-   - crownType ("circular_arc" | "basket_handle_3arc" | "flat")
-   - invertType ("flat" | "curved_dish")
-   - invertSagittaM (depth of dish curvature in meters, e.g. 0.3m, or 0 if flat)
-   - invertArcLengthM (length of dish arc if specified)
-   - isSymmetric (boolean)
-4. If specific numbers are written or labeled on the drawing (like "Width 6m", "3.2m", "8m", "80°", "c 10.2m", "open"), PRIORITIZE those exact written numbers!
-5. Provide an engineering summary explaining the detected shape, open wall status, curve lengths, and dimensions.`;
-
-        const candidateModels = ['gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'];
+        const candidateModels = ['gemini-3-flash-preview', 'gemini-2.5-flash'];
         for (const modelName of candidateModels) {
           try {
             const response = await ai.models.generateContent({
@@ -478,7 +695,7 @@ Task:
                 ],
               },
               config: {
-                temperature: 0.1,
+                temperature: 0.05,
                 responseMimeType: 'application/json',
                 responseSchema: {
                   type: Type.OBJECT,
@@ -524,170 +741,245 @@ Task:
         }
       }
 
-      // If AI succeeded, return AI analysis with status
-      if (aiResult) {
-        res.json({
-          success: true,
-          source: 'GEMINI_AI_VISION',
-          result: aiResult,
-        });
-        return;
+      // Reconcile AI result (if available) with deterministic stroke metrics, spatial pins, and locked user parameters
+      const finalOpenWall: 'none' | 'left' | 'right' =
+        ovrOpenWall ??
+        (userParameters?.openWall as 'none' | 'left' | 'right' | undefined) ??
+        (aiResult?.openWall === 'left' || aiResult?.openWall === 'right'
+          ? aiResult.openWall
+          : strokeOpenWall);
+
+      const finalIsSymmetric: boolean =
+        finalOpenWall !== 'none'
+          ? false
+          : userSymmetryPreference === 'non-symmetric'
+          ? false
+          : ovrLeftWallH !== null &&
+            ovrRightWallH !== null &&
+            Math.abs(ovrLeftWallH - ovrRightWallH) > 0.05
+          ? false
+          : ovrLeftAngle !== null &&
+            ovrRightAngle !== null &&
+            Math.abs(ovrLeftAngle - ovrRightAngle) >= 1
+          ? false
+          : typeof aiResult?.isSymmetric === 'boolean' && allPts.length === 0
+          ? aiResult.isSymmetric
+          : strokeIsSymmetric;
+
+      const hasStrokes = allPts.length >= 3;
+
+      let finalWidth =
+        ovrWidth ??
+        userParameters?.widthM ??
+        (hasStrokes ? strokeSpanM : aiResult?.widthM ?? 8.5);
+      let finalLeftSpan =
+        ovrLeftSpan ??
+        userParameters?.leftSpanM ??
+        (finalIsSymmetric
+          ? Number((finalWidth / 2).toFixed(2))
+          : hasStrokes
+          ? strokeLeftSpanM
+          : aiResult?.leftSpanM ?? Number((finalWidth / 2).toFixed(2)));
+      let finalRightSpan =
+        ovrRightSpan ??
+        userParameters?.rightSpanM ??
+        (finalIsSymmetric
+          ? Number((finalWidth / 2).toFixed(2))
+          : hasStrokes
+          ? strokeRightSpanM
+          : aiResult?.rightSpanM ?? Number((finalWidth / 2).toFixed(2)));
+
+      if (!finalIsSymmetric && (ovrLeftSpan !== null || ovrRightSpan !== null)) {
+        finalWidth = Number((finalLeftSpan + finalRightSpan).toFixed(2));
+      } else if (finalIsSymmetric) {
+        finalLeftSpan = Number((finalWidth / 2).toFixed(2));
+        finalRightSpan = Number((finalWidth / 2).toFixed(2));
       }
 
-      // Robust Local Geometric / Heuristic Solver Fallback (runs if AI is offline or without key)
-      const allPts: { x: number; y: number }[] = [];
-      if (Array.isArray(strokes)) {
-        for (const s of strokes) {
-          if (Array.isArray(s)) allPts.push(...s);
-          else if (s && Array.isArray(s.points)) allPts.push(...s.points);
-        }
+      let finalHeight =
+        ovrHeight ??
+        userParameters?.heightM ??
+        (hasStrokes ? strokeHeightM : aiResult?.heightM ?? 7.5);
+
+      let finalLeftWallH =
+        finalOpenWall === 'left'
+          ? 0
+          : ovrLeftWallH ??
+            userParameters?.leftWallHeightM ??
+            (hasStrokes ? strokeLeftWallHM : aiResult?.leftWallHeightM ?? Number((finalHeight * 0.52).toFixed(2)));
+
+      let finalRightWallH =
+        finalOpenWall === 'right'
+          ? 0
+          : ovrRightWallH ??
+            userParameters?.rightWallHeightM ??
+            (finalIsSymmetric
+              ? finalLeftWallH
+              : hasStrokes
+              ? strokeRightWallHM
+              : aiResult?.rightWallHeightM ?? finalLeftWallH);
+
+      const detectedShapeKind: string = clientMetrics?.shapeKind || 'arched_tunnel';
+      const isPolygonalNoSidewall =
+        detectedShapeKind === 'triangle' &&
+        ovrLeftWallH === null &&
+        ovrRightWallH === null &&
+        userParameters?.leftWallHeightM === undefined &&
+        userParameters?.rightWallHeightM === undefined;
+
+      // Clamp wall heights so they never exceed total height (allow 0m for pure triangles!)
+      if (finalOpenWall !== 'left') {
+        finalLeftWallH = isPolygonalNoSidewall
+          ? 0
+          : Number(Math.max(0, Math.min(finalHeight - 0.1, finalLeftWallH)).toFixed(2));
+      }
+      if (finalOpenWall !== 'right') {
+        finalRightWallH = isPolygonalNoSidewall
+          ? 0
+          : Number(
+              Math.max(
+                0,
+                Math.min(finalHeight - 0.1, finalIsSymmetric ? finalLeftWallH : finalRightWallH)
+              ).toFixed(2)
+            );
       }
 
-      let detectedWidth = 8.5;
-      let detectedHeight = 7.5;
-      let detectedLeftWallH = 4.0;
-      let detectedRightWallH = 4.0;
-      let detectedLeftAngle = 90;
-      let detectedRightAngle = 90;
-      let detectedCrownSagitta = 3.5;
-      let detectedInvertType = 'flat';
-      let detectedArchetype = 'horseshoe';
+      const finalLeftAngle =
+        ovrLeftAngle ??
+        userParameters?.leftWallAngleDeg ??
+        (hasStrokes ? strokeLeftAngleDeg : aiResult?.leftWallAngleDeg ?? 90);
+      const finalRightAngle =
+        ovrRightAngle ??
+        userParameters?.rightWallAngleDeg ??
+        (finalIsSymmetric
+          ? finalLeftAngle
+          : hasStrokes
+          ? strokeRightAngleDeg
+          : aiResult?.rightWallAngleDeg ?? finalLeftAngle);
 
-      let detectedCrownArcLength: number | null = null;
-      let detectedOpenWall: 'none' | 'left' | 'right' = 'none';
+      const finalCrownType: 'circular_arc' | 'basket_handle_3arc' | 'flat' =
+        ovrCrownType ??
+        userParameters?.crownType ??
+        (hasStrokes ? strokeCrownType : aiResult?.crownType || 'circular_arc');
 
-      // Parse any text annotations for numbers like "8.5m", "7m", "80°", "open", or "c 10.2m"
-      for (const ann of textAnnotations) {
-        const str = typeof ann === 'string' ? ann : (ann?.text || '');
-        const annX = typeof ann === 'object' && typeof ann?.x === 'number' ? ann.x : 0;
-        const matchC =
-          str.match(/(?:^|\b)c\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i) ||
-          str.match(/(?:^|\b)(?:arc|curve)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
-        const matchM = str.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
-        const matchDeg = str.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:°|deg|degrees)/i);
+      const finalInvertType: 'flat' | 'curved_dish' =
+        ovrInvertType ??
+        userParameters?.invertType ??
+        (hasStrokes ? strokeInvertType : aiResult?.invertType || 'flat');
 
-        if (/(?:^|\b)open\b/i.test(str) || /slashing|drift/i.test(str)) {
-          if (/right/i.test(str) || annX > 0.5) {
-            detectedOpenWall = 'right';
-          } else {
-            detectedOpenWall = 'left';
-          }
-        }
+      const finalInvertSagitta =
+        ovrInvertDish ??
+        userParameters?.invertSagittaM ??
+        (hasStrokes ? strokeInvertSagittaM : aiResult?.invertSagittaM ?? 0.3);
 
-        if (matchC) {
-          detectedCrownArcLength = Number(matchC[1]);
-        } else if (matchM && /width|span|w\b|floor|invert/i.test(str)) {
-          detectedWidth = Number(matchM[1]);
-        } else if (matchM && /height|h\b|total/i.test(str)) {
-          detectedHeight = Number(matchM[1]);
-        } else if (matchM && /wall/i.test(str)) {
-          if (/right/i.test(str)) {
-            detectedRightWallH = Number(matchM[1]);
-          } else if (/left/i.test(str)) {
-            detectedLeftWallH = Number(matchM[1]);
-          } else {
-            detectedLeftWallH = Number(matchM[1]);
-            detectedRightWallH = Number(matchM[1]);
-          }
-        }
-        if (matchDeg) {
-          const deg = Number(matchDeg[1]);
-          if (/right/i.test(str)) {
-            detectedRightAngle = deg;
-          } else {
-            detectedLeftAngle = deg;
-          }
-        }
-      }
+      const finalCrownArcLength =
+        ovrCrownArcLen ??
+        userParameters?.crownArcLengthM ??
+        (aiResult?.crownArcLengthM && aiResult.crownArcLengthM > 0 ? aiResult.crownArcLengthM : null);
 
-      if (detectedOpenWall === 'left') {
-        detectedArchetype = 'open_slashing_drift';
-        // For open left slashing, check specific numbers like 8m height, 6m width, 3.2m right wall
-        for (const ann of textAnnotations) {
-          const str = typeof ann === 'string' ? ann : (ann?.text || '');
-          const annX = typeof ann === 'object' && typeof ann?.x === 'number' ? ann.x : 0;
-          const matchM = str.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:m|meter|meters)?/i);
-          if (matchM && !str.toLowerCase().startsWith('c')) {
-            const val = Number(matchM[1]);
-            if (val >= 7.0 && val <= 14.0) detectedHeight = val;
-            else if (val >= 5.0 && val <= 7.0 && !/wall/i.test(str)) detectedWidth = val;
-            else if (val >= 2.0 && val <= 4.5 && (annX > 0 || /right|wall/i.test(str))) detectedRightWallH = val;
-          }
-        }
-      } else if (detectedOpenWall === 'right') {
-        detectedArchetype = 'open_slashing_drift';
-      }
+      const finalApexOffsetX = finalIsSymmetric
+        ? 0
+        : userParameters?.apexOffsetXM ??
+          (hasStrokes ? strokeApexOffsetXM : aiResult?.apexOffsetXM ?? 0);
 
-      if (allPts.length >= 3 && detectedOpenWall === 'none') {
-        const xs = allPts.map((p) => p.x);
-        const ys = allPts.map((p) => p.y);
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-        const spanPx = Math.max(1, maxX - minX);
-        const hPx = Math.max(1, maxY - minY);
-        const aspect = hPx / spanPx;
+      // Compute exact crown sagitta and reconcile height when curve length C is specified
+      const leftRad = ((90 - finalLeftAngle) * Math.PI) / 180;
+      const rightRad = ((90 - finalRightAngle) * Math.PI) / 180;
+      const leftShoulderX =
+        -finalLeftSpan + Math.tan(leftRad) * (finalOpenWall === 'left' ? finalHeight : finalLeftWallH);
+      const rightShoulderX =
+        finalRightSpan - Math.tan(rightRad) * (finalOpenWall === 'right' ? finalHeight : finalRightWallH);
+      const leftShoulderY = finalOpenWall === 'left' ? finalHeight : finalLeftWallH;
+      const rightShoulderY = finalOpenWall === 'right' ? finalHeight : finalRightWallH;
+      const chordLtoR = Math.max(
+        1.0,
+        Math.hypot(rightShoulderX - leftShoulderX, rightShoulderY - leftShoulderY)
+      );
+      const midShoulderY = (leftShoulderY + rightShoulderY) / 2;
 
-        // Base real-world scale: average span ~ 8.5m
-        detectedWidth = Number((Math.max(4.0, Math.min(18.0, spanPx * 0.022))).toFixed(2));
-        detectedHeight = Number((detectedWidth * aspect).toFixed(2));
-        detectedLeftWallH = Number((detectedHeight * 0.52).toFixed(2));
-        detectedRightWallH = detectedLeftWallH;
-        detectedCrownSagitta = Number((detectedHeight - detectedLeftWallH).toFixed(2));
-        detectedArchetype = aspect > 0.95 ? 'horseshoe' : aspect < 0.75 ? 'modified_horseshoe' : 'd_shaped';
-      }
+      let finalCrownSagitta = Number(
+        Math.max(0, finalHeight - Math.min(leftShoulderY, rightShoulderY)).toFixed(2)
+      );
 
-      // If curve length c (e.g. c 10.2m or c 10.6m) is specified, solve exact arc sagitta and height
-      if (detectedCrownArcLength && detectedCrownArcLength > 1.0) {
-        const chord = Math.max(2.0, detectedWidth);
-        const targetArc = Math.max(chord * 1.01, detectedCrownArcLength);
-        // Solve bulge b = tan(theta/4) where L = chord * ((1+b^2)/b) * atan(b)
-        let low = 0.01;
-        let high = 2.0;
-        for (let iter = 0; iter < 28; iter++) {
+      if (finalCrownArcLength && finalCrownArcLength > chordLtoR * 1.001) {
+        let low = 0.005;
+        let high = 2.5;
+        for (let iter = 0; iter < 36; iter++) {
           const mid = (low + high) / 2;
-          const arcLen = chord * ((1 + mid * mid) / mid) * Math.atan(mid);
-          if (arcLen < targetArc) low = mid;
+          const theta = 4 * Math.atan(mid);
+          const radius = chordLtoR / (2 * Math.sin(theta / 2));
+          const arcLen = radius * theta;
+          if (arcLen < finalCrownArcLength) low = mid;
           else high = mid;
         }
-        const bulge = (low + high) / 2;
-        detectedCrownSagitta = Number(((chord * bulge) / 2).toFixed(2));
-        if (detectedOpenWall === 'none') {
-          detectedHeight = Number((detectedLeftWallH + detectedCrownSagitta).toFixed(2));
+        const solvedBulge = (low + high) / 2;
+        finalCrownSagitta = Number(((chordLtoR * solvedBulge) / 2).toFixed(2));
+        if (finalOpenWall === 'none' && ovrHeight === null && userParameters?.heightM === undefined) {
+          finalHeight = Number((midShoulderY + finalCrownSagitta).toFixed(2));
         }
       }
 
-      const hasLeftWall = detectedOpenWall !== 'left';
-      const hasRightWall = detectedOpenWall !== 'right';
-      const isSymmetric = detectedOpenWall === 'none';
+      const finalArchetype =
+        finalOpenWall !== 'none'
+          ? 'open_slashing_drift'
+          : detectedShapeKind === 'triangle' ||
+            detectedShapeKind === 'quadrilateral' ||
+            detectedShapeKind === 'pentagon_gable' ||
+            detectedShapeKind === 'polygon'
+          ? detectedShapeKind
+          : finalCrownType === 'flat'
+          ? 'box_portal'
+          : finalCrownType === 'basket_handle_3arc'
+          ? 'modified_horseshoe'
+          : finalLeftAngle !== 90 || finalRightAngle !== 90 || finalInvertType === 'curved_dish'
+          ? 'horseshoe'
+          : aiResult?.archetype || 'd_shaped';
+
+      const mergedResult = {
+        archetype: finalArchetype,
+        shapeKind: detectedShapeKind,
+        controlPoints: clientMetrics?.controlPoints,
+        segments: clientMetrics?.segments,
+        openWall: finalOpenWall,
+        hasLeftWall: finalOpenWall !== 'left' && !isPolygonalNoSidewall,
+        hasRightWall: finalOpenWall !== 'right' && !isPolygonalNoSidewall,
+        widthM: Number(finalWidth.toFixed(2)),
+        leftSpanM: Number(finalLeftSpan.toFixed(2)),
+        rightSpanM: Number(finalRightSpan.toFixed(2)),
+        heightM: Number(finalHeight.toFixed(2)),
+        apexOffsetXM: Number(finalApexOffsetX.toFixed(2)),
+        leftWallHeightM: Number(finalLeftWallH.toFixed(2)),
+        rightWallHeightM: Number(finalRightWallH.toFixed(2)),
+        leftWallAngleDeg: Number(finalLeftAngle.toFixed(1)),
+        rightWallAngleDeg: Number(finalRightAngle.toFixed(1)),
+        crownSagittaM: Number(finalCrownSagitta.toFixed(2)),
+        crownArcLengthM: finalCrownArcLength ? Number(finalCrownArcLength.toFixed(2)) : undefined,
+        crownType: finalCrownType,
+        invertType: finalInvertType,
+        invertSagittaM: Number(finalInvertSagitta.toFixed(2)),
+        isSymmetric: finalIsSymmetric,
+        recognizedDimensions: normalizedAnnotations.map((a) => a.text),
+        explanation:
+          detectedShapeKind === 'triangle'
+            ? `Solved exact 3-vertex CAD Triangle profile from canvas drawing: Span ${finalWidth.toFixed(2)}m × Height ${finalHeight.toFixed(2)}m (Left slope ${finalLeftAngle}°, Right slope ${finalRightAngle}°).`
+            : detectedShapeKind === 'quadrilateral' ||
+              detectedShapeKind === 'pentagon_gable' ||
+              detectedShapeKind === 'polygon'
+            ? `Solved exact ${clientMetrics?.controlPoints?.length || 4}-vertex CAD ${detectedShapeKind.replace(/_/g, ' ')} profile from canvas drawing: Span ${finalWidth.toFixed(2)}m × Height ${finalHeight.toFixed(2)}m.`
+            : aiResult?.explanation ||
+              (finalOpenWall !== 'none'
+                ? `Solved open tunnel (${finalOpenWall} wall open): Span ${finalWidth.toFixed(2)}m, Height ${finalHeight.toFixed(2)}m${
+                    finalCrownArcLength ? `, Curve Arc C=${finalCrownArcLength.toFixed(2)}m` : ''
+                  }.`
+                : `Solved ${finalIsSymmetric ? 'symmetric' : 'non-symmetric'} ${finalArchetype.replace(/_/g, ' ')} profile: Span ${finalWidth.toFixed(2)}m × Height ${finalHeight.toFixed(2)}m (L-Wall ${finalLeftWallH.toFixed(2)}m @ ${finalLeftAngle}°, R-Wall ${finalRightWallH.toFixed(2)}m @ ${finalRightAngle}°${
+                    finalCrownArcLength ? `, Arc C=${finalCrownArcLength.toFixed(2)}m` : ''
+                  }).`),
+      };
 
       res.json({
         success: true,
-        source: 'LOCAL_GEOMETRIC_SOLVER',
-        result: {
-          archetype: detectedArchetype,
-          openWall: detectedOpenWall,
-          hasLeftWall,
-          hasRightWall,
-          widthM: detectedWidth,
-          heightM: detectedHeight,
-          leftWallHeightM: hasLeftWall ? detectedLeftWallH : 0,
-          rightWallHeightM: hasRightWall ? detectedRightWallH : 0,
-          leftWallAngleDeg: detectedLeftAngle,
-          rightWallAngleDeg: detectedRightAngle,
-          crownSagittaM: detectedCrownSagitta,
-          crownArcLengthM: detectedCrownArcLength || undefined,
-          crownType: 'circular_arc',
-          invertType: detectedInvertType,
-          invertSagittaM: 0.3,
-          isSymmetric,
-          explanation: detectedOpenWall !== 'none'
-            ? `Locally solved open tunnel (${detectedOpenWall} wall open): span ${detectedWidth}m, height ${detectedHeight}m, curve arc C=${detectedCrownArcLength || 'auto'}m.`
-            : detectedCrownArcLength
-            ? `Locally solved: curved crown arc length C=${detectedCrownArcLength}m with rise ${detectedCrownSagitta}m.`
-            : 'Locally solved from sketch bounding geometry and annotated constraints.',
-        },
+        source: aiResult ? 'GEMINI_AI_VISION' : 'LOCAL_GEOMETRIC_SOLVER',
+        result: mergedResult,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error in sketch analysis';

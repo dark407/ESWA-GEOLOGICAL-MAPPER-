@@ -2998,11 +2998,14 @@ export const FieldDipSurfaceSvgElement: React.FC<{
     surface.outlinePolygon && surface.outlinePolygon.length >= 3
       ? {
           outlinePolygon: surface.outlinePolygon,
-          centroid:
-            surface.points[Math.floor(surface.points.length / 2)] || {
-              x: 500,
-              y: 380,
-            },
+          centroid: {
+            x:
+              surface.outlinePolygon.reduce((s, p) => s + p.x, 0) /
+              surface.outlinePolygon.length,
+            y:
+              surface.outlinePolygon.reduce((s, p) => s + p.y, 0) /
+              surface.outlinePolygon.length,
+          },
         }
       : buildDipSurfaceOutlineAndCentroid(surface.points, surface.brushRadius);
 
@@ -3026,14 +3029,21 @@ export const FieldDipSurfaceSvgElement: React.FC<{
   return (
     <g onClick={onClick} className={onClick ? 'cursor-pointer' : undefined}>
       {outlinePath ? (
-        <path
-          d={outlinePath}
-          fill={`url(#${patternPrefix}-dip-plane)`}
-          stroke={isSelected ? '#d97706' : groupColor}
-          strokeWidth={isSelected ? 3.5 : 2.2}
-          strokeDasharray="6,3"
-          strokeLinejoin="round"
-        />
+        <>
+          <path
+            d={outlinePath}
+            fill={colorMode === 'bw' ? 'rgba(255,255,255,0.75)' : `${groupColor}18`}
+            stroke="none"
+          />
+          <path
+            d={outlinePath}
+            fill={`url(#${patternPrefix}-dip-plane)`}
+            stroke={isSelected ? '#d97706' : groupColor}
+            strokeWidth={isSelected ? 3.5 : 2.2}
+            strokeDasharray="6,3"
+            strokeLinejoin="round"
+          />
+        </>
       ) : (
         <circle
           cx={centroid.x}
@@ -3269,10 +3279,21 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
 
     const strokes = round.lithologyStrokes
       .filter((s) => s.panel === panel)
-      .map((s) =>
-        useContinuousCadMapping
+      .map((s) => {
+        const rawStrokePoly =
+          s.polygon && s.polygon.length >= 3 ? s.polygon : s.points;
+        const isStrokeClosed =
+          Boolean(s.isClosed) ||
+          Boolean(s.polygon && s.polygon.length >= 3) ||
+          (rawStrokePoly.length >= 3 &&
+            Math.hypot(
+              rawStrokePoly[0].x - rawStrokePoly[rawStrokePoly.length - 1].x,
+              rawStrokePoly[0].y - rawStrokePoly[rawStrokePoly.length - 1].y
+            ) <= Math.max(48, (s.brushRadius || 24) * 1.8));
+        return useContinuousCadMapping
           ? {
               ...s,
+              isClosed: isStrokeClosed,
               points: s.points.map(mapPt),
               polygon: s.polygon ? s.polygon.map(mapPt) : undefined,
               brushRadius: Math.max(2, Number((s.brushRadius * scaleRadius).toFixed(1))),
@@ -3280,20 +3301,30 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 ? Math.max(4, Number((s.bandThicknessPx * scaleRadius).toFixed(1)))
                 : undefined,
             }
-          : s
-      );
+          : {
+              ...s,
+              isClosed: isStrokeClosed,
+            };
+      });
     const planes = round.dipPlaneSurfaces
       .filter((p) => p.panel === panel)
-      .map((p) =>
-        useContinuousCadMapping
+      .map((p) => {
+        const baseOutline =
+          p.outlinePolygon && p.outlinePolygon.length >= 3
+            ? p.outlinePolygon
+            : buildDipSurfaceOutlineAndCentroid(p.points, p.brushRadius).outlinePolygon;
+        return useContinuousCadMapping
           ? {
               ...p,
               points: p.points.map(mapPt),
-              outlinePolygon: p.outlinePolygon ? p.outlinePolygon.map(mapPt) : undefined,
+              outlinePolygon: baseOutline.map(mapPt),
               brushRadius: Math.max(4, Number((p.brushRadius * scaleRadius).toFixed(1))),
             }
-          : p
-      );
+          : {
+              ...p,
+              outlinePolygon: baseOutline,
+            };
+      });
     const features = (round.structuralFeatures || [])
       .filter((f) => f.panel === panel)
       .map((f) => (useContinuousCadMapping ? { ...f, points: f.points.map(mapPt) } : f));
@@ -3474,20 +3505,8 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           const d = buildSmoothSvgPath(strokePoly);
           const baseStrokeW =
             st.brushRadius <= 8 ? Math.max(2, st.brushRadius) : st.brushRadius * 2;
-          const effectiveStrokeW = useContinuousCadMapping
-            ? Math.max(38, Math.round((st.brushRadius || 32) * 2.5))
-            : Math.max(2, baseStrokeW);
-          const isClosed =
-            Boolean(st.isClosed) ||
-            st.mode === 'region_fill' ||
-            (st.mode as string) === 'fill' ||
-            Boolean(st.polygon && st.polygon.length >= 3) ||
-            (useContinuousCadMapping && st.points.length >= 3) ||
-            (st.points.length >= 3 &&
-              Math.hypot(
-                st.points[0].x - st.points[st.points.length - 1].x,
-                st.points[0].y - st.points[st.points.length - 1].y
-              ) < 120);
+          const effectiveStrokeW = Math.max(2, Math.round(baseStrokeW));
+          const isClosed = Boolean(st.isClosed);
           const closedD = isClosed ? (d.endsWith('Z') || d.endsWith('z') ? d : `${d} Z`) : d;
           const indivLithDens = Math.round(
             st.symbolDensity ??
@@ -3496,10 +3515,37 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               round.lithologySymbolDensity ??
               85
           );
-          const patternUrlId =
-            st.alternateRockTypes && st.alternateRockTypes.length >= 2
-              ? `sheetpat-alt-${st.id}`
-              : `sheetpat-${patId}-d${indivLithDens}`;
+          const indivLithAngle = Math.round(
+            st.patternAngleDeg ??
+              round.lithologyAngleByRock?.[st.rockType] ??
+              round.lithologyAngleByRock?.[patId] ??
+              round.lithologyPatternAngle ??
+              0
+          );
+          const altRocks =
+            st.alternatingRockIds && st.alternatingRockIds.length >= 2
+              ? st.alternatingRockIds
+              : st.alternateRockTypes && st.alternateRockTypes.length >= 2
+              ? st.alternateRockTypes
+              : null;
+          const patternUrlId = altRocks
+            ? `sheetpat-alt-${st.id}`
+            : indivLithAngle !== 0
+            ? `sheetpat-${patId}-d${indivLithDens}-a${indivLithAngle}`
+            : `sheetpat-${patId}-d${indivLithDens}`;
+          const customRockCol =
+            st.customColor ||
+            round.rockCustomColors?.[st.rockType] ||
+            round.lithologyColorByRock?.[st.rockType] ||
+            info.fillColor ||
+            info.color ||
+            '#fef08a';
+          const outlineRockCol =
+            st.customColor ||
+            round.rockCustomColors?.[st.rockType] ||
+            round.lithologyColorByRock?.[st.rockType] ||
+            info.color ||
+            '#78350f';
           return (
             <g key={st.id} data-lithology-id={st.id}>
               {maskId && (
@@ -3536,11 +3582,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   {/* Rock color tint fill */}
                   <path
                     d={closedD}
-                    fill={
-                      colorMode === 'bw'
-                        ? '#ffffff'
-                        : st.customColor || info.fillColor || info.color || '#fef08a'
-                    }
+                    fill={colorMode === 'bw' ? '#ffffff' : customRockCol}
                     fillOpacity={colorMode === 'bw' ? 1 : 0.88}
                     stroke="none"
                     mask={maskId ? `url(#${maskId})` : undefined}
@@ -3557,11 +3599,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   <path
                     d={closedD}
                     fill="none"
-                    stroke={
-                      colorMode === 'bw'
-                        ? '#0f172a'
-                        : st.customColor || info.color || '#78350f'
-                    }
+                    stroke={colorMode === 'bw' ? '#0f172a' : outlineRockCol}
                     strokeWidth={Math.max(1.8, Math.min(5, effectiveStrokeW * 0.15))}
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -3574,11 +3612,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   <path
                     d={d}
                     fill="none"
-                    stroke={
-                      colorMode === 'bw'
-                        ? '#ffffff'
-                        : st.customColor || info.fillColor || info.color || '#fef08a'
-                    }
+                    stroke={colorMode === 'bw' ? '#ffffff' : customRockCol}
                     strokeWidth={effectiveStrokeW}
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -3789,11 +3823,19 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           round.lithologySymbolDensity ??
           85
       );
+      const angleDeg = Math.round(
+        s.patternAngleDeg ??
+          round.lithologyAngleByRock?.[s.rockType] ??
+          round.lithologyAngleByRock?.[patId] ??
+          round.lithologyPatternAngle ??
+          0
+      );
       const customColor =
         s.customColor ||
+        round.rockCustomColors?.[s.rockType] ||
         round.lithologyColorByRock?.[s.rockType] ||
         round.lithologyColorByRock?.[patId];
-      return { patId, density, customColor };
+      return { patId, density, customColor, angleDeg };
     });
 
   const lithLegendDisplay = legendLithItems.slice(0, 6);
@@ -3853,10 +3895,22 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
         colorMode={colorMode}
         symbolDensity={round.lithologySymbolDensity ?? 85}
         symbolDensityByPattern={round.lithologyDensityByRock}
-        customColorsByRock={round.lithologyColorByRock}
+        symbolAngleByPattern={round.lithologyAngleByRock}
+        lithologyPatternAngle={round.lithologyPatternAngle ?? 0}
+        customColorsByRock={{
+          ...(round.lithologyColorByRock || {}),
+          ...(round.rockCustomColors || {}),
+        }}
         extraLithologyDensities={reportExtraLithDensities}
+        alternatingStrokes={round.lithologyStrokes.filter(
+          (s) =>
+            (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+            (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+        )}
         alternateStrokes={round.lithologyStrokes.filter(
-          (s) => s.alternateRockTypes && s.alternateRockTypes.length >= 2
+          (s) =>
+            (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+            (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
         )}
         rememberedRocks={rememberedRocks}
         bandSymbolDensity={round.veinBandSymbolDensity ?? 85}
@@ -5154,8 +5208,8 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           </g>
         )}
 
-        {/* Left Wall / Batter Height Label - Positioned with generous exterior clearance */}
-        {faceDetails.hasLeftWall ? (
+        {/* Left Wall / Batter Height Label - Omitted completely if Left Wall portion is Open */}
+        {faceDetails.hasLeftWall && (
           <text
             x={left - 42}
             y={leftWallMidY}
@@ -5172,25 +5226,10 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
               ? `${mappingDomain} HEIGHT (L) = ${leftWallLenM.toFixed(2)}m`
               : `LEFT WALL LENGTH = ${leftWallLenM.toFixed(2)}m`}
           </text>
-        ) : (
-          <text
-            x={left - 22}
-            y={cy}
-            textAnchor="middle"
-            fontSize={(11.0 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
-            fontWeight="800"
-            fill="#DC2626"
-            stroke={haloColor}
-            strokeWidth="3"
-            paintOrder="stroke"
-            transform={`rotate(-90, ${left - 22}, ${cy})`}
-          >
-            LEFT PORTION OPEN (NO WALL)
-          </text>
         )}
 
-        {/* Right Wall / Batter Height Label - Positioned with generous exterior clearance */}
-        {faceDetails.hasRightWall ? (
+        {/* Right Wall / Batter Height Label - Omitted completely if Right Wall portion is Open */}
+        {faceDetails.hasRightWall && (
           <text
             x={right + 42}
             y={rightWallMidY}
@@ -5206,21 +5245,6 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             {isSurface
               ? `${mappingDomain} HEIGHT (R) = ${rightWallLenM.toFixed(2)}m`
               : `RIGHT WALL LENGTH = ${rightWallLenM.toFixed(2)}m`}
-          </text>
-        ) : (
-          <text
-            x={right + 30}
-            y={cy}
-            textAnchor="middle"
-            fontSize={(11.0 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
-            fontWeight="800"
-            fill="#DC2626"
-            stroke={haloColor}
-            strokeWidth="3"
-            paintOrder="stroke"
-            transform={`rotate(90, ${right + 30}, ${cy})`}
-          >
-            RIGHT PORTION OPEN (NO WALL)
           </text>
         )}
 

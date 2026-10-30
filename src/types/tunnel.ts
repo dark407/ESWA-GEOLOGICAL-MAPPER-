@@ -265,7 +265,7 @@ export type ControlPointRole =
   | 'right_invert'
   | 'step_corner';
 
-export type BoundaryZoneRole = 'leftWall' | 'crown' | 'rightWall' | 'invert';
+export type BoundaryZoneRole = 'leftWall' | 'crown' | 'rightWall' | 'invert' | 'open';
 
 export interface ProfileControlPoint {
   id: string;

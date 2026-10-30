@@ -613,30 +613,14 @@ export function calculatePolylineLengthM(
 ): number {
   if (!points || points.length < 2) return 0;
 
-  let totalCanvasPx = 0;
+  let totalMeters = 0;
   for (let i = 0; i < points.length - 1; i++) {
-    const dx = points[i + 1].x - points[i].x;
-    const dy = points[i + 1].y - points[i].y;
-    totalCanvasPx += Math.hypot(dx, dy);
+    const p1 = pointToTunnel3DMetric(points[i], panel, geom);
+    const p2 = pointToTunnel3DMetric(points[i + 1], panel, geom);
+    totalMeters += Math.hypot(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
   }
 
-  let scaleMetersPerPx = 1.0;
-  if (panel === 'face') {
-    scaleMetersPerPx = Math.sqrt(
-      Math.pow(geom.widthM / 1000, 2) + Math.pow(geom.heightM / 800, 2)
-    ) / Math.SQRT2;
-  } else if (panel === 'left_wall' || panel === 'right_wall') {
-    scaleMetersPerPx = Math.sqrt(
-      Math.pow(geom.pullLengthM / 1000, 2) + Math.pow(geom.wallHeightM / 800, 2)
-    ) / Math.SQRT2;
-  } else if (panel === 'crown') {
-    scaleMetersPerPx = Math.sqrt(
-      Math.pow(geom.widthM / 1000, 2) + Math.pow(geom.pullLengthM / 800, 2)
-    ) / Math.SQRT2;
-  }
-
-  const lengthM = totalCanvasPx * scaleMetersPerPx;
-  return Number(Math.max(0, lengthM).toFixed(2));
+  return Number(Math.max(0.05, totalMeters).toFixed(2));
 }
 
 // ----------------------------------------------------------------------------

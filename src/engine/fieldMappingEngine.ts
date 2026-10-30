@@ -710,6 +710,18 @@ export interface FieldExcavationRound {
   alterationRecords?: FieldAlterationRecord[];
   /** Dedicated Stage 9 Support System configuration & 3D/2D Spot Bolts */
   supportSystem?: FieldSupportSystemConfig;
+  /** Dedicated FEM & DEM Continuum + Discontinuum Analysis configuration & parameter overrides */
+  femDemAnalysis?: {
+    mode: 'fem' | 'dem' | 'combined';
+    overburdenDepthM?: number;
+    horizontalStressRatioK0?: number;
+    blastDamageFactorD?: number;
+    parameterOverrides: Record<string, number>;
+    siteTestParameters?: Record<string, number>;
+    includeInEswaReport?: boolean;
+    engineerNotes?: string;
+    lastUpdatedIso?: string;
+  };
   /** Dedicated Stage 10 Survey Overbreak data */
   surveyOverbreak?: FieldSurveyOverbreakData;
   /** True when explicitly saved into Project Data */
@@ -2568,14 +2580,36 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
             collectedPhotos: Array.isArray(r.collectedPhotos) ? r.collectedPhotos : [],
             lithologyStrokes: Array.isArray(r.lithologyStrokes) ? r.lithologyStrokes : [],
             jointTraces: Array.isArray(r.jointTraces)
-              ? r.jointTraces.map((t) => ({
-                  ...t,
-                  points: Array.isArray(t.points) ? t.points : [],
-                  setId:
-                    t.setId && FIELD_JOINT_GROUP_COLORS[t.setId]
-                      ? t.setId
-                      : 'unassigned',
-                }))
+              ? r.jointTraces.map((t) => {
+                  const pts = Array.isArray(t.points) ? t.points : [];
+                  if (t.panel === 'crown' && pts.length >= 2) {
+                    const recalc = computeTraceOrientationFromTunnelDrive(
+                      pts,
+                      'crown',
+                      r.tunnelDriveDirection ?? 0,
+                      t.crownDipSign || '+90'
+                    );
+                    return {
+                      ...t,
+                      points: pts,
+                      dipDirection: recalc.dipDirection,
+                      dipAmount: recalc.dipAmount,
+                      strike: recalc.strike,
+                      setId:
+                        t.setId && FIELD_JOINT_GROUP_COLORS[t.setId]
+                          ? t.setId
+                          : 'unassigned',
+                    };
+                  }
+                  return {
+                    ...t,
+                    points: pts,
+                    setId:
+                      t.setId && FIELD_JOINT_GROUP_COLORS[t.setId]
+                        ? t.setId
+                        : 'unassigned',
+                  };
+                })
               : [],
             dipPlaneSurfaces: Array.isArray(r.dipPlaneSurfaces)
               ? r.dipPlaneSurfaces.map((d) => ({
@@ -3048,12 +3082,12 @@ export function computeTraceOrientationFromTunnelDrive(
   const traceClockwiseDeg360 =
     ((Math.atan2(rawDx, -rawDy) * 180) / Math.PI + 360) % 360;
 
-  // Panel top (12 o'clock) azimuth based on Tunnel Drive Direction:
-  // - Face:                Drive Direction is at Top (12 o'clock)   -> Top is normAz
-  // - Left Wall & Crown:   Drive Direction is at Right (3 o'clock)  -> Top is (normAz + 270) % 360
-  // - Right Wall:          Drive Direction is at Left (9 o'clock)   -> Top is (normAz + 90) % 360
+  // Panel top (12 o'clock, -Y) azimuth based on Tunnel Drive Direction:
+  // - Face & Crown: Drive Direction is at Top (12 o'clock, -Y), Right (3 o'clock, +X) is (normAz + 90) % 360, Left (9 o'clock, -X) is (normAz + 270) % 360 -> Top is normAz
+  // - Left Wall:    Drive Direction is at Right (3 o'clock, +X) -> Top is (normAz + 270) % 360
+  // - Right Wall:   Drive Direction is at Left (9 o'clock, -X)  -> Top is (normAz + 90) % 360
   const panelBaseAz =
-    panel === 'left_wall' || panel === 'crown'
+    panel === 'left_wall'
       ? (normAz + 270) % 360
       : panel === 'right_wall'
       ? (normAz + 90) % 360
@@ -3135,9 +3169,9 @@ export function computeTraceScreenDipTickVector(
   let targetY = 1;
 
   if (panel === 'crown') {
-    // On Crown, Right (+X) is Tunnel Drive Azimuth, Down (+Y) is Drive + 90° (Left SPL -> Right SPL)
-    targetX = Math.cos(relRad);
-    targetY = Math.sin(relRad);
+    // On Crown, Top (-Y) is Tunnel Drive Azimuth, Right (+X) is Drive + 90° (Left SPL -> Right SPL)
+    targetX = Math.sin(relRad);
+    targetY = -Math.cos(relRad);
   } else if (panel === 'face') {
     // On Face, Right (+X) is Drive + 90°, Down (+Y) is down-dip gravity
     targetX = Math.sin(relRad);
@@ -4481,13 +4515,21 @@ export function computeFaceTunnelOutlineDetails(
       });
 
       const strokeSubpaths: string[] = [];
+      let hasAnyOpenSegment = false;
       for (const seg of ev.segmentMetrics) {
+        if (seg.zoneRole === 'open') {
+          hasAnyOpenSegment = true;
+          continue;
+        }
         const segEnabled =
           (seg.zoneRole === 'leftWall' && hasLeftWall) ||
           (seg.zoneRole === 'crown' && hasCrown) ||
           (seg.zoneRole === 'rightWall' && hasRightWall) ||
           (seg.zoneRole === 'invert' && hasInvert);
-        if (!segEnabled || seg.sampledPoints.length < 2) continue;
+        if (!segEnabled || seg.sampledPoints.length < 2) {
+          hasAnyOpenSegment = true;
+          continue;
+        }
 
         const scrPts = seg.sampledPoints.map(toScr);
         const dCmd = scrPts
@@ -4545,7 +4587,7 @@ export function computeFaceTunnelOutlineDetails(
           .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
           .join(' ') + ' Z';
       wallStrokePathD =
-        ev.isClosed && hasLeftWall && hasRightWall && hasCrown && hasInvert
+        ev.isClosed && !hasAnyOpenSegment && hasLeftWall && hasRightWall && hasCrown && hasInvert
           ? closedFillPathD
           : strokeSubpaths.join(' ');
     } else if (location.customCrossSectionPoints && location.customCrossSectionPoints.length >= 2) {
@@ -5553,24 +5595,27 @@ export function computeTCanvasLayout(
   const faceW = Number((faceWidthM * facePxPerM).toFixed(1));
   const faceH = Number((faceHeightM * facePxPerM).toFixed(1));
 
-  const leftWallW = Number((lwMeta.widthM * stripPxPerM).toFixed(1));
-  const leftWallH = Number((lwMeta.heightM * stripPxPerM).toFixed(1));
-  const crownW = Number((crMeta.widthM * stripPxPerM).toFixed(1));
-  const crownH = Number((crMeta.heightM * stripPxPerM).toFixed(1));
-  const rightWallW = Number((rwMeta.widthM * stripPxPerM).toFixed(1));
-  const rightWallH = Number((rwMeta.heightM * stripPxPerM).toFixed(1));
+  const leftWallW = faceGeom.hasLeftWall ? Number((lwMeta.widthM * stripPxPerM).toFixed(1)) : 0;
+  const leftWallH = faceGeom.hasLeftWall ? Number((lwMeta.heightM * stripPxPerM).toFixed(1)) : 0;
+  const crownW = faceGeom.hasCrown ? Number((crMeta.widthM * stripPxPerM).toFixed(1)) : 0;
+  const crownH = faceGeom.hasCrown ? Number((crMeta.heightM * stripPxPerM).toFixed(1)) : 0;
+  const rightWallW = faceGeom.hasRightWall ? Number((rwMeta.widthM * stripPxPerM).toFixed(1)) : 0;
+  const rightWallH = faceGeom.hasRightWall ? Number((rwMeta.heightM * stripPxPerM).toFixed(1)) : 0;
 
-  const wallW = leftWallW;
-  const wallH = leftWallH;
+  const wallW = leftWallW || rightWallW;
+  const wallH = leftWallH || rightWallH;
   const stripH = Math.max(leftWallH, crownH, rightWallH);
 
-  const totalBottomW = leftWallW + crownW + rightWallW + panelGapX * 2;
-  const totalLayoutH = faceH + verticalGap + stripH;
+  const activeBottomCount =
+    (faceGeom.hasLeftWall ? 1 : 0) + (faceGeom.hasCrown ? 1 : 0) + (faceGeom.hasRightWall ? 1 : 0);
+  const totalGapsW = Math.max(0, activeBottomCount - 1) * panelGapX;
+  const totalBottomW = leftWallW + crownW + rightWallW + totalGapsW;
+  const totalLayoutH = stripH > 0 ? faceH + verticalGap + stripH : faceH;
 
   const faceX = Number(((1000 - faceW) / 2).toFixed(1));
   const baseLeftWallX = (1000 - totalBottomW) / 2;
-  const baseCrownX = baseLeftWallX + leftWallW + panelGapX;
-  const baseRightWallX = baseCrownX + crownW + panelGapX;
+  const baseCrownX = baseLeftWallX + (faceGeom.hasLeftWall ? leftWallW + panelGapX : 0);
+  const baseRightWallX = baseCrownX + (faceGeom.hasCrown ? crownW + panelGapX : 0);
   const faceY = Number(Math.max(46, (1000 - totalLayoutH) / 2 - 12).toFixed(1));
   const stripY = Number((faceY + faceH + verticalGap).toFixed(1));
 

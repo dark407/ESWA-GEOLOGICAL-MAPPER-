@@ -255,6 +255,7 @@ import {
 } from '../engine/tabletStylusAndZeroLagEngine';
 import { StylusHudAndQuickRadialMenu } from './StylusHudAndQuickRadialMenu';
 import { FieldCanvasFloatingControls } from './FieldCanvasFloatingControls';
+import { FieldFemDemAnalysisStage } from './FieldFemDemAnalysisStage';
 
 interface FieldMappingModeWorkspaceProps {
   onBackToWelcome?: () => void;
@@ -283,6 +284,7 @@ export type FieldWorkflowStage =
   | 'discontinuity_sets'
   | 'q_rmr_gsi'
   | 'support_system'
+  | 'fem_dem_analysis'
   | 'survey_overbreak'
   | 'discontinuity_q_rmr'
   | 'word_template_export'
@@ -1984,6 +1986,47 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     label: string;
   } | null>(null);
 
+  const [pendingEditConfirm, setPendingEditConfirm] = useState<{
+    kind: 'project' | 'location' | 'face' | 'project_setup_stage';
+    title: string;
+    targetLabel: string;
+    warningDetail: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const requestEditConfirmation = useCallback(
+    (
+      kind: 'project' | 'location' | 'face' | 'project_setup_stage',
+      targetLabel: string,
+      onConfirm: () => void
+    ) => {
+      const titleMap = {
+        project: 'Warning: Edit Project Details',
+        location: 'Warning: Edit Tunnel Location & Geometry',
+        face: 'Warning: Edit Face / Round Details',
+        project_setup_stage: 'Warning: Edit Project, Location or Face',
+      };
+      const detailMap = {
+        project:
+          'Editing project details or chainage grouping settings will update all linked tunnel locations, face mapping records, and generated reports. Click OK to proceed.',
+        location:
+          'Editing tunnel location name, cross-section shape, width/height dimensions, or drive azimuth will affect face mapping geometry and 3D structural projections. Click OK to proceed.',
+        face:
+          'Editing face chainage, advance/pull length, drive direction, or excavation parameters will recalculate round metrics and update the active face mapping record. Click OK to proceed.',
+        project_setup_stage:
+          'You are about to open Project, Location & Face Setup. Modifying project, tunnel location geometry, or face parameters will update the active underground face mapping session. Click OK to proceed.',
+      };
+      setPendingEditConfirm({
+        kind,
+        title: titleMap[kind],
+        targetLabel,
+        warningDetail: detailMap[kind],
+        onConfirm,
+      });
+    },
+    []
+  );
+
   const handleConfirmDeleteItem = () => {
     if (!pendingDeleteConfirm) return;
     const { kind, id } = pendingDeleteConfirm;
@@ -3560,6 +3603,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         points: nextPendingPts,
         dipDirection: est.dipDirection,
         dipAmount: est.dipAmount,
+        strike: est.strike,
       });
       setCurrentPoints([]);
       pointerStartClientRef.current = null;
@@ -3759,16 +3803,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeLocation.heightM
       );
       const tele = lastStylusTelemetryRef.current;
+      const useStylusTilt =
+        targetPanel !== 'crown' &&
+        applyStylusTiltToDip &&
+        tele?.hasHardwareTilt;
       const effectiveDipDir =
-        applyStylusTiltToDip && tele?.hasHardwareTilt && tele.inferredDipDirection !== undefined
+        useStylusTilt && tele?.inferredDipDirection !== undefined
           ? tele.inferredDipDirection
           : est.dipDirection;
       const effectiveDipAmt =
-        applyStylusTiltToDip && tele?.hasHardwareTilt && tele.inferredDipAngle !== undefined
+        useStylusTilt && tele?.inferredDipAngle !== undefined
           ? tele.inferredDipAngle
           : est.dipAmount;
       const effectiveStrike =
-        applyStylusTiltToDip && tele?.hasHardwareTilt && tele.strikeAzimuth !== undefined
+        useStylusTilt && tele?.strikeAzimuth !== undefined
           ? tele.strikeAzimuth
           : est.strike;
 
@@ -4483,6 +4531,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       const az = parseFloat(newLocAzimuth) || 0;
 
       const locId = `floc-${Date.now()}`;
+      const evalNewCustom = newLocCustomGeometry?.customProfile
+        ? evaluateCustomProfileGeometry(newLocCustomGeometry.customProfile)
+        : null;
       const loc: FieldTunnelLocationItem = {
         id: locId,
         name: trimmedName,
@@ -4491,6 +4542,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         heightM: h,
         wallHeightM: wallH,
         crownRadiusM: crownR,
+        crownLengthM: evalNewCustom
+          ? Number(evalNewCustom.crownArcLength.toFixed(2))
+          : newLocCustomGeometry?.crownArcLength,
+        leftWallLengthM: evalNewCustom
+          ? Number(evalNewCustom.leftWallArcLength.toFixed(2))
+          : newLocCustomGeometry?.leftWallHeight,
+        rightWallLengthM: evalNewCustom
+          ? Number(evalNewCustom.rightWallArcLength.toFixed(2))
+          : newLocCustomGeometry?.rightWallHeight,
         defaultDriveAzimuth: az,
         defaultExcavationMode: newLocExcavationMode.trim() || 'Drill & Blast (Full Face)',
         defaultExcavationApproach: newLocExcavationApproach.trim() || 'Full Face',
@@ -4515,6 +4575,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       setNewLocWallHeight('');
       setNewLocCrownRadius('');
       setNewLocAzimuth('');
+      setNewLocCustomPoints(undefined);
+      setNewLocCustomGeometry(undefined);
       setLocValidationAttempted(false);
       setSetupWizardToast(null);
       setShowNewLocationForm(false);
@@ -4570,12 +4632,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   // Edit Project Handlers
   const handleStartEditProject = (proj: FieldProjectItem) => {
-    setEditingProjectId(proj.id);
-    setEditProjName(proj.projectName);
-    setEditProjClient(proj.clientName);
-    setEditProjContractor(proj.contractorName);
-    setEditProjConsultant(proj.consultantName);
-    setEditProjChainageInterval(proj.chainageGroupIntervalM || 25);
+    requestEditConfirmation('project', formatDomainProjName(proj.projectName), () => {
+      setEditingProjectId(proj.id);
+      setEditProjName(proj.projectName);
+      setEditProjClient(proj.clientName);
+      setEditProjContractor(proj.contractorName);
+      setEditProjConsultant(proj.consultantName);
+      setEditProjChainageInterval(proj.chainageGroupIntervalM || 25);
+    });
   };
 
   const handleSaveEditProject = (projId: string) => {
@@ -4603,16 +4667,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   // Edit Location Handlers
   const handleStartEditLocation = (loc: FieldTunnelLocationItem) => {
-    setEditingLocationId(loc.id);
-    setEditLocName(loc.name);
-    setEditLocShape(loc.shape || 'd_shaped');
-    setEditLocWidth(loc.widthM || 8.5);
-    setEditLocHeight(loc.heightM || 7.5);
-    setEditLocWallHeight(loc.wallHeightM || Number(((loc.heightM || 7.5) * 0.55).toFixed(2)));
-    setEditLocCrownRadius(loc.crownRadiusM || Number(((loc.widthM || 8.5) * 0.5).toFixed(2)));
-    setEditLocAzimuth(loc.defaultDriveAzimuth || 45);
-    setEditLocExcavationMode(loc.defaultExcavationMode || 'Drill & Blast (Full Face)');
-    setEditLocExcavationApproach(loc.defaultExcavationApproach || 'Full Face');
+    requestEditConfirmation('location', formatDomainLocName(loc.name), () => {
+      setEditingLocationId(loc.id);
+      setEditLocName(loc.name);
+      setEditLocShape(loc.shape || 'd_shaped');
+      setEditLocWidth(loc.widthM || 8.5);
+      setEditLocHeight(loc.heightM || 7.5);
+      setEditLocWallHeight(loc.wallHeightM || Number(((loc.heightM || 7.5) * 0.55).toFixed(2)));
+      setEditLocCrownRadius(loc.crownRadiusM || Number(((loc.widthM || 8.5) * 0.5).toFixed(2)));
+      setEditLocAzimuth(loc.defaultDriveAzimuth || 45);
+      setEditLocExcavationMode(loc.defaultExcavationMode || 'Drill & Blast (Full Face)');
+      setEditLocExcavationApproach(loc.defaultExcavationApproach || 'Full Face');
+    });
   };
 
   const handleSaveEditLocation = (locId: string) => {
@@ -4969,10 +5035,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 'support_system',
                 `${stepNum++}. Surface Stabilization`,
               ]);
+              rawStages.push([
+                'fem_dem_analysis',
+                `${stepNum++}. FEM & DEM Analysis`,
+              ]);
             } else if (!isSurface) {
               rawStages.push([
                 'support_system',
                 `${stepNum++}. Support System`,
+              ]);
+              rawStages.push([
+                'fem_dem_analysis',
+                `${stepNum++}. FEM & DEM Analysis`,
               ]);
             }
 
@@ -5015,6 +5089,36 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               <button
                 key={stKey}
                 onClick={() => {
+                  if (stKey === 'project_setup' && stage !== 'project_setup') {
+                    requestEditConfirmation(
+                      'project_setup_stage',
+                      `${activeProject ? formatDomainProjName(activeProject.projectName) : 'Project'} • ${
+                        activeLocation ? formatDomainLocName(activeLocation.name) : 'Location'
+                      }`,
+                      () => {
+                        if (pending2DTrace) {
+                          commitPending2DTraceToRound(pending2DTrace);
+                        }
+                        setStage('project_setup');
+                      }
+                    );
+                    return;
+                  }
+                  if (stKey === 'excavation_round' && stage !== 'excavation_round') {
+                    requestEditConfirmation(
+                      'face',
+                      activeRound
+                        ? `${mappingDomain === 'TUNNEL' ? 'CH' : 'ST'} ${activeRound.chainageFrom}m → ${activeRound.chainageTo}m`
+                        : 'Active Face Round',
+                      () => {
+                        if (pending2DTrace) {
+                          commitPending2DTraceToRound(pending2DTrace);
+                        }
+                        setStage('excavation_round');
+                      }
+                    );
+                    return;
+                  }
                   if (pending2DTrace) {
                     commitPending2DTraceToRound(pending2DTrace);
                   }
@@ -5045,7 +5149,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => setIsProjectConfigModalOpen(true)}
+            onClick={() =>
+              requestEditConfirmation(
+                'face',
+                `${activeProject ? formatDomainProjName(activeProject.projectName) : 'Project'} • ${
+                  activeLocation ? formatDomainLocName(activeLocation.name) : 'Location'
+                } (${activeRound ? `CH ${activeRound.chainageFrom}m–${activeRound.chainageTo}m` : 'Face'})`,
+                () => setIsProjectConfigModalOpen(true)
+              )
+            }
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-950/70 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-500/50 text-xs font-mono font-bold transition-all cursor-pointer shadow-sm"
             title="Configure Project, Drive Azimuth (0-360°), Chainage & Geotechnical Ratings (RMR / Q-System)"
           >
@@ -5248,7 +5360,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => setShowProjectSettingsBox((v) => !v)}
+                  onClick={() => {
+                    if (showProjectSettingsBox) {
+                      setShowProjectSettingsBox(false);
+                    } else {
+                      requestEditConfirmation(
+                        'project',
+                        activeProject
+                          ? formatDomainProjName(activeProject.projectName)
+                          : 'Active Project',
+                        () => setShowProjectSettingsBox(true)
+                      );
+                    }
+                  }}
                   className={`px-2 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 border cursor-pointer ${
                     showProjectSettingsBox
                       ? 'bg-cyan-500 text-slate-950 border-cyan-300'
@@ -6725,11 +6849,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         <div
                           key={rd.id}
                           onClick={() => {
-                            if (rd.mappingMethod) {
-                              setWorkflowMode(rd.mappingMethod);
-                            }
-                            setStore((prev) => ({ ...prev, activeRoundId: rd.id }));
-                            setStage('excavation_round');
+                            requestEditConfirmation('face', roundLabel, () => {
+                              if (rd.mappingMethod) {
+                                setWorkflowMode(rd.mappingMethod);
+                              }
+                              setStore((prev) => ({ ...prev, activeRoundId: rd.id }));
+                              setStage('excavation_round');
+                            });
                           }}
                           className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
                             isSel
@@ -6782,6 +6908,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   ? `Pull: ${rd.pullLengthMeters}m`
                                   : `Span: ${rd.pullLengthMeters}m`}
                               </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  requestEditConfirmation('face', roundLabel, () => {
+                                    if (rd.mappingMethod) {
+                                      setWorkflowMode(rd.mappingMethod);
+                                    }
+                                    setStore((prev) => ({ ...prev, activeRoundId: rd.id }));
+                                    setStage('excavation_round');
+                                  });
+                                }}
+                                className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 hover:text-white cursor-pointer shrink-0 flex items-center gap-1 text-[10.5px] font-bold"
+                                title="Edit Face / Excavation Round Details"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                <span>Edit</span>
+                              </button>
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -10737,7 +10881,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             const isSel = selectedTraceId === tr.id;
                             const baseTrW = Math.max(1.2, Math.min(16, tr.strokeWidthPx ?? 3.6));
                             const isCrownPanel = panelId === 'crown';
-                            const crownStrikeVal = ((tr.dipDirection - 90) % 360 + 360) % 360;
+                            const crownStrikeVal =
+                              isCrownPanel && tr.points.length >= 2
+                                ? estimateTraceOrientationFromGeometry(
+                                    tr.points,
+                                    'crown',
+                                    activeRound.tunnelDriveDirection,
+                                    tr.crownDipSign || '+90'
+                                  ).strike
+                                : tr.strike !== undefined
+                                ? tr.strike
+                                : ((tr.dipDirection - 90) % 360 + 360) % 360;
                             const crownPair = getCrownStrikePair(crownStrikeVal);
                             const prefixLabel = tr.label || (tr.setId && tr.setId !== 'unassigned' ? tr.setId : 'J');
                             const placement = pTraceLabelMap[tr.id];
@@ -10891,23 +11045,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     onPointerUp={(e) => handleJointTextPointerUp(e, tr.id)}
                                   >
                                     <title>{`Joint ${prefixLabel}: ${inlineText} · Double-click or double-tap to inspect in 3D`}</title>
-                                    {/* Protective high contrast backdrop badge: prevents intersecting lines from disturbing text */}
-                                    <rect
-                                      x={placement.x - placement.boxW / 2}
-                                      y={placement.y - placement.boxH / 2}
-                                      width={placement.boxW}
-                                      height={placement.boxH}
-                                      rx={5}
-                                      ry={5}
-                                      fill={photoCanvasTheme === 'light' ? '#FFFFFF' : '#0B0F19'}
-                                      fillOpacity={0.94}
-                                      stroke={isSel ? '#38BDF8' : grpColor.stroke}
-                                      strokeWidth={isSel ? 2.2 : 1.2}
-                                      transform={`rotate(${placement.angleDeg.toFixed(
-                                        1
-                                      )}, ${placement.x.toFixed(1)}, ${placement.y.toFixed(1)})`}
-                                      filter="drop-shadow(0px 1px 2px rgba(0,0,0,0.35))"
-                                    />
                                     <text
                                       x={placement.x}
                                       y={placement.y + effectiveLabelFontSize * 0.35}
@@ -10919,6 +11056,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                       fontWeight="900"
                                       fontFamily="Arial, sans-serif"
                                       fill={grpColor.stroke}
+                                      stroke="#ffffff"
+                                      strokeWidth="3.5"
+                                      paintOrder="stroke"
                                     >
                                       {inlineText}
                                     </text>
@@ -11141,7 +11281,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                               const isCrownDrawing = panelId === 'crown';
                               const liveCrownPair = getCrownStrikePair(
-                                ((previewDipDir - 90) % 360 + 360) % 360
+                                isCrownDrawing
+                                  ? liveEst.strike
+                                  : ((previewDipDir - 90) % 360 + 360) % 360
                               );
                               const liveText = isCrownDrawing
                                 ? `${prefixTag} STR ${liveCrownPair.label}`
@@ -13872,6 +14014,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         <FieldStripAlignmentStage
           activeLocation={activeLocation}
           activeRound={activeRound}
+          rememberedRocks={store.rememberedRocks || []}
           onUpdateRound={updateActiveRound}
           onBackToCanvas={() => setStage('joint_grouping')}
           onCompleteAndContinue={() => setStage('discontinuity_sets')}
@@ -13920,7 +14063,26 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           surfaceParams={surfaceParams}
           onUpdateRound={updateActiveRound}
           onBackToClassifications={() => setStage('q_rmr_gsi')}
-          onContinueToSurvey={() => setStage(mappingDomain === 'TUNNEL' ? 'survey_overbreak' : 'word_template_export')}
+          onContinueToSurvey={() => setStage('fem_dem_analysis')}
+        />
+      )}
+
+      {/* ==================== STAGE 9B: INTEGRATED FEM & DEM ANALYSIS (PRESENT SCENARIO) ==================== */}
+      {stage === 'fem_dem_analysis' && activeProject && activeLocation && activeRound && (
+        <FieldFemDemAnalysisStage
+          activeProject={activeProject}
+          activeLocation={activeLocation}
+          activeRound={activeRound}
+          mappingDomain={mappingDomain}
+          surfaceParams={surfaceParams}
+          onUpdateRound={updateActiveRound}
+          onBackToSupport={() => setStage('support_system')}
+          onContinueToNextStage={() =>
+            setStage(mappingDomain === 'TUNNEL' ? 'survey_overbreak' : 'word_template_export')
+          }
+          nextStageLabel={
+            mappingDomain === 'TUNNEL' ? 'Next: Survey Overbreak' : 'Next: Clean Report'
+          }
         />
       )}
 
@@ -13932,7 +14094,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           activeRound={activeRound}
           onUpdateProject={updateActiveProject}
           onUpdateRound={updateActiveRound}
-          onBackToSupport={() => setStage('support_system')}
+          onBackToSupport={() => setStage('fem_dem_analysis')}
           onContinueToReport={() => setStage('word_template_export')}
         />
       )}
@@ -13986,7 +14148,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 if (mappingDomain === 'TUNNEL') {
                   setStage('survey_overbreak');
                 } else if (mappingDomain === 'SLOPE' || mappingDomain === 'BENCH') {
-                  setStage('support_system');
+                  setStage('fem_dem_analysis');
                 } else {
                   setStage('q_rmr_gsi');
                 }
@@ -14284,6 +14446,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     ),
                   }));
                 }
+                const nextHasLeft = evalProf?.hasLeftWall ?? nextGeometry.hasLeftWall ?? true;
+                const nextHasRight = evalProf?.hasRightWall ?? nextGeometry.hasRightWall ?? true;
+                const nextHasCrown = evalProf?.hasCrown ?? nextGeometry.hasCrown ?? true;
+                if (
+                  (activePanel === 'left_wall' && !nextHasLeft) ||
+                  (activePanel === 'right_wall' && !nextHasRight) ||
+                  (activePanel === 'crown' && !nextHasCrown)
+                ) {
+                  setActivePanel('face');
+                }
                 setCustomBuilderTarget(null);
                 setCustomBuilderLocationId(null);
               }}
@@ -14532,6 +14704,56 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         qParamStatus={fieldQParamStatus}
         onUpdateQParamStatus={setFieldQParamStatus}
       />
+
+      {/* Warning & Confirmation Modal before Editing Project, Location, or Face */}
+      {pendingEditConfirm && (
+        <div
+          onClick={() => setPendingEditConfirm(null)}
+          className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-md w-full bg-slate-900 border-2 border-amber-500/70 rounded-2xl p-5 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center gap-2.5 text-amber-400">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <h3 className="text-sm font-black uppercase tracking-wider text-white">
+                {pendingEditConfirm.title}
+              </h3>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 text-xs text-amber-200 font-mono font-bold">
+              Target: {pendingEditConfirm.targetLabel}
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {pendingEditConfirm.warningDetail}
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setPendingEditConfirm(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const action = pendingEditConfirm.onConfirm;
+                  setPendingEditConfirm(null);
+                  action();
+                }}
+                className="px-5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider cursor-pointer shadow-lg flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                <span>OK</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       </div>
     </div>
