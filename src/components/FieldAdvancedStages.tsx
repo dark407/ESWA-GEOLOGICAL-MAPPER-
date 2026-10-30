@@ -54,6 +54,11 @@ import {
 } from '../engine/surfaceMappingEngine';
 import { FieldSupport3DInteractiveCanvas } from './FieldSupport3DInteractiveCanvas';
 import { TunnelJunctionFactorModal } from './TunnelJunctionFactorModal';
+import {
+  NgiQSupportChartInteractivePanel,
+  NmtAdvancedNgiQWorkbench,
+} from './NmtNgiQSystemComponents';
+import { FieldTunnelBenchHatchAndLineSvg } from './FieldMappingCompassAndPatterns';
 
 // ============================================================================
 // REUSABLE TEMPLATE EDIT PANEL (HEADER LOGOS, MISSING TICK-BOXES, CUSTOM WORD TEMPLATE)
@@ -433,11 +438,14 @@ export const FieldDiscontinuitySetsStage: React.FC<{
           const grpColor = FIELD_JOINT_GROUP_COLORS[setId];
 
           const isSpacingCustom =
-            rec.spacing === 'Custom' || !SPACING_OPTIONS.includes(rec.spacing);
+            rec.spacing === 'Custom' ||
+            (rec.spacing !== '' && !SPACING_OPTIONS.includes(rec.spacing));
           const isPersistenceCustom =
-            rec.persistence === 'Custom' || !PERSISTENCE_OPTIONS.includes(rec.persistence);
+            rec.persistence === 'Custom' ||
+            (rec.persistence !== '' && !PERSISTENCE_OPTIONS.includes(rec.persistence));
           const isApertureCustom =
-            rec.aperture === 'Custom' || !APERTURE_OPTIONS.includes(rec.aperture);
+            rec.aperture === 'Custom' ||
+            (rec.aperture !== '' && !APERTURE_OPTIONS.includes(rec.aperture));
 
           return (
             <div
@@ -536,9 +544,16 @@ export const FieldDiscontinuitySetsStage: React.FC<{
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
                 {/* 1. Spacing (+ Custom Option) */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-amber-300 mb-1">
-                    Spacing
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-bold uppercase text-amber-300">
+                      Spacing
+                    </label>
+                    {!rec.spacing && (
+                      <span className="px-1 py-0.2 rounded bg-amber-950/60 border border-amber-500/70 text-[9px] font-mono text-amber-300">
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={isSpacingCustom ? 'Custom' : rec.spacing}
                     onChange={(e) => {
@@ -550,6 +565,7 @@ export const FieldDiscontinuitySetsStage: React.FC<{
                     }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs"
                   >
+                    <option value="">— Select —</option>
                     {spacingOptionsWithCustom.map((o) => (
                       <option key={o} value={o}>
                         {o}
@@ -578,9 +594,16 @@ export const FieldDiscontinuitySetsStage: React.FC<{
 
                 {/* 2. Persistence (+ Custom Option) */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-amber-300 mb-1">
-                    Persistence
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-bold uppercase text-amber-300">
+                      Persistence
+                    </label>
+                    {!rec.persistence && (
+                      <span className="px-1 py-0.2 rounded bg-amber-950/60 border border-amber-500/70 text-[9px] font-mono text-amber-300">
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={isPersistenceCustom ? 'Custom' : rec.persistence}
                     onChange={(e) => {
@@ -592,6 +615,7 @@ export const FieldDiscontinuitySetsStage: React.FC<{
                     }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs"
                   >
+                    <option value="">— Select —</option>
                     {persistenceOptionsWithCustom.map((o) => (
                       <option key={o} value={o}>
                         {o}
@@ -620,9 +644,16 @@ export const FieldDiscontinuitySetsStage: React.FC<{
 
                 {/* 3. Aperture (+ Custom Option) */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-amber-300 mb-1">
-                    Aperture
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-bold uppercase text-amber-300">
+                      Aperture
+                    </label>
+                    {!rec.aperture && (
+                      <span className="px-1 py-0.2 rounded bg-amber-950/60 border border-amber-500/70 text-[9px] font-mono text-amber-300">
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={isApertureCustom ? 'Custom' : rec.aperture}
                     onChange={(e) => {
@@ -634,6 +665,7 @@ export const FieldDiscontinuitySetsStage: React.FC<{
                     }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs"
                   >
+                    <option value="">— Select —</option>
                     {apertureOptionsWithCustom.map((o) => (
                       <option key={o} value={o}>
                         {o}
@@ -662,14 +694,24 @@ export const FieldDiscontinuitySetsStage: React.FC<{
 
                 {/* 4. Roughness */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                    Roughness
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                      Roughness
+                    </label>
+                    {!rec.roughness && (
+                      <span className="px-1 py-0.2 rounded bg-amber-950/60 border border-amber-500/70 text-[9px] font-mono text-amber-300">
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={rec.roughness}
-                    onChange={(e) => onUpdateSetRecord(setId, { roughness: e.target.value })}
+                    onChange={(e) =>
+                      onUpdateSetRecord(setId, { roughness: e.target.value, enabled: true })
+                    }
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs"
                   >
+                    <option value="">— Select —</option>
                     {ROUGHNESS_OPTIONS.map((o) => (
                       <option key={o} value={o}>
                         {o}
@@ -680,14 +722,24 @@ export const FieldDiscontinuitySetsStage: React.FC<{
 
                 {/* 5. Infilling */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                    Infilling
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                      Infilling
+                    </label>
+                    {!rec.infilling && (
+                      <span className="px-1 py-0.2 rounded bg-amber-950/60 border border-amber-500/70 text-[9px] font-mono text-amber-300">
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={rec.infilling}
-                    onChange={(e) => onUpdateSetRecord(setId, { infilling: e.target.value })}
+                    onChange={(e) =>
+                      onUpdateSetRecord(setId, { infilling: e.target.value, enabled: true })
+                    }
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs"
                   >
+                    <option value="">— Select —</option>
                     {INFILLING_OPTIONS.map((o) => (
                       <option key={o} value={o}>
                         {o}
@@ -698,14 +750,24 @@ export const FieldDiscontinuitySetsStage: React.FC<{
 
                 {/* 6. Weathering */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                    Weathering
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                      Weathering
+                    </label>
+                    {!rec.weathering && (
+                      <span className="px-1 py-0.2 rounded bg-amber-950/60 border border-amber-500/70 text-[9px] font-mono text-amber-300">
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={rec.weathering}
-                    onChange={(e) => onUpdateSetRecord(setId, { weathering: e.target.value })}
+                    onChange={(e) =>
+                      onUpdateSetRecord(setId, { weathering: e.target.value, enabled: true })
+                    }
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs"
                   >
+                    <option value="">— Select —</option>
                     {WEATHERING_OPTIONS.map((o) => (
                       <option key={o} value={o}>
                         {o}
@@ -716,14 +778,24 @@ export const FieldDiscontinuitySetsStage: React.FC<{
 
                 {/* 7. Groundwater */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                    Groundwater
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                      Groundwater
+                    </label>
+                    {!rec.groundwater && (
+                      <span className="px-1 py-0.2 rounded bg-amber-950/60 border border-amber-500/70 text-[9px] font-mono text-amber-300">
+                        Not Selected
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={rec.groundwater}
-                    onChange={(e) => onUpdateSetRecord(setId, { groundwater: e.target.value })}
+                    onChange={(e) =>
+                      onUpdateSetRecord(setId, { groundwater: e.target.value, enabled: true })
+                    }
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs"
                   >
+                    <option value="">— Select —</option>
                     {GROUNDWATER_OPTIONS.map((o) => (
                       <option key={o} value={o}>
                         {o}
@@ -743,9 +815,17 @@ export const FieldDiscontinuitySetsStage: React.FC<{
               Rock Mass Weathering &amp; Intact Strength Index
             </div>
             <div>
-              <span className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                Weathering Grade (ISRM WI – WVI)
-              </span>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400">
+                  Weathering Grade (ISRM WI – WVI)
+                </span>
+                {!activeRound.weatheringIndex && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-950/60 border border-amber-500/70 text-amber-300 font-mono text-[10px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    Not Selected — Click to Select
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-6 gap-1.5">
                 {(
                   [
@@ -775,9 +855,17 @@ export const FieldDiscontinuitySetsStage: React.FC<{
             </div>
 
             <div>
-              <span className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                Rock Strength Index (ISRM R0/S1 – R6/S6)
-              </span>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400">
+                  Rock Strength Index (ISRM R0/S1 – R6/S6)
+                </span>
+                {!activeRound.strengthIndex && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-950/60 border border-amber-500/70 text-amber-300 font-mono text-[10px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    Not Selected — Click to Select
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-6 gap-1.5">
                 {(
                   [
@@ -1233,7 +1321,7 @@ export const FieldJunctionFactorSystemCard: React.FC<{
   };
 
   const handleResetToBaseline = () => {
-    if (onApplyClassPreset) {
+    if (onApplyClassPreset && support.supportClass) {
       onApplyClassPreset(support.supportClass);
       setAppliedMsg(`Support parameters restored to standard ${support.supportClass} baseline`);
       setTimeout(() => setAppliedMsg(null), 4000);
@@ -1452,10 +1540,13 @@ export const FieldJunctionFactorSystemCard: React.FC<{
               </div>
               <div className="flex items-center justify-between font-mono text-[11px]">
                 <span className="text-slate-400">
-                  Baseline Q: <strong className="text-slate-200">{adj.baselineQ}</strong>
+                  Baseline Q:{' '}
+                  <strong className="text-slate-200">
+                    {adj.baselineQ !== null ? adj.baselineQ : 'Not Assessed'}
+                  </strong>
                 </span>
                 <span className="text-amber-400 font-black">
-                  → Q<sub>adj</sub>: {adj.adjustedQ}
+                  → Q<sub>adj</sub>: {adj.adjustedQ !== null ? adj.adjustedQ : 'Not Assessed'}
                 </span>
               </div>
               <div className="text-[9.5px] text-slate-400 truncate font-mono">
@@ -1479,10 +1570,16 @@ export const FieldJunctionFactorSystemCard: React.FC<{
               </div>
               <div className="flex items-center justify-between font-mono text-[11px]">
                 <span className="text-slate-400">
-                  Baseline RMR: <strong className="text-slate-200">{adj.baselineRmr}</strong>
+                  Baseline RMR:{' '}
+                  <strong className="text-slate-200">
+                    {adj.baselineRmr !== null ? adj.baselineRmr : 'Not Assessed'}
+                  </strong>
                 </span>
                 <span className="text-emerald-400 font-black">
-                  → RMR<sub>adj</sub>: {adj.adjustedRmr} (Δ-{adj.deltaRmr})
+                  → RMR<sub>adj</sub>:{' '}
+                  {adj.adjustedRmr !== null
+                    ? `${adj.adjustedRmr} (Δ-${adj.deltaRmr})`
+                    : 'Not Assessed'}
                 </span>
               </div>
               <div className="text-[9.5px] text-slate-400 truncate font-mono">
@@ -1562,8 +1659,8 @@ export const FieldJunctionFactorSystemCard: React.FC<{
           onClose={() => setModalOpen(false)}
           defaultMainSpanM={location?.widthM || 8.5}
           defaultBranchSpanM={(location?.widthM || 8.5) * 0.9}
-          currentQVal={adj.baselineQ}
-          currentRmrVal={adj.baselineRmr}
+          currentQVal={adj.baselineQ ?? 0}
+          currentRmrVal={adj.baselineRmr ?? 0}
           onApplyJunctionFactor={(res) => {
             onUpdateSupport({
               junctionFactorEnabled: true,
@@ -2365,7 +2462,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
   const updateSupportFromClassifications = (patch: Partial<FieldSupportSystemConfig>) => {
     onUpdateRound((r) => {
       const curr = r.supportSystem || createDefaultSupportSystem();
-      const next = { ...curr, ...patch };
+      const next = { ...curr, ...patch, userConfiguredSupport: true };
       return {
         ...r,
         supportSystem: next,
@@ -2900,94 +2997,151 @@ export const FieldRockMassClassificationsStage: React.FC<{
     );
   }
 
+  const isNmtMode = Boolean(activeRound.qSystem?.nmtModeEnabled);
+
+  const handleToggleNmtMode = (enableNmt: boolean) => {
+    onUpdateRound((r) => ({
+      ...r,
+      qSystem: {
+        ...r.qSystem,
+        nmtModeEnabled: enableNmt,
+      },
+      selectedClassifications: enableNmt
+        ? {
+            ...(r.selectedClassifications || { q: true, rmr: true, gsi: true }),
+            q: true,
+          }
+        : r.selectedClassifications,
+    }));
+    if (enableNmt) {
+      setActiveTab('q');
+    }
+  };
+
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 bg-slate-950 overflow-hidden">
       {/* Top Classification Switcher & Navigation Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Tab 1: Q-System */}
-          <div className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950 p-0.5">
-            <button
-              type="button"
-              onClick={() => setActiveTab('q')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-2 cursor-pointer transition-all ${
-                activeTab === 'q'
-                  ? 'bg-amber-500 text-slate-950 shadow'
-                  : 'text-slate-300 hover:text-white'
+          {/* ★ NMT — NORWEGIAN METHOD OF TUNNELLING EXCLUSIVE MODE TOGGLE */}
+          <button
+            type="button"
+            onClick={() => handleToggleNmtMode(!isNmtMode)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 border-2 cursor-pointer transition-all ${
+              isNmtMode
+                ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-lg shadow-amber-500/20'
+                : 'bg-slate-950 hover:bg-slate-800 text-amber-400 border-amber-500/60'
+            }`}
+            title="Switch to NMT — Norwegian Method of Tunnelling (Exclusive Advanced NGI Q-Index Mode)"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>NMT — Norwegian Method of Tunnelling</span>
+            <span
+              className={`font-mono px-1.5 py-0.5 rounded text-[10.5px] font-bold ${
+                isNmtMode
+                  ? 'bg-slate-950 text-amber-300'
+                  : 'bg-amber-500/20 text-amber-300'
               }`}
             >
-              <span>1. Barton Q-System</span>
-              <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-amber-300 text-[11px]">
-                Q = {qRes.qValue !== null ? qRes.qValue : 'Not Assessed'}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleIncludeInReport('q')}
-              className={`px-2 py-1 text-[10px] font-bold rounded cursor-pointer ${
-                selClass.q ? 'text-emerald-400' : 'text-slate-500'
-              }`}
-              title="Include Q-System in final report"
-            >
-              {selClass.q ? '☑ In Report' : '☐ Hidden'}
-            </button>
-          </div>
+              {isNmtMode ? 'ACTIVE (Advanced NGI Q-Index Only)' : 'Click for Exclusive NGI Q'}
+            </span>
+          </button>
 
-          {/* Tab 2: RMR89 */}
-          <div className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950 p-0.5">
+          {isNmtMode ? (
             <button
               type="button"
-              onClick={() => setActiveTab('rmr')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-2 cursor-pointer transition-all ${
-                activeTab === 'rmr'
-                  ? 'bg-cyan-500 text-slate-950 shadow'
-                  : 'text-slate-300 hover:text-white'
-              }`}
+              onClick={() => handleToggleNmtMode(false)}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold cursor-pointer transition-all"
             >
-              <span>2. Bieniawski RMR89</span>
-              <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-cyan-300 text-[11px]">
-                RMR = {rmrRes.totalRmr !== null ? rmrRes.totalRmr : 'Not Assessed'}
-              </span>
+              ← Return to Standard Mode (Q | RMR89 | GSI)
             </button>
-            <button
-              type="button"
-              onClick={() => toggleIncludeInReport('rmr')}
-              className={`px-2 py-1 text-[10px] font-bold rounded cursor-pointer ${
-                selClass.rmr ? 'text-emerald-400' : 'text-slate-500'
-              }`}
-              title="Include RMR89 in final report"
-            >
-              {selClass.rmr ? '☑ In Report' : '☐ Hidden'}
-            </button>
-          </div>
+          ) : (
+            <>
+              {/* Tab 1: Q-System */}
+              <div className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('q')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-2 cursor-pointer transition-all ${
+                    activeTab === 'q'
+                      ? 'bg-amber-500 text-slate-950 shadow'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <span>1. Barton Q-System</span>
+                  <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-amber-300 text-[11px]">
+                    Q = {qRes.qValue !== null ? qRes.qValue : 'Not Assessed'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleIncludeInReport('q')}
+                  className={`px-2 py-1 text-[10px] font-bold rounded cursor-pointer ${
+                    selClass.q ? 'text-emerald-400' : 'text-slate-500'
+                  }`}
+                  title="Include Q-System in final report"
+                >
+                  {selClass.q ? '☑ In Report' : '☐ Hidden'}
+                </button>
+              </div>
 
-          {/* Tab 3: GSI Sheet */}
-          <div className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950 p-0.5">
-            <button
-              type="button"
-              onClick={() => setActiveTab('gsi')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-2 cursor-pointer transition-all ${
-                activeTab === 'gsi'
-                  ? 'bg-emerald-500 text-slate-950 shadow'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <span>3. GSI Sheet (Hoek-Brown)</span>
-              <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-emerald-300 text-[11px]">
-                GSI = {activeRound.gsiValue !== null && activeRound.gsiValue !== undefined ? activeRound.gsiValue : 'Not Assessed'}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleIncludeInReport('gsi')}
-              className={`px-2 py-1 text-[10px] font-bold rounded cursor-pointer ${
-                selClass.gsi ? 'text-emerald-400' : 'text-slate-500'
-              }`}
-              title="Include GSI in final report"
-            >
-              {selClass.gsi ? '☑ In Report' : '☐ Hidden'}
-            </button>
-          </div>
+              {/* Tab 2: RMR89 */}
+              <div className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('rmr')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-2 cursor-pointer transition-all ${
+                    activeTab === 'rmr'
+                      ? 'bg-cyan-500 text-slate-950 shadow'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <span>2. Bieniawski RMR89</span>
+                  <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-cyan-300 text-[11px]">
+                    RMR = {rmrRes.totalRmr !== null ? rmrRes.totalRmr : 'Not Assessed'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleIncludeInReport('rmr')}
+                  className={`px-2 py-1 text-[10px] font-bold rounded cursor-pointer ${
+                    selClass.rmr ? 'text-emerald-400' : 'text-slate-500'
+                  }`}
+                  title="Include RMR89 in final report"
+                >
+                  {selClass.rmr ? '☑ In Report' : '☐ Hidden'}
+                </button>
+              </div>
+
+              {/* Tab 3: GSI Sheet */}
+              <div className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('gsi')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-2 cursor-pointer transition-all ${
+                    activeTab === 'gsi'
+                      ? 'bg-emerald-500 text-slate-950 shadow'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <span>3. GSI Sheet (Hoek-Brown)</span>
+                  <span className="font-mono px-1.5 py-0.5 rounded bg-slate-900/90 text-emerald-300 text-[11px]">
+                    GSI = {activeRound.gsiValue !== null && activeRound.gsiValue !== undefined ? activeRound.gsiValue : 'Not Assessed'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleIncludeInReport('gsi')}
+                  className={`px-2 py-1 text-[10px] font-bold rounded cursor-pointer ${
+                    selClass.gsi ? 'text-emerald-400' : 'text-slate-500'
+                  }`}
+                  title="Include GSI in final report"
+                >
+                  {selClass.gsi ? '☑ In Report' : '☐ Hidden'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -3012,8 +3166,27 @@ export const FieldRockMassClassificationsStage: React.FC<{
 
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+        {/* ==================== EXCLUSIVE NMT MODE: ADVANCED NGI Q-INDEX ONLY ==================== */}
+        {isNmtMode && (
+          <div className="space-y-3">
+            <NmtAdvancedNgiQWorkbench
+              activeLocation={activeLocation}
+              activeRound={activeRound}
+              onUpdateRound={onUpdateRound}
+              onContinueToSupport={onContinueToSupport}
+            />
+            <FieldProtectionCavitySupportDesigner
+              support={support}
+              onUpdateSupport={updateSupportFromClassifications}
+              location={activeLocation}
+              round={activeRound}
+              showLiveDrawing={Boolean(support.protectionSupportEnabled)}
+            />
+          </div>
+        )}
+
         {/* ==================== TAB 1: BARTON Q-SYSTEM INTERACTIVE CHOOSER ==================== */}
-        {activeTab === 'q' && (
+        {!isNmtMode && activeTab === 'q' && (
           <div className="space-y-3">
             {/* Live Q Formula Result Banner */}
             <div className="bg-slate-900 border border-amber-500/40 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
@@ -3188,7 +3361,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
         )}
 
         {/* ==================== TAB 2: BIENIAWSKI RMR89 INTERACTIVE CHOOSER ==================== */}
-        {activeTab === 'rmr' && (
+        {!isNmtMode && activeTab === 'rmr' && (
           <div className="space-y-3">
             {/* Live RMR89 Total Banner */}
             <div className="bg-slate-900 border border-cyan-500/40 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
@@ -3354,7 +3527,7 @@ export const FieldRockMassClassificationsStage: React.FC<{
         )}
 
         {/* ==================== TAB 3: HOEK & MARINOS INTERACTIVE 2D GSI SHEET ==================== */}
-        {activeTab === 'gsi' && (
+        {!isNmtMode && activeTab === 'gsi' && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -4311,6 +4484,18 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
         />
       )}
 
+      {/* 2B. Dotted Bench Line & Hatched Bench / Top Portion for Top Heading & Benching / Top Heading / Benching */}
+      <FieldTunnelBenchHatchAndLineSvg
+        location={location}
+        round={round}
+        boxX={boxX}
+        boxY={boxY}
+        boxW={boxW}
+        boxH={boxH}
+        clipPathD={faceDetails.closedFillPathD}
+        idSuffix={`support-2d-${round.id}`}
+      />
+
       {/* Centerline & SPL Reference Dashed Lines */}
       <line
         x1={cx}
@@ -4659,10 +4844,42 @@ export const FieldSupportSystemStage: React.FC<{
   );
   const [spot3DViewMode, setSpot3DViewMode] = useState<'3D_WEBGL' | '2D_SVG'>('3D_WEBGL');
 
+  const qRes = useMemo(() => computeFieldQValue(activeRound.qSystem), [activeRound.qSystem]);
+  const rmrRes = useMemo(
+    () => computeFieldRmrValue(activeRound.rmrSystem),
+    [activeRound.rmrSystem]
+  );
+
+  // Derive calculated Rock Support Class strictly from assessed RMR89 or Q-System
+  const calculatedSupportClass: 'Class I' | 'Class II' | 'Class III' | 'Class IV' | 'Class V' | null =
+    useMemo(() => {
+      if (rmrRes.totalRmr !== null) {
+        if (rmrRes.totalRmr >= 81) return 'Class I';
+        if (rmrRes.totalRmr >= 61) return 'Class II';
+        if (rmrRes.totalRmr >= 41) return 'Class III';
+        if (rmrRes.totalRmr >= 21) return 'Class IV';
+        return 'Class V';
+      }
+      if (qRes.qValue !== null) {
+        if (qRes.qValue > 40) return 'Class I';
+        if (qRes.qValue > 10) return 'Class II';
+        if (qRes.qValue > 4) return 'Class III';
+        if (qRes.qValue > 1) return 'Class IV';
+        return 'Class V';
+      }
+      return null;
+    }, [rmrRes.totalRmr, qRes.qValue]);
+
+  const isClassificationAssessed = rmrRes.totalRmr !== null || qRes.qValue !== null;
+  const isSupportClassOverridden =
+    Boolean(support.supportClass) &&
+    support.supportClass !== 'Custom' &&
+    (calculatedSupportClass === null || support.supportClass !== calculatedSupportClass);
+
   const updateSupport = (patch: Partial<FieldSupportSystemConfig>) => {
     onUpdateRound((r) => {
       const curr = r.supportSystem || createDefaultSupportSystem();
-      const next = { ...curr, ...patch };
+      const next = { ...curr, ...patch, userConfiguredSupport: true };
       return {
         ...r,
         supportSystem: next,
@@ -5071,8 +5288,19 @@ export const FieldSupportSystemStage: React.FC<{
   if (isSurface) {
     const slopeBetaDeg = surfaceParams?.faceDipAngleDeg || 65;
     const slopeHeightVal = surfaceParams?.slopeHeightMeters || (surfaceParams?.benchHeightMeters ? surfaceParams.benchHeightMeters : 12);
-    const smrScore = activeRound.rmrTotal ? Math.max(15, activeRound.rmrTotal - 10) : 55;
-    const smrClass = smrScore >= 81 ? 'Class I (Completely Stable)' : smrScore >= 61 ? 'Class II (Stable)' : smrScore >= 41 ? 'Class III (Partially Stable)' : smrScore >= 21 ? 'Class IV (Unstable)' : 'Class V (Completely Unstable)';
+    const smrScore = rmrRes.totalRmr !== null ? Math.max(15, rmrRes.totalRmr - 10) : null;
+    const smrClass =
+      smrScore === null
+        ? 'Not Assessed (RMR89 Required)'
+        : smrScore >= 81
+        ? 'Class I (Completely Stable)'
+        : smrScore >= 61
+        ? 'Class II (Stable)'
+        : smrScore >= 41
+        ? 'Class III (Partially Stable)'
+        : smrScore >= 21
+        ? 'Class IV (Unstable)'
+        : 'Class V (Completely Unstable)';
 
     const applySurfacePreset = (preset: 'Class I' | 'Class II' | 'Class III' | 'Class IV' | 'Class V') => {
       if (preset === 'Class I') {
@@ -5176,11 +5404,11 @@ export const FieldSupportSystemStage: React.FC<{
       }
     };
 
-    const soilNailActive = support.soilNailEnabled ?? support.rockBoltsEnabled ?? true;
-    const shotcreteActive = support.shotcreteEnabled ?? true;
-    const meshActive = support.wireMeshEnabled ?? true;
-    const weepHolesActive = support.weepHolesEnabled ?? true;
-    const subDrainsActive = support.subHorizontalDrainsEnabled ?? true;
+    const soilNailActive = Boolean(support.soilNailEnabled ?? support.rockBoltsEnabled);
+    const shotcreteActive = Boolean(support.shotcreteEnabled);
+    const meshActive = Boolean(support.wireMeshEnabled);
+    const weepHolesActive = Boolean(support.weepHolesEnabled);
+    const subDrainsActive = Boolean(support.subHorizontalDrainsEnabled);
 
     return (
       <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 sm:p-3 bg-slate-950 overflow-hidden font-sans">
@@ -5237,20 +5465,40 @@ export const FieldSupportSystemStage: React.FC<{
           {/* Left Column: Simple Stabilization Controls */}
           <div className="lg:col-span-7 min-h-0 overflow-y-auto space-y-3 pr-1">
             {/* Romana SMR Recommendation Banner */}
-            <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-xl p-3 space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-emerald-400 uppercase tracking-wider">
-                  Romana (1985) Slope Stabilization Recommendation
-                </span>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold text-[11px]">
-                  {smrClass}
-                </span>
+            {smrScore === null ? (
+              <div className="bg-amber-950/60 border border-amber-500/60 rounded-xl p-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-black text-amber-300 uppercase tracking-wider">
+                    ⚠ RMR89 / SMR Classification Not Assessed
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onBackToClassifications}
+                    className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] cursor-pointer"
+                  >
+                    ← Calculate RMR89 &amp; SMR First
+                  </button>
+                </div>
+                <p className="text-xs text-amber-200/90 leading-relaxed">
+                  Slope stabilization class and support elements are not pre-filled without an assessed RMR89 / Romana SMR rating. Complete the RMR89 &amp; SMR classification first or explicitly select a stabilization class above.
+                </p>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed font-mono">
-                {support.slopeStabilizationSummary ||
-                  'Systematic pattern soil nails (L=4.5m @ 1.5×1.5m) + TECCO® G65 High-Tensile Wire Mesh + 75mm SFRS Shotcrete with Ø50mm PVC weep holes @ 2.0m c/c + Sub-horizontal drainage relief holes.'}
-              </p>
-            </div>
+            ) : (
+              <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-xl p-3 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-emerald-400 uppercase tracking-wider">
+                    Romana (1985) Slope Stabilization Recommendation
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold text-[11px]">
+                    {smrClass}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed font-mono">
+                  {support.slopeStabilizationSummary ||
+                    'Select a stabilization class above or enable specific stabilization elements below.'}
+                </p>
+              </div>
+            )}
 
             {/* 1. Soil Nails & Rock Anchors Card */}
             <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2.5">
@@ -5587,7 +5835,7 @@ export const FieldSupportSystemStage: React.FC<{
                 <label className="flex items-center gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={Boolean(support.crestDrainDitchEnabled ?? true)}
+                    checked={Boolean(support.crestDrainDitchEnabled)}
                     onChange={(e) => updateSupport({ crestDrainDitchEnabled: e.target.checked })}
                     className="w-4 h-4 accent-sky-400 rounded cursor-pointer"
                   />
@@ -5637,7 +5885,7 @@ export const FieldSupportSystemStage: React.FC<{
                 </g>
 
                 {/* Crest Interceptor Ditch */}
-                {Boolean(support.crestDrainDitchEnabled ?? true) && (
+                {Boolean(support.crestDrainDitchEnabled) && (
                   <g>
                     <polygon points="120,50 128,62 136,50" fill="#0284c7" stroke="#0369a1" strokeWidth="1.5" />
                     <text x="128" y="42" textAnchor="middle" fontSize="8" fontWeight="bold" fontFamily="monospace" fill="#0369a1">
@@ -5809,23 +6057,43 @@ export const FieldSupportSystemStage: React.FC<{
           <span className="text-xs font-black uppercase tracking-wider text-amber-400 whitespace-nowrap">
             Support System
           </span>
+          {!support.supportClass && (
+            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase whitespace-nowrap">
+              Not Selected — Select Class or Calculate RMR/Q
+            </span>
+          )}
           {/* Support Class Selector */}
           <div className="flex items-center gap-0.5 bg-slate-950 border border-slate-700 rounded-lg p-0.5 shrink-0">
             {(['Class I', 'Class II', 'Class III', 'Class IV', 'Class V', 'Custom'] as const).map(
-              (cls) => (
-                <button
-                  key={cls}
-                  type="button"
-                  onClick={() => applySupportClassPreset(cls)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap transition-all ${
-                    support.supportClass === cls
-                      ? 'bg-amber-500 text-slate-950 shadow'
-                      : 'text-slate-300 hover:text-white'
-                  }`}
-                >
-                  {cls}
-                </button>
-              )
+              (cls) => {
+                const isRec = calculatedSupportClass === cls;
+                return (
+                  <button
+                    key={cls}
+                    type="button"
+                    onClick={() => applySupportClassPreset(cls)}
+                    className={`px-2 py-0.5 rounded text-[11px] font-black cursor-pointer whitespace-nowrap transition-all flex items-center gap-1 ${
+                      support.supportClass === cls
+                        ? 'bg-amber-500 text-slate-950 shadow'
+                        : isRec
+                        ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-900/80'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                    title={
+                      isRec
+                        ? `Calculated Rock Mass Class from RMR89/Q-System (${cls})`
+                        : `Apply ${cls} Support Prescription`
+                    }
+                  >
+                    <span>{cls}</span>
+                    {isRec && (
+                      <span className="text-[9px] px-1 rounded bg-emerald-500/30 text-emerald-200 font-mono">
+                        ★Calc
+                      </span>
+                    )}
+                  </button>
+                );
+              }
             )}
           </div>
         </div>
@@ -5850,11 +6118,115 @@ export const FieldSupportSystemStage: React.FC<{
         </div>
       </div>
 
+      {/* Prerequisite Gate Banner when RMR89 & Q-System Have Not Been Calculated */}
+      {!isClassificationAssessed && (
+        <div className="bg-rose-950/75 border-2 border-rose-500/70 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-lg">
+          <div className="space-y-1 max-w-4xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2 py-0.5 rounded bg-rose-500 text-white text-[10px] font-black uppercase tracking-wider">
+                Prerequisite Missing
+              </span>
+              <span className="text-xs font-black uppercase tracking-wider text-rose-200">
+                Rock Mass Classification (Bieniawski RMR89 / Barton Q-System) Not Assessed
+              </span>
+            </div>
+            <p className="text-[11px] text-rose-100/90 leading-relaxed">
+              Support System class and reinforcement elements cannot be auto-populated without a valid RMR89 or Q-System calculation.
+              Missing RMR89 inputs:{' '}
+              <span className="font-mono font-bold text-amber-300">
+                {[
+                  activeRound.rmrSystem?.ucsRating == null ? 'UCS (R1)' : null,
+                  activeRound.rmrSystem?.rqdRating == null ? 'RQD (R2)' : null,
+                  activeRound.rmrSystem?.spacingRating == null ? 'Spacing (R3)' : null,
+                  activeRound.rmrSystem?.conditionRating == null ? 'Condition (R4)' : null,
+                  activeRound.rmrSystem?.waterRating == null ? 'Groundwater (R5)' : null,
+                  activeRound.rmrSystem?.orientationAdj == null ? 'Orientation (R6)' : null,
+                ]
+                  .filter(Boolean)
+                  .join(', ') || 'None'}
+              </span>{' '}
+              • Missing Q inputs:{' '}
+              <span className="font-mono font-bold text-amber-300">
+                {[
+                  activeRound.qSystem?.rqd == null ? 'RQD' : null,
+                  activeRound.qSystem?.jn == null ? 'Jn' : null,
+                  activeRound.qSystem?.jr == null ? 'Jr' : null,
+                  activeRound.qSystem?.ja == null ? 'Ja' : null,
+                  activeRound.qSystem?.jw == null ? 'Jw' : null,
+                  activeRound.qSystem?.srf == null ? 'SRF' : null,
+                ]
+                  .filter(Boolean)
+                  .join(', ') || 'None'}
+              </span>
+              .
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onBackToClassifications}
+            className="px-3.5 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer shrink-0"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Calculate RMR89 / Q-System First</span>
+          </button>
+        </div>
+      )}
+
+      {/* Explicit Engineering Warning when User Manually Overrides or Changes Rock Support Class */}
+      {isSupportClassOverridden && (
+        <div className="bg-amber-950/80 border-2 border-amber-500/80 rounded-xl px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0 shadow-md">
+          <div className="space-y-1 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black uppercase">
+                Engineering Override Warning
+              </span>
+              <span className="text-xs font-black text-amber-200">
+                {calculatedSupportClass
+                  ? `Selected Support (${support.supportClass}) Differs from Calculated Rock Mass Class (${calculatedSupportClass} • ${
+                      rmrRes.totalRmr !== null ? `RMR89=${rmrRes.totalRmr}` : `Q=${qRes.qValue}`
+                    })`
+                  : `Support Class (${support.supportClass}) Selected Without Completed RMR89 / Q-System Calculation`}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              <span className="text-[11px] text-amber-100/90 font-semibold">
+                Override Justification (Logged in Report):
+              </span>
+              <input
+                type="text"
+                value={support.overrideReason || ''}
+                onChange={(e) => updateSupport({ overrideReason: e.target.value })}
+                placeholder="Enter geotechnical justification for overriding rock support class (e.g. shear zone at crown, high cover)..."
+                className="flex-1 min-w-[240px] bg-slate-950/90 border border-amber-500/50 rounded-lg px-2.5 py-1 text-xs text-amber-100 placeholder:text-amber-400/50 focus:outline-none focus:border-amber-400"
+              />
+            </div>
+          </div>
+          {calculatedSupportClass && (
+            <button
+              type="button"
+              onClick={() => applySupportClassPreset(calculatedSupportClass)}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs whitespace-nowrap cursor-pointer shrink-0 shadow"
+            >
+              Sync to Calculated {calculatedSupportClass}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Main 12-Column Workspace */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-2.5 overflow-hidden">
-        {/* Left 6 Columns: Support System Configuration + 3D Spot Bolt Placement */}
+        {/* Left 6 Columns: NGI Q-Support Chart + Support System Configuration + 3D Spot Bolt Placement */}
         <div className="lg:col-span-6 min-h-0 overflow-y-auto space-y-2.5 pr-1">
-          {/* 0. Dedicated Geotechnical Junction Factor & Advance Optimization Card */}
+          {/* 0A. Interactive NGI Q-System Rock Support Chart (NMT — Grimstad & Barton, 1993 / NGI, 2014) */}
+          <NgiQSupportChartInteractivePanel
+            activeLocation={activeLocation}
+            activeRound={activeRound}
+            support={support}
+            onUpdateSupport={updateSupport}
+            onUpdateRound={onUpdateRound}
+          />
+
+          {/* 0B. Dedicated Geotechnical Junction Factor & Advance Optimization Card */}
           <FieldJunctionFactorSystemCard
             support={support}
             round={activeRound}
@@ -7686,6 +8058,18 @@ export const FieldSurveyOverbreakStage: React.FC<{
                   </g>
                 );
               })}
+
+              {/* Dotted Bench Line & Hatched Bench / Top Portion in Survey Overbreak */}
+              <FieldTunnelBenchHatchAndLineSvg
+                location={activeLocation}
+                round={activeRound}
+                boxX={boxX}
+                boxY={boxY}
+                boxW={boxW}
+                boxH={boxH}
+                clipPathD={faceDetails.closedFillPathD}
+                idSuffix={`survey-ob-${activeRound.id}`}
+              />
 
               {/* Contractual Payline Boundary Outline (+150mm standard / user-fed) */}
               {survey.paylineEnabled !== false && paylinePolyPts.length >= 3 && (

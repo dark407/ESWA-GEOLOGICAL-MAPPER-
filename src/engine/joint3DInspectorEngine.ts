@@ -1524,7 +1524,8 @@ export function constructPlaneFromTraceHinge(
   panel: FieldPanelId,
   hingeDipDeg: number,
   directionSide: 'heading' | 'collar' = 'heading',
-  geom: TunnelSpatialGeometry
+  geom: TunnelSpatialGeometry,
+  lockStrikeLineHinge: boolean = false
 ): TraceHingePlaneResult {
   const pFirst = points[0] || { x: 300, y: 300 };
   const pLast = points[points.length - 1] || { x: 700, y: 500 };
@@ -1537,10 +1538,9 @@ export function constructPlaneFromTraceHinge(
   const dz = p2.z - p1.z;
   const traceLen = Math.hypot(dx, dy, dz) || 1e-4;
 
-  const ux = dx / traceLen;
-  const uy = dy / traceLen;
-  const uz = dz / traceLen;
-  const hingeAxis: Vec3D = { x: ux, y: uy, z: uz };
+  let ux = dx / traceLen;
+  let uy = dy / traceLen;
+  let uz = dz / traceLen;
 
   const midPoint: Vec3D = {
     x: (p1.x + p2.x) / 2,
@@ -1548,7 +1548,85 @@ export function constructPlaneFromTraceHinge(
     z: (p1.z + p2.z) / 2,
   };
 
-  const dipAngle = Math.max(0.5, Math.min(89.5, hingeDipDeg));
+  let traceStartPt: Vec3D = p1;
+  let traceEndPt: Vec3D = p2;
+
+  const useStrikeLineHinge = panel === 'crown' || lockStrikeLineHinge;
+
+  if (panel === 'crown') {
+    // On the 2D Crown canvas:
+    // -Y (up canvas) is +X (tunnel drive direction), +X (right canvas) is +Y (right wall).
+    // The mapped crown trace defines the horizontal STRIKE line hinge.
+    const rawDx = pLast.x - pFirst.x;
+    const rawDy = pLast.y - pFirst.y;
+    const rawCanvasLen = Math.hypot(rawDx, rawDy);
+    if (rawCanvasLen > 1e-4) {
+      ux = -rawDy / rawCanvasLen;
+      uy = rawDx / rawCanvasLen;
+      uz = 0;
+    } else {
+      const horizMetricLen = Math.hypot(dx, dy) || 1;
+      ux = dx / horizMetricLen;
+      uy = dy / horizMetricLen;
+      uz = 0;
+    }
+
+    // Canonicalize (ux, uy) so its primary strike azimuth is in [0, 180) regardless of draw order (SPL-to-SPL)
+    const rawRelAz = radToDeg(Math.atan2(uy, ux));
+    const rawGeoStrike = normalizeAngle360(rawRelAz + (geom?.driveAzimuthDeg || 0));
+    if (rawGeoStrike >= 180) {
+      ux = -ux;
+      uy = -uy;
+    }
+
+    // Recompute true arch roof elevation at midPoint.y so the horizontal strike axis is anchored on the crown arch:
+    const w = geom.widthM || 8.0;
+    const cx = w / 2;
+    const hw = geom.wallHeightM || ((geom.heightM || 6.5) * 0.55);
+    const archRise = Math.max(0.5, (geom.heightM || 6.5) - hw);
+    const normDy = Math.max(-1, Math.min(1, (midPoint.y - cx) / Math.max(0.1, w / 2)));
+    midPoint.z = Number((hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy))).toFixed(3));
+
+    const halfLen = traceLen / 2;
+    traceStartPt = {
+      x: Number((midPoint.x - ux * halfLen).toFixed(3)),
+      y: Number((midPoint.y - uy * halfLen).toFixed(3)),
+      z: midPoint.z,
+    };
+    traceEndPt = {
+      x: Number((midPoint.x + ux * halfLen).toFixed(3)),
+      y: Number((midPoint.y + uy * halfLen).toFixed(3)),
+      z: midPoint.z,
+    };
+  } else if (lockStrikeLineHinge) {
+    // Strike Line Hinge mode on Face/Wall: lock horizontal strike line from the 2D mapped trace
+    const rawDx = pLast.x - pFirst.x;
+    const rawDy = pLast.y - pFirst.y;
+    const rawCanvasLen = Math.hypot(rawDx, rawDy);
+    if (rawCanvasLen > 1e-4) {
+      ux = -rawDy / rawCanvasLen;
+      uy = rawDx / rawCanvasLen;
+      uz = 0;
+    } else {
+      const horizMetricLen = Math.hypot(dx, dy) || 1;
+      ux = dx / horizMetricLen;
+      uy = dy / horizMetricLen;
+      uz = 0;
+    }
+    const rawRelAz = radToDeg(Math.atan2(uy, ux));
+    const rawGeoStrike = normalizeAngle360(rawRelAz + (geom?.driveAzimuthDeg || 0));
+    if (rawGeoStrike >= 180) {
+      ux = -ux;
+      uy = -uy;
+    }
+  }
+
+  const hingeAxis: Vec3D = { x: ux, y: uy, z: uz };
+
+  const dipAngle =
+    useStrikeLineHinge
+      ? Math.max(1, Math.min(90, hingeDipDeg || 90))
+      : Math.max(0.5, Math.min(89.5, hingeDipDeg));
   const thetaRad = degToRad(dipAngle);
   const cosT = Math.cos(thetaRad);
   const sinT = Math.sin(thetaRad);
@@ -1559,8 +1637,10 @@ export function constructPlaneFromTraceHinge(
   let vx = 0;
   let vy = 0;
   let vz = 0;
+  let crownHorizDipX = 0;
+  let crownHorizDipY = 0;
 
-  if (panel === 'face') {
+  if (!useStrikeLineHinge && panel === 'face') {
     // Face (X = pullM): Hinge vector (0, uy, uz)
     const wy = -uz;
     const wz = uy;
@@ -1573,7 +1653,7 @@ export function constructPlaneFromTraceHinge(
     nx = uy * vz - uz * vy;
     ny = uz * vx;
     nz = -uy * vx;
-  } else if (panel === 'left_wall') {
+  } else if (!useStrikeLineHinge && panel === 'left_wall') {
     // Left Wall (Y = 0): Hinge vector (ux, 0, uz)
     const wx = -uz;
     const wz = ux;
@@ -1588,7 +1668,7 @@ export function constructPlaneFromTraceHinge(
     nx = -uz * vy;
     ny = uz * vx - ux * vz;
     nz = ux * vy;
-  } else if (panel === 'right_wall') {
+  } else if (!useStrikeLineHinge && panel === 'right_wall') {
     // Right Wall (Y = widthM): Hinge vector (ux, 0, uz)
     const wx = -uz;
     const wz = ux;
@@ -1604,40 +1684,30 @@ export function constructPlaneFromTraceHinge(
     ny = uz * vx - ux * vz;
     nz = ux * vy;
   } else {
-    // Crown (ceiling arch):
-    // The user selects the dip amount directly. The plane tilts around the crown trace axis by dipAngle.
-    // Build an orthonormal basis perpendicular to hingeAxis:
+    // Crown (ceiling arch) or Strike Line Hinge Mode:
+    // The mapped trace defines the fixed horizontal STRIKE line hinge (ux, uy, 0).
+    // Decreasing dipAngle from 90° down to 1° rotates the plane strictly around the Strike Line Hinge
+    // downward toward the invert (-Z), NEVER altering the strike direction.
     const horizLen = Math.hypot(ux, uy);
-    let e1: Vec3D;
-    let e2: Vec3D;
+    const sgnSide = directionSide === 'heading' ? 1 : -1;
     if (horizLen > 1e-4) {
-      // e1 is horizontal and orthogonal to hingeAxis
-      e1 = { x: uy / horizLen, y: -ux / horizLen, z: 0 };
-      // e2 = hingeAxis x e1
-      e2 = {
-        x: (uy * 0 - uz * -ux / horizLen),
-        y: (uz * uy / horizLen - ux * 0),
-        z: (ux * -ux / horizLen - uy * uy / horizLen),
-      };
+      // Horizontal unit vector strictly +90° (heading) or -90° (collar) clockwise from the strike vector (ux, uy):
+      crownHorizDipX = (-uy / horizLen) * sgnSide;
+      crownHorizDipY = (ux / horizLen) * sgnSide;
     } else {
-      e1 = { x: 1, y: 0, z: 0 };
-      e2 = { x: 0, y: 1, z: 0 };
+      crownHorizDipX = 0;
+      crownHorizDipY = sgnSide;
     }
 
-    // Dip angle determines tilt relative to horizontal.
-    // directionSide: 'heading' tilts towards heading (+X), 'collar' tilts backwards towards collar (-X)
-    const sgnSide = directionSide === 'heading' ? 1 : -1;
-    const normAngle = thetaRad * sgnSide;
+    // Downward dipVector perpendicular to strikeVector, dipping at dipAngle (ideal = 90°) toward the invert (-Z):
+    vx = crownHorizDipX * cosT;
+    vy = crownHorizDipY * cosT;
+    vz = -sinT;
 
-    // Construct unit normal orthogonal to hingeAxis:
-    nx = e1.x * Math.cos(normAngle) + e2.x * Math.sin(normAngle);
-    ny = e1.y * Math.cos(normAngle) + e2.y * Math.sin(normAngle);
-    nz = e1.z * Math.cos(normAngle) + e2.z * Math.sin(normAngle);
-
-    // v vector = normal x hingeAxis
-    vx = ny * uz - nz * uy;
-    vy = nz * ux - nx * uz;
-    vz = nx * uy - ny * ux;
+    // Upward unit normal orthogonal to both strikeVector and dipVector:
+    nx = crownHorizDipX * sinT;
+    ny = crownHorizDipY * sinT;
+    nz = cosT;
   }
 
   const nLen = Math.hypot(nx, ny, nz) || 1;
@@ -1649,17 +1719,34 @@ export function constructPlaneFromTraceHinge(
 
   // Geological Dip Angle: angle between normal and vertical Z
   const safeNc = Math.min(1, Math.max(-1, Math.abs(nc)));
-  const derivedDipDeg = clampDip(radToDeg(Math.acos(safeNc)));
+  const derivedDipDeg = useStrikeLineHinge ? Math.round(dipAngle) : clampDip(radToDeg(Math.acos(safeNc)));
 
   // Dip direction azimuth in tunnel-relative coordinates:
-  const signZ = nc >= 0 ? 1 : -1;
-  const gradX = -na * signZ;
-  const gradY = -nb * signZ;
+  let gradX: number;
+  let gradY: number;
+  if (useStrikeLineHinge) {
+    gradX = crownHorizDipX;
+    gradY = crownHorizDipY;
+  } else {
+    const signZ = nc >= 0 ? 1 : -1;
+    gradX = na * signZ;
+    gradY = nb * signZ;
+  }
   let relAz = radToDeg(Math.atan2(gradY, gradX));
   if (isNaN(relAz)) relAz = 0;
   if (relAz < 0) relAz += 360;
   const derivedDipDirectionDeg = normalizeAngle360(relAz + (geom?.driveAzimuthDeg || 0));
-  const strikeRhrDeg = normalizeAngle360(derivedDipDirectionDeg - 90);
+
+  // Keep Strike strictly invariant to dip amount when rotating around the Strike Line Hinge
+  let strikeRhrDeg: number;
+  if (useStrikeLineHinge) {
+    let strikeRelAz = radToDeg(Math.atan2(uy, ux));
+    if (isNaN(strikeRelAz)) strikeRelAz = 0;
+    if (strikeRelAz < 0) strikeRelAz += 360;
+    strikeRhrDeg = normalizeAngle360(strikeRelAz + (geom?.driveAzimuthDeg || 0));
+  } else {
+    strikeRhrDeg = normalizeAngle360(derivedDipDirectionDeg - 90);
+  }
 
   return {
     panel,
@@ -1671,8 +1758,8 @@ export function constructPlaneFromTraceHinge(
     dipVector: { x: vx, y: vy, z: vz },
     strikeVector: hingeAxis,
     hingeAxis,
-    traceStartPoint: p1,
-    traceEndPoint: p2,
+    traceStartPoint: traceStartPt,
+    traceEndPoint: traceEndPt,
     traceMidPoint: midPoint,
     traceLengthM: Number(traceLen.toFixed(2)),
     hingeDipDeg: dipAngle,

@@ -54,6 +54,7 @@ import {
   FieldJointSetId,
   FieldPoint2D,
   FieldProjectItem,
+  FieldRememberedRockItem,
   FieldTunnelLocationItem,
   formatOverbreakCauseLabel,
   generateProfessionalGeologicalDescription,

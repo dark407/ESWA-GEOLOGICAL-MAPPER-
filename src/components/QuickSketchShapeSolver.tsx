@@ -138,7 +138,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
     leftWall: initialGeometry?.hasLeftWall === false,
     crown: initialGeometry?.hasCrown === false,
     rightWall: initialGeometry?.hasRightWall === false,
-    invert: initialGeometry?.hasInvert === false,
+    invert: (initialGeometry as any)?.hasInvert === false,
   }));
 
   // Step-by-step Accurate CAD Segments & Active Segment Parameter Modal Draft
@@ -1902,7 +1902,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
         ? `Triangle CAD Profile (${geom.controlPoints.length} vertices)`
         : geom?.shapeKind === 'quadrilateral'
         ? `Quadrilateral CAD Profile (${geom.controlPoints.length} vertices)`
-        : geom?.shapeKind === 'pentagon'
+        : geom?.shapeKind === 'pentagon_gable'
         ? `Pentagonal/Gable CAD Profile (${geom.controlPoints.length} vertices)`
         : geom?.shapeKind === 'polygon'
         ? `Polygonal CAD Profile (${geom.controlPoints.length} vertices)`
@@ -1974,7 +1974,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       if (data && data.result) {
         const r = data.result;
         // Preserve Exact Sketch Mode (non-symmetric) when strokes exist unless user explicitly toggled symmetry
-        const nextSym = lockedParamsRef.current.has('isSymmetric')
+        const nextSym = userLockedParamsRef.current.has('isSymmetric')
           ? isSymmetric
           : strokes.length > 0
           ? false

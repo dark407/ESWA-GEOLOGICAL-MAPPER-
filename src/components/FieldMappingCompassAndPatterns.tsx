@@ -26,6 +26,7 @@ import {
   FieldTunnelLocationItem,
   FieldWaterCondition,
   FieldWaterMark,
+  getExcavationBenchConfig,
   pruneFullyErasedLithologyStrokes,
   resolveRockDisplayInfo,
 } from '../engine/fieldMappingEngine';
@@ -4532,6 +4533,129 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   'clip-sheet-face'
                 )}
 
+                {/* 3B. Bench Line (Dotted) & Hatched Bench / Top Heading Portion on Face & Strip Walls */}
+                <g
+                  transform={`translate(${faceOffsetX}, ${faceOffsetY}) scale(${faceScaleX}, ${faceScaleY})`}
+                >
+                  <FieldTunnelBenchHatchAndLineSvg
+                    location={location}
+                    round={round}
+                    boxX={faceGeom.boxX}
+                    boxY={faceGeom.boxY}
+                    boxW={faceGeom.boxW}
+                    boxH={faceGeom.boxH}
+                    clipPathD={facePath}
+                    colorMode={colorMode}
+                    idSuffix={`sketch-face-${round.id}`}
+                  />
+                </g>
+                {(() => {
+                  const benchCfg = getExcavationBenchConfig(round, location);
+                  if (!benchCfg.hasBenchDivision) return null;
+                  const wallBenchM = Math.min(leftWallLengthM, benchCfg.benchHeightM);
+                  const lwBenchX = leftWallX + wallBenchM * stripPxPerMeter;
+                  const rwBenchX = rightWallX + (rightWallLengthM - wallBenchM) * stripPxPerMeter;
+                  const patId = `strip-bench-hatch-${round.id}-${colorMode}`;
+                  const strokeCol = colorMode === 'bw' ? '#0f172a' : '#d97706';
+                  return (
+                    <g pointerEvents="none">
+                      <defs>
+                        <pattern
+                          id={patId}
+                          width="10"
+                          height="10"
+                          patternUnits="userSpaceOnUse"
+                          patternTransform="rotate(45)"
+                        >
+                          <line
+                            x1="0"
+                            y1="0"
+                            x2="0"
+                            y2="10"
+                            stroke={strokeCol}
+                            strokeWidth="2"
+                            strokeOpacity="0.55"
+                          />
+                        </pattern>
+                      </defs>
+                      {benchCfg.hatchZone === 'bench_bottom' ? (
+                        <>
+                          {faceGeom.hasLeftWall && wallBenchM > 0.05 && (
+                            <rect
+                              x={leftWallX}
+                              y={stripY}
+                              width={Math.min(stripLeftWallW, wallBenchM * stripPxPerMeter)}
+                              height={stripH}
+                              fill={`url(#${patId})`}
+                            />
+                          )}
+                          {faceGeom.hasRightWall && wallBenchM > 0.05 && (
+                            <rect
+                              x={Math.max(rightWallX, rwBenchX)}
+                              y={stripY}
+                              width={Math.min(stripRightWallW, wallBenchM * stripPxPerMeter)}
+                              height={stripH}
+                              fill={`url(#${patId})`}
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {faceGeom.hasCrown && (
+                            <rect
+                              x={crownX}
+                              y={stripY}
+                              width={stripCrownW}
+                              height={stripH}
+                              fill={`url(#${patId})`}
+                            />
+                          )}
+                          {faceGeom.hasLeftWall && leftWallLengthM > wallBenchM && (
+                            <rect
+                              x={lwBenchX}
+                              y={stripY}
+                              width={Math.max(0, (leftWallLengthM - wallBenchM) * stripPxPerMeter)}
+                              height={stripH}
+                              fill={`url(#${patId})`}
+                            />
+                          )}
+                          {faceGeom.hasRightWall && rightWallLengthM > wallBenchM && (
+                            <rect
+                              x={rightWallX}
+                              y={stripY}
+                              width={Math.max(0, (rightWallLengthM - wallBenchM) * stripPxPerMeter)}
+                              height={stripH}
+                              fill={`url(#${patId})`}
+                            />
+                          )}
+                        </>
+                      )}
+                      {faceGeom.hasLeftWall && wallBenchM > 0.05 && wallBenchM < leftWallLengthM && (
+                        <line
+                          x1={lwBenchX}
+                          y1={stripY}
+                          x2={lwBenchX}
+                          y2={stripY + stripH}
+                          stroke={strokeCol}
+                          strokeWidth="2.2"
+                          strokeDasharray="6,4"
+                        />
+                      )}
+                      {faceGeom.hasRightWall && wallBenchM > 0.05 && wallBenchM < rightWallLengthM && (
+                        <line
+                          x1={rwBenchX}
+                          y1={stripY}
+                          x2={rwBenchX}
+                          y2={stripY + stripH}
+                          stroke={strokeCol}
+                          strokeWidth="2.2"
+                          strokeDasharray="6,4"
+                        />
+                      )}
+                    </g>
+                  );
+                })()}
+
                 {/* 4. Design Tunnel Profile Stroke, Payline & Survey Overbreak Outline */}
                 <g
                   transform={`translate(${faceOffsetX}, ${faceOffsetY}) scale(${faceScaleX}, ${faceScaleY})`}
@@ -4981,7 +5105,31 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
                 strokeDasharray="8,4"
               />
             )}
+            {!isSurface && (
+              <FieldTunnelBenchHatchAndLineSvg
+                location={effectiveLocation}
+                round={round}
+                boxX={boxX}
+                boxY={boxY}
+                boxW={boxW}
+                boxH={boxH}
+                idSuffix={`canvas-face-${round.id}-${stageMode}`}
+              />
+            )}
           </>
+        )}
+        {!isSurface && (activePanel === 'left_wall' || activePanel === 'right_wall' || activePanel === 'crown') && (
+          <FieldTunnelWallOrCrownBenchOverlaySvg
+            activePanel={activePanel}
+            location={effectiveLocation}
+            round={round}
+            boxX={boxX}
+            boxY={boxY}
+            boxW={boxW}
+            boxH={boxH}
+            isRotated90={orientMeta.isRotated90}
+            idSuffix={`canvas-${activePanel}-${round.id}-${stageMode}`}
+          />
         )}
         {activePanel === 'crown' && (
           !orientMeta.isRotated90 ? (
@@ -5822,3 +5970,422 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
   );
 };
 
+/**
+ * Reusable SVG overlay that renders the dotted Bench Line and diagonal Hatching on a Tunnel Face cross-section:
+ * - If Top Heading & Benching or Top Heading is selected: draws dotted Bench Line at Hb from invert and hatches the Bench (bottom portion).
+ * - If Benching is selected: draws dotted Bench Line at Hb from invert, hatches the Top Heading portion, and shows Benching Only active below.
+ */
+export const FieldTunnelBenchHatchAndLineSvg: React.FC<{
+  location: FieldTunnelLocationItem;
+  round: FieldExcavationRound;
+  boxX: number;
+  boxY: number;
+  boxW: number;
+  boxH: number;
+  clipPathD?: string;
+  colorMode?: 'color' | 'bw';
+  darkBackground?: boolean;
+  idSuffix?: string;
+}> = ({
+  location,
+  round,
+  boxX,
+  boxY,
+  boxW,
+  boxH,
+  clipPathD,
+  colorMode = 'color',
+  darkBackground = false,
+  idSuffix = 'default',
+}) => {
+  const cfg = getExcavationBenchConfig(round, location);
+  if (!cfg.hasBenchDivision) return null;
+
+  const faceDetails = computeFaceTunnelOutlineDetails(location, boxX, boxY, boxW, boxH);
+  const effectiveClipD = clipPathD || faceDetails.closedFillPathD;
+
+  const benchY = boxY + boxH * (1 - cfg.benchRatioFromInvert);
+  const cx = boxX + boxW / 2;
+  const safeId = idSuffix.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const clipId = `bench-face-clip-${safeId}`;
+  const patId = `bench-face-hatch-${safeId}`;
+
+  const isBenchingOnly = cfg.hatchZone === 'heading_top';
+  const strokeColor =
+    colorMode === 'bw'
+      ? '#0f172a'
+      : darkBackground
+      ? isBenchingOnly
+        ? '#22d3ee'
+        : '#fbbf24'
+      : isBenchingOnly
+      ? '#0284c7'
+      : '#b45309';
+
+  const hatchTintFill =
+    colorMode === 'bw'
+      ? 'rgba(15, 23, 42, 0.08)'
+      : darkBackground
+      ? isBenchingOnly
+        ? 'rgba(8, 145, 178, 0.16)'
+        : 'rgba(217, 119, 6, 0.16)'
+      : isBenchingOnly
+      ? 'rgba(2, 132, 199, 0.11)'
+      : 'rgba(217, 119, 6, 0.12)';
+
+  const hatchY = cfg.hatchZone === 'bench_bottom' ? benchY : boxY - 4;
+  const hatchH =
+    cfg.hatchZone === 'bench_bottom'
+      ? Math.max(0, boxY + boxH - benchY + 4)
+      : Math.max(0, benchY - boxY + 4);
+
+  const hatchedCenterY =
+    cfg.hatchZone === 'bench_bottom'
+      ? (benchY + (boxY + boxH)) / 2
+      : (boxY + benchY) / 2;
+  const activeCenterY =
+    cfg.hatchZone === 'bench_bottom'
+      ? (boxY + benchY) / 2
+      : (benchY + (boxY + boxH)) / 2;
+
+  const fontScale = Math.max(0.75, Math.min(1.15, Math.min(boxW, boxH) / 360));
+
+  return (
+    <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
+      <defs>
+        <clipPath id={clipId}>
+          <path d={effectiveClipD} />
+        </clipPath>
+        <pattern
+          id={patId}
+          width="12"
+          height="12"
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)"
+        >
+          <rect width="12" height="12" fill={hatchTintFill} />
+          <line
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="12"
+            stroke={strokeColor}
+            strokeWidth="2.2"
+            strokeOpacity={colorMode === 'bw' ? '0.55' : '0.62'}
+          />
+        </pattern>
+      </defs>
+
+      <g clipPath={`url(#${clipId})`}>
+        {/* Hatched Zone (Bench Bottom for Top Heading & Benching / Top Heading; Top Portion for Benching) */}
+        <rect
+          x={boxX - 6}
+          y={hatchY}
+          width={boxW + 12}
+          height={hatchH}
+          fill={`url(#${patId})`}
+        />
+
+        {/* Dotted Bench Line across the Tunnel Face */}
+        <line
+          x1={boxX - 6}
+          y1={benchY}
+          x2={boxX + boxW + 6}
+          y2={benchY}
+          stroke={strokeColor}
+          strokeWidth={2.8 * fontScale}
+          strokeDasharray="6,5"
+        />
+      </g>
+
+      {/* Bench Line Callout Tag */}
+      <g transform={`translate(${cx}, ${benchY})`}>
+        <rect
+          x={-98 * fontScale}
+          y={-9 * fontScale}
+          width={196 * fontScale}
+          height={18 * fontScale}
+          rx={4 * fontScale}
+          fill={darkBackground ? '#0f172a' : '#ffffff'}
+          fillOpacity="0.93"
+          stroke={strokeColor}
+          strokeWidth={1.4 * fontScale}
+          strokeDasharray="3,2"
+        />
+        <text
+          x="0"
+          y={3.5 * fontScale}
+          textAnchor="middle"
+          fontSize={9.2 * fontScale}
+          fontWeight="900"
+          fill={strokeColor}
+        >
+          ⋯ {cfg.benchLineLabel} ⋯
+        </text>
+      </g>
+
+      {/* Hatched Portion Callout Badge */}
+      {hatchH > 26 && (
+        <g transform={`translate(${cx}, ${hatchedCenterY})`}>
+          <rect
+            x={-110 * fontScale}
+            y={-8.5 * fontScale}
+            width={220 * fontScale}
+            height={17 * fontScale}
+            rx={3.5 * fontScale}
+            fill={darkBackground ? '#0f172a' : '#ffffff'}
+            fillOpacity="0.88"
+            stroke={strokeColor}
+            strokeWidth={1.1 * fontScale}
+          />
+          <text
+            x="0"
+            y={3.2 * fontScale}
+            textAnchor="middle"
+            fontSize={8.5 * fontScale}
+            fontWeight="800"
+            fill={strokeColor}
+          >
+            ▨ {cfg.hatchedPortionLabel}
+          </text>
+        </g>
+      )}
+
+      {/* Active Portion Callout Badge */}
+      {boxH - hatchH > 28 && (
+        <g transform={`translate(${cx}, ${activeCenterY})`}>
+          <rect
+            x={-95 * fontScale}
+            y={-8 * fontScale}
+            width={190 * fontScale}
+            height={16 * fontScale}
+            rx={3.5 * fontScale}
+            fill={darkBackground ? 'rgba(15, 23, 42, 0.82)' : 'rgba(255, 255, 255, 0.85)'}
+            stroke={colorMode === 'bw' ? '#334155' : '#059669'}
+            strokeWidth={1.1 * fontScale}
+          />
+          <text
+            x="0"
+            y={3 * fontScale}
+            textAnchor="middle"
+            fontSize={8.4 * fontScale}
+            fontWeight="800"
+            fill={colorMode === 'bw' ? '#0f172a' : darkBackground ? '#34d399' : '#047857'}
+          >
+            ✓ {cfg.activePortionLabel}
+          </text>
+        </g>
+      )}
+    </g>
+  );
+};
+
+/**
+ * Renders the dotted Bench Line and hatching on Left Wall, Right Wall, or Crown panels
+ * in both Stage 4 (single panel / 2D canvas) and Stage 5 (unfolded T-canvas).
+ */
+export const FieldTunnelWallOrCrownBenchOverlaySvg: React.FC<{
+  activePanel: FieldPanelId;
+  location: FieldTunnelLocationItem;
+  round: FieldExcavationRound;
+  boxX: number;
+  boxY: number;
+  boxW: number;
+  boxH: number;
+  isRotated90?: boolean;
+  colorMode?: 'color' | 'bw';
+  idSuffix?: string;
+}> = ({
+  activePanel,
+  location,
+  round,
+  boxX,
+  boxY,
+  boxW,
+  boxH,
+  isRotated90 = false,
+  colorMode = 'color',
+  idSuffix = 'wall',
+}) => {
+  const cfg = getExcavationBenchConfig(round, location);
+  if (!cfg.hasBenchDivision) return null;
+
+  const isBenchingOnly = cfg.hatchZone === 'heading_top';
+  const strokeColor =
+    colorMode === 'bw' ? '#0f172a' : isBenchingOnly ? '#0284c7' : '#b45309';
+  const hatchTintFill =
+    colorMode === 'bw'
+      ? 'rgba(15, 23, 42, 0.08)'
+      : isBenchingOnly
+      ? 'rgba(2, 132, 199, 0.11)'
+      : 'rgba(217, 119, 6, 0.12)';
+  const safeId = idSuffix.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const patId = `bench-wall-hatch-${safeId}`;
+
+  // For Crown: if Benching Only is selected, the entire Crown is part of the Top Heading and is hatched!
+  if (activePanel === 'crown') {
+    if (!isBenchingOnly) return null;
+    return (
+      <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
+        <defs>
+          <pattern
+            id={patId}
+            width="12"
+            height="12"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width="12" height="12" fill={hatchTintFill} />
+            <line
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="12"
+              stroke={strokeColor}
+              strokeWidth="2.0"
+              strokeOpacity="0.6"
+            />
+          </pattern>
+        </defs>
+        <rect x={boxX} y={boxY} width={boxW} height={boxH} fill={`url(#${patId})`} />
+        <text
+          x={boxX + boxW / 2}
+          y={boxY + boxH / 2}
+          textAnchor="middle"
+          fontSize="10"
+          fontWeight="800"
+          fill={strokeColor}
+          stroke="#ffffff"
+          strokeWidth="3"
+          paintOrder="stroke"
+        >
+          ▨ CROWN IN TOP HEADING (HATCHED — BENCHING ONLY)
+        </text>
+      </g>
+    );
+  }
+
+  // Left Wall or Right Wall: wallHeightM is the total height of the wall panel
+  const wallH = Math.max(
+    0.5,
+    Number(
+      activePanel === 'left_wall'
+        ? location.leftWallLengthM ?? location.wallHeightM ?? location.heightM * 0.5
+        : location.rightWallLengthM ?? location.wallHeightM ?? location.heightM * 0.5
+    )
+  );
+  const clampedBenchM = Math.min(wallH, Math.max(0, cfg.benchHeightM));
+  const wallBenchRatio = clampedBenchM / wallH;
+
+  // In standard (non-rotated) wall view: top = SPL (wallH), bottom = Invert (0m)
+  // In rotated90 (unfolded T-canvas):
+  //   Left Wall: left = Invert (0m), right = SPL (wallH)
+  //   Right Wall: left = SPL (wallH), right = Invert (0m)
+  if (!isRotated90) {
+    const benchY = boxY + boxH * (1 - wallBenchRatio);
+    const hatchY = cfg.hatchZone === 'bench_bottom' ? benchY : boxY;
+    const hatchH =
+      cfg.hatchZone === 'bench_bottom'
+        ? Math.max(0, boxY + boxH - benchY)
+        : Math.max(0, benchY - boxY);
+    return (
+      <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
+        <defs>
+          <pattern
+            id={patId}
+            width="12"
+            height="12"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width="12" height="12" fill={hatchTintFill} />
+            <line
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="12"
+              stroke={strokeColor}
+              strokeWidth="2.0"
+              strokeOpacity="0.6"
+            />
+          </pattern>
+        </defs>
+        {hatchH > 1 && (
+          <rect x={boxX} y={hatchY} width={boxW} height={hatchH} fill={`url(#${patId})`} />
+        )}
+        {clampedBenchM > 0.05 && clampedBenchM < wallH - 0.05 && (
+          <line
+            x1={boxX}
+            y1={benchY}
+            x2={boxX + boxW}
+            y2={benchY}
+            stroke={strokeColor}
+            strokeWidth="2.4"
+            strokeDasharray="6,5"
+          />
+        )}
+      </g>
+    );
+  }
+
+  // Rotated 90 deg (Stage 5 T-canvas walls):
+  const benchX =
+    activePanel === 'left_wall'
+      ? boxX + boxW * wallBenchRatio
+      : boxX + boxW * (1 - wallBenchRatio);
+  const hatchX =
+    cfg.hatchZone === 'bench_bottom'
+      ? activePanel === 'left_wall'
+        ? boxX
+        : benchX
+      : activePanel === 'left_wall'
+      ? benchX
+      : boxX;
+  const hatchW =
+    cfg.hatchZone === 'bench_bottom'
+      ? activePanel === 'left_wall'
+        ? Math.max(0, benchX - boxX)
+        : Math.max(0, boxX + boxW - benchX)
+      : activePanel === 'left_wall'
+      ? Math.max(0, boxX + boxW - benchX)
+      : Math.max(0, benchX - boxX);
+
+  return (
+    <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
+      <defs>
+        <pattern
+          id={patId}
+          width="12"
+          height="12"
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)"
+        >
+          <rect width="12" height="12" fill={hatchTintFill} />
+          <line
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="12"
+            stroke={strokeColor}
+            strokeWidth="2.0"
+            strokeOpacity="0.6"
+          />
+        </pattern>
+      </defs>
+      {hatchW > 1 && (
+        <rect x={hatchX} y={boxY} width={hatchW} height={boxH} fill={`url(#${patId})`} />
+      )}
+      {clampedBenchM > 0.05 && clampedBenchM < wallH - 0.05 && (
+        <line
+          x1={benchX}
+          y1={boxY}
+          x2={benchX}
+          y2={boxY + boxH}
+          stroke={strokeColor}
+          strokeWidth="2.4"
+          strokeDasharray="6,5"
+        />
+      )}
+    </g>
+  );
+};

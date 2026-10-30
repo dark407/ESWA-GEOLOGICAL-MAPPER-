@@ -2467,29 +2467,23 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
           vY = hwY * Math.cos(dipRad);
           vZ = hwZ * Math.cos(dipRad);
         } else if (joint.panel === 'crown') {
-          // Crown: plane tilts around the crown trace axis based directly on chosen dip amount (dipRad)
+          // Crown: mapped trace defines the horizontal strike direction (uX, 0, uZ).
+          // The 3D plane dips at dipRad (ideal = 90°) strictly relative to the strike direction downward (+Y) toward the invert.
           const huX = du / len;
-          const huZ = -dv / len;
+          const huZ = dv / len;
           const huY = 0;
 
-          const hwX = dv / len;
-          const hwZ = du / len;
-
-          const isHeading = Math.cos(relAzRad) >= 0;
-          const ySign = -1;
-          const zSign = isHeading ? 1 : -1;
+          const sideSign = joint.crownDipSign === '-90' ? -1 : 1;
+          const hwX = -huZ * sideSign;
+          const hwZ = huX * sideSign;
 
           uX = huX;
           uY = huY;
           uZ = huZ;
 
           vX = hwX * Math.cos(dipRad);
-          vY = ySign * Math.sin(dipRad);
-          vZ = hwZ * Math.cos(dipRad) + zSign * Math.sin(dipRad) * 0.5;
-          const vNorm = Math.hypot(vX, vY, vZ) || 1;
-          vX /= vNorm;
-          vY /= vNorm;
-          vZ /= vNorm;
+          vY = Math.sin(dipRad);
+          vZ = hwZ * Math.cos(dipRad);
         }
       }
     }

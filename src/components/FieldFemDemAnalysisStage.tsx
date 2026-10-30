@@ -33,6 +33,7 @@ import {
   ResolvedGeotechParameter,
   runCompleteFemDemAnalysis,
 } from '../engine/femDemAnalysisEngine';
+import { FieldTunnelBenchHatchAndLineSvg } from './FieldMappingCompassAndPatterns';
 
 export interface FieldFemDemAnalysisStageProps {
   activeProject: FieldProjectItem;
@@ -751,6 +752,21 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
             strokeLinejoin="round"
           />
 
+          {/* 5B. Dotted Bench Line & Hatched Bench / Top Heading Portion inside FEM/DEM Tunnel Cavity */}
+          {mappingDomain === 'TUNNEL' && (
+            <FieldTunnelBenchHatchAndLineSvg
+              location={activeLocation}
+              round={activeRound}
+              boxX={cx - boxW / 2}
+              boxY={cy - boxH / 2}
+              boxW={boxW}
+              boxH={boxH}
+              clipPathD={analysisResult.tunnelClosedPathD}
+              darkBackground
+              idSuffix={`fem-${stageType}-${activeRound.id}`}
+            />
+          )}
+
           {/* Springing Line (SPL) Reference inside Fed Tunnel Cavity */}
           {mappingDomain === 'TUNNEL' && activeLocation.shape !== 'circular' && (
             <g pointerEvents="none" opacity="0.7">
@@ -1348,141 +1364,379 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
         </div>
       </div>
 
-      {/* 3. HERO 2D TRIANGULAR FEM & DEM CANVAS VIEWPORTS */}
-      <div
-        className={`grid gap-3 shrink-0 ${
-          viewportLayout === 'split' ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'
-        }`}
-      >
-        {/* VIEWPORT 1: BEFORE SUPPORT (UNSUPPORTED EXCAVATION) */}
-        {(viewportLayout === 'split' || viewportLayout === 'before_only') && (
-          <div className="bg-slate-900 border-2 border-rose-500/45 rounded-2xl p-3 flex flex-col gap-2.5 shadow-xl shrink-0">
-            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e]" />
-                <span className="text-xs font-black uppercase tracking-wider text-rose-200">
-                  Stage A: Before Support (Unreinforced • {analysisResult.excavationShapeLabel})
+      {/* 3. STRICT GEOTECHNICAL PREREQUISITE GATE OR HERO 2D TRIANGULAR FEM & DEM CANVAS VIEWPORTS */}
+      {!analysisResult.prerequisites.isBeforeAnalysisReady ? (
+        <div className="bg-rose-950/90 border-2 border-rose-500 rounded-2xl p-5 shadow-2xl space-y-4 shrink-0">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-rose-500/40 pb-3">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-md bg-rose-500 text-white text-[11px] font-black uppercase tracking-wider">
+                  Solver Blocked — Missing Geotechnical Data
+                </span>
+                <span className="text-sm font-black uppercase tracking-wider text-rose-100">
+                  FEM &amp; DEM Analysis Cannot Run Without Required Field &amp; Classification Inputs
                 </span>
               </div>
-              <span
-                className={`px-2.5 py-0.5 rounded-md text-[10.5px] font-black border ${
-                  analysisResult.combinedInteraction.combinedStabilityStatusBefore === 'STABLE'
-                    ? 'bg-emerald-500 text-slate-950 border-emerald-300'
-                    : analysisResult.combinedInteraction.combinedStabilityStatusBefore ===
-                      'MARGINAL / YIELDING'
-                    ? 'bg-amber-400 text-slate-950 border-amber-200'
-                    : 'bg-rose-500 text-white border-rose-300'
-                }`}
-              >
-                {analysisResult.combinedInteraction.combinedStabilityStatusBefore}
-              </span>
+              <p className="text-xs text-rose-200/90 leading-relaxed max-w-4xl">
+                Professional numerical stability modeling requires real site inputs. The solver will not fabricate or pre-fill unassessed classifications, rock strength, or overburden stress. Please complete the missing requirements below to unlock the FEM &amp; DEM solver:
+              </p>
             </div>
 
-            {renderCrossSectionSvg('before')}
+            <button
+              type="button"
+              onClick={onBackToSupport}
+              className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
+              <span>Return to Previous Stages to Complete Data</span>
+            </button>
+          </div>
 
-            {/* High-Contrast KPI Strip below Before-Support Canvas */}
-            <div className="grid grid-cols-4 gap-2 text-[11px] font-mono">
-              <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
-                <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
-                  Max Disp (u_max)
-                </div>
-                <div className="text-rose-700 font-black text-xs">
-                  {analysisResult.femBefore.maxDisplacementMm.toFixed(2)} mm
-                </div>
+          {/* Checklist of Required Geotechnical Prerequisites */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div
+              className={`rounded-xl p-3 border ${
+                analysisResult.prerequisites.hasClassification
+                  ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-100'
+                  : 'bg-slate-950/80 border-rose-500/60 text-rose-100'
+              }`}
+            >
+              <div className="flex items-center justify-between font-black uppercase text-[11px] mb-1">
+                <span>1. Rock Mass Classification</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[9.5px] ${
+                    analysisResult.prerequisites.hasClassification
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-rose-500 text-white'
+                  }`}
+                >
+                  {analysisResult.prerequisites.hasClassification ? 'READY' : 'MISSING'}
+                </span>
               </div>
-              <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
-                <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
-                  Yield Depth (dp)
-                </div>
-                <div className="text-rose-700 font-black text-xs">
-                  {analysisResult.femBefore.plasticZoneDepthMeters.toFixed(2)} m
-                </div>
+              <p className="text-[11px] opacity-90 font-mono">
+                RMR89: {analysisResult.rmrValue ?? 'Not Assessed'} | Q:{' '}
+                {analysisResult.qValue ?? 'Not Assessed'} | GSI:{' '}
+                {analysisResult.gsiValue ?? 'Not Assessed'}
+              </p>
+            </div>
+
+            <div
+              className={`rounded-xl p-3 border ${
+                analysisResult.prerequisites.hasRockStrengthOrLithology
+                  ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-100'
+                  : 'bg-slate-950/80 border-rose-500/60 text-rose-100'
+              }`}
+            >
+              <div className="flex items-center justify-between font-black uppercase text-[11px] mb-1">
+                <span>2. Lithology &amp; Intact Strength</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[9.5px] ${
+                    analysisResult.prerequisites.hasRockStrengthOrLithology
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-rose-500 text-white'
+                  }`}
+                >
+                  {analysisResult.prerequisites.hasRockStrengthOrLithology ? 'READY' : 'MISSING'}
+                </span>
               </div>
-              <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
-                <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
-                  FEM Continuum FoS
-                </div>
-                <div className="text-amber-700 font-black text-xs">
-                  {analysisResult.femBefore.continuumFactorOfSafety.toFixed(2)}
-                </div>
+              <p className="text-[11px] opacity-90 font-mono">
+                Lithology: {analysisResult.dominantLithology} • Weathering:{' '}
+                {analysisResult.weatheringGrade}
+              </p>
+            </div>
+
+            <div
+              className={`rounded-xl p-3 border ${
+                analysisResult.prerequisites.hasOverburden
+                  ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-100'
+                  : 'bg-slate-950/80 border-rose-500/60 text-rose-100'
+              }`}
+            >
+              <div className="flex items-center justify-between font-black uppercase text-[11px] mb-1">
+                <span>3. Overburden Cover Depth (H)</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[9.5px] ${
+                    analysisResult.prerequisites.hasOverburden
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-rose-500 text-white'
+                  }`}
+                >
+                  {analysisResult.prerequisites.hasOverburden ? 'READY' : 'MISSING'}
+                </span>
               </div>
-              <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
-                <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
-                  DEM Key-Block FoS
-                </div>
-                <div className="text-rose-700 font-black text-xs">
-                  {analysisResult.minBlockFosBefore.toFixed(2)}
-                </div>
+              <p className="text-[11px] opacity-90 font-mono">
+                {analysisResult.prerequisites.hasOverburden
+                  ? `H = ${overburdenParam?.value} m (σv = ${analysisResult.inSituVerticalStressMpa} MPa)`
+                  : 'Enter Overburden Depth H(m) below'}
+              </p>
+            </div>
+
+            <div
+              className={`rounded-xl p-3 border ${
+                analysisResult.supportBreakdown.isSupportConfirmedInstalled
+                  ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-100'
+                  : 'bg-amber-950/70 border-amber-500/60 text-amber-100'
+              }`}
+            >
+              <div className="flex items-center justify-between font-black uppercase text-[11px] mb-1">
+                <span>4. Installed Support (Stage B)</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[9.5px] ${
+                    analysisResult.supportBreakdown.isSupportConfirmedInstalled
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-amber-400 text-slate-950'
+                  }`}
+                >
+                  {analysisResult.supportBreakdown.isSupportConfirmedInstalled
+                    ? 'CONFIGURED'
+                    : 'NOT CONFIGURED'}
+                </span>
+              </div>
+              <p className="text-[11px] opacity-90 font-mono">
+                {analysisResult.supportBreakdown.isSupportConfirmedInstalled
+                  ? analysisResult.supportBreakdown.activeSystemsSummary.join(' + ')
+                  : 'Stage B (After Support) requires Support System'}
+              </p>
+            </div>
+          </div>
+
+          {/* Detailed Missing Items List + Direct Quick Entry for Overburden & UCS */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-1">
+            <div className="lg:col-span-7 bg-slate-950/90 border border-rose-500/40 rounded-xl p-3.5 space-y-2">
+              <div className="text-xs font-black uppercase text-rose-300">
+                Missing Prerequisite Items Blocking Analysis:
+              </div>
+              <ul className="space-y-1.5 text-xs text-rose-100 list-disc list-inside">
+                {analysisResult.prerequisites.missingBeforeRequirements.map((req, idx) => (
+                  <li key={idx} className="leading-snug">
+                    {req}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="lg:col-span-5 bg-slate-950/90 border border-amber-500/50 rounded-xl p-3.5 space-y-2.5">
+              <div className="text-xs font-black uppercase text-amber-300">
+                Quick Field Entry for Stress &amp; Intact Rock Parameters:
+              </div>
+              <div className="grid grid-cols-2 gap-2.5 text-xs">
+                <label className="block space-y-1">
+                  <span className="text-[10.5px] font-bold text-slate-300">
+                    Overburden Depth H (m):
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="5"
+                    placeholder="e.g. 120"
+                    value={
+                      femDemCfg.overburdenDepthM ??
+                      femDemCfg.parameterOverrides?.overburdenDepthM ??
+                      ''
+                    }
+                    onChange={(e) => handleOverrideParameter('overburdenDepthM', e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-amber-500/60 text-white font-mono font-bold focus:outline-none focus:border-amber-400"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-[10.5px] font-bold text-slate-300">
+                    Intact UCS σci (MPa):
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="5"
+                    placeholder="e.g. 75"
+                    value={femDemCfg.parameterOverrides?.intactUcsMpa ?? ''}
+                    onChange={(e) => handleOverrideParameter('intactUcsMpa', e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-amber-500/60 text-white font-mono font-bold focus:outline-none focus:border-amber-400"
+                  />
+                </label>
               </div>
             </div>
           </div>
-        )}
-
-        {/* VIEWPORT 2: AFTER SUPPORT (REINFORCED WITH ESWA INSTALLED SUPPORT) */}
-        {(viewportLayout === 'split' || viewportLayout === 'after_only') && (
-          <div className="bg-slate-900 border-2 border-emerald-500/45 rounded-2xl p-3 flex flex-col gap-2.5 shadow-xl shrink-0">
-            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-                <span className="text-xs font-black uppercase tracking-wider text-emerald-200">
-                  Stage B: After ESWA Support (pi ={' '}
-                  {analysisResult.femAfter.internalSupportPressureMpa.toFixed(3)} MPa)
+        </div>
+      ) : (
+        <div
+          className={`grid gap-3 shrink-0 ${
+            viewportLayout === 'split' ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'
+          }`}
+        >
+          {/* VIEWPORT 1: BEFORE SUPPORT (UNSUPPORTED EXCAVATION) */}
+          {(viewportLayout === 'split' || viewportLayout === 'before_only') && (
+            <div className="bg-slate-900 border-2 border-rose-500/45 rounded-2xl p-3 flex flex-col gap-2.5 shadow-xl shrink-0">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e]" />
+                  <span className="text-xs font-black uppercase tracking-wider text-rose-200">
+                    Stage A: Before Support (Unreinforced • {analysisResult.excavationShapeLabel})
+                  </span>
+                </div>
+                <span
+                  className={`px-2.5 py-0.5 rounded-md text-[10.5px] font-black border ${
+                    analysisResult.combinedInteraction.combinedStabilityStatusBefore === 'STABLE'
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                      : analysisResult.combinedInteraction.combinedStabilityStatusBefore ===
+                        'MARGINAL / YIELDING'
+                      ? 'bg-amber-400 text-slate-950 border-amber-200'
+                      : 'bg-rose-500 text-white border-rose-300'
+                  }`}
+                >
+                  {analysisResult.combinedInteraction.combinedStabilityStatusBefore}
                 </span>
               </div>
-              <span
-                className={`px-2.5 py-0.5 rounded-md text-[10.5px] font-black border ${
-                  analysisResult.combinedInteraction.combinedStabilityStatusAfter === 'STABLE'
-                    ? 'bg-emerald-400 text-slate-950 border-emerald-200'
-                    : analysisResult.combinedInteraction.combinedStabilityStatusAfter ===
-                      'MARGINAL / YIELDING'
-                    ? 'bg-amber-400 text-slate-950 border-amber-200'
-                    : 'bg-rose-500 text-white border-rose-300'
-                }`}
-              >
-                {analysisResult.combinedInteraction.combinedStabilityStatusAfter}
-              </span>
-            </div>
 
-            {renderCrossSectionSvg('after')}
+              {renderCrossSectionSvg('before')}
 
-            {/* High-Contrast KPI Strip below After-Support Canvas */}
-            <div className="grid grid-cols-4 gap-2 text-[11px] font-mono">
-              <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
-                <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
-                  Max Disp (u_max)
+              {/* High-Contrast KPI Strip below Before-Support Canvas */}
+              <div className="grid grid-cols-4 gap-2 text-[11px] font-mono">
+                <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
+                  <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
+                    Max Disp (u_max)
+                  </div>
+                  <div className="text-rose-700 font-black text-xs">
+                    {analysisResult.femBefore.maxDisplacementMm.toFixed(2)} mm
+                  </div>
                 </div>
-                <div className="text-emerald-700 font-black text-xs">
-                  {analysisResult.femAfter.maxDisplacementMm.toFixed(2)} mm
+                <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
+                  <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
+                    Yield Depth (dp)
+                  </div>
+                  <div className="text-rose-700 font-black text-xs">
+                    {analysisResult.femBefore.plasticZoneDepthMeters.toFixed(2)} m
+                  </div>
                 </div>
-              </div>
-              <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
-                <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
-                  Yield Depth (dp)
+                <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
+                  <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
+                    FEM Continuum FoS
+                  </div>
+                  <div className="text-amber-700 font-black text-xs">
+                    {analysisResult.femBefore.continuumFactorOfSafety.toFixed(2)}
+                  </div>
                 </div>
-                <div className="text-emerald-700 font-black text-xs">
-                  {analysisResult.femAfter.plasticZoneDepthMeters.toFixed(2)} m
-                </div>
-              </div>
-              <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
-                <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
-                  FEM Continuum FoS
-                </div>
-                <div className="text-emerald-700 font-black text-xs">
-                  {analysisResult.femAfter.continuumFactorOfSafety.toFixed(2)}
-                </div>
-              </div>
-              <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
-                <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
-                  DEM Key-Block FoS
-                </div>
-                <div className="text-emerald-700 font-black text-xs">
-                  {analysisResult.minBlockFosAfter.toFixed(2)}
+                <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
+                  <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
+                    DEM Key-Block FoS
+                  </div>
+                  <div className="text-rose-700 font-black text-xs">
+                    {analysisResult.minBlockFosBefore.toFixed(2)}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+
+          {/* VIEWPORT 2: AFTER SUPPORT (REINFORCED WITH ESWA INSTALLED SUPPORT) */}
+          {(viewportLayout === 'split' || viewportLayout === 'after_only') && (
+            <div className="bg-slate-900 border-2 border-emerald-500/45 rounded-2xl p-3 flex flex-col gap-2.5 shadow-xl shrink-0">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-3 h-3 rounded-full ${
+                      analysisResult.supportBreakdown.isSupportConfirmedInstalled
+                        ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                        : 'bg-amber-400 shadow-[0_0_8px_#f59e0b]'
+                    }`}
+                  />
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-200">
+                    {analysisResult.supportBreakdown.isSupportConfirmedInstalled
+                      ? `Stage B: After ESWA Support (pi = ${analysisResult.femAfter.internalSupportPressureMpa.toFixed(3)} MPa)`
+                      : 'Stage B: After ESWA Support — Blocked (No Support Configured)'}
+                  </span>
+                </div>
+                <span
+                  className={`px-2.5 py-0.5 rounded-md text-[10.5px] font-black border ${
+                    !analysisResult.supportBreakdown.isSupportConfirmedInstalled
+                      ? 'bg-amber-500 text-slate-950 border-amber-300'
+                      : analysisResult.combinedInteraction.combinedStabilityStatusAfter === 'STABLE'
+                      ? 'bg-emerald-400 text-slate-950 border-emerald-200'
+                      : analysisResult.combinedInteraction.combinedStabilityStatusAfter ===
+                        'MARGINAL / YIELDING'
+                      ? 'bg-amber-400 text-slate-950 border-amber-200'
+                      : 'bg-rose-500 text-white border-rose-300'
+                  }`}
+                >
+                  {!analysisResult.supportBreakdown.isSupportConfirmedInstalled
+                    ? 'NO SUPPORT CONFIGURED'
+                    : analysisResult.combinedInteraction.combinedStabilityStatusAfter}
+                </span>
+              </div>
+
+              {!analysisResult.supportBreakdown.isSupportConfirmedInstalled ? (
+                <div className="w-full h-[470px] xl:h-[540px] min-h-[450px] bg-slate-950/95 rounded-xl border-2 border-dashed border-amber-500/60 p-6 flex flex-col items-center justify-center text-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-300 font-black text-xl">
+                    !
+                  </div>
+                  <div className="space-y-1.5 max-w-md">
+                    <div className="text-sm font-black uppercase tracking-wider text-amber-300">
+                      Stage B (After Support) Blocked — No Support System Installed
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Before/After support comparison cannot be simulated when no support system is configured. Please configure Rock Bolts, Shotcrete, Wire Mesh, Lattice Girders, or Steel Ribs in the Support System stage first.
+                    </p>
+                  </div>
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-left text-[11px] text-amber-200/90 max-w-md w-full space-y-1">
+                    <div className="font-black uppercase text-[10px] text-amber-400">
+                      Missing Stage B Requirements:
+                    </div>
+                    {analysisResult.prerequisites.missingAfterRequirements.map((req, i) => (
+                      <div key={i}>• {req}</div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onBackToSupport}
+                    className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer"
+                  >
+                    <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
+                    <span>Go to Support System Stage to Configure Support</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {renderCrossSectionSvg('after')}
+
+                  {/* High-Contrast KPI Strip below After-Support Canvas */}
+                  <div className="grid grid-cols-4 gap-2 text-[11px] font-mono">
+                    <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
+                      <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
+                        Max Disp (u_max)
+                      </div>
+                      <div className="text-emerald-700 font-black text-xs">
+                        {analysisResult.femAfter.maxDisplacementMm.toFixed(2)} mm
+                      </div>
+                    </div>
+                    <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
+                      <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
+                        Yield Depth (dp)
+                      </div>
+                      <div className="text-emerald-700 font-black text-xs">
+                        {analysisResult.femAfter.plasticZoneDepthMeters.toFixed(2)} m
+                      </div>
+                    </div>
+                    <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
+                      <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
+                        FEM Continuum FoS
+                      </div>
+                      <div className="text-emerald-700 font-black text-xs">
+                        {analysisResult.femAfter.continuumFactorOfSafety.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="bg-white text-slate-900 border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm">
+                      <div className="text-slate-600 font-sans font-bold text-[9.5px] uppercase">
+                        DEM Key-Block FoS
+                      </div>
+                      <div className="text-emerald-700 font-black text-xs">
+                        {analysisResult.minBlockFosAfter.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 4. CRYSTAL-CLEAR LIGHT-THEMED GEOTECHNICAL PARAMETERS & INSPECTOR SECTION (NO DARK BACKGROUND VISIBILITY PROBLEM) */}
       <div className="bg-slate-100 text-slate-900 border-2 border-slate-300 rounded-2xl p-3.5 shadow-lg space-y-3 shrink-0">
@@ -2037,8 +2291,9 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 <div className="text-right font-mono text-[11px] text-slate-700">
                   <div>Mode: {activeMode.toUpperCase()}</div>
                   <div>
-                    Q={analysisResult.qValue} | RMR={analysisResult.rmrValue} | GSI=
-                    {analysisResult.gsiValue}
+                    Q={analysisResult.qValue ?? 'Not Assessed'} | RMR=
+                    {analysisResult.rmrValue ?? 'Not Assessed'} | GSI=
+                    {analysisResult.gsiValue ?? 'Not Assessed'}
                   </div>
                 </div>
               </div>
@@ -2048,27 +2303,47 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                   <div className="font-black uppercase text-[10px] text-slate-600">
                     Before Support (Unreinforced)
                   </div>
-                  <div className="font-mono mt-1">
-                    Max Displacement: <strong>{analysisResult.femBefore.maxDisplacementMm} mm</strong>{' '}
-                    | Yield Depth: <strong>{analysisResult.femBefore.plasticZoneDepthMeters} m</strong>
-                  </div>
-                  <div className="font-mono">
-                    FoS (FEM): <strong>{analysisResult.femBefore.continuumFactorOfSafety}</strong> |
-                    FoS (DEM): <strong>{analysisResult.minBlockFosBefore}</strong>
-                  </div>
+                  {!analysisResult.prerequisites.isBeforeAnalysisReady ? (
+                    <div className="font-mono mt-1 text-rose-700 font-bold">
+                      Prerequisite Geotechnical Data Incomplete
+                    </div>
+                  ) : (
+                    <>
+                      <div className="font-mono mt-1">
+                        Max Displacement:{' '}
+                        <strong>{analysisResult.femBefore.maxDisplacementMm} mm</strong> | Yield
+                        Depth: <strong>{analysisResult.femBefore.plasticZoneDepthMeters} m</strong>
+                      </div>
+                      <div className="font-mono">
+                        FoS (FEM):{' '}
+                        <strong>{analysisResult.femBefore.continuumFactorOfSafety}</strong> | FoS
+                        (DEM): <strong>{analysisResult.minBlockFosBefore}</strong>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div>
                   <div className="font-black uppercase text-[10px] text-slate-600">
                     After Support (ESWA Installed Support)
                   </div>
-                  <div className="font-mono mt-1">
-                    Max Displacement: <strong>{analysisResult.femAfter.maxDisplacementMm} mm</strong>{' '}
-                    | Yield Depth: <strong>{analysisResult.femAfter.plasticZoneDepthMeters} m</strong>
-                  </div>
-                  <div className="font-mono">
-                    FoS (FEM): <strong>{analysisResult.femAfter.continuumFactorOfSafety}</strong> |
-                    FoS (DEM): <strong>{analysisResult.minBlockFosAfter}</strong>
-                  </div>
+                  {!analysisResult.supportBreakdown.isSupportConfirmedInstalled ? (
+                    <div className="font-mono mt-1 text-amber-800 font-bold">
+                      Not Simulated — No Support System Configured in Stage 8
+                    </div>
+                  ) : (
+                    <>
+                      <div className="font-mono mt-1">
+                        Max Displacement:{' '}
+                        <strong>{analysisResult.femAfter.maxDisplacementMm} mm</strong> | Yield
+                        Depth: <strong>{analysisResult.femAfter.plasticZoneDepthMeters} m</strong>
+                      </div>
+                      <div className="font-mono">
+                        FoS (FEM):{' '}
+                        <strong>{analysisResult.femAfter.continuumFactorOfSafety}</strong> | FoS
+                        (DEM): <strong>{analysisResult.minBlockFosAfter}</strong>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -2131,10 +2406,16 @@ export const FieldFemDemReportEmbedSection: React.FC<{
             After Support (pi = {result.femAfter.internalSupportPressureMpa.toFixed(3)} MPa)
           </th>
           <td className="border border-slate-900 px-2 py-1 font-mono font-bold w-[26%]">
-            u_max = {result.femAfter.maxDisplacementMm.toFixed(2)} mm | dp ={' '}
-            {result.femAfter.plasticZoneDepthMeters.toFixed(2)} m | FoS(FEM) ={' '}
-            {result.femAfter.continuumFactorOfSafety.toFixed(2)} | FoS(DEM) ={' '}
-            {result.minBlockFosAfter.toFixed(2)}
+            {result.supportBreakdown.isSupportConfirmedInstalled ? (
+              <>
+                u_max = {result.femAfter.maxDisplacementMm.toFixed(2)} mm | dp ={' '}
+                {result.femAfter.plasticZoneDepthMeters.toFixed(2)} m | FoS(FEM) ={' '}
+                {result.femAfter.continuumFactorOfSafety.toFixed(2)} | FoS(DEM) ={' '}
+                {result.minBlockFosAfter.toFixed(2)}
+              </>
+            ) : (
+              'Not Applicable — No Support System Installed'
+            )}
           </td>
         </tr>
         <tr>

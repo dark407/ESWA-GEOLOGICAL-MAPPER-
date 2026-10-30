@@ -333,24 +333,34 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   }, [allRoundJoints, currentJointId, activeJoint]);
 
   // Editable Orientation Parameters
-  // Crown roof traces define strike: they must ALWAYS default to vertical 90° dip towards down, never flat 0°!
+  // For Crown roof traces, the mapped trace defines the strike direction and the IDEAL dip amount is 90°
+  // (dipping 90° relative to the strike direction), while preserving any custom dip amount saved by the user.
   const isCrown = currentJoint.panel === 'crown';
-  const resolvedInitialDip =
-    (currentJoint.dipAmount === 0 || currentJoint.dipAmount == null) && isCrown
-      ? 90
-      : (currentJoint.dipAmount ?? (isCrown ? 90 : 65));
+  const resolvedInitialDip = isCrown
+    ? (currentJoint.editedByCompass || currentJoint.inspection3D) &&
+      typeof currentJoint.dipAmount === 'number' &&
+      currentJoint.dipAmount >= 1 &&
+      currentJoint.dipAmount <= 90
+      ? currentJoint.dipAmount
+      : 90
+    : (currentJoint.dipAmount ?? 65);
 
   const [dipDirection, setDipDirection] = useState<number>(currentJoint.dipDirection ?? 135);
   const [dipAmount, setDipAmount] = useState<number>(resolvedInitialDip);
   const [jointSetId, setJointSetId] = useState<FieldJointGroupingId>(currentJoint.setId || 'unassigned');
 
-  // Hinge Axis of Rotation State (For face & wall traces, plane pivots strictly around the traced line; for crown, dip amount tilts plane)
+  // Hinge Axis of Rotation State (For face & wall traces, plane pivots strictly around the traced line; for crown, ideal 90° dip relative to strike direction)
   const isFaceTrace = currentJoint.panel === 'face';
   const isWallTrace = currentJoint.panel === 'left_wall' || currentJoint.panel === 'right_wall';
   const isCrownTrace = currentJoint.panel === 'crown';
   const [isHingeRotationActive, setIsHingeRotationActive] = useState<boolean>(true);
-  const [hingeDipDeg, setHingeDipDeg] = useState<number>(resolvedInitialDip || 60);
-  const [hingeDipSide, setHingeDipSide] = useState<'heading' | 'collar'>('heading');
+  const [isStrikeLineHingeLocked, setIsStrikeLineHingeLocked] = useState<boolean>(
+    currentJoint.panel === 'crown'
+  );
+  const [hingeDipDeg, setHingeDipDeg] = useState<number>(resolvedInitialDip || 90);
+  const [hingeDipSide, setHingeDipSide] = useState<'heading' | 'collar'>(
+    currentJoint.panel === 'crown' && currentJoint.crownDipSign === '-90' ? 'collar' : 'heading'
+  );
   const [showIntensityMethodModal, setShowIntensityMethodModal] = useState<boolean>(false);
 
   const [measurementSource, setMeasurementSource] = useState<'MANUAL_COMPASS' | 'GEOMETRIC_FIT' | 'PHOTOGRAMMETRY_MULTIVIEW'>(
@@ -366,14 +376,20 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   // When switching currentJointId, load its orientation parameters
   useEffect(() => {
     const isCr = currentJoint.panel === 'crown';
-    const resolvedDip =
-      (currentJoint.dipAmount === 0 || currentJoint.dipAmount == null) && isCr
-        ? 90
-        : (currentJoint.dipAmount ?? (isCr ? 90 : 65));
+    const resolvedDip = isCr
+      ? (currentJoint.editedByCompass || currentJoint.inspection3D) &&
+        typeof currentJoint.dipAmount === 'number' &&
+        currentJoint.dipAmount >= 1 &&
+        currentJoint.dipAmount <= 90
+        ? currentJoint.dipAmount
+        : 90
+      : (currentJoint.dipAmount ?? 65);
     setDipDirection(currentJoint.dipDirection ?? 135);
     setDipAmount(resolvedDip);
     setHingeDipDeg(resolvedDip);
+    setHingeDipSide(isCr && currentJoint.crownDipSign === '-90' ? 'collar' : 'heading');
     setIsHingeRotationActive(true);
+    setIsStrikeLineHingeLocked(isCr);
     setJointSetId(currentJoint.setId || 'unassigned');
     setMeasurementSource(
       currentJoint.inspection3D?.measurementSource || (currentJoint.editedByCompass ? 'MANUAL_COMPASS' : 'GEOMETRIC_FIT')
@@ -395,10 +411,14 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   // Check if current joint has unsaved edits
   const hasUnsavedChanges = useMemo(() => {
     const isCr = currentJoint.panel === 'crown';
-    const baselineDip =
-      (currentJoint.dipAmount === 0 || currentJoint.dipAmount == null) && isCr
-        ? 90
-        : (currentJoint.dipAmount ?? (isCr ? 90 : 65));
+    const baselineDip = isCr
+      ? (currentJoint.editedByCompass || currentJoint.inspection3D) &&
+        typeof currentJoint.dipAmount === 'number' &&
+        currentJoint.dipAmount >= 1 &&
+        currentJoint.dipAmount <= 90
+        ? currentJoint.dipAmount
+        : 90
+      : (currentJoint.dipAmount ?? 65);
     return (
       dipDirection !== (currentJoint.dipDirection ?? 135) ||
       dipAmount !== baselineDip ||
@@ -515,10 +535,51 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   // MATHEMATICAL CALCULATIONS (REAL & VALIDATED)
   // -------------------------------------------------------------------------
 
-  // 1. Strike Convention & Angles
+  // 3a. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on Face, Walls & Crown)
+  const hingePlaneResult = useMemo<TraceHingePlaneResult | null>(() => {
+    if (!isHingeRotationActive || currentJoint.points.length < 2) return null;
+    return constructPlaneFromTraceHinge(
+      currentJoint.points,
+      currentJoint.panel || 'face',
+      hingeDipDeg,
+      hingeDipSide,
+      tunnelGeometry,
+      isStrikeLineHingeLocked
+    );
+  }, [
+    isHingeRotationActive,
+    currentJoint.points,
+    currentJoint.panel,
+    hingeDipDeg,
+    hingeDipSide,
+    tunnelGeometry,
+    isStrikeLineHingeLocked,
+  ]);
+
+  // 1. Strike Convention & Angles (keeps Strike invariant when rotating around a locked Strike Line Hinge)
   const strikeInfo = useMemo(() => {
-    return calculateStrikeFromDipDirection(dipDirection ?? 135, dipAmount ?? 60);
-  }, [dipDirection, dipAmount]);
+    const base = calculateStrikeFromDipDirection(dipDirection ?? 135, dipAmount ?? 60);
+    if ((currentJoint.panel === 'crown' || isStrikeLineHingeLocked) && hingePlaneResult) {
+      const fixedStrike = hingePlaneResult.strikeRhrDeg;
+      const fixedAlt = (fixedStrike + 180) % 360;
+      const p1 = Math.min(fixedStrike, fixedAlt);
+      const p2 = Math.max(fixedStrike, fixedAlt);
+      const pairLabel = `${String(p1).padStart(3, '0')}° ↔ ${String(p2).padStart(3, '0')}°`;
+      return {
+        ...base,
+        strikeRhrDeg: fixedStrike,
+        strikeAltDeg: fixedAlt,
+        strikePair: {
+          strike1: p1,
+          strike2: p2,
+          label: pairLabel,
+        },
+        strikePairLabel: pairLabel,
+        isOrientationComplete: true,
+      };
+    }
+    return base;
+  }, [dipDirection, dipAmount, currentJoint.panel, isStrikeLineHingeLocked, hingePlaneResult]);
 
   // 1b. True Dip vs. Surface Apparent Dips Matrix (Analytical Geological Calculation)
   const apparentMatrix = useMemo<TunnelSurfacesApparentDipMatrix>(() => {
@@ -530,8 +591,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   }, [dipDirection, dipAmount, tunnelGeometry?.driveAzimuthDeg]);
 
   // 2. Anchor Point Derived from actual mapped 2D polyline vertices or user-selected plot anchor
-  // Coordinate frame: X = advance along pull (0..pullLengthM), Y = width (0..widthM), Z = height (0..heightM)
-  // Excavation face canvas is located at X = pull (towards tunnel pull, default 3.0m, NOT portal 0.0m)
   const anchorPoint = useMemo(() => {
     const pull = plotPlaneAdvanceM;
     if (plotPlaneAnchorType === 'FACE_CENTER') {
@@ -550,24 +609,11 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       return { x: pull, y: (tunnelGeometry.widthM || 8.5) / 2, z: 0.1 };
     }
     const derived = deriveAnchorPointFromPoints(currentJoint.points, currentJoint.panel, tunnelGeometry);
-    // Face traces mapped on 2D face canvas are physically located at the excavation advance front (3.0m)
     if (currentJoint.panel === 'face') {
       return { ...derived, x: pull };
     }
     return derived;
   }, [plotPlaneAnchorType, plotPlaneAdvanceM, currentJoint.points, currentJoint.panel, tunnelGeometry]);
-
-  // 3a. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on Face, Walls & Crown)
-  const hingePlaneResult = useMemo<TraceHingePlaneResult | null>(() => {
-    if (!isHingeRotationActive || currentJoint.points.length < 2) return null;
-    return constructPlaneFromTraceHinge(
-      currentJoint.points,
-      currentJoint.panel || 'face',
-      hingeDipDeg,
-      hingeDipSide,
-      tunnelGeometry
-    );
-  }, [isHingeRotationActive, currentJoint.points, currentJoint.panel, hingeDipDeg, hingeDipSide, tunnelGeometry]);
 
   // Exact 2D Traced Joint Length in Meters
   const currentTraceLengthM = useMemo(() => {
@@ -1336,6 +1382,16 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     const nz = plane.normal.x;
 
     const tracedHalfLen = Math.max(0.15, currentTraceLengthM / 2);
+    const isCrownNonPenetratingHinge =
+      currentJoint.panel === 'crown' || isStrikeLineHingeLocked;
+    const wArch = tunnelGeometry.widthM || 8.5;
+    const hArch = tunnelGeometry.heightM || 7.5;
+    const hwArch = tunnelGeometry.wallHeightM || 4.2;
+    const archRiseVal = Math.max(0.5, hArch - hwArch);
+    const getCrownArchRoofY = (xPos: number): number => {
+      const normX = Math.max(-1, Math.min(1, (xPos - wArch / 2) / Math.max(0.1, wArch / 2)));
+      return hwArch + archRiseVal * Math.sqrt(Math.max(0, 1 - normX * normX));
+    };
 
     // 1. 3D Joint Cutting Plane Mesh
     if (showInteriorPlane) {
@@ -1346,7 +1402,18 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         const R_s = tracedHalfLen;
         let R_up = R_s;
         let R_down = R_s;
-        if (tracedPlaneDepthMode === 'ONE_SIDED') {
+        if (isCrownNonPenetratingHinge) {
+          // Crown strike line hinge plane in 3D joint inspection:
+          // Top edge is strictly the Crown Strike Line Hinge (R_up = 0, never penetrates above the crown arch)
+          // and pivots downward toward the invert at dipAmount (ideal 90°) relative to the strike direction!
+          R_up = 0;
+          const dipSin = Math.max(0.25, Math.sin((dipAmount * Math.PI) / 180));
+          const maxToInvert = Math.max(0.5, ay / dipSin);
+          R_down =
+            tracedPlaneDepthMode === 'HALF_TRACE'
+              ? Math.min(maxToInvert, R_s)
+              : Math.min(maxToInvert, R_s * 2);
+        } else if (tracedPlaneDepthMode === 'ONE_SIDED') {
           R_up = 0;
           R_down = R_s * 2;
         } else if (tracedPlaneDepthMode === 'HALF_TRACE') {
@@ -1358,8 +1425,8 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
           R_down = R_s;
         }
 
-        const numCols = 10;
-        const numRows = 10;
+        const numCols = 16;
+        const numRows = 12;
         const tracedPositions: number[] = [];
         const tracedNormals: number[] = [];
         const tracedUvs: number[] = [];
@@ -1373,7 +1440,13 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
             const uDist = -R_s + uFrac * (2 * R_s);
 
             const px = ax + uDist * sx + vDist * dx;
-            const py = ay + uDist * sy + vDist * dy;
+            const hingeRoofY = isCrownNonPenetratingHinge
+              ? Math.min(ay + uDist * sy, getCrownArchRoofY(ax + uDist * sx))
+              : ay + uDist * sy;
+            const rawPy = hingeRoofY + vDist * dy;
+            const py = isCrownNonPenetratingHinge
+              ? Math.max(0, Math.min(rawPy, getCrownArchRoofY(px)))
+              : rawPy;
             const pz = az + uDist * sz + vDist * dz;
 
             tracedPositions.push(px, py, pz);
@@ -1413,18 +1486,30 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         const tracedPlaneMesh = new THREE.Mesh(tracedGeo, tracedPlaneMat);
         group.add(tracedPlaneMesh);
 
-        // Exact Traced Length Plane Perimeter Outline
-        const c00 = [ax - R_s * sx - R_up * dx, ay - R_s * sy - R_up * dy, az - R_s * sz - R_up * dz];
-        const c10 = [ax + R_s * sx - R_up * dx, ay + R_s * sy - R_up * dy, az + R_s * sz - R_up * dz];
-        const c11 = [ax + R_s * sx + R_down * dx, ay + R_s * sy + R_down * dy, az + R_s * sz + R_down * dz];
-        const c01 = [ax - R_s * sx + R_down * dx, ay - R_s * sy + R_down * dy, az - R_s * sz + R_down * dz];
+        // Exact Traced Length Plane Perimeter Outline (following non-penetrating crown hinge along top edge)
+        const getPt = (uDist: number, vDist: number): [number, number, number] => {
+          const px = ax + uDist * sx + vDist * dx;
+          const hingeRoofY = isCrownNonPenetratingHinge
+            ? Math.min(ay + uDist * sy, getCrownArchRoofY(ax + uDist * sx))
+            : ay + uDist * sy;
+          const rawPy = hingeRoofY + vDist * dy;
+          const py = isCrownNonPenetratingHinge
+            ? Math.max(0, Math.min(rawPy, getCrownArchRoofY(px)))
+            : rawPy;
+          const pz = az + uDist * sz + vDist * dz;
+          return [px, py, pz];
+        };
 
-        const borderPos = [
-          ...c00, ...c10,
-          ...c10, ...c11,
-          ...c11, ...c01,
-          ...c01, ...c00,
-        ];
+        const borderPos: number[] = [];
+        for (let c = 0; c < numCols; c++) {
+          const u0 = -R_s + (c / numCols) * (2 * R_s);
+          const u1 = -R_s + ((c + 1) / numCols) * (2 * R_s);
+          borderPos.push(...getPt(u0, -R_up), ...getPt(u1, -R_up));
+          borderPos.push(...getPt(u0, R_down), ...getPt(u1, R_down));
+        }
+        borderPos.push(...getPt(-R_s, -R_up), ...getPt(-R_s, R_down));
+        borderPos.push(...getPt(R_s, -R_up), ...getPt(R_s, R_down));
+
         const borderGeo = new THREE.BufferGeometry();
         borderGeo.setAttribute('position', new THREE.Float32BufferAttribute(borderPos, 3));
         const borderMat = new THREE.LineBasicMaterial({
@@ -1440,17 +1525,15 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         const gridPositions: number[] = [];
         for (let step = -R_up + gridStep; step < R_down - 0.02; step += gridStep) {
           if (Math.abs(step) < 0.05) continue;
-          gridPositions.push(
-            ax - R_s * sx + step * dx, ay - R_s * sy + step * dy, az - R_s * sz + step * dz,
-            ax + R_s * sx + step * dx, ay + R_s * sy + step * dy, az + R_s * sz + step * dz
-          );
+          for (let c = 0; c < numCols; c++) {
+            const u0 = -R_s + (c / numCols) * (2 * R_s);
+            const u1 = -R_s + ((c + 1) / numCols) * (2 * R_s);
+            gridPositions.push(...getPt(u0, step), ...getPt(u1, step));
+          }
         }
         for (let step = -R_s + gridStep; step < R_s - 0.02; step += gridStep) {
           if (Math.abs(step) < 0.05) continue;
-          gridPositions.push(
-            ax + step * sx - R_up * dx, ay + step * sy - R_up * dy, az + step * sz - R_up * dz,
-            ax + step * sx + R_down * dx, ay + step * sy + R_down * dy, az + step * sz + R_down * dz
-          );
+          gridPositions.push(...getPt(step, -R_up), ...getPt(step, R_down));
         }
         if (gridPositions.length > 0) {
           const gridGeo = new THREE.BufferGeometry();
@@ -1476,25 +1559,35 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       } else if (planeDisplayMode === 'EXTENDED') {
         const wTunnel = tunnelGeometry.widthM || 8.5;
         const hTunnel = tunnelGeometry.heightM || 7.5;
-        // Dynamically sized to tunnel dimensions: just slightly larger than tunnel size (~1.15x - 1.25x), not too large!
         const autoExtR = Math.max(4.8, Math.round(Math.max(wTunnel, hTunnel) * 0.65 * 10) / 10);
         const extR = planeExtensionM && planeExtensionM <= 9.0 ? planeExtensionM : autoExtR;
         const R_s = extR;
-        const isCrown = currentJoint.panel === 'crown';
 
-        // For crown joints: Anchor is the plane cut point on the ceiling arch at elevation ay.
-        // Dip vector points downward into excavation (dy = -sin(dip) < 0).
-        // Downward extent to pass completely through the tunnel void to the invert floor + slight margin:
+        // For crown / strike-hinge joints: Top edge is anchored at the Crown Strike Line Hinge (R_up = 0)
+        // and projects strictly downward toward the invert floor without penetrating above the crown arch:
         const dipSin = Math.max(0.35, Math.sin((dipAmount * Math.PI) / 180));
-        const R_down = isCrown ? Math.min(9.5, Math.max(hTunnel + 1.2, (ay + 1.0) / dipSin)) : extR;
-        const R_up = isCrown ? 1.6 : extR;
+        const R_down = isCrownNonPenetratingHinge ? Math.min(9.5, Math.max(0.5, ay / dipSin)) : extR;
+        const R_up = isCrownNonPenetratingHinge ? 0 : extR;
 
-        const numCols = 12;
+        const numCols = 16;
         const numRows = 12;
         const extPositions: number[] = [];
         const extNormals: number[] = [];
         const extUvs: number[] = [];
         const extIndices: number[] = [];
+
+        const getExtPt = (uDist: number, vDist: number): [number, number, number] => {
+          const px = ax + uDist * sx + vDist * dx;
+          const hingeRoofY = isCrownNonPenetratingHinge
+            ? Math.min(ay + uDist * sy, getCrownArchRoofY(ax + uDist * sx))
+            : ay + uDist * sy;
+          const rawPy = hingeRoofY + vDist * dy;
+          const py = isCrownNonPenetratingHinge
+            ? Math.max(0, Math.min(rawPy, getCrownArchRoofY(px)))
+            : rawPy;
+          const pz = az + uDist * sz + vDist * dz;
+          return [px, py, pz];
+        };
 
         for (let r = 0; r <= numRows; r++) {
           const vFrac = r / numRows;
@@ -1503,9 +1596,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
             const uFrac = c / numCols;
             const uDist = -R_s + uFrac * (2 * R_s); // along strike axis
 
-            const px = ax + uDist * sx + vDist * dx;
-            const py = ay + uDist * sy + vDist * dy;
-            const pz = az + uDist * sz + vDist * dz;
+            const [px, py, pz] = getExtPt(uDist, vDist);
 
             extPositions.push(px, py, pz);
             extNormals.push(nx, ny, nz);
@@ -1544,18 +1635,17 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         const extPlaneMesh = new THREE.Mesh(extGeo, extPlaneMat);
         group.add(extPlaneMesh);
 
-        // Extended Plane Perimeter Outline (Clear Boundary extending slightly beyond tunnel outline)
-        const c00 = [ax - R_s * sx - R_up * dx, ay - R_s * sy - R_up * dy, az - R_s * sz - R_up * dz];
-        const c10 = [ax + R_s * sx - R_up * dx, ay + R_s * sy - R_up * dy, az + R_s * sz - R_up * dz];
-        const c11 = [ax + R_s * sx + R_down * dx, ay + R_s * sy + R_down * dy, az + R_s * sz + R_down * dz];
-        const c01 = [ax - R_s * sx + R_down * dx, ay - R_s * sy + R_down * dy, az - R_s * sz + R_down * dz];
+        // Extended Plane Perimeter Outline
+        const borderPos: number[] = [];
+        for (let c = 0; c < numCols; c++) {
+          const u0 = -R_s + (c / numCols) * (2 * R_s);
+          const u1 = -R_s + ((c + 1) / numCols) * (2 * R_s);
+          borderPos.push(...getExtPt(u0, -R_up), ...getExtPt(u1, -R_up));
+          borderPos.push(...getExtPt(u0, R_down), ...getExtPt(u1, R_down));
+        }
+        borderPos.push(...getExtPt(-R_s, -R_up), ...getExtPt(-R_s, R_down));
+        borderPos.push(...getExtPt(R_s, -R_up), ...getExtPt(R_s, R_down));
 
-        const borderPos = [
-          ...c00, ...c10,
-          ...c10, ...c11,
-          ...c11, ...c01,
-          ...c01, ...c00,
-        ];
         const borderGeo = new THREE.BufferGeometry();
         borderGeo.setAttribute('position', new THREE.Float32BufferAttribute(borderPos, 3));
         const borderMat = new THREE.LineBasicMaterial({
@@ -1570,17 +1660,15 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         const gridPositions: number[] = [];
         for (let step = -Math.floor(R_up / 1.5) * 1.5; step <= R_down; step += 1.5) {
           if (Math.abs(step) < 0.15) continue;
-          gridPositions.push(
-            ax - R_s * sx + step * dx, ay - R_s * sy + step * dy, az - R_s * sz + step * dz,
-            ax + R_s * sx + step * dx, ay + R_s * sy + step * dy, az + R_s * sz + step * dz
-          );
+          for (let c = 0; c < numCols; c++) {
+            const u0 = -R_s + (c / numCols) * (2 * R_s);
+            const u1 = -R_s + ((c + 1) / numCols) * (2 * R_s);
+            gridPositions.push(...getExtPt(u0, step), ...getExtPt(u1, step));
+          }
         }
         for (let step = -Math.floor(R_s / 1.5) * 1.5; step <= R_s; step += 1.5) {
           if (Math.abs(step) < 0.15) continue;
-          gridPositions.push(
-            ax + step * sx - R_up * dx, ay + step * sy - R_up * dy, az + step * sz - R_up * dz,
-            ax + step * sx + R_down * dx, ay + step * sy + R_down * dy, az + step * sz + R_down * dz
-          );
+          gridPositions.push(...getExtPt(step, -R_up), ...getExtPt(step, R_down));
         }
         if (gridPositions.length > 0) {
           const gridGeo = new THREE.BufferGeometry();
@@ -1599,7 +1687,13 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
           for (let i = 0; i < clippedVertices.length; i++) {
             const curr = clippedVertices[i];
             const next = clippedVertices[(i + 1) % clippedVertices.length];
-            cutPerim.push(curr.y, curr.z, curr.x, next.y, next.z, next.x);
+            const cyCurr = isCrownNonPenetratingHinge
+              ? Math.min(curr.z, getCrownArchRoofY(curr.y))
+              : curr.z;
+            const cyNext = isCrownNonPenetratingHinge
+              ? Math.min(next.z, getCrownArchRoofY(next.y))
+              : next.z;
+            cutPerim.push(curr.y, cyCurr, curr.x, next.y, cyNext, next.x);
           }
           const cutGeo = new THREE.BufferGeometry();
           cutGeo.setAttribute('position', new THREE.Float32BufferAttribute(cutPerim, 3));
@@ -1607,13 +1701,16 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
           group.add(new THREE.LineSegments(cutGeo, cutMat));
         }
       } else if (clippedVertices.length >= 3) {
-        // Fallback: Clipped to tunnel bounding box
+        // Clipped to tunnel cross-section (clamped to Crown Strike Line Hinge & Arch when on Crown)
         const planeGeo = new THREE.BufferGeometry();
         const positions: number[] = [];
         const indices: number[] = [];
 
         clippedVertices.forEach((v) => {
-          positions.push(v.y, v.z, v.x);
+          const clampedY = isCrownNonPenetratingHinge
+            ? Math.min(v.z, getCrownArchRoofY(v.y))
+            : v.z;
+          positions.push(v.y, clampedY, v.x);
         });
 
         for (let i = 1; i < clippedVertices.length - 1; i++) {
@@ -1640,7 +1737,13 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
         for (let i = 0; i < clippedVertices.length; i++) {
           const curr = clippedVertices[i];
           const next = clippedVertices[(i + 1) % clippedVertices.length];
-          perimeterPositions.push(curr.y, curr.z, curr.x, next.y, next.z, next.x);
+          const cyCurr = isCrownNonPenetratingHinge
+            ? Math.min(curr.z, getCrownArchRoofY(curr.y))
+            : curr.z;
+          const cyNext = isCrownNonPenetratingHinge
+            ? Math.min(next.z, getCrownArchRoofY(next.y))
+            : next.z;
+          perimeterPositions.push(curr.y, cyCurr, curr.x, next.y, cyNext, next.x);
         }
         const perimGeo = new THREE.BufferGeometry();
         perimGeo.setAttribute('position', new THREE.Float32BufferAttribute(perimeterPositions, 3));
@@ -1649,20 +1752,25 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       }
     }
 
-    // 2. Strike Vector Line at Anchor / Crown Cut Point (Bounded to traced length in TRACED_LENGTH mode)
+    // 2. Strike Vector Hinge Line at Anchor / Crown Cut Point (Contoured to Crown Arch when on Crown so it never pokes through roof)
     const currentPlaneExt = planeExtensionM && planeExtensionM <= 9.0 ? planeExtensionM : 5.5;
     const sLen =
       planeDisplayMode === 'TRACED_LENGTH'
         ? tracedHalfLen
         : Math.max(3.8, currentPlaneExt * 0.95);
-    const sPos = [
-      ax - sx * sLen,
-      ay - sy * sLen,
-      az - sz * sLen,
-      ax + sx * sLen,
-      ay + sy * sLen,
-      az + sz * sLen,
-    ];
+    const sPos: number[] = [];
+    const sSegs = isCrownNonPenetratingHinge ? 16 : 1;
+    for (let i = 0; i < sSegs; i++) {
+      const u0 = -sLen + (i / sSegs) * (2 * sLen);
+      const u1 = -sLen + ((i + 1) / sSegs) * (2 * sLen);
+      const x0 = ax + u0 * sx;
+      const x1 = ax + u1 * sx;
+      const y0 = isCrownNonPenetratingHinge ? Math.min(ay + u0 * sy, getCrownArchRoofY(x0)) : ay + u0 * sy;
+      const y1 = isCrownNonPenetratingHinge ? Math.min(ay + u1 * sy, getCrownArchRoofY(x1)) : ay + u1 * sy;
+      const z0 = az + u0 * sz;
+      const z1 = az + u1 * sz;
+      sPos.push(x0, y0, z0, x1, y1, z1);
+    }
     const sGeo = new THREE.BufferGeometry();
     sGeo.setAttribute('position', new THREE.Float32BufferAttribute(sPos, 3));
     const sMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3.5 });
@@ -1886,6 +1994,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     hingePlaneResult,
     hingeDipDeg,
     currentTraceLengthM,
+    isStrikeLineHingeLocked,
   ]);
 
   // -------------------------------------------------------------------------
@@ -1925,8 +2034,13 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
       dipDirection: strikeInfo.dipDirectionDeg,
       dipAmount: strikeInfo.dipDeg,
       strike: strikeInfo.strikeRhrDeg,
+      crownDipSign: hingeDipSide === 'collar' ? '-90' : '+90',
+      editedByCompass: true,
       setId: jointSetId,
-      inspection3D: inspectionData,
+      inspection3D: {
+        ...inspectionData,
+        isOrientationComplete: true,
+      },
     };
 
     onSaveJoint(updated);
@@ -2454,6 +2568,25 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       </strong>
                     </div>
                   </div>
+
+                  {/* Crown Portion / SPL-to-SPL Strike Line Hinge Lock Toggle */}
+                  <label
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center gap-2 cursor-pointer pt-1 text-[9.5px] text-amber-300 hover:text-amber-200 border-t border-amber-500/20"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isStrikeLineHingeLocked}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        setIsStrikeLineHingeLocked(e.target.checked);
+                      }}
+                      className="accent-amber-500 rounded cursor-pointer"
+                    />
+                    <span>
+                      Crown Portion Strike Hinge Mode (Lock Strike {strikeInfo.strikePairLabel} as non-penetrating hinge when decreasing dip)
+                    </span>
+                  </label>
                 </div>
               )}
 
@@ -2593,59 +2726,66 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     <div className="flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
                       <span className="text-[11px] font-bold text-sky-300">
-                        Crown Trace Axis &amp; Dip Amount Tilt:
+                        Crown Strike Line Hinge &amp; Dip Tilt:
                       </span>
                     </div>
                     <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono font-bold border border-sky-500/40 text-[10px]">
-                      Arch Trace: {hingePlaneResult?.traceLengthM.toFixed(2) ?? '0.00'}m
+                      Strike Locked: {strikeInfo.strikePairLabel}
                     </span>
                   </div>
 
                   <p className="text-[10px] text-slate-300 leading-snug">
-                    The mapped crown trace forms the hinge axis along the arch. Choosing the <strong className="text-sky-300">dip amount</strong> directly tilts the 3D plane overhead without drifting off the mapped strike line.
+                    The mapped Crown trace (<strong className="text-sky-300">{strikeInfo.strikePairLabel}</strong>) acts as a <strong className="text-sky-300">fixed non-penetrating Strike Line Hinge</strong> on the crown arch. Decreasing Dip Amount pivots the plane strictly downward from the crown hinge without penetrating the crown or changing Strike.
                   </p>
 
                   {/* Live Dip Amount Slider */}
                   <div className="space-y-1.5 bg-slate-900/90 p-2.5 rounded-lg border border-sky-500/20">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-bold text-slate-200">Crown Discontinuity Dip Amount (Tilt δ):</span>
+                      <span className="font-bold text-slate-200">Crown Strike Dip Amount (δ):</span>
                       <span className="font-mono font-black text-sky-400 bg-sky-950/90 px-2 py-0.5 rounded border border-sky-500/50 text-xs shadow-sm">
-                        {hingeDipDeg}°
+                        {hingeDipDeg}° {hingeDipDeg === 90 ? '(Ideal 90° to Strike)' : ''}
                       </span>
                     </div>
                     <input
                       type="range"
                       min={1}
-                      max={89}
+                      max={90}
                       value={hingeDipDeg}
-                      onChange={(e) => setHingeDipDeg(Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setHingeDipDeg(val);
+                        setDipAmount(val);
+                      }}
                       className="w-full accent-sky-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
                     />
                     {/* Quick Preset Angles */}
                     <div className="flex items-center justify-between gap-1 pt-1">
-                      {[85, 75, 60, 45, 30, 15].map((deg) => (
+                      {[90, 80, 75, 60, 45, 30].map((deg) => (
                         <button
                           key={deg}
                           type="button"
-                          onClick={() => setHingeDipDeg(deg)}
+                          onClick={() => {
+                            setHingeDipDeg(deg);
+                            setDipAmount(deg);
+                          }}
                           className={`flex-1 py-1 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
                             hingeDipDeg === deg
                               ? 'bg-sky-500 text-slate-950 border-sky-300 font-bold shadow-sm'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                           }`}
                         >
-                          {deg}°
+                          {deg === 90 ? '90° Ideal' : `${deg}°`}
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Tilt Direction Side (Heading vs Collar) */}
+                  {/* Tilt Direction Side (Relative to Strike Direction) */}
                   <div className="space-y-1 pt-0.5">
                     <div className="flex items-center justify-between text-[10px] text-slate-300">
-                      <span>Crown Plane Tilt Direction:</span>
+                      <span>Dip Side Relative to Strike:</span>
                       <span className="font-mono font-bold text-sky-300">
-                        {hingeDipSide === 'heading' ? 'Dip Ahead (+X Heading)' : 'Dip Back (-X Collar)'}
+                        {hingeDipSide === 'heading' ? 'Strike + 90° (RHR Side)' : 'Strike - 90° (Opposite Side)'}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
@@ -2658,7 +2798,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                             : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                         }`}
                       >
-                        Tilt Ahead into Heading (+X)
+                        Dip Side +90° to Strike
                       </button>
                       <button
                         type="button"
@@ -2669,7 +2809,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                             : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                         }`}
                       >
-                        Tilt Back to Collar (-X)
+                        Dip Side -90° to Strike
                       </button>
                     </div>
                   </div>
@@ -2708,7 +2848,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       }}
                       className="accent-sky-500 rounded cursor-pointer"
                     />
-                    <span>Tilt plane strictly based on crown trace &amp; chosen dip amount (Recommended)</span>
+                    <span>Tilt plane strictly relative to crown strike direction (Recommended)</span>
                   </label>
                 </div>
               )}
@@ -2772,6 +2912,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                       onChange={(val) => {
                         const clamped = currentJoint.panel === 'crown' ? Math.max(1, Math.min(90, val)) : val;
                         setDipAmount(clamped);
+                        setHingeDipDeg(clamped);
                       }}
                     />
                     <input
@@ -2783,6 +2924,7 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                         const val = Number(e.target.value);
                         const clamped = currentJoint.panel === 'crown' ? Math.max(1, Math.min(90, val)) : val;
                         setDipAmount(clamped);
+                        setHingeDipDeg(clamped);
                       }}
                       className="w-full accent-amber-500 cursor-pointer"
                     />
@@ -2792,7 +2934,10 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                         <button
                           key={a}
                           type="button"
-                          onClick={() => setDipAmount(a)}
+                          onClick={() => {
+                            setDipAmount(a);
+                            setHingeDipDeg(a);
+                          }}
                           className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
                             (dipAmount ?? 60) === a
                               ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-sm'
@@ -2838,11 +2983,11 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                     </div>
                     {dipAmount === 90 ? (
                       <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 text-[9.5px]">
-                        Vertical 90° Dip Downward
+                        Ideal 90° Dip to Strike
                       </span>
                     ) : (
                       <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40 text-[9.5px]">
-                        Inclined {dipAmount}° Dip Downward
+                        Inclined {dipAmount}° Dip to Strike
                       </span>
                     )}
                   </div>
@@ -2851,41 +2996,54 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                   <div className="grid grid-cols-3 gap-1.5 pt-0.5">
                     <button
                       type="button"
-                      onClick={() => setDipAmount(90)}
+                      onClick={() => {
+                        setDipAmount(90);
+                        setHingeDipDeg(90);
+                      }}
                       className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all border ${
                         dipAmount === 90
                           ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm shadow-emerald-950'
                           : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
                       }`}
                     >
-                      Vertical (90° Down)
+                      90° Ideal Dip
                     </button>
                     <button
                       type="button"
                       onClick={() => {
-                        const s = strikeInfo.strikeRhrDeg;
+                        setHingeDipSide('heading');
+                        const s = hingePlaneResult?.strikeRhrDeg ?? strikeInfo.strikeRhrDeg;
                         setDipDirection((s + 90) % 360);
                       }}
-                      className="px-2 py-1 rounded bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-200 border border-slate-700 text-[10px] font-bold cursor-pointer transition-all"
+                      className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                        hingeDipSide === 'heading'
+                          ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-sm'
+                          : 'bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-200 border-slate-700'
+                      }`}
                     >
-                      Dip Right (+Y side)
+                      Dip +90° to Strike
                     </button>
                     <button
                       type="button"
                       onClick={() => {
-                        const s = strikeInfo.strikeRhrDeg;
+                        setHingeDipSide('collar');
+                        const s = hingePlaneResult?.strikeRhrDeg ?? strikeInfo.strikeRhrDeg;
                         setDipDirection((s - 90 + 360) % 360);
                       }}
-                      className="px-2 py-1 rounded bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-200 border border-slate-700 text-[10px] font-bold cursor-pointer transition-all"
+                      className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all border ${
+                        hingeDipSide === 'collar'
+                          ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-sm'
+                          : 'bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-200 border-slate-700'
+                      }`}
                     >
-                      Dip Left (-Y side)
+                      Dip -90° to Strike
                     </button>
                   </div>
 
                   {/* Crown Dip Amount Choices */}
                   <div className="space-y-1 pt-1.5 border-t border-amber-500/20">
                     <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-slate-400">Choose Dip Amount (cuts downward):</span>
+                      <span className="text-slate-400">Dip Amount Relative to Strike (Ideal 90°):</span>
                       <span className="font-mono font-bold text-amber-300">{dipAmount}°</span>
                     </div>
                     <div className="grid grid-cols-6 gap-1">
@@ -2893,14 +3051,17 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
                         <button
                           key={deg}
                           type="button"
-                          onClick={() => setDipAmount(deg)}
+                          onClick={() => {
+                            setDipAmount(deg);
+                            setHingeDipDeg(deg);
+                          }}
                           className={`py-1 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
                             dipAmount === deg
                               ? 'bg-amber-500 text-slate-950 border-amber-300 font-bold shadow-sm'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                           }`}
                         >
-                          {deg === 90 ? '90° (Vert)' : `${deg}°`}
+                          {deg === 90 ? '90° (Ideal)' : `${deg}°`}
                         </button>
                       ))}
                     </div>

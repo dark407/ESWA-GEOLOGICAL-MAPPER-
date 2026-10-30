@@ -3068,21 +3068,31 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     // and displayed in the live Compass & Inclinometer widget.
     // Do NOT allow shape snapping or re-estimation to change orientation upon clicking Confirm!
     const effectiveDipDir =
-      pendingItem.dipDirection !== undefined
+      pendingItem.editedByCompass && pendingItem.dipDirection !== undefined
+        ? pendingItem.dipDirection
+        : targetPanel === 'crown'
+        ? est.dipDirection
+        : pendingItem.dipDirection !== undefined
         ? pendingItem.dipDirection
         : liveDipDirection !== undefined
         ? liveDipDirection
         : est.dipDirection;
 
     const effectiveDipAmt =
-      pendingItem.dipAmount !== undefined
+      targetPanel === 'crown'
+        ? pendingItem.editedByCompass && pendingItem.dipAmount !== undefined
+          ? pendingItem.dipAmount
+          : 90
+        : pendingItem.dipAmount !== undefined
         ? pendingItem.dipAmount
         : liveDipAmount !== undefined
         ? liveDipAmount
         : est.dipAmount;
 
     const effectiveStrike =
-      pendingItem.strike !== undefined
+      targetPanel === 'crown'
+        ? est.strike
+        : pendingItem.strike !== undefined
         ? pendingItem.strike
         : ((effectiveDipDir - 90 + 360) % 360);
 
@@ -3587,7 +3597,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             )
           : {
               dipDirection: liveDipDirection,
-              dipAmount: liveDipAmount,
+              dipAmount: targetPanel === 'crown' ? 90 : liveDipAmount,
               strike: (liveDipDirection - 90 + 360) % 360,
               traceLengthM: 0.5,
             };
@@ -3812,7 +3822,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           ? tele.inferredDipDirection
           : est.dipDirection;
       const effectiveDipAmt =
-        useStylusTilt && tele?.inferredDipAngle !== undefined
+        targetPanel === 'crown'
+          ? 90
+          : useStylusTilt && tele?.inferredDipAngle !== undefined
           ? tele.inferredDipAngle
           : est.dipAmount;
       const effectiveStrike =
@@ -7202,29 +7214,162 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     />
                   </div>
 
-                  <div>
+                  <div className="sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-300 mb-1">
-                      Excavation Approach
+                      Excavation Approach (Method)
                     </label>
                     <select
                       value={activeRound.excavationApproach}
-                      onChange={(e) =>
-                        updateActiveRound((r) => ({ ...r, excavationApproach: e.target.value }))
-                      }
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"
+                      onChange={(e) => {
+                        const nextApproach = e.target.value;
+                        const totalH = Math.max(1.5, Number(activeLocation?.heightM ?? 7.0));
+                        const defaultBenchH = Number(
+                          Math.min(
+                            totalH - 0.5,
+                            Math.max(0.5, Number(activeLocation?.wallHeightM ?? totalH * 0.42))
+                          ).toFixed(2)
+                        );
+                        updateActiveRound((r) => ({
+                          ...r,
+                          excavationApproach: nextApproach,
+                          benchHeightMeters:
+                            r.benchHeightMeters !== undefined && r.benchHeightMeters > 0
+                              ? r.benchHeightMeters
+                              : defaultBenchH,
+                        }));
+                      }}
+                      className="w-full bg-slate-950 border border-amber-500/50 rounded-lg px-2.5 py-2 text-xs font-bold text-white"
                     >
-                      {[
-                        'Full Face',
-                        'Top Heading & Bench',
-                        'Heading Only',
-                        'Bench Only',
-                        'Multiple Drift / Side Drift',
-                      ].map((ap) => (
-                        <option key={ap} value={ap}>
-                          {ap}
-                        </option>
-                      ))}
+                      <option value="Full Face">Full Face</option>
+                      <option value="Top Heading & Bench">Top Heading &amp; Benching</option>
+                      <option value="Heading Only">Top Heading (Heading Only)</option>
+                      <option value="Bench Only">Benching (Bench Only)</option>
+                      <option value="Multiple Drift / Side Drift">Multiple Drift / Side Drift</option>
                     </select>
+
+                    {(() => {
+                      const ap = (activeRound.excavationApproach || '').toLowerCase();
+                      const isBenchMethod =
+                        ap.includes('heading') || ap.includes('bench');
+                      if (!isBenchMethod) return null;
+
+                      const totalH = Math.max(1.0, Number(activeLocation?.heightM ?? 7.0));
+                      const defaultBenchH = Number(
+                        Math.min(
+                          totalH - 0.5,
+                          Math.max(0.5, Number(activeLocation?.wallHeightM ?? totalH * 0.42))
+                        ).toFixed(2)
+                      );
+                      const benchH = Number(
+                        Math.min(
+                          totalH - 0.3,
+                          Math.max(0.3, Number(activeRound.benchHeightMeters ?? defaultBenchH))
+                        ).toFixed(2)
+                      );
+                      const headingH = Number(Math.max(0.3, totalH - benchH).toFixed(2));
+                      const isBenchingOnly =
+                        ap === 'bench only' || ap === 'benching' || (ap.includes('bench') && !ap.includes('heading'));
+
+                      return (
+                        <div className="mt-2.5 p-3 rounded-xl bg-slate-950/90 border border-amber-500/40 space-y-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-300 block">
+                                Bench Height (Hb from Invert) — Required for {activeRound.excavationApproach}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                Sets the dotted Bench Line elevation &amp; hatched zone in 2D Canvas, Strip Align, Support, Survey &amp; Reports
+                              </span>
+                            </div>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                                isBenchingOnly
+                                  ? 'bg-cyan-950/70 border-cyan-500/50 text-cyan-300'
+                                  : 'bg-amber-950/70 border-amber-500/50 text-amber-300'
+                              }`}
+                            >
+                              {isBenchingOnly
+                                ? 'TOP PORTION HATCHED • BENCHING ONLY ACTIVE'
+                                : 'BENCH LINE DOTTED • BENCH HATCHED'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
+                            <div>
+                              <label className="block text-[10px] font-bold text-amber-200 mb-1">
+                                Bench Height Hb (m)
+                              </label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min={0.3}
+                                max={Number((totalH - 0.3).toFixed(2))}
+                                value={activeRound.benchHeightMeters ?? defaultBenchH}
+                                onChange={(e) => {
+                                  const raw = parseFloat(e.target.value);
+                                  const clamped = Number.isFinite(raw)
+                                    ? Math.min(totalH - 0.2, Math.max(0.2, raw))
+                                    : defaultBenchH;
+                                  updateActiveRound((r) => ({
+                                    ...r,
+                                    benchHeightMeters: clamped,
+                                  }));
+                                }}
+                                className="w-full bg-slate-900 border border-amber-400/60 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-amber-300"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                                Top Heading Height Hh (m)
+                              </label>
+                              <div className="w-full bg-slate-900/70 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-sky-300">
+                                {headingH.toFixed(2)} m{' '}
+                                <span className="text-[10px] text-slate-400 font-normal">
+                                  (Total H = {totalH.toFixed(2)}m)
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1">
+                              {[
+                                {
+                                  label: `SPL (${Number(activeLocation?.wallHeightM ?? totalH * 0.42).toFixed(1)}m)`,
+                                  val: Number(
+                                    Math.min(
+                                      totalH - 0.3,
+                                      Math.max(0.3, Number(activeLocation?.wallHeightM ?? totalH * 0.42))
+                                    ).toFixed(2)
+                                  ),
+                                },
+                                {
+                                  label: `40% H (${(totalH * 0.4).toFixed(1)}m)`,
+                                  val: Number((totalH * 0.4).toFixed(2)),
+                                },
+                                {
+                                  label: `50% H (${(totalH * 0.5).toFixed(1)}m)`,
+                                  val: Number((totalH * 0.5).toFixed(2)),
+                                },
+                              ].map((preset) => (
+                                <button
+                                  key={preset.label}
+                                  type="button"
+                                  onClick={() =>
+                                    updateActiveRound((r) => ({
+                                      ...r,
+                                      benchHeightMeters: preset.val,
+                                    }))
+                                  }
+                                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono font-bold text-slate-200 border border-slate-700 cursor-pointer"
+                                >
+                                  {preset.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -9566,7 +9711,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 { x: 750, y: 550 },
                               ],
                               dipDirection: activeRound.tunnelDriveDirection || 135,
-                              dipAmount: 65,
+                              dipAmount: activePanel === 'crown' ? 90 : 65,
                               strike: ((activeRound.tunnelDriveDirection || 135) - 90 + 360) % 360,
                               setId: 'J1',
                               strokeWidthPx: 3.8,
@@ -10881,6 +11026,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             const isSel = selectedTraceId === tr.id;
                             const baseTrW = Math.max(1.2, Math.min(16, tr.strokeWidthPx ?? 3.6));
                             const isCrownPanel = panelId === 'crown';
+                            const isCrownConfirmed3D =
+                              isCrownPanel &&
+                              Boolean(
+                                tr.inspection3D &&
+                                  tr.inspection3D.isOrientationComplete !== false
+                              );
                             const crownStrikeVal =
                               isCrownPanel && tr.points.length >= 2
                                 ? estimateTraceOrientationFromGeometry(
@@ -10896,7 +11047,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             const prefixLabel = tr.label || (tr.setId && tr.setId !== 'unassigned' ? tr.setId : 'J');
                             const placement = pTraceLabelMap[tr.id];
                             const inlineText = isCrownPanel
-                              ? `${prefixLabel} STR ${crownPair.label}`
+                              ? isCrownConfirmed3D
+                                ? `${prefixLabel} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}° (STR ${crownPair.label})`
+                                : `${prefixLabel} STR ${crownPair.label}`
                               : `${prefixLabel} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`;
 
                             const {
@@ -10975,7 +11128,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 />
 
                                 {isCrownPanel ? (
-                                  /* Crown: Dual opposite strike arrows along trace */
+                                  /* Crown: Dual opposite strike arrows along trace + Dip tick once confirmed by 3D Joint Inspector */
                                   <g>
                                     <line
                                       x1={mid.x - sUx * sArrowLen}
@@ -11004,6 +11157,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                       },${mid.y - sUy * (sArrowLen - sHead) - sUx * (sHead * 0.6)}`}
                                       fill={grpColor.stroke}
                                     />
+                                    {isCrownConfirmed3D && (
+                                      <>
+                                        <line
+                                          x1={mid.x}
+                                          y1={mid.y}
+                                          x2={tickX}
+                                          y2={tickY}
+                                          stroke={grpColor.stroke}
+                                          strokeWidth={isTCanvas ? '2.1' : '2.8'}
+                                        />
+                                        <circle
+                                          cx={tickX}
+                                          cy={tickY}
+                                          r={isTCanvas ? '2.2' : '2.8'}
+                                          fill={grpColor.stroke}
+                                        />
+                                      </>
+                                    )}
                                     <circle cx={mid.x} cy={mid.y} r={isTCanvas ? '2.5' : '3.5'} fill="#ffffff" stroke={grpColor.stroke} strokeWidth="1.5" />
                                   </g>
                                 ) : (
@@ -12320,9 +12491,43 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 </span>
                               </div>
                               <div className="flex items-center gap-1.5">
-                                <span className="font-mono font-bold text-xs text-amber-300">
-                                  {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
-                                </span>
+                                {tr.panel === 'crown' ? (
+                                  tr.inspection3D && tr.inspection3D.isOrientationComplete !== false ? (
+                                    <span className="font-mono font-bold text-xs text-emerald-300">
+                                      {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}° (STR{' '}
+                                      {
+                                        getCrownStrikePair(
+                                          tr.strike !== undefined
+                                            ? tr.strike
+                                            : ((tr.dipDirection - 90) % 360 + 360) % 360
+                                        ).label
+                                      }
+                                      )
+                                    </span>
+                                  ) : (
+                                    <span className="font-mono font-bold text-xs text-sky-300">
+                                      STR{' '}
+                                      {
+                                        getCrownStrikePair(
+                                          tr.points.length >= 2
+                                            ? estimateTraceOrientationFromGeometry(
+                                                tr.points,
+                                                'crown',
+                                                activeRound.tunnelDriveDirection,
+                                                tr.crownDipSign || '+90'
+                                              ).strike
+                                            : tr.strike !== undefined
+                                            ? tr.strike
+                                            : ((tr.dipDirection - 90) % 360 + 360) % 360
+                                        ).label
+                                      }
+                                    </span>
+                                  )
+                                ) : (
+                                  <span className="font-mono font-bold text-xs text-amber-300">
+                                    {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
+                                  </span>
+                                )}
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -12331,10 +12536,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     setInspectedJointId(tr.id);
                                     setIs3DJointInspectorOpen(true);
                                   }}
-                                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30 text-[10px] font-bold cursor-pointer transition-all"
+                                  className={`px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer transition-all ${
+                                    tr.panel === 'crown' && tr.inspection3D
+                                      ? 'bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border-emerald-500/40'
+                                      : 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border-amber-500/30'
+                                  }`}
                                   title="Inspect joint in 3D"
                                 >
-                                  3D
+                                  {tr.panel === 'crown' && tr.inspection3D ? '3D ✓' : '3D'}
                                 </button>
                               </div>
                             </div>

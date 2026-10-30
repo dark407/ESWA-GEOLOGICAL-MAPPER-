@@ -64,6 +64,8 @@ import {
   FieldDipSurfaceSvgElement,
   FieldMonochromeGeologicalPatterns,
   FieldStructuralFeatureSvgElement,
+  FieldTunnelBenchHatchAndLineSvg,
+  FieldTunnelWallOrCrownBenchOverlaySvg,
   FieldVeinFoliationBandSvgElement,
   FieldWaterSymbolSvgElement,
 } from './FieldMappingCompassAndPatterns';
@@ -2896,6 +2898,30 @@ export const FieldPhotoFitStage: React.FC<{
                         strokeDasharray="10 6"
                       />
                     )}
+                    {!isSurface && selectedPanel === 'face' && (
+                      <FieldTunnelBenchHatchAndLineSvg
+                        location={activeLocation}
+                        round={activeRound}
+                        boxX={pGeom.boxX}
+                        boxY={pGeom.boxY}
+                        boxW={pGeom.boxW}
+                        boxH={pGeom.boxH}
+                        darkBackground
+                        idSuffix={`photofit-face-${activeRound.id}`}
+                      />
+                    )}
+                    {!isSurface && selectedPanel !== 'face' && (
+                      <FieldTunnelWallOrCrownBenchOverlaySvg
+                        activePanel={selectedPanel}
+                        location={activeLocation}
+                        round={activeRound}
+                        boxX={pGeom.boxX}
+                        boxY={pGeom.boxY}
+                        boxW={pGeom.boxW}
+                        boxH={pGeom.boxH}
+                        idSuffix={`photofit-${selectedPanel}-${activeRound.id}`}
+                      />
+                    )}
                   </g>
                 )}
 
@@ -4544,6 +4570,31 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
             strokeWidth="1.2"
             strokeDasharray="6 4"
             opacity="0.65"
+          />
+        )}
+        {panel === 'face' && faceDetails ? (
+          <FieldTunnelBenchHatchAndLineSvg
+            location={location}
+            round={round}
+            boxX={targetX}
+            boxY={targetY}
+            boxW={targetW}
+            boxH={targetH}
+            clipPathD={faceDetails.closedFillPathD}
+            colorMode={colorMode}
+            idSuffix={`photo-rpt-face-${round.id}`}
+          />
+        ) : (
+          <FieldTunnelWallOrCrownBenchOverlaySvg
+            activePanel={panel}
+            location={location}
+            round={round}
+            boxX={targetX}
+            boxY={targetY}
+            boxW={targetW}
+            boxH={targetH}
+            colorMode={colorMode}
+            idSuffix={`photo-rpt-${panel}-${round.id}`}
           />
         )}
       </g>

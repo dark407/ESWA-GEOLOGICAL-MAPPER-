@@ -228,12 +228,28 @@ export interface CompleteFemDemAnalysisResult {
   secondaryLithologies: string[];
   weatheringGrade: string;
   strengthGrade: string;
-  qValue: number;
+  qValue: number | null;
   qClass: string;
-  rmrValue: number;
+  rmrValue: number | null;
   rmrClass: string;
-  gsiValue: number;
+  gsiValue: number | null;
   groundwaterSummary: string;
+  // Strict Engineering Prerequisites Gate
+  prerequisites: {
+    hasClassification: boolean;
+    hasRmr: boolean;
+    hasQ: boolean;
+    hasGsi: boolean;
+    hasRockStrengthOrLithology: boolean;
+    hasMappedLithology: boolean;
+    hasWeatheringAndStrength: boolean;
+    hasOverburden: boolean;
+    hasDiscontinuitiesForDem: boolean;
+    isBeforeAnalysisReady: boolean;
+    isAfterAnalysisReady: boolean;
+    missingBeforeRequirements: string[];
+    missingAfterRequirements: string[];
+  };
   // Hoek-Brown & In-situ Derived
   inSituVerticalStressMpa: number;
   inSituHorizontalStressMpa: number;
@@ -595,8 +611,7 @@ function extractDominantLithologies(round: FieldExcavationRound): {
   }
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   if (sorted.length === 0) {
-    const fallback = FIELD_LITHOLOGY_CATALOG[0]?.name || 'Granite';
-    return { dominant: fallback, secondary: [] };
+    return { dominant: 'Not Mapped', secondary: [] };
   }
   return {
     dominant: sorted[0][0],
@@ -676,7 +691,9 @@ export function runCompleteFemDemAnalysis(
 
   // 2. Lithology, Weathering, Classifications
   const lithoInfo = extractDominantLithologies(round);
-  const refLitho = matchLithologyReference(lithoInfo.dominant);
+  const refLitho = matchLithologyReference(
+    lithoInfo.dominant === 'Not Mapped' ? 'Granite' : lithoInfo.dominant
+  );
   const weatheringKey = round.weatheringIndex || 'WII';
   const wMod = WEATHERING_MODIFIERS[weatheringKey] || WEATHERING_MODIFIERS.WII;
   const strengthKey = round.strengthIndex || 'S3';
@@ -684,9 +701,36 @@ export function runCompleteFemDemAnalysis(
 
   const qRes = computeFieldQValue(round?.qSystem);
   const rmrRes = computeFieldRmrValue(round?.rmrSystem);
-  const safeQValue = qRes.qValue ?? 4.5;
-  const safeRmrValue = rmrRes.totalRmr ?? 55;
-  const gsiVal = Math.max(10, Math.min(95, Number(round?.gsiValue || Math.max(15, safeRmrValue - 5))));
+  const hasQ = qRes.qValue !== null;
+  const hasRmr = rmrRes.totalRmr !== null;
+  const hasGsi =
+    round?.gsiValue !== null &&
+    round?.gsiValue !== undefined &&
+    Number(round.gsiValue) > 0;
+
+  const safeQValue = qRes.qValue ?? (hasRmr ? Number(Math.exp((rmrRes.totalRmr! - 44) / 9).toFixed(2)) : 4.5);
+  const safeRmrValue =
+    rmrRes.totalRmr ??
+    (hasGsi
+      ? Math.min(100, Number(round.gsiValue) + 5)
+      : hasQ
+      ? Math.max(10, Math.min(100, Math.round(9 * Math.log(qRes.qValue!) + 44)))
+      : 55);
+  const gsiVal = Math.max(
+    10,
+    Math.min(
+      95,
+      Number(
+        hasGsi
+          ? round.gsiValue
+          : hasRmr
+          ? Math.max(15, rmrRes.totalRmr! - 5)
+          : hasQ
+          ? Math.max(15, Math.round(9 * Math.log(qRes.qValue!) + 39))
+          : 50
+      )
+    )
+  );
 
   // Helper to resolve parameter with 4-tier provenance
   const resolveParam = (
@@ -1905,7 +1949,7 @@ export function runCompleteFemDemAnalysis(
 
     demJointPlanes.push({
       id: jt.id || `dem-j-${idx}`,
-      setId: jt.setId,
+      setId: (jt.setId === 'unassigned' ? 'J-Random' : jt.setId) as FieldJointSetId,
       label: `${jt.setId} (${Math.round(dipDirDeg)}°/${Math.round(dipDeg)}°)`,
       panel: jt.panel,
       x1Svg,
@@ -2286,6 +2330,63 @@ export function runCompleteFemDemAnalysis(
     },
   ];
 
+  // Evaluate strict engineering prerequisites
+  const hasClassification = hasRmr || hasQ || hasGsi;
+  const hasMappedLithology =
+    lithoInfo.dominant !== 'Not Mapped' ||
+    Boolean(round?.alternateLithologyConfig?.enabled);
+  const hasWeatheringAndStrength = Boolean(round?.weatheringIndex && round?.strengthIndex);
+  const hasUcsInput =
+    Boolean(round?.strengthIndex) ||
+    (round?.rmrSystem?.ucsRating !== null && round?.rmrSystem?.ucsRating !== undefined) ||
+    overrides.intactUcsMpa !== undefined ||
+    siteTests.intactUcsMpa !== undefined;
+  const hasRockStrengthOrLithology =
+    (hasMappedLithology || Boolean(round?.weatheringIndex)) && hasUcsInput;
+  const hasOverburden =
+    overburdenInfo.provenance !== 'MISSING_INPUT' ||
+    overrides.overburdenDepthM !== undefined ||
+    siteTests.overburdenDepthM !== undefined;
+  const hasDiscontinuitiesForDem =
+    (round?.jointTraces || []).length > 0 ||
+    (round?.dipPlaneSurfaces || []).length > 0 ||
+    Object.values(round?.discontinuitySets || {}).some(
+      (st) => st.enabled && (st.dipAmountFrom > 0 || st.dipAmountTo > 0 || Boolean(st.spacing))
+    );
+
+  const missingBeforeRequirements: string[] = [];
+  if (!hasClassification) {
+    missingBeforeRequirements.push(
+      'Rock Mass Classification Not Assessed: Complete Bieniawski RMR89 (all 6 parameters), Barton Q-System (all 6 parameters), or Hoek–Marinos GSI Sheet in Stage 7 (Q / RMR / GSI).'
+    );
+  }
+  if (!hasMappedLithology && !round?.weatheringIndex) {
+    missingBeforeRequirements.push(
+      'Lithology / Weathering Missing: Map rock lithology on the Face Canvas OR select ISRM Weathering Grade (WI–WVI) in Stage 6 (Discontinuity Sets).'
+    );
+  }
+  if (!hasUcsInput) {
+    missingBeforeRequirements.push(
+      'Intact Rock Strength (UCS / S1–S6) Missing: Select ISRM Rock Strength Index (S1–S6) in Stage 6, select RMR89 UCS Rating in Stage 7, or enter Intact UCS σ_ci (MPa) in the parameter bar.'
+    );
+  }
+  if (!hasOverburden) {
+    missingBeforeRequirements.push(
+      'In-Situ Overburden Depth H (m) Not Entered: Enter the tunnel rock cover / overburden depth H (m) in the quick-input bar above to compute vertical in-situ stress (σ_v = γ·H).'
+    );
+  }
+
+  const isBeforeAnalysisReady =
+    hasClassification && hasRockStrengthOrLithology && hasOverburden;
+
+  const missingAfterRequirements: string[] = [...missingBeforeRequirements];
+  if (!isSupportConfirmedInstalled) {
+    missingAfterRequirements.push(
+      'No Support System Configured: Enable at least one support system (Systematic Rock Bolts, Shotcrete, Wire Mesh, Lattice Girder, or ISMB Steel Ribs) in Stage 8 (Support System) before running After-Support FEM / DEM analysis.'
+    );
+  }
+  const isAfterAnalysisReady = isBeforeAnalysisReady && isSupportConfirmedInstalled;
+
   return {
     projectName: project?.projectName || 'ESWA Project',
     locationName: location?.name || 'Heading 1',
@@ -2297,19 +2398,34 @@ export function runCompleteFemDemAnalysis(
     equivalentRadiusM,
     dominantLithology: lithoInfo.dominant,
     secondaryLithologies: lithoInfo.secondary,
-    weatheringGrade: wMod.label,
-    strengthGrade: sInfo.label,
-    qValue: safeQValue,
-    qClass: qRes.rockClass || 'Fair Rock',
-    rmrValue: safeRmrValue,
-    rmrClass: rmrRes.rmrClass || 'Class III — Fair Rock',
-    gsiValue: gsiVal,
+    weatheringGrade: round.weatheringIndex ? wMod.label : 'Not Selected',
+    strengthGrade: round.strengthIndex ? sInfo.label : 'Not Selected',
+    qValue: qRes.qValue,
+    qClass: qRes.rockClass || 'Not Assessed',
+    rmrValue: rmrRes.totalRmr,
+    rmrClass: rmrRes.rmrClass || 'Not Assessed',
+    gsiValue: hasGsi ? Number(round.gsiValue) : hasClassification ? gsiVal : null,
     groundwaterSummary:
       basePoreWaterKpa > 150
         ? `High Seepage / Flowing Water (uw = ${basePoreWaterKpa.toFixed(0)} kPa)`
         : basePoreWaterKpa > 20
         ? `Damp to Dripping Seepage (uw = ${basePoreWaterKpa.toFixed(0)} kPa)`
         : 'Predominantly Dry to Slightly Damp (uw ≈ 0 kPa)',
+    prerequisites: {
+      hasClassification,
+      hasRmr,
+      hasQ,
+      hasGsi,
+      hasRockStrengthOrLithology,
+      hasMappedLithology,
+      hasWeatheringAndStrength,
+      hasOverburden,
+      hasDiscontinuitiesForDem,
+      isBeforeAnalysisReady,
+      isAfterAnalysisReady,
+      missingBeforeRequirements,
+      missingAfterRequirements,
+    },
     inSituVerticalStressMpa: Number(sigmaV_Mpa.toFixed(2)),
     inSituHorizontalStressMpa: Number(sigmaH_Mpa.toFixed(2)),
     inSituHydrostaticStressMpa: p0_Mpa,

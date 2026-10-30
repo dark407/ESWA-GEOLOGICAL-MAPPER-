@@ -449,7 +449,9 @@ export interface FieldSpotBoltItem {
 }
 
 export interface FieldSupportSystemConfig {
-  supportClass: 'Class I' | 'Class II' | 'Class III' | 'Class IV' | 'Class V' | 'Custom';
+  supportClass: 'Class I' | 'Class II' | 'Class III' | 'Class IV' | 'Class V' | 'Custom' | '';
+  userConfiguredSupport?: boolean;
+  overrideReason?: string;
   rockClass?: string;
   customClassLabel?: string;
   wireMeshEnabled: boolean;
@@ -528,6 +530,7 @@ export interface FieldSupportSystemConfig {
 
   /** Surface Mapping (Slope & Bench) Simple Stabilization */
   soilNailEnabled?: boolean;
+  soilNailsEnabled?: boolean;
   soilNailType?: string;
   soilNailLengthM?: number;
   soilNailSpacingM?: number;
@@ -593,10 +596,13 @@ export interface FieldExcavationRound {
   /** Excavation Round Details (Step 2) */
   chainageFrom: string;
   chainageTo: string;
+  chainageMeters?: number;
   dateAndTimeOfExcavation: string;
   modeOfExcavation: string;
   tunnelDriveDirection: number; // 0..360 deg azimuth
   excavationApproach: string;
+  /** Bench height in meters from the tunnel invert when Top Heading & Benching, Top Heading, or Benching is chosen */
+  benchHeightMeters?: number;
   chainageOfLastSupport: string;
   pullLengthMeters: number;
   /** Step 3 Camera / Skip status */
@@ -670,6 +676,26 @@ export interface FieldExcavationRound {
     ja: number;
     jw: number;
     srf: number;
+    /** NMT — Norwegian Method of Tunnelling (Advanced NGI Q-System) extended state */
+    nmtModeEnabled?: boolean;
+    jnBase?: number;
+    jnMultiplierMode?: 'normal' | 'portal_2x' | 'intersection_3x';
+    jrBase?: number;
+    jrCategory?: 'a' | 'b' | 'c';
+    jrSpacingPlusOne?: boolean;
+    jaCategory?: 'a' | 'b' | 'c';
+    srfCategory?: 'a' | 'b' | 'c' | 'd';
+    esrValue?: number;
+    esrCategoryCode?: 'A' | 'B' | 'C' | 'D' | 'E';
+    esrCategoryLabel?: string;
+    selectedRowCodes?: {
+      rqd?: string;
+      jn?: string;
+      jr?: string;
+      ja?: string;
+      jw?: string;
+      srf?: string;
+    };
   };
   rmrSystem: {
     ucsRating: number;
@@ -888,6 +914,7 @@ export interface FieldTunnelLocationItem {
   chainagePrefix?: string;
   leftWallLengthM?: number;
   rightWallLengthM?: number;
+  crownLengthM?: number;
   defaultDriveAzimuth: number;
   defaultExcavationMode: string;
   defaultExcavationApproach: string;
@@ -1968,24 +1995,24 @@ export function createDefaultDiscontinuitySets(): Record<
   FieldDiscontinuitySetRecord
 > {
   const map = {} as Record<FieldJointSetId, FieldDiscontinuitySetRecord>;
-  FIELD_JOINT_SET_IDS.forEach((setId, idx) => {
+  FIELD_JOINT_SET_IDS.forEach((setId) => {
     map[setId] = {
       setId,
-      enabled: idx < 3 || setId === 'J-Bedding',
-      dipDirectionFrom: idx === 0 ? 40 : idx === 1 ? 135 : 240,
-      dipDirectionTo: idx === 0 ? 55 : idx === 1 ? 155 : 265,
-      dipAmountFrom: idx === 0 ? 50 : idx === 1 ? 65 : 30,
-      dipAmountTo: idx === 0 ? 65 : idx === 1 ? 80 : 45,
-      strikeFrom: idx === 0 ? 310 : idx === 1 ? 45 : 150,
-      strikeTo: idx === 0 ? 325 : idx === 1 ? 65 : 175,
+      enabled: false,
+      dipDirectionFrom: 0,
+      dipDirectionTo: 0,
+      dipAmountFrom: 0,
+      dipAmountTo: 0,
+      strikeFrom: 0,
+      strikeTo: 0,
       manualOrientationOverride: false,
-      spacing: '20 - 60 cm (Close)',
-      persistence: '3 - 10 m (Medium)',
-      aperture: '0.1 - 1.0 mm',
-      roughness: 'Rough / Undulating',
-      infilling: 'None / Tight',
-      weathering: 'WII - Slightly Weathered',
-      groundwater: 'Dry',
+      spacing: '',
+      persistence: '',
+      aperture: '',
+      roughness: '',
+      infilling: '',
+      weathering: '',
+      groundwater: '',
       remarks: '',
     };
   });
@@ -1994,12 +2021,14 @@ export function createDefaultDiscontinuitySets(): Record<
 
 export function createDefaultSupportSystem(): FieldSupportSystemConfig {
   return {
-    supportClass: 'Class III',
-    wireMeshEnabled: true,
+    supportClass: '',
+    userConfiguredSupport: false,
+    overrideReason: '',
+    wireMeshEnabled: false,
     wireMeshScope: 'crown_and_wall',
     wireMeshType: 'Welded Wire Mesh 100×100×4.5mm',
-    rockBoltsEnabled: true,
-    rockBoltEnabled: true,
+    rockBoltsEnabled: false,
+    rockBoltEnabled: false,
     rockBoltScope: 'crown_and_wall',
     rockBoltType: '25mm SN Grouted Dowel',
     rockBoltLengthM: 4.0,
@@ -2008,7 +2037,7 @@ export function createDefaultSupportSystem(): FieldSupportSystemConfig {
     rockBoltLongitudinalSpacingM: 1.5,
     rockBoltSpacingInPlaneM: 1.5,
     rockBoltSpacingPullM: 1.5,
-    shotcreteEnabled: true,
+    shotcreteEnabled: false,
     shotcreteScope: 'crown_and_wall',
     shotcreteType: 'SFRS',
     shotcreteCrownThicknessMm: 100,
@@ -2025,6 +2054,11 @@ export function createDefaultSupportSystem(): FieldSupportSystemConfig {
     steelRibSpacingM: 1.0,
     spotBoltsEnabled: false,
     spotBolts: [],
+    soilNailEnabled: false,
+    soilNailsEnabled: false,
+    weepHolesEnabled: false,
+    subHorizontalDrainsEnabled: false,
+    crestDrainDitchEnabled: false,
     protectionSupportEnabled: false,
     protectionSupportMode: 'Protection & Cavity Support',
     forepolingEnabled: false,
@@ -2589,11 +2623,19 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
                       r.tunnelDriveDirection ?? 0,
                       t.crownDipSign || '+90'
                     );
+                    const hasCustomSavedDip =
+                      Boolean(t.editedByCompass || t.inspection3D) &&
+                      typeof t.dipAmount === 'number' &&
+                      t.dipAmount >= 1 &&
+                      t.dipAmount <= 90;
                     return {
                       ...t,
                       points: pts,
-                      dipDirection: recalc.dipDirection,
-                      dipAmount: recalc.dipAmount,
+                      dipDirection:
+                        (t.editedByCompass || t.inspection3D) && typeof t.dipDirection === 'number'
+                          ? t.dipDirection
+                          : recalc.dipDirection,
+                      dipAmount: hasCustomSavedDip ? t.dipAmount : recalc.dipAmount,
                       strike: recalc.strike,
                       setId:
                         t.setId && FIELD_JOINT_GROUP_COLORS[t.setId]
@@ -2625,17 +2667,36 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
               ? r.structuralFeatures
               : [],
             waterMarks: Array.isArray(r.waterMarks) ? r.waterMarks : [],
-            discontinuitySets: {
-              ...defaultSets,
-              ...(r.discontinuitySets || {}),
-            },
-            supportSystem: {
-              ...createDefaultSupportSystem(),
-              ...(r.supportSystem || {}),
-              spotBolts: Array.isArray(r.supportSystem?.spotBolts)
-                ? r.supportSystem.spotBolts
-                : [],
-            },
+            discontinuitySets: (() => {
+              const rawSets = (r.discontinuitySets || {}) as Partial<
+                Record<FieldJointSetId, FieldDiscontinuitySetRecord>
+              >;
+              const isLegacyPreFedSets =
+                rawSets.J1?.dipDirectionFrom === 40 &&
+                rawSets.J1?.dipDirectionTo === 55 &&
+                rawSets.J1?.spacing === '20 - 60 cm (Close)' &&
+                rawSets.J2?.dipDirectionFrom === 135 &&
+                (!Array.isArray(r.jointTraces) || r.jointTraces.length === 0) &&
+                (!Array.isArray(r.dipPlaneSurfaces) || r.dipPlaneSurfaces.length === 0);
+              if (isLegacyPreFedSets) {
+                return createDefaultDiscontinuitySets();
+              }
+              return {
+                ...defaultSets,
+                ...rawSets,
+              };
+            })(),
+            supportSystem: (() => {
+              const rawSup = r.supportSystem;
+              if (!rawSup || !rawSup.userConfiguredSupport) {
+                return createDefaultSupportSystem();
+              }
+              return {
+                ...createDefaultSupportSystem(),
+                ...rawSup,
+                spotBolts: Array.isArray(rawSup.spotBolts) ? rawSup.spotBolts : [],
+              };
+            })(),
             surveyOverbreak: {
               ...createDefaultSurveyOverbreak(),
               ...(r.surveyOverbreak || {}),
@@ -3231,10 +3292,17 @@ export function computeTraceInlineLabelPlacements(
     if (tr.points.length < 2) continue;
     const prefix = tr.label || (tr.setId === 'unassigned' ? 'J' : tr.setId || 'J');
     const isCrown = tr.panel === 'crown';
-    const strikeVal = ((tr.dipDirection - 90) % 360 + 360) % 360;
+    const isCrownConfirmed3D =
+      isCrown && Boolean(tr.inspection3D && tr.inspection3D.isOrientationComplete !== false);
+    const strikeVal =
+      tr.strike !== undefined
+        ? ((tr.strike % 360) + 360) % 360
+        : ((tr.dipDirection - 90) % 360 + 360) % 360;
     const crownPair = getCrownStrikePair(strikeVal);
     const text = isCrown
-      ? `${prefix} STR ${crownPair.label}`
+      ? isCrownConfirmed3D
+        ? `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}° (STR ${crownPair.label})`
+        : `${prefix} STR ${crownPair.label}`
       : `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`;
 
     const boxW = Math.max(54, Math.round(text.length * (baseFontSize * 0.62) + 16));
@@ -3497,27 +3565,31 @@ export function computeFieldQValue(q?: Partial<FieldExcavationRound['qSystem']> 
     return { qValue: null, rockClass: 'Not Assessed' };
   }
 
-  const rqd = q.rqd;
-  const jn = q.jn;
-  const ja = q.ja;
-  const jr = q.jr;
-  const jw = q.jw;
-  const srf = q.srf;
+  // NGI Table 1 Note (i): Where RQD is reported or measured as <= 10 (including 0), a nominal value of 10 is used to evaluate Q.
+  const effectiveRqd = Math.max(10, Math.min(100, Number(q.rqd)));
+  const jn = Number(q.jn);
+  const ja = Number(q.ja);
+  const jr = Number(q.jr);
+  const jw = Number(q.jw);
+  const srf = Number(q.srf);
 
   if (jn <= 0 || ja <= 0 || srf <= 0) {
     return { qValue: null, rockClass: 'Not Assessed' };
   }
 
-  const rawQ = (rqd / jn) * (jr / ja) * (jw / srf);
-  const qValue = Number(Math.max(0.001, rawQ).toFixed(3));
+  const rawQ = (effectiveRqd / jn) * (jr / ja) * (jw / srf);
+  const qValue = Number(Math.max(0.001, Math.min(1000, rawQ)).toFixed(3));
 
   let rockClass = 'Class D — Poor Rock';
-  if (qValue > 40) rockClass = 'Class A — Very Good to Exceptionally Good Rock';
-  else if (qValue > 10) rockClass = 'Class B — Good Rock';
-  else if (qValue > 4) rockClass = 'Class C — Fair Rock';
-  else if (qValue > 1) rockClass = 'Class D — Poor Rock';
-  else if (qValue > 0.1) rockClass = 'Class E — Very Poor Rock';
-  else rockClass = 'Class F/G — Extremely Poor / Squeezing Rock';
+  if (qValue > 400) rockClass = 'Class A — Exceptionally Good Rock (Q > 400)';
+  else if (qValue > 100) rockClass = 'Class A — Extremely Good Rock (100 < Q ≤ 400)';
+  else if (qValue > 40) rockClass = 'Class A — Very Good Rock (40 < Q ≤ 100)';
+  else if (qValue > 10) rockClass = 'Class B — Good Rock (10 < Q ≤ 40)';
+  else if (qValue > 4) rockClass = 'Class C — Fair Rock (4 < Q ≤ 10)';
+  else if (qValue > 1) rockClass = 'Class D — Poor Rock (1 < Q ≤ 4)';
+  else if (qValue > 0.1) rockClass = 'Class E — Very Poor Rock (0.1 < Q ≤ 1)';
+  else if (qValue > 0.01) rockClass = 'Class F — Extremely Poor Rock (0.01 < Q ≤ 0.1)';
+  else rockClass = 'Class G — Exceptionally Poor Rock (Q ≤ 0.01)';
 
   return { qValue, rockClass };
 }
@@ -3568,14 +3640,14 @@ export function computeFieldRmrValue(rmr?: Partial<FieldExcavationRound['rmrSyst
 }
 
 export interface JunctionGeotechnicalAdjustment {
-  baselineQ: number;
+  baselineQ: number | null;
   baselineQClass: string;
-  adjustedQ: number;
+  adjustedQ: number | null;
   adjustedQClass: string;
-  baselineRmr: number;
+  baselineRmr: number | null;
   baselineRmrClass: string;
   deltaRmr: number;
-  adjustedRmr: number;
+  adjustedRmr: number | null;
   adjustedRmrClass: string;
   baselinePullM: number;
   recommendedAdvancePullM: number;
@@ -3600,25 +3672,35 @@ export function computeJunctionGeotechnicalAdjustments(
   const effectiveMultiplier = Number((jf * angleCorrection).toFixed(2));
 
   // 1. Barton Q-System Junction Adjustment
-  const rawAdjQ = support.junctionAdjustQ !== false ? baseQRes.qValue / effectiveMultiplier : baseQRes.qValue;
-  const adjustedQ = Number(Math.max(0.001, rawAdjQ).toFixed(3));
-  let adjustedQClass = 'Class D — Poor Rock';
-  if (adjustedQ > 40) adjustedQClass = 'Class A — Very Good to Exceptionally Good Rock';
-  else if (adjustedQ > 10) adjustedQClass = 'Class B — Good Rock';
-  else if (adjustedQ > 4) adjustedQClass = 'Class C — Fair Rock';
-  else if (adjustedQ > 1) adjustedQClass = 'Class D — Poor Rock';
-  else if (adjustedQ > 0.1) adjustedQClass = 'Class E — Very Poor Rock';
-  else adjustedQClass = 'Class F/G — Extremely Poor / Squeezing Rock';
+  let adjustedQ: number | null = null;
+  let adjustedQClass = 'Not Assessed';
+  if (baseQRes.qValue !== null) {
+    const rawAdjQ =
+      support.junctionAdjustQ !== false
+        ? baseQRes.qValue / effectiveMultiplier
+        : baseQRes.qValue;
+    adjustedQ = Number(Math.max(0.001, rawAdjQ).toFixed(3));
+    if (adjustedQ > 40) adjustedQClass = 'Class A — Very Good to Exceptionally Good Rock';
+    else if (adjustedQ > 10) adjustedQClass = 'Class B — Good Rock';
+    else if (adjustedQ > 4) adjustedQClass = 'Class C — Fair Rock';
+    else if (adjustedQ > 1) adjustedQClass = 'Class D — Poor Rock';
+    else if (adjustedQ > 0.1) adjustedQClass = 'Class E — Very Poor Rock';
+    else adjustedQClass = 'Class F/G — Extremely Poor / Squeezing Rock';
+  }
 
   // 2. Bieniawski RMR89 Junction Adjustment
-  const deltaRmr = support.junctionAdjustRmr !== false ? Math.round((effectiveMultiplier - 1.0) * 16) : 0;
-  const adjustedRmr = Math.max(5, Math.min(100, baseRmrRes.totalRmr - deltaRmr));
-  let adjustedRmrClass = 'Class III — Fair Rock (41–60)';
-  if (adjustedRmr >= 81) adjustedRmrClass = 'Class I — Very Good Rock (81–100)';
-  else if (adjustedRmr >= 61) adjustedRmrClass = 'Class II — Good Rock (61–80)';
-  else if (adjustedRmr >= 41) adjustedRmrClass = 'Class III — Fair Rock (41–60)';
-  else if (adjustedRmr >= 21) adjustedRmrClass = 'Class IV — Poor Rock (21–40)';
-  else adjustedRmrClass = 'Class V — Very Poor Rock (< 20)';
+  const deltaRmr =
+    support.junctionAdjustRmr !== false ? Math.round((effectiveMultiplier - 1.0) * 16) : 0;
+  let adjustedRmr: number | null = null;
+  let adjustedRmrClass = 'Not Assessed';
+  if (baseRmrRes.totalRmr !== null) {
+    adjustedRmr = Math.max(5, Math.min(100, baseRmrRes.totalRmr - deltaRmr));
+    if (adjustedRmr >= 81) adjustedRmrClass = 'Class I — Very Good Rock (81–100)';
+    else if (adjustedRmr >= 61) adjustedRmrClass = 'Class II — Good Rock (61–80)';
+    else if (adjustedRmr >= 41) adjustedRmrClass = 'Class III — Fair Rock (41–60)';
+    else if (adjustedRmr >= 21) adjustedRmrClass = 'Class IV — Poor Rock (21–40)';
+    else adjustedRmrClass = 'Class V — Very Poor Rock (< 20)';
+  }
 
   // 3. Advance Length / Pull Reduction Factor
   const baselinePullM = Math.max(0.5, round?.pullLengthMeters ?? 3.0);
@@ -8978,6 +9060,99 @@ export function resolveClosedLithologyPolygonFromTrace(
     closureType: 'tunnel_outline',
     candidatePolygons: [poly1, poly2],
     clickedInside: false,
+  };
+}
+
+export interface ExcavationBenchConfig {
+  hasBenchDivision: boolean;
+  methodCategory: 'full_face' | 'top_heading_and_bench' | 'top_heading' | 'benching';
+  hatchZone: 'none' | 'bench_bottom' | 'heading_top';
+  totalHeightM: number;
+  benchHeightM: number;
+  topHeadingHeightM: number;
+  /** Fraction of total height from invert (0..1) where the dotted bench line sits */
+  benchRatioFromInvert: number;
+  activePortionLabel: string;
+  hatchedPortionLabel: string;
+  benchLineLabel: string;
+}
+
+export function getExcavationBenchConfig(
+  round?: FieldExcavationRound | null,
+  location?: FieldTunnelLocationItem | null
+): ExcavationBenchConfig {
+  const totalHeightM = Math.max(1.0, Number(location?.heightM ?? 7.0));
+  const defaultBenchH = Number(
+    Math.min(
+      totalHeightM - 0.3,
+      Math.max(0.3, Number(location?.wallHeightM ?? totalHeightM * 0.42))
+    ).toFixed(2)
+  );
+  const rawBenchH = Number(round?.benchHeightMeters ?? defaultBenchH);
+  const benchHeightM = Number(
+    Math.min(
+      totalHeightM - 0.2,
+      Math.max(0.2, Number.isFinite(rawBenchH) && rawBenchH > 0 ? rawBenchH : defaultBenchH)
+    ).toFixed(2)
+  );
+  const topHeadingHeightM = Number(Math.max(0.2, totalHeightM - benchHeightM).toFixed(2));
+  const benchRatioFromInvert = Math.min(0.95, Math.max(0.05, benchHeightM / totalHeightM));
+
+  const ap = (round?.excavationApproach || '').trim().toLowerCase();
+  if (ap.includes('heading') && ap.includes('bench')) {
+    return {
+      hasBenchDivision: true,
+      methodCategory: 'top_heading_and_bench',
+      hatchZone: 'bench_bottom',
+      totalHeightM,
+      benchHeightM,
+      topHeadingHeightM,
+      benchRatioFromInvert,
+      activePortionLabel: `TOP HEADING (Hh = ${topHeadingHeightM.toFixed(2)}m)`,
+      hatchedPortionLabel: `BENCH PORTION HATCHED (Hb = ${benchHeightM.toFixed(2)}m)`,
+      benchLineLabel: `BENCH LINE (Hb = ${benchHeightM.toFixed(2)}m)`,
+    };
+  }
+  if (ap.includes('heading')) {
+    return {
+      hasBenchDivision: true,
+      methodCategory: 'top_heading',
+      hatchZone: 'bench_bottom',
+      totalHeightM,
+      benchHeightM,
+      topHeadingHeightM,
+      benchRatioFromInvert,
+      activePortionLabel: `TOP HEADING ONLY (Hh = ${topHeadingHeightM.toFixed(2)}m)`,
+      hatchedPortionLabel: `BENCH HATCHED (Hb = ${benchHeightM.toFixed(2)}m)`,
+      benchLineLabel: `BENCH LINE (Hb = ${benchHeightM.toFixed(2)}m)`,
+    };
+  }
+  if (ap.includes('bench')) {
+    return {
+      hasBenchDivision: true,
+      methodCategory: 'benching',
+      hatchZone: 'heading_top',
+      totalHeightM,
+      benchHeightM,
+      topHeadingHeightM,
+      benchRatioFromInvert,
+      activePortionLabel: `BENCHING ONLY (Hb = ${benchHeightM.toFixed(2)}m)`,
+      hatchedPortionLabel: `TOP PORTION HATCHED (Hh = ${topHeadingHeightM.toFixed(2)}m)`,
+      benchLineLabel: `BENCH LINE (Hb = ${benchHeightM.toFixed(2)}m)`,
+    };
+  }
+
+  return {
+    hasBenchDivision: false,
+    methodCategory: 'full_face',
+    hatchZone: 'none',
+    totalHeightM,
+    benchHeightM,
+    topHeadingHeightM,
+    benchRatioFromInvert,
+    activePortionLabel: `FULL FACE (H = ${totalHeightM.toFixed(2)}m)`,
+    hatchedPortionLabel: '',
+    benchLineLabel: '',
   };
 }
 
