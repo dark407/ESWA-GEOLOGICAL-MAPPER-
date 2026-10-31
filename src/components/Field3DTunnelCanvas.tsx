@@ -56,6 +56,12 @@ import {
   FieldVeinFoliationBandSvgElement,
   FieldWaterSymbolSvgRenderer,
 } from './FieldMappingCompassAndPatterns';
+import {
+  computeVerticalShaftCircumferenceBreakdown,
+  getActiveVerticalShaftPanels,
+  isVerticalShaftLocation,
+  normalizeVerticalShaftHalfSide,
+} from '../engine/verticalShaftEngine';
 
 export type Field3DViewSubMode = 'open_heading' | 'origami_fold';
 
@@ -303,8 +309,8 @@ interface PerimeterSampleNode {
   nx: number;
   /** Normalized face Y in [0, 1] (top crown apex = 0, invert = 1) */
   ny: number;
-  /** Panel role ('left_wall' | 'crown' | 'right_wall') */
-  panel: 'left_wall' | 'crown' | 'right_wall';
+  /** Panel role ('left_wall' | 'crown' | 'right_wall' | 'shaft_sn') */
+  panel: 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn';
   /** Parameter v in [0, 1] matching canonical 2D panel & Strip Align */
   v: number;
   /** Distance in meters from the outer starting edge of the panel */
@@ -315,7 +321,7 @@ interface PerimeterSampleNode {
 }
 
 /**
- * Builds dense 3D tunnel perimeter nodes for Left Wall, Crown, and Right Wall
+ * Builds dense 3D tunnel perimeter nodes for Left Wall, Crown, Right Wall (and 4th Quadrant WN for Vertical Shaft)
  * from the authoritative tunnel outline (`computeFaceTunnelOutlineDetails`),
  * preserving exact v-parameterization so 3D strokes match 2D panels and Strip Align 100%.
  */
@@ -328,10 +334,89 @@ function build3DTunnelPerimeterNodes(
   hasLeftWall: boolean;
   hasCrown: boolean;
   hasRightWall: boolean;
+  hasShaftSn?: boolean;
   leftWallLenM: number;
   crownLenM: number;
   rightWallLenM: number;
+  shaftSnLenM?: number;
 } {
+  if (isVerticalShaftLocation(location)) {
+    const breakdown = computeVerticalShaftCircumferenceBreakdown(location, round);
+    const activePanels = getActiveVerticalShaftPanels(round);
+    const isHalf = breakdown.isHalfFace;
+    const halfSide = normalizeVerticalShaftHalfSide(round.shaftHalfSide);
+    const quadLenM = breakdown.quadrantArcLengthM;
+
+    const quadDefs: {
+      panel: 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn';
+      startDeg: number;
+      endDeg: number;
+    }[] = [
+      { panel: 'left_wall', startDeg: 0, endDeg: 90 },
+      { panel: 'crown', startDeg: 90, endDeg: 180 },
+      { panel: 'right_wall', startDeg: 180, endDeg: 270 },
+      { panel: 'shaft_sn', startDeg: 270, endDeg: 360 },
+    ];
+
+    const nodes: PerimeterSampleNode[] = [];
+    for (const qd of quadDefs) {
+      if (!activePanels.includes(qd.panel)) continue;
+      const steps = 24;
+      for (let s = 0; s <= steps; s++) {
+        const frac = s / steps;
+        const compassDeg = qd.startDeg + frac * (qd.endDeg - qd.startDeg);
+        // Convert compass azimuth (0° = North/Top, 90° = East/Right, 180° = South/Bottom, 270° = West/Left)
+        const rad = ((compassDeg - 90) * Math.PI) / 180;
+        const nx = 0.5 * Math.cos(rad);
+        const ny = 0.5 + 0.5 * Math.sin(rad);
+        nodes.push({
+          nx,
+          ny,
+          panel: qd.panel,
+          v: Math.max(0.001, Math.min(0.999, frac)),
+          edgeMeterFromStart: Number((frac * quadLenM).toFixed(2)),
+          outX: Math.cos(rad),
+          outY: Math.sin(rad),
+        });
+      }
+    }
+
+    const facePolygonNorm: { nx: number; ny: number }[] = [];
+    if (isHalf) {
+      const startCompass = halfSide === 'left_half' ? 180 : 0;
+      const endCompass = halfSide === 'left_half' ? 360 : 180;
+      for (let s = 0; s <= 36; s++) {
+        const deg = startCompass + (s / 36) * (endCompass - startCompass);
+        const rad = ((deg - 90) * Math.PI) / 180;
+        facePolygonNorm.push({
+          nx: 0.5 * Math.cos(rad),
+          ny: 0.5 + 0.5 * Math.sin(rad),
+        });
+      }
+    } else {
+      for (let s = 0; s < 64; s++) {
+        const rad = (s / 64) * Math.PI * 2;
+        facePolygonNorm.push({
+          nx: 0.5 * Math.cos(rad),
+          ny: 0.5 + 0.5 * Math.sin(rad),
+        });
+      }
+    }
+
+    return {
+      nodes,
+      facePolygonNorm,
+      hasLeftWall: activePanels.includes('left_wall'),
+      hasCrown: activePanels.includes('crown'),
+      hasRightWall: activePanels.includes('right_wall'),
+      hasShaftSn: activePanels.includes('shaft_sn'),
+      leftWallLenM: quadLenM,
+      crownLenM: quadLenM,
+      rightWallLenM: quadLenM,
+      shaftSnLenM: quadLenM,
+    };
+  }
+
   const faceGeom = computePanelCanvasGeometry('face', location, round);
   const details = computeFaceTunnelOutlineDetails(location, 0, 0, 1000, 1000);
   const lwPoly = details.leftWallPoly || [];
@@ -826,11 +911,16 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     () => computePanelCanvasGeometry('right_wall', activeLocation, activeRound),
     [activeLocation, activeRound]
   );
+  const shaftSnGeom = useMemo(
+    () => computePanelCanvasGeometry('shaft_sn', activeLocation, activeRound),
+    [activeLocation, activeRound]
+  );
 
   const getPanelGeom = (panel: FieldPanelId) => {
     if (panel === 'left_wall') return leftWallGeom;
     if (panel === 'crown') return crownGeom;
     if (panel === 'right_wall') return rightWallGeom;
+    if (panel === 'shaft_sn') return shaftSnGeom;
     return faceGeom;
   };
 
@@ -948,7 +1038,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
    * Continuous linear interpolation of `(nx, ny)` along a panel's perimeter for any `v in [0, 1]`.
    */
   const interpolatePerimeterAtV = (
-    panel: 'left_wall' | 'crown' | 'right_wall',
+    panel: 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn',
     v: number
   ): { nx: number; ny: number } => {
     const pNodes = perimeterData.nodes.filter((n) => n.panel === panel);
@@ -980,11 +1070,6 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
 
   /**
    * Maps a 2D canonical panel point `pt` on `panel` into its 3D projected SVG coordinates `(x, y)`.
-   * Canonical 2D conventions (matching computePhysicalMetricPoints & computePanelOrientationReferenceMeta):
-   * - Crown: u = 0 (Left SPL) -> 1 (Right SPL) across relative arch curve; v = 0 (Face / pullM) -> 1 (0m pull).
-   * - Left Wall: u = 0 (0m pull) -> 1 (Face / pullM); v = 0 (Springline) -> 1 (Invert floor).
-   * - Right Wall: u = 0 (Face / pullM) -> 1 (0m pull); v = 0 (Springline) -> 1 (Invert floor).
-   * - Face: u = 0 (Left edge) -> 1 (Right edge); v = 0 (Apex) -> 1 (Invert floor).
    */
   const panelPointTo3DSvg = (panel: FieldPanelId, pt: FieldPoint2D): FieldPoint2D => {
     const geom = getPanelGeom(panel);
@@ -993,6 +1078,12 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
 
     if (panel === 'face') {
       return projectTunnel3DPoint(u - 0.5, v, 0, 'face');
+    }
+
+    if (isVerticalShaftLocation(activeLocation)) {
+      const { nx, ny } = interpolatePerimeterAtV(panel, u);
+      const tPull = v;
+      return projectTunnel3DPoint(nx, ny, tPull, panel);
     }
 
     if (panel === 'crown') {
@@ -1026,10 +1117,11 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     const halfSpanX = Math.max(20, Math.abs(fRight.x - fCenter.x));
     const halfSpanY = Math.max(20, Math.abs(fBottom.y - fCenter.y));
 
-    const candidatePanels: ('left_wall' | 'crown' | 'right_wall')[] = [
+    const candidatePanels: ('left_wall' | 'crown' | 'right_wall' | 'shaft_sn')[] = [
       ...(perimeterData.hasLeftWall ? (['left_wall'] as const) : []),
       ...(perimeterData.hasCrown ? (['crown'] as const) : []),
       ...(perimeterData.hasRightWall ? (['right_wall'] as const) : []),
+      ...(perimeterData.hasShaftSn ? (['shaft_sn'] as const) : []),
     ];
 
     const panelPolys = candidatePanels.map((pid) => {
@@ -1426,6 +1518,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       left_wall: [],
       crown: [],
       right_wall: [],
+      shaft_sn: [],
       face: [],
     };
 
@@ -1437,7 +1530,10 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
           const geom = getPanelGeom(node.panel);
           let u = 0.5;
           let v = 0.5;
-          if (node.panel === 'crown') {
+          if (isVerticalShaftLocation(activeLocation)) {
+            u = Math.max(0.002, Math.min(0.998, node.v));
+            v = Math.max(0.002, Math.min(0.998, tPull));
+          } else if (node.panel === 'crown' || node.panel === 'shaft_sn') {
             u = Math.max(0.002, Math.min(0.998, node.v));
             v = Math.max(0.002, Math.min(0.998, tPull));
           } else if (node.panel === 'left_wall') {

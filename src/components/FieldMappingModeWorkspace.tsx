@@ -47,6 +47,12 @@ import {
   getCrownStrikePair,
 } from '../engine/joint3DInspectorEngine';
 import {
+  computeVerticalShaftCircumferenceBreakdown,
+  getActiveVerticalShaftPanels,
+  normalizeVerticalShaftCenterMedianStatus,
+  normalizeVerticalShaftHalfSide,
+} from '../engine/verticalShaftEngine';
+import {
   addAndRememberCustomRock,
   autoComputeOrientationFromPlot,
   buildDipSurfaceOutlineAndCentroid,
@@ -1365,10 +1371,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   // Panel Move / Rotate / MirrorVertical / MirrorHorizontal state for Left Wall, Crown, Right Wall (non-Face panels)
   const [isPanelMoveMode, setIsPanelMoveMode] = useState<boolean>(false);
   const [transformTargetPanel, setTransformTargetPanel] = useState<
-    'left_wall' | 'crown' | 'right_wall'
+    'left_wall' | 'crown' | 'right_wall' | 'shaft_sn'
   >('crown');
   const [panelMoveDrag, setPanelMoveDrag] = useState<{
-    panel: 'left_wall' | 'crown' | 'right_wall';
+    panel: 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn';
     startSvgX: number;
     startSvgY: number;
     startOffsetX: number;
@@ -1433,7 +1439,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     if (
       activePanel === 'left_wall' ||
       activePanel === 'crown' ||
-      activePanel === 'right_wall'
+      activePanel === 'right_wall' ||
+      activePanel === 'shaft_sn'
     ) {
       setTransformTargetPanel(activePanel);
     } else if (stage === 'field_canvas') {
@@ -1464,7 +1471,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   }, [activeLocation, activeRound, activePanel, transformTargetPanel]);
 
   const updatePanelTransform = (
-    panel: 'left_wall' | 'crown' | 'right_wall',
+    panel: 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn',
     updater: (
       prev: ReturnType<typeof getFieldPanelTransform>
     ) => ReturnType<typeof getFieldPanelTransform>
@@ -1501,7 +1508,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     });
   };
 
-  const lockCurrentPanelAsIdealPosition = (panel: 'left_wall' | 'crown' | 'right_wall') => {
+  const lockCurrentPanelAsIdealPosition = (
+    panel: 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn'
+  ) => {
     if (!activeRound) return;
     const mode: FieldTransformStageMode =
       stage === 'joint_grouping' ? 'joint_grouping' : 'field_canvas';
@@ -2561,7 +2570,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     const canMovePanel =
       isPanelMoveMode && (stage === 'joint_grouping' || activePanel !== 'face');
     if (canMovePanel) {
-      let moveTarget: 'left_wall' | 'crown' | 'right_wall' =
+      let moveTarget: 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn' =
         activePanel !== 'face' ? activePanel : transformTargetPanel;
       if (canvasViewMode === 'unfolded_t') {
         const hit = resolveTCanvasPanelAtPoint(rawPt, activeLocation, activeRound, 14);
@@ -4712,7 +4721,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         shaftInclinationDeg: isVerticalShaftMode ? incl : undefined,
         undergroundSubMode: undergroundSubMode,
         defaultExcavationMode: newLocExcavationMode.trim() || 'Drill & Blast (Full Face)',
-        defaultExcavationApproach: newLocExcavationApproach.trim() || 'Full Face',
+        defaultExcavationApproach: isVerticalShaftMode
+          ? newLocExcavationApproach === 'Half Face'
+            ? 'Half Face'
+            : 'Full Face'
+          : newLocExcavationApproach.trim() || 'Full Face',
         customCrossSectionPoints: newLocCustomPoints,
         customGeometry: newLocCustomGeometry,
         rememberedRockTypes: [],
@@ -4838,7 +4851,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       setEditLocAzimuth(loc.defaultDriveAzimuth || 45);
       setEditLocInclination(loc.shaftInclinationDeg ?? 90);
       setEditLocExcavationMode(loc.defaultExcavationMode || 'Drill & Blast (Full Face)');
-      setEditLocExcavationApproach(loc.defaultExcavationApproach || 'Full Face');
+      setEditLocExcavationApproach(
+        isVerticalShaftMode
+          ? loc.defaultExcavationApproach === 'Half Face'
+            ? 'Half Face'
+            : 'Full Face'
+          : loc.defaultExcavationApproach || 'Full Face'
+      );
     });
   };
 
@@ -4875,7 +4894,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               shaftInclinationDeg: isVerticalShaftMode ? incl : l.shaftInclinationDeg,
               undergroundSubMode: undergroundSubMode,
               defaultExcavationMode: editLocExcavationMode.trim() || l.defaultExcavationMode,
-              defaultExcavationApproach: editLocExcavationApproach.trim() || l.defaultExcavationApproach,
+              defaultExcavationApproach: isVerticalShaftMode
+                ? editLocExcavationApproach === 'Half Face'
+                  ? 'Half Face'
+                  : 'Full Face'
+                : editLocExcavationApproach.trim() || l.defaultExcavationApproach,
             };
           }),
         };
@@ -6329,15 +6352,30 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           Excavation Approach
                         </label>
                         <select
-                          value={newLocExcavationApproach}
+                          value={
+                            isVerticalShaftMode
+                              ? newLocExcavationApproach === 'Half Face'
+                                ? 'Half Face'
+                                : 'Full Face'
+                              : newLocExcavationApproach
+                          }
                           onChange={(e) => setNewLocExcavationApproach(e.target.value)}
                           className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
                         >
-                          <option value="Full Face">Full Face</option>
-                          <option value="Heading & Bench">Heading &amp; Bench</option>
-                          <option value="Multiple Drift / Top Heading & Benches">
-                            Multiple Drift / Top Heading &amp; Benches
-                          </option>
+                          {isVerticalShaftMode ? (
+                            <>
+                              <option value="Full Face">Full Face</option>
+                              <option value="Half Face">Half Face</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="Full Face">Full Face</option>
+                              <option value="Heading & Bench">Heading &amp; Bench</option>
+                              <option value="Multiple Drift / Top Heading & Benches">
+                                Multiple Drift / Top Heading &amp; Benches
+                              </option>
+                            </>
+                          )}
                         </select>
                       </div>
                     </div>
@@ -6670,15 +6708,30 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 Excavation Approach
                               </label>
                               <select
-                                value={editLocExcavationApproach}
+                                value={
+                                  isVerticalShaftMode
+                                    ? editLocExcavationApproach === 'Half Face'
+                                      ? 'Half Face'
+                                      : 'Full Face'
+                                    : editLocExcavationApproach
+                                }
                                 onChange={(e) => setEditLocExcavationApproach(e.target.value)}
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
                               >
-                                <option value="Full Face">Full Face</option>
-                                <option value="Heading & Bench">Heading &amp; Bench</option>
-                                <option value="Multiple Drift / Top Heading & Benches">
-                                  Multiple Drift / Top Heading &amp; Benches
-                                </option>
+                                {isVerticalShaftMode ? (
+                                  <>
+                                    <option value="Full Face">Full Face</option>
+                                    <option value="Half Face">Half Face</option>
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="Full Face">Full Face</option>
+                                    <option value="Heading & Bench">Heading &amp; Bench</option>
+                                    <option value="Multiple Drift / Top Heading & Benches">
+                                      Multiple Drift / Top Heading &amp; Benches
+                                    </option>
+                                  </>
+                                )}
                               </select>
                             </div>
                           </div>
@@ -6763,10 +6816,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     </div>
                     <div className="text-xs text-slate-300 mt-1 font-mono">
                       {mappingDomain === 'TUNNEL' ? (
-                        <>
-                          Size: <strong>{displayW}m (W)</strong> × <strong>{displayH}m (H)</strong>{' '}
-                          • Drive: N{String(loc.defaultDriveAzimuth).padStart(3, '0')}°
-                        </>
+                        isVerticalShaftMode ? (
+                          <>
+                            Diameter: <strong>{displayW}m (Circular)</strong> • Shaft Azimuth: N
+                            {String(loc.defaultDriveAzimuth).padStart(3, '0')}° • Incl:{' '}
+                            <strong>{loc.shaftInclinationDeg ?? 90}°</strong>
+                          </>
+                        ) : (
+                          <>
+                            Size: <strong>{displayW}m (W)</strong> × <strong>{displayH}m (H)</strong>{' '}
+                            • Drive: N{String(loc.defaultDriveAzimuth).padStart(3, '0')}°
+                          </>
+                        )
                       ) : mappingDomain === 'BENCH' ? (
                         <>
                           Bench Face: <strong>{displayW}m Span</strong> ×{' '}
@@ -7278,7 +7339,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           <div className="text-[10.5px] text-slate-400 mt-0.5">
                             {mappingDomain === 'TUNNEL' ? (
                               <>
-                                {rd.modeOfExcavation} • Drive N
+                                {rd.modeOfExcavation} •{' '}
+                                {isVerticalShaftMode ? 'Shaft Azimuth' : 'Drive'} N
                                 {String(rd.tunnelDriveDirection).padStart(3, '0')}° • Support:{' '}
                                 {rd.supportSystem?.supportClass ||
                                   rd.supportSystem?.rockClass ||
@@ -7393,12 +7455,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
                   <div>
                     <h2 className="text-sm sm:text-base font-black uppercase tracking-wider text-amber-400">
-                      Face Mapping Excavation Round Details
+                      {isVerticalShaftMode
+                        ? 'Vertical Shaft Excavation Round Details'
+                        : 'Face Mapping Excavation Round Details'}
                     </h2>
                     <p className="text-xs text-slate-400">
                       Location: <strong>{activeLocation.name}</strong> (
-                      {activeLocation.shape.replace(/_/g, ' ').toUpperCase()} —{' '}
-                      {activeLocation.widthM}m W × {activeLocation.heightM}m H)
+                      {isVerticalShaftMode
+                        ? `CIRCULAR — Ø ${activeLocation.widthM}m • Inclination ${activeLocation.shaftInclinationDeg ?? 90}°`
+                        : `${activeLocation.shape.replace(/_/g, ' ').toUpperCase()} — ${activeLocation.widthM}m W × ${activeLocation.heightM}m H`}
+                      )
                     </p>
                   </div>
                 </div>
@@ -7471,7 +7537,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </div>
                 </div>
 
-                {/* Date & Time, Mode of Excavation, Tunnel Drive Direction, Excavation Approach */}
+                {/* Date & Time, Mode of Excavation, Shaft Azimuth / Tunnel Drive Direction, Excavation Approach */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1">
@@ -7517,7 +7583,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                   <div>
                     <label className="block text-xs font-bold text-amber-400 mb-1">
-                      Tunnel Drive Direction (0°–360°)
+                      {isVerticalShaftMode
+                        ? 'Shaft Azimuth (0°–360°)'
+                        : 'Tunnel Drive Direction (0°–360°)'}
                     </label>
                     <input
                       type="number"
@@ -7539,9 +7607,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       Excavation Approach (Method)
                     </label>
                     <select
-                      value={activeRound.excavationApproach}
+                      value={
+                        isVerticalShaftMode
+                          ? activeRound.excavationApproach === 'Half Face'
+                            ? 'Half Face'
+                            : 'Full Face'
+                          : activeRound.excavationApproach
+                      }
                       onChange={(e) => {
                         const nextApproach = e.target.value;
+                        if (isVerticalShaftMode) {
+                          updateActiveRound((r) => ({
+                            ...r,
+                            excavationApproach:
+                              nextApproach === 'Half Face' ? 'Half Face' : 'Full Face',
+                          }));
+                          return;
+                        }
                         const totalH = Math.max(1.5, Number(activeLocation?.heightM ?? 7.0));
                         const defaultBenchH = Number(
                           Math.min(
@@ -7560,14 +7642,209 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       }}
                       className="w-full bg-slate-950 border border-amber-500/50 rounded-lg px-2.5 py-2 text-xs font-bold text-white"
                     >
-                      <option value="Full Face">Full Face</option>
-                      <option value="Top Heading & Bench">Top Heading &amp; Benching</option>
-                      <option value="Heading Only">Top Heading (Heading Only)</option>
-                      <option value="Bench Only">Benching (Bench Only)</option>
-                      <option value="Multiple Drift / Side Drift">Multiple Drift / Side Drift</option>
+                      {isVerticalShaftMode ? (
+                        <>
+                          <option value="Full Face">Full Face</option>
+                          <option value="Half Face">Half Face</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="Full Face">Full Face</option>
+                          <option value="Top Heading & Bench">Top Heading &amp; Benching</option>
+                          <option value="Heading Only">Top Heading (Heading Only)</option>
+                          <option value="Bench Only">Benching (Bench Only)</option>
+                          <option value="Multiple Drift / Side Drift">Multiple Drift / Side Drift</option>
+                        </>
+                      )}
                     </select>
 
                     {(() => {
+                      if (isVerticalShaftMode) {
+                        const shaftBreakdown = computeVerticalShaftCircumferenceBreakdown(
+                          activeLocation,
+                          activeRound
+                        );
+                        const isHalfFace = activeRound.excavationApproach === 'Half Face';
+                        const halfSide = normalizeVerticalShaftHalfSide(activeRound.shaftHalfSide);
+                        const medianStatus = normalizeVerticalShaftCenterMedianStatus(
+                          activeRound.shaftCenterMedianStatus
+                        );
+                        return (
+                          <div className="mt-2 p-2.5 rounded-lg bg-slate-950/90 border border-cyan-500/40 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="text-[10px] font-black text-cyan-300 uppercase tracking-wider">
+                                Vertical Shaft Circumference &amp; 4-Quadrant Division (No Crown)
+                              </span>
+                              <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded">
+                                ØD = {shaftBreakdown.diameterM.toFixed(2)}m | C = πD = {shaftBreakdown.circumferenceM.toFixed(2)}m | Quad Arc = {shaftBreakdown.quadrantArcLengthM.toFixed(2)}m
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
+                              {[
+                                {
+                                  id: 'left_wall' as FieldPanelId,
+                                  title: 'Q1: NORTH-EAST',
+                                  range: '0°–90°',
+                                },
+                                {
+                                  id: 'crown' as FieldPanelId,
+                                  title: 'Q2: EAST-SOUTH',
+                                  range: '90°–180°',
+                                },
+                                {
+                                  id: 'right_wall' as FieldPanelId,
+                                  title: 'Q3: SOUTH-WEST',
+                                  range: '180°–270°',
+                                },
+                                {
+                                  id: 'shaft_sn' as FieldPanelId,
+                                  title: 'Q4: WEST-NORTH',
+                                  range: '270°–360°',
+                                },
+                              ].map((q) => {
+                                const isQuadActive = shaftBreakdown.activeQuadrantPanels.includes(
+                                  q.id as any
+                                );
+                                return (
+                                  <div
+                                    key={q.id}
+                                    className={`px-2 py-1.5 rounded border ${
+                                      isQuadActive
+                                        ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-200'
+                                        : 'bg-slate-900/60 border-slate-800 text-slate-500 line-through'
+                                    }`}
+                                  >
+                                    <div className="font-black">{q.title}</div>
+                                    <div className="font-mono text-[9.5px]">
+                                      {q.range} • {shaftBreakdown.quadrantArcLengthM.toFixed(2)}m ×{' '}
+                                      {(activeRound.pullLengthMeters || 3.5).toFixed(1)}m
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {isHalfFace && (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-slate-800">
+                                <div>
+                                  <label className="text-[10px] font-black text-amber-300 uppercase block mb-1">
+                                    Active Half-Shaft Selection
+                                  </label>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        updateActiveRound((r) => {
+                                          const next = {
+                                            ...r,
+                                            shaftHalfSide: 'left_half' as const,
+                                          };
+                                          const allowed = getActiveVerticalShaftPanels(next);
+                                          if (!allowed.includes(activePanel)) {
+                                            setActivePanel('face');
+                                          }
+                                          return next;
+                                        });
+                                      }}
+                                      className={`px-2 py-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                                        halfSide === 'left_half'
+                                          ? 'bg-amber-500 text-slate-950 border-amber-300 font-black shadow'
+                                          : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-amber-500/50'
+                                      }`}
+                                    >
+                                      <div className="text-[10.5px] font-black uppercase">
+                                        Left Half (180°–360°)
+                                      </div>
+                                      <div className="text-[9px] opacity-85">
+                                        Q3 SW (180–270°) + Q4 WN (270–360°)
+                                      </div>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        updateActiveRound((r) => {
+                                          const next = {
+                                            ...r,
+                                            shaftHalfSide: 'right_half' as const,
+                                          };
+                                          const allowed = getActiveVerticalShaftPanels(next);
+                                          if (!allowed.includes(activePanel)) {
+                                            setActivePanel('face');
+                                          }
+                                          return next;
+                                        });
+                                      }}
+                                      className={`px-2 py-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                                        halfSide === 'right_half'
+                                          ? 'bg-amber-500 text-slate-950 border-amber-300 font-black shadow'
+                                          : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-amber-500/50'
+                                      }`}
+                                    >
+                                      <div className="text-[10.5px] font-black uppercase">
+                                        Right Half (0°–180°)
+                                      </div>
+                                      <div className="text-[9px] opacity-85">
+                                        Q1 NE (0–90°) + Q2 ES (90–180°)
+                                      </div>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-black text-cyan-300 uppercase block mb-1">
+                                    Center Median Status (Opposite Half: {halfSide === 'left_half' ? 'Right Half' : 'Left Half'})
+                                  </label>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        updateActiveRound((r) => ({
+                                          ...r,
+                                          shaftCenterMedianStatus: 'closed',
+                                        }))
+                                      }
+                                      className={`px-2 py-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                                        medianStatus === 'closed'
+                                          ? 'bg-rose-500 text-white border-rose-300 font-black shadow'
+                                          : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-rose-500/50'
+                                      }`}
+                                    >
+                                      <div className="text-[10.5px] font-black uppercase">
+                                        Median CLOSED
+                                      </div>
+                                      <div className="text-[9px] opacity-90">
+                                        Opposite Half Unexcavated (Rock Wall)
+                                      </div>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        updateActiveRound((r) => ({
+                                          ...r,
+                                          shaftCenterMedianStatus: 'open',
+                                        }))
+                                      }
+                                      className={`px-2 py-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                                        medianStatus === 'open'
+                                          ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-black shadow'
+                                          : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-emerald-500/50'
+                                      }`}
+                                    >
+                                      <div className="text-[10.5px] font-black uppercase">
+                                        Median OPEN
+                                      </div>
+                                      <div className="text-[9px] opacity-90">
+                                        Opposite Half Already Excavated
+                                      </div>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
                       const ap = (activeRound.excavationApproach || '').toLowerCase();
                       const isBenchMethod =
                         ap.includes('heading') || ap.includes('bench');
@@ -9626,7 +9903,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 <div className="flex items-center justify-between shrink-0 gap-1 flex-wrap">
                   {stage === 'joint_grouping' || activePanel !== 'face' ? (
                     (() => {
-                      const targetP: 'left_wall' | 'crown' | 'right_wall' =
+                      const targetP: Exclude<FieldPanelId, 'face'> =
                         activePanel !== 'face' ? activePanel : transformTargetPanel;
                       const tr = getFieldPanelTransform(
                         activeRound,
@@ -9638,6 +9915,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         activeLocation,
                         activeRound
                       );
+                      const activeShaftPanelsForTabs = isVerticalShaftMode
+                        ? getActiveVerticalShaftPanels(activeRound)
+                        : null;
                       const hasTransform =
                         tr.rotationDeg !== 0 ||
                         tr.mirrorH ||
@@ -9652,26 +9932,35 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           {stage === 'joint_grouping' && (
                             <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-800 gap-0.5 shrink-0">
                               {(
-                                [
-                                  ...(fGeomForTabs.hasLeftWall
-                                    ? ([['left_wall', domainPanelMap.leftWall.shortLabel]] as [
-                                        'left_wall' | 'crown' | 'right_wall',
-                                        string,
-                                      ][])
-                                    : []),
-                                  ...(fGeomForTabs.hasCrown
-                                    ? ([['crown', domainPanelMap.crown.shortLabel]] as [
-                                        'left_wall' | 'crown' | 'right_wall',
-                                        string,
-                                      ][])
-                                    : []),
-                                  ...(fGeomForTabs.hasRightWall
-                                    ? ([['right_wall', domainPanelMap.rightWall.shortLabel]] as [
-                                        'left_wall' | 'crown' | 'right_wall',
-                                        string,
-                                      ][])
-                                    : []),
-                                ]
+                                isVerticalShaftMode && activeShaftPanelsForTabs
+                                  ? ([
+                                      ['left_wall', domainPanelMap.leftWall.shortLabel],
+                                      ['crown', domainPanelMap.crown.shortLabel],
+                                      ['right_wall', domainPanelMap.rightWall.shortLabel],
+                                      ['shaft_sn', domainPanelMap.shaftSn?.shortLabel || 'WN (270°–360°)'],
+                                    ] as [Exclude<FieldPanelId, 'face'>, string][]).filter(([pid]) =>
+                                      activeShaftPanelsForTabs.includes(pid)
+                                    )
+                                  : [
+                                      ...(fGeomForTabs.hasLeftWall
+                                        ? ([['left_wall', domainPanelMap.leftWall.shortLabel]] as [
+                                            Exclude<FieldPanelId, 'face'>,
+                                            string,
+                                          ][])
+                                        : []),
+                                      ...(fGeomForTabs.hasCrown
+                                        ? ([['crown', domainPanelMap.crown.shortLabel]] as [
+                                            Exclude<FieldPanelId, 'face'>,
+                                            string,
+                                          ][])
+                                        : []),
+                                      ...(fGeomForTabs.hasRightWall
+                                        ? ([['right_wall', domainPanelMap.rightWall.shortLabel]] as [
+                                            Exclude<FieldPanelId, 'face'>,
+                                            string,
+                                          ][])
+                                        : []),
+                                    ]
                               ).map(([pid, lbl]) => {
                                 const isSel = targetP === pid;
                                 return (
@@ -10705,22 +10994,28 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                 {(() => {
                   const tLayout = computeTCanvasLayout(activeLocation, activeRound);
+                  const activeShaftPanelsForT =
+                    isVerticalShaftMode ||
+                    activeLocation.undergroundSubMode === 'vertical_shaft'
+                      ? getActiveVerticalShaftPanels(activeRound)
+                      : null;
                   const panelsToRender: FieldPanelId[] =
                     canvasViewMode === 'unfolded_t'
-                      ? [
-                          ...(tLayout.faceGeom.hasLeftWall
-                            ? (['left_wall'] as FieldPanelId[])
-                            : []),
-                          ...(tLayout.faceGeom.hasCrown ? (['crown'] as FieldPanelId[]) : []),
-                          ...(tLayout.faceGeom.hasRightWall
-                            ? (['right_wall'] as FieldPanelId[])
-                            : []),
-                          ...(isVerticalShaftMode ||
-                          activeLocation.undergroundSubMode === 'vertical_shaft'
-                            ? (['shaft_sn'] as FieldPanelId[])
-                            : []),
-                          'face',
-                        ]
+                      ? activeShaftPanelsForT
+                        ? [
+                            ...activeShaftPanelsForT.filter((p) => p !== 'face'),
+                            'face',
+                          ]
+                        : [
+                            ...(tLayout.faceGeom.hasLeftWall
+                              ? (['left_wall'] as FieldPanelId[])
+                              : []),
+                            ...(tLayout.faceGeom.hasCrown ? (['crown'] as FieldPanelId[]) : []),
+                            ...(tLayout.faceGeom.hasRightWall
+                              ? (['right_wall'] as FieldPanelId[])
+                              : []),
+                            'face',
+                          ]
                       : [activePanel];
 
                   const renderPanelBoxLayer = (panelId: FieldPanelId) => {
@@ -12567,14 +12862,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         activeLocation,
                         activeRound
                       );
-                      const availableTabs: [FieldPanelId, string][] = isVerticalShaftMode
-                        ? [
+                      const activeShaftPanelsBottom = isVerticalShaftMode
+                        ? getActiveVerticalShaftPanels(activeRound)
+                        : null;
+                      const availableTabs: [FieldPanelId, string][] = isVerticalShaftMode && activeShaftPanelsBottom
+                        ? ([
                             ['face', domainPanelMap.face.shortLabel],
                             ['left_wall', domainPanelMap.leftWall.shortLabel],
                             ['crown', domainPanelMap.crown.shortLabel],
                             ['right_wall', domainPanelMap.rightWall.shortLabel],
-                            ['shaft_sn', domainPanelMap.shaftSn?.shortLabel || 'SN'],
-                          ]
+                            ['shaft_sn', domainPanelMap.shaftSn?.shortLabel || 'WN (270°–360°)'],
+                          ] as [FieldPanelId, string][]).filter(([pid]) =>
+                            activeShaftPanelsBottom.includes(pid)
+                          )
                         : [
                             ['face', domainPanelMap.face.shortLabel],
                             ...(fGeomBottom.hasLeftWall
@@ -12652,7 +12952,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] sm:text-xs uppercase tracking-wider flex items-center gap-1 shadow whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <span>
-                      5. Group Joints ({isVerticalShaftMode ? 'All 5' : 'All 4'}) →
+                      5. Group Joints (
+                      {isVerticalShaftMode
+                        ? `All ${getActiveVerticalShaftPanels(activeRound).length}`
+                        : 'All 4'}
+                      ) →
                     </span>
                   </button>
                 </>
@@ -15476,7 +15780,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               pullLengthM: activeRound?.pullLengthMeters || 3.0,
               driveAzimuthDeg: activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth,
               currentChainageM: activeRound ? parseFloat(activeRound.chainageTo) || 100 : 100,
-              tunnelShape: activeLocation?.shape === 'freeform_custom'
+              tunnelShape: isVerticalShaftMode
+                ? 'circular'
+                : activeLocation?.shape === 'freeform_custom'
                 ? 'freeform_custom'
                 : activeLocation?.shape === 'horseshoe'
                 ? 'horseshoe'
@@ -15487,6 +15793,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               hasRightWall: fGeom?.hasRightWall ?? true,
               hasCrown: fGeom?.hasCrown ?? true,
               hasInvert: fGeom?.hasInvert ?? true,
+              isVerticalShaft: isVerticalShaftMode,
+              excavationApproach: activeRound?.excavationApproach,
+              shaftHalfSide: activeRound?.shaftHalfSide || 'left_half',
+              shaftCenterMedianStatus: activeRound?.shaftCenterMedianStatus || 'closed',
             }}
             onSaveJoint={(updated) => {
               updateActiveRound((r) => ({

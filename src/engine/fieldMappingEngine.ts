@@ -20,6 +20,14 @@ import {
   computeVerticalShaftPanelCanvasGeometry,
   computeVerticalShaftTCanvasLayout,
   getVerticalShaftSurfaceConfig,
+  isPointInsideVerticalShaftPanelOutline,
+  getVerticalShaftPanelPerimeterLoop,
+  isVerticalShaftPanelActive,
+  getActiveVerticalShaftPanels,
+  normalizeVerticalShaftHalfSide,
+  normalizeVerticalShaftCenterMedianStatus,
+  type VerticalShaftHalfSide,
+  type VerticalShaftCenterMedianStatus,
 } from './verticalShaftEngine';
 
 export type FieldTunnelShapeType =
@@ -773,6 +781,10 @@ export interface FieldExcavationRound {
   shaftInclinationDeg?: number; // Vertical shaft inclination (default 90 deg)
   undergroundSubMode?: UndergroundSubModeType;
   excavationApproach: string;
+  /** Vertical Shaft Half-Face mode: which half is excavated ('left_half' = SW 180-270 & WN 270-360, 'right_half' = NE 0-90 & ES 90-180) */
+  shaftHalfSide?: VerticalShaftHalfSide;
+  /** Vertical Shaft Half-Face mode: whether the Center Median (0-180 deg N-S diameter line) is 'closed' (opposite half unexcavated rock wall) or 'open' (opposite half already excavated) */
+  shaftCenterMedianStatus?: VerticalShaftCenterMedianStatus;
   /** Bench height in meters from the tunnel invert when Top Heading & Benching, Top Heading, or Benching is chosen */
   benchHeightMeters?: number;
   chainageOfLastSupport: string;
@@ -2694,7 +2706,20 @@ export function createNewExcavationRound(
     dateAndTimeOfExcavation: formattedDateTime,
     modeOfExcavation: location.defaultExcavationMode || 'Drill & Blast',
     tunnelDriveDirection: location.defaultDriveAzimuth ?? 45,
-    excavationApproach: location.defaultExcavationApproach || 'Full Face',
+    excavationApproach:
+      (location.undergroundSubMode || project.undergroundSubMode) === 'vertical_shaft'
+        ? location.defaultExcavationApproach === 'Half Face'
+          ? 'Half Face'
+          : 'Full Face'
+        : location.defaultExcavationApproach || 'Full Face',
+    shaftHalfSide:
+      (location.undergroundSubMode || project.undergroundSubMode) === 'vertical_shaft'
+        ? previousRound?.shaftHalfSide || 'left_half'
+        : undefined,
+    shaftCenterMedianStatus:
+      (location.undergroundSubMode || project.undergroundSubMode) === 'vertical_shaft'
+        ? previousRound?.shaftCenterMedianStatus || 'closed'
+        : undefined,
     chainageOfLastSupport: nextSupport,
     pullLengthMeters: pullM,
     photoPromptHandled: false,
@@ -2882,6 +2907,8 @@ export function loadFieldMappingStore(
                       wallHeightM: Number((d * 0.5).toFixed(2)),
                       crownRadiusM: Number((d * 0.5).toFixed(2)),
                       shaftInclinationDeg: l.shaftInclinationDeg ?? 90,
+                      defaultExcavationApproach:
+                        l.defaultExcavationApproach === 'Half Face' ? 'Half Face' : 'Full Face',
                     };
                   }),
               }))
@@ -3009,6 +3036,20 @@ export function loadFieldMappingStore(
             mappingDomain: r.mappingDomain || effectiveDomain,
             undergroundSubMode:
               effectiveDomain === 'TUNNEL' ? effectiveSubMode : r.undergroundSubMode,
+            excavationApproach:
+              effectiveDomain === 'TUNNEL' && effectiveSubMode === 'vertical_shaft'
+                ? r.excavationApproach === 'Half Face'
+                  ? 'Half Face'
+                  : 'Full Face'
+                : r.excavationApproach || 'Full Face',
+            shaftHalfSide:
+              effectiveDomain === 'TUNNEL' && effectiveSubMode === 'vertical_shaft'
+                ? normalizeVerticalShaftHalfSide(r.shaftHalfSide)
+                : r.shaftHalfSide,
+            shaftCenterMedianStatus:
+              effectiveDomain === 'TUNNEL' && effectiveSubMode === 'vertical_shaft'
+                ? normalizeVerticalShaftCenterMedianStatus(r.shaftCenterMedianStatus)
+                : r.shaftCenterMedianStatus,
             panelTransforms: {
               ...finalIdeal.field_canvas,
               ...(r.panelTransforms || {}),
@@ -4569,7 +4610,7 @@ export function convertPhysicalMetricPointsToCanvas(
  */
 export function mapMetricPointToStripSvg(
   metricPt: { x: number; y: number },
-  panel: 'left_wall' | 'crown' | 'right_wall',
+  panel: 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn',
   location: FieldTunnelLocationItem,
   round: FieldExcavationRound,
   panelStripBox: { x: number; w: number; h: number },
@@ -5676,6 +5717,9 @@ export function isPointInsideFieldPanelOutline(
   round: FieldExcavationRound,
   tolerancePx = 0
 ): boolean {
+  if (location.undergroundSubMode === 'vertical_shaft') {
+    return isPointInsideVerticalShaftPanelOutline(pt, panel, location, round, tolerancePx);
+  }
   const geom = computePanelCanvasGeometry(panel, location, round);
   const excBounds = getPanelActiveExcavationBounds(panel, location, round);
   if (excBounds.isPanelFullyLocked) {
@@ -6177,7 +6221,6 @@ export function computeTCanvasLayout(
   const rightWallY = Number((stripY + rwMeta.tr.tOffsetY).toFixed(1));
 
   const shaftSnGeom = computePanelCanvasGeometry('shaft_sn', location, round);
-  const isVerticalShaft = location.undergroundSubMode === 'vertical_shaft';
   const snMeta = computePanelOrientationReferenceMeta(
     'shaft_sn',
     round,
@@ -6186,8 +6229,8 @@ export function computeTCanvasLayout(
     pullSpanM,
     'joint_grouping'
   );
-  const shaftSnW = isVerticalShaft ? Number((snMeta.widthM * stripPxPerM).toFixed(1)) : 0;
-  const shaftSnH = isVerticalShaft ? Number((snMeta.heightM * stripPxPerM).toFixed(1)) : 0;
+  const shaftSnW = 0;
+  const shaftSnH = 0;
   const baseShaftSnX = baseRightWallX + (faceGeom.hasRightWall ? rightWallW + panelGapX : 0);
   const shaftSnX = Number((baseShaftSnX + snMeta.tr.tOffsetX).toFixed(1));
   const shaftSnY = Number((stripY + snMeta.tr.tOffsetY).toFixed(1));
@@ -6282,13 +6325,15 @@ export function resolveTCanvasPanelAtPoint(
   tolerancePx = 1
 ): FieldPanelId | null {
   const layout = computeTCanvasLayout(location, round);
-  const panels: FieldPanelId[] = [
-    ...(layout.faceGeom.hasLeftWall ? (['left_wall'] as FieldPanelId[]) : []),
-    ...(layout.faceGeom.hasCrown ? (['crown'] as FieldPanelId[]) : []),
-    ...(layout.faceGeom.hasRightWall ? (['right_wall'] as FieldPanelId[]) : []),
-    ...(location.undergroundSubMode === 'vertical_shaft' ? (['shaft_sn'] as FieldPanelId[]) : []),
-    'face',
-  ];
+  const panels: FieldPanelId[] =
+    location.undergroundSubMode === 'vertical_shaft'
+      ? getActiveVerticalShaftPanels(round)
+      : [
+          ...(layout.faceGeom.hasLeftWall ? (['left_wall'] as FieldPanelId[]) : []),
+          ...(layout.faceGeom.hasCrown ? (['crown'] as FieldPanelId[]) : []),
+          ...(layout.faceGeom.hasRightWall ? (['right_wall'] as FieldPanelId[]) : []),
+          'face',
+        ];
   for (const p of panels) {
     const b = layout.boxes[p];
     if (
@@ -9376,6 +9421,9 @@ export function getExactFieldPanelPerimeterLoop(
   location: FieldTunnelLocationItem,
   round: FieldExcavationRound
 ): FieldPoint2D[] {
+  if (location.undergroundSubMode === 'vertical_shaft') {
+    return getVerticalShaftPanelPerimeterLoop(panel, location, round);
+  }
   const geom = computePanelCanvasGeometry(panel, location, round);
   const excBounds = getPanelActiveExcavationBounds(panel, location, round);
   if (excBounds.isPanelFullyLocked) {
@@ -9753,9 +9801,38 @@ export function getPanelActiveExcavationBounds(
   round: FieldExcavationRound
 ): PanelActiveExcavationBounds {
   const geom = computePanelCanvasGeometry(panel, location, round);
-  const cfg = getExcavationBenchConfig(round, location);
   const fullTop = geom.boxY;
   const fullBottom = geom.boxY + geom.boxH;
+
+  if (location.undergroundSubMode === 'vertical_shaft') {
+    const active = isVerticalShaftPanelActive(panel, round);
+    if (!active) {
+      return {
+        hasBenchDivision: true,
+        hatchZone: 'none',
+        isPanelFullyLocked: true,
+        minY: fullBottom,
+        maxY: fullBottom,
+        benchY: null,
+        hatchMinY: fullTop,
+        hatchMaxY: fullBottom,
+        lockedReasonLabel: 'Quadrant wall belongs to the unexcavated half of the Vertical Shaft.',
+      };
+    }
+    return {
+      hasBenchDivision: false,
+      hatchZone: 'none',
+      isPanelFullyLocked: false,
+      minY: fullTop,
+      maxY: fullBottom,
+      benchY: null,
+      hatchMinY: null,
+      hatchMaxY: null,
+      lockedReasonLabel: '',
+    };
+  }
+
+  const cfg = getExcavationBenchConfig(round, location);
 
   if (!cfg.hasBenchDivision || cfg.hatchZone === 'none') {
     return {

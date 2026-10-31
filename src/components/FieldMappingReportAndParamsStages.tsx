@@ -91,10 +91,12 @@ import { createDefaultFemDemConfig } from '../engine/femDemAnalysisEngine';
 type StripAlignItemKind = 'joint' | 'vein' | 'feature';
 type JointPointActionMode = 'add_point' | 'bend' | 'move' | 'extend';
 
+type StripAlignPanelId = 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn';
+
 interface StripAlignableItem {
   id: string;
   kind: StripAlignItemKind;
-  panel: 'left_wall' | 'crown' | 'right_wall';
+  panel: StripAlignPanelId;
   label: string;
   color: string;
   points: FieldPoint2D[];
@@ -215,7 +217,7 @@ export const FieldStripAlignmentStage: React.FC<{
   const [draggingHandle, setDraggingHandle] = useState<{
     id: string;
     kind: StripAlignItemKind;
-    panel: 'left_wall' | 'crown' | 'right_wall';
+    panel: StripAlignPanelId;
     handleType: 'start' | 'end' | 'center' | 'bend_point';
     bendPointIdx?: number;
     bendRatio?: number;
@@ -260,15 +262,20 @@ export const FieldStripAlignmentStage: React.FC<{
     leftWallGeom,
     crownGeom,
     rightWallGeom,
+    shaftSnGeom,
     stripLeftWallW,
     stripRightWallW,
     stripCrownW,
+    stripShaftSnW,
     stripLeftWallH,
     stripRightWallH,
     stripCrownH,
+    stripShaftSnH,
     leftWallX,
     crownX,
     rightWallX,
+    shaftSnX,
+    hasShaftSn,
     stripY,
     stripH,
     stripViewBoxH,
@@ -277,7 +284,7 @@ export const FieldStripAlignmentStage: React.FC<{
   const [selectedTraceItem, setSelectedTraceItem] = useState<{
     id: string;
     kind: StripAlignItemKind;
-    panel: 'left_wall' | 'crown' | 'right_wall';
+    panel: StripAlignPanelId;
   } | null>(null);
   const [activeMagneticSnapPt, setActiveMagneticSnapPt] = useState<FieldPoint2D | null>(null);
 
@@ -338,19 +345,22 @@ export const FieldStripAlignmentStage: React.FC<{
     return () => el.removeEventListener('wheel', onWheelNonPassive);
   }, [stripViewBoxH]);
 
-  const getPanelStripBox = (panel: 'left_wall' | 'crown' | 'right_wall') => {
+  const getPanelStripBox = (panel: StripAlignPanelId) => {
     if (panel === 'left_wall') {
       return { x: leftWallX, w: stripLeftWallW, h: stripLeftWallH, geom: leftWallGeom };
     }
     if (panel === 'crown') {
       return { x: crownX, w: stripCrownW, h: stripCrownH, geom: crownGeom };
     }
+    if (panel === 'shaft_sn') {
+      return { x: shaftSnX || rightWallX, w: stripShaftSnW || 0, h: stripShaftSnH || stripH, geom: shaftSnGeom || rightWallGeom };
+    }
     return { x: rightWallX, w: stripRightWallW, h: stripRightWallH, geom: rightWallGeom };
   };
 
   // Convert panel coordinates -> strip SVG coordinates (0m at bottom -> PullM at top) using physical metric dimensions
   const panelPointToStripPoint = (
-    panel: 'left_wall' | 'crown' | 'right_wall',
+    panel: StripAlignPanelId,
     pt: FieldPoint2D
   ): FieldPoint2D => {
     const box = getPanelStripBox(panel);
@@ -360,13 +370,13 @@ export const FieldStripAlignmentStage: React.FC<{
 
   // Convert strip SVG coordinates -> panel coordinates (clamped to panel box, 0m at bottom -> PullM at top)
   const stripPointToPanelPoint = (
-    panel: 'left_wall' | 'crown' | 'right_wall',
+    panel: StripAlignPanelId,
     sx: number,
     sy: number
   ): FieldPoint2D => {
     const { x, w, h, geom } = getPanelStripBox(panel);
     const pullM = geom.pullM;
-    const wallHM = panel === 'right_wall' ? geom.rightWallLengthM : geom.leftWallLengthM;
+    const wallHM = panel === 'right_wall' || panel === 'shaft_sn' ? geom.rightWallLengthM : geom.leftWallLengthM;
     const crownArchM = geom.crownLengthM;
 
     const normX = Math.max(0.001, Math.min(0.999, (sx - x) / Math.max(1, w)));
@@ -374,23 +384,16 @@ export const FieldStripAlignmentStage: React.FC<{
 
     let metricPt: { x: number; y: number };
     if (panel === 'left_wall') {
-      // sx: invert floor (0) -> left springline (1) => y = normX * wallHM
-      // sy: face (0) -> pull start (1) => x = (1 - normY) * pullM
       metricPt = {
         x: (1 - normY) * pullM,
         y: normX * wallHM,
       };
     } else if (panel === 'crown') {
-      // sx: left springline (0) -> right springline (1) => x = normX * crownArchM
-      // sy: face (0) -> pull start (1) => y = (1 - normY) * pullM
       metricPt = {
         x: normX * crownArchM,
         y: (1 - normY) * pullM,
       };
     } else {
-      // right_wall:
-      // sx: right springline (0) -> right invert floor (1) => y = (1 - normX) * wallHM
-      // sy: face (0) -> pull start (1) => x = (1 - normY) * pullM
       metricPt = {
         x: (1 - normY) * pullM,
         y: (1 - normX) * wallHM,
@@ -400,11 +403,23 @@ export const FieldStripAlignmentStage: React.FC<{
     return clampPointToFieldPanelOutline(canvasPt, panel, activeLocation, activeRound, 0);
   };
 
-  // Collect all alignable items (Joint Traces, Vein/Foliation Bands, Structural Features) on Left Wall, Crown, Right Wall
+  const isStripPanelActive = (p: StripAlignPanelId) => {
+    if (p === 'left_wall') return stripLeftWallW > 0;
+    if (p === 'crown') return stripCrownW > 0;
+    if (p === 'right_wall') return stripRightWallW > 0;
+    if (p === 'shaft_sn') return Boolean(hasShaftSn && (stripShaftSnW || 0) > 0);
+    return false;
+  };
+
+  // Collect all alignable items (Joint Traces, Vein/Foliation Bands, Structural Features) on active strip panels
   const alignableItems: StripAlignableItem[] = [];
   activeRound.jointTraces.forEach((tr) => {
     if (
-      (tr.panel === 'left_wall' || tr.panel === 'crown' || tr.panel === 'right_wall') &&
+      (tr.panel === 'left_wall' ||
+        tr.panel === 'crown' ||
+        tr.panel === 'right_wall' ||
+        tr.panel === 'shaft_sn') &&
+      isStripPanelActive(tr.panel) &&
       tr.points.length >= 2
     ) {
       const col = FIELD_JOINT_GROUP_COLORS[tr.setId || 'unassigned']?.stroke || '#0f172a';
@@ -487,7 +502,11 @@ export const FieldStripAlignmentStage: React.FC<{
     const isVeinOrFol = st.mode === 'vein_band' || st.mode === 'foliation_plane';
     if (
       isVeinOrFol &&
-      (st.panel === 'left_wall' || st.panel === 'crown' || st.panel === 'right_wall') &&
+      (st.panel === 'left_wall' ||
+        st.panel === 'crown' ||
+        st.panel === 'right_wall' ||
+        st.panel === 'shaft_sn') &&
+      isStripPanelActive(st.panel) &&
       st.points.length >= 2
     ) {
       alignableItems.push({
@@ -503,7 +522,11 @@ export const FieldStripAlignmentStage: React.FC<{
   });
   (activeRound.structuralFeatures || []).forEach((ft) => {
     if (
-      (ft.panel === 'left_wall' || ft.panel === 'crown' || ft.panel === 'right_wall') &&
+      (ft.panel === 'left_wall' ||
+        ft.panel === 'crown' ||
+        ft.panel === 'right_wall' ||
+        ft.panel === 'shaft_sn') &&
+      isStripPanelActive(ft.panel) &&
       ft.points.length >= 2
     ) {
       alignableItems.push({
@@ -802,9 +825,10 @@ export const FieldStripAlignmentStage: React.FC<{
 
     const scanSeam = (
       seamX: number,
-      leftPanel: 'left_wall' | 'crown',
-      rightPanel: 'crown' | 'right_wall'
+      leftPanel: StripAlignPanelId,
+      rightPanel: StripAlignPanelId
     ) => {
+      if (!isStripPanelActive(leftPanel) || !isStripPanelActive(rightPanel)) return;
       const lBox = getPanelStripBox(leftPanel);
       const rBox = getPanelStripBox(rightPanel);
       const leftList = alignableItems.filter((it) => it.panel === leftPanel);
@@ -867,8 +891,11 @@ export const FieldStripAlignmentStage: React.FC<{
 
     scanSeam(crownX, 'left_wall', 'crown');
     scanSeam(rightWallX, 'crown', 'right_wall');
+    if (hasShaftSn && shaftSnX) {
+      scanSeam(shaftSnX, 'right_wall', 'shaft_sn');
+    }
     return bridges;
-  }, [alignableItems, crownX, rightWallX, stripH]);
+  }, [alignableItems, crownX, rightWallX, shaftSnX, hasShaftSn, stripH]);
 
   // Snap a specific seam bridge candidate in 1 click
   const handleSnapSeamBridge = (bridge: (typeof seamBridges)[number]) => {

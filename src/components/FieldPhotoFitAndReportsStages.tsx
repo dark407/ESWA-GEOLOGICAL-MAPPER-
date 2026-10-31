@@ -5531,6 +5531,7 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
       crown: 'Crown / Roof Arch Photo',
       left_wall: 'Left Wall Photo',
       right_wall: 'Right Wall Photo',
+      shaft_sn: '4. WN (270°–360°) Wall Photo',
     };
     const newPhoto: FieldCollectedPhoto = {
       id: `photo-${panel}-${Date.now()}`,

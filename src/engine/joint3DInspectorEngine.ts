@@ -39,6 +39,10 @@ export interface TunnelSpatialGeometry {
   hasInvert?: boolean;
   leftWallHeightM?: number;
   rightWallHeightM?: number;
+  isVerticalShaft?: boolean;
+  excavationApproach?: string;
+  shaftHalfSide?: 'left_half' | 'right_half';
+  shaftCenterMedianStatus?: 'closed' | 'open';
 }
 
 export interface StrikeConventionResult {

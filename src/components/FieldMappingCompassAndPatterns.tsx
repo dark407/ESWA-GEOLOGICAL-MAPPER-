@@ -45,6 +45,15 @@ import {
   TunnelSpatialGeometry,
 } from '../engine/joint3DInspectorEngine';
 import { getSurfacePanelLabelMap } from '../engine/surfaceMappingEngine';
+import {
+  VERTICAL_SHAFT_QUADRANT_META_MAP,
+  computeVerticalShaftCircumferenceBreakdown,
+  getActiveVerticalShaftPanels,
+  isVerticalShaftLocation,
+  normalizeVerticalShaftCenterMedianStatus,
+  normalizeVerticalShaftExcavationApproach,
+  normalizeVerticalShaftHalfSide,
+} from '../engine/verticalShaftEngine';
 
 /**
  * Geological SVG Hatch Patterns
@@ -3092,30 +3101,35 @@ export function computeUnfoldedStripBoxes(
   round: FieldExcavationRound,
   topStripOnly = false
 ) {
+  const isVerticalShaft = isVerticalShaftLocation(location);
   const faceGeom = computePanelCanvasGeometry('face', location, round);
   const crownGeom = computePanelCanvasGeometry('crown', location, round);
   const leftWallGeom = computePanelCanvasGeometry('left_wall', location, round);
   const rightWallGeom = computePanelCanvasGeometry('right_wall', location, round);
+  const shaftSnGeom = computePanelCanvasGeometry('shaft_sn', location, round);
 
   const splHeightM = faceGeom.splHeightM;
   const leftWallLengthM = faceGeom.leftWallLengthM || splHeightM;
   const rightWallLengthM = faceGeom.rightWallLengthM || splHeightM;
+  const shaftSnLengthM = isVerticalShaft ? faceGeom.splHeightM : 0;
   const splRatio = faceGeom.splRatio;
   const crownLengthM = faceGeom.crownLengthM;
   const pullM = faceGeom.pullM;
 
-  // Authoritative Continuous CAD Strip (Matches the 5 Engineering Reference Sheets):
-  // - One continuous horizontal rectangle with ZERO gap between [ Left Wall | Crown | Right Wall ]
-  // - Horizontal X-axis = Developed Perimeter Length: L_left + L_crown + L_right
-  // - Vertical Y-axis = Pull Length (pullM) uniform across all 3 panels
-  // - True 1:1 Isotropic Scale (1m on X-axis === 1m on Y-axis)
+  const activeShaftPanels = isVerticalShaft ? getActiveVerticalShaftPanels(round) : [];
+  const hasShaftSn = isVerticalShaft && activeShaftPanels.includes('shaft_sn');
+
   const totalAvailW = topStripOnly ? 870 : 870;
   const maxAvailH = topStripOnly ? 260 : 145;
   const pullSpanM = Math.max(0.5, pullM);
   const leftSpanM = faceGeom.hasLeftWall ? Math.max(0.5, leftWallLengthM) : 0;
   const crownSpanM = faceGeom.hasCrown ? Math.max(0.5, crownLengthM) : 0;
   const rightSpanM = faceGeom.hasRightWall ? Math.max(0.5, rightWallLengthM) : 0;
-  const totalStripMetersW = Math.max(1, leftSpanM + crownSpanM + rightSpanM);
+  const shaftSnSpanM = hasShaftSn ? Math.max(0.5, shaftSnLengthM) : 0;
+  const totalStripMetersW = Math.max(
+    1,
+    leftSpanM + crownSpanM + rightSpanM + shaftSnSpanM
+  );
   const maxStripMetersH = pullSpanM;
 
   const stripPxPerMeter = Math.min(
@@ -3126,22 +3140,22 @@ export function computeUnfoldedStripBoxes(
   const stripLeftWallW = Number((leftSpanM * stripPxPerMeter).toFixed(1));
   const stripCrownW = Number((crownSpanM * stripPxPerMeter).toFixed(1));
   const stripRightWallW = Number((rightSpanM * stripPxPerMeter).toFixed(1));
-  const stripWallW = stripLeftWallW;
+  const stripShaftSnW = Number((shaftSnSpanM * stripPxPerMeter).toFixed(1));
+  const stripWallW = stripLeftWallW || stripRightWallW || stripShaftSnW;
   const stripH = Number((pullSpanM * stripPxPerMeter).toFixed(1));
   const stripWallH = stripH;
   const stripCrownH = stripH;
   const stripLeftWallH = stripH;
   const stripRightWallH = stripH;
+  const stripShaftSnH = stripH;
 
-  const totalRenderedW = stripLeftWallW + stripCrownW + stripRightWallW;
+  const totalRenderedW =
+    stripLeftWallW + stripCrownW + stripRightWallW + stripShaftSnW;
   const leftWallX = Number(((920 - totalRenderedW) / 2).toFixed(1));
   const crownX = Number((leftWallX + stripLeftWallW).toFixed(1));
   const rightWallX = Number((crownX + stripCrownW).toFixed(1));
+  const shaftSnX = Number((rightWallX + stripRightWallW).toFixed(1));
 
-  // Give primary visual importance to the Tunnel Face Picture on Page 1 (large & adapted to tunnel shape & W:H ratio)
-  // Generous margin around the tunnel outline:
-  // - Top margin (strip to face outline) so crown overbreak line markings have clear headroom below top strip
-  // - Left & right side margins (at least 200px on both sides) for left and right wall overbreak line markings and height rulers
   const maxFaceWidth = 510;
   const maxFaceHeight = 270;
   const facePxPerMeter = Math.min(
@@ -3151,8 +3165,6 @@ export function computeUnfoldedStripBoxes(
   const idealFaceW = Number((faceGeom.tunnelW * facePxPerMeter).toFixed(1));
   const idealFaceH = Number((faceGeom.tunnelH * facePxPerMeter).toFixed(1));
   const stripY = topStripOnly ? 38 : 24;
-  // Generous gap between top continuous unfolded strip and face tunnel outline (165px)
-  // providing 24px clearance below top strip for section title and 141px headroom above crown arch for overbreak lines & markings
   const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 165);
   const stripViewBoxH = topStripOnly ? Math.max(210, Math.round(stripY + stripH + 42)) : 790;
 
@@ -3161,9 +3173,12 @@ export function computeUnfoldedStripBoxes(
     crownGeom,
     leftWallGeom,
     rightWallGeom,
+    shaftSnGeom,
     splHeightM,
     leftWallLengthM,
     rightWallLengthM,
+    shaftSnLengthM,
+    hasShaftSn,
     splRatio,
     crownLengthM,
     pullM,
@@ -3172,14 +3187,17 @@ export function computeUnfoldedStripBoxes(
     stripLeftWallW,
     stripRightWallW,
     stripCrownW,
+    stripShaftSnW,
     totalRenderedW,
     stripWallH,
     stripLeftWallH,
     stripRightWallH,
     stripCrownH,
+    stripShaftSnH,
     leftWallX,
     crownX,
     rightWallX,
+    shaftSnX,
     faceTopY,
     idealFaceW,
     idealFaceH,
@@ -3263,7 +3281,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
         };
       }
-      if (panel === 'right_wall') {
+      if (panel === 'right_wall' || panel === 'shaft_sn') {
         // Horizontal X = Right Springline (v=0 -> sx=0) to Right Invert floor (v=1 -> sx=1)
         // Vertical Y = Face (u=0 -> sy=0 at top) to Start of Pull (u=1 -> sy=1 at bottom)
         const sx = v;
@@ -3296,7 +3314,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
         };
       }
-      if (panel === 'right_wall') {
+      if (panel === 'right_wall' || panel === 'shaft_sn') {
         const sx = v;
         const sy = u;
         return {
@@ -3796,23 +3814,29 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
     crownGeom,
     leftWallGeom,
     rightWallGeom,
+    shaftSnGeom,
     splHeightM,
     splRatio,
     leftWallLengthM,
     rightWallLengthM,
+    shaftSnLengthM,
+    hasShaftSn,
     crownLengthM,
     pullM,
     stripPxPerMeter,
     stripLeftWallW,
     stripRightWallW,
     stripCrownW,
+    stripShaftSnW,
     totalRenderedW: rawTotalRenderedW,
     stripLeftWallH,
     stripRightWallH,
     stripCrownH,
+    stripShaftSnH,
     leftWallX,
     crownX,
     rightWallX,
+    shaftSnX,
     faceTopY,
     idealFaceW,
     idealFaceH,
@@ -3820,8 +3844,11 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
     stripH,
     stripViewBoxH,
   } = computeUnfoldedStripBoxes(location, round, topStripOnly);
+  const isVerticalShaft = isVerticalShaftLocation(location);
 
-  const totalRenderedW = rawTotalRenderedW ?? (stripLeftWallW + stripCrownW + stripRightWallW);
+  const totalRenderedW =
+    rawTotalRenderedW ??
+    stripLeftWallW + stripCrownW + stripRightWallW + (stripShaftSnW || 0);
 
   const faceDetails = computeFaceTunnelOutlineDetails(
     location,
@@ -4043,15 +4070,24 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   height={stripRightWallH}
                 />
               </clipPath>
+              {hasShaftSn && (
+                <clipPath id="clip-sheet-shaft-sn">
+                  <rect
+                    x={shaftSnX}
+                    y={stripY}
+                    width={stripShaftSnW}
+                    height={stripShaftSnH}
+                  />
+                </clipPath>
+              )}
             </>
           );
         })()}
       </defs>
 
-      {/* Top Row: Compact Continuous CAD Unfolded Strip [ Left Wall | Crown | Right Wall ] */}
+      {/* Top Row: Compact Continuous CAD Unfolded Strip */}
       <g>
         <>
-          {/* CONTINUOUS CAD STRIP: One unified continuous perimeter outline, zero unwanted internal boxes */}
           <rect
             x={leftWallX}
             y={stripY}
@@ -4073,7 +4109,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 fontFamily="monospace"
                 fill="#0f172a"
               >
-                LEFT WALL ({leftWallLengthM.toFixed(2)}m)
+                {isVerticalShaft
+                  ? `NORTH-EAST (0°–90°) (${leftWallLengthM.toFixed(2)}m)`
+                  : `LEFT WALL (${leftWallLengthM.toFixed(2)}m)`}
               </text>
               {renderPanelContent(
                 'left_wall',
@@ -4103,7 +4141,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 fontFamily="monospace"
                 fill="#0f172a"
               >
-                CROWN ({crownLengthM.toFixed(2)}m)
+                {isVerticalShaft
+                  ? `EAST-SOUTH (90°–180°) (${crownLengthM.toFixed(2)}m)`
+                  : `CROWN (${crownLengthM.toFixed(2)}m)`}
               </text>
               {renderPanelContent(
                 'crown',
@@ -4119,27 +4159,31 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 stripH,
                 crownGeom
               )}
-              {/* Vertical Centerline C at Mid-Crown */}
-              <line
-                x1={crownX + stripCrownW / 2}
-                y1={stripY - 7}
-                x2={crownX + stripCrownW / 2}
-                y2={stripY + stripH + 7}
-                stroke="#0f172a"
-                strokeWidth="1.3"
-                strokeDasharray="6,3,2,3"
-              />
-              <text
-                x={crownX + stripCrownW / 2}
-                y={stripY + stripH + 18}
-                textAnchor="middle"
-                fontSize="11.5"
-                fontWeight="bold"
-                fontFamily="monospace"
-                fill="#0f172a"
-              >
-                C
-              </text>
+              {!isVerticalShaft && (
+                <>
+                  {/* Vertical Centerline C at Mid-Crown */}
+                  <line
+                    x1={crownX + stripCrownW / 2}
+                    y1={stripY - 7}
+                    x2={crownX + stripCrownW / 2}
+                    y2={stripY + stripH + 7}
+                    stroke="#0f172a"
+                    strokeWidth="1.3"
+                    strokeDasharray="6,3,2,3"
+                  />
+                  <text
+                    x={crownX + stripCrownW / 2}
+                    y={stripY + stripH + 18}
+                    textAnchor="middle"
+                    fontSize="11.5"
+                    fontWeight="bold"
+                    fontFamily="monospace"
+                    fill="#0f172a"
+                  >
+                    C
+                  </text>
+                </>
+              )}
             </>
           )}
 
@@ -4154,7 +4198,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 fontFamily="monospace"
                 fill="#0f172a"
               >
-                RIGHT WALL ({rightWallLengthM.toFixed(2)}m)
+                {isVerticalShaft
+                  ? `SOUTH-WEST (180°–270°) (${rightWallLengthM.toFixed(2)}m)`
+                  : `RIGHT WALL (${rightWallLengthM.toFixed(2)}m)`}
               </text>
               {renderPanelContent(
                 'right_wall',
@@ -4173,7 +4219,37 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             </>
           )}
 
-          {/* Vertical Fold / SPL Seam Lines (zero gap between Left Wall, Crown, Right Wall) */}
+          {hasShaftSn && (
+            <>
+              <text
+                x={shaftSnX + stripShaftSnW / 2}
+                y={stripY - 14}
+                textAnchor="middle"
+                fontSize="12.5"
+                fontWeight="bold"
+                fontFamily="monospace"
+                fill="#0f172a"
+              >
+                {`WEST-NORTH (270°–360°) (${shaftSnLengthM.toFixed(2)}m)`}
+              </text>
+              {renderPanelContent(
+                'shaft_sn',
+                0,
+                0,
+                1,
+                1,
+                'clip-sheet-shaft-sn',
+                true,
+                shaftSnX,
+                stripY,
+                stripShaftSnW,
+                stripH,
+                shaftSnGeom
+              )}
+            </>
+          )}
+
+          {/* Vertical Fold / Quadrant Seam Lines */}
           {faceGeom.hasLeftWall && faceGeom.hasCrown && (
             <>
               <line
@@ -4194,7 +4270,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 fontFamily="monospace"
                 fill="#0f172a"
               >
-                SPL
+                {isVerticalShaft ? '90° E' : 'SPL'}
               </text>
             </>
           )}
@@ -4218,7 +4294,31 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 fontFamily="monospace"
                 fill="#0f172a"
               >
-                SPL
+                {isVerticalShaft ? '180° S' : 'SPL'}
+              </text>
+            </>
+          )}
+          {faceGeom.hasRightWall && hasShaftSn && (
+            <>
+              <line
+                x1={shaftSnX}
+                y1={stripY - 6}
+                x2={shaftSnX}
+                y2={stripY + stripH + 6}
+                stroke="#0f172a"
+                strokeWidth="1.8"
+                strokeDasharray="4,3"
+              />
+              <text
+                x={shaftSnX}
+                y={stripY + stripH + 18}
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight="bold"
+                fontFamily="monospace"
+                fill="#0f172a"
+              >
+                270° W
               </text>
             </>
           )}
@@ -4348,7 +4448,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               : faceGeom.hasCrown
               ? crownX
               : rightWallX;
-            const endX = faceGeom.hasRightWall
+            const endX = hasShaftSn
+              ? shaftSnX + stripShaftSnW
+              : faceGeom.hasRightWall
               ? rightWallX + stripRightWallW
               : faceGeom.hasCrown
               ? crownX + stripCrownW
@@ -5279,6 +5381,234 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
   const leftAz = (normDrive + 270) % 360;
 
   if (activePanel === 'face') {
+    if (isVerticalShaftLocation(effectiveLocation)) {
+      const shaftBreakdown = computeVerticalShaftCircumferenceBreakdown(
+        effectiveLocation,
+        round
+      );
+      const rx = boxW / 2;
+      const ry = boxH / 2;
+      const faceFontScale = Math.max(
+        1.0,
+        Math.min(1.2, Math.min(boxW, boxH) / 480)
+      );
+      const fSize = (11.5 * faceFontScale).toFixed(1);
+      const qSize = (11.0 * faceFontScale).toFixed(1);
+
+      const quadCallouts: {
+        id: Exclude<FieldPanelId, 'face'>;
+        angleDeg: number;
+        label: string;
+        short: string;
+        color: string;
+      }[] = [
+        {
+          id: 'left_wall',
+          angleDeg: -45, // NE (top-right in SVG)
+          label: '1st Quad: NORTH-EAST (0°–90°)',
+          short: `NE (0°–90°) · ${shaftBreakdown.quadrantArcLengthM}m`,
+          color: '#047857',
+        },
+        {
+          id: 'crown',
+          angleDeg: 45, // ES (bottom-right in SVG)
+          label: '2nd Quad: EAST-SOUTH (90°–180°)',
+          short: `ES (90°–180°) · ${shaftBreakdown.quadrantArcLengthM}m`,
+          color: '#B45309',
+        },
+        {
+          id: 'right_wall',
+          angleDeg: 135, // SW (bottom-left in SVG)
+          label: '3rd Quad: SOUTH-WEST (180°–270°)',
+          short: `SW (180°–270°) · ${shaftBreakdown.quadrantArcLengthM}m`,
+          color: '#6D28D9',
+        },
+        {
+          id: 'shaft_sn',
+          angleDeg: -135, // WN (top-left in SVG)
+          label: '4th Quad: WEST-NORTH (270°–360°)',
+          short: `WN (270°–360°) · ${shaftBreakdown.quadrantArcLengthM}m`,
+          color: '#BE185D',
+        },
+      ];
+
+      return (
+        <g
+          className="pointer-events-none select-none"
+          fontFamily="IBM Plex Mono, monospace"
+        >
+          {/* Cardinal Compass Markers around Circular Vertical Shaft (0° N, 90° E, 180° S, 270° W) */}
+          <g>
+            {/* 0° NORTH (Top) */}
+            <line
+              x1={cx}
+              y1={top - 22}
+              x2={cx}
+              y2={top}
+              stroke="#047857"
+              strokeWidth="2.6"
+            />
+            <circle
+              cx={cx}
+              cy={top - 6}
+              r="4.5"
+              fill="#047857"
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
+            <text
+              x={cx}
+              y={top - 28}
+              textAnchor="middle"
+              fontSize={fSize}
+              fontWeight="900"
+              fill="#047857"
+              stroke={haloColor}
+              strokeWidth="3"
+              paintOrder="stroke"
+            >
+              ▲ 0° / 360° NORTH · SHAFT AZIMUTH {String(normDrive).padStart(3, '0')}°
+            </text>
+
+            {/* 90° EAST (Right) */}
+            <line
+              x1={right}
+              y1={cy}
+              x2={right + 22}
+              y2={cy}
+              stroke="#0369A1"
+              strokeWidth="2.5"
+            />
+            <circle
+              cx={right + 6}
+              cy={cy}
+              r="4.5"
+              fill="#0369A1"
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
+            <text
+              x={right + 28}
+              y={cy + 4}
+              textAnchor="start"
+              fontSize={fSize}
+              fontWeight="900"
+              fill="#0369A1"
+              stroke={haloColor}
+              strokeWidth="3"
+              paintOrder="stroke"
+            >
+              90° EAST ▶
+            </text>
+
+            {/* 180° SOUTH (Bottom) */}
+            <line
+              x1={cx}
+              y1={bottom}
+              x2={cx}
+              y2={bottom + 22}
+              stroke="#047857"
+              strokeWidth="2.5"
+            />
+            <circle
+              cx={cx}
+              cy={bottom + 6}
+              r="4.5"
+              fill="#047857"
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
+            <text
+              x={cx}
+              y={bottom + 36}
+              textAnchor="middle"
+              fontSize={fSize}
+              fontWeight="900"
+              fill="#047857"
+              stroke={haloColor}
+              strokeWidth="3"
+              paintOrder="stroke"
+            >
+              ▼ 180° SOUTH
+            </text>
+
+            {/* 270° WEST (Left) */}
+            <line
+              x1={left - 22}
+              y1={cy}
+              x2={left}
+              y2={cy}
+              stroke="#0369A1"
+              strokeWidth="2.5"
+            />
+            <circle
+              cx={left - 6}
+              cy={cy}
+              r="4.5"
+              fill="#0369A1"
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
+            <text
+              x={left - 28}
+              y={cy + 4}
+              textAnchor="end"
+              fontSize={fSize}
+              fontWeight="900"
+              fill="#0369A1"
+              stroke={haloColor}
+              strokeWidth="3"
+              paintOrder="stroke"
+            >
+              ◀ 270° WEST
+            </text>
+          </g>
+
+          {/* 4 Quadrant Arc Callouts at 45°, 135°, 225°, 315° */}
+          {quadCallouts.map((qc) => {
+            const isQuadActive = shaftBreakdown.activePanels.includes(qc.id);
+            const rad = (qc.angleDeg * Math.PI) / 180;
+            const px = cx + (rx + 18) * Math.cos(rad);
+            const py = cy + (ry + 18) * Math.sin(rad);
+            const anchor = Math.cos(rad) >= 0 ? 'start' : 'end';
+            return (
+              <g key={qc.id} opacity={isQuadActive ? 1 : 0.48}>
+                <text
+                  x={px}
+                  y={py}
+                  textAnchor={anchor}
+                  fontSize={qSize}
+                  fontWeight="800"
+                  fill={isQuadActive ? qc.color : '#64748b'}
+                  stroke={haloColor}
+                  strokeWidth="3"
+                  paintOrder="stroke"
+                >
+                  {compact ? qc.short : `${qc.label} [${shaftBreakdown.quadrantArcLengthM}m]`}
+                  {!isQuadActive ? ' (UNEXCAVATED)' : ''}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Bottom Circumference & Excavation Summary */}
+          <text
+            x={cx}
+            y={bottom + 54}
+            textAnchor="middle"
+            fontSize={fSize}
+            fontWeight="800"
+            fill={tickColor}
+            stroke={haloColor}
+            strokeWidth="3"
+            paintOrder="stroke"
+          >
+            {`SHAFT DIA D = ${shaftBreakdown.diameterM.toFixed(2)}m · CIRCUMFERENCE C = πD = ${shaftBreakdown.fullCircumferenceM.toFixed(2)}m · QUADRANT ARC = ${shaftBreakdown.quadrantArcLengthM.toFixed(2)}m`}
+          </text>
+        </g>
+      );
+    }
+
     const faceDetails = computeFaceTunnelOutlineDetails(effectiveLocation, boxX, boxY, boxW, boxH);
     const leftWallMidY = (faceDetails.splLeftPt.y + bottom) / 2;
     const rightWallMidY = (faceDetails.splRightPt.y + bottom) / 2;
@@ -5523,8 +5853,14 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
 
   const driveStr = String(normDrive).padStart(3, '0');
   const oppStr = String(oppDrive).padStart(3, '0');
-  const domainPanelMeta = getSurfacePanelLabelMap(mappingDomain);
-  const panelDisplayName = isSurface
+  const isVerticalShaft = isVerticalShaftLocation(effectiveLocation);
+  const domainPanelMeta = getSurfacePanelLabelMap(mappingDomain, isVerticalShaft);
+  const shaftQuadMeta = isVerticalShaft
+    ? VERTICAL_SHAFT_QUADRANT_META_MAP[activePanel]
+    : null;
+  const panelDisplayName = shaftQuadMeta
+    ? shaftQuadMeta.numberedLabel
+    : isSurface
     ? activePanel === 'crown'
       ? domainPanelMeta.crown.shortLabel.toUpperCase()
       : activePanel === 'left_wall'
@@ -5609,7 +5945,9 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       ? 'TOE CATCH'
       : 'EXPOSURE BASE'
     : 'INVERT';
-  const crownWordTitle = isSurface
+  const crownWordTitle = shaftQuadMeta
+    ? shaftQuadMeta.shortLabel
+    : isSurface
     ? mappingDomain === 'TRENCH'
       ? 'Floor Width Wt'
       : mappingDomain === 'BENCH'
@@ -5618,7 +5956,9 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       ? 'Crest Zone'
       : 'Crest Ledge'
     : 'Crown';
-  const heightDimName = isSurface
+  const heightDimName = shaftQuadMeta
+    ? `${shaftQuadMeta.shortCode} Arc`
+    : isSurface
     ? mappingDomain === 'TRENCH'
       ? 'Depth Dt'
       : mappingDomain === 'BENCH'
@@ -6103,6 +6443,267 @@ export const FieldTunnelBenchHatchAndLineSvg: React.FC<{
   darkBackground = false,
   idSuffix = 'default',
 }) => {
+  if (isVerticalShaftLocation(location)) {
+    const cx = boxX + boxW / 2;
+    const cy = boxY + boxH / 2;
+    const rx = boxW / 2;
+    const ry = boxH / 2;
+    const safeId = idSuffix.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const clipId = `shaft-face-clip-${safeId}`;
+    const patId = `shaft-face-hatch-${safeId}`;
+    const circlePathD =
+      clipPathD ||
+      `M ${(cx - rx).toFixed(1)} ${cy.toFixed(1)} A ${rx.toFixed(1)} ${ry.toFixed(
+        1
+      )} 0 1 1 ${(cx + rx).toFixed(1)} ${cy.toFixed(1)} A ${rx.toFixed(
+        1
+      )} ${ry.toFixed(1)} 0 1 1 ${(cx - rx).toFixed(1)} ${cy.toFixed(1)} Z`;
+
+    const approach = normalizeVerticalShaftExcavationApproach(
+      round?.excavationApproach
+    );
+    const isHalfFace = approach === 'Half Face';
+    const halfSide = normalizeVerticalShaftHalfSide(round?.shaftHalfSide);
+    const medianStatus = normalizeVerticalShaftCenterMedianStatus(
+      round?.shaftCenterMedianStatus
+    );
+    const isMedianClosed = medianStatus === 'closed';
+
+    const fontScale = Math.max(0.75, Math.min(1.15, Math.min(boxW, boxH) / 360));
+    const strokeColor =
+      colorMode === 'bw'
+        ? '#0f172a'
+        : isMedianClosed
+        ? darkBackground
+          ? '#fbbf24'
+          : '#b45309'
+        : darkBackground
+        ? '#22d3ee'
+        : '#0284c7';
+
+    const hatchTintFill =
+      colorMode === 'bw'
+        ? 'rgba(15, 23, 42, 0.09)'
+        : isMedianClosed
+        ? darkBackground
+          ? 'rgba(217, 119, 6, 0.18)'
+          : 'rgba(217, 119, 6, 0.13)'
+        : darkBackground
+        ? 'rgba(8, 145, 178, 0.16)'
+        : 'rgba(2, 132, 199, 0.11)';
+
+    // If left_half is active (West 180°–360°), the Right half (x from cx to boxX+boxW) is unexcavated/hatched.
+    // If right_half is active (East 0°–180°), the Left half (x from boxX to cx) is unexcavated/hatched.
+    const hatchX = halfSide === 'left_half' ? cx : boxX - 6;
+    const hatchW = rx + 6;
+    const hatchedCenterX = halfSide === 'left_half' ? cx + rx * 0.52 : cx - rx * 0.52;
+    const activeCenterX = halfSide === 'left_half' ? cx - rx * 0.52 : cx + rx * 0.52;
+
+    return (
+      <g
+        className="pointer-events-none select-none"
+        fontFamily="IBM Plex Mono, monospace"
+      >
+        <defs>
+          <clipPath id={clipId}>
+            <path d={circlePathD} />
+          </clipPath>
+          <pattern
+            id={patId}
+            width="12"
+            height="12"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width="12" height="12" fill={hatchTintFill} />
+            <line
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="12"
+              stroke={strokeColor}
+              strokeWidth="2.2"
+              strokeOpacity={colorMode === 'bw' ? '0.55' : '0.65'}
+            />
+          </pattern>
+        </defs>
+
+        <g clipPath={`url(#${clipId})`}>
+          {/* Orthogonal Quadrant Divider Lines (0° N - 180° S and 270° W - 90° E) */}
+          <line
+            x1={boxX}
+            y1={cy}
+            x2={boxX + boxW}
+            y2={cy}
+            stroke="rgba(3, 105, 161, 0.45)"
+            strokeWidth={1.6 * fontScale}
+            strokeDasharray="8,4,2,4"
+          />
+          {!isHalfFace && (
+            <line
+              x1={cx}
+              y1={boxY}
+              x2={cx}
+              y2={boxY + boxH}
+              stroke="rgba(3, 105, 161, 0.45)"
+              strokeWidth={1.6 * fontScale}
+              strokeDasharray="8,4,2,4"
+            />
+          )}
+
+          {isHalfFace && (
+            <>
+              {/* Hatched Inactive Half of Circular Vertical Shaft */}
+              <rect
+                x={hatchX}
+                y={boxY - 6}
+                width={hatchW}
+                height={boxH + 12}
+                fill={`url(#${patId})`}
+              />
+
+              {/* Center Median Line along 0° N – 180° S Diameter */}
+              <line
+                x1={cx}
+                y1={boxY - 6}
+                x2={cx}
+                y2={boxY + boxH + 6}
+                stroke={strokeColor}
+                strokeWidth={(isMedianClosed ? 3.4 : 2.6) * fontScale}
+                strokeDasharray={isMedianClosed ? undefined : '7,5'}
+              />
+            </>
+          )}
+        </g>
+
+        {isHalfFace && (
+          <>
+            {/* Center Median Status Badge */}
+            <g transform={`translate(${cx}, ${cy - ry * 0.56})`}>
+              <rect
+                x={-114 * fontScale}
+                y={-9.5 * fontScale}
+                width={228 * fontScale}
+                height={19 * fontScale}
+                rx={4 * fontScale}
+                fill={darkBackground ? '#0f172a' : '#ffffff'}
+                fillOpacity="0.94"
+                stroke={strokeColor}
+                strokeWidth={1.5 * fontScale}
+                strokeDasharray={isMedianClosed ? undefined : '4,2'}
+              />
+              <text
+                x="0"
+                y={3.5 * fontScale}
+                textAnchor="middle"
+                fontSize={8.8 * fontScale}
+                fontWeight="900"
+                fill={strokeColor}
+              >
+                {isMedianClosed
+                  ? '┃ CENTER MEDIAN: CLOSED (ROCK WALL) ┃'
+                  : '┆ CENTER MEDIAN: OPEN (EXCAVATED) ┆'}
+              </text>
+            </g>
+
+            {/* Active Half Callout Badge */}
+            <g transform={`translate(${activeCenterX}, ${cy + ry * 0.25})`}>
+              <rect
+                x={-78 * fontScale}
+                y={-15 * fontScale}
+                width={156 * fontScale}
+                height={30 * fontScale}
+                rx={4 * fontScale}
+                fill={
+                  darkBackground
+                    ? 'rgba(15, 23, 42, 0.88)'
+                    : 'rgba(255, 255, 255, 0.92)'
+                }
+                stroke={colorMode === 'bw' ? '#334155' : '#059669'}
+                strokeWidth={1.2 * fontScale}
+              />
+              <text
+                x="0"
+                y={-2 * fontScale}
+                textAnchor="middle"
+                fontSize={8.2 * fontScale}
+                fontWeight="900"
+                fill={
+                  colorMode === 'bw'
+                    ? '#0f172a'
+                    : darkBackground
+                    ? '#34d399'
+                    : '#047857'
+                }
+              >
+                {halfSide === 'left_half'
+                  ? '✓ LEFT HALF ACTIVE'
+                  : '✓ RIGHT HALF ACTIVE'}
+              </text>
+              <text
+                x="0"
+                y={9.5 * fontScale}
+                textAnchor="middle"
+                fontSize={7.5 * fontScale}
+                fontWeight="800"
+                fill={
+                  colorMode === 'bw'
+                    ? '#334155'
+                    : darkBackground
+                    ? '#a7f3d0'
+                    : '#065f46'
+                }
+              >
+                {halfSide === 'left_half'
+                  ? 'Q3 SW (180–270°) & Q4 WN (270–360°)'
+                  : 'Q1 NE (0–90°) & Q2 ES (90–180°)'}
+              </text>
+            </g>
+
+            {/* Hatched Inactive Half Callout Badge */}
+            <g transform={`translate(${hatchedCenterX}, ${cy + ry * 0.25})`}>
+              <rect
+                x={-78 * fontScale}
+                y={-15 * fontScale}
+                width={156 * fontScale}
+                height={30 * fontScale}
+                rx={4 * fontScale}
+                fill={darkBackground ? '#0f172a' : '#ffffff'}
+                fillOpacity="0.90"
+                stroke={strokeColor}
+                strokeWidth={1.2 * fontScale}
+              />
+              <text
+                x="0"
+                y={-2 * fontScale}
+                textAnchor="middle"
+                fontSize={8.2 * fontScale}
+                fontWeight="900"
+                fill={strokeColor}
+              >
+                {halfSide === 'left_half'
+                  ? '▨ RIGHT HALF HATCHED'
+                  : '▨ LEFT HALF HATCHED'}
+              </text>
+              <text
+                x="0"
+                y={9.5 * fontScale}
+                textAnchor="middle"
+                fontSize={7.5 * fontScale}
+                fontWeight="800"
+                fill={strokeColor}
+              >
+                {isMedianClosed
+                  ? 'UNEXCAVATED ROCK MASS'
+                  : 'PREVIOUSLY EXCAVATED HALF'}
+              </text>
+            </g>
+          </>
+        )}
+      </g>
+    );
+  }
+
   const cfg = getExcavationBenchConfig(round, location);
   if (!cfg.hasBenchDivision) return null;
 

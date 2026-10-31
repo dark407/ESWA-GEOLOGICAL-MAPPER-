@@ -13,6 +13,12 @@ import {
   MappingDomainType,
 } from './fieldMappingEngine';
 import { SurfaceGeometryParameters } from './surfaceMappingEngine';
+import {
+  computeVerticalShaftCircumferenceBreakdown,
+  isVerticalShaftLocation,
+  normalizeVerticalShaftCenterMedianStatus,
+  normalizeVerticalShaftHalfSide,
+} from './verticalShaftEngine';
 
 export type FemDemAnalysisMode = 'fem' | 'dem' | 'combined';
 
@@ -681,13 +687,35 @@ export function runCompleteFemDemAnalysis(
   const siteTests = cfg.siteTestParameters || {};
 
   // 1. Geometry & Dimensions
+  const isVertShaft =
+    mappingDomain === 'TUNNEL' && isVerticalShaftLocation(location);
+  const shaftBreakdown = isVertShaft
+    ? computeVerticalShaftCircumferenceBreakdown(location, round)
+    : null;
+  const isShaftHalfFace =
+    isVertShaft && round.excavationApproach === 'Half Face';
+  const shaftHalfSide = normalizeVerticalShaftHalfSide(round.shaftHalfSide);
+  const shaftMedianStatus = normalizeVerticalShaftCenterMedianStatus(
+    round.shaftCenterMedianStatus
+  );
+
   const spanWidthM = Math.max(2.0, Number(location.widthM || 8.5));
-  const totalHeightM = Math.max(2.0, Number(location.heightM || 7.5));
-  const crossSectionAreaM2 =
-    mappingDomain === 'TUNNEL'
-      ? Math.PI * (spanWidthM / 2) * (totalHeightM / 2) * 0.86
-      : spanWidthM * totalHeightM;
-  const equivalentRadiusM = Number(Math.sqrt(crossSectionAreaM2 / Math.PI).toFixed(2));
+  const totalHeightM = isVertShaft
+    ? spanWidthM
+    : Math.max(2.0, Number(location.heightM || 7.5));
+  const crossSectionAreaM2 = isVertShaft
+    ? isShaftHalfFace && shaftMedianStatus === 'closed'
+      ? (Math.PI * Math.pow(spanWidthM / 2, 2)) / 2
+      : Math.PI * Math.pow(spanWidthM / 2, 2)
+    : mappingDomain === 'TUNNEL'
+    ? Math.PI * (spanWidthM / 2) * (totalHeightM / 2) * 0.86
+    : spanWidthM * totalHeightM;
+  // When Half Face has Center Median OPEN (opposite half already excavated), effective span radius is full shaft radius with 1.12x stress concentration factor
+  const medianOpenSpanFactor =
+    isShaftHalfFace && shaftMedianStatus === 'open' ? 1.12 : 1.0;
+  const equivalentRadiusM = Number(
+    (Math.sqrt(crossSectionAreaM2 / Math.PI) * medianOpenSpanFactor).toFixed(2)
+  );
 
   // 2. Lithology, Weathering, Classifications
   const lithoInfo = extractDominantLithologies(round);
@@ -2224,56 +2252,230 @@ export function runCompleteFemDemAnalysis(
   const rightWallX = cx + boxW / 2;
   const rightWedgeApexX = rightWallX + rightWedgeDepthM * scalePxPerM;
 
-  const demKeyBlocks: DemKeyBlock2D[] = [
-    buildKeyBlock(
-      'KB-CROWN',
-      mappingDomain === 'TUNNEL' ? 'KB-1 Crown Arch Wedge' : 'KB-1 Upper Crest Wedge',
-      mappingDomain === 'TUNNEL' ? 'Crown Arch' : 'Slope Batter',
-      [set1, set2],
-      [
-        { x: Number((cx - crownWedgeHalfW).toFixed(1)), y: Number((crownTopY + 6).toFixed(1)) },
-        { x: Number(cx.toFixed(1)), y: Number(crownWedgeApexY.toFixed(1)) },
-        { x: Number((cx + crownWedgeHalfW).toFixed(1)), y: Number((crownTopY + 6).toFixed(1)) },
-      ],
-      { dx: 0, dy: 24 },
-      crownApexDepthM,
-      Number((spanWidthM * 0.34).toFixed(2)),
-      mappingDomain === 'TUNNEL' ? 'Gravity Fall (Crown)' : 'Wedge Sliding',
-      68
-    ),
-    buildKeyBlock(
-      'KB-LEFT',
-      mappingDomain === 'TUNNEL' ? 'KB-2 Left Sidewall Wedge' : 'KB-2 Mid-Batter Planar Block',
-      'Left Sidewall',
-      [set1, set3],
-      [
-        { x: Number((leftWallX + 4).toFixed(1)), y: Number((cy - boxH * 0.22).toFixed(1)) },
-        { x: Number(leftWedgeApexX.toFixed(1)), y: Number((cy - boxH * 0.04).toFixed(1)) },
-        { x: Number((leftWallX + 4).toFixed(1)), y: Number((cy + boxH * 0.22).toFixed(1)) },
-      ],
-      { dx: 22, dy: 10 },
-      leftWedgeDepthM,
-      Number((totalHeightM * 0.42).toFixed(2)),
-      'Planar Sliding',
-      set1Dip
-    ),
-    buildKeyBlock(
-      'KB-RIGHT',
-      mappingDomain === 'TUNNEL' ? 'KB-3 Right Haunch / Wall Block' : 'KB-3 Toe Release Block',
-      'Right Sidewall',
-      [set2, set3],
-      [
-        { x: Number((rightWallX - 4).toFixed(1)), y: Number((cy - boxH * 0.24).toFixed(1)) },
-        { x: Number(rightWedgeApexX.toFixed(1)), y: Number((cy - boxH * 0.02).toFixed(1)) },
-        { x: Number((rightWallX - 4).toFixed(1)), y: Number((cy + boxH * 0.20).toFixed(1)) },
-      ],
-      { dx: -22, dy: 10 },
-      rightWedgeDepthM,
-      Number((totalHeightM * 0.38).toFixed(2)),
-      'Wedge Sliding',
-      set2Dip
-    ),
-  ];
+  const demKeyBlocks: DemKeyBlock2D[] = isVertShaft
+    ? (() => {
+        const rPx = boxW / 2;
+        const quadArcM = shaftBreakdown
+          ? shaftBreakdown.quadrantArcLengthM
+          : Number(((Math.PI * spanWidthM) / 4).toFixed(2));
+        const qBlocks: DemKeyBlock2D[] = [];
+
+        // Q1: NORTH-EAST (0°–90°) — active in Full Face or Right Half
+        if (!isShaftHalfFace || shaftHalfSide === 'right_half') {
+          const a0 = (-75 * Math.PI) / 180;
+          const aMid = (-45 * Math.PI) / 180;
+          const a1 = (-15 * Math.PI) / 180;
+          const rApex = rPx + crownApexDepthM * scalePxPerM;
+          qBlocks.push(
+            buildKeyBlock(
+              'KB-NE',
+              'KB-1 NE (0°–90°) Quadrant Wedge',
+              'Right Sidewall',
+              [set1, set2],
+              [
+                {
+                  x: Number((cx + (rPx - 3) * Math.cos(a0)).toFixed(1)),
+                  y: Number((cy + (rPx - 3) * Math.sin(a0)).toFixed(1)),
+                },
+                {
+                  x: Number((cx + rApex * Math.cos(aMid)).toFixed(1)),
+                  y: Number((cy + rApex * Math.sin(aMid)).toFixed(1)),
+                },
+                {
+                  x: Number((cx + (rPx - 3) * Math.cos(a1)).toFixed(1)),
+                  y: Number((cy + (rPx - 3) * Math.sin(a1)).toFixed(1)),
+                },
+              ],
+              { dx: -18, dy: 18 },
+              crownApexDepthM,
+              Number((quadArcM * 0.65).toFixed(2)),
+              'Wedge Sliding',
+              set1Dip
+            )
+          );
+        }
+
+        // Q2: EAST-SOUTH (90°–180°) — active in Full Face or Right Half
+        if (!isShaftHalfFace || shaftHalfSide === 'right_half') {
+          const a0 = (15 * Math.PI) / 180;
+          const aMid = (45 * Math.PI) / 180;
+          const a1 = (75 * Math.PI) / 180;
+          const rApex = rPx + rightWedgeDepthM * scalePxPerM;
+          qBlocks.push(
+            buildKeyBlock(
+              'KB-ES',
+              'KB-2 ES (90°–180°) Quadrant Wedge',
+              'Right Sidewall',
+              [set2, set3],
+              [
+                {
+                  x: Number((cx + (rPx - 3) * Math.cos(a0)).toFixed(1)),
+                  y: Number((cy + (rPx - 3) * Math.sin(a0)).toFixed(1)),
+                },
+                {
+                  x: Number((cx + rApex * Math.cos(aMid)).toFixed(1)),
+                  y: Number((cy + rApex * Math.sin(aMid)).toFixed(1)),
+                },
+                {
+                  x: Number((cx + (rPx - 3) * Math.cos(a1)).toFixed(1)),
+                  y: Number((cy + (rPx - 3) * Math.sin(a1)).toFixed(1)),
+                },
+              ],
+              { dx: -18, dy: -18 },
+              rightWedgeDepthM,
+              Number((quadArcM * 0.62).toFixed(2)),
+              'Wedge Sliding',
+              set2Dip
+            )
+          );
+        }
+
+        // Q3: SOUTH-WEST (180°–270°) — active in Full Face or Left Half
+        if (!isShaftHalfFace || shaftHalfSide === 'left_half') {
+          const a0 = (105 * Math.PI) / 180;
+          const aMid = (135 * Math.PI) / 180;
+          const a1 = (165 * Math.PI) / 180;
+          const rApex = rPx + leftWedgeDepthM * scalePxPerM;
+          qBlocks.push(
+            buildKeyBlock(
+              'KB-SW',
+              'KB-3 SW (180°–270°) Quadrant Wedge',
+              'Left Sidewall',
+              [set1, set3],
+              [
+                {
+                  x: Number((cx + (rPx - 3) * Math.cos(a0)).toFixed(1)),
+                  y: Number((cy + (rPx - 3) * Math.sin(a0)).toFixed(1)),
+                },
+                {
+                  x: Number((cx + rApex * Math.cos(aMid)).toFixed(1)),
+                  y: Number((cy + rApex * Math.sin(aMid)).toFixed(1)),
+                },
+                {
+                  x: Number((cx + (rPx - 3) * Math.cos(a1)).toFixed(1)),
+                  y: Number((cy + (rPx - 3) * Math.sin(a1)).toFixed(1)),
+                },
+              ],
+              { dx: 18, dy: -18 },
+              leftWedgeDepthM,
+              Number((quadArcM * 0.62).toFixed(2)),
+              'Planar Sliding',
+              set1Dip
+            )
+          );
+        }
+
+        // Q4: WEST-NORTH (270°–360°) — active in Full Face or Left Half
+        if (!isShaftHalfFace || shaftHalfSide === 'left_half') {
+          const a0 = (195 * Math.PI) / 180;
+          const aMid = (225 * Math.PI) / 180;
+          const a1 = (255 * Math.PI) / 180;
+          const rApex = rPx + leftWedgeDepthM * scalePxPerM;
+          qBlocks.push(
+            buildKeyBlock(
+              'KB-WN',
+              'KB-4 WN (270°–360°) Quadrant Wedge',
+              'Left Sidewall',
+              [set1, set2],
+              [
+                {
+                  x: Number((cx + (rPx - 3) * Math.cos(a0)).toFixed(1)),
+                  y: Number((cy + (rPx - 3) * Math.sin(a0)).toFixed(1)),
+                },
+                {
+                  x: Number((cx + rApex * Math.cos(aMid)).toFixed(1)),
+                  y: Number((cy + rApex * Math.sin(aMid)).toFixed(1)),
+                },
+                {
+                  x: Number((cx + (rPx - 3) * Math.cos(a1)).toFixed(1)),
+                  y: Number((cy + (rPx - 3) * Math.sin(a1)).toFixed(1)),
+                },
+              ],
+              { dx: 18, dy: 18 },
+              leftWedgeDepthM,
+              Number((quadArcM * 0.65).toFixed(2)),
+              'Wedge Sliding',
+              set2Dip
+            )
+          );
+        }
+
+        // When Half Face + Center Median is CLOSED (unexcavated rock half), include Center Median Rock Wall Block
+        if (isShaftHalfFace && shaftMedianStatus === 'closed') {
+          const medDir = shaftHalfSide === 'left_half' ? 1 : -1; // into unexcavated half
+          const medApexX = cx + medDir * (leftWedgeDepthM * 0.85 * scalePxPerM);
+          qBlocks.push(
+            buildKeyBlock(
+              'KB-MEDIAN',
+              'KB-MED Center Median Rock Wall Block (0°–180°)',
+              shaftHalfSide === 'left_half' ? 'Right Sidewall' : 'Left Sidewall',
+              [set1, set2],
+              [
+                { x: Number(cx.toFixed(1)), y: Number((cy - boxH * 0.24).toFixed(1)) },
+                { x: Number(medApexX.toFixed(1)), y: Number(cy.toFixed(1)) },
+                { x: Number(cx.toFixed(1)), y: Number((cy + boxH * 0.24).toFixed(1)) },
+              ],
+              { dx: -medDir * 22, dy: 0 },
+              Number((leftWedgeDepthM * 0.85).toFixed(2)),
+              Number((spanWidthM * 0.48).toFixed(2)),
+              'Planar Sliding',
+              set1Dip
+            )
+          );
+        }
+
+        return qBlocks;
+      })()
+    : [
+        buildKeyBlock(
+          'KB-CROWN',
+          mappingDomain === 'TUNNEL' ? 'KB-1 Crown Arch Wedge' : 'KB-1 Upper Crest Wedge',
+          mappingDomain === 'TUNNEL' ? 'Crown Arch' : 'Slope Batter',
+          [set1, set2],
+          [
+            { x: Number((cx - crownWedgeHalfW).toFixed(1)), y: Number((crownTopY + 6).toFixed(1)) },
+            { x: Number(cx.toFixed(1)), y: Number(crownWedgeApexY.toFixed(1)) },
+            { x: Number((cx + crownWedgeHalfW).toFixed(1)), y: Number((crownTopY + 6).toFixed(1)) },
+          ],
+          { dx: 0, dy: 24 },
+          crownApexDepthM,
+          Number((spanWidthM * 0.34).toFixed(2)),
+          mappingDomain === 'TUNNEL' ? 'Gravity Fall (Crown)' : 'Wedge Sliding',
+          68
+        ),
+        buildKeyBlock(
+          'KB-LEFT',
+          mappingDomain === 'TUNNEL' ? 'KB-2 Left Sidewall Wedge' : 'KB-2 Mid-Batter Planar Block',
+          'Left Sidewall',
+          [set1, set3],
+          [
+            { x: Number((leftWallX + 4).toFixed(1)), y: Number((cy - boxH * 0.22).toFixed(1)) },
+            { x: Number(leftWedgeApexX.toFixed(1)), y: Number((cy - boxH * 0.04).toFixed(1)) },
+            { x: Number((leftWallX + 4).toFixed(1)), y: Number((cy + boxH * 0.22).toFixed(1)) },
+          ],
+          { dx: 22, dy: 10 },
+          leftWedgeDepthM,
+          Number((totalHeightM * 0.42).toFixed(2)),
+          'Planar Sliding',
+          set1Dip
+        ),
+        buildKeyBlock(
+          'KB-RIGHT',
+          mappingDomain === 'TUNNEL' ? 'KB-3 Right Haunch / Wall Block' : 'KB-3 Toe Release Block',
+          'Right Sidewall',
+          [set2, set3],
+          [
+            { x: Number((rightWallX - 4).toFixed(1)), y: Number((cy - boxH * 0.24).toFixed(1)) },
+            { x: Number(rightWedgeApexX.toFixed(1)), y: Number((cy - boxH * 0.02).toFixed(1)) },
+            { x: Number((rightWallX - 4).toFixed(1)), y: Number((cy + boxH * 0.20).toFixed(1)) },
+          ],
+          { dx: -22, dy: 10 },
+          rightWedgeDepthM,
+          Number((totalHeightM * 0.38).toFixed(2)),
+          'Wedge Sliding',
+          set2Dip
+        ),
+      ];
 
   const sortedBlocksBefore = [...demKeyBlocks].sort((a, b) => a.fosBefore - b.fosBefore);
   const sortedBlocksAfter = [...demKeyBlocks].sort((a, b) => a.fosAfter - b.fosAfter);
@@ -2325,6 +2527,15 @@ export function runCompleteFemDemAnalysis(
       : 'STABLE';
 
   const engineeringSynthesis: string[] = [
+    ...(isVertShaft && shaftBreakdown
+      ? [
+          `Vertical Shaft 4-Quadrant Geometry (ØD = ${shaftBreakdown.diameterM.toFixed(2)} m, C = πD = ${shaftBreakdown.circumferenceM.toFixed(2)} m, Quadrant Arc = ${shaftBreakdown.quadrantArcLengthM.toFixed(2)} m): ${
+            isShaftHalfFace
+              ? `Half-Face Excavation (${shaftHalfSide === 'left_half' ? 'Left Half 180°–360° [SW + WN]' : 'Right Half 0°–180° [NE + ES]'}) with Center Median ${shaftMedianStatus.toUpperCase()} (${shaftMedianStatus === 'closed' ? 'Opposite Half Unexcavated Rock Wall' : 'Opposite Half Excavated Free Span'}).`
+              : 'Full-Face Circular Excavation across all 4 quadrants: NE (0°–90°), ES (90°–180°), SW (180°–270°), WN (270°–360°).'
+          }`,
+        ]
+      : []),
     `Continuum FEM (Hoek–Brown / Duncan Fama): Unsupported excavation develops a plastic yield zone of ${femBefore.plasticZoneDepthMeters.toFixed(2)} m (R_p = ${femBefore.plasticZoneRadiusMeters.toFixed(2)} m) with maximum radial displacement u_max = ${femBefore.maxDisplacementMm.toFixed(2)} mm and FoS_FEM = ${femBefore.continuumFactorOfSafety.toFixed(2)}.`,
     `Discontinuum DEM (Goodman & Shi / Barton–Bandis): Mapped joint sets (${effectiveSetIds.join(', ')}) form ${demKeyBlocks.length} perimeter blocks; critical block is ${criticalBlockBefore?.label || 'Crown Wedge'} (apex ${maxWedgeApexDepthM.toFixed(2)} m, W = ${criticalBlockBefore?.weightKnPerM.toFixed(0)} kN/m) with unsupported FoS_DEM = ${minBlockFosBefore.toFixed(2)}.`,
     isSupportConfirmedInstalled

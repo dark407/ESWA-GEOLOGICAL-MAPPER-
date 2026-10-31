@@ -942,8 +942,42 @@ const NatmJoint3DInspectorModalContent: React.FC<
     // Dynamic Profile points: strictly in [0, w] (horizontal) and [0, h] (vertical)
     const profilePts: THREE.Vector2[] = [];
     const customPoints = tunnelGeometry.crossSectionPoints;
+    const isVertShaft = Boolean(tunnelGeometry.isVerticalShaft);
+    const isShaftHalfFace =
+      isVertShaft && tunnelGeometry.excavationApproach === 'Half Face';
+    const shaftHalfSide = tunnelGeometry.shaftHalfSide || 'left_half';
+    const shaftMedianStatus = tunnelGeometry.shaftCenterMedianStatus || 'closed';
 
-    if (customPoints && customPoints.length >= 3) {
+    if (isVertShaft) {
+      const r = w / 2;
+      const segments = 64;
+      if (isShaftHalfFace) {
+        if (shaftHalfSide === 'left_half') {
+          // Left Half (West 180°–360°): semi-circle on left side x <= cx
+          for (let i = 0; i <= segments / 2; i++) {
+            const ang = Math.PI / 2 + (i / (segments / 2)) * Math.PI; // 90° (top N) -> 270° (bottom S) via West
+            profilePts.push(
+              new THREE.Vector2(cx + r * Math.cos(ang), cy + r * Math.sin(ang))
+            );
+          }
+        } else {
+          // Right Half (East 0°–180°): semi-circle on right side x >= cx
+          for (let i = 0; i <= segments / 2; i++) {
+            const ang = -Math.PI / 2 + (i / (segments / 2)) * Math.PI; // -90° (bottom S) -> +90° (top N) via East
+            profilePts.push(
+              new THREE.Vector2(cx + r * Math.cos(ang), cy + r * Math.sin(ang))
+            );
+          }
+        }
+      } else {
+        for (let i = 0; i < segments; i++) {
+          const theta = (i / segments) * Math.PI * 2;
+          profilePts.push(
+            new THREE.Vector2(cx + r * Math.cos(theta), cy + r * Math.sin(theta))
+          );
+        }
+      }
+    } else if (customPoints && customPoints.length >= 3) {
       const minX = Math.min(...customPoints.map((p) => p.x));
       const maxX = Math.max(...customPoints.map((p) => p.x));
       const minY = Math.min(...customPoints.map((p) => p.y));
@@ -1114,6 +1148,36 @@ const NatmJoint3DInspectorModalContent: React.FC<
     const railsMat = new THREE.LineBasicMaterial({ color: 0x64748b, linewidth: 1.5 });
     const railsLines = new THREE.LineSegments(railsGeo, railsMat);
     tunnelGroup.add(railsLines);
+
+    // F. Vertical Shaft 4-Quadrant & Center Median Signage in 3D Scene
+    if (isVertShaft) {
+      const r = w / 2;
+      const qLabels = [
+        { text: 'Q1: NE (0°-90°)', x: cx + r * 0.85, y: cy + r * 0.85, active: !isShaftHalfFace || shaftHalfSide === 'right_half' },
+        { text: 'Q2: ES (90°-180°)', x: cx + r * 0.85, y: cy - r * 0.85, active: !isShaftHalfFace || shaftHalfSide === 'right_half' },
+        { text: 'Q3: SW (180°-270°)', x: cx - r * 0.85, y: cy - r * 0.85, active: !isShaftHalfFace || shaftHalfSide === 'left_half' },
+        { text: 'Q4: WN (270°-360°)', x: cx - r * 0.85, y: cy + r * 0.85, active: !isShaftHalfFace || shaftHalfSide === 'left_half' },
+      ];
+      qLabels.forEach((ql) => {
+        if (!ql.active) return;
+        const sp = createBillboardLabel(ql.text, '#0f172a', '#38bdf8', 3.4, 0.72);
+        sp.position.set(ql.x, ql.y, pullL * 0.5);
+        tunnelGroup.add(sp);
+      });
+      if (isShaftHalfFace) {
+        const medSp = createBillboardLabel(
+          shaftMedianStatus === 'closed'
+            ? 'CENTER MEDIAN: CLOSED (ROCK)'
+            : 'CENTER MEDIAN: OPEN (EXCAVATED)',
+          shaftMedianStatus === 'closed' ? '#be123c' : '#047857',
+          '#ffffff',
+          4.2,
+          0.78
+        );
+        medSp.position.set(cx, cy, pullL + 0.25);
+        tunnelGroup.add(medSp);
+      }
+    }
 
     scene.add(tunnelGroup);
 
@@ -2142,7 +2206,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     isLight ? 'text-slate-900' : 'text-white'
                   }`}
                 >
-                  NATM 3D JOINT INSPECTOR &amp; MULTI-SURFACE PERSISTENCE
+                  {tunnelGeometry.isVerticalShaft
+                    ? 'VERTICAL SHAFT 3D JOINT INSPECTOR & 4-QUADRANT PERSISTENCE'
+                    : 'NATM 3D JOINT INSPECTOR & MULTI-SURFACE PERSISTENCE'}
                 </h2>
               </div>
             </div>
@@ -3232,12 +3298,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
               </div>
             </div>
 
-            {/* WHERE THIS PLANE CUTS THE TUNNEL */}
+            {/* WHERE THIS PLANE CUTS THE TUNNEL / VERTICAL SHAFT */}
             <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-md space-y-2.5">
               <div className="flex items-center justify-between border-b border-slate-700/70 pb-1.5">
                 <span className="font-bold text-amber-400 uppercase flex items-center gap-1.5 text-xs">
                   <Activity className="w-4 h-4 text-cyan-400" />
-                  <span>Where Plane Cuts Tunnel</span>
+                  <span>
+                    {tunnelGeometry.isVerticalShaft
+                      ? 'Where Plane Cuts Vertical Shaft Quadrants'
+                      : 'Where Plane Cuts Tunnel'}
+                  </span>
                 </span>
                 <span className="text-[10px] text-emerald-400 font-mono font-bold">
                   Total Cut: {surfaceIntersections.totalCalculatedM}m
@@ -3254,14 +3324,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 }`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs">{surfaceIntersections.face ? '✅' : '—'}</span>
-                    <strong className={surfaceIntersections.face ? 'text-white' : 'text-slate-400'}>Excavation Face:</strong>
+                    <strong className={surfaceIntersections.face ? 'text-white' : 'text-slate-400'}>
+                      {tunnelGeometry.isVerticalShaft ? 'Shaft Face (ØD):' : 'Excavation Face:'}
+                    </strong>
                   </div>
                   <span className="font-bold">
                     {surfaceIntersections.face ? `Cuts Face (${surfaceIntersections.face.lengthM}m)` : 'Does not cut'}
                   </span>
                 </div>
 
-                {/* 2. Crown Arch */}
+                {/* 2. Crown Arch / Q2 ES (90°-180°) */}
                 <div className={`p-2 rounded-lg border flex items-center justify-between ${
                   surfaceIntersections.crown
                     ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-200'
@@ -3269,14 +3341,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 }`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs">{surfaceIntersections.crown ? '✅' : '—'}</span>
-                    <strong className={surfaceIntersections.crown ? 'text-white' : 'text-slate-400'}>Crown Arch:</strong>
+                    <strong className={surfaceIntersections.crown ? 'text-white' : 'text-slate-400'}>
+                      {tunnelGeometry.isVerticalShaft ? 'Q2: EAST-SOUTH (90°–180°):' : 'Crown Arch:'}
+                    </strong>
                   </div>
                   <span className="font-bold">
-                    {surfaceIntersections.crown ? `Cuts Crown (${surfaceIntersections.crown.lengthM}m)` : 'Does not cut'}
+                    {surfaceIntersections.crown
+                      ? `Cuts ${tunnelGeometry.isVerticalShaft ? 'ES (90°–180°)' : 'Crown'} (${surfaceIntersections.crown.lengthM}m)`
+                      : 'Does not cut'}
                   </span>
                 </div>
 
-                {/* 3. Left Wall */}
+                {/* 3. Left Wall / Q1 NE (0°-90°) */}
                 <div className={`p-2 rounded-lg border flex items-center justify-between ${
                   surfaceIntersections.leftWall
                     ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
@@ -3284,14 +3360,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 }`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs">{surfaceIntersections.leftWall ? '✅' : '—'}</span>
-                    <strong className={surfaceIntersections.leftWall ? 'text-white' : 'text-slate-400'}>Left Sidewall:</strong>
+                    <strong className={surfaceIntersections.leftWall ? 'text-white' : 'text-slate-400'}>
+                      {tunnelGeometry.isVerticalShaft ? 'Q1: NORTH-EAST (0°–90°):' : 'Left Sidewall:'}
+                    </strong>
                   </div>
                   <span className="font-bold">
-                    {surfaceIntersections.leftWall ? `Cuts Left Wall (${surfaceIntersections.leftWall.lengthM}m)` : 'Does not cut'}
+                    {surfaceIntersections.leftWall
+                      ? `Cuts ${tunnelGeometry.isVerticalShaft ? 'NE (0°–90°)' : 'Left Wall'} (${surfaceIntersections.leftWall.lengthM}m)`
+                      : 'Does not cut'}
                   </span>
                 </div>
 
-                {/* 4. Right Wall */}
+                {/* 4. Right Wall / Q3 SW (180°-270°) & Q4 WN (270°-360°) */}
                 <div className={`p-2 rounded-lg border flex items-center justify-between ${
                   surfaceIntersections.rightWall
                     ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
@@ -3299,10 +3379,14 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 }`}>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs">{surfaceIntersections.rightWall ? '✅' : '—'}</span>
-                    <strong className={surfaceIntersections.rightWall ? 'text-white' : 'text-slate-400'}>Right Sidewall:</strong>
+                    <strong className={surfaceIntersections.rightWall ? 'text-white' : 'text-slate-400'}>
+                      {tunnelGeometry.isVerticalShaft ? 'Q3 SW (180°–270°) / Q4 WN (270°–360°):' : 'Right Sidewall:'}
+                    </strong>
                   </div>
                   <span className="font-bold">
-                    {surfaceIntersections.rightWall ? `Cuts Right Wall (${surfaceIntersections.rightWall.lengthM}m)` : 'Does not cut'}
+                    {surfaceIntersections.rightWall
+                      ? `Cuts ${tunnelGeometry.isVerticalShaft ? 'SW / WN' : 'Right Wall'} (${surfaceIntersections.rightWall.lengthM}m)`
+                      : 'Does not cut'}
                   </span>
                 </div>
               </div>
