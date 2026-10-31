@@ -154,31 +154,78 @@ export function normalizeVerticalShaftCenterMedianStatus(
 }
 
 /**
+ * Returns whether the given panel slot represents the Closed Center Median Wall (0° N – 180° S)
+ * in Vertical Shaft Half-Face mode:
+ * - In 'right_half' (East 0°–180°: NE='left_wall', ES='crown'), 'right_wall' is used for the Closed Center Median Wall.
+ * - In 'left_half' (West 180°–360°: SW='right_wall', WN='shaft_sn'), 'left_wall' is used for the Closed Center Median Wall.
+ */
+export function isVerticalShaftCenterMedianPanel(
+  panel: FieldPanelId,
+  round?: Pick<
+    FieldExcavationRound,
+    | 'excavationApproach'
+    | 'shaftExcavationMode'
+    | 'shaftHalfSide'
+    | 'shaftCenterMedianStatus'
+  > | null
+): boolean {
+  if (!round) return false;
+  const approach = normalizeVerticalShaftExcavationApproach(
+    round.excavationApproach || round.shaftExcavationMode
+  );
+  if (approach !== 'Half Face') return false;
+  const medianStatus = normalizeVerticalShaftCenterMedianStatus(
+    round.shaftCenterMedianStatus
+  );
+  if (medianStatus !== 'closed') return false;
+  const halfSide = normalizeVerticalShaftHalfSide(round.shaftHalfSide);
+  return (
+    (halfSide === 'right_half' && panel === 'right_wall') ||
+    (halfSide === 'left_half' && panel === 'left_wall')
+  );
+}
+
+/**
  * Returns the active panels for a Vertical Shaft excavation round:
  * - Full Face: ['face', 'left_wall', 'crown', 'right_wall', 'shaft_sn']
  *   (Face + all 4 compass quadrants NE 0°–90°, ES 90°–180°, SW 180°–270°, WN 270°–360°)
- * - Half Face + Left Half ('left_half'): ['face', 'right_wall', 'shaft_sn']
- *   (Left/West Half semi-circle 180°–360° -> Q3 SW 180°–270° & Q4 WN 270°–360°)
- * - Half Face + Right Half ('right_half'): ['face', 'left_wall', 'crown']
- *   (Right/East Half semi-circle 0°–180° -> Q1 NE 0°–90° & Q2 ES 90°–180°)
+ * - Half Face + Right Half ('right_half'):
+ *   - Center Median Closed: ['face', 'left_wall', 'crown', 'right_wall'] (where 'right_wall' is Center Median Wall 0°N–180°S)
+ *   - Center Median Open:   ['face', 'left_wall', 'crown']
+ * - Half Face + Left Half ('left_half'):
+ *   - Center Median Closed: ['face', 'right_wall', 'shaft_sn', 'left_wall'] (where 'left_wall' is Center Median Wall 0°N–180°S)
+ *   - Center Median Open:   ['face', 'right_wall', 'shaft_sn']
  */
 export function getActiveVerticalShaftPanels(
   round?: Pick<
     FieldExcavationRound,
-    'excavationApproach' | 'shaftHalfSide'
+    | 'excavationApproach'
+    | 'shaftExcavationMode'
+    | 'shaftHalfSide'
+    | 'shaftCenterMedianStatus'
   > | null
 ): FieldPanelId[] {
   const approach = normalizeVerticalShaftExcavationApproach(
-    round?.excavationApproach
+    round?.excavationApproach || round?.shaftExcavationMode
   );
   if (approach === 'Half Face') {
     const halfSide = normalizeVerticalShaftHalfSide(round?.shaftHalfSide);
+    const isMedianClosed =
+      normalizeVerticalShaftCenterMedianStatus(
+        round?.shaftCenterMedianStatus
+      ) === 'closed';
     if (halfSide === 'right_half') {
       // Right Half = East semi-circle (0°–180°): First & Second Quadrants (NE 0°–90°, ES 90°–180°)
-      return ['face', 'left_wall', 'crown'];
+      // + Center Median Wall ('right_wall') when Median is Closed
+      return isMedianClosed
+        ? ['face', 'left_wall', 'crown', 'right_wall']
+        : ['face', 'left_wall', 'crown'];
     }
     // Left Half = West semi-circle (180°–360°): Third & Fourth Quadrants (SW 180°–270°, WN 270°–360°)
-    return ['face', 'right_wall', 'shaft_sn'];
+    // + Center Median Wall ('left_wall') when Median is Closed
+    return isMedianClosed
+      ? ['face', 'right_wall', 'shaft_sn', 'left_wall']
+      : ['face', 'right_wall', 'shaft_sn'];
   }
   return ['face', 'left_wall', 'crown', 'right_wall', 'shaft_sn'];
 }
@@ -187,7 +234,10 @@ export function isVerticalShaftPanelActive(
   panel: FieldPanelId,
   round?: Pick<
     FieldExcavationRound,
-    'excavationApproach' | 'shaftHalfSide'
+    | 'excavationApproach'
+    | 'shaftExcavationMode'
+    | 'shaftHalfSide'
+    | 'shaftCenterMedianStatus'
   > | null
 ): boolean {
   return getActiveVerticalShaftPanels(round).includes(panel);
@@ -245,8 +295,10 @@ export function computeVerticalShaftCircumferenceBreakdown(
   const activeQuadrantPanels = activePanels.filter(
     (p): p is Exclude<FieldPanelId, 'face'> => p !== 'face'
   );
-  const activeQuadrantLabels = activeQuadrantPanels.map(
-    (p) => VERTICAL_SHAFT_QUADRANT_META_MAP[p].fullLabel
+  const activeQuadrantLabels = activeQuadrantPanels.map((p) =>
+    isVerticalShaftCenterMedianPanel(p, round)
+      ? '3. CENTER MEDIAN WALL (0°N–180°S)'
+      : VERTICAL_SHAFT_QUADRANT_META_MAP[p].fullLabel
   );
 
   return {
@@ -278,7 +330,10 @@ export function getVerticalShaftSurfaceConfig(
   location: FieldTunnelLocationItem,
   round?: Pick<
     FieldExcavationRound,
-    'excavationApproach' | 'shaftHalfSide'
+    | 'excavationApproach'
+    | 'shaftExcavationMode'
+    | 'shaftHalfSide'
+    | 'shaftCenterMedianStatus'
   > | null
 ) {
   const diameterM = Math.max(1.5, Number(location.widthM) || 8.0);
@@ -289,6 +344,9 @@ export function getVerticalShaftSurfaceConfig(
   const hasRightWall = activePanels.includes('right_wall');
   const hasShaftSn = activePanels.includes('shaft_sn');
 
+  const isLeftWallMedian = isVerticalShaftCenterMedianPanel('left_wall', round);
+  const isRightWallMedian = isVerticalShaftCenterMedianPanel('right_wall', round);
+
   return {
     isCustom: false,
     isClosed: true,
@@ -296,8 +354,8 @@ export function getVerticalShaftSurfaceConfig(
     hasRightWall,
     hasCrown,
     hasInvert: false,
-    leftWallLengthM: hasLeftWall ? quadrantArcM : 0,
-    rightWallLengthM: hasRightWall ? quadrantArcM : 0,
+    leftWallLengthM: hasLeftWall ? (isLeftWallMedian ? diameterM : quadrantArcM) : 0,
+    rightWallLengthM: hasRightWall ? (isRightWallMedian ? diameterM : quadrantArcM) : 0,
     crownLengthM: hasCrown ? quadrantArcM : 0,
     invertLengthM: 0,
     splHeightM: quadrantArcM,
@@ -313,8 +371,10 @@ export function getVerticalShaftSurfaceConfig(
  * Computes the exact proportional bounding box (boxX, boxY, boxW, boxH) inside the 1000×1000 canvas
  * for Vertical Shaft mode:
  * - Face: Circular/Semi-Circular cross-section of diameter D × D
- * - 4 Quadrant Wall Panels (NE 0°–90°, ES 90°–180°, SW 180°–270°, WN 270°–360°):
- *   In Stage 4 single-panel view, Width = Pull Depth (pullM), Height = Quadrant Arc Length (πD/4).
+ * - 4 Quadrant Wall Panels (NE 0°–90°, ES 90°–180°, SW 180°–270°, WN 270°–360°) & Closed Center Median Wall:
+ *   In Stage 4 single-panel view, every wall portion is HORIZONTAL in canvas:
+ *   Width (X-axis, left to right) = Quadrant Arc / Dia Length (πD/4 or D for Center Median),
+ *   Height (Y-axis, bottom to top) = Pull Depth (0m at bottom -> pullM at top).
  */
 export function computeVerticalShaftPanelCanvasGeometry(
   panel: FieldPanelId,
@@ -326,20 +386,21 @@ export function computeVerticalShaftPanelCanvasGeometry(
   const quadrantArcM = surf.splHeightM;
   const pullM = Math.max(0.5, Number(round.pullLengthMeters) || 3.0);
 
+  const isCenterMedianPanel = isVerticalShaftCenterMedianPanel(panel, round);
+
   let panelWidthM = diameterM;
   let panelHeightM = diameterM;
-  if (panel === 'crown') {
-    // In Vertical Shaft mode, 'crown' slot is Quadrant 2: EAST-SOUTH (90°–180°).
-    // Like the other quadrant walls, canonical base has crownLengthM = quadrantArcM and pullM = pullM.
-    panelWidthM = quadrantArcM;
-    panelHeightM = pullM;
-  } else if (
+  if (
+    panel === 'crown' ||
     panel === 'left_wall' ||
     panel === 'right_wall' ||
     panel === 'shaft_sn'
   ) {
-    panelWidthM = pullM;
-    panelHeightM = quadrantArcM;
+    // In Vertical Shaft mode, ALL wall portions are HORIZONTAL in canvas:
+    // Horizontal X-axis (Left -> Right) = Quadrant Arc Length (or Diameter D for Center Median)
+    // Vertical Y-axis (Bottom -> Top) = Pull Depth (0m at Bottom -> pullM at Top)
+    panelWidthM = isCenterMedianPanel ? diameterM : quadrantArcM;
+    panelHeightM = pullM;
   }
 
   const maxBoxW = 845;
@@ -363,12 +424,12 @@ export function computeVerticalShaftPanelCanvasGeometry(
     tunnelW: diameterM,
     tunnelH: diameterM,
     splHeightM: quadrantArcM,
-    leftWallLengthM: quadrantArcM,
-    rightWallLengthM: quadrantArcM,
+    leftWallLengthM: surf.leftWallLengthM || quadrantArcM,
+    rightWallLengthM: surf.rightWallLengthM || quadrantArcM,
     crownRiseM: Number((diameterM / 2).toFixed(2)),
     splRatio: 0.5,
     pullM,
-    crownLengthM: quadrantArcM,
+    crownLengthM: surf.crownLengthM || quadrantArcM,
     pxPerMeter,
     hasLeftWall: surf.hasLeftWall,
     hasRightWall: surf.hasRightWall,
@@ -376,6 +437,186 @@ export function computeVerticalShaftPanelCanvasGeometry(
     hasInvert: false,
     isClosed: true,
   };
+}
+
+export interface VerticalShaftAdjacentWallInfo {
+  quadrantTitle: string;
+  quadrantShort: string;
+  startAngleLabel: string;
+  endAngleLabel: string;
+  leftNearestTitle: string;
+  leftNearestShort: string;
+  leftBoundaryDeg: string;
+  rightNearestTitle: string;
+  rightNearestShort: string;
+  rightBoundaryDeg: string;
+}
+
+/**
+ * Returns the nearest adjacent wall portion names on the Left and Right edges of each
+ * Vertical Shaft wall canvas (and handles Half-Face Center Median adjacency).
+ */
+export function getVerticalShaftAdjacentWallLabels(
+  panel: FieldPanelId,
+  round?: FieldExcavationRound | null
+): VerticalShaftAdjacentWallInfo {
+  const isHalfFace =
+    normalizeVerticalShaftExcavationApproach(
+      round?.excavationApproach || round?.shaftExcavationMode
+    ) === 'Half Face';
+  const halfSide = normalizeVerticalShaftHalfSide(round?.shaftHalfSide);
+  const medianStatus = normalizeVerticalShaftCenterMedianStatus(
+    round?.shaftCenterMedianStatus
+  );
+  const medianTag =
+    medianStatus === 'closed'
+      ? 'CENTER MEDIAN (CLOSED ROCK)'
+      : 'CENTER MEDIAN (OPEN)';
+
+  if (isHalfFace) {
+    if (halfSide === 'right_half') {
+      // Right Half (0°-180°): 1st Quad NE (left_wall), 2nd Quad ES (crown), Center Median N-S (right_wall)
+      if (panel === 'left_wall') {
+        return {
+          quadrantTitle: '1ST QUAD: NE WALL (0°–90°)',
+          quadrantShort: '1. NE (0°–90°)',
+          startAngleLabel: '0° (N)',
+          endAngleLabel: '90° (E)',
+          leftNearestTitle: `3. ${medianTag} (0° N)`,
+          leftNearestShort: '3. CENTER MEDIAN (0° N)',
+          leftBoundaryDeg: '0° (N)',
+          rightNearestTitle: '2ND QUAD: ES WALL (90°–180°)',
+          rightNearestShort: '2. ES WALL (90°–180°)',
+          rightBoundaryDeg: '90° (E)',
+        };
+      }
+      if (panel === 'crown') {
+        return {
+          quadrantTitle: '2ND QUAD: ES WALL (90°–180°)',
+          quadrantShort: '2. ES (90°–180°)',
+          startAngleLabel: '90° (E)',
+          endAngleLabel: '180° (S)',
+          leftNearestTitle: '1ST QUAD: NE WALL (0°–90°)',
+          leftNearestShort: '1. NE WALL (0°–90°)',
+          leftBoundaryDeg: '90° (E)',
+          rightNearestTitle: `3. ${medianTag} (180° S)`,
+          rightNearestShort: '3. CENTER MEDIAN (180° S)',
+          rightBoundaryDeg: '180° (S)',
+        };
+      }
+      return {
+        quadrantTitle: `3. ${medianTag} (0° N – 180° S)`,
+        quadrantShort: '3. CENTER MEDIAN (N–S)',
+        startAngleLabel: '0° (N)',
+        endAngleLabel: '180° (S)',
+        leftNearestTitle: '1ST QUAD: NE WALL (0°–90°)',
+        leftNearestShort: '1. NE WALL (0°–90°)',
+        leftBoundaryDeg: '0° (N)',
+        rightNearestTitle: '2ND QUAD: ES WALL (90°–180°)',
+        rightNearestShort: '2. ES WALL (90°–180°)',
+        rightBoundaryDeg: '180° (S)',
+      };
+    } else {
+      // Left Half (180°-360°): 3rd Quad SW (right_wall), 4th Quad WN (shaft_sn), Center Median N-S (left_wall)
+      if (panel === 'right_wall') {
+        return {
+          quadrantTitle: '3RD QUAD: SW WALL (180°–270°)',
+          quadrantShort: '3. SW (180°–270°)',
+          startAngleLabel: '180° (S)',
+          endAngleLabel: '270° (W)',
+          leftNearestTitle: `3. ${medianTag} (180° S)`,
+          leftNearestShort: '3. CENTER MEDIAN (180° S)',
+          leftBoundaryDeg: '180° (S)',
+          rightNearestTitle: '4TH QUAD: WN WALL (270°–360°)',
+          rightNearestShort: '4. WN WALL (270°–360°)',
+          rightBoundaryDeg: '270° (W)',
+        };
+      }
+      if (panel === 'shaft_sn') {
+        return {
+          quadrantTitle: '4TH QUAD: WN WALL (270°–360°)',
+          quadrantShort: '4. WN (270°–360°)',
+          startAngleLabel: '270° (W)',
+          endAngleLabel: '360° (N)',
+          leftNearestTitle: '3RD QUAD: SW WALL (180°–270°)',
+          leftNearestShort: '3. SW WALL (180°–270°)',
+          leftBoundaryDeg: '270° (W)',
+          rightNearestTitle: `3. ${medianTag} (0° N)`,
+          rightNearestShort: '3. CENTER MEDIAN (0° N)',
+          rightBoundaryDeg: '360° (N)',
+        };
+      }
+      return {
+        quadrantTitle: `3. ${medianTag} (0° N – 180° S)`,
+        quadrantShort: '3. CENTER MEDIAN (N–S)',
+        startAngleLabel: '0° (N)',
+        endAngleLabel: '180° (S)',
+        leftNearestTitle: '4TH QUAD: WN WALL (270°–360°)',
+        leftNearestShort: '4. WN WALL (270°–360°)',
+        leftBoundaryDeg: '0° (N)',
+        rightNearestTitle: '3RD QUAD: SW WALL (180°–270°)',
+        rightNearestShort: '3. SW WALL (180°–270°)',
+        rightBoundaryDeg: '180° (S)',
+      };
+    }
+  }
+
+  // Full-Face 4-Quadrant Mode (0° -> 90° -> 180° -> 270° -> 360°)
+  switch (panel) {
+    case 'left_wall':
+      return {
+        quadrantTitle: '1ST QUAD: NE WALL (0°–90°)',
+        quadrantShort: '1. NE (0°–90°)',
+        startAngleLabel: '0° (N)',
+        endAngleLabel: '90° (E)',
+        leftNearestTitle: '4TH QUAD: WN WALL (270°–360°)',
+        leftNearestShort: '4. WN WALL (270°–360°)',
+        leftBoundaryDeg: '0° (N)',
+        rightNearestTitle: '2ND QUAD: ES WALL (90°–180°)',
+        rightNearestShort: '2. ES WALL (90°–180°)',
+        rightBoundaryDeg: '90° (E)',
+      };
+    case 'crown':
+      return {
+        quadrantTitle: '2ND QUAD: ES WALL (90°–180°)',
+        quadrantShort: '2. ES (90°–180°)',
+        startAngleLabel: '90° (E)',
+        endAngleLabel: '180° (S)',
+        leftNearestTitle: '1ST QUAD: NE WALL (0°–90°)',
+        leftNearestShort: '1. NE WALL (0°–90°)',
+        leftBoundaryDeg: '90° (E)',
+        rightNearestTitle: '3RD QUAD: SW WALL (180°–270°)',
+        rightNearestShort: '3. SW WALL (180°–270°)',
+        rightBoundaryDeg: '180° (S)',
+      };
+    case 'right_wall':
+      return {
+        quadrantTitle: '3RD QUAD: SW WALL (180°–270°)',
+        quadrantShort: '3. SW (180°–270°)',
+        startAngleLabel: '180° (S)',
+        endAngleLabel: '270° (W)',
+        leftNearestTitle: '2ND QUAD: ES WALL (90°–180°)',
+        leftNearestShort: '2. ES WALL (90°–180°)',
+        leftBoundaryDeg: '180° (S)',
+        rightNearestTitle: '4TH QUAD: WN WALL (270°–360°)',
+        rightNearestShort: '4. WN WALL (270°–360°)',
+        rightBoundaryDeg: '270° (W)',
+      };
+    case 'shaft_sn':
+    default:
+      return {
+        quadrantTitle: '4TH QUAD: WN WALL (270°–360°)',
+        quadrantShort: '4. WN (270°–360°)',
+        startAngleLabel: '270° (W)',
+        endAngleLabel: '360° (N)',
+        leftNearestTitle: '3RD QUAD: SW WALL (180°–270°)',
+        leftNearestShort: '3. SW WALL (180°–270°)',
+        leftBoundaryDeg: '270° (W)',
+        rightNearestTitle: '1ST QUAD: NE WALL (0°–90°)',
+        rightNearestShort: '1. NE WALL (0°–90°)',
+        rightBoundaryDeg: '360° / 0° (N)',
+      };
+  }
 }
 
 /**
@@ -699,15 +940,15 @@ export function isPointInsideVerticalShaftPanelOutline(
   }
 
   const approach = normalizeVerticalShaftExcavationApproach(
-    round?.excavationApproach
+    round?.excavationApproach || round?.shaftExcavationMode
   );
   if (approach === 'Half Face') {
     const halfSide = normalizeVerticalShaftHalfSide(round?.shaftHalfSide);
-    const medianTol = Math.min(0, tolerancePx);
-    if (halfSide === 'left_half' && pt.x > cx - medianTol) {
+    const medianTol = Math.max(4, Math.abs(tolerancePx));
+    if (halfSide === 'left_half' && pt.x > cx + medianTol) {
       return false;
     }
-    if (halfSide === 'right_half' && pt.x < cx + medianTol) {
+    if (halfSide === 'right_half' && pt.x < cx - medianTol) {
       return false;
     }
   }

@@ -514,9 +514,23 @@ export function deriveAnchorPointFromPoints(
   const cy = sumY / points.length;
 
   // Determine true canvas box to convert points into exact physical coordinates
+  const isVertShaft = Boolean(geom.isVerticalShaft);
+  const D = geom.widthM || 8.0;
+  const R = D / 2;
+  const pullL = geom.pullLengthM || 3.0;
+  const quadrantArcM = Number(((Math.PI * D) / 4).toFixed(2));
+
   let panelW = geom.widthM;
   let panelH = geom.heightM;
-  if (panel === 'crown') {
+  if (isVertShaft) {
+    if (panel === 'face') {
+      panelW = D;
+      panelH = D;
+    } else {
+      panelW = quadrantArcM;
+      panelH = pullL;
+    }
+  } else if (panel === 'crown') {
     panelW = geom.widthM;
     panelH = geom.pullLengthM;
   } else if (panel === 'left_wall' || panel === 'right_wall') {
@@ -540,6 +554,36 @@ export function deriveAnchorPointFromPoints(
     cy >= boxY - 40 && cy <= boxY + boxH + 40
       ? Math.max(0, Math.min(1, (cy - boxY) / Math.max(1, boxH)))
       : Math.max(0, Math.min(1, cy / 800));
+
+  if (isVertShaft) {
+    if (panel === 'face') {
+      // Shaft Bottom Face at Z = 0.02 (horizontally at the bottom of the bowl, Pull 0m)
+      // Three.js maps: X_three = y (West-East 0..D), Y_three = z (Vertical 0..pullL), Z_three = x (North-South 0..D)
+      const my = Math.max(0.05, Math.min(D - 0.05, uNorm * D));
+      const mx = Math.max(0.05, Math.min(D - 0.05, vNorm * D));
+      return {
+        x: Number(mx.toFixed(3)),
+        y: Number(my.toFixed(3)),
+        z: 0.02,
+      };
+    }
+    // 4 Quadrant Walls rising vertically around cylinder perimeter from Z = 0 (Pull 0m bottom) to Z = pullL (Pull 3m top rim)
+    let startDeg = 0;
+    if (panel === 'left_wall') startDeg = 0; // Q1: NE (0°–90°)
+    else if (panel === 'crown') startDeg = 90; // Q2: ES (90°–180°)
+    else if (panel === 'right_wall') startDeg = 180; // Q3: SW (180°–270°)
+    else startDeg = 270; // Q4: WN (270°–360°)
+    const deg = startDeg + uNorm * 90;
+    const rad = (deg * Math.PI) / 180;
+    const my = R + R * Math.sin(rad); // West (0) to East (D)
+    const mx = R - R * Math.cos(rad); // North (0) to South (D)
+    const mz = Math.max(0.02, Math.min(pullL, (1 - vNorm) * pullL)); // Pull 0m at bottom (vNorm=1) to pullL at top (vNorm=0)
+    return {
+      x: Number(mx.toFixed(3)),
+      y: Number(my.toFixed(3)),
+      z: Number(mz.toFixed(3)),
+    };
+  }
 
   switch (panel) {
     case 'face': {
@@ -887,7 +931,36 @@ export function clipPlaneToTunnelBox(
   // The edges of the tunnel envelope in (X, Y, Z)
   const edges: [{ x: number; y: number; z: number }, { x: number; y: number; z: number }][] = [];
 
-  if (customPoly.length >= 3) {
+  if (geom.isVerticalShaft) {
+    // Upright Cylindrical Shaft Bowl: horizontal circle of diameter D in (x, y) centered at (R, R), vertical z from 0 (Bottom Face) to pullLengthM (Top Rim)
+    const D = geom.widthM || 8.0;
+    const R = D / 2;
+    const pullL = geom.pullLengthM || 3.0;
+    const nSeg = 36;
+    for (let i = 0; i < nSeg; i++) {
+      const a0 = (i / nSeg) * Math.PI * 2;
+      const a1 = ((i + 1) / nSeg) * Math.PI * 2;
+      const x0 = R - R * Math.cos(a0);
+      const y0 = R + R * Math.sin(a0);
+      const x1 = R - R * Math.cos(a1);
+      const y1 = R + R * Math.sin(a1);
+      // Bottom face perimeter at z = 0
+      edges.push([
+        { x: x0, y: y0, z: 0 },
+        { x: x1, y: y1, z: 0 },
+      ]);
+      // Top rim perimeter at z = pullL
+      edges.push([
+        { x: x0, y: y0, z: pullL },
+        { x: x1, y: y1, z: pullL },
+      ]);
+      // Vertical cylinder generator rail from z = 0 to z = pullL
+      edges.push([
+        { x: x0, y: y0, z: 0 },
+        { x: x0, y: y0, z: pullL },
+      ]);
+    }
+  } else if (customPoly.length >= 3) {
     const n = customPoly.length;
     for (let i = 0; i < n; i++) {
       const p0 = customPoly[i];
@@ -1448,9 +1521,23 @@ export function pointToTunnel3DMetric(
   panel: FieldPanelId,
   geom: TunnelSpatialGeometry
 ): Vec3D {
+  const isVertShaft = Boolean(geom.isVerticalShaft);
+  const D = geom.widthM || 8.0;
+  const R = D / 2;
+  const pullL = geom.pullLengthM || 3.0;
+  const quadrantArcM = Number(((Math.PI * D) / 4).toFixed(2));
+
   let panelW = geom.widthM || 8.0;
   let panelH = geom.heightM || 6.5;
-  if (panel === 'crown') {
+  if (isVertShaft) {
+    if (panel === 'face') {
+      panelW = D;
+      panelH = D;
+    } else {
+      panelW = quadrantArcM;
+      panelH = pullL;
+    }
+  } else if (panel === 'crown') {
     panelW = geom.widthM || 8.0;
     panelH = geom.pullLengthM || 3.0;
   } else if (panel === 'left_wall' || panel === 'right_wall') {
@@ -1467,6 +1554,31 @@ export function pointToTunnel3DMetric(
 
   const uNorm = Math.max(0, Math.min(1, (pt.x - boxX) / Math.max(1, boxW)));
   const vNorm = Math.max(0, Math.min(1, (pt.y - boxY) / Math.max(1, boxH)));
+
+  if (isVertShaft) {
+    if (panel === 'face') {
+      return {
+        x: Number(Math.max(0.05, Math.min(D - 0.05, vNorm * D)).toFixed(3)),
+        y: Number(Math.max(0.05, Math.min(D - 0.05, uNorm * D)).toFixed(3)),
+        z: 0.02,
+      };
+    }
+    let startDeg = 0;
+    if (panel === 'left_wall') startDeg = 0;
+    else if (panel === 'crown') startDeg = 90;
+    else if (panel === 'right_wall') startDeg = 180;
+    else startDeg = 270;
+    const deg = startDeg + uNorm * 90;
+    const rad = (deg * Math.PI) / 180;
+    const my = R + R * Math.sin(rad);
+    const mx = R - R * Math.cos(rad);
+    const mz = Math.max(0.02, Math.min(pullL, (1 - vNorm) * pullL));
+    return {
+      x: Number(mx.toFixed(3)),
+      y: Number(my.toFixed(3)),
+      z: Number(mz.toFixed(3)),
+    };
+  }
 
   switch (panel) {
     case 'face': {
@@ -1555,9 +1667,9 @@ export function constructPlaneFromTraceHinge(
   let traceStartPt: Vec3D = p1;
   let traceEndPt: Vec3D = p2;
 
-  const useStrikeLineHinge = panel === 'crown' || lockStrikeLineHinge;
+  const useStrikeLineHinge = (!geom.isVerticalShaft && panel === 'crown') || lockStrikeLineHinge;
 
-  if (panel === 'crown') {
+  if (!geom.isVerticalShaft && panel === 'crown') {
     // On the 2D Crown canvas:
     // -Y (up canvas) is +X (tunnel drive direction), +X (right canvas) is +Y (right wall).
     // The mapped crown trace defines the horizontal STRIKE line hinge.

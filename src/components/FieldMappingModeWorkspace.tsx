@@ -49,6 +49,7 @@ import {
 import {
   computeVerticalShaftCircumferenceBreakdown,
   getActiveVerticalShaftPanels,
+  isVerticalShaftCenterMedianPanel,
   normalizeVerticalShaftCenterMedianStatus,
   normalizeVerticalShaftHalfSide,
 } from '../engine/verticalShaftEngine';
@@ -75,6 +76,7 @@ import {
   interpolateCatmullRomSpline,
   isPanelAtIdealPosition,
   isPointInsideFieldPanelOutline,
+  isStrikeOnlyHorizontalPanel,
   mapPanelPointToUnfoldedBox,
   mapUnfoldedBoxPointToPanel,
   panelPointToTCanvasPoint,
@@ -593,10 +595,42 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   };
 
-  const domainPanelMap = useMemo(
-    () => getSurfacePanelLabelMap(mappingDomain, isVerticalShaftMode),
-    [mappingDomain, isVerticalShaftMode]
-  );
+  const rawActiveRoundForLabels = useMemo(() => {
+    return store.rounds.find((r) => r.id === store.activeRoundId) || store.rounds[0] || null;
+  }, [store.rounds, store.activeRoundId]);
+
+  const domainPanelMap = useMemo(() => {
+    const base = getSurfacePanelLabelMap(mappingDomain, isVerticalShaftMode);
+    if (isVerticalShaftMode && rawActiveRoundForLabels) {
+      if (isVerticalShaftCenterMedianPanel('left_wall', rawActiveRoundForLabels)) {
+        return {
+          ...base,
+          leftWall: {
+            label: '3. CENTER MEDIAN WALL (0°N–180°S)',
+            shortLabel: '3. Center Median (N–S)',
+            topEdgeRef: '0m Pull (Top / Prev)',
+            bottomEdgeRef: 'Pull Depth (Shaft Face)',
+            leftEdgeRef: '0° (N)',
+            rightEdgeRef: '180° (S)',
+          },
+        };
+      }
+      if (isVerticalShaftCenterMedianPanel('right_wall', rawActiveRoundForLabels)) {
+        return {
+          ...base,
+          rightWall: {
+            label: '3. CENTER MEDIAN WALL (0°N–180°S)',
+            shortLabel: '3. Center Median (N–S)',
+            topEdgeRef: '0m Pull (Top / Prev)',
+            bottomEdgeRef: 'Pull Depth (Shaft Face)',
+            leftEdgeRef: '0° (N)',
+            rightEdgeRef: '180° (S)',
+          },
+        };
+      }
+    }
+    return base;
+  }, [mappingDomain, isVerticalShaftMode, rawActiveRoundForLabels]);
 
   const formatProjectNameForDomain = (rawName: string): string => {
     if (mappingDomain === 'TUNNEL') return rawName;
@@ -702,24 +736,38 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           mappingDomain === 'ROCK_SURFACE' && surfaceParams.rockSurfaceLayoutMode === 'SINGLE_PANEL',
       } as FieldTunnelLocationItem;
     }
+    if (isVerticalShaftMode && rawLoc.undergroundSubMode !== 'vertical_shaft') {
+      return {
+        ...rawLoc,
+        undergroundSubMode: 'vertical_shaft',
+        shape: 'circular' as FieldTunnelShapeType,
+      } as FieldTunnelLocationItem;
+    }
     return rawLoc;
-  }, [activeProject, store.activeLocationId, mappingDomain, surfaceParams]);
+  }, [activeProject, store.activeLocationId, mappingDomain, surfaceParams, isVerticalShaftMode]);
 
   const activeRound = useMemo(() => {
     if (!activeProject || !activeLocation) return null;
-    const found = store.rounds.find(
-      (r) =>
-        r.id === store.activeRoundId &&
-        r.projectId === activeProject.id &&
-        r.locationId === activeLocation.id
-    );
-    if (found) return found;
-    return (
+    const found =
+      store.rounds.find(
+        (r) =>
+          r.id === store.activeRoundId &&
+          r.projectId === activeProject.id &&
+          r.locationId === activeLocation.id
+      ) ||
       store.rounds.find(
         (r) => r.projectId === activeProject.id && r.locationId === activeLocation.id
-      ) || null
-    );
-  }, [store.rounds, store.activeRoundId, activeProject, activeLocation]);
+      ) ||
+      null;
+    if (!found) return null;
+    if (isVerticalShaftMode && found.undergroundSubMode !== 'vertical_shaft') {
+      return {
+        ...found,
+        undergroundSubMode: 'vertical_shaft',
+      } as FieldExcavationRound;
+    }
+    return found;
+  }, [store.rounds, store.activeRoundId, activeProject, activeLocation, isVerticalShaftMode]);
 
   const activeRoundRef = useRef(activeRound);
   activeRoundRef.current = activeRound;
@@ -1448,9 +1496,22 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   }, [activePanel, stage]);
 
-  // If custom tunnel shape leaves a portion open (no wall/crown), ensure activePanel & transformTargetPanel fall back to an available panel
+  // If custom tunnel shape or Vertical Shaft Half-Face mode leaves a portion open, ensure activePanel & transformTargetPanel fall back to an available panel
   useEffect(() => {
     if (!activeLocation || !activeRound) return;
+    if (isVerticalShaftMode) {
+      const activePanels = getActiveVerticalShaftPanels(activeRound);
+      if (!activePanels.includes(activePanel)) {
+        setActivePanel('face');
+      }
+      const activeWallPanels = activePanels.filter(
+        (p): p is 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn' => p !== 'face'
+      );
+      if (activeWallPanels.length > 0 && !activeWallPanels.includes(transformTargetPanel)) {
+        setTransformTargetPanel(activeWallPanels[0]);
+      }
+      return;
+    }
     const fGeom = computePanelCanvasGeometry('face', activeLocation, activeRound);
     if (
       (activePanel === 'left_wall' && !fGeom.hasLeftWall) ||
@@ -1468,7 +1529,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       else if (fGeom.hasLeftWall) setTransformTargetPanel('left_wall');
       else if (fGeom.hasRightWall) setTransformTargetPanel('right_wall');
     }
-  }, [activeLocation, activeRound, activePanel, transformTargetPanel]);
+  }, [activeLocation, activeRound, activePanel, transformTargetPanel, isVerticalShaftMode]);
 
   const updatePanelTransform = (
     panel: 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn',
@@ -3086,7 +3147,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           activeRound.tunnelDriveDirection,
           liveCrownSign,
           activeLocation?.widthM || 8.4,
-          activeLocation?.heightM || 7.2
+          activeLocation?.heightM || 7.2,
+          isVerticalShaftMode
         );
         setLiveDipDirection(liveEst.dipDirection);
         setLiveDipAmount(liveEst.dipAmount);
@@ -3118,9 +3180,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       activeRound,
       30
     );
+    const snappedEndpointsCollide =
+      clamped.length >= 2 &&
+      Math.hypot(
+        endSnap.point.x - startSnap.point.x,
+        endSnap.point.y - startSnap.point.y
+      ) < 3 &&
+      Math.hypot(
+        clamped[clamped.length - 1].x - clamped[0].x,
+        clamped[clamped.length - 1].y - clamped[0].y
+      ) >= 3;
+    const effStartPt = snappedEndpointsCollide ? clamped[0] : startSnap.point;
+    const effEndPt = snappedEndpointsCollide
+      ? clamped[clamped.length - 1]
+      : endSnap.point;
+
     const anchored = [...clamped];
-    anchored[0] = startSnap.point;
-    anchored[anchored.length - 1] = endSnap.point;
+    anchored[0] = effStartPt;
+    anchored[anchored.length - 1] = effEndPt;
 
     if (anchored.length < 2) return anchored;
 
@@ -3132,8 +3209,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         clampPointToFieldPanelOutline(p, targetPanel, activeLocation, activeRound, 0)
       );
       if (splined.length >= 2) {
-        splined[0] = startSnap.point;
-        splined[splined.length - 1] = endSnap.point;
+        splined[0] = effStartPt;
+        splined[splined.length - 1] = effEndPt;
       }
       return splined;
     }
@@ -3142,8 +3219,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       clampPointToFieldPanelOutline(p, targetPanel, activeLocation, activeRound, 0)
     );
     if (smoothed.length >= 2) {
-      smoothed[0] = startSnap.point;
-      smoothed[smoothed.length - 1] = endSnap.point;
+      smoothed[0] = effStartPt;
+      smoothed[smoothed.length - 1] = effEndPt;
     }
     return smoothed;
   };
@@ -3171,6 +3248,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     const effectiveToolLineMode: 'smooth' | 'linear' =
       pSubTool === 'polyline' ? 'linear' : 'smooth';
     const shapedPts = shapeTracePointsForSubTool(rawPendingPts, pSubTool, targetPanel);
+    const isTargetStrikeOnly = isStrikeOnlyHorizontalPanel(
+      targetPanel,
+      isVerticalShaftMode
+    );
 
     const est = estimateTraceOrientationFromGeometry(
       shapedPts,
@@ -3178,7 +3259,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       activeRound.tunnelDriveDirection,
       liveCrownSign,
       activeLocation.widthM,
-      activeLocation.heightM
+      activeLocation.heightM,
+      isVerticalShaftMode
     );
 
     // CRITICAL FIX: Preserve the exact dip direction & amount shown while tracing
@@ -3187,7 +3269,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     const effectiveDipDir =
       pendingItem.editedByCompass && pendingItem.dipDirection !== undefined
         ? pendingItem.dipDirection
-        : targetPanel === 'crown'
+        : isTargetStrikeOnly
         ? est.dipDirection
         : pendingItem.dipDirection !== undefined
         ? pendingItem.dipDirection
@@ -3196,7 +3278,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         : est.dipDirection;
 
     const effectiveDipAmt =
-      targetPanel === 'crown'
+      isTargetStrikeOnly
         ? pendingItem.editedByCompass && pendingItem.dipAmount !== undefined
           ? pendingItem.dipAmount
           : 90
@@ -3207,7 +3289,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         : est.dipAmount;
 
     const effectiveStrike =
-      targetPanel === 'crown'
+      isTargetStrikeOnly
         ? est.strike
         : pendingItem.strike !== undefined
         ? pendingItem.strike
@@ -3596,23 +3678,41 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
     if (hasFourDrawSubTools && !isUsingEraseArea && activeDrawSubTool !== 'brush') {
       const rawClampedSeg = clampAllToOutline(currentPoints);
-      const snappedFirst = snapPointToExactFieldPanelOutline(
-        rawClampedSeg[0],
+      const rawFirstPt = rawClampedSeg[0];
+      const rawLastPt = rawClampedSeg[rawClampedSeg.length - 1];
+      const rawSegChord = Math.hypot(
+        rawLastPt.x - rawFirstPt.x,
+        rawLastPt.y - rawFirstPt.y
+      );
+      const snappedFirstCandidate = snapPointToExactFieldPanelOutline(
+        rawFirstPt,
         targetPanel,
         activeLocation,
         activeRound,
         30
       ).point;
-      const snappedLast = snapPointToExactFieldPanelOutline(
-        rawClampedSeg[rawClampedSeg.length - 1],
+      const snappedLastCandidate = snapPointToExactFieldPanelOutline(
+        rawLastPt,
         targetPanel,
         activeLocation,
         activeRound,
         30
       ).point;
-      const segChord = Math.hypot(
-        snappedLast.x - snappedFirst.x,
-        snappedLast.y - snappedFirst.y
+      const snappedEndpointsCollide =
+        rawClampedSeg.length >= 2 &&
+        rawSegChord >= 4 &&
+        Math.hypot(
+          snappedLastCandidate.x - snappedFirstCandidate.x,
+          snappedLastCandidate.y - snappedFirstCandidate.y
+        ) < 4;
+      const snappedFirst = snappedEndpointsCollide ? rawFirstPt : snappedFirstCandidate;
+      const snappedLast = snappedEndpointsCollide ? rawLastPt : snappedLastCandidate;
+      const segChord = Math.max(
+        rawSegChord,
+        Math.hypot(
+          snappedLast.x - snappedFirst.x,
+          snappedLast.y - snappedFirst.y
+        )
       );
 
       let nextPendingPts: FieldPoint2D[] = [];
@@ -3708,6 +3808,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         }
       }
 
+      const isTargetStrikeOnly = isStrikeOnlyHorizontalPanel(
+        targetPanel,
+        isVerticalShaftMode
+      );
       const previewPtsForEst =
         nextPendingPts.length >= 2
           ? shapeTracePointsForSubTool(nextPendingPts, activeDrawSubTool, targetPanel)
@@ -3720,11 +3824,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               activeRound.tunnelDriveDirection,
               liveCrownSign,
               activeLocation.widthM,
-              activeLocation.heightM
+              activeLocation.heightM,
+              isVerticalShaftMode
             )
           : {
               dipDirection: liveDipDirection,
-              dipAmount: targetPanel === 'crown' ? 90 : liveDipAmount,
+              dipAmount: isTargetStrikeOnly ? 90 : liveDipAmount,
               strike: (liveDipDirection - 90 + 360) % 360,
               traceLengthM: 0.5,
             };
@@ -3931,17 +4036,22 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             ]
           : currentPoints;
       const smoothed = shapeTracePointsForSubTool(rawPts, 'pencil', targetPanel);
+      const isTargetStrikeOnly = isStrikeOnlyHorizontalPanel(
+        targetPanel,
+        isVerticalShaftMode
+      );
       const est = estimateTraceOrientationFromGeometry(
         smoothed,
         targetPanel,
         activeRound.tunnelDriveDirection,
         liveCrownSign,
         activeLocation.widthM,
-        activeLocation.heightM
+        activeLocation.heightM,
+        isVerticalShaftMode
       );
       const tele = lastStylusTelemetryRef.current;
       const useStylusTilt =
-        targetPanel !== 'crown' &&
+        !isTargetStrikeOnly &&
         applyStylusTiltToDip &&
         tele?.hasHardwareTilt;
       const effectiveDipDir =
@@ -3949,7 +4059,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           ? tele.inferredDipDirection
           : est.dipDirection;
       const effectiveDipAmt =
-        targetPanel === 'crown'
+        isTargetStrikeOnly
           ? 90
           : useStylusTilt && tele?.inferredDipAngle !== undefined
           ? tele.inferredDipAngle
@@ -9234,10 +9344,27 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 #{idx + 1} • {tr.setId === 'unassigned' ? 'J' : tr.setId}
                               </span>
                               <div className="flex items-center gap-1.5">
-                                {tr.panel === 'crown' ? (
-                                  <span className="font-mono font-bold text-amber-300 text-[10px]">
-                                    STR {getCrownStrikePair(((tr.dipDirection - 90) % 360 + 360) % 360).label}
-                                  </span>
+                                {isStrikeOnlyHorizontalPanel(tr.panel, isVerticalShaftMode) ? (
+                                  tr.inspection3D && tr.inspection3D.isOrientationComplete !== false ? (
+                                    <span className="font-mono font-bold text-emerald-300 text-[10px]">
+                                      {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}° (STR{' '}
+                                      {getCrownStrikePair(
+                                        tr.strike !== undefined
+                                          ? tr.strike
+                                          : ((tr.dipDirection - 90) % 360 + 360) % 360
+                                      ).label}
+                                      )
+                                    </span>
+                                  ) : (
+                                    <span className="font-mono font-bold text-amber-300 text-[10px]">
+                                      STR{' '}
+                                      {getCrownStrikePair(
+                                        tr.strike !== undefined
+                                          ? tr.strike
+                                          : ((tr.dipDirection - 90) % 360 + 360) % 360
+                                      ).label}
+                                    </span>
+                                  )
                                 ) : (
                                   <span className="font-mono font-bold text-amber-300">
                                     {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}°
@@ -11102,6 +11229,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     const pTraceLabelMap = computeTraceInlineLabelPlacements(mappedTracesForLabels, {
                       fontSize: effectiveLabelFontSize,
                       extraObstacles: dipObstacles,
+                      isVerticalShaft: isVerticalShaftMode,
                     });
 
                     const clipId = `field-panel-clip-${panelId}`;
@@ -11688,7 +11816,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               FIELD_JOINT_GROUP_COLORS.unassigned;
                             const isSel = selectedTraceId === tr.id;
                             const baseTrW = Math.max(1.2, Math.min(16, tr.strokeWidthPx ?? 3.6));
-                            const isCrownPanel = panelId === 'crown';
+                            const isCrownPanel = isStrikeOnlyHorizontalPanel(
+                              panelId,
+                              isVerticalShaftMode
+                            );
                             const isCrownConfirmed3D =
                               isCrownPanel &&
                               Boolean(
@@ -11699,9 +11830,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               isCrownPanel && tr.points.length >= 2
                                 ? estimateTraceOrientationFromGeometry(
                                     tr.points,
-                                    'crown',
+                                    panelId,
                                     activeRound.tunnelDriveDirection,
-                                    tr.crownDipSign || '+90'
+                                    tr.crownDipSign || '+90',
+                                    activeLocation.widthM,
+                                    activeLocation.heightM,
+                                    isVerticalShaftMode
                                   ).strike
                                 : tr.strike !== undefined
                                 ? tr.strike
@@ -12074,7 +12208,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 activeRound.tunnelDriveDirection,
                                 liveCrownSign,
                                 activeLocation.widthM,
-                                activeLocation.heightM
+                                activeLocation.heightM,
+                                isVerticalShaftMode
                               );
                               const previewDipDir =
                                 pending2DTrace && pending2DTrace.panel === panelId && pending2DTrace.dipDirection !== undefined
@@ -12120,7 +12255,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     )?.shortCode || 'FLT'
                                   : 'Dip';
 
-                              const isCrownDrawing = panelId === 'crown';
+                              const isCrownDrawing = isStrikeOnlyHorizontalPanel(
+                                panelId,
+                                isVerticalShaftMode
+                              );
                               const liveCrownPair = getCrownStrikePair(
                                 isCrownDrawing
                                   ? liveEst.strike
@@ -12135,20 +12273,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
                               liveOriOverlay = (
                                 <g>
-                                  <line
-                                    x1={mid.x}
-                                    y1={mid.y}
-                                    x2={tickX}
-                                    y2={tickY}
-                                    stroke={liveStrokeColor}
-                                    strokeWidth={isTCanvas ? '2.4' : '3.2'}
-                                  />
-                                  <circle
-                                    cx={tickX}
-                                    cy={tickY}
-                                    r={isTCanvas ? '2.4' : '3.2'}
-                                    fill={liveStrokeColor}
-                                  />
+                                  {!isCrownDrawing && (
+                                    <>
+                                      <line
+                                        x1={mid.x}
+                                        y1={mid.y}
+                                        x2={tickX}
+                                        y2={tickY}
+                                        stroke={liveStrokeColor}
+                                        strokeWidth={isTCanvas ? '2.4' : '3.2'}
+                                      />
+                                      <circle
+                                        cx={tickX}
+                                        cy={tickY}
+                                        r={isTCanvas ? '2.4' : '3.2'}
+                                        fill={liveStrokeColor}
+                                      />
+                                    </>
+                                  )}
                                   <text
                                     x={lblX}
                                     y={lblY}
@@ -12481,12 +12623,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           </g>
                         );
                       })()}
-                      {/* Glowing Continuation Anchor at last trace point */}
+                      {/* Glowing Continuation Anchor & Direct On-Canvas Confirm Button at last trace point */}
                       {pending2DTrace && pending2DTrace.points.length >= 1 && (() => {
                         const lastPt = pending2DTrace.points[pending2DTrace.points.length - 1];
                         if (!lastPt) return null;
+                        const canConfirmHere = pending2DTrace.points.length >= 2;
+                        const badgeX = Math.min(720, Math.max(24, lastPt.x + 10));
+                        const badgeY = Math.min(930, Math.max(28, lastPt.y - 16));
                         return (
-                          <g className="pointer-events-none select-none">
+                          <g className="select-none">
                             <circle
                               cx={lastPt.x}
                               cy={lastPt.y}
@@ -12494,7 +12639,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               fill="none"
                               stroke="#10B981"
                               strokeWidth="2.5"
-                              className="animate-ping"
+                              className="animate-ping pointer-events-none"
                               opacity="0.8"
                             />
                             <circle
@@ -12504,29 +12649,68 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                               fill="#10B981"
                               stroke="#FFFFFF"
                               strokeWidth="1.5"
+                              className="pointer-events-none"
                             />
                             <rect
-                              x={lastPt.x + 8}
-                              y={lastPt.y - 12}
-                              width="165"
-                              height="19"
-                              rx="4"
+                              x={badgeX}
+                              y={badgeY}
+                              width="148"
+                              height="22"
+                              rx="5"
                               fill="rgba(15, 23, 42, 0.94)"
                               stroke="#10B981"
                               strokeWidth="1"
+                              className="pointer-events-none"
                             />
                             <text
-                              x={lastPt.x + 13}
-                              y={lastPt.y + 1.5}
+                              x={badgeX + 6}
+                              y={badgeY + 14.5}
                               fontSize="9.5"
                               fontWeight="bold"
                               fill="#34D399"
                               fontFamily="IBM Plex Mono, monospace"
+                              className="pointer-events-none"
                             >
                               {isCanvasPanMode
                                 ? '✋ Canvas Move active'
-                                : '📍 Trace here · Draw to continue'}
+                                : '📍 Draw to continue'}
                             </text>
+                            {canConfirmHere && (
+                              <g
+                                className="cursor-pointer pointer-events-auto"
+                                onPointerDown={(ev) => {
+                                  ev.stopPropagation();
+                                  ev.preventDefault();
+                                  commitPending2DTraceToRound(pending2DTrace);
+                                }}
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  commitPending2DTraceToRound(pending2DTrace);
+                                }}
+                              >
+                                <rect
+                                  x={badgeX + 154}
+                                  y={badgeY}
+                                  width="84"
+                                  height="22"
+                                  rx="5"
+                                  fill="#10B981"
+                                  stroke="#A7F3D0"
+                                  strokeWidth="1.5"
+                                />
+                                <text
+                                  x={badgeX + 196}
+                                  y={badgeY + 14.5}
+                                  textAnchor="middle"
+                                  fontSize="10.5"
+                                  fontWeight="900"
+                                  fill="#022C22"
+                                  fontFamily="IBM Plex Mono, monospace"
+                                >
+                                  ✓ Confirm
+                                </text>
+                              </g>
+                            )}
                           </g>
                         );
                       })()}
@@ -12570,6 +12754,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 isCanvasPanMode={isCanvasPanMode}
                 setIsCanvasPanMode={setIsCanvasPanMode}
                 mappingDomain={mappingDomain}
+                isVerticalShaftMode={isVerticalShaftMode}
                 isSurfaceSegmentedMode={isSurfaceSegmentedMode}
                 surfaceActiveSegmentIdx={surfaceActiveSegmentIdx}
                 surfaceSegments={surfaceSegments}
@@ -12865,16 +13050,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       const activeShaftPanelsBottom = isVerticalShaftMode
                         ? getActiveVerticalShaftPanels(activeRound)
                         : null;
+                      const labelByPanelId: Record<FieldPanelId, string> = {
+                        face: domainPanelMap.face.shortLabel,
+                        left_wall: domainPanelMap.leftWall.shortLabel,
+                        crown: domainPanelMap.crown.shortLabel,
+                        right_wall: domainPanelMap.rightWall.shortLabel,
+                        shaft_sn: domainPanelMap.shaftSn?.shortLabel || '4. WN (270°–360°)',
+                      };
                       const availableTabs: [FieldPanelId, string][] = isVerticalShaftMode && activeShaftPanelsBottom
                         ? ([
-                            ['face', domainPanelMap.face.shortLabel],
-                            ['left_wall', domainPanelMap.leftWall.shortLabel],
-                            ['crown', domainPanelMap.crown.shortLabel],
-                            ['right_wall', domainPanelMap.rightWall.shortLabel],
-                            ['shaft_sn', domainPanelMap.shaftSn?.shortLabel || 'WN (270°–360°)'],
-                          ] as [FieldPanelId, string][]).filter(([pid]) =>
-                            activeShaftPanelsBottom.includes(pid)
-                          )
+                            'face',
+                            ...activeShaftPanelsBottom.filter((pid) => pid !== 'face'),
+                          ] as FieldPanelId[]).map((pid) => [pid, labelByPanelId[pid]])
                         : [
                             ['face', domainPanelMap.face.shortLabel],
                             ...(fGeomBottom.hasLeftWall
@@ -13189,7 +13376,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 </span>
                               </div>
                               <div className="flex items-center gap-1.5">
-                                {tr.panel === 'crown' ? (
+                                {isStrikeOnlyHorizontalPanel(tr.panel, isVerticalShaftMode) ? (
                                   tr.inspection3D && tr.inspection3D.isOrientationComplete !== false ? (
                                     <span className="font-mono font-bold text-xs text-emerald-300">
                                       {String(tr.dipDirection).padStart(3, '0')}°/{tr.dipAmount}° (STR{' '}
@@ -13210,9 +13397,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                           tr.points.length >= 2
                                             ? estimateTraceOrientationFromGeometry(
                                                 tr.points,
-                                                'crown',
+                                                tr.panel,
                                                 activeRound.tunnelDriveDirection,
-                                                tr.crownDipSign || '+90'
+                                                tr.crownDipSign || '+90',
+                                                activeLocation.widthM,
+                                                activeLocation.heightM,
+                                                isVerticalShaftMode
                                               ).strike
                                             : tr.strike !== undefined
                                             ? tr.strike
@@ -13235,13 +13425,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     setIs3DJointInspectorOpen(true);
                                   }}
                                   className={`px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer transition-all ${
-                                    tr.panel === 'crown' && tr.inspection3D
+                                    isStrikeOnlyHorizontalPanel(tr.panel, isVerticalShaftMode) && tr.inspection3D
                                       ? 'bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border-emerald-500/40'
                                       : 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border-amber-500/30'
                                   }`}
                                   title="Inspect joint in 3D"
                                 >
-                                  {tr.panel === 'crown' && tr.inspection3D ? '3D ✓' : '3D'}
+                                  {isStrikeOnlyHorizontalPanel(tr.panel, isVerticalShaftMode) && tr.inspection3D ? '3D ✓' : '3D'}
                                 </button>
                               </div>
                             </div>

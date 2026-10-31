@@ -383,7 +383,16 @@ export const FieldStripAlignmentStage: React.FC<{
     const normY = Math.max(0.001, Math.min(0.999, (sy - stripY) / Math.max(1, h)));
 
     let metricPt: { x: number; y: number };
-    if (panel === 'left_wall') {
+    const isVertShaft =
+      activeLocation.undergroundSubMode === 'vertical_shaft' ||
+      activeRound?.undergroundSubMode === 'vertical_shaft';
+    if (isVertShaft) {
+      const arcLenM = panel === 'crown' ? crownArchM : wallHM;
+      metricPt = {
+        x: normX * arcLenM,
+        y: (1 - normY) * pullM,
+      };
+    } else if (panel === 'left_wall') {
       metricPt = {
         x: (1 - normY) * pullM,
         y: normX * wallHM,
@@ -730,7 +739,10 @@ export const FieldStripAlignmentStage: React.FC<{
     setSelectedTraceItem({
       id: realAId,
       kind: 'joint',
-      panel: traceA.panel === 'face' ? 'crown' : (traceA.panel as 'left_wall' | 'crown' | 'right_wall'),
+      panel:
+        traceA.panel === 'face'
+          ? 'crown'
+          : (traceA.panel as 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn'),
     });
     setIsJoinMode(false);
     setJoinFirstTraceId(null);
@@ -1077,7 +1089,7 @@ export const FieldStripAlignmentStage: React.FC<{
       const checkCenterSeamSnap = (
         endPt: FieldPoint2D,
         seamX: number,
-        oppositePanel: 'left_wall' | 'crown' | 'right_wall'
+        oppositePanel: StripAlignPanelId
       ) => {
         if (Math.abs(endPt.x - seamX) > 22) return;
         for (const other of alignableItems) {
@@ -1106,6 +1118,11 @@ export const FieldStripAlignmentStage: React.FC<{
         const opp = item.panel === 'crown' ? 'right_wall' : 'crown';
         checkCenterSeamSnap(shiftedStart, rightWallX, opp);
         checkCenterSeamSnap(shiftedEnd, rightWallX, opp);
+      }
+      if (hasShaftSn && shaftSnX && (item.panel === 'right_wall' || item.panel === 'shaft_sn')) {
+        const opp = item.panel === 'right_wall' ? 'shaft_sn' : 'right_wall';
+        checkCenterSeamSnap(shiftedStart, shaftSnX, opp);
+        checkCenterSeamSnap(shiftedEnd, shaftSnX, opp);
       }
       setActiveMagneticSnapPt(snapIndicator);
 
@@ -1222,6 +1239,33 @@ export const FieldStripAlignmentStage: React.FC<{
         if (Math.abs(oEnd.x - rightWallX) < 20 && Math.abs(oEnd.y - targetStripY) < 18) {
           targetStripY = oEnd.y;
           snapIndicator = { x: rightWallX, y: oEnd.y };
+          break;
+        }
+      }
+    } else if (
+      hasShaftSn &&
+      shaftSnX &&
+      (item.panel === 'right_wall' || item.panel === 'shaft_sn') &&
+      Math.abs(targetStripX - shaftSnX) < 16
+    ) {
+      targetStripX = item.panel === 'right_wall' ? shaftSnX - 1.5 : shaftSnX + 1.5;
+      snapIndicator = { x: shaftSnX, y: targetStripY };
+      const oppositePanel = item.panel === 'right_wall' ? 'shaft_sn' : 'right_wall';
+      for (const other of alignableItems) {
+        if (other.panel !== oppositePanel) continue;
+        const oStart = panelPointToStripPoint(other.panel, other.points[0]);
+        const oEnd = panelPointToStripPoint(
+          other.panel,
+          other.points[other.points.length - 1]
+        );
+        if (Math.abs(oStart.x - shaftSnX) < 20 && Math.abs(oStart.y - targetStripY) < 18) {
+          targetStripY = oStart.y;
+          snapIndicator = { x: shaftSnX, y: oStart.y };
+          break;
+        }
+        if (Math.abs(oEnd.x - shaftSnX) < 20 && Math.abs(oEnd.y - targetStripY) < 18) {
+          targetStripY = oEnd.y;
+          snapIndicator = { x: shaftSnX, y: oEnd.y };
           break;
         }
       }
@@ -5583,18 +5627,37 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                     <tr>
                       <th className="border border-slate-900 bg-white px-2 py-1 text-left">
                         {activeRound.supportSystem?.protectionSupportMode ||
-                          'Protection / Cavity Support'}
+                          (activeLocation.undergroundSubMode === 'vertical_shaft'
+                            ? 'Shaft Perimeter Pre-Support / Grouting'
+                            : 'Protection / Cavity Support')}
                       </th>
                       <td colSpan={5} className="border border-slate-900 bg-white px-2 py-1 font-semibold">
                         {[
                           activeRound.supportSystem?.forepolingEnabled !== false
-                            ? `Forepoling: ${activeRound.supportSystem?.forepolingType || 'Grouted Rebar Spiles'} Ø${activeRound.supportSystem?.forepolingDiameterMm ?? 32}mm, L=${activeRound.supportSystem?.forepolingLengthM ?? 4.0}m @ ${activeRound.supportSystem?.forepolingSpacingCm ?? 30}cm c/c (${activeRound.supportSystem?.forepolingSector || 'Crown 120°'})`
+                            ? `${
+                                activeLocation.undergroundSubMode === 'vertical_shaft'
+                                  ? 'Shaft Perimeter Spiling Ring'
+                                  : 'Forepoling'
+                              }: ${activeRound.supportSystem?.forepolingType || 'Grouted Rebar Spiles'} Ø${activeRound.supportSystem?.forepolingDiameterMm ?? 32}mm, L=${activeRound.supportSystem?.forepolingLengthM ?? 4.0}m @ ${activeRound.supportSystem?.forepolingSpacingCm ?? 30}cm c/c (${
+                                activeRound.supportSystem?.forepolingSector ||
+                                (activeLocation.undergroundSubMode === 'vertical_shaft'
+                                  ? 'Full 360° Shaft Ring (Q1–Q4)'
+                                  : 'Crown 120°')
+                              })`
                             : null,
                           activeRound.supportSystem?.pipeRoofingEnabled
-                            ? `Pipe Roofing: ${activeRound.supportSystem?.pipeRoofingType || 'Perforated Steel Canopy Tube'} Ø${activeRound.supportSystem?.pipeRoofingDiameterMm ?? 114}mm × ${activeRound.supportSystem?.pipeRoofingThicknessMm ?? 6.0}mm, L=${activeRound.supportSystem?.pipeRoofingLengthM ?? 12.0}m @ ${activeRound.supportSystem?.pipeRoofingSpacingCm ?? 40}cm c/c`
+                            ? `${
+                                activeLocation.undergroundSubMode === 'vertical_shaft'
+                                  ? 'Shaft Collar Micropile Ring'
+                                  : 'Pipe Roofing'
+                              }: ${activeRound.supportSystem?.pipeRoofingType || 'Perforated Steel Canopy Tube'} Ø${activeRound.supportSystem?.pipeRoofingDiameterMm ?? 114}mm × ${activeRound.supportSystem?.pipeRoofingThicknessMm ?? 6.0}mm, L=${activeRound.supportSystem?.pipeRoofingLengthM ?? 12.0}m @ ${activeRound.supportSystem?.pipeRoofingSpacingCm ?? 40}cm c/c`
                             : null,
                           activeRound.supportSystem?.groutingEnabled
-                            ? `Grouting: ${activeRound.supportSystem?.groutingType || 'Consolidation Grouting'} (${activeRound.supportSystem?.groutingMaterial || 'OPC Cement + Micro-Silica'}, W/C ${activeRound.supportSystem?.groutingWCRatio || '0.8:1'}) L=${activeRound.supportSystem?.groutingHoleLengthM ?? 6.0}m, ${activeRound.supportSystem?.groutingHoleCount ?? 8} holes @ ${activeRound.supportSystem?.groutingPressureBar ?? 15} bar`
+                            ? `${
+                                activeLocation.undergroundSubMode === 'vertical_shaft'
+                                  ? 'Radial Annulus / Sump Curtain Grouting'
+                                  : 'Grouting'
+                              }: ${activeRound.supportSystem?.groutingType || 'Consolidation Grouting'} (${activeRound.supportSystem?.groutingMaterial || 'OPC Cement + Micro-Silica'}, W/C ${activeRound.supportSystem?.groutingWCRatio || '0.8:1'}) L=${activeRound.supportSystem?.groutingHoleLengthM ?? 6.0}m, ${activeRound.supportSystem?.groutingHoleCount ?? 8} holes @ ${activeRound.supportSystem?.groutingPressureBar ?? 15} bar`
                             : null,
                         ]
                           .filter(Boolean)
@@ -5607,7 +5670,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                     return (
                       <tr>
                         <th className="border border-slate-900 bg-white px-2 py-1 text-left">
-                          Junction Factor &amp; Advance
+                          {activeLocation.undergroundSubMode === 'vertical_shaft'
+                            ? 'Shaft Station / Inset Breakout Factor'
+                            : 'Junction Factor & Advance'}
                         </th>
                         <td colSpan={3} className="border border-slate-900 bg-white px-2 py-1 font-mono text-[10px]">
                           Type: <strong>{activeRound.supportSystem.junctionTypeLabel || 'Junction'}</strong> (∠{jAdj.junctionAngleDeg}°) | Jf: <strong>{jAdj.effectiveMultiplier}x</strong> | Adv Factor: <strong>{jAdj.junctionAdvanceFactor}x</strong> (Nominal: {jAdj.baselinePullM}m → Rec. Pull: <strong>{jAdj.recommendedAdvancePullM}m</strong>, -{jAdj.advanceReductionPct}%)
@@ -5629,7 +5694,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                 <thead>
                   <tr className="bg-white">
                     <th colSpan={2} className="border border-slate-900 bg-white py-1 px-2 text-left font-black">
-                      4. ROCK SUPPORT SYSTEM DESIGN &amp; 2D ENGINEERING OUTLINE ({activeLocation.shape.replace(/_/g, ' ').toUpperCase()} — {activeLocation.widthM}m W × {activeLocation.heightM}m H)
+                      {activeLocation.undergroundSubMode === 'vertical_shaft'
+                        ? `4. VERTICAL SHAFT ROCK SUPPORT SYSTEM DESIGN & 2D PLAN CROSS-SECTION (CIRCULAR SHAFT Ø ${activeLocation.widthM}m • SINKING PULL ${activeRound.pullLengthMeters}m)`
+                        : `4. ROCK SUPPORT SYSTEM DESIGN & 2D ENGINEERING OUTLINE (${activeLocation.shape.replace(/_/g, ' ').toUpperCase()} — ${activeLocation.widthM}m W × ${activeLocation.heightM}m H)`}
                     </th>
                   </tr>
                 </thead>
@@ -5654,7 +5721,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                 <thead>
                   <tr className="bg-white">
                     <th colSpan={4} className="border border-slate-900 bg-white py-1 px-2 text-left font-black">
-                      5. TUNNEL FACE SURVEY, CONTRACT PAYLINE &amp; REAL OVERBREAK (OB) ASSESSMENT
+                      {activeLocation.undergroundSubMode === 'vertical_shaft'
+                        ? '5. VERTICAL SHAFT PERIMETER SURVEY, CONTRACT PAYLINE & REAL OVERBREAK (OB) ASSESSMENT'
+                        : '5. TUNNEL FACE SURVEY, CONTRACT PAYLINE & REAL OVERBREAK (OB) ASSESSMENT'}
                     </th>
                   </tr>
                 </thead>

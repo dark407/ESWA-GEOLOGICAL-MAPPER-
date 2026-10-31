@@ -28,7 +28,9 @@ import {
   FieldSupportSystemConfig,
   FieldTunnelLocationItem,
   getLocationSurfaceConfig,
+  normalizeVerticalShaftExcavationApproach,
 } from '../engine/fieldMappingEngine';
+import { formatSpotBoltPanelLabel } from '../engine/geotechnicalSpotBoltEngine';
 
 export interface FieldSupport3DInteractiveCanvasProps {
   activeLocation: FieldTunnelLocationItem;
@@ -155,13 +157,16 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
   const [activeToolMode, setActiveToolMode] = useState<'SELECT_ORIENT' | 'CLICK_TO_ADD'>('SELECT_ORIENT');
   const [activeQuickTab, setActiveQuickTab] = useState<'SPOT_BOLTS' | 'PIPE_ROOFING' | 'FOREPOLING'>('SPOT_BOLTS');
 
-  // Physical tunnel parameters
+  // Physical tunnel / vertical shaft parameters
   const surf3D = useMemo(() => getLocationSurfaceConfig(activeLocation), [activeLocation]);
   const pullM = Math.max(0.5, activeRound.pullLengthMeters || 3.0);
   const W = Math.max(1.5, surf3D.tunnelW || activeLocation.widthM || 8.5);
   const H = Math.max(1.5, surf3D.tunnelH || activeLocation.heightM || 7.5);
   const splH = Math.max(1.0, Math.min(H * 0.85, activeLocation.wallHeightM || 3.8));
   const shape = activeLocation.shape || 'horseshoe';
+  const isVerticalShaft =
+    activeLocation.undergroundSubMode === 'vertical_shaft' ||
+    activeRound.undergroundSubMode === 'vertical_shaft';
 
   // Find currently selected spot bolt
   const selectedBolt = useMemo(() => {
@@ -191,9 +196,9 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
   // Camera Orbit Controls state in ref to avoid re-rendering WebGL
   const controlsRef = useRef({
     theta: 0.75, // Horizontal azimuth
-    phi: 0.42,  // Elevation
+    phi: 0.48,  // Elevation
     radius: Math.max(12, Math.max(W, H) * 2.2),
-    target: new THREE.Vector3(0, H * 0.45, pullM * 0.5),
+    target: new THREE.Vector3(0, isVerticalShaft ? 0 : H * 0.45, isVerticalShaft ? 0 : pullM * 0.5),
     isDragging: false,
     isPanning: false,
     prevX: 0,
@@ -205,6 +210,30 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
   useEffect(() => {
     controlsRef.current.cameraPreset = cameraPreset;
     const c = controlsRef.current;
+    if (isVerticalShaft) {
+      if (cameraPreset === 'perspective') {
+        c.theta = 0.65;
+        c.phi = 0.58;
+        c.target.set(0, 0, 0);
+        c.radius = Math.max(12, Math.max(W, pullM) * 2.1);
+      } else if (cameraPreset === 'face' || cameraPreset === 'crown') {
+        c.theta = 0;
+        c.phi = Math.PI * 0.48;
+        c.target.set(0, 0, 0);
+        c.radius = Math.max(11, W * 2.0);
+      } else if (cameraPreset === 'side') {
+        c.theta = Math.PI * 0.5;
+        c.phi = 0.18;
+        c.target.set(0, 0, 0);
+        c.radius = Math.max(13, Math.max(W, pullM) * 2.2);
+      } else if (cameraPreset === 'isometric') {
+        c.theta = Math.PI * 0.25;
+        c.phi = 0.62;
+        c.target.set(0, 0, 0);
+        c.radius = Math.max(13, Math.max(W, pullM) * 2.2);
+      }
+      return;
+    }
     if (cameraPreset === 'perspective') {
       c.theta = 0.75;
       c.phi = 0.42;
@@ -231,7 +260,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       c.target.set(0, H * 0.45, pullM * 0.5);
       c.radius = Math.max(13, Math.max(W, H) * 2.3);
     }
-  }, [cameraPreset, W, H, pullM]);
+  }, [cameraPreset, W, H, pullM, isVerticalShaft]);
 
   // Three.js Mount & Animation Loop
   useEffect(() => {
@@ -276,53 +305,8 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
     faceSpotLight.position.set(0, H * 0.8, pullM + 5);
     scene.add(faceSpotLight);
 
-    // 3. Ground / Tunnel Invert Plane
-    const gridHelper = new THREE.GridHelper(Math.max(20, W * 2.5), 20, 0x0284c7, 0x1e293b);
-    gridHelper.position.set(0, 0, pullM * 0.5);
-    scene.add(gridHelper);
-
-    // 4. Render Procedural 3D Tunnel Shell Mesh
-    const perimeterPts = generateTunnelPerimeterPoints(shape, W, H, splH, 36);
-    const zSegments = Math.max(4, Math.round(pullM * 2));
-    const zStep = pullM / zSegments;
-
-    // Build extruded tunnel profile vertices and indices
+    // 3. Ground / Reference Grid & Geometry Construction
     const tunnelGeom = new THREE.BufferGeometry();
-    const vertices: number[] = [];
-    const normals: number[] = [];
-    const uvs: number[] = [];
-    const indices: number[] = [];
-
-    const numPts = perimeterPts.length;
-
-    for (let iz = 0; iz <= zSegments; iz++) {
-      const z = iz * zStep;
-      for (let ip = 0; ip < numPts; ip++) {
-        const pt = perimeterPts[ip];
-        vertices.push(pt.x, pt.y, z);
-        normals.push(-pt.normal.x, -pt.normal.y, 0); // facing inward toward tunnel void
-        uvs.push(ip / (numPts - 1), iz / zSegments);
-      }
-    }
-
-    // Connect quads for tunnel perimeter wall
-    for (let iz = 0; iz < zSegments; iz++) {
-      for (let ip = 0; ip < numPts - 1; ip++) {
-        const i0 = iz * numPts + ip;
-        const i1 = i0 + 1;
-        const i2 = (iz + 1) * numPts + ip;
-        const i3 = i2 + 1;
-        // Two triangles per quad
-        indices.push(i0, i2, i1);
-        indices.push(i1, i2, i3);
-      }
-    }
-
-    tunnelGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    tunnelGeom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    tunnelGeom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    tunnelGeom.setIndex(indices);
-
     const tunnelMat = new THREE.MeshStandardMaterial({
       color: isLightMode ? 0xdbeafe : 0x0f172a,
       roughness: 0.8,
@@ -330,457 +314,888 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       side: THREE.DoubleSide,
       wireframe: showWireframe,
       transparent: true,
-      opacity: 0.9,
+      opacity: isVerticalShaft ? 0.55 : 0.9,
     });
-    const tunnelMesh = new THREE.Mesh(tunnelGeom, tunnelMat);
-    scene.add(tunnelMesh);
 
-    // Tunnel Edge Outlines / Ribs
-    const wireGeom = new THREE.WireframeGeometry(tunnelGeom);
-    const wireMat = new THREE.LineBasicMaterial({
-      color: isLightMode ? 0x94a3b8 : 0x334155,
-      transparent: true,
-      opacity: 0.35,
-    });
-    const wireLines = new THREE.LineSegments(wireGeom, wireMat);
-    scene.add(wireLines);
-
-    // Excavation Face Wall at Pull M
-    const faceShape = new THREE.Shape();
-    faceShape.moveTo(perimeterPts[0].x, perimeterPts[0].y);
-    for (let i = 1; i < perimeterPts.length; i++) {
-      faceShape.lineTo(perimeterPts[i].x, perimeterPts[i].y);
-    }
-    faceShape.closePath();
-
-    const faceGeom = new THREE.ShapeGeometry(faceShape);
-    const faceMat = new THREE.MeshStandardMaterial({
-      color: isLightMode ? 0xfef3c7 : 0x1e1b4b,
-      roughness: 0.9,
-      metalness: 0.1,
-      side: THREE.DoubleSide,
-    });
-    const faceMesh = new THREE.Mesh(faceGeom, faceMat);
-    faceMesh.position.set(0, 0, pullM);
-    scene.add(faceMesh);
-
-    // Outline along face perimeter (golden ring)
-    const facePerimeterPts3D: THREE.Vector3[] = perimeterPts.map(
-      (p) => new THREE.Vector3(p.x, p.y, pullM)
-    );
-    facePerimeterPts3D.push(new THREE.Vector3(perimeterPts[0].x, perimeterPts[0].y, pullM));
-    const faceOutlineGeom = new THREE.BufferGeometry().setFromPoints(facePerimeterPts3D);
-    const faceOutlineMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2 });
-    const faceOutlineLine = new THREE.Line(faceOutlineGeom, faceOutlineMat);
-    scene.add(faceOutlineLine);
-
-    // Outline along portal perimeter (0m)
-    const portalPerimeterPts3D: THREE.Vector3[] = perimeterPts.map(
-      (p) => new THREE.Vector3(p.x, p.y, 0)
-    );
-    portalPerimeterPts3D.push(new THREE.Vector3(perimeterPts[0].x, perimeterPts[0].y, 0));
-    const portalOutlineGeom = new THREE.BufferGeometry().setFromPoints(portalPerimeterPts3D);
-    const portalOutlineMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 2 });
-    const portalOutlineLine = new THREE.Line(portalOutlineGeom, portalOutlineMat);
-    scene.add(portalOutlineLine);
-
-    // Shotcrete Lining Shell (if enabled)
-    if (support.shotcreteEnabled) {
-      const scCrownOffM = Math.max(0.04, Math.min(0.25, (support.shotcreteCrownThicknessMm || 100) / 1000));
-      const scWallOffM =
-        support.shotcreteScope === 'crown_and_wall'
-          ? Math.max(0.03, Math.min(0.2, (support.shotcreteWallThicknessMm || 75) / 1000))
-          : 0;
-
-      const scPerimeter = perimeterPts.filter((p) =>
-        support.shotcreteScope === 'crown_and_wall' ? true : p.panel === 'crown'
+    if (isVerticalShaft) {
+      // ======================================================================
+      // VERTICAL SHAFT 3D CYLINDRICAL SUPPORT SYSTEM (NATM & NMT SHAFT METHOD)
+      // ======================================================================
+      const R = W / 2;
+      const yTop = pullM / 2;
+      const yBottom = -pullM / 2;
+      const shaftApproach = normalizeVerticalShaftExcavationApproach(
+        activeRound.excavationApproach || activeLocation.excavationApproach
       );
+      const isHalfShaft =
+        shaftApproach === 'Half Face — 1st & 2nd Quad (NE–ES)' ||
+        shaftApproach === 'Half Face — 3rd & 4th Quad (SW–WN)';
+      const activeHalfIsEast = shaftApproach === 'Half Face — 1st & 2nd Quad (NE–ES)';
+      const medianCondition =
+        activeRound.shaftMedianDivisionCondition ||
+        activeLocation.shaftMedianDivisionCondition ||
+        'closed';
 
-      if (scPerimeter.length >= 2) {
-        const scGeom = new THREE.BufferGeometry();
-        const scVerts: number[] = [];
-        const scNorms: number[] = [];
-        const scIndices: number[] = [];
-        const numScPts = scPerimeter.length;
+      const gridHelper = new THREE.GridHelper(Math.max(20, W * 2.5), 20, 0x0284c7, 0x1e293b);
+      gridHelper.position.set(0, yBottom - 0.02, 0);
+      scene.add(gridHelper);
 
-        for (let iz = 0; iz <= zSegments; iz++) {
-          const z = iz * zStep;
-          for (let ip = 0; ip < numScPts; ip++) {
-            const pt = scPerimeter[ip];
-            const off = pt.panel === 'crown' ? scCrownOffM : scWallOffM;
-            // Slightly inward from rock wall
-            scVerts.push(pt.x - pt.normal.x * off, Math.max(0, pt.y - pt.normal.y * off), z);
-            scNorms.push(-pt.normal.x, -pt.normal.y, 0);
-          }
+      const azStartDeg = isHalfShaft ? (activeHalfIsEast ? 0 : 180) : 0;
+      const azSweepDeg = isHalfShaft ? 180 : 360;
+      const radialSegments = 48;
+      const ySegments = Math.max(4, Math.round(pullM * 2));
+
+      const vertices: number[] = [];
+      const normals: number[] = [];
+      const uvs: number[] = [];
+      const indices: number[] = [];
+
+      for (let iy = 0; iy <= ySegments; iy++) {
+        const ty = iy / ySegments;
+        const y = yTop - ty * pullM;
+        for (let ir = 0; ir <= radialSegments; ir++) {
+          const tr = ir / radialSegments;
+          const azDeg = azStartDeg + tr * azSweepDeg;
+          const azRad = (azDeg * Math.PI) / 180;
+          const nx = Math.sin(azRad);
+          const nz = -Math.cos(azRad);
+          vertices.push(R * nx, y, R * nz);
+          normals.push(-nx, 0, -nz);
+          uvs.push(tr, ty);
         }
-
-        for (let iz = 0; iz < zSegments; iz++) {
-          for (let ip = 0; ip < numScPts - 1; ip++) {
-            const i0 = iz * numScPts + ip;
-            const i1 = i0 + 1;
-            const i2 = (iz + 1) * numScPts + ip;
-            const i3 = i2 + 1;
-            scIndices.push(i0, i2, i1);
-            scIndices.push(i1, i2, i3);
-          }
-        }
-
-        scGeom.setAttribute('position', new THREE.Float32BufferAttribute(scVerts, 3));
-        scGeom.setAttribute('normal', new THREE.Float32BufferAttribute(scNorms, 3));
-        scGeom.setIndex(scIndices);
-
-        const scMat = new THREE.MeshStandardMaterial({
-          color: isLightMode ? 0x94a3b8 : 0x475569,
-          roughness: 0.9,
-          metalness: 0.1,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.85,
-        });
-        const scMesh = new THREE.Mesh(scGeom, scMat);
-        scene.add(scMesh);
       }
-    }
 
-    // Wire Mesh Grid Overlay (if enabled)
-    if (support.wireMeshEnabled) {
-      const meshPerimeter = perimeterPts.filter((p) =>
-        support.wireMeshScope === 'crown_and_wall' ? true : p.panel === 'crown'
-      );
-      if (meshPerimeter.length >= 2) {
-        const meshLinePts: THREE.Vector3[] = [];
-        // Longitudinal wire strands
-        for (let ip = 0; ip < meshPerimeter.length; ip += 2) {
-          const pt = meshPerimeter[ip];
-          const mx = pt.x - pt.normal.x * 0.035;
-          const my = Math.max(0, pt.y - pt.normal.y * 0.035);
-          meshLinePts.push(new THREE.Vector3(mx, my, 0), new THREE.Vector3(mx, my, pullM));
+      const rowStride = radialSegments + 1;
+      for (let iy = 0; iy < ySegments; iy++) {
+        for (let ir = 0; ir < radialSegments; ir++) {
+          const i0 = iy * rowStride + ir;
+          const i1 = i0 + 1;
+          const i2 = (iy + 1) * rowStride + ir;
+          const i3 = i2 + 1;
+          indices.push(i0, i2, i1);
+          indices.push(i1, i2, i3);
         }
-        // Circumferential rings
-        const numRings = Math.max(2, Math.round(pullM / 0.4));
-        for (let ir = 0; ir <= numRings; ir++) {
-          const rz = ir * (pullM / numRings);
-          for (let ip = 0; ip < meshPerimeter.length - 1; ip++) {
-            const p0 = meshPerimeter[ip];
-            const p1 = meshPerimeter[ip + 1];
-            meshLinePts.push(
-              new THREE.Vector3(p0.x - p0.normal.x * 0.035, Math.max(0, p0.y - p0.normal.y * 0.035), rz),
-              new THREE.Vector3(p1.x - p1.normal.x * 0.035, Math.max(0, p1.y - p1.normal.y * 0.035), rz)
-            );
-          }
-        }
-        const meshGeom = new THREE.BufferGeometry().setFromPoints(meshLinePts);
-        const meshMat = new THREE.LineBasicMaterial({
-          color: 0x0d9488,
+      }
+
+      tunnelGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      tunnelGeom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      tunnelGeom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      tunnelGeom.setIndex(indices);
+
+      const shaftWallMesh = new THREE.Mesh(tunnelGeom, tunnelMat);
+      scene.add(shaftWallMesh);
+
+      const wireGeom = new THREE.WireframeGeometry(tunnelGeom);
+      const wireMat = new THREE.LineBasicMaterial({
+        color: isLightMode ? 0x94a3b8 : 0x334155,
+        transparent: true,
+        opacity: 0.3,
+      });
+      scene.add(new THREE.LineSegments(wireGeom, wireMat));
+
+      // Horizontal Shaft Sump Bottom Face Disc at y = yBottom
+      const sumpPts2D: THREE.Vector2[] = [];
+      for (let ir = 0; ir <= radialSegments; ir++) {
+        const azDeg = azStartDeg + (ir / radialSegments) * azSweepDeg;
+        const azRad = (azDeg * Math.PI) / 180;
+        sumpPts2D.push(new THREE.Vector2(R * Math.sin(azRad), R * Math.cos(azRad)));
+      }
+      if (isHalfShaft) sumpPts2D.push(new THREE.Vector2(0, 0));
+      const sumpShape = new THREE.Shape(sumpPts2D);
+      const sumpGeom = new THREE.ShapeGeometry(sumpShape);
+      sumpGeom.rotateX(-Math.PI / 2);
+      const sumpMat = new THREE.MeshStandardMaterial({
+        color: isLightMode ? 0xfef3c7 : 0x1e1b4b,
+        roughness: 0.9,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+      });
+      const sumpMesh = new THREE.Mesh(sumpGeom, sumpMat);
+      sumpMesh.position.set(0, yBottom, 0);
+      scene.add(sumpMesh);
+
+      // Center Median Wall in Half-Face Shaft Mode when Closed
+      if (isHalfShaft && medianCondition === 'closed') {
+        const medGeom = new THREE.PlaneGeometry(R * 2, pullM);
+        medGeom.rotateY(Math.PI / 2);
+        const medMat = new THREE.MeshStandardMaterial({
+          color: 0x334155,
+          roughness: 0.85,
+          side: THREE.DoubleSide,
           transparent: true,
           opacity: 0.65,
         });
-        const meshLines = new THREE.LineSegments(meshGeom, meshMat);
-        scene.add(meshLines);
+        scene.add(new THREE.Mesh(medGeom, medMat));
       }
-    }
 
-    // Steel Ribs / Lattice Girders (ONLY if enabled)
-    if (
-      (activeLayerFilter === 'ALL' || activeLayerFilter === 'STEEL_RIBS') &&
-      (support.latticeGirderEnabled || support.ismbEnabled)
-    ) {
-      const ribSpacing = support.latticeGirderSpacingM || support.ismbSpacingM || 1.2;
-      const numRibs = Math.max(1, Math.floor(pullM / ribSpacing));
-      const ribMat = new THREE.LineBasicMaterial({
-        color: support.ismbEnabled ? 0xa855f7 : 0x38bdf8,
-        linewidth: 3,
+      // Top Collar Ring (0m) & Bottom Sump Ring (pullM) + Cardinal Markers
+      const makeRingPts = (yLevel: number, rVal: number) => {
+        const pts: THREE.Vector3[] = [];
+        for (let ir = 0; ir <= radialSegments; ir++) {
+          const azDeg = azStartDeg + (ir / radialSegments) * azSweepDeg;
+          const azRad = (azDeg * Math.PI) / 180;
+          pts.push(new THREE.Vector3(rVal * Math.sin(azRad), yLevel, -rVal * Math.cos(azRad)));
+        }
+        if (isHalfShaft) {
+          pts.push(new THREE.Vector3(0, yLevel, -rVal));
+        }
+        return pts;
+      };
+
+      scene.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(makeRingPts(yTop, R)),
+          new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 2 })
+        )
+      );
+      scene.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(makeRingPts(yBottom, R)),
+          new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2 })
+        )
+      );
+
+      // North / East / South / West Cardinal Pins on Top Collar Ring
+      [
+        { az: 0, color: 0xef4444 },
+        { az: 90, color: 0x38bdf8 },
+        { az: 180, color: 0x10b981 },
+        { az: 270, color: 0xa855f7 },
+      ].forEach((cm) => {
+        const rad = (cm.az * Math.PI) / 180;
+        const pin = new THREE.Mesh(
+          new THREE.SphereGeometry(0.18, 12, 12),
+          new THREE.MeshBasicMaterial({ color: cm.color })
+        );
+        pin.position.set(R * Math.sin(rad), yTop, -R * Math.cos(rad));
+        scene.add(pin);
       });
 
-      for (let ir = 1; ir <= numRibs; ir++) {
-        const rz = Math.min(pullM, ir * ribSpacing);
-        const ribPts = perimeterPts.map((p) => new THREE.Vector3(p.x, p.y, rz));
-        const ribGeom = new THREE.BufferGeometry().setFromPoints(ribPts);
-        const ribLine = new THREE.Line(ribGeom, ribMat);
-        scene.add(ribLine);
-      }
-    }
-
-    // Pattern Rockbolts (Systematic Bolting) ONLY if enabled
-    if (
-      (activeLayerFilter === 'ALL' || activeLayerFilter === 'PATTERN_BOLTS') &&
-      support.rockBoltsEnabled
-    ) {
-      const boltLen = support.rockBoltLengthM || 4.0;
-      const inPlaneSpacing = Math.max(1.0, support.rockBoltInPlaneSpacingM || 1.5);
-      const longSpacing = Math.max(1.0, support.rockBoltLongitudinalSpacingM || 1.5);
-      const boltColor = 0x38bdf8;
-
-      const numRings = Math.max(1, Math.floor(pullM / longSpacing));
-      const ringZOffsets = Array.from({ length: numRings }, (_, i) => (i + 0.5) * (pullM / numRings));
-
-      ringZOffsets.forEach((rz) => {
-        // Step along crown & sidewalls by in-plane spacing
-        const crownPts = perimeterPts.filter((p) =>
-          support.rockBoltScope === 'crown_only' || support.rockBoltScope === 'crown'
-            ? p.panel === 'crown'
-            : p.panel !== 'face'
+      // 1. Shotcrete Shaft Wall Ring Shell
+      if (support.shotcreteEnabled) {
+        const scThickM = Math.max(
+          0.05,
+          Math.min(0.25, (support.shotcreteCrownThicknessMm || 100) / 1000)
         );
-        const stride = Math.max(2, Math.round(inPlaneSpacing * 3));
-        for (let ip = 0; ip < crownPts.length; ip += stride) {
-          const pt = crownPts[ip];
-          const startPt = new THREE.Vector3(pt.x, pt.y, rz);
-          // Radial normal outward into rock
-          const normal = new THREE.Vector3(pt.normal.x, pt.normal.y, 0).normalize();
-          const endPt = startPt.clone().add(normal.clone().multiplyScalar(boltLen));
+        const scRingPts = makeRingPts(yTop, R - scThickM);
+        const scBotPts = makeRingPts(yBottom, R - scThickM);
+        scene.add(
+          new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(scRingPts),
+            new THREE.LineBasicMaterial({ color: 0x94a3b8 })
+          )
+        );
+        scene.add(
+          new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(scBotPts),
+            new THREE.LineBasicMaterial({ color: 0x94a3b8 })
+          )
+        );
+      }
 
-          const boltGeom = new THREE.BufferGeometry().setFromPoints([startPt, endPt]);
-          const boltMat = new THREE.LineBasicMaterial({
-            color: boltColor,
-            linewidth: 2,
+      // 2. Wire Mesh Cylindrical Grid on Shaft Wall
+      if (support.wireMeshEnabled) {
+        const meshPts: THREE.Vector3[] = [];
+        const rMesh = R - 0.04;
+        for (let ir = 0; ir <= radialSegments; ir += 2) {
+          const azDeg = azStartDeg + (ir / radialSegments) * azSweepDeg;
+          const azRad = (azDeg * Math.PI) / 180;
+          const mx = rMesh * Math.sin(azRad);
+          const mz = -rMesh * Math.cos(azRad);
+          meshPts.push(new THREE.Vector3(mx, yTop, mz), new THREE.Vector3(mx, yBottom, mz));
+        }
+        const numHoriz = Math.max(3, Math.round(pullM / 0.5));
+        for (let ih = 0; ih <= numHoriz; ih++) {
+          const ry = yTop - (ih / numHoriz) * pullM;
+          const ringP = makeRingPts(ry, rMesh);
+          for (let i = 0; i < ringP.length - 1; i++) {
+            meshPts.push(ringP[i], ringP[i + 1]);
+          }
+        }
+        scene.add(
+          new THREE.LineSegments(
+            new THREE.BufferGeometry().setFromPoints(meshPts),
+            new THREE.LineBasicMaterial({ color: 0x0d9488, transparent: true, opacity: 0.65 })
+          )
+        );
+      }
+
+      // 3. Circular Steel Curb Rings / Circular Lattice Girder Rings (Horizontal Rings Spaced Vertically)
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'STEEL_RIBS') &&
+        (support.latticeGirderEnabled || support.ismbEnabled)
+      ) {
+        const ribSpacing = support.latticeGirderSpacingM || support.ismbSpacingM || 1.2;
+        const numRings = Math.max(1, Math.floor(pullM / ribSpacing));
+        for (let ir = 1; ir <= numRings; ir++) {
+          const ry = Math.max(yBottom, yTop - ir * ribSpacing);
+          const curbTorus = new THREE.Mesh(
+            new THREE.TorusGeometry(R - 0.08, support.ismbEnabled ? 0.075 : 0.055, 8, 48),
+            new THREE.MeshStandardMaterial({
+              color: support.ismbEnabled ? 0xf59e0b : 0xa855f7,
+              metalness: 0.7,
+              roughness: 0.3,
+            })
+          );
+          curbTorus.rotation.x = Math.PI / 2;
+          curbTorus.position.set(0, ry, 0);
+          scene.add(curbTorus);
+        }
+      }
+
+      // 4. Radial Shaft Pattern Rock Bolts Around 360° Shaft Wall
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'PATTERN_BOLTS') &&
+        support.rockBoltsEnabled
+      ) {
+        const boltLen = support.rockBoltLengthM || 4.0;
+        const circumfSp = Math.max(0.8, support.rockBoltInPlaneSpacingM || 1.5);
+        const vertRingSp = Math.max(0.8, support.rockBoltLongitudinalSpacingM || 1.5);
+        const numVertRings = Math.max(1, Math.floor(pullM / vertRingSp));
+        const arcLengthM = (azSweepDeg / 360) * Math.PI * W;
+        const boltsPerRing = Math.max(4, Math.min(24, Math.round(arcLengthM / circumfSp)));
+
+        for (let ir = 0; ir < numVertRings; ir++) {
+          const ry = yTop - ((ir + 0.5) / numVertRings) * pullM;
+          for (let ib = 0; ib < boltsPerRing; ib++) {
+            const azDeg = azStartDeg + ((ib + 0.5) / boltsPerRing) * azSweepDeg;
+            const azRad = (azDeg * Math.PI) / 180;
+            const normal = new THREE.Vector3(Math.sin(azRad), 0, -Math.cos(azRad)).normalize();
+            const startPt = normal.clone().multiplyScalar(R);
+            startPt.y = ry;
+            const endPt = startPt.clone().add(normal.clone().multiplyScalar(boltLen));
+
+            scene.add(
+              new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints([startPt, endPt]),
+                new THREE.LineBasicMaterial({
+                  color: 0x38bdf8,
+                  transparent: true,
+                  opacity: 0.75,
+                })
+              )
+            );
+
+            const plateMesh = new THREE.Mesh(
+              new THREE.BoxGeometry(0.18, 0.18, 0.04),
+              new THREE.MeshStandardMaterial({ color: 0x64748b })
+            );
+            plateMesh.position.copy(startPt);
+            plateMesh.lookAt(endPt);
+            scene.add(plateMesh);
+          }
+        }
+      }
+
+      // 5. Collar Micropile Ring (Pipe Roofing) Around Shaft Perimeter
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'PIPE_ROOFING') &&
+        support.protectionSupportEnabled &&
+        support.pipeRoofingEnabled
+      ) {
+        const pipeLen = Math.min(8.0, support.pipeRoofingLengthM || 6.0);
+        const lookoutRad = ((support.pipeRoofingAngleDeg ?? 7.0) * Math.PI) / 180;
+        const numPipes = 20;
+        for (let ip = 0; ip < numPipes; ip++) {
+          const azDeg = azStartDeg + (ip / numPipes) * azSweepDeg;
+          const azRad = (azDeg * Math.PI) / 180;
+          const normal = new THREE.Vector3(Math.sin(azRad), 0, -Math.cos(azRad)).normalize();
+          const collarPt = normal.clone().multiplyScalar(R + 0.06);
+          collarPt.y = yBottom + 0.35;
+          const dir = new THREE.Vector3(
+            normal.x * Math.sin(lookoutRad),
+            -Math.cos(lookoutRad),
+            normal.z * Math.sin(lookoutRad)
+          ).normalize();
+          const tipPt = collarPt.clone().add(dir.clone().multiplyScalar(pipeLen));
+          const midPt = collarPt.clone().add(tipPt).multiplyScalar(0.5);
+          const pipeMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.055, 0.055, pipeLen, 8),
+            new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.4, metalness: 0.7 })
+          );
+          pipeMesh.position.copy(midPt);
+          pipeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+          scene.add(pipeMesh);
+        }
+      }
+
+      // 6. Shaft Perimeter Spiling Ring (Forepoling)
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'FOREPOLING') &&
+        support.protectionSupportEnabled &&
+        support.forepolingEnabled
+      ) {
+        const spileLen = support.forepolingLengthM || 4.0;
+        const spileRad = ((support.forepolingAngleDeg ?? 10.0) * Math.PI) / 180;
+        const numSpiles = 24;
+        for (let is = 0; is < numSpiles; is++) {
+          const azDeg = azStartDeg + (is / numSpiles) * azSweepDeg;
+          const azRad = (azDeg * Math.PI) / 180;
+          const normal = new THREE.Vector3(Math.sin(azRad), 0, -Math.cos(azRad)).normalize();
+          const collarPt = normal.clone().multiplyScalar(R);
+          collarPt.y = yBottom;
+          const dir = new THREE.Vector3(
+            normal.x * Math.sin(spileRad),
+            -Math.cos(spileRad),
+            normal.z * Math.sin(spileRad)
+          ).normalize();
+          const tipPt = collarPt.clone().add(dir.clone().multiplyScalar(spileLen));
+          scene.add(
+            new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints([collarPt, tipPt]),
+              new THREE.LineBasicMaterial({ color: 0xeab308, linewidth: 2 })
+            )
+          );
+        }
+      }
+
+      // 7. Radial Shaft Spot Bolts in 3D
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'SPOT_BOLTS') &&
+        support.spotBoltsEnabled &&
+        (support.spotBolts || []).length > 0
+      ) {
+        (support.spotBolts || []).forEach((sb) => {
+          const isSelected = selectedBolt?.id === sb.id;
+          const bLen = Math.max(1.0, sb.lengthM || 4.0);
+          const bAngleDeg = sb.angleDeg || 75;
+
+          let azDeg = sb.azimuthDeg;
+          if (azDeg === undefined) {
+            if (sb.xMeters || sb.yMeters) {
+              azDeg = ((Math.atan2(sb.xMeters, sb.yMeters || 0.01) * 180) / Math.PI + 360) % 360;
+            } else {
+              azDeg =
+                sb.panel === 'crown'
+                  ? 45
+                  : sb.panel === 'right_wall'
+                  ? 135
+                  : sb.panel === 'face'
+                  ? 225
+                  : 315;
+            }
+          }
+          const azRad = (azDeg * Math.PI) / 180;
+          const surfNormal = new THREE.Vector3(Math.sin(azRad), 0, -Math.cos(azRad)).normalize();
+          const pullClamped = Math.max(0, Math.min(pullM, sb.pullMeter ?? pullM * 0.5));
+          const collarY = yTop - pullClamped;
+          const collar3D = new THREE.Vector3(
+            R * surfNormal.x,
+            collarY,
+            R * surfNormal.z
+          );
+
+          const tiltFromNormalRad = ((90 - bAngleDeg) * Math.PI) / 180;
+          const boltDir = surfNormal
+            .clone()
+            .multiplyScalar(Math.cos(tiltFromNormalRad))
+            .add(new THREE.Vector3(0, -Math.sin(tiltFromNormalRad), 0))
+            .normalize();
+          const tip3D = collar3D.clone().add(boltDir.clone().multiplyScalar(bLen));
+
+          const boltMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.04, 0.04, bLen, 10),
+            new THREE.MeshStandardMaterial({
+              color: isSelected ? 0xf59e0b : 0xf43f5e,
+              roughness: 0.3,
+              metalness: 0.8,
+              emissive: isSelected ? 0xb45309 : 0x881337,
+              emissiveIntensity: isSelected ? 0.6 : 0.2,
+            })
+          );
+          boltMesh.position.copy(collar3D.clone().add(tip3D).multiplyScalar(0.5));
+          boltMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), boltDir);
+          scene.add(boltMesh);
+
+          const tipConeMesh = new THREE.Mesh(
+            new THREE.ConeGeometry(0.085, 0.22, 10),
+            new THREE.MeshStandardMaterial({ color: isSelected ? 0xfef08a : 0xfb7185 })
+          );
+          tipConeMesh.position.copy(tip3D);
+          tipConeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), boltDir);
+          scene.add(tipConeMesh);
+
+          const plateMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(0.26, 0.26, 0.04),
+            new THREE.MeshStandardMaterial({
+              color: isSelected ? 0xf59e0b : 0xe2e8f0,
+              metalness: 0.85,
+              roughness: 0.25,
+            })
+          );
+          plateMesh.position.copy(collar3D);
+          plateMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), surfNormal);
+          scene.add(plateMesh);
+
+          if (isSelected && showNormals) {
+            const normalRayEnd = collar3D.clone().add(surfNormal.clone().multiplyScalar(2.0));
+            const normalLine = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints([collar3D, normalRayEnd]),
+              new THREE.LineDashedMaterial({ color: 0x38bdf8, dashSize: 0.15, gapSize: 0.1 })
+            );
+            normalLine.computeLineDistances();
+            scene.add(normalLine);
+          }
+        });
+      }
+    } else {
+      // ======================================================================
+      // STANDARD HORIZONTAL TUNNEL 3D SUPPORT SYSTEM
+      // ======================================================================
+      const gridHelper = new THREE.GridHelper(Math.max(20, W * 2.5), 20, 0x0284c7, 0x1e293b);
+      gridHelper.position.set(0, 0, pullM * 0.5);
+      scene.add(gridHelper);
+
+      // 4. Render Procedural 3D Tunnel Shell Mesh
+      const perimeterPts = generateTunnelPerimeterPoints(shape, W, H, splH, 36);
+      const zSegments = Math.max(4, Math.round(pullM * 2));
+      const zStep = pullM / zSegments;
+
+      const vertices: number[] = [];
+      const normals: number[] = [];
+      const uvs: number[] = [];
+      const indices: number[] = [];
+
+      const numPts = perimeterPts.length;
+
+      for (let iz = 0; iz <= zSegments; iz++) {
+        const z = iz * zStep;
+        for (let ip = 0; ip < numPts; ip++) {
+          const pt = perimeterPts[ip];
+          vertices.push(pt.x, pt.y, z);
+          normals.push(-pt.normal.x, -pt.normal.y, 0);
+          uvs.push(ip / (numPts - 1), iz / zSegments);
+        }
+      }
+
+      for (let iz = 0; iz < zSegments; iz++) {
+        for (let ip = 0; ip < numPts - 1; ip++) {
+          const i0 = iz * numPts + ip;
+          const i1 = i0 + 1;
+          const i2 = (iz + 1) * numPts + ip;
+          const i3 = i2 + 1;
+          indices.push(i0, i2, i1);
+          indices.push(i1, i2, i3);
+        }
+      }
+
+      tunnelGeom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      tunnelGeom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      tunnelGeom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      tunnelGeom.setIndex(indices);
+
+      const tunnelMesh = new THREE.Mesh(tunnelGeom, tunnelMat);
+      scene.add(tunnelMesh);
+
+      const wireGeom = new THREE.WireframeGeometry(tunnelGeom);
+      const wireMat = new THREE.LineBasicMaterial({
+        color: isLightMode ? 0x94a3b8 : 0x334155,
+        transparent: true,
+        opacity: 0.35,
+      });
+      const wireLines = new THREE.LineSegments(wireGeom, wireMat);
+      scene.add(wireLines);
+
+      const faceShape = new THREE.Shape();
+      faceShape.moveTo(perimeterPts[0].x, perimeterPts[0].y);
+      for (let i = 1; i < perimeterPts.length; i++) {
+        faceShape.lineTo(perimeterPts[i].x, perimeterPts[i].y);
+      }
+      faceShape.closePath();
+
+      const faceGeom = new THREE.ShapeGeometry(faceShape);
+      const faceMat = new THREE.MeshStandardMaterial({
+        color: isLightMode ? 0xfef3c7 : 0x1e1b4b,
+        roughness: 0.9,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+      });
+      const faceMesh = new THREE.Mesh(faceGeom, faceMat);
+      faceMesh.position.set(0, 0, pullM);
+      scene.add(faceMesh);
+
+      const facePerimeterPts3D: THREE.Vector3[] = perimeterPts.map(
+        (p) => new THREE.Vector3(p.x, p.y, pullM)
+      );
+      facePerimeterPts3D.push(new THREE.Vector3(perimeterPts[0].x, perimeterPts[0].y, pullM));
+      const faceOutlineGeom = new THREE.BufferGeometry().setFromPoints(facePerimeterPts3D);
+      const faceOutlineMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2 });
+      const faceOutlineLine = new THREE.Line(faceOutlineGeom, faceOutlineMat);
+      scene.add(faceOutlineLine);
+
+      const portalPerimeterPts3D: THREE.Vector3[] = perimeterPts.map(
+        (p) => new THREE.Vector3(p.x, p.y, 0)
+      );
+      portalPerimeterPts3D.push(new THREE.Vector3(perimeterPts[0].x, perimeterPts[0].y, 0));
+      const portalOutlineGeom = new THREE.BufferGeometry().setFromPoints(portalPerimeterPts3D);
+      const portalOutlineMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 2 });
+      const portalOutlineLine = new THREE.Line(portalOutlineGeom, portalOutlineMat);
+      scene.add(portalOutlineLine);
+
+      if (support.shotcreteEnabled) {
+        const scCrownOffM = Math.max(0.04, Math.min(0.25, (support.shotcreteCrownThicknessMm || 100) / 1000));
+        const scWallOffM =
+          support.shotcreteScope === 'crown_and_wall'
+            ? Math.max(0.03, Math.min(0.2, (support.shotcreteWallThicknessMm || 75) / 1000))
+            : 0;
+
+        const scPerimeter = perimeterPts.filter((p) =>
+          support.shotcreteScope === 'crown_and_wall' ? true : p.panel === 'crown'
+        );
+
+        if (scPerimeter.length >= 2) {
+          const scGeom = new THREE.BufferGeometry();
+          const scVerts: number[] = [];
+          const scNorms: number[] = [];
+          const scIndices: number[] = [];
+          const numScPts = scPerimeter.length;
+
+          for (let iz = 0; iz <= zSegments; iz++) {
+            const z = iz * zStep;
+            for (let ip = 0; ip < numScPts; ip++) {
+              const pt = scPerimeter[ip];
+              const off = pt.panel === 'crown' ? scCrownOffM : scWallOffM;
+              scVerts.push(pt.x - pt.normal.x * off, Math.max(0, pt.y - pt.normal.y * off), z);
+              scNorms.push(-pt.normal.x, -pt.normal.y, 0);
+            }
+          }
+
+          for (let iz = 0; iz < zSegments; iz++) {
+            for (let ip = 0; ip < numScPts - 1; ip++) {
+              const i0 = iz * numScPts + ip;
+              const i1 = i0 + 1;
+              const i2 = (iz + 1) * numScPts + ip;
+              const i3 = i2 + 1;
+              scIndices.push(i0, i2, i1);
+              scIndices.push(i1, i2, i3);
+            }
+          }
+
+          scGeom.setAttribute('position', new THREE.Float32BufferAttribute(scVerts, 3));
+          scGeom.setAttribute('normal', new THREE.Float32BufferAttribute(scNorms, 3));
+          scGeom.setIndex(scIndices);
+
+          const scMat = new THREE.MeshStandardMaterial({
+            color: isLightMode ? 0x94a3b8 : 0x475569,
+            roughness: 0.9,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.85,
+          });
+          const scMesh = new THREE.Mesh(scGeom, scMat);
+          scene.add(scMesh);
+        }
+      }
+
+      if (support.wireMeshEnabled) {
+        const meshPerimeter = perimeterPts.filter((p) =>
+          support.wireMeshScope === 'crown_and_wall' ? true : p.panel === 'crown'
+        );
+        if (meshPerimeter.length >= 2) {
+          const meshLinePts: THREE.Vector3[] = [];
+          for (let ip = 0; ip < meshPerimeter.length; ip += 2) {
+            const pt = meshPerimeter[ip];
+            const mx = pt.x - pt.normal.x * 0.035;
+            const my = Math.max(0, pt.y - pt.normal.y * 0.035);
+            meshLinePts.push(new THREE.Vector3(mx, my, 0), new THREE.Vector3(mx, my, pullM));
+          }
+          const numRings = Math.max(2, Math.round(pullM / 0.4));
+          for (let ir = 0; ir <= numRings; ir++) {
+            const rz = ir * (pullM / numRings);
+            for (let ip = 0; ip < meshPerimeter.length - 1; ip++) {
+              const p0 = meshPerimeter[ip];
+              const p1 = meshPerimeter[ip + 1];
+              meshLinePts.push(
+                new THREE.Vector3(p0.x - p0.normal.x * 0.035, Math.max(0, p0.y - p0.normal.y * 0.035), rz),
+                new THREE.Vector3(p1.x - p1.normal.x * 0.035, Math.max(0, p1.y - p1.normal.y * 0.035), rz)
+              );
+            }
+          }
+          const meshGeom = new THREE.BufferGeometry().setFromPoints(meshLinePts);
+          const meshMat = new THREE.LineBasicMaterial({
+            color: 0x0d9488,
             transparent: true,
             opacity: 0.65,
           });
-          const boltLine = new THREE.Line(boltGeom, boltMat);
-          scene.add(boltLine);
-
-          // Small plate at collar
-          const plateGeom = new THREE.BoxGeometry(0.18, 0.18, 0.04);
-          const plateMat = new THREE.MeshStandardMaterial({ color: 0x64748b });
-          const plateMesh = new THREE.Mesh(plateGeom, plateMat);
-          plateMesh.position.copy(startPt);
-          plateMesh.lookAt(endPt);
-          scene.add(plateMesh);
+          const meshLines = new THREE.LineSegments(meshGeom, meshMat);
+          scene.add(meshLines);
         }
-      });
-    }
+      }
 
-    // Pipe Roofing (Forepoling Umbrella Canopy) ONLY if protection support enabled AND pipe roofing enabled
-    if (
-      (activeLayerFilter === 'ALL' || activeLayerFilter === 'PIPE_ROOFING') &&
-      support.protectionSupportEnabled &&
-      support.pipeRoofingEnabled
-    ) {
-      const pipeLen = support.pipeRoofingLengthM || 12.0;
-      const lookoutAngleDeg = support.pipeRoofingAngleDeg ?? 7.0;
-      const lookoutRad = (lookoutAngleDeg * Math.PI) / 180;
-      const numPipes = Math.max(16, Math.min(48, Math.round((W * 1.6) / 0.4)));
-
-      // Umbrella crown arch points
-      const crownArchPts = perimeterPts.filter((p) => p.panel === 'crown');
-      const pipeStep = Math.max(1, Math.floor(crownArchPts.length / numPipes));
-
-      for (let ip = 0; ip < crownArchPts.length; ip += pipeStep) {
-        const pt = crownArchPts[ip];
-        // Starting collar position: typically just behind the face or at last girder (e.g. at pullM * 0.7 or pullM)
-        const collarPt = new THREE.Vector3(pt.x, pt.y, Math.max(0, pullM - 0.5));
-
-        // Pipe vector: drives forward into +Z, flared outward by lookoutRad relative to normal
-        const normal = new THREE.Vector3(pt.normal.x, pt.normal.y, 0).normalize();
-        const dir = new THREE.Vector3(
-          normal.x * Math.sin(lookoutRad),
-          normal.y * Math.sin(lookoutRad),
-          Math.cos(lookoutRad)
-        ).normalize();
-
-        const tipPt = collarPt.clone().add(dir.clone().multiplyScalar(pipeLen));
-
-        // Create 3D Pipe Cylinder
-        const pipeCylGeom = new THREE.CylinderGeometry(0.057, 0.057, pipeLen, 8);
-        const pipeCylMat = new THREE.MeshStandardMaterial({
-          color: 0xf97316, // Orange casing pipe
-          roughness: 0.4,
-          metalness: 0.7,
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'STEEL_RIBS') &&
+        (support.latticeGirderEnabled || support.ismbEnabled)
+      ) {
+        const ribSpacing = support.latticeGirderSpacingM || support.ismbSpacingM || 1.2;
+        const numRibs = Math.max(1, Math.floor(pullM / ribSpacing));
+        const ribMat = new THREE.LineBasicMaterial({
+          color: support.ismbEnabled ? 0xa855f7 : 0x38bdf8,
+          linewidth: 3,
         });
-        const pipeMesh = new THREE.Mesh(pipeCylGeom, pipeCylMat);
 
-        // Position cylinder at midpoint and orient along dir
-        const midPt = collarPt.clone().add(tipPt).multiplyScalar(0.5);
-        pipeMesh.position.copy(midPt);
-        pipeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-        scene.add(pipeMesh);
-
-        // Perforation holes or collar ring
-        const collarRingGeom = new THREE.TorusGeometry(0.08, 0.02, 6, 12);
-        const collarRingMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
-        const collarRingMesh = new THREE.Mesh(collarRingGeom, collarRingMat);
-        collarRingMesh.position.copy(collarPt);
-        scene.add(collarRingMesh);
-      }
-    }
-
-    // Forepoling Rebar Spiles ONLY if protection support enabled AND forepoling enabled
-    if (
-      (activeLayerFilter === 'ALL' || activeLayerFilter === 'FOREPOLING') &&
-      support.protectionSupportEnabled &&
-      support.forepolingEnabled
-    ) {
-      const spileLen = support.forepolingLengthM || 4.0;
-      const spileAngleDeg = support.forepolingAngleDeg ?? 10.0;
-      const spileRad = (spileAngleDeg * Math.PI) / 180;
-      const crownArchPts = perimeterPts.filter((p) => p.panel === 'crown');
-      const step = Math.max(1, Math.floor(crownArchPts.length / 20));
-
-      for (let ip = 0; ip < crownArchPts.length; ip += step) {
-        const pt = crownArchPts[ip];
-        const collarPt = new THREE.Vector3(pt.x, pt.y, pullM);
-        const normal = new THREE.Vector3(pt.normal.x, pt.normal.y, 0).normalize();
-        const dir = new THREE.Vector3(
-          normal.x * Math.sin(spileRad),
-          normal.y * Math.sin(spileRad),
-          Math.cos(spileRad)
-        ).normalize();
-        const tipPt = collarPt.clone().add(dir.clone().multiplyScalar(spileLen));
-
-        const spileGeom = new THREE.BufferGeometry().setFromPoints([collarPt, tipPt]);
-        const spileMat = new THREE.LineBasicMaterial({ color: 0xeab308, linewidth: 3 });
-        const spileLine = new THREE.Line(spileGeom, spileMat);
-        scene.add(spileLine);
-      }
-    }
-
-    // Spot Bolts (Individual targeted rockbolts in 3D) - ONLY if spotBoltsEnabled AND at least 1 spot bolt given
-    if (
-      (activeLayerFilter === 'ALL' || activeLayerFilter === 'SPOT_BOLTS') &&
-      support.spotBoltsEnabled &&
-      (support.spotBolts || []).length > 0
-    ) {
-      const spotBoltsList = support.spotBolts || [];
-
-      spotBoltsList.forEach((sb) => {
-        const isSelected = selectedBolt?.id === sb.id;
-        const bLen = Math.max(1.0, sb.lengthM || 4.0);
-        const bAngleDeg = sb.angleDeg || 65;
-        const bAzimuthDeg = sb.azimuthDeg ?? 45;
-
-        // Compute 3D Collar Point on tunnel surface
-        let collarX = sb.xMeters ?? 0;
-        let collarY = sb.yMeters ?? H * 0.8;
-        let collarZ = Math.max(0, Math.min(pullM, sb.pullMeter ?? pullM * 0.5));
-
-        // Find closest surface normal vector
-        let surfNormal = new THREE.Vector3(0, 1, 0);
-        if (sb.panel === 'face') {
-          surfNormal.set(0, 0, 1);
-          collarZ = pullM;
-        } else if (sb.panel === 'left_wall') {
-          surfNormal.set(-1, 0, 0);
-          collarX = -W / 2;
-        } else if (sb.panel === 'right_wall') {
-          surfNormal.set(1, 0, 0);
-          collarX = W / 2;
-        } else {
-          // Crown Arch: estimate radial normal from collarX, collarY
-          const dx = collarX;
-          const dy = Math.max(0.1, collarY - splH);
-          surfNormal.set(dx / (W / 2), dy / Math.max(0.5, H - splH), 0).normalize();
+        for (let ir = 1; ir <= numRibs; ir++) {
+          const rz = Math.min(pullM, ir * ribSpacing);
+          const ribPts = perimeterPts.map((p) => new THREE.Vector3(p.x, p.y, rz));
+          const ribGeom = new THREE.BufferGeometry().setFromPoints(ribPts);
+          const ribLine = new THREE.Line(ribGeom, ribMat);
+          scene.add(ribLine);
         }
+      }
 
-        // Compute 3D Direction Vector based on bAngleDeg (relative to surface normal or vertical) and bAzimuthDeg
-        // bAngleDeg = 90 means exactly normal to surface; < 90 tilts away
-        const angleRad = ((90 - bAngleDeg) * Math.PI) / 180;
-        const azRad = (bAzimuthDeg * Math.PI) / 180;
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'PATTERN_BOLTS') &&
+        support.rockBoltsEnabled
+      ) {
+        const boltLen = support.rockBoltLengthM || 4.0;
+        const inPlaneSpacing = Math.max(1.0, support.rockBoltInPlaneSpacingM || 1.5);
+        const longSpacing = Math.max(1.0, support.rockBoltLongitudinalSpacingM || 1.5);
+        const boltColor = 0x38bdf8;
 
-        // Tangent vector along tunnel axis Z
-        const tangentZ = new THREE.Vector3(0, 0, Math.cos(azRad));
-        const tangentTrans = new THREE.Vector3(-surfNormal.y, surfNormal.x, 0).multiplyScalar(Math.sin(azRad));
-        const tangentDir = tangentZ.add(tangentTrans).normalize();
+        const numRings = Math.max(1, Math.floor(pullM / longSpacing));
+        const ringZOffsets = Array.from({ length: numRings }, (_, i) => (i + 0.5) * (pullM / numRings));
 
-        const boltDir = surfNormal
-          .clone()
-          .multiplyScalar(Math.cos(angleRad))
-          .add(tangentDir.clone().multiplyScalar(Math.sin(angleRad)))
-          .normalize();
+        ringZOffsets.forEach((rz) => {
+          const crownPts = perimeterPts.filter((p) =>
+            support.rockBoltScope === 'crown_only' || support.rockBoltScope === 'crown'
+              ? p.panel === 'crown'
+              : p.panel !== 'face'
+          );
+          const stride = Math.max(2, Math.round(inPlaneSpacing * 3));
+          for (let ip = 0; ip < crownPts.length; ip += stride) {
+            const pt = crownPts[ip];
+            const startPt = new THREE.Vector3(pt.x, pt.y, rz);
+            const normal = new THREE.Vector3(pt.normal.x, pt.normal.y, 0).normalize();
+            const endPt = startPt.clone().add(normal.clone().multiplyScalar(boltLen));
 
-        const collar3D = new THREE.Vector3(collarX, collarY, collarZ);
-        const tip3D = collar3D.clone().add(boltDir.clone().multiplyScalar(bLen));
+            const boltGeom = new THREE.BufferGeometry().setFromPoints([startPt, endPt]);
+            const boltMat = new THREE.LineBasicMaterial({
+              color: boltColor,
+              linewidth: 2,
+              transparent: true,
+              opacity: 0.65,
+            });
+            const boltLine = new THREE.Line(boltGeom, boltMat);
+            scene.add(boltLine);
 
-        // 3D Bolt Shank Cylinder
-        const boltCylGeom = new THREE.CylinderGeometry(0.035, 0.035, bLen, 10);
-        const boltCylMat = new THREE.MeshStandardMaterial({
-          color: isSelected ? 0xf59e0b : 0xf43f5e,
-          roughness: 0.3,
-          metalness: 0.8,
-          emissive: isSelected ? 0xb45309 : 0x881337,
-          emissiveIntensity: isSelected ? 0.6 : 0.2,
-        });
-        const boltMesh = new THREE.Mesh(boltCylGeom, boltCylMat);
-        const midPoint = collar3D.clone().add(tip3D).multiplyScalar(0.5);
-        boltMesh.position.copy(midPoint);
-        boltMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), boltDir);
-        scene.add(boltMesh);
-
-        // Direction Arrow Tip / Cone at bolt tip penetrating rock
-        const tipConeGeom = new THREE.ConeGeometry(0.08, 0.22, 10);
-        const tipConeMat = new THREE.MeshStandardMaterial({
-          color: isSelected ? 0xfef08a : 0xfb7185,
-        });
-        const tipConeMesh = new THREE.Mesh(tipConeGeom, tipConeMat);
-        tipConeMesh.position.copy(tip3D);
-        tipConeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), boltDir);
-        scene.add(tipConeMesh);
-
-        // Anchor Bearing Plate (Domed Square Steel Washer) on rock face
-        const plateGeom = new THREE.BoxGeometry(0.26, 0.26, 0.04);
-        const plateMat = new THREE.MeshStandardMaterial({
-          color: isSelected ? 0xf59e0b : 0xe2e8f0,
-          metalness: 0.85,
-          roughness: 0.25,
-        });
-        const plateMesh = new THREE.Mesh(plateGeom, plateMat);
-        plateMesh.position.copy(collar3D);
-        plateMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), surfNormal);
-        scene.add(plateMesh);
-
-        // Hex Nut on Washer
-        const nutGeom = new THREE.CylinderGeometry(0.05, 0.05, 0.06, 6);
-        const nutMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9 });
-        const nutMesh = new THREE.Mesh(nutGeom, nutMat);
-        nutMesh.position.copy(collar3D.clone().add(surfNormal.clone().multiplyScalar(0.04)));
-        scene.add(nutMesh);
-
-        // If selected: show Normal Vector ray and Angle Arc Gizmo
-        if (isSelected && showNormals) {
-          // Normal guide ray (cyan dashed line)
-          const normalRayLen = 2.0;
-          const normalRayEnd = collar3D.clone().add(surfNormal.clone().multiplyScalar(normalRayLen));
-          const normalGeom = new THREE.BufferGeometry().setFromPoints([collar3D, normalRayEnd]);
-          const normalMat = new THREE.LineDashedMaterial({
-            color: 0x38bdf8,
-            dashSize: 0.15,
-            gapSize: 0.1,
-            linewidth: 2,
-          });
-          const normalLine = new THREE.Line(normalGeom, normalMat);
-          normalLine.computeLineDistances();
-          scene.add(normalLine);
-
-          // Angle arc arc points between surfNormal and boltDir
-          const arcPts: THREE.Vector3[] = [];
-          const arcRadius = 1.2;
-          const numArcSteps = 16;
-          for (let ia = 0; ia <= numArcSteps; ia++) {
-            const t = ia / numArcSteps;
-            const interpDir = new THREE.Vector3()
-              .lerpVectors(surfNormal, boltDir, t)
-              .normalize()
-              .multiplyScalar(arcRadius);
-            arcPts.push(collar3D.clone().add(interpDir));
+            const plateGeom = new THREE.BoxGeometry(0.18, 0.18, 0.04);
+            const plateMat = new THREE.MeshStandardMaterial({ color: 0x64748b });
+            const plateMesh = new THREE.Mesh(plateGeom, plateMat);
+            plateMesh.position.copy(startPt);
+            plateMesh.lookAt(endPt);
+            scene.add(plateMesh);
           }
-          const arcGeom = new THREE.BufferGeometry().setFromPoints(arcPts);
-          const arcMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 3 });
-          const arcLine = new THREE.Line(arcGeom, arcMat);
-          scene.add(arcLine);
+        });
+      }
 
-          // Selection highlight sphere halo at collar
-          const haloGeom = new THREE.RingGeometry(0.2, 0.35, 24);
-          const haloMat = new THREE.MeshBasicMaterial({
-            color: 0xf59e0b,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.75,
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'PIPE_ROOFING') &&
+        support.protectionSupportEnabled &&
+        support.pipeRoofingEnabled
+      ) {
+        const pipeLen = support.pipeRoofingLengthM || 12.0;
+        const lookoutAngleDeg = support.pipeRoofingAngleDeg ?? 7.0;
+        const lookoutRad = (lookoutAngleDeg * Math.PI) / 180;
+        const numPipes = Math.max(16, Math.min(48, Math.round((W * 1.6) / 0.4)));
+
+        const crownArchPts = perimeterPts.filter((p) => p.panel === 'crown');
+        const pipeStep = Math.max(1, Math.floor(crownArchPts.length / numPipes));
+
+        for (let ip = 0; ip < crownArchPts.length; ip += pipeStep) {
+          const pt = crownArchPts[ip];
+          const collarPt = new THREE.Vector3(pt.x, pt.y, Math.max(0, pullM - 0.5));
+          const normal = new THREE.Vector3(pt.normal.x, pt.normal.y, 0).normalize();
+          const dir = new THREE.Vector3(
+            normal.x * Math.sin(lookoutRad),
+            normal.y * Math.sin(lookoutRad),
+            Math.cos(lookoutRad)
+          ).normalize();
+
+          const tipPt = collarPt.clone().add(dir.clone().multiplyScalar(pipeLen));
+
+          const pipeCylGeom = new THREE.CylinderGeometry(0.057, 0.057, pipeLen, 8);
+          const pipeCylMat = new THREE.MeshStandardMaterial({
+            color: 0xf97316,
+            roughness: 0.4,
+            metalness: 0.7,
           });
-          const haloMesh = new THREE.Mesh(haloGeom, haloMat);
-          haloMesh.position.copy(collar3D.clone().add(surfNormal.clone().multiplyScalar(0.02)));
-          haloMesh.lookAt(collar3D.clone().add(surfNormal));
-          scene.add(haloMesh);
+          const pipeMesh = new THREE.Mesh(pipeCylGeom, pipeCylMat);
+
+          const midPt = collarPt.clone().add(tipPt).multiplyScalar(0.5);
+          pipeMesh.position.copy(midPt);
+          pipeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+          scene.add(pipeMesh);
+
+          const collarRingGeom = new THREE.TorusGeometry(0.08, 0.02, 6, 12);
+          const collarRingMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+          const collarRingMesh = new THREE.Mesh(collarRingGeom, collarRingMat);
+          collarRingMesh.position.copy(collarPt);
+          scene.add(collarRingMesh);
         }
-      });
+      }
+
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'FOREPOLING') &&
+        support.protectionSupportEnabled &&
+        support.forepolingEnabled
+      ) {
+        const spileLen = support.forepolingLengthM || 4.0;
+        const spileAngleDeg = support.forepolingAngleDeg ?? 10.0;
+        const spileRad = (spileAngleDeg * Math.PI) / 180;
+        const crownArchPts = perimeterPts.filter((p) => p.panel === 'crown');
+        const step = Math.max(1, Math.floor(crownArchPts.length / 20));
+
+        for (let ip = 0; ip < crownArchPts.length; ip += step) {
+          const pt = crownArchPts[ip];
+          const collarPt = new THREE.Vector3(pt.x, pt.y, pullM);
+          const normal = new THREE.Vector3(pt.normal.x, pt.normal.y, 0).normalize();
+          const dir = new THREE.Vector3(
+            normal.x * Math.sin(spileRad),
+            normal.y * Math.sin(spileRad),
+            Math.cos(spileRad)
+          ).normalize();
+          const tipPt = collarPt.clone().add(dir.clone().multiplyScalar(spileLen));
+
+          const spileGeom = new THREE.BufferGeometry().setFromPoints([collarPt, tipPt]);
+          const spileMat = new THREE.LineBasicMaterial({ color: 0xeab308, linewidth: 3 });
+          const spileLine = new THREE.Line(spileGeom, spileMat);
+          scene.add(spileLine);
+        }
+      }
+
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'SPOT_BOLTS') &&
+        support.spotBoltsEnabled &&
+        (support.spotBolts || []).length > 0
+      ) {
+        const spotBoltsList = support.spotBolts || [];
+
+        spotBoltsList.forEach((sb) => {
+          const isSelected = selectedBolt?.id === sb.id;
+          const bLen = Math.max(1.0, sb.lengthM || 4.0);
+          const bAngleDeg = sb.angleDeg || 65;
+          const bAzimuthDeg = sb.azimuthDeg ?? 45;
+
+          let collarX = sb.xMeters ?? 0;
+          let collarY = sb.yMeters ?? H * 0.8;
+          let collarZ = Math.max(0, Math.min(pullM, sb.pullMeter ?? pullM * 0.5));
+
+          let surfNormal = new THREE.Vector3(0, 1, 0);
+          if (sb.panel === 'face') {
+            surfNormal.set(0, 0, 1);
+            collarZ = pullM;
+          } else if (sb.panel === 'left_wall') {
+            surfNormal.set(-1, 0, 0);
+            collarX = -W / 2;
+          } else if (sb.panel === 'right_wall') {
+            surfNormal.set(1, 0, 0);
+            collarX = W / 2;
+          } else {
+            const dx = collarX;
+            const dy = Math.max(0.1, collarY - splH);
+            surfNormal.set(dx / (W / 2), dy / Math.max(0.5, H - splH), 0).normalize();
+          }
+
+          const angleRad = ((90 - bAngleDeg) * Math.PI) / 180;
+          const azRad = (bAzimuthDeg * Math.PI) / 180;
+
+          const tangentZ = new THREE.Vector3(0, 0, Math.cos(azRad));
+          const tangentTrans = new THREE.Vector3(-surfNormal.y, surfNormal.x, 0).multiplyScalar(Math.sin(azRad));
+          const tangentDir = tangentZ.add(tangentTrans).normalize();
+
+          const boltDir = surfNormal
+            .clone()
+            .multiplyScalar(Math.cos(angleRad))
+            .add(tangentDir.clone().multiplyScalar(Math.sin(angleRad)))
+            .normalize();
+
+          const collar3D = new THREE.Vector3(collarX, collarY, collarZ);
+          const tip3D = collar3D.clone().add(boltDir.clone().multiplyScalar(bLen));
+
+          const boltCylGeom = new THREE.CylinderGeometry(0.035, 0.035, bLen, 10);
+          const boltCylMat = new THREE.MeshStandardMaterial({
+            color: isSelected ? 0xf59e0b : 0xf43f5e,
+            roughness: 0.3,
+            metalness: 0.8,
+            emissive: isSelected ? 0xb45309 : 0x881337,
+            emissiveIntensity: isSelected ? 0.6 : 0.2,
+          });
+          const boltMesh = new THREE.Mesh(boltCylGeom, boltCylMat);
+          const midPoint = collar3D.clone().add(tip3D).multiplyScalar(0.5);
+          boltMesh.position.copy(midPoint);
+          boltMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), boltDir);
+          scene.add(boltMesh);
+
+          const tipConeGeom = new THREE.ConeGeometry(0.08, 0.22, 10);
+          const tipConeMat = new THREE.MeshStandardMaterial({
+            color: isSelected ? 0xfef08a : 0xfb7185,
+          });
+          const tipConeMesh = new THREE.Mesh(tipConeGeom, tipConeMat);
+          tipConeMesh.position.copy(tip3D);
+          tipConeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), boltDir);
+          scene.add(tipConeMesh);
+
+          const plateGeom = new THREE.BoxGeometry(0.26, 0.26, 0.04);
+          const plateMat = new THREE.MeshStandardMaterial({
+            color: isSelected ? 0xf59e0b : 0xe2e8f0,
+            metalness: 0.85,
+            roughness: 0.25,
+          });
+          const plateMesh = new THREE.Mesh(plateGeom, plateMat);
+          plateMesh.position.copy(collar3D);
+          plateMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), surfNormal);
+          scene.add(plateMesh);
+
+          const nutGeom = new THREE.CylinderGeometry(0.05, 0.05, 0.06, 6);
+          const nutMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9 });
+          const nutMesh = new THREE.Mesh(nutGeom, nutMat);
+          nutMesh.position.copy(collar3D.clone().add(surfNormal.clone().multiplyScalar(0.04)));
+          scene.add(nutMesh);
+
+          if (isSelected && showNormals) {
+            const normalRayLen = 2.0;
+            const normalRayEnd = collar3D.clone().add(surfNormal.clone().multiplyScalar(normalRayLen));
+            const normalGeom = new THREE.BufferGeometry().setFromPoints([collar3D, normalRayEnd]);
+            const normalMat = new THREE.LineDashedMaterial({
+              color: 0x38bdf8,
+              dashSize: 0.15,
+              gapSize: 0.1,
+              linewidth: 2,
+            });
+            const normalLine = new THREE.Line(normalGeom, normalMat);
+            normalLine.computeLineDistances();
+            scene.add(normalLine);
+
+            const arcPts: THREE.Vector3[] = [];
+            const arcRadius = 1.2;
+            const numArcSteps = 16;
+            for (let ia = 0; ia <= numArcSteps; ia++) {
+              const t = ia / numArcSteps;
+              const interpDir = new THREE.Vector3()
+                .lerpVectors(surfNormal, boltDir, t)
+                .normalize()
+                .multiplyScalar(arcRadius);
+              arcPts.push(collar3D.clone().add(interpDir));
+            }
+            const arcGeom = new THREE.BufferGeometry().setFromPoints(arcPts);
+            const arcMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 3 });
+            const arcLine = new THREE.Line(arcGeom, arcMat);
+            scene.add(arcLine);
+
+            const haloGeom = new THREE.RingGeometry(0.2, 0.35, 24);
+            const haloMat = new THREE.MeshBasicMaterial({
+              color: 0xf59e0b,
+              side: THREE.DoubleSide,
+              transparent: true,
+              opacity: 0.75,
+            });
+            const haloMesh = new THREE.Mesh(haloGeom, haloMat);
+            haloMesh.position.copy(collar3D.clone().add(surfNormal.clone().multiplyScalar(0.02)));
+            haloMesh.lookAt(collar3D.clone().add(surfNormal));
+            scene.add(haloMesh);
+          }
+        });
+      }
     }
 
     // 5. Animation / Render Loop
@@ -826,7 +1241,6 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
         c.theta -= dx * 0.007;
         c.phi += dy * 0.007;
       } else if (c.isPanning) {
-        // Pan target in camera space
         const panSpeed = c.radius * 0.0015;
         const forward = new THREE.Vector3();
         camera.getWorldDirection(forward);
@@ -897,6 +1311,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
     splH,
     pullM,
     shape,
+    isVerticalShaft,
   ]);
 
   // Click on Canvas to Add or Select Spot Bolt
@@ -915,6 +1330,52 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
     raycaster.setFromCamera(new THREE.Vector2(mouseX, mouseY), camera);
 
     const intersects = raycaster.intersectObjects(scene.children, true);
+
+    if (isVerticalShaft) {
+      const yTop = pullM / 2;
+      const yBottom = -pullM / 2;
+      const validShaftHit = intersects.find(
+        (h) => h.point.y >= yBottom - 0.1 && h.point.y <= yTop + 0.1
+      );
+      if (validShaftHit) {
+        const pt = validShaftHit.point;
+        const azDeg = ((Math.atan2(pt.x, -pt.z) * 180) / Math.PI + 360) % 360;
+        const panel: FieldPanelId =
+          azDeg < 90
+            ? 'crown'
+            : azDeg < 180
+            ? 'right_wall'
+            : azDeg < 270
+            ? 'face'
+            : 'left_wall';
+        const pullMeter = Number(Math.max(0, Math.min(pullM, yTop - pt.y)).toFixed(2));
+        const R = W / 2;
+        const azRad = (azDeg * Math.PI) / 180;
+        const xMeters = Number((R * Math.sin(azRad)).toFixed(2));
+        const yMeters = Number((R * Math.cos(azRad)).toFixed(2));
+        const nextIdx = (support.spotBolts?.length || 0) + 1;
+        const newBolt: FieldSpotBoltItem = {
+          id: `sb-${Date.now()}`,
+          label: `SB-${nextIdx}`,
+          panel,
+          u: Number(((azDeg % 90) / 90).toFixed(3)),
+          v: Number((pullMeter / pullM).toFixed(3)),
+          pullMeter,
+          xMeters,
+          yMeters,
+          lengthM: newSpotLengthM,
+          angleDeg: newSpotAngleDeg,
+          azimuthDeg: Math.round(azDeg),
+        };
+        onUpdateSupport({
+          spotBoltsEnabled: true,
+          spotBolts: [...(support.spotBolts || []), newBolt],
+        });
+        setSelectedBoltId(newBolt.id);
+      }
+      return;
+    }
+
     // Find intersection on tunnel shell or face
     const validHit = intersects.find(
       (h) => h.point.y >= 0 && h.point.z >= 0 && h.point.z <= pullM * 1.05
@@ -1006,13 +1467,21 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
           </div>
           <div>
             <div className="text-xs font-black uppercase text-rose-400 flex items-center gap-2">
-              <span>Interactive 3D Tunnel &amp; Support System</span>
+              <span>
+                {isVerticalShaft
+                  ? 'Interactive 3D Vertical Shaft & Support System'
+                  : 'Interactive 3D Tunnel & Support System'}
+              </span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800">
-                {W}m × {H}m × {pullM}m Pull
+                {isVerticalShaft
+                  ? `Ø${W}m Shaft × ${pullM}m Sinking Pull`
+                  : `${W}m × ${H}m × ${pullM}m Pull`}
               </span>
             </div>
             <div className="text-[10px] text-slate-400">
-              True 3D Spatial View — Simply select and orient Spot Bolts, Pipe Roofing Umbrella, Forepoling &amp; Pattern Rockbolts
+              {isVerticalShaft
+                ? 'True 3D Vertical Shaft View — Inspect radial spot bolts across Q1 NE, Q2 ES, Q3 SW, Q4 WN, circular curb rings, and perimeter spiling'
+                : 'True 3D Spatial View — Simply select and orient Spot Bolts, Pipe Roofing Umbrella, Forepoling & Pattern Rockbolts'}
             </div>
           </div>
         </div>
@@ -1023,19 +1492,19 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
             [
               { id: 'ALL' as const, label: 'All 3D' },
               ...(support.spotBoltsEnabled && (support.spotBolts || []).length > 0
-                ? [{ id: 'SPOT_BOLTS' as const, label: 'Spot Bolts' }]
+                ? [{ id: 'SPOT_BOLTS' as const, label: isVerticalShaft ? 'Radial Spot Bolts' : 'Spot Bolts' }]
                 : []),
               ...(support.protectionSupportEnabled && support.pipeRoofingEnabled
-                ? [{ id: 'PIPE_ROOFING' as const, label: 'Pipe Roofing' }]
+                ? [{ id: 'PIPE_ROOFING' as const, label: isVerticalShaft ? 'Micropile Ring' : 'Pipe Roofing' }]
                 : []),
               ...(support.protectionSupportEnabled && support.forepolingEnabled
-                ? [{ id: 'FOREPOLING' as const, label: 'Forepoling' }]
+                ? [{ id: 'FOREPOLING' as const, label: isVerticalShaft ? 'Shaft Spiling' : 'Forepoling' }]
                 : []),
               ...(support.rockBoltsEnabled
-                ? [{ id: 'PATTERN_BOLTS' as const, label: 'Pattern Bolts' }]
+                ? [{ id: 'PATTERN_BOLTS' as const, label: isVerticalShaft ? 'Radial Pattern Bolts' : 'Pattern Bolts' }]
                 : []),
               ...(support.latticeGirderEnabled || support.ismbEnabled
-                ? [{ id: 'STEEL_RIBS' as const, label: 'Steel Sets' }]
+                ? [{ id: 'STEEL_RIBS' as const, label: isVerticalShaft ? 'Curb Rings' : 'Steel Sets' }]
                 : []),
             ]
           ).map((filter) => (
@@ -1068,13 +1537,21 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
         <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 pointer-events-auto">
           <div className="flex items-center gap-1 bg-slate-900/90 backdrop-blur border border-slate-700/80 rounded-md p-0.5 text-[10px]">
             {(
-              [
-                { id: 'perspective', label: '3D Orbit' },
-                { id: 'face', label: 'Face' },
-                { id: 'crown', label: 'Crown' },
-                { id: 'side', label: 'Side Look' },
-                { id: 'isometric', label: 'Iso' },
-              ] as const
+              isVerticalShaft
+                ? ([
+                    { id: 'perspective', label: '3D Shaft Orbit' },
+                    { id: 'face', label: 'Top Plan (0°N)' },
+                    { id: 'crown', label: 'Sump Face' },
+                    { id: 'side', label: 'Shaft Wall' },
+                    { id: 'isometric', label: 'Iso' },
+                  ] as const)
+                : ([
+                    { id: 'perspective', label: '3D Orbit' },
+                    { id: 'face', label: 'Face' },
+                    { id: 'crown', label: 'Crown' },
+                    { id: 'side', label: 'Side Look' },
+                    { id: 'isometric', label: 'Iso' },
+                  ] as const)
             ).map((cp) => (
               <button
                 key={cp.id}
@@ -1159,42 +1636,50 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
               )}
             {support.spotBoltsEnabled && (support.spotBolts?.length || 0) > 0 && (
               <span className="flex items-center gap-1 text-rose-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" /> Spot Bolt ({support.spotBolts?.length || 0})
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />{' '}
+                {isVerticalShaft ? 'Radial Spot Bolt' : 'Spot Bolt'} ({support.spotBolts?.length || 0})
               </span>
             )}
             {support.protectionSupportEnabled && support.pipeRoofingEnabled && (
               <span className="flex items-center gap-1 text-orange-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block" /> Pipe Roof (∠{support.pipeRoofingAngleDeg ?? 7}°)
+                <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block" />{' '}
+                {isVerticalShaft ? 'Micropile Ring' : 'Pipe Roof'} (∠{support.pipeRoofingAngleDeg ?? 7}°)
               </span>
             )}
             {support.protectionSupportEnabled && support.forepolingEnabled && (
               <span className="flex items-center gap-1 text-amber-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block" /> Forepoling (∠{support.forepolingAngleDeg ?? 10}°)
+                <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block" />{' '}
+                {isVerticalShaft ? 'Shaft Spiling Ring' : 'Forepoling'} (∠{support.forepolingAngleDeg ?? 10}°)
               </span>
             )}
             {support.rockBoltsEnabled && (
               <span className="flex items-center gap-1 text-sky-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block" /> Pattern Bolts ({support.rockBoltLengthM}m)
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block" />{' '}
+                {isVerticalShaft ? 'Radial Pattern Bolts' : 'Pattern Bolts'} ({support.rockBoltLengthM}m)
               </span>
             )}
             {support.shotcreteEnabled && (
               <span className="flex items-center gap-1 text-slate-300">
-                <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block" /> Shotcrete ({support.shotcreteCrownThicknessMm}mm)
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block" />{' '}
+                {isVerticalShaft ? 'Shotcrete Shaft Ring' : 'Shotcrete'} ({support.shotcreteCrownThicknessMm}mm)
               </span>
             )}
             {support.wireMeshEnabled && (
               <span className="flex items-center gap-1 text-teal-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-teal-400 inline-block" /> Wire Mesh
+                <span className="w-2.5 h-2.5 rounded-full bg-teal-400 inline-block" />{' '}
+                {isVerticalShaft ? 'Shaft Wall Mesh' : 'Wire Mesh'}
               </span>
             )}
             {support.latticeGirderEnabled && (
               <span className="flex items-center gap-1 text-purple-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block" /> Lattice Girder
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block" />{' '}
+                {isVerticalShaft ? 'Circular LG Ring' : 'Lattice Girder'}
               </span>
             )}
             {support.ismbEnabled && (
               <span className="flex items-center gap-1 text-amber-500">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" /> ISMB Rib
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />{' '}
+                {isVerticalShaft ? 'Steel Curb Ring' : 'ISMB Rib'}
               </span>
             )}
           </div>
@@ -1215,7 +1700,9 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          1. Spot Bolts Angle &amp; Orientation
+          {isVerticalShaft
+            ? '1. Radial Shaft Spot Bolts Angle & Azimuth'
+            : '1. Spot Bolts Angle & Orientation'}
         </button>
         <button
           type="button"
@@ -1226,7 +1713,11 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <span>2. Pipe Roofing (Umbrella Canopy)</span>
+          <span>
+            {isVerticalShaft
+              ? '2. Collar Micropile / Tubular Ring'
+              : '2. Pipe Roofing (Umbrella Canopy)'}
+          </span>
           {support.pipeRoofingEnabled && (
             <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
           )}
@@ -1240,7 +1731,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <span>3. Forepoling Spiles</span>
+          <span>{isVerticalShaft ? '3. Shaft Perimeter Spiling Ring' : '3. Forepoling Spiles'}</span>
           {support.forepolingEnabled && (
             <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
           )}
@@ -1275,18 +1766,31 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
               type="button"
               onClick={() => {
                 const nextIdx = (support.spotBolts?.length || 0) + 1;
+                const R = W / 2;
+                const azDeg = isVerticalShaft ? ((nextIdx * 75) % 360) : newSpotAzimuthDeg;
+                const azRad = (azDeg * Math.PI) / 180;
                 const newBolt: FieldSpotBoltItem = {
                   id: `sb-${Date.now()}`,
                   label: `SB-${nextIdx}`,
-                  panel: 'crown',
+                  panel: isVerticalShaft
+                    ? azDeg < 90
+                      ? 'crown'
+                      : azDeg < 180
+                      ? 'right_wall'
+                      : azDeg < 270
+                      ? 'face'
+                      : 'left_wall'
+                    : 'crown',
                   u: 0.5,
                   v: 0.5,
                   pullMeter: Number((pullM * 0.5).toFixed(2)),
-                  xMeters: 0,
-                  yMeters: Number((H * 0.88).toFixed(2)),
+                  xMeters: isVerticalShaft ? Number((R * Math.sin(azRad)).toFixed(2)) : 0,
+                  yMeters: isVerticalShaft
+                    ? Number((R * Math.cos(azRad)).toFixed(2))
+                    : Number((H * 0.88).toFixed(2)),
                   lengthM: newSpotLengthM,
                   angleDeg: newSpotAngleDeg,
-                  azimuthDeg: newSpotAzimuthDeg,
+                  azimuthDeg: Math.round(azDeg),
                 };
                 onUpdateSupport({
                   spotBoltsEnabled: true,
@@ -1307,7 +1811,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-rose-300 font-mono">
-                    {selectedBolt.label} ({selectedBolt.panel.replace('_', ' ').toUpperCase()})
+                    {selectedBolt.label} ({formatSpotBoltPanelLabel(selectedBolt.panel, isVerticalShaft)})
                   </span>
                   <span className="text-[11px] text-slate-400">
                     Pull: <strong className="text-white">{selectedBolt.pullMeter}m</strong> | X: <strong className="text-white">{selectedBolt.xMeters}m</strong> | Y: <strong className="text-white">{selectedBolt.yMeters}m</strong>

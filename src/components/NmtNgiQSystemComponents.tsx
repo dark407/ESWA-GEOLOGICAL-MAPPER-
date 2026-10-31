@@ -2128,7 +2128,7 @@ export const NmtAdvancedNgiQWorkbench: React.FC<{
                 onClick={onContinueToSupport}
                 className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer shrink-0"
               >
-                View on NGI Q-Chart in Support System →
+                Plot on NGI Q-Chart in Support System →
               </button>
             )}
           </div>
@@ -2241,9 +2241,13 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
     return pts.length >= 2 ? `M ${pts.join(' L ')}` : '';
   };
 
-  // Apply NMT Chart Prescription directly to Tunnel Support System
+  const isVerticalShaft =
+    activeLocation.undergroundSubMode === 'vertical_shaft' ||
+    activeRound.undergroundSubMode === 'vertical_shaft';
+
+  // Apply NMT Chart Prescription directly to Tunnel / Shaft Support System
   const handleApplyNmtPrescriptionToTunnel = () => {
-    if (!roofPrescription || !wallPrescription) return;
+    if (!roofPrescription || !wallPrescription || qRoof === null) return;
 
     const boltSpacing =
       roofPrescription.boltSpacingInShotcreteM ??
@@ -2261,35 +2265,69 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
       rockClass: `${nmtClassItem.fullName} • NMT ${roofPrescription.categoryCode} (${roofPrescription.categoryTitle})`,
       rockBoltsEnabled: roofPrescription.boltType === 'systematic_bolts',
       spotBoltsEnabled: roofPrescription.boltType === 'spot_bolts' || support.spotBoltsEnabled,
-      rockBoltScope:
-        wallPrescription.boltType === 'systematic_bolts' ? 'crown_and_wall' : 'crown_only',
-      rockBoltType: `NMT Grouted Rebar Dowel (L=${roofPrescription.boltLengthM}m)`,
+      rockBoltScope: isVerticalShaft
+        ? 'crown_and_wall'
+        : wallPrescription.boltType === 'systematic_bolts'
+        ? 'crown_and_wall'
+        : 'crown_only',
+      rockBoltType: isVerticalShaft
+        ? `NMT Radial Shaft Grouted Rebar Dowel (L=${roofPrescription.boltLengthM}m)`
+        : `NMT Grouted Rebar Dowel (L=${roofPrescription.boltLengthM}m)`,
       rockBoltLengthM: roofPrescription.boltLengthM,
       rockBoltInPlaneSpacingM: boltSpacing,
       rockBoltLongitudinalSpacingM: boltSpacing,
       shotcreteEnabled: roofPrescription.shotcreteType !== 'none',
-      shotcreteScope:
-        wallPrescription.shotcreteType !== 'none' ? 'crown_and_wall' : 'crown_only',
+      shotcreteScope: isVerticalShaft
+        ? 'crown_and_wall'
+        : wallPrescription.shotcreteType !== 'none'
+        ? 'crown_and_wall'
+        : 'crown_only',
       shotcreteType: roofPrescription.shotcreteType === 'Sfr' ? 'SFRS' : 'Plain',
       shotcreteCrownThicknessMm: roofPrescription.shotcreteThicknessMm || 50,
-      shotcreteWallThicknessMm: wallPrescription.shotcreteThicknessMm || 50,
+      shotcreteWallThicknessMm: isVerticalShaft
+        ? roofPrescription.shotcreteThicknessMm || wallPrescription.shotcreteThicknessMm || 50
+        : wallPrescription.shotcreteThicknessMm || 50,
       latticeGirderEnabled: isRrsOrCca,
       latticeGirderSpec: isRrsOrCca
-        ? `${roofPrescription.rrsClass}: ${roofPrescription.rrsSpec}`
+        ? isVerticalShaft
+          ? `Circular ${roofPrescription.rrsClass} Shaft Ring: ${roofPrescription.rrsSpec}`
+          : `${roofPrescription.rrsClass}: ${roofPrescription.rrsSpec}`
         : support.latticeGirderSpec,
       latticeGirderSpacingM: roofPrescription.rrsSpacingM || 1.5,
       ismbEnabled: roofPrescription.categoryNumber === 9,
-      ismbSpec: roofPrescription.categoryNumber === 9 ? 'ISMB 200 / CCA Lining' : support.ismbSpec,
+      ismbSpec:
+        roofPrescription.categoryNumber === 9
+          ? isVerticalShaft
+            ? 'Circular Heavy ISMB 200 Curb Ring / Cast Concrete Shaft Ring (CCA)'
+            : 'ISMB 200 / CCA Lining'
+          : support.ismbSpec,
       ismbSpacingM: 1.0,
     });
 
     setAppliedBanner(
-      `Applied ${nmtClassItem.fullName} • NMT ${roofPrescription.categoryCode}: Bolts L=${roofPrescription.boltLengthM}m @ ${boltSpacing}×${boltSpacing}m, Crown Sfr=${roofPrescription.shotcreteThicknessMm}mm (${roofPrescription.energyAbsorptionClass}), Wall Sfr=${wallPrescription.shotcreteThicknessMm}mm${
-        roofPrescription.rrsClass !== 'None' ? `, ${roofPrescription.rrsClass} (${roofPrescription.rrsSpec})` : ''
-      }`
+      isVerticalShaft
+        ? `Applied ${nmtClassItem.fullName} • NMT ${roofPrescription.categoryCode} (360° Shaft Ring): Radial Bolts L=${roofPrescription.boltLengthM}m @ ${boltSpacing}×${boltSpacing}m, Primary Shaft Ring Sfr=${roofPrescription.shotcreteThicknessMm}mm (${roofPrescription.energyAbsorptionClass}), Shaft Wall Sfr=${wallPrescription.shotcreteThicknessMm}mm${
+            roofPrescription.rrsClass !== 'None' ? `, Circular ${roofPrescription.rrsClass} Ring (${roofPrescription.rrsSpec})` : ''
+          }`
+        : `Applied ${nmtClassItem.fullName} • NMT ${roofPrescription.categoryCode}: Bolts L=${roofPrescription.boltLengthM}m @ ${boltSpacing}×${boltSpacing}m, Crown Sfr=${roofPrescription.shotcreteThicknessMm}mm (${roofPrescription.energyAbsorptionClass}), Wall Sfr=${wallPrescription.shotcreteThicknessMm}mm${
+            roofPrescription.rrsClass !== 'None' ? `, ${roofPrescription.rrsClass} (${roofPrescription.rrsSpec})` : ''
+          }`
     );
     setTimeout(() => setAppliedBanner(null), 5000);
   };
+
+  // Auto-populate NMT Support System from plotted Q-Chart coordinates when no support class has been chosen yet
+  React.useEffect(() => {
+    if (
+      qRoof !== null &&
+      roofPrescription &&
+      wallPrescription &&
+      (!support.supportClass || !support.userConfiguredSupport)
+    ) {
+      handleApplyNmtPrescriptionToTunnel();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qRoof, deRoof, deWall]);
 
   return (
     <div className="bg-slate-900 border-2 border-amber-500/60 rounded-xl p-3 space-y-2.5 shadow-xl">
@@ -2301,10 +2339,20 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
           </div>
           <div>
             <div className="text-xs font-black uppercase tracking-wider text-amber-400">
-              NMT — NGI Q-System Rock Support Chart (Grimstad &amp; Barton, 1993 / NGI, 2014)
+              {isVerticalShaft
+                ? 'NMT — NGI Q-System Vertical Shaft Support Chart (Grimstad & Barton, 1993 / NGI, 2014)'
+                : 'NMT — NGI Q-System Rock Support Chart (Grimstad & Barton, 1993 / NGI, 2014)'}
             </div>
             <p className="text-[10.5px] text-slate-400 font-mono">
-              Live logarithmic plotting of Roof (Q, D<sub>e</sub>) &amp; Wall (Q<sub>wall</sub>, D<sub>e,wall</sub>) across Reinforcement Categories 1–9, Sfr &amp; RRS I–III
+              {isVerticalShaft ? (
+                <>
+                  Live logarithmic plotting of Primary Shaft Ring / Sump (Q, D<sub>e</sub>) &amp; 360° Vertical Shaft Wall (Q<sub>wall</sub> = 2.5×Q, D<sub>e,wall</sub>) across Categories 1–9
+                </>
+              ) : (
+                <>
+                  Live logarithmic plotting of Roof (Q, D<sub>e</sub>) &amp; Wall (Q<sub>wall</sub>, D<sub>e,wall</sub>) across Reinforcement Categories 1–9, Sfr &amp; RRS I–III
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -2928,12 +2976,14 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
                         fontFamily="IBM Plex Mono, monospace"
                         fill="#ffffff"
                       >
-                        WALL: Qw={qWallInfo.qWall}, De={deWall}m
+                        {isVerticalShaft
+                          ? `SHAFT WALL: Qw=${qWallInfo.qWall}, De=${deWall}m`
+                          : `WALL: Qw=${qWallInfo.qWall}, De=${deWall}m`}
                       </text>
                     </g>
                   )}
 
-                  {/* 2. CROWN / ROOF POINT (Q, De_roof) in Crimson/Amber */}
+                  {/* 2. CROWN / ROOF / PRIMARY SHAFT RING POINT (Q, De_roof) in Crimson/Amber */}
                   <line
                     x1={mapQToX(qRoof)}
                     y1={plotYTop}
@@ -2980,7 +3030,9 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
                     fontFamily="IBM Plex Mono, monospace"
                     fill="#ffffff"
                   >
-                    ROOF: Q={qRoof}, De={deRoof}m
+                    {isVerticalShaft
+                      ? `SHAFT RING: Q=${qRoof}, De=${deRoof}m`
+                      : `ROOF: Q=${qRoof}, De=${deRoof}m`}
                   </text>
                 </g>
               )}
@@ -2991,11 +3043,15 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
           {qRoof !== null && roofPrescription && wallPrescription ? (
             <div className="bg-slate-950 border border-amber-500/50 rounded-xl p-3 space-y-2.5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
-                {/* Roof / Crown NMT Prescription */}
+                {/* Roof / Crown / Primary Shaft Ring NMT Prescription */}
                 <div className="bg-slate-900 border border-rose-500/40 rounded-lg p-2.5 space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="font-black uppercase text-rose-400">
-                      ● Crown / Roof Prescription (Q = {qRoof}, D<sub>e</sub> = {deRoof}m)
+                      ●{' '}
+                      {isVerticalShaft
+                        ? 'Primary Shaft Ring / Sump Prescription'
+                        : 'Crown / Roof Prescription'}{' '}
+                      (Q = {qRoof}, D<sub>e</sub> = {deRoof}m)
                     </span>
                     <span className="px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/50 font-mono font-black text-rose-300 text-[11px]">
                       {roofPrescription.categoryCode}
@@ -3005,7 +3061,8 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
                     {roofPrescription.categoryTitle}
                   </div>
                   <div className="text-[10.5px] font-mono text-slate-300">
-                    • <strong>Bolts:</strong> L = {roofPrescription.boltLengthM}m @{' '}
+                    • <strong>{isVerticalShaft ? 'Radial Shaft Bolts:' : 'Bolts:'}</strong> L ={' '}
+                    {roofPrescription.boltLengthM}m @{' '}
                     {roofPrescription.boltSpacingInShotcreteM
                       ? `${roofPrescription.boltSpacingInShotcreteM}m (in Sfr)`
                       : roofPrescription.boltSpacingOutsideShotcreteM
@@ -3013,14 +3070,15 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
                       : 'None'}
                   </div>
                   <div className="text-[10.5px] font-mono text-amber-300">
-                    • <strong>Shotcrete (Sfr):</strong> {roofPrescription.shotcreteThicknessCmRange}{' '}
-                    ({roofPrescription.shotcreteThicknessMm} mm) • Energy:{' '}
+                    • <strong>{isVerticalShaft ? 'Shaft Ring Shotcrete (Sfr):' : 'Shotcrete (Sfr):'}</strong>{' '}
+                    {roofPrescription.shotcreteThicknessCmRange} (
+                    {roofPrescription.shotcreteThicknessMm} mm) • Energy:{' '}
                     {roofPrescription.energyAbsorptionClass}
                   </div>
                   {roofPrescription.rrsClass !== 'None' && (
                     <div className="text-[10.5px] font-mono text-emerald-300">
-                      • <strong>RRS / Ribs:</strong> {roofPrescription.rrsClass} —{' '}
-                      {roofPrescription.rrsSpec}
+                      • <strong>{isVerticalShaft ? 'Circular RRS / Curb Ring:' : 'RRS / Ribs:'}</strong>{' '}
+                      {roofPrescription.rrsClass} — {roofPrescription.rrsSpec}
                     </div>
                   )}
                 </div>
@@ -3029,8 +3087,11 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
                 <div className="bg-slate-900 border border-sky-500/40 rounded-lg p-2.5 space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="font-black uppercase text-sky-400">
-                      ● Wall Prescription (Q<sub>wall</sub> = {qWallInfo?.qWall}, D<sub>e,wall</sub>{' '}
-                      = {deWall}m)
+                      ●{' '}
+                      {isVerticalShaft
+                        ? '360° Vertical Shaft Wall Prescription'
+                        : 'Wall Prescription'}{' '}
+                      (Q<sub>wall</sub> = {qWallInfo?.qWall}, D<sub>e,wall</sub> = {deWall}m)
                     </span>
                     <span className="px-2 py-0.5 rounded bg-sky-500/20 border border-sky-500/50 font-mono font-black text-sky-300 text-[11px]">
                       {wallPrescription.categoryCode}
@@ -3040,7 +3101,8 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
                     {wallPrescription.categoryTitle}
                   </div>
                   <div className="text-[10.5px] font-mono text-slate-300">
-                    • <strong>Wall Bolts:</strong> L = {wallPrescription.boltLengthM}m @{' '}
+                    • <strong>{isVerticalShaft ? 'Shaft Wall Radial Bolts:' : 'Wall Bolts:'}</strong>{' '}
+                    L = {wallPrescription.boltLengthM}m @{' '}
                     {wallPrescription.boltSpacingInShotcreteM
                       ? `${wallPrescription.boltSpacingInShotcreteM}m (in Sfr)`
                       : wallPrescription.boltSpacingOutsideShotcreteM
@@ -3048,7 +3110,8 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
                       : 'Spot / None'}
                   </div>
                   <div className="text-[10.5px] font-mono text-cyan-300">
-                    • <strong>Wall Sfr:</strong> {wallPrescription.shotcreteThicknessCmRange} (
+                    • <strong>{isVerticalShaft ? 'Shaft Wall Sfr (Qwall=2.5Q):' : 'Wall Sfr:'}</strong>{' '}
+                    {wallPrescription.shotcreteThicknessCmRange} (
                     {wallPrescription.shotcreteThicknessMm} mm) • Energy:{' '}
                     {wallPrescription.energyAbsorptionClass}
                   </div>
@@ -3065,7 +3128,11 @@ export const NgiQSupportChartInteractivePanel: React.FC<{
                   className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer transition-all"
                 >
                   <Zap className="w-4 h-4" />
-                  <span>Apply NMT Chart Support to Tunnel Drawing</span>
+                  <span>
+                    {isVerticalShaft
+                      ? 'Apply NMT Chart Support to 360° Shaft Ring Drawing'
+                      : 'Apply NMT Chart Support to Tunnel Drawing'}
+                  </span>
                 </button>
               </div>
 

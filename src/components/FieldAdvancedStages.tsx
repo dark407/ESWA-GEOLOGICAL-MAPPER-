@@ -21,6 +21,7 @@ import {
 import {
   analyzeAndRecommendSpotBolts,
   computeBoltTensileCapacityKn,
+  formatSpotBoltPanelLabel,
   GeotechnicalSpotBoltRecommendationResult,
   parseRoundChainageMeters,
 } from '../engine/geotechnicalSpotBoltEngine';
@@ -45,6 +46,7 @@ import {
   FieldTunnelLocationItem,
   GROUNDWATER_OPTIONS,
   INFILLING_OPTIONS,
+  normalizeVerticalShaftExcavationApproach,
   parseUploadedWordTemplateFile,
   PERSISTENCE_OPTIONS,
   ROUGHNESS_OPTIONS,
@@ -1097,60 +1099,103 @@ const GSI_SURFACE_COLS: {
 
 export function buildSupportRecommendationText(
   next: FieldSupportSystemConfig,
-  round?: FieldExcavationRound | null
+  round?: FieldExcavationRound | null,
+  location?: FieldTunnelLocationItem | null
 ): string {
-  const parts: string[] = [`Support ${next.supportClass}:`];
+  const isVerticalShaft =
+    location?.undergroundSubMode === 'vertical_shaft' ||
+    round?.undergroundSubMode === 'vertical_shaft';
+
+  const parts: string[] = [
+    isVerticalShaft ? `Shaft Support ${next.supportClass}:` : `Support ${next.supportClass}:`,
+  ];
   if (next.junctionFactorEnabled) {
     const jAdj = computeJunctionGeotechnicalAdjustments(next, round);
     parts.push(
-      `[Junction Zone: ${next.junctionTypeLabel || 'Intersection'} (Jf=${jAdj.effectiveMultiplier}x, ∠${jAdj.junctionAngleDeg}°, Adv Factor=${jAdj.junctionAdvanceFactor}x, Rec Pull=${jAdj.recommendedAdvancePullM}m | Eff. Q=${jAdj.adjustedQ}, Eff. RMR=${jAdj.adjustedRmr})]`
+      `[${isVerticalShaft ? 'Shaft Breakout / Station Inset' : 'Junction Zone'}: ${next.junctionTypeLabel || (isVerticalShaft ? 'Shaft Station Breakout' : 'Intersection')} (Jf=${jAdj.effectiveMultiplier}x, ∠${jAdj.junctionAngleDeg}°, Adv Factor=${jAdj.junctionAdvanceFactor}x, Rec Sinking Pull=${jAdj.recommendedAdvancePullM}m | Eff. Q=${jAdj.adjustedQ}, Eff. RMR=${jAdj.adjustedRmr})]`
     );
   }
   if (next.rockBoltsEnabled) {
     parts.push(
-      `${next.rockBoltType} Rock Bolts L=${next.rockBoltLengthM}m @ ${next.rockBoltInPlaneSpacingM}m×${next.rockBoltLongitudinalSpacingM}m (${
-        next.rockBoltScope === 'crown_and_wall' ? 'Crown+Wall' : 'Crown'
-      })`
+      isVerticalShaft
+        ? `Radial Shaft Pattern ${next.rockBoltType} Rock Bolts L=${next.rockBoltLengthM}m @ ${next.rockBoltInPlaneSpacingM}m (circumf.) × ${next.rockBoltLongitudinalSpacingM}m (vertical ring) (${
+            next.rockBoltScope === 'crown_and_wall'
+              ? 'Full 360° Shaft Wall Ring (Q1–Q4)'
+              : 'Active Shaft Quadrants'
+          })`
+        : `${next.rockBoltType} Rock Bolts L=${next.rockBoltLengthM}m @ ${next.rockBoltInPlaneSpacingM}m×${next.rockBoltLongitudinalSpacingM}m (${
+            next.rockBoltScope === 'crown_and_wall' ? 'Crown+Wall' : 'Crown'
+          })`
     );
   }
   if (next.shotcreteEnabled) {
     parts.push(
-      `${next.shotcreteType} Shotcrete Crown ${next.shotcreteCrownThicknessMm}mm${
-        next.shotcreteScope === 'crown_and_wall'
-          ? ` / Wall ${next.shotcreteWallThicknessMm}mm`
-          : ''
-      }`
+      isVerticalShaft
+        ? `${next.shotcreteType} Shotcrete Shaft Wall Ring ${next.shotcreteCrownThicknessMm}mm${
+            next.shotcreteScope === 'crown_and_wall'
+              ? ` (360° Full Ring / Median ${next.shotcreteWallThicknessMm}mm)`
+              : ' (Active Shaft Quads)'
+          }`
+        : `${next.shotcreteType} Shotcrete Crown ${next.shotcreteCrownThicknessMm}mm${
+            next.shotcreteScope === 'crown_and_wall'
+              ? ` / Wall ${next.shotcreteWallThicknessMm}mm`
+              : ''
+          }`
     );
   }
   if (next.wireMeshEnabled) {
     parts.push(
-      `Wire Mesh (${next.wireMeshScope === 'crown_and_wall' ? 'Crown+Wall' : 'Crown'})`
+      isVerticalShaft
+        ? `Wire Mesh (${
+            next.wireMeshScope === 'crown_and_wall'
+              ? 'Full 360° Shaft Wall Ring'
+              : 'Active Shaft Quadrants'
+          })`
+        : `Wire Mesh (${next.wireMeshScope === 'crown_and_wall' ? 'Crown+Wall' : 'Crown'})`
     );
   }
   if (next.latticeGirderEnabled) {
-    parts.push(`${next.latticeGirderSpec} @ ${next.latticeGirderSpacingM}m`);
+    parts.push(
+      isVerticalShaft
+        ? `Circular Shaft Lattice Girder Ring (${next.latticeGirderSpec}) @ ${next.latticeGirderSpacingM}m vertical c/c`
+        : `${next.latticeGirderSpec} @ ${next.latticeGirderSpacingM}m`
+    );
   }
   if (next.ismbEnabled) {
-    parts.push(`${next.ismbSpec} @ ${next.ismbSpacingM}m`);
+    parts.push(
+      isVerticalShaft
+        ? `Circular Steel Curb Ring (${next.ismbSpec}) @ ${next.ismbSpacingM}m vertical c/c`
+        : `${next.ismbSpec} @ ${next.ismbSpacingM}m`
+    );
   }
   if (next.spotBoltsEnabled && (next.spotBolts || []).length > 0) {
-    parts.push(`${next.spotBolts.length} Spot Bolt(s)`);
+    parts.push(
+      isVerticalShaft
+        ? `${next.spotBolts.length} Radial Shaft Spot Bolt(s)`
+        : `${next.spotBolts.length} Spot Bolt(s)`
+    );
   }
   if (next.protectionSupportEnabled) {
     const protItems: string[] = [];
     if (next.forepolingEnabled) {
       protItems.push(
-        `Forepoling (${next.forepolingType || 'Rebar Spiles'} Ø${next.forepolingDiameterMm ?? 25}mm, L=${next.forepolingLengthM ?? 4.0}m, Ovlp=${next.forepolingOverlapM ?? 1.5}m @ ${next.forepolingSpacingCm ?? 30}cm c/c, ∠${next.forepolingAngleDeg ?? 10}°, ${next.forepolingSector || 'Crown Arch (120°)'})`
+        isVerticalShaft
+          ? `Shaft Perimeter Spiling Ring (${next.forepolingType || 'Rebar Spiles'} Ø${next.forepolingDiameterMm ?? 25}mm, L=${next.forepolingLengthM ?? 4.0}m, Ovlp=${next.forepolingOverlapM ?? 1.5}m @ ${next.forepolingSpacingCm ?? 30}cm c/c, ∠${next.forepolingAngleDeg ?? 10}°, ${next.forepolingSector || 'Full 360° Shaft Perimeter'})`
+          : `Forepoling (${next.forepolingType || 'Rebar Spiles'} Ø${next.forepolingDiameterMm ?? 25}mm, L=${next.forepolingLengthM ?? 4.0}m, Ovlp=${next.forepolingOverlapM ?? 1.5}m @ ${next.forepolingSpacingCm ?? 30}cm c/c, ∠${next.forepolingAngleDeg ?? 10}°, ${next.forepolingSector || 'Crown Arch (120°)'})`
       );
     }
     if (next.pipeRoofingEnabled) {
       protItems.push(
-        `Pipe Roofing (${next.pipeRoofingSpec || 'Perforated Steel Pipe'} Ø${next.pipeRoofingDiameterMm ?? 114}mm, L=${next.pipeRoofingLengthM ?? 12.0}m, Ovlp=${next.pipeRoofingOverlapM ?? 4.0}m @ ${next.pipeRoofingSpacingCm ?? 40}cm c/c, ∠${next.pipeRoofingAngleDeg ?? 7}°, ${next.pipeRoofingSector || 'Crown Arch (120°)'})`
+        isVerticalShaft
+          ? `Collar / Shaft Micropile Ring (${next.pipeRoofingSpec || 'Perforated Steel Pipe'} Ø${next.pipeRoofingDiameterMm ?? 114}mm, L=${next.pipeRoofingLengthM ?? 12.0}m, Ovlp=${next.pipeRoofingOverlapM ?? 4.0}m @ ${next.pipeRoofingSpacingCm ?? 40}cm c/c, ∠${next.pipeRoofingAngleDeg ?? 7}°)`
+          : `Pipe Roofing (${next.pipeRoofingSpec || 'Perforated Steel Pipe'} Ø${next.pipeRoofingDiameterMm ?? 114}mm, L=${next.pipeRoofingLengthM ?? 12.0}m, Ovlp=${next.pipeRoofingOverlapM ?? 4.0}m @ ${next.pipeRoofingSpacingCm ?? 40}cm c/c, ∠${next.pipeRoofingAngleDeg ?? 7}°, ${next.pipeRoofingSector || 'Crown Arch (120°)'})`
       );
     }
     if (next.groutingEnabled) {
       protItems.push(
-        `Grouting (${next.groutingType || 'Consolidation & Cavity Grouting'} — ${next.groutingMaterial || 'OPC Cement Grout'}, ${next.groutingHoleCount ?? 8} holes × L=${next.groutingHoleLengthM ?? 6.0}m @ ${next.groutingSpacingM ?? 1.5}m, P=${next.groutingPressureBar ?? 10} bar)`
+        isVerticalShaft
+          ? `Radial Annulus Curtain Grouting (${next.groutingType || 'Consolidation & Water-Stop Grouting'} — ${next.groutingMaterial || 'OPC Cement Grout'}, ${next.groutingHoleCount ?? 8} radial holes × L=${next.groutingHoleLengthM ?? 6.0}m @ ${next.groutingSpacingM ?? 1.5}m, P=${next.groutingPressureBar ?? 10} bar)`
+          : `Grouting (${next.groutingType || 'Consolidation & Cavity Grouting'} — ${next.groutingMaterial || 'OPC Cement Grout'}, ${next.groutingHoleCount ?? 8} holes × L=${next.groutingHoleLengthM ?? 6.0}m @ ${next.groutingSpacingM ?? 1.5}m, P=${next.groutingPressureBar ?? 10} bar)`
       );
     }
     if (
@@ -1159,7 +1204,7 @@ export function buildSupportRecommendationText(
       (next.cavityDepthM || next.cavityWidthM)
     ) {
       protItems.push(
-        `Cavity Treatment (${next.cavityWidthM ?? 3.5}m W × ${next.cavityDepthM ?? 1.2}m D: ${next.cavityBackfillMethod || 'SFRS Sealing + Grout Backfill'})`
+        `${isVerticalShaft ? 'Shaft Wall Overbreak Cavity Treatment' : 'Cavity Treatment'} (${next.cavityWidthM ?? 3.5}m W × ${next.cavityDepthM ?? 1.2}m D: ${next.cavityBackfillMethod || 'SFRS Sealing + Grout Backfill'})`
       );
     }
     if (protItems.length > 0) {
@@ -1705,6 +1750,9 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
 }> = ({ support, onUpdateSupport, location, round, showLiveDrawing = false }) => {
   const isEnabled = Boolean(support.protectionSupportEnabled);
   const mode = support.protectionSupportMode || 'Protection & Cavity Support';
+  const isVerticalShaft =
+    location?.undergroundSubMode === 'vertical_shaft' ||
+    round?.undergroundSubMode === 'vertical_shaft';
 
   return (
     <div className="bg-slate-900 border border-rose-500/40 rounded-xl p-3 space-y-3">
@@ -1730,7 +1778,9 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
               className="w-4 h-4 accent-rose-500 cursor-pointer"
             />
             <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-rose-400">
-              Protection / Cavity Support Design (Forepoling, Pipe Roofing &amp; Grouting)
+              {isVerticalShaft
+                ? 'Shaft Pre-Support & Overbreak Cavity Design (Perimeter Spiling Ring, Micropile Ring & Annulus Grouting)'
+                : 'Protection / Cavity Support Design (Forepoling, Pipe Roofing & Grouting)'}
             </span>
           </label>
 
@@ -1780,7 +1830,8 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
                 : 'bg-slate-950 text-slate-400 border-slate-700 hover:text-white'
             }`}
           >
-            {isEnabled && support.forepolingEnabled ? '☑' : '☐'} 1. Forepoling
+            {isEnabled && support.forepolingEnabled ? '☑' : '☐'}{' '}
+            {isVerticalShaft ? '1. Shaft Spiling Ring' : '1. Forepoling'}
           </button>
           <button
             type="button"
@@ -1796,7 +1847,8 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
                 : 'bg-slate-950 text-slate-400 border-slate-700 hover:text-white'
             }`}
           >
-            {isEnabled && support.pipeRoofingEnabled ? '☑' : '☐'} 2. Pipe Roofing
+            {isEnabled && support.pipeRoofingEnabled ? '☑' : '☐'}{' '}
+            {isVerticalShaft ? '2. Micropile Ring' : '2. Pipe Roofing'}
           </button>
           <button
             type="button"
@@ -1812,7 +1864,8 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
                 : 'bg-slate-950 text-slate-400 border-slate-700 hover:text-white'
             }`}
           >
-            {isEnabled && support.groutingEnabled ? '☑' : '☐'} 3. Grouting &amp; Cavity
+            {isEnabled && support.groutingEnabled ? '☑' : '☐'}{' '}
+            {isVerticalShaft ? '3. Annulus Grouting & Cavity' : '3. Grouting & Cavity'}
           </button>
         </div>
       </div>
@@ -1820,7 +1873,15 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
       {!isEnabled ? (
         <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs text-slate-400">
-            Tick <strong className="text-rose-300">Protection / Cavity Support</strong> above or click any option (<strong className="text-amber-300">Forepoling</strong>, <strong className="text-cyan-300">Pipe Roofing</strong>, <strong className="text-emerald-300">Grouting</strong>) to design canopy pre-support or cavity stabilization for low Q / RMR zones, shear zones, and crown cavities.
+            {isVerticalShaft ? (
+              <>
+                Tick <strong className="text-rose-300">Shaft Pre-Support &amp; Overbreak Cavity</strong> above or click any option (<strong className="text-amber-300">Shaft Spiling Ring</strong>, <strong className="text-cyan-300">Micropile Ring</strong>, <strong className="text-emerald-300">Annulus Grouting</strong>) to design perimeter pre-support or wall cavity stabilization for low Q / RMR shaft zones and water-bearing strata.
+              </>
+            ) : (
+              <>
+                Tick <strong className="text-rose-300">Protection / Cavity Support</strong> above or click any option (<strong className="text-amber-300">Forepoling</strong>, <strong className="text-cyan-300">Pipe Roofing</strong>, <strong className="text-emerald-300">Grouting</strong>) to design canopy pre-support or cavity stabilization for low Q / RMR zones, shear zones, and crown cavities.
+              </>
+            )}
           </span>
           <button
             type="button"
@@ -1834,14 +1895,14 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
             }
             className="px-3 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-400 text-slate-950 font-black text-xs cursor-pointer shrink-0"
           >
-            Enable Protection / Cavity Support
+            {isVerticalShaft ? 'Enable Shaft Pre-Support & Cavity' : 'Enable Protection / Cavity Support'}
           </button>
         </div>
       ) : (
         <div className="space-y-3">
           {/* 3-Column Interactive Design Grid: Forepoling | Pipe Roofing | Grouting & Cavity */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5">
-            {/* ==================== 1. FOREPOLING DESIGN CARD ==================== */}
+            {/* ==================== 1. FOREPOLING / SHAFT SPILING RING DESIGN CARD ==================== */}
             <div
               className={`rounded-xl p-3 border space-y-2.5 transition-all ${
                 support.forepolingEnabled
@@ -1851,7 +1912,7 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase tracking-wider text-amber-400">
-                  1. Forepoling (Spiling Canopy)
+                  {isVerticalShaft ? '1. Shaft Perimeter Spiling Ring' : '1. Forepoling (Spiling Canopy)'}
                 </span>
                 <input
                   type="checkbox"
@@ -1971,7 +2032,7 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
 
                   <div>
                     <label className="block text-[10px] text-slate-400 mb-0.5">
-                      Canopy Sector Coverage
+                      {isVerticalShaft ? 'Shaft Perimeter Sector Coverage' : 'Canopy Sector Coverage'}
                     </label>
                     <select
                       value={support.forepolingSector ?? 'Crown Arch (120°)'}
@@ -1983,18 +2044,28 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
                       }
                       className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white"
                     >
-                      <option value="Crown Arch (120°)">Crown Arch (120°)</option>
-                      <option value="Full Crown (180°)">Full Crown (180°)</option>
-                      <option value="Left Shoulder">Left Shoulder</option>
-                      <option value="Right Shoulder">Right Shoulder</option>
-                      <option value="Cavity Zone">Cavity Zone</option>
+                      <option value="Crown Arch (120°)">
+                        {isVerticalShaft ? 'NE–ES Half Ring (0°–180°)' : 'Crown Arch (120°)'}
+                      </option>
+                      <option value="Full Crown (180°)">
+                        {isVerticalShaft ? 'Full 360° Shaft Perimeter Ring' : 'Full Crown (180°)'}
+                      </option>
+                      <option value="Left Shoulder">
+                        {isVerticalShaft ? '4th Quad WN (270°–360°)' : 'Left Shoulder'}
+                      </option>
+                      <option value="Right Shoulder">
+                        {isVerticalShaft ? '1st & 2nd Quad NE–ES (0°–180°)' : 'Right Shoulder'}
+                      </option>
+                      <option value="Cavity Zone">
+                        {isVerticalShaft ? 'Local Overbreak Cavity Sector' : 'Cavity Zone'}
+                      </option>
                     </select>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* ==================== 2. PIPE ROOFING DESIGN CARD ==================== */}
+            {/* ==================== 2. PIPE ROOFING / COLLAR MICROPILE RING DESIGN CARD ==================== */}
             <div
               className={`rounded-xl p-3 border space-y-2.5 transition-all ${
                 support.pipeRoofingEnabled
@@ -2004,7 +2075,9 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase tracking-wider text-cyan-400">
-                  2. Pipe Roofing (Umbrella Arch)
+                  {isVerticalShaft
+                    ? '2. Tubular Ring Canopy / Collar Micropiles'
+                    : '2. Pipe Roofing (Umbrella Arch)'}
                 </span>
                 <input
                   type="checkbox"
@@ -2018,7 +2091,7 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
                 <div className="space-y-2 text-xs">
                   <div>
                     <label className="block text-[10px] text-slate-400 mb-0.5">
-                      Pipe Roof Specification
+                      {isVerticalShaft ? 'Micropile / Tubular Ring Spec' : 'Pipe Roof Specification'}
                     </label>
                     <select
                       value={support.pipeRoofingSpec ?? 'Perforated Steel Pipe Ø114mm × 6mm'}
@@ -2124,7 +2197,7 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
 
                   <div>
                     <label className="block text-[10px] text-slate-400 mb-0.5">
-                      Umbrella Sector Coverage
+                      {isVerticalShaft ? 'Shaft Ring Sector Coverage' : 'Umbrella Sector Coverage'}
                     </label>
                     <select
                       value={support.pipeRoofingSector ?? 'Crown Arch (120°)'}
@@ -2136,11 +2209,21 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
                       }
                       className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white"
                     >
-                      <option value="Crown Arch (120°)">Crown Arch (120°)</option>
-                      <option value="Full Crown (180°)">Full Crown (180°)</option>
-                      <option value="Left Shoulder">Left Shoulder</option>
-                      <option value="Right Shoulder">Right Shoulder</option>
-                      <option value="Cavity Zone">Cavity Zone</option>
+                      <option value="Crown Arch (120°)">
+                        {isVerticalShaft ? 'NE–ES Half Ring (0°–180°)' : 'Crown Arch (120°)'}
+                      </option>
+                      <option value="Full Crown (180°)">
+                        {isVerticalShaft ? 'Full 360° Shaft Collar Ring' : 'Full Crown (180°)'}
+                      </option>
+                      <option value="Left Shoulder">
+                        {isVerticalShaft ? '4th Quad WN (270°–360°)' : 'Left Shoulder'}
+                      </option>
+                      <option value="Right Shoulder">
+                        {isVerticalShaft ? '1st & 2nd Quad NE–ES (0°–180°)' : 'Right Shoulder'}
+                      </option>
+                      <option value="Cavity Zone">
+                        {isVerticalShaft ? 'Local Overbreak Cavity Sector' : 'Cavity Zone'}
+                      </option>
                     </select>
                   </div>
                 </div>
@@ -2157,7 +2240,9 @@ export const FieldProtectionCavitySupportDesigner: React.FC<{
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
-                  3. Grouting &amp; Cavity Support
+                  {isVerticalShaft
+                    ? '3. Annulus Curtain Grouting & Wall Cavity'
+                    : '3. Grouting & Cavity Support'}
                 </span>
                 <input
                   type="checkbox"
@@ -3833,6 +3918,768 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
   const surf = useMemo(() => getLocationSurfaceConfig(location), [location]);
   const W = Math.max(1.5, surf.tunnelW || location.widthM || 8);
   const H = Math.max(1.5, surf.tunnelH || location.heightM || 7);
+  const isVerticalShaft =
+    location.undergroundSubMode === 'vertical_shaft' ||
+    round?.undergroundSubMode === 'vertical_shaft';
+
+  // ==========================================================================
+  // VERTICAL SHAFT 2D PLAN CROSS-SECTION (NATM & NMT 360° SHAFT SUPPORT RING)
+  // ==========================================================================
+  if (isVerticalShaft) {
+    const shaftDiaM = W;
+    const shaftPerimM = Number((Math.PI * shaftDiaM).toFixed(1));
+    const cxShaft = 280;
+    const cyShaft = 194;
+    const rShaftPx = 92; // Leaves room for radial rock bolts (up to ~48px) and labels
+    const pxPerMeter = (rShaftPx * 2) / shaftDiaM;
+
+    const shaftApproach = normalizeVerticalShaftExcavationApproach(
+      round?.excavationApproach || location.excavationApproach
+    );
+    const isHalfShaft =
+      shaftApproach === 'Half Face — 1st & 2nd Quad (NE–ES)' ||
+      shaftApproach === 'Half Face — 3rd & 4th Quad (SW–WN)';
+    const activeHalfIsEast = shaftApproach === 'Half Face — 1st & 2nd Quad (NE–ES)';
+    const medianDivisionCondition =
+      round?.shaftMedianDivisionCondition || location.shaftMedianDivisionCondition || 'closed';
+
+    // Generate 1m perimeter tick marks starting from 0° North clockwise
+    const total1mTicks = Math.floor(shaftPerimM);
+    const tickMarks1m = Array.from({ length: total1mTicks }, (_, idx) => {
+      const distM = idx;
+      const azRad = (distM / shaftPerimM) * Math.PI * 2;
+      const sinA = Math.sin(azRad);
+      const cosA = Math.cos(azRad);
+      return {
+        distM,
+        x0: cxShaft + rShaftPx * sinA,
+        y0: cyShaft - rShaftPx * cosA,
+        x1: cxShaft + (rShaftPx - 5) * sinA,
+        y1: cyShaft - (rShaftPx - 5) * cosA,
+        tx: cxShaft + (rShaftPx - 12) * sinA,
+        ty: cyShaft - (rShaftPx - 12) * cosA,
+      };
+    });
+
+    // Radial Systematic Rock Bolts around 360° Shaft Ring (or Active Half)
+    const shaftPatternBolts = (() => {
+      if (!support.rockBoltsEnabled) return [];
+      const spacingM = Math.max(0.6, support.rockBoltInPlaneSpacingM || 1.5);
+      const boltLenM = Math.max(1.5, support.rockBoltLengthM || 4.0);
+      const boltLenPx = Math.min(48, Math.max(22, boltLenM * pxPerMeter * 0.55));
+      const fullRing = support.rockBoltScope === 'crown_and_wall' || !isHalfShaft;
+      const arcM = fullRing ? shaftPerimM : shaftPerimM * 0.5;
+      const count = Math.max(4, Math.min(24, Math.round(arcM / spacingM)));
+      const list: {
+        x0: number;
+        y0: number;
+        x1: number;
+        y1: number;
+        nx: number;
+        ny: number;
+      }[] = [];
+      for (let i = 0; i < count; i++) {
+        let azDeg = (i / count) * 360;
+        if (!fullRing && isHalfShaft) {
+          const frac = (i + 0.5) / count;
+          azDeg = activeHalfIsEast ? frac * 180 : 180 + frac * 180;
+        }
+        const azRad = (azDeg * Math.PI) / 180;
+        const nx = Math.sin(azRad);
+        const ny = -Math.cos(azRad);
+        const x0 = cxShaft + rShaftPx * nx;
+        const y0 = cyShaft + rShaftPx * ny;
+        list.push({
+          x0,
+          y0,
+          x1: x0 + nx * boltLenPx,
+          y1: y0 + ny * boltLenPx,
+          nx,
+          ny,
+        });
+      }
+      return list;
+    })();
+
+    // Given supports schedule for Vertical Shaft
+    const shaftSupportsList: { label: string; text: string; fill: string }[] = [];
+    if (support.rockBoltsEnabled) {
+      shaftSupportsList.push({
+        label: 'Radial Shaft Pattern Bolts',
+        text: `${support.rockBoltType || '25mm SN Dowel'}, L=${support.rockBoltLengthM || 4.0}m @ ${support.rockBoltInPlaneSpacingM || 1.5}m (circumf.) × ${support.rockBoltLongitudinalSpacingM || 1.5}m (ring) (${
+          support.rockBoltScope === 'crown_and_wall' ? 'Full 360° Shaft Ring' : 'Active Quads'
+        })`,
+        fill: '#1d4ed8',
+      });
+    }
+    if (support.shotcreteEnabled) {
+      shaftSupportsList.push({
+        label: 'Shotcrete Shaft Ring',
+        text: `${support.shotcreteType || 'SFRS'} — Primary Ring: ${support.shotcreteCrownThicknessMm || 100}mm${
+          support.shotcreteScope === 'crown_and_wall'
+            ? `, Lower/Median: ${support.shotcreteWallThicknessMm || 75}mm (Full 360° Ring)`
+            : ' (Active Quads)'
+        }`,
+        fill: '#0f172a',
+      });
+    }
+    if (support.wireMeshEnabled) {
+      shaftSupportsList.push({
+        label: 'Shaft Wall Wire Mesh',
+        text: `${support.wireMeshType || 'Welded Wire Mesh'} (${
+          support.wireMeshScope === 'crown_and_wall' ? 'Full 360° Shaft Wall Ring' : 'Active Quads'
+        })`,
+        fill: '#0f766e',
+      });
+    }
+    if (support.latticeGirderEnabled) {
+      shaftSupportsList.push({
+        label: 'Circular Lattice Girder Ring',
+        text: `${support.latticeGirderSpec || '3-Bar Circular LG Ring'} @ ${support.latticeGirderSpacingM || 1.2}m vertical c/c`,
+        fill: '#7c3aed',
+      });
+    }
+    if (support.ismbEnabled) {
+      shaftSupportsList.push({
+        label: 'Circular Steel Curb Ring',
+        text: `${support.ismbSpec || 'ISMB 150 Curb Ring'} @ ${support.ismbSpacingM || 1.0}m vertical c/c (360° closed ring with splice plates)`,
+        fill: '#b45309',
+      });
+    }
+    if (support.spotBoltsEnabled && (support.spotBolts || []).length > 0) {
+      shaftSupportsList.push({
+        label: 'Radial Shaft Spot Bolts',
+        text: `${support.spotBolts.length} nos (${support.spotBolts
+          .map(
+            (s) =>
+              `${s.label} [${formatSpotBoltPanelLabel(s.panel, true)}]: Pull ${s.pullMeter}m, L=${s.lengthM}m, ∠${s.angleDeg}°`
+          )
+          .join('; ')})`,
+        fill: '#dc2626',
+      });
+    }
+    if (support.protectionSupportEnabled) {
+      const protParts: string[] = [];
+      if (support.forepolingEnabled) {
+        protParts.push(
+          `Shaft Spiling Ring Ø${support.forepolingDiameterMm ?? 25}mm L=${support.forepolingLengthM ?? 4}m @ ${support.forepolingSpacingCm ?? 30}cm`
+        );
+      }
+      if (support.pipeRoofingEnabled) {
+        protParts.push(
+          `Micropile Ring Ø${support.pipeRoofingDiameterMm ?? 114}mm L=${support.pipeRoofingLengthM ?? 12}m @ ${support.pipeRoofingSpacingCm ?? 40}cm`
+        );
+      }
+      if (support.groutingEnabled) {
+        protParts.push(
+          `Annulus Grouting ${support.groutingHoleCount ?? 8}H × L=${support.groutingHoleLengthM ?? 6}m @ ${support.groutingPressureBar ?? 10}bar`
+        );
+      }
+      if (protParts.length > 0) {
+        shaftSupportsList.push({
+          label: 'Shaft Pre-Support & Cavity',
+          text: protParts.join(' | '),
+          fill: '#be123c',
+        });
+      }
+    }
+
+    const shotcreteThickPx = Math.max(
+      7,
+      Math.min(18, (support.shotcreteCrownThicknessMm || 100) * 0.08)
+    );
+
+    return (
+      <svg
+        id={svgId}
+        viewBox="0 0 560 422"
+        className={`w-full ${
+          isCompact ? 'max-h-[305px]' : 'max-h-[395px]'
+        } bg-white rounded border border-slate-900 block`}
+      >
+        <defs>
+          <pattern
+            id={`shaft-unexcavated-hatch-${round?.id || 'default'}`}
+            width="8"
+            height="8"
+            patternTransform="rotate(45 0 0)"
+            patternUnits="userSpaceOnUse"
+          >
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#64748b" strokeWidth="1.6" strokeOpacity="0.45" />
+          </pattern>
+        </defs>
+
+        {/* Title Banner Inside Drawing */}
+        <rect
+          x="8"
+          y="8"
+          width="544"
+          height="26"
+          fill="#f8fafc"
+          stroke="#0f172a"
+          strokeWidth="1.2"
+        />
+        <text
+          x="280"
+          y="24"
+          textAnchor="middle"
+          fontSize="10"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0f172a"
+        >
+          2D VERTICAL SHAFT SUPPORT PLAN RING — Ø{shaftDiaM}m (PERIM {shaftPerimM}m | {support.supportClass.toUpperCase()})
+        </text>
+
+        {/* 0. SHAFT PRE-SUPPORT: Annulus Grouting Fan, Spiling Ring, Micropiles & Overbreak Cavity */}
+        {support.protectionSupportEnabled && (
+          <g>
+            {/* Overbreak Cavity Pocket on Q1 NE Wall */}
+            {(support.protectionSupportMode === 'Cavity Support' ||
+              support.protectionSupportMode === 'Protection & Cavity Support') && (
+              <g>
+                <path
+                  d={`M ${(cxShaft + rShaftPx * Math.sin(0.35)).toFixed(1)} ${(cyShaft - rShaftPx * Math.cos(0.35)).toFixed(1)} Q ${(cxShaft + (rShaftPx + 26) * Math.sin(0.78)).toFixed(1)} ${(cyShaft - (rShaftPx + 26) * Math.cos(0.78)).toFixed(1)} ${(cxShaft + rShaftPx * Math.sin(1.2)).toFixed(1)} ${(cyShaft - rShaftPx * Math.cos(1.2)).toFixed(1)} Z`}
+                  fill="#ffe4e6"
+                  fillOpacity="0.7"
+                  stroke="#e11d48"
+                  strokeWidth="1.5"
+                  strokeDasharray="4 2"
+                />
+                <text
+                  x={cxShaft + (rShaftPx + 26) * Math.sin(0.78) + 8}
+                  y={cyShaft - (rShaftPx + 26) * Math.cos(0.78)}
+                  fontSize="7.8"
+                  fontWeight="900"
+                  fontFamily="IBM Plex Mono, monospace"
+                  fill="#be123c"
+                >
+                  WALL CAVITY BACKFILL ({support.cavityWidthM ?? 3.5}m×{support.cavityDepthM ?? 1.2}m)
+                </text>
+              </g>
+            )}
+
+            {/* Radial Annulus Curtain Grouting Boreholes & Bulbs */}
+            {support.groutingEnabled &&
+              Array.from(
+                { length: Math.max(4, Math.min(16, support.groutingHoleCount || 8)) },
+                (_, i) => {
+                  const cnt = Math.max(4, Math.min(16, support.groutingHoleCount || 8));
+                  const azRad = (i / cnt) * Math.PI * 2 + 0.2;
+                  const nx = Math.sin(azRad);
+                  const ny = -Math.cos(azRad);
+                  const gx0 = cxShaft + rShaftPx * nx;
+                  const gy0 = cyShaft + rShaftPx * ny;
+                  const gLen = 36;
+                  const gx1 = gx0 + nx * gLen;
+                  const gy1 = gy0 + ny * gLen;
+                  return (
+                    <g key={`shaft-grout-${i}`}>
+                      <line
+                        x1={gx0}
+                        y1={gy0}
+                        x2={gx1}
+                        y2={gy1}
+                        stroke="#059669"
+                        strokeWidth="1.6"
+                        strokeDasharray="3 2"
+                      />
+                      <circle
+                        cx={gx1}
+                        cy={gy1}
+                        r="4.5"
+                        fill="#10b981"
+                        fillOpacity="0.28"
+                        stroke="#059669"
+                        strokeWidth="1"
+                      />
+                    </g>
+                  );
+                }
+              )}
+
+            {/* Shaft Perimeter Spiling Ring */}
+            {support.forepolingEnabled &&
+              Array.from({ length: 24 }, (_, i) => {
+                const azRad = (i / 24) * Math.PI * 2;
+                const sx = cxShaft + (rShaftPx + shotcreteThickPx + 5) * Math.sin(azRad);
+                const sy = cyShaft - (rShaftPx + shotcreteThickPx + 5) * Math.cos(azRad);
+                return (
+                  <circle
+                    key={`shaft-spile-${i}`}
+                    cx={sx}
+                    cy={sy}
+                    r="2.4"
+                    fill="#f59e0b"
+                    stroke="#78350f"
+                    strokeWidth="0.9"
+                  />
+                );
+              })}
+
+            {/* Collar / Shaft Micropile Ring */}
+            {support.pipeRoofingEnabled &&
+              Array.from({ length: 16 }, (_, i) => {
+                const azRad = (i / 16) * Math.PI * 2 + 0.1;
+                const px = cxShaft + (rShaftPx + shotcreteThickPx + 12) * Math.sin(azRad);
+                const py = cyShaft - (rShaftPx + shotcreteThickPx + 12) * Math.cos(azRad);
+                return (
+                  <g key={`shaft-mpile-${i}`}>
+                    <circle
+                      cx={px}
+                      cy={py}
+                      r="4"
+                      fill="#bae6fd"
+                      stroke="#0369a1"
+                      strokeWidth="1.3"
+                    />
+                    <circle cx={px} cy={py} r="1.4" fill="#ffffff" />
+                  </g>
+                );
+              })}
+          </g>
+        )}
+
+        {/* 1. Concentric Shotcrete Shaft Wall Ring */}
+        {support.shotcreteEnabled && (
+          <g>
+            <circle
+              cx={cxShaft}
+              cy={cyShaft}
+              r={rShaftPx + shotcreteThickPx / 2}
+              fill="none"
+              stroke="#cbd5e1"
+              strokeWidth={shotcreteThickPx}
+            />
+            <circle
+              cx={cxShaft}
+              cy={cyShaft}
+              r={rShaftPx + shotcreteThickPx}
+              fill="none"
+              stroke="#334155"
+              strokeWidth="1.1"
+              strokeDasharray="3 1.5"
+            />
+          </g>
+        )}
+
+        {/* 2. Main Circular Shaft Excavation Outline */}
+        <circle
+          cx={cxShaft}
+          cy={cyShaft}
+          r={rShaftPx}
+          fill="#ffffff"
+          stroke="#0f172a"
+          strokeWidth="2.4"
+        />
+
+        {/* 2B. Half-Face Shaft Unexcavated Half Hatching & 0°N–180°S Median Line */}
+        {isHalfShaft && (
+          <g>
+            <path
+              d={
+                activeHalfIsEast
+                  ? `M ${cxShaft} ${cyShaft - rShaftPx} A ${rShaftPx} ${rShaftPx} 0 0 0 ${cxShaft} ${cyShaft + rShaftPx} Z`
+                  : `M ${cxShaft} ${cyShaft - rShaftPx} A ${rShaftPx} ${rShaftPx} 0 0 1 ${cxShaft} ${cyShaft + rShaftPx} Z`
+              }
+              fill={`url(#shaft-unexcavated-hatch-${round?.id || 'default'})`}
+              stroke="none"
+            />
+            <line
+              x1={cxShaft}
+              y1={cyShaft - rShaftPx}
+              x2={cxShaft}
+              y2={cyShaft + rShaftPx}
+              stroke={medianDivisionCondition === 'closed' ? '#dc2626' : '#0284c7'}
+              strokeWidth={medianDivisionCondition === 'closed' ? '2.4' : '1.6'}
+              strokeDasharray={medianDivisionCondition === 'closed' ? undefined : '5 3'}
+            />
+            <text
+              x={cxShaft + (activeHalfIsEast ? -44 : 44)}
+              y={cyShaft}
+              textAnchor="middle"
+              fontSize="7.5"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#475569"
+            >
+              UNEXCAVATED
+            </text>
+          </g>
+        )}
+
+        {/* Cardinal Axis Crosshairs (0° N - 180° S and 270° W - 90° E) */}
+        <line
+          x1={cxShaft}
+          y1={cyShaft - rShaftPx - 16}
+          x2={cxShaft}
+          y2={cyShaft + rShaftPx + 16}
+          stroke="#64748b"
+          strokeWidth="0.9"
+          strokeDasharray="4 3"
+        />
+        <line
+          x1={cxShaft - rShaftPx - 16}
+          y1={cyShaft}
+          x2={cxShaft + rShaftPx + 16}
+          y2={cyShaft}
+          stroke="#64748b"
+          strokeWidth="0.9"
+          strokeDasharray="4 3"
+        />
+
+        {/* 1m Reference Tick Marks Starting Clockwise from 0° North */}
+        {tickMarks1m.map((tk) => (
+          <g key={`tk-1m-${tk.distM}`}>
+            <line
+              x1={tk.x0}
+              y1={tk.y0}
+              x2={tk.x1}
+              y2={tk.y1}
+              stroke="#475569"
+              strokeWidth="1.1"
+            />
+            {tk.distM % 2 === 0 && (
+              <text
+                x={tk.tx}
+                y={tk.ty + 2.5}
+                textAnchor="middle"
+                fontSize="6.5"
+                fontWeight="800"
+                fontFamily="IBM Plex Mono, monospace"
+                fill="#475569"
+              >
+                {tk.distM}m
+              </text>
+            )}
+          </g>
+        ))}
+
+        {/* Cardinal & Quadrant Labels */}
+        <text
+          x={cxShaft}
+          y={cyShaft - rShaftPx - 20}
+          textAnchor="middle"
+          fontSize="9"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#dc2626"
+        >
+          ▲ 0° NORTH (0m Ref)
+        </text>
+        <text
+          x={cxShaft + rShaftPx + 20}
+          y={cyShaft + 3}
+          textAnchor="start"
+          fontSize="8.5"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0284c7"
+        >
+          90° E
+        </text>
+        <text
+          x={cxShaft}
+          y={cyShaft + rShaftPx + 27}
+          textAnchor="middle"
+          fontSize="8.5"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0f172a"
+        >
+          180° SOUTH
+        </text>
+        <text
+          x={cxShaft - rShaftPx - 20}
+          y={cyShaft + 3}
+          textAnchor="end"
+          fontSize="8.5"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#7c3aed"
+        >
+          270° W
+        </text>
+
+        {/* 4 Quadrant Callout Labels */}
+        <text
+          x={cxShaft + 42}
+          y={cyShaft - 38}
+          textAnchor="middle"
+          fontSize="8"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0369a1"
+        >
+          Q1 NE (0°–90°)
+        </text>
+        <text
+          x={cxShaft + 42}
+          y={cyShaft + 44}
+          textAnchor="middle"
+          fontSize="8"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0f766e"
+        >
+          Q2 ES (90°–180°)
+        </text>
+        <text
+          x={cxShaft - 42}
+          y={cyShaft + 44}
+          textAnchor="middle"
+          fontSize="8"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#b45309"
+        >
+          Q3 SW (180°–270°)
+        </text>
+        <text
+          x={cxShaft - 42}
+          y={cyShaft - 38}
+          textAnchor="middle"
+          fontSize="8"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#6d28d9"
+        >
+          Q4 WN (270°–360°)
+        </text>
+
+        {/* 3. Wire Mesh Inner Ring */}
+        {support.wireMeshEnabled && (
+          <g>
+            <circle
+              cx={cxShaft}
+              cy={cyShaft}
+              r={rShaftPx - 5}
+              fill="none"
+              stroke="#0f766e"
+              strokeWidth="2"
+              strokeDasharray="5 2.5"
+            />
+          </g>
+        )}
+
+        {/* 4. Circular Lattice Girder Ring (LG) */}
+        {support.latticeGirderEnabled && (
+          <g>
+            <circle
+              cx={cxShaft}
+              cy={cyShaft}
+              r={rShaftPx - 10}
+              fill="none"
+              stroke="#7c3aed"
+              strokeWidth="2"
+            />
+            {Array.from({ length: 16 }, (_, i) => {
+              const azRad = (i / 16) * Math.PI * 2;
+              return (
+                <circle
+                  key={`shaft-lg-node-${i}`}
+                  cx={cxShaft + (rShaftPx - 10) * Math.sin(azRad)}
+                  cy={cyShaft - (rShaftPx - 10) * Math.cos(azRad)}
+                  r="2.2"
+                  fill="#ffffff"
+                  stroke="#7c3aed"
+                  strokeWidth="1.4"
+                />
+              );
+            })}
+          </g>
+        )}
+
+        {/* 5. Circular ISMB Steel Curb Ring (Closed 360° Ring with 4 Quadrant Bolted Splice Plates) */}
+        {support.ismbEnabled && (
+          <g>
+            <circle
+              cx={cxShaft}
+              cy={cyShaft}
+              r={rShaftPx - 15}
+              fill="none"
+              stroke="#b45309"
+              strokeWidth="3.2"
+            />
+            {[45, 135, 225, 315].map((deg) => {
+              const rad = (deg * Math.PI) / 180;
+              const sx = cxShaft + (rShaftPx - 15) * Math.sin(rad);
+              const sy = cyShaft - (rShaftPx - 15) * Math.cos(rad);
+              return (
+                <rect
+                  key={`curb-splice-${deg}`}
+                  x={sx - 4}
+                  y={sy - 4}
+                  width="8"
+                  height="8"
+                  fill="#b45309"
+                  stroke="#ffffff"
+                  strokeWidth="1"
+                />
+              );
+            })}
+          </g>
+        )}
+
+        {/* 6. Radial Systematic Shaft Pattern Rock Bolts */}
+        {shaftPatternBolts.map((b, idx) => (
+          <g key={`shaft-sys-bolt-${idx}`}>
+            <line
+              x1={b.x0}
+              y1={b.y0}
+              x2={b.x1}
+              y2={b.y1}
+              stroke="#1d4ed8"
+              strokeWidth="2.1"
+            />
+            <circle
+              cx={b.x0}
+              cy={b.y0}
+              r="3.1"
+              fill="#1d4ed8"
+              stroke="#ffffff"
+              strokeWidth="1"
+            />
+            <circle cx={b.x1} cy={b.y1} r="2" fill="#1d4ed8" />
+          </g>
+        ))}
+
+        {/* 7. Radial Shaft Spot Bolts */}
+        {support.spotBoltsEnabled &&
+          (support.spotBolts || []).map((sb, idx) => {
+            let azDeg = sb.azimuthDeg;
+            if (azDeg === undefined) {
+              if (sb.xMeters || sb.yMeters) {
+                azDeg = ((Math.atan2(sb.xMeters, sb.yMeters || 0.01) * 180) / Math.PI + 360) % 360;
+              } else {
+                azDeg =
+                  sb.panel === 'crown'
+                    ? 45
+                    : sb.panel === 'right_wall'
+                    ? 135
+                    : sb.panel === 'face'
+                    ? 225
+                    : 315;
+              }
+            }
+            const azRad = (azDeg * Math.PI) / 180;
+            const nx = Math.sin(azRad);
+            const ny = -Math.cos(azRad);
+            const bx0 = cxShaft + rShaftPx * nx;
+            const by0 = cyShaft + rShaftPx * ny;
+            const boltLenPx = Math.min(54, Math.max(26, (sb.lengthM || 4) * pxPerMeter * 0.62));
+            const bx1 = bx0 + nx * boltLenPx;
+            const by1 = by0 + ny * boltLenPx;
+
+            return (
+              <g key={sb.id || idx}>
+                <line
+                  x1={bx0}
+                  y1={by0}
+                  x2={bx1}
+                  y2={by1}
+                  stroke="#dc2626"
+                  strokeWidth="3"
+                  strokeDasharray="5 2"
+                />
+                <circle
+                  cx={bx0}
+                  cy={by0}
+                  r="4.5"
+                  fill="#dc2626"
+                  stroke="#ffffff"
+                  strokeWidth="1.5"
+                />
+                <text
+                  x={bx1 + (nx >= 0 ? 5 : -5)}
+                  y={by1 + (ny >= 0 ? 8 : -3)}
+                  textAnchor={nx >= 0 ? 'start' : 'end'}
+                  fontSize="8"
+                  fontWeight="900"
+                  fontFamily="IBM Plex Mono, monospace"
+                  fill="#dc2626"
+                  stroke="#ffffff"
+                  strokeWidth="2.2"
+                  paintOrder="stroke"
+                >
+                  {sb.label} ({formatSpotBoltPanelLabel(sb.panel, true).split(' ')[0]} {formatSpotBoltPanelLabel(sb.panel, true).split(' ')[2] || ''} | Pull {sb.pullMeter}m | ∠{sb.angleDeg}°)
+                </text>
+              </g>
+            );
+          })}
+
+        {/* Shaft Dimension & Sump Callout */}
+        <text
+          x="16"
+          y="50"
+          fontSize="8.2"
+          fontWeight="900"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0f172a"
+        >
+          • Shaft Ø = {shaftDiaM}m (R = {(shaftDiaM / 2).toFixed(2)}m)
+        </text>
+        <text
+          x="16"
+          y="62"
+          fontSize="8"
+          fontWeight="800"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#334155"
+        >
+          • Circumference = {shaftPerimM}m (1m ticks from 0° N)
+        </text>
+        <text
+          x="16"
+          y="74"
+          fontSize="8"
+          fontWeight="800"
+          fontFamily="IBM Plex Mono, monospace"
+          fill="#0369a1"
+        >
+          • Approach: {shaftApproach}
+        </text>
+
+        {/* Bottom Legend & Support Summary Schedule inside 2D Drawing */}
+        <rect
+          x="8"
+          y="340"
+          width="544"
+          height="74"
+          fill="#f8fafc"
+          stroke="#0f172a"
+          strokeWidth="1.2"
+        />
+        {shaftSupportsList.length === 0 ? (
+          <text
+            x="280"
+            y="380"
+            textAnchor="middle"
+            fontSize="9.5"
+            fontWeight="900"
+            fontFamily="IBM Plex Mono, monospace"
+            fill="#64748b"
+          >
+            • GIVEN SHAFT SUPPORTS: NONE (Unsupported / Self-supporting shaft rock mass)
+          </text>
+        ) : (
+          shaftSupportsList.slice(0, 5).map((item, idx) => (
+            <text
+              key={item.label}
+              x="16"
+              y={355 + idx * 14}
+              fontSize={shaftSupportsList.length > 4 ? '7.9' : '8.5'}
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill={item.fill}
+            >
+              • {item.label}: {item.text}
+            </text>
+          ))
+        )}
+      </svg>
+    );
+  }
 
   // Build exact 1:1 isotropic design tunnel profile in SVG (viewBox 0 0 560 422)
   const cx = 280;
@@ -4980,6 +5827,10 @@ export const FieldSupportSystemStage: React.FC<{
       support.supportClass !== 'Custom' &&
       (calculatedSupportClass === null || support.supportClass !== calculatedSupportClass);
 
+  const isVerticalShaft =
+    activeLocation.undergroundSubMode === 'vertical_shaft' ||
+    activeRound.undergroundSubMode === 'vertical_shaft';
+
   const updateSupport = (patch: Partial<FieldSupportSystemConfig>) => {
     onUpdateRound((r) => {
       const curr = r.supportSystem || createDefaultSupportSystem();
@@ -4987,12 +5838,13 @@ export const FieldSupportSystemStage: React.FC<{
       return {
         ...r,
         supportSystem: next,
-        rockSupportRecommendation: buildSupportRecommendationText(next, r),
+        rockSupportRecommendation: buildSupportRecommendationText(next, r, activeLocation),
       };
     });
   };
 
   const applyNmtClassPreset = (nmtCls: FieldNmtClassItem) => {
+    const shaftScope = 'crown_and_wall' as const;
     if (nmtCls.code === 'A') {
       updateSupport({
         supportClass: nmtCls.fullName,
@@ -5018,10 +5870,10 @@ export const FieldSupportSystemStage: React.FC<{
     } else if (nmtCls.code === 'C') {
       updateSupport({
         supportClass: nmtCls.fullName,
-        rockClass: `${nmtCls.fullName} • NMT Cat 2–3: Systematic Bolting (B)`,
+        rockClass: `${nmtCls.fullName} • NMT Cat 2–3: ${isVerticalShaft ? 'Radial Shaft Pattern Bolting (B)' : 'Systematic Bolting (B)'}`,
         rockBoltsEnabled: true,
         spotBoltsEnabled: true,
-        rockBoltScope: 'crown_only',
+        rockBoltScope: isVerticalShaft ? shaftScope : 'crown_only',
         rockBoltLengthM: 3.0,
         rockBoltInPlaneSpacingM: 2.5,
         rockBoltLongitudinalSpacingM: 2.5,
@@ -5033,16 +5885,17 @@ export const FieldSupportSystemStage: React.FC<{
     } else if (nmtCls.code === 'D') {
       updateSupport({
         supportClass: nmtCls.fullName,
-        rockClass: `${nmtCls.fullName} • NMT Cat 3–4: Bolting + Sfr (50mm E500)`,
+        rockClass: `${nmtCls.fullName} • NMT Cat 3–4: ${isVerticalShaft ? '360° Shaft Ring Bolting + Sfr (50mm E500)' : 'Bolting + Sfr (50mm E500)'}`,
         rockBoltsEnabled: true,
         spotBoltsEnabled: true,
-        rockBoltScope: 'crown_only',
+        rockBoltScope: isVerticalShaft ? shaftScope : 'crown_only',
         rockBoltLengthM: 3.5,
         rockBoltInPlaneSpacingM: 2.0,
         rockBoltLongitudinalSpacingM: 2.0,
         shotcreteEnabled: true,
-        shotcreteScope: 'crown_only',
+        shotcreteScope: isVerticalShaft ? shaftScope : 'crown_only',
         shotcreteCrownThicknessMm: 50,
+        shotcreteWallThicknessMm: 50,
         shotcreteType: 'SFRS',
         wireMeshEnabled: false,
         latticeGirderEnabled: false,
@@ -5061,7 +5914,7 @@ export const FieldSupportSystemStage: React.FC<{
         shotcreteEnabled: true,
         shotcreteScope: 'crown_and_wall',
         shotcreteCrownThicknessMm: 70,
-        shotcreteWallThicknessMm: 50,
+        shotcreteWallThicknessMm: isVerticalShaft ? 70 : 50,
         shotcreteType: 'SFRS',
         wireMeshEnabled: false,
         latticeGirderEnabled: false,
@@ -5080,7 +5933,7 @@ export const FieldSupportSystemStage: React.FC<{
         shotcreteEnabled: true,
         shotcreteScope: 'crown_and_wall',
         shotcreteCrownThicknessMm: 100,
-        shotcreteWallThicknessMm: 75,
+        shotcreteWallThicknessMm: isVerticalShaft ? 100 : 75,
         shotcreteType: 'SFRS',
         wireMeshEnabled: false,
         latticeGirderEnabled: false,
@@ -5099,11 +5952,14 @@ export const FieldSupportSystemStage: React.FC<{
         shotcreteEnabled: true,
         shotcreteScope: 'crown_and_wall',
         shotcreteCrownThicknessMm: 130,
-        shotcreteWallThicknessMm: 100,
+        shotcreteWallThicknessMm: isVerticalShaft ? 130 : 100,
         shotcreteType: 'SFRS',
         wireMeshEnabled: true,
+        wireMeshScope: 'crown_and_wall',
         latticeGirderEnabled: true,
-        latticeGirderSpec: 'RRS I (Si30/6 ribs @ 1.5m)',
+        latticeGirderSpec: isVerticalShaft
+          ? 'Circular RRS I Shaft Ring (Si30/6 @ 1.5m)'
+          : 'RRS I (Si30/6 ribs @ 1.5m)',
         latticeGirderSpacingM: 1.5,
         ismbEnabled: false,
       });
@@ -5120,20 +5976,23 @@ export const FieldSupportSystemStage: React.FC<{
         shotcreteEnabled: true,
         shotcreteScope: 'crown_and_wall',
         shotcreteCrownThicknessMm: 180,
-        shotcreteWallThicknessMm: 150,
+        shotcreteWallThicknessMm: isVerticalShaft ? 180 : 150,
         shotcreteType: 'SFRS',
         wireMeshEnabled: true,
+        wireMeshScope: 'crown_and_wall',
         latticeGirderEnabled: true,
-        latticeGirderSpec: 'RRS II/III (D45/6+2 ribs @ 1.2m)',
+        latticeGirderSpec: isVerticalShaft
+          ? 'Circular RRS II/III Shaft Ring (D45/6+2 @ 1.2m)'
+          : 'RRS II/III (D45/6+2 ribs @ 1.2m)',
         latticeGirderSpacingM: 1.2,
         ismbEnabled: true,
-        ismbSpec: 'ISMB 150 / Heavy Steel Ribs',
+        ismbSpec: isVerticalShaft ? 'ISMB 150 Circular Shaft Curb Ring' : 'ISMB 150 / Heavy Steel Ribs',
         ismbSpacingM: 1.2,
       });
     } else if (nmtCls.code === 'I') {
       updateSupport({
         supportClass: nmtCls.fullName,
-        rockClass: `${nmtCls.fullName} • NMT Cat 9: Sfr (>200mm) / Cast Concrete CCA + Heavy RRS III`,
+        rockClass: `${nmtCls.fullName} • NMT Cat 9: Sfr (>200mm) / Cast Concrete Lining + Heavy RRS III`,
         rockBoltsEnabled: true,
         spotBoltsEnabled: true,
         rockBoltScope: 'crown_and_wall',
@@ -5143,14 +6002,19 @@ export const FieldSupportSystemStage: React.FC<{
         shotcreteEnabled: true,
         shotcreteScope: 'crown_and_wall',
         shotcreteCrownThicknessMm: 250,
-        shotcreteWallThicknessMm: 200,
+        shotcreteWallThicknessMm: isVerticalShaft ? 250 : 200,
         shotcreteType: 'SFRS',
         wireMeshEnabled: true,
+        wireMeshScope: 'crown_and_wall',
         latticeGirderEnabled: true,
-        latticeGirderSpec: 'RRS III (D55/6+4 heavy ribs @ 1.0m)',
+        latticeGirderSpec: isVerticalShaft
+          ? 'Circular RRS III Shaft Ring (D55/6+4 @ 1.0m)'
+          : 'RRS III (D55/6+4 heavy ribs @ 1.0m)',
         latticeGirderSpacingM: 1.0,
         ismbEnabled: true,
-        ismbSpec: 'Cast Concrete Arch (CCA) / Heavy ISMB 200',
+        ismbSpec: isVerticalShaft
+          ? 'Cast Concrete Shaft Ring / Heavy ISMB 200 Curb Ring'
+          : 'Cast Concrete Arch (CCA) / Heavy ISMB 200',
         ismbSpacingM: 1.0,
       });
     }
@@ -5165,8 +6029,9 @@ export const FieldSupportSystemStage: React.FC<{
         rockBoltsEnabled: false,
         spotBoltsEnabled: true,
         shotcreteEnabled: true,
-        shotcreteScope: 'crown_only',
+        shotcreteScope: isVerticalShaft ? 'crown_and_wall' : 'crown_only',
         shotcreteCrownThicknessMm: 50,
+        shotcreteWallThicknessMm: 50,
         wireMeshEnabled: false,
         latticeGirderEnabled: false,
         ismbEnabled: false,
@@ -5175,15 +6040,16 @@ export const FieldSupportSystemStage: React.FC<{
       updateSupport({
         supportClass: 'Class II',
         rockBoltsEnabled: true,
-        rockBoltScope: 'crown_only',
+        rockBoltScope: isVerticalShaft ? 'crown_and_wall' : 'crown_only',
         rockBoltLengthM: 4.0,
         rockBoltInPlaneSpacingM: 2.0,
         rockBoltLongitudinalSpacingM: 2.0,
         shotcreteEnabled: true,
-        shotcreteScope: 'crown_only',
+        shotcreteScope: isVerticalShaft ? 'crown_and_wall' : 'crown_only',
         shotcreteCrownThicknessMm: 75,
+        shotcreteWallThicknessMm: 75,
         wireMeshEnabled: true,
-        wireMeshScope: 'crown_only',
+        wireMeshScope: isVerticalShaft ? 'crown_and_wall' : 'crown_only',
         latticeGirderEnabled: false,
         ismbEnabled: false,
       });
@@ -5198,7 +6064,7 @@ export const FieldSupportSystemStage: React.FC<{
         shotcreteEnabled: true,
         shotcreteScope: 'crown_and_wall',
         shotcreteCrownThicknessMm: 100,
-        shotcreteWallThicknessMm: 75,
+        shotcreteWallThicknessMm: isVerticalShaft ? 100 : 75,
         wireMeshEnabled: true,
         wireMeshScope: 'crown_and_wall',
         latticeGirderEnabled: false,
@@ -5215,10 +6081,11 @@ export const FieldSupportSystemStage: React.FC<{
         shotcreteEnabled: true,
         shotcreteScope: 'crown_and_wall',
         shotcreteCrownThicknessMm: 150,
-        shotcreteWallThicknessMm: 120,
+        shotcreteWallThicknessMm: isVerticalShaft ? 150 : 120,
         wireMeshEnabled: true,
         wireMeshScope: 'crown_and_wall',
         latticeGirderEnabled: true,
+        latticeGirderSpec: isVerticalShaft ? 'Circular 3-Bar LG Shaft Ring' : '3-Bar LG',
         latticeGirderSpacingM: 1.2,
         ismbEnabled: false,
       });
@@ -5233,12 +6100,14 @@ export const FieldSupportSystemStage: React.FC<{
         shotcreteEnabled: true,
         shotcreteScope: 'crown_and_wall',
         shotcreteCrownThicknessMm: 200,
-        shotcreteWallThicknessMm: 150,
+        shotcreteWallThicknessMm: isVerticalShaft ? 200 : 150,
         wireMeshEnabled: true,
         wireMeshScope: 'crown_and_wall',
         latticeGirderEnabled: true,
+        latticeGirderSpec: isVerticalShaft ? 'Circular 3-Bar LG Shaft Ring' : '3-Bar LG',
         latticeGirderSpacingM: 1.0,
         ismbEnabled: true,
+        ismbSpec: isVerticalShaft ? 'ISMB 150 Circular Curb Ring' : 'ISMB 150',
         ismbSpacingM: 1.0,
       });
     } else {
@@ -6582,7 +7451,13 @@ export const FieldSupportSystemStage: React.FC<{
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-sky-400"></span>
                 <span className="text-[11px] text-slate-300">
-                  Active Workflow: <strong className="text-sky-300">NATM Conventional</strong> (Classes I–V Support System)
+                  Active Workflow:{' '}
+                  <strong className="text-sky-300">
+                    {isVerticalShaft
+                      ? 'NATM Vertical Shaft Sinking Method'
+                      : 'NATM Conventional'}
+                  </strong>{' '}
+                  ({isVerticalShaft ? '360° Shaft Ring Classes I–V' : 'Classes I–V Support System'})
                 </span>
               </div>
               <button
@@ -6591,7 +7466,7 @@ export const FieldSupportSystemStage: React.FC<{
                 className="text-[10px] text-amber-400 hover:text-amber-300 font-mono font-bold flex items-center gap-1 cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30 transition-all"
               >
                 <Sparkles className="w-3 h-3 text-amber-400" />
-                <span>Show NMT Q-Chart</span>
+                <span>{isVerticalShaft ? 'Show NMT Shaft Q-Chart' : 'Show NMT Q-Chart'}</span>
               </button>
             </div>
           )}
@@ -6612,7 +7487,9 @@ export const FieldSupportSystemStage: React.FC<{
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-amber-300">
-                  1. Shotcrete (Crown / Wall)
+                  {isVerticalShaft
+                    ? '1. Shotcrete (360° Shaft Wall Ring)'
+                    : '1. Shotcrete (Crown / Wall)'}
                 </span>
                 <input
                   type="checkbox"
@@ -6633,7 +7510,7 @@ export const FieldSupportSystemStage: React.FC<{
                           : 'bg-slate-950 text-slate-300 border-slate-800'
                       }`}
                     >
-                      Crown Only
+                      {isVerticalShaft ? 'Active Quads / Half' : 'Crown Only'}
                     </button>
                     <button
                       type="button"
@@ -6644,7 +7521,7 @@ export const FieldSupportSystemStage: React.FC<{
                           : 'bg-slate-950 text-slate-300 border-slate-800'
                       }`}
                     >
-                      Crown + Wall
+                      {isVerticalShaft ? 'Full 360° Shaft Ring' : 'Crown + Wall'}
                     </button>
                   </div>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -6664,7 +7541,9 @@ export const FieldSupportSystemStage: React.FC<{
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400">Crown (mm)</label>
+                      <label className="block text-[10px] text-slate-400">
+                        {isVerticalShaft ? 'Shaft Ring (mm)' : 'Crown (mm)'}
+                      </label>
                       <input
                         type="number"
                         step={25}
@@ -6681,7 +7560,9 @@ export const FieldSupportSystemStage: React.FC<{
                     </div>
                     {support.shotcreteScope === 'crown_and_wall' && (
                       <div>
-                        <label className="block text-[10px] text-slate-400">Wall (mm)</label>
+                        <label className="block text-[10px] text-slate-400">
+                          {isVerticalShaft ? 'Lower/Median (mm)' : 'Wall (mm)'}
+                        </label>
                         <input
                           type="number"
                           step={25}
@@ -6706,7 +7587,7 @@ export const FieldSupportSystemStage: React.FC<{
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-emerald-300">
-                  2. Wire Mesh
+                  {isVerticalShaft ? '2. Wire Mesh (Shaft Wall Ring)' : '2. Wire Mesh'}
                 </span>
                 <input
                   type="checkbox"
@@ -6727,7 +7608,7 @@ export const FieldSupportSystemStage: React.FC<{
                           : 'bg-slate-950 text-slate-300 border-slate-800'
                       }`}
                     >
-                      Crown Only
+                      {isVerticalShaft ? 'Active Quads / Half' : 'Crown Only'}
                     </button>
                     <button
                       type="button"
@@ -6738,7 +7619,7 @@ export const FieldSupportSystemStage: React.FC<{
                           : 'bg-slate-950 text-slate-300 border-slate-800'
                       }`}
                     >
-                      Crown + Wall
+                      {isVerticalShaft ? 'Full 360° Shaft Ring' : 'Crown + Wall'}
                     </button>
                   </div>
                   <div>
@@ -6759,7 +7640,9 @@ export const FieldSupportSystemStage: React.FC<{
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-black uppercase text-sky-300">
-                3. Systematic Rock Bolts &amp; Spacing
+                {isVerticalShaft
+                  ? '3. Radial Shaft Pattern Rock Bolts & Ring Spacing'
+                  : '3. Systematic Rock Bolts & Spacing'}
               </span>
               <input
                 type="checkbox"
@@ -6771,7 +7654,9 @@ export const FieldSupportSystemStage: React.FC<{
             {support.rockBoltsEnabled && (
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
                 <div>
-                  <label className="block text-[10px] text-slate-400">Zone</label>
+                  <label className="block text-[10px] text-slate-400">
+                    {isVerticalShaft ? 'Shaft Sector' : 'Zone'}
+                  </label>
                   <select
                     value={support.rockBoltScope ?? 'crown_and_wall'}
                     onChange={(e) =>
@@ -6781,8 +7666,12 @@ export const FieldSupportSystemStage: React.FC<{
                     }
                     className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-white"
                   >
-                    <option value="crown_only">Crown Only</option>
-                    <option value="crown_and_wall">Crown + Wall</option>
+                    <option value="crown_only">
+                      {isVerticalShaft ? 'Active Quads / Half' : 'Crown Only'}
+                    </option>
+                    <option value="crown_and_wall">
+                      {isVerticalShaft ? 'Full 360° Shaft Ring' : 'Crown + Wall'}
+                    </option>
                   </select>
                 </div>
                 <div>
@@ -6795,7 +7684,7 @@ export const FieldSupportSystemStage: React.FC<{
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-slate-400">Length (m)</label>
+                  <label className="block text-[10px] text-slate-400">Radial L (m)</label>
                   <input
                     type="number"
                     step={0.5}
@@ -6809,7 +7698,9 @@ export const FieldSupportSystemStage: React.FC<{
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-slate-400">In-Plane Sp. (m)</label>
+                  <label className="block text-[10px] text-slate-400">
+                    {isVerticalShaft ? 'Circumf. Sp. (m)' : 'In-Plane Sp. (m)'}
+                  </label>
                   <input
                     type="number"
                     step={0.1}
@@ -6823,7 +7714,9 @@ export const FieldSupportSystemStage: React.FC<{
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-slate-400">Long. Sp. (m)</label>
+                  <label className="block text-[10px] text-slate-400">
+                    {isVerticalShaft ? 'Vert. Ring Sp. (m)' : 'Long. Sp. (m)'}
+                  </label>
                   <input
                     type="number"
                     step={0.1}
@@ -6848,7 +7741,7 @@ export const FieldSupportSystemStage: React.FC<{
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-violet-300">
-                  4. Lattice Girder (LG)
+                  {isVerticalShaft ? '4. Circular Lattice Girder Ring' : '4. Lattice Girder (LG)'}
                 </span>
                 <input
                   type="checkbox"
@@ -6862,7 +7755,9 @@ export const FieldSupportSystemStage: React.FC<{
               {support.latticeGirderEnabled && (
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
-                    <label className="block text-[10px] text-slate-400">LG Spec</label>
+                    <label className="block text-[10px] text-slate-400">
+                      {isVerticalShaft ? 'Circular LG Ring Spec' : 'LG Spec'}
+                    </label>
                     <input
                       type="text"
                       value={support.latticeGirderSpec ?? ''}
@@ -6873,7 +7768,9 @@ export const FieldSupportSystemStage: React.FC<{
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400">Spacing (m)</label>
+                    <label className="block text-[10px] text-slate-400">
+                      {isVerticalShaft ? 'Vertical c/c (m)' : 'Spacing (m)'}
+                    </label>
                     <input
                       type="number"
                       step={0.25}
@@ -6892,11 +7789,11 @@ export const FieldSupportSystemStage: React.FC<{
               )}
             </div>
 
-            {/* ISMB Steel Rib */}
+            {/* ISMB Steel Rib / Circular Steel Curb Ring */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-orange-300">
-                  5. ISMB Steel Rib
+                  {isVerticalShaft ? '5. Circular Steel Curb Ring' : '5. ISMB Steel Rib'}
                 </span>
                 <input
                   type="checkbox"
@@ -6908,21 +7805,35 @@ export const FieldSupportSystemStage: React.FC<{
               {support.ismbEnabled && (
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
-                    <label className="block text-[10px] text-slate-400">ISMB Section</label>
+                    <label className="block text-[10px] text-slate-400">
+                      {isVerticalShaft ? 'Curb Ring Section' : 'ISMB Section'}
+                    </label>
                     <select
                       value={support.ismbSpec ?? 'ISMB 150'}
                       onChange={(e) => updateSupport({ ismbSpec: e.target.value })}
                       className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white"
                     >
-                      <option value="ISMB 150">ISMB 150</option>
-                      <option value="ISMB 200">ISMB 200</option>
-                      <option value="ISMB 250">ISMB 250</option>
-                      <option value="ISHB 150">ISHB 150</option>
-                      <option value="ISHB 200">ISHB 200</option>
+                      <option value="ISMB 150">
+                        {isVerticalShaft ? 'ISMB 150 Circular Curb Ring' : 'ISMB 150'}
+                      </option>
+                      <option value="ISMB 200">
+                        {isVerticalShaft ? 'ISMB 200 Circular Curb Ring' : 'ISMB 200'}
+                      </option>
+                      <option value="ISMB 250">
+                        {isVerticalShaft ? 'ISMB 250 Heavy Curb Ring' : 'ISMB 250'}
+                      </option>
+                      <option value="ISHB 150">
+                        {isVerticalShaft ? 'ISHB 150 Circular Curb Ring' : 'ISHB 150'}
+                      </option>
+                      <option value="ISHB 200">
+                        {isVerticalShaft ? 'ISHB 200 Heavy Curb Ring' : 'ISHB 200'}
+                      </option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400">Spacing (m)</label>
+                    <label className="block text-[10px] text-slate-400">
+                      {isVerticalShaft ? 'Vertical c/c (m)' : 'Spacing (m)'}
+                    </label>
                     <input
                       type="number"
                       step={0.25}
@@ -6949,16 +7860,22 @@ export const FieldSupportSystemStage: React.FC<{
             showLiveDrawing={false}
           />
 
-          {/* 6. Interactive 3D Spot Bolt Locator & Angle Chooser (Also Pipe Roofing Umbrella & Forepoling) */}
+          {/* 6. Interactive 3D Spot Bolt Locator & Angle Chooser */}
           <div className="bg-slate-900 border border-rose-500/40 rounded-xl p-3 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
               <div>
                 <div className="text-xs font-black uppercase text-rose-400 flex items-center gap-1.5">
                   <Shield className="w-3.5 h-3.5 text-rose-400" />
-                  <span>6. 3D Tunnel Support, Spot Bolt Angle Chooser &amp; Pipe Roofing Umbrella</span>
+                  <span>
+                    {isVerticalShaft
+                      ? '6. 3D Vertical Shaft Support, Radial Spot Bolt Angle Chooser & Perimeter Pre-Support'
+                      : '6. 3D Tunnel Support, Spot Bolt Angle Chooser & Pipe Roofing Umbrella'}
+                  </span>
                 </div>
                 <p className="text-[10.5px] text-slate-400">
-                  Select and visually choose spot bolt installation angle in true 3D, configure Pipe Roofing umbrella canopy look-out angle, Forepoling, and Pattern Rockbolts.
+                  {isVerticalShaft
+                    ? 'Inspect and place radial 3D spot bolts across Q1 NE, Q2 ES, Q3 SW, and Q4 WN shaft walls, circular steel curb rings, and perimeter spiling.'
+                    : 'Select and visually choose spot bolt installation angle in true 3D, configure Pipe Roofing umbrella canopy look-out angle, Forepoling, and Pattern Rockbolts.'}
                 </p>
               </div>
 
@@ -7139,17 +8056,27 @@ export const FieldSupportSystemStage: React.FC<{
                       {recommendationResult.spotBoltsNeeded && (
                         <div className="space-y-1.5">
                           <span className="text-[10px] font-black uppercase text-slate-400">
-                            Recommended Spot Bolt Locations (RD, Offset, Height):
+                            {isVerticalShaft
+                              ? 'Recommended Radial Shaft Spot Bolt Locations (Depth EL, Quadrant, X/Y):'
+                              : 'Recommended Spot Bolt Locations (RD, Offset, Height):'}
                           </span>
                           <div className="overflow-x-auto max-h-40 overflow-y-auto">
                             <table className="w-full border-collapse border border-slate-800 text-[10px]">
                               <thead>
                                 <tr className="bg-slate-900 text-slate-400">
                                   <th className="border border-slate-800 px-1.5 py-0.5 text-left">Bolt ID</th>
-                                  <th className="border border-slate-800 px-1.5 py-0.5 text-left">Area</th>
-                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">RD (Chainage)</th>
-                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">Offset X (m)</th>
-                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">Height Y (m)</th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-left">
+                                    {isVerticalShaft ? 'Shaft Quadrant' : 'Area'}
+                                  </th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">
+                                    {isVerticalShaft ? 'Depth / RD' : 'RD (Chainage)'}
+                                  </th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">
+                                    {isVerticalShaft ? 'East X (m)' : 'Offset X (m)'}
+                                  </th>
+                                  <th className="border border-slate-800 px-1.5 py-0.5 text-center">
+                                    {isVerticalShaft ? 'North Y (m)' : 'Height Y (m)'}
+                                  </th>
                                   <th className="border border-slate-800 px-1.5 py-0.5 text-center">L × Ø</th>
                                   <th className="border border-slate-800 px-1.5 py-0.5 text-center">∠ Angle</th>
                                   <th className="border border-slate-800 px-1.5 py-0.5 text-left">Hazard Rationale</th>
@@ -7162,7 +8089,7 @@ export const FieldSupportSystemStage: React.FC<{
                                       {b.label}
                                     </td>
                                     <td className="border border-slate-800 px-1.5 py-0.5 uppercase text-slate-300">
-                                      {b.panel.replace('_', ' ')}
+                                      {formatSpotBoltPanelLabel(b.panel, isVerticalShaft)}
                                     </td>
                                     <td className="border border-slate-800 px-1.5 py-0.5 font-mono text-center text-amber-300">
                                       {b.chainageMeters !== undefined
@@ -7353,7 +8280,9 @@ export const FieldSupportSystemStage: React.FC<{
                     fontWeight="800"
                     fill="#2dd4bf"
                   >
-                    0m L.Wall ({surf3D.leftWallLengthM}m)
+                    {isVerticalShaft
+                      ? `Q4 WN (270°–360° | ${surf3D.leftWallLengthM}m)`
+                      : `0m L.Wall (${surf3D.leftWallLengthM}m)`}
                   </text>
                   <text
                     x="210"
@@ -7363,7 +8292,9 @@ export const FieldSupportSystemStage: React.FC<{
                     fontWeight="900"
                     fill="#38bdf8"
                   >
-                    3D {(activeLocation.shape || 'd_shaped').replace(/_/g, ' ').toUpperCase()} ({W}m W × {H}m H × {pullM}m Pull)
+                    {isVerticalShaft
+                      ? `3D VERTICAL SHAFT Ø${W}m × ${pullM}m Sinking Pull (Q1 NE Top • Bottom Sump Face)`
+                      : `3D ${(activeLocation.shape || 'd_shaped').replace(/_/g, ' ').toUpperCase()} (${W}m W × ${H}m H × ${pullM}m Pull)`}
                   </text>
                   <text
                     x={Math.min(408, tunnel3DGeom.outerX + tunnel3DGeom.outerW + 4)}
@@ -7373,7 +8304,9 @@ export const FieldSupportSystemStage: React.FC<{
                     fontWeight="800"
                     fill="#818cf8"
                   >
-                    0m R.Wall ({surf3D.rightWallLengthM}m)
+                    {isVerticalShaft
+                      ? `Q2 ES (90°–180° | ${surf3D.rightWallLengthM}m)`
+                      : `0m R.Wall (${surf3D.rightWallLengthM}m)`}
                   </text>
                   <text
                     x="210"
@@ -7383,7 +8316,9 @@ export const FieldSupportSystemStage: React.FC<{
                     fontWeight="800"
                     fill="#fbbf24"
                   >
-                    FACE ({pullM}m | {W}m×{H}m)
+                    {isVerticalShaft
+                      ? `SHAFT BOTTOM FACE (${pullM}m | Ø${W}m)`
+                      : `FACE (${pullM}m | {W}m×{H}m)`}
                   </text>
 
                   {/* Render Placed Spot Bolts in 3D on Tunnel Profile (ONLY IF ENABLED) */}
@@ -7459,10 +8394,18 @@ export const FieldSupportSystemStage: React.FC<{
                   <thead>
                     <tr className="bg-slate-950 text-slate-300">
                       <th className="border border-slate-800 px-1.5 py-1">Bolt</th>
-                      <th className="border border-slate-800 px-1.5 py-1">Area</th>
-                      <th className="border border-slate-800 px-1.5 py-1">RD (m)</th>
-                      <th className="border border-slate-800 px-1.5 py-1">Offset X (m)</th>
-                      <th className="border border-slate-800 px-1.5 py-1">Height Y (m)</th>
+                      <th className="border border-slate-800 px-1.5 py-1">
+                        {isVerticalShaft ? 'Shaft Quadrant' : 'Area'}
+                      </th>
+                      <th className="border border-slate-800 px-1.5 py-1">
+                        {isVerticalShaft ? 'Depth / RD (m)' : 'RD (m)'}
+                      </th>
+                      <th className="border border-slate-800 px-1.5 py-1">
+                        {isVerticalShaft ? 'East X (m)' : 'Offset X (m)'}
+                      </th>
+                      <th className="border border-slate-800 px-1.5 py-1">
+                        {isVerticalShaft ? 'North Y (m)' : 'Height Y (m)'}
+                      </th>
                       <th className="border border-slate-800 px-1.5 py-1">L (m)</th>
                       <th className="border border-slate-800 px-1.5 py-1">Ø (mm)</th>
                       <th className="border border-slate-800 px-1.5 py-1">Angle (°)</th>
@@ -7484,7 +8427,7 @@ export const FieldSupportSystemStage: React.FC<{
                             {sb.label}
                           </td>
                           <td className="border border-slate-800 px-1.5 py-1 uppercase text-[10px]">
-                            {sb.panel.replace('_', ' ')}
+                            {formatSpotBoltPanelLabel(sb.panel, isVerticalShaft)}
                           </td>
                           {/* RD (Chainage) */}
                           <td className="border border-slate-800 px-1 py-1">

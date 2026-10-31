@@ -1,6 +1,8 @@
 import React, { memo } from 'react';
 import { Check, Move } from 'lucide-react';
 import { MappingDomainType, SurfaceSegmentItem } from '../engine/surfaceMappingEngine';
+import { FieldPanelId, isStrikeOnlyHorizontalPanel } from '../engine/fieldMappingEngine';
+import { getCrownStrikePair } from '../engine/joint3DInspectorEngine';
 
 export interface FieldPending2DTrace {
   tool: string;
@@ -21,6 +23,7 @@ export interface FieldCanvasFloatingControlsProps {
   isCanvasPanMode: boolean;
   setIsCanvasPanMode: React.Dispatch<React.SetStateAction<boolean>>;
   mappingDomain: MappingDomainType;
+  isVerticalShaftMode?: boolean;
   isSurfaceSegmentedMode: boolean;
   surfaceActiveSegmentIdx: number;
   surfaceSegments: SurfaceSegmentItem[];
@@ -36,6 +39,7 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
     isCanvasPanMode,
     setIsCanvasPanMode,
     mappingDomain,
+    isVerticalShaftMode = false,
     isSurfaceSegmentedMode,
     surfaceActiveSegmentIdx,
     surfaceSegments,
@@ -43,6 +47,18 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
     onCommitPending2DTrace,
   }) => {
     if (!isPencilTool || !pending2DTrace) return null;
+
+    const isStrikeOnly =
+      pending2DTrace.tool === '3_joints' &&
+      isStrikeOnlyHorizontalPanel(
+        pending2DTrace.panel as FieldPanelId,
+        isVerticalShaftMode
+      );
+    const strikeVal =
+      pending2DTrace.strike !== undefined
+        ? ((pending2DTrace.strike % 360) + 360) % 360
+        : (((pending2DTrace.dipDirection || 0) - 90 + 360) % 360);
+    const strikePair = getCrownStrikePair(strikeVal);
 
     return (
       <div
@@ -63,10 +79,16 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
               : 'Pencil Trace'}
           </span>
           {pending2DTrace.points.length >= 2 ? (
-            <span className="font-mono text-amber-300">
-              {String(pending2DTrace.dipDirection || 0).padStart(3, '0')}° /{' '}
-              {pending2DTrace.dipAmount || 0}°
-            </span>
+            isStrikeOnly ? (
+              <span className="font-mono text-amber-300">
+                STR {strikePair.label} <span className="text-[10px] text-cyan-300">(Strike Only · 3D for Dip)</span>
+              </span>
+            ) : (
+              <span className="font-mono text-amber-300">
+                {String(pending2DTrace.dipDirection || 0).padStart(3, '0')}° /{' '}
+                {pending2DTrace.dipAmount || 0}°
+              </span>
+            )
           ) : (
             <span className="text-[10px] text-cyan-300">
               Start anchored on outline — click/drag next point

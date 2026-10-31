@@ -119,27 +119,27 @@ function createBillboardLabel(
   text: string,
   bgColor: string,
   textColor: string,
-  scaleX = 3.6,
-  scaleY = 0.75
+  scaleX = 1.65,
+  scaleY = 0.36
 ): THREE.Sprite {
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
+  canvas.width = 384;
+  canvas.height = 88;
   const ctx = canvas.getContext('2d');
   if (ctx) {
     ctx.fillStyle = bgColor;
     ctx.beginPath();
-    ctx.roundRect(8, 8, 496, 112, 16);
+    ctx.roundRect(6, 6, 372, 76, 18);
     ctx.fill();
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 3;
     ctx.stroke();
 
     ctx.fillStyle = textColor;
-    ctx.font = 'bold 36px monospace, sans-serif';
+    ctx.font = 'bold 28px monospace, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 256, 64);
+    ctx.fillText(text, 192, 44);
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.needsUpdate = true;
@@ -912,165 +912,358 @@ const NatmJoint3DInspectorModalContent: React.FC<
     dirLight2.position.set(-15, 10, -15);
     scene.add(dirLight2);
 
-    // Tunnel Dimensions
+    // Tunnel / Shaft Dimensions
     const w = tunnelGeometry.widthM || 8.5;
     const h = tunnelGeometry.heightM || 7.5;
     const hw = tunnelGeometry.wallHeightM || 4.2;
     const pullL = tunnelGeometry.pullLengthM || 3.0;
     const archRise = h - hw;
-
-    const cx = w / 2;
-    const cy = h / 2;
-    const cz = pullL / 2;
-
-    // 5. Clean Excavation Invert Floor (Smooth, flat invert between x = 0 and x = w)
-    const floorGeo = new THREE.PlaneGeometry(w, pullL);
-    floorGeo.rotateX(-Math.PI / 2);
-    floorGeo.translate(cx, 0.001, cz);
-    const floorMat = new THREE.MeshStandardMaterial({
-      color: 0xf8fafc,
-      roughness: 0.65,
-      metalness: 0.02,
-      side: THREE.DoubleSide,
-    });
-    const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-    scene.add(floorMesh);
-
-    // 6. Tunnel Static Geometry Construction (Clean Smooth Hollow Tunnel Void, ZERO Triangles on SPL)
-    const tunnelGroup = new THREE.Group();
-
-    // Dynamic Profile points: strictly in [0, w] (horizontal) and [0, h] (vertical)
-    const profilePts: THREE.Vector2[] = [];
-    const customPoints = tunnelGeometry.crossSectionPoints;
     const isVertShaft = Boolean(tunnelGeometry.isVerticalShaft);
     const isShaftHalfFace =
       isVertShaft && tunnelGeometry.excavationApproach === 'Half Face';
     const shaftHalfSide = tunnelGeometry.shaftHalfSide || 'left_half';
     const shaftMedianStatus = tunnelGeometry.shaftCenterMedianStatus || 'closed';
 
+    const cx = w / 2;
+    const cy = isVertShaft ? pullL / 2 : h / 2;
+    const cz = isVertShaft ? w / 2 : pullL / 2;
+
+    const tunnelGroup = new THREE.Group();
+
     if (isVertShaft) {
+      // =========================================================================
+      // VERTICAL SHAFT 3D CYLINDRICAL BOWL:
+      // - Shaft Bottom Face horizontally at y = 0 (Bottom of the Bowl, Pull 0m)
+      // - 1m North-to-South Reference Line across Bottom Face (0° N at z=0 -> 180° S at z=w)
+      // - 4 Quadrant Walls (1. NE 0°–90°, 2. ES 90°–180°, 3. SW 180°–270°, 4. WN 270°–360°)
+      //   rising vertically around perimeter from y = 0 (Pull 0m) to y = pullL (Pull 3m Top Rim)
+      // =========================================================================
       const r = w / 2;
       const segments = 64;
+      // Perimeter points in horizontal (x, z) plane where:
+      // 0° North = (cx, 0), 90° East = (w, cz), 180° South = (cx, w), 270° West = (0, cz)
+      const bowlRingPts: { x: number; z: number }[] = [];
       if (isShaftHalfFace) {
         if (shaftHalfSide === 'left_half') {
-          // Left Half (West 180°–360°): semi-circle on left side x <= cx
+          // Left Half (West 180° South -> 270° West -> 360° North)
           for (let i = 0; i <= segments / 2; i++) {
-            const ang = Math.PI / 2 + (i / (segments / 2)) * Math.PI; // 90° (top N) -> 270° (bottom S) via West
-            profilePts.push(
-              new THREE.Vector2(cx + r * Math.cos(ang), cy + r * Math.sin(ang))
-            );
+            const deg = 180 + (i / (segments / 2)) * 180;
+            const rad = (deg * Math.PI) / 180;
+            bowlRingPts.push({
+              x: cx + r * Math.sin(rad),
+              z: cz - r * Math.cos(rad),
+            });
           }
         } else {
-          // Right Half (East 0°–180°): semi-circle on right side x >= cx
+          // Right Half (East 0° North -> 90° East -> 180° South)
           for (let i = 0; i <= segments / 2; i++) {
-            const ang = -Math.PI / 2 + (i / (segments / 2)) * Math.PI; // -90° (bottom S) -> +90° (top N) via East
-            profilePts.push(
-              new THREE.Vector2(cx + r * Math.cos(ang), cy + r * Math.sin(ang))
-            );
+            const deg = (i / (segments / 2)) * 180;
+            const rad = (deg * Math.PI) / 180;
+            bowlRingPts.push({
+              x: cx + r * Math.sin(rad),
+              z: cz - r * Math.cos(rad),
+            });
           }
         }
       } else {
         for (let i = 0; i < segments; i++) {
-          const theta = (i / segments) * Math.PI * 2;
-          profilePts.push(
-            new THREE.Vector2(cx + r * Math.cos(theta), cy + r * Math.sin(theta))
-          );
+          const deg = (i / segments) * 360;
+          const rad = (deg * Math.PI) / 180;
+          bowlRingPts.push({
+            x: cx + r * Math.sin(rad),
+            z: cz - r * Math.cos(rad),
+          });
         }
       }
-    } else if (customPoints && customPoints.length >= 3) {
-      const minX = Math.min(...customPoints.map((p) => p.x));
-      const maxX = Math.max(...customPoints.map((p) => p.x));
-      const minY = Math.min(...customPoints.map((p) => p.y));
-      const maxY = Math.max(...customPoints.map((p) => p.y));
-      const spanX = Math.max(0.01, maxX - minX);
-      const spanY = Math.max(0.01, maxY - minY);
 
-      for (const cp of customPoints) {
-        // Map from custom profile space into Three.js tunnel coordinates:
-        // x goes from 0 to w
-        // y goes from 0 to h
-        const tx = ((cp.x - minX) / spanX) * w;
-        const ty = ((cp.y - minY) / spanY) * h;
-        profilePts.push(new THREE.Vector2(tx, ty));
+      const numPts = bowlRingPts.length;
+      const shellPositions: number[] = [];
+      const shellIndices: number[] = [];
+      for (let i = 0; i < numPts; i++) {
+        const p = bowlRingPts[i];
+        // Bottom of bowl (y = 0, Pull 0m)
+        shellPositions.push(p.x, 0, p.z);
+        // Top rim of bowl (y = pullL, Pull 3m)
+        shellPositions.push(p.x, pullL, p.z);
+      }
+      const wallSegCount = isShaftHalfFace && shaftMedianStatus === 'open' ? numPts - 1 : numPts;
+      for (let i = 0; i < wallSegCount; i++) {
+        const next = (i + 1) % numPts;
+        const v0 = i * 2;
+        const v1 = i * 2 + 1;
+        const v2 = next * 2 + 1;
+        const v3 = next * 2;
+        shellIndices.push(v0, v1, v2);
+        shellIndices.push(v0, v2, v3);
+      }
+      const shaftWallGeo = new THREE.BufferGeometry();
+      shaftWallGeo.setAttribute('position', new THREE.Float32BufferAttribute(shellPositions, 3));
+      shaftWallGeo.setIndex(shellIndices);
+      shaftWallGeo.computeVertexNormals();
+      const shaftWallMat = new THREE.MeshStandardMaterial({
+        color: 0xe2e8f0,
+        transparent: true,
+        opacity: 0.28,
+        roughness: 0.25,
+        metalness: 0.02,
+        side: THREE.DoubleSide,
+      });
+      tunnelGroup.add(new THREE.Mesh(shaftWallGeo, shaftWallMat));
+
+      // Horizontal Shaft Bottom Face Cap at y = 0 (Bottom of Bowl, Pull 0m)
+      const facePositions: number[] = [];
+      const faceIndices: number[] = [];
+      for (let i = 0; i < numPts; i++) {
+        facePositions.push(bowlRingPts[i].x, 0.005, bowlRingPts[i].z);
+      }
+      // Centroid fan at (cx, 0.005, cz)
+      facePositions.push(cx, 0.005, cz);
+      const fanSegCount = isShaftHalfFace ? numPts - 1 : numPts;
+      for (let i = 0; i < fanSegCount; i++) {
+        const next = (i + 1) % numPts;
+        faceIndices.push(numPts, i, next);
+      }
+      const faceCapGeo = new THREE.BufferGeometry();
+      faceCapGeo.setAttribute('position', new THREE.Float32BufferAttribute(facePositions, 3));
+      faceCapGeo.setIndex(faceIndices);
+      faceCapGeo.computeVertexNormals();
+      const faceCapMat = new THREE.MeshStandardMaterial({
+        color: 0xe0f2fe,
+        transparent: true,
+        opacity: 0.34,
+        roughness: 0.3,
+        metalness: 0.05,
+        side: THREE.DoubleSide,
+      });
+      tunnelGroup.add(new THREE.Mesh(faceCapGeo, faceCapMat));
+
+      // Bottom Face Contour Ring at y = 0 (Pull 0m) in Electric Cyan
+      const botContourPts: THREE.Vector3[] = bowlRingPts.map((pt) => new THREE.Vector3(pt.x, 0.01, pt.z));
+      botContourPts.push(new THREE.Vector3(bowlRingPts[0].x, 0.01, bowlRingPts[0].z));
+      tunnelGroup.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(botContourPts),
+          new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3 })
+        )
+      );
+
+      // Top Collar Rim Contour Ring at y = pullL (Pull 3m)
+      const topContourPts: THREE.Vector3[] = bowlRingPts.map((pt) => new THREE.Vector3(pt.x, pullL, pt.z));
+      topContourPts.push(new THREE.Vector3(bowlRingPts[0].x, pullL, bowlRingPts[0].z));
+      tunnelGroup.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(topContourPts),
+          new THREE.LineBasicMaterial({ color: 0x475569, linewidth: 2 })
+        )
+      );
+
+      // 4 Vertical Quadrant Seam Rails at 0° North, 90° East, 180° South, 270° West
+      const seamRailsPos: number[] = [
+        cx, 0, 0, cx, pullL, 0,     // 0° North seam
+        w, 0, cz, w, pullL, cz,     // 90° East seam
+        cx, 0, w, cx, pullL, w,     // 180° South seam
+        0, 0, cz, 0, pullL, cz,     // 270° West seam
+      ];
+      const seamRailsGeo = new THREE.BufferGeometry();
+      seamRailsGeo.setAttribute('position', new THREE.Float32BufferAttribute(seamRailsPos, 3));
+      tunnelGroup.add(
+        new THREE.LineSegments(
+          seamRailsGeo,
+          new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 1.5, transparent: true, opacity: 0.65 })
+        )
+      );
+
+      // Clean North-to-South Reference Line (0° N at z=0 to 180° S at z=w) on the Bottom Face
+      const refLinePts = [
+        new THREE.Vector3(cx, 0.02, 0),
+        new THREE.Vector3(cx, 0.02, w),
+      ];
+      tunnelGroup.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(refLinePts),
+          new THREE.LineBasicMaterial({ color: 0xe11d48, linewidth: 2 })
+        )
+      );
+      // Subtle 1m ticks along the North-to-South Reference Line on the Shaft Bottom Face
+      const tickPos: number[] = [];
+      for (let m = 1; m < Math.floor(w); m++) {
+        tickPos.push(cx - 0.14, 0.02, m, cx + 0.14, 0.02, m);
+      }
+      if (tickPos.length > 0) {
+        const tickGeo = new THREE.BufferGeometry();
+        tickGeo.setAttribute('position', new THREE.Float32BufferAttribute(tickPos, 3));
+        tunnelGroup.add(
+          new THREE.LineSegments(
+            tickGeo,
+            new THREE.LineBasicMaterial({ color: 0xe11d48, linewidth: 1.5 })
+          )
+        );
+      }
+
+      // Minimal, compact North / South Rim Reference Badges (positioned outside rim so bowl is unobstructed)
+      const northSp = createBillboardLabel(
+        `0° N`,
+        '#881337',
+        '#fecdd3',
+        1.1,
+        0.28
+      );
+      northSp.position.set(cx, pullL + 0.28, -0.35);
+      tunnelGroup.add(northSp);
+
+      const southSp = createBillboardLabel(
+        `180° S`,
+        '#0f172a',
+        '#e2e8f0',
+        1.2,
+        0.28
+      );
+      southSp.position.set(cx, pullL + 0.28, w + 0.35);
+      tunnelGroup.add(southSp);
+
+      // Show compact quadrant wall tags only when 'Show 3D Labels' (showLegendOverlay) is toggled on
+      if (showLegendOverlay) {
+        const qLabels = [
+          {
+            text: `1. NE`,
+            x: cx + r * 0.82,
+            z: cz - r * 0.82,
+            active: !isShaftHalfFace || shaftHalfSide === 'right_half',
+          },
+          {
+            text: `2. ES`,
+            x: cx + r * 0.82,
+            z: cz + r * 0.82,
+            active: !isShaftHalfFace || shaftHalfSide === 'right_half',
+          },
+          {
+            text: `3. SW`,
+            x: cx - r * 0.82,
+            z: cz + r * 0.82,
+            active: !isShaftHalfFace || shaftHalfSide === 'left_half',
+          },
+          {
+            text: `4. WN`,
+            x: cx - r * 0.82,
+            z: cz - r * 0.82,
+            active: !isShaftHalfFace || shaftHalfSide === 'left_half',
+          },
+        ];
+        qLabels.forEach((ql) => {
+          if (!ql.active) return;
+          const sp = createBillboardLabel(ql.text, '#0f172a', '#38bdf8', 1.15, 0.28);
+          sp.position.set(ql.x, pullL + 0.25, ql.z);
+          tunnelGroup.add(sp);
+        });
       }
     } else {
-      // High-smoothness D-Shaped / Horseshoe profile (48 smooth segments)
-      const segments = 48;
-      // 1. Left Invert footing
-      profilePts.push(new THREE.Vector2(0, 0));
-      // 2. Right Invert footing
-      profilePts.push(new THREE.Vector2(w, 0));
-      // 3. Right Springline (SPL)
-      profilePts.push(new THREE.Vector2(w, hw));
-      // 4. Smooth arch from Right Springline to Left Springline
-      for (let i = 1; i < segments; i++) {
-        const theta = (i / segments) * Math.PI;
-        const x = cx + (w / 2) * Math.cos(theta); // theta=0 -> w; theta=PI -> 0
-        const y = hw + archRise * Math.sin(theta);
-        profilePts.push(new THREE.Vector2(x, y));
-      }
-      // 5. Left Springline (SPL)
-      profilePts.push(new THREE.Vector2(0, hw));
-    }
+      // 5. Clean Excavation Invert Floor (Smooth, flat invert between x = 0 and x = w)
+      const floorGeo = new THREE.PlaneGeometry(w, pullL);
+      floorGeo.rotateX(-Math.PI / 2);
+      floorGeo.translate(cx, 0.001, cz);
+      const floorMat = new THREE.MeshStandardMaterial({
+        color: 0xf8fafc,
+        roughness: 0.65,
+        metalness: 0.02,
+        side: THREE.DoubleSide,
+      });
+      const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+      scene.add(floorMesh);
 
-    // A. Clean Hollow 3D Tunnel Shell Mesh (NO caps at portal z=0, NO internal dividing triangles, NO triangle on SPL)
-    const shellPositions: number[] = [];
-    const shellIndices: number[] = [];
-    const numPts = profilePts.length;
+      // Dynamic Profile points: strictly in [0, w] (horizontal) and [0, h] (vertical)
+      const profilePts: THREE.Vector2[] = [];
+      const customPoints = tunnelGeometry.crossSectionPoints;
 
-    for (let i = 0; i < numPts; i++) {
-      const p = profilePts[i];
-      // Vertex at portal entrance (z = 0)
-      shellPositions.push(p.x, p.y, 0);
-      // Vertex at excavation face (z = pullL)
-      shellPositions.push(p.x, p.y, pullL);
-    }
+      if (customPoints && customPoints.length >= 3) {
+        const minX = Math.min(...customPoints.map((p) => p.x));
+        const maxX = Math.max(...customPoints.map((p) => p.x));
+        const minY = Math.min(...customPoints.map((p) => p.y));
+        const maxY = Math.max(...customPoints.map((p) => p.y));
+        const spanX = Math.max(0.01, maxX - minX);
+        const spanY = Math.max(0.01, maxY - minY);
 
-    for (let i = 0; i < numPts; i++) {
-      const next = (i + 1) % numPts;
-      const v0 = i * 2;        // p[i] at z = 0
-      const v1 = i * 2 + 1;    // p[i] at z = pullL
-      const v2 = next * 2 + 1; // p[next] at z = pullL
-      const v3 = next * 2;     // p[next] at z = 0
-
-      // Quad divided into 2 triangles (outward & inward smooth normal)
-      shellIndices.push(v0, v1, v2);
-      shellIndices.push(v0, v2, v3);
-    }
-
-    const tunnelGeo = new THREE.BufferGeometry();
-    tunnelGeo.setAttribute('position', new THREE.Float32BufferAttribute(shellPositions, 3));
-    tunnelGeo.setIndex(shellIndices);
-    tunnelGeo.computeVertexNormals();
-
-    const tunnelMat = new THREE.MeshStandardMaterial({
-      color: 0xf1f5f9,
-      transparent: true,
-      opacity: 0.28,
-      roughness: 0.22,
-      metalness: 0.02,
-      side: THREE.DoubleSide,
-    });
-    const tunnelMesh = new THREE.Mesh(tunnelGeo, tunnelMat);
-    tunnelGroup.add(tunnelMesh);
-
-    // B. Excavation Face Rock Cap at z = pullL
-    // Triangulated for arbitrary custom polygons (triangles, horseshoe, gothic arch, non-symmetric caverns)
-    const facePositions: number[] = [];
-    const faceIndices: number[] = [];
-
-    for (let i = 0; i < numPts; i++) {
-      facePositions.push(profilePts[i].x, profilePts[i].y, pullL);
-    }
-
-    try {
-      const triangles = THREE.ShapeUtils.triangulateShape(profilePts, []);
-      if (triangles && triangles.length > 0) {
-        for (const tri of triangles) {
-          faceIndices.push(tri[0], tri[1], tri[2]);
+        for (const cp of customPoints) {
+          const tx = ((cp.x - minX) / spanX) * w;
+          const ty = ((cp.y - minY) / spanY) * h;
+          profilePts.push(new THREE.Vector2(tx, ty));
         }
       } else {
-        // Fallback to centroid fan
+        // High-smoothness D-Shaped / Horseshoe profile (48 smooth segments)
+        const segments = 48;
+        profilePts.push(new THREE.Vector2(0, 0));
+        profilePts.push(new THREE.Vector2(w, 0));
+        profilePts.push(new THREE.Vector2(w, hw));
+        for (let i = 1; i < segments; i++) {
+          const theta = (i / segments) * Math.PI;
+          const x = cx + (w / 2) * Math.cos(theta);
+          const y = hw + archRise * Math.sin(theta);
+          profilePts.push(new THREE.Vector2(x, y));
+        }
+        profilePts.push(new THREE.Vector2(0, hw));
+      }
+
+      // A. Clean Hollow 3D Tunnel Shell Mesh
+      const shellPositions: number[] = [];
+      const shellIndices: number[] = [];
+      const numPts = profilePts.length;
+
+      for (let i = 0; i < numPts; i++) {
+        const p = profilePts[i];
+        shellPositions.push(p.x, p.y, 0);
+        shellPositions.push(p.x, p.y, pullL);
+      }
+
+      for (let i = 0; i < numPts; i++) {
+        const next = (i + 1) % numPts;
+        const v0 = i * 2;
+        const v1 = i * 2 + 1;
+        const v2 = next * 2 + 1;
+        const v3 = next * 2;
+
+        shellIndices.push(v0, v1, v2);
+        shellIndices.push(v0, v2, v3);
+      }
+
+      const tunnelGeo = new THREE.BufferGeometry();
+      tunnelGeo.setAttribute('position', new THREE.Float32BufferAttribute(shellPositions, 3));
+      tunnelGeo.setIndex(shellIndices);
+      tunnelGeo.computeVertexNormals();
+
+      const tunnelMat = new THREE.MeshStandardMaterial({
+        color: 0xf1f5f9,
+        transparent: true,
+        opacity: 0.28,
+        roughness: 0.22,
+        metalness: 0.02,
+        side: THREE.DoubleSide,
+      });
+      const tunnelMesh = new THREE.Mesh(tunnelGeo, tunnelMat);
+      tunnelGroup.add(tunnelMesh);
+
+      // B. Excavation Face Rock Cap at z = pullL
+      const facePositions: number[] = [];
+      const faceIndices: number[] = [];
+
+      for (let i = 0; i < numPts; i++) {
+        facePositions.push(profilePts[i].x, profilePts[i].y, pullL);
+      }
+
+      try {
+        const triangles = THREE.ShapeUtils.triangulateShape(profilePts, []);
+        if (triangles && triangles.length > 0) {
+          for (const tri of triangles) {
+            faceIndices.push(tri[0], tri[1], tri[2]);
+          }
+        } else {
+          const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
+          const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
+          facePositions.push(avgX, avgY, pullL);
+          for (let i = 0; i < numPts; i++) {
+            const next = (i + 1) % numPts;
+            faceIndices.push(numPts, i, next);
+          }
+        }
+      } catch {
         const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
         const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
         facePositions.push(avgX, avgY, pullL);
@@ -1079,104 +1272,65 @@ const NatmJoint3DInspectorModalContent: React.FC<
           faceIndices.push(numPts, i, next);
         }
       }
-    } catch {
-      // Fallback to centroid fan
-      const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
-      const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
-      facePositions.push(avgX, avgY, pullL);
-      for (let i = 0; i < numPts; i++) {
-        const next = (i + 1) % numPts;
-        faceIndices.push(numPts, i, next);
-      }
-    }
 
-    const faceCapGeo = new THREE.BufferGeometry();
-    faceCapGeo.setAttribute('position', new THREE.Float32BufferAttribute(facePositions, 3));
-    faceCapGeo.setIndex(faceIndices);
-    faceCapGeo.computeVertexNormals();
+      const faceCapGeo = new THREE.BufferGeometry();
+      faceCapGeo.setAttribute('position', new THREE.Float32BufferAttribute(facePositions, 3));
+      faceCapGeo.setIndex(faceIndices);
+      faceCapGeo.computeVertexNormals();
 
-    const faceCapMat = new THREE.MeshStandardMaterial({
-      color: 0xe0f2fe,
-      transparent: true,
-      opacity: 0.22,
-      roughness: 0.3,
-      metalness: 0.05,
-      side: THREE.DoubleSide,
-    });
-    const faceMesh = new THREE.Mesh(faceCapGeo, faceCapMat);
-    tunnelGroup.add(faceMesh);
-
-    // C. Excavation Face Contour (z = pullL) in Electric Cyan/Blue (Crisp & Distinct)
-    const faceContourPoints: THREE.Vector3[] = [];
-    for (const pt of profilePts) {
-      faceContourPoints.push(new THREE.Vector3(pt.x, pt.y, pullL));
-    }
-    faceContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, pullL));
-    const faceContourGeo = new THREE.BufferGeometry().setFromPoints(faceContourPoints);
-    const faceContourMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3 });
-    const faceContourLine = new THREE.Line(faceContourGeo, faceContourMat);
-    tunnelGroup.add(faceContourLine);
-
-    // D. Portal Entrance Outline at z = 0 (Open Portal, Soft Slate)
-    const prevContourPoints: THREE.Vector3[] = [];
-    for (const pt of profilePts) {
-      prevContourPoints.push(new THREE.Vector3(pt.x, pt.y, 0));
-    }
-    prevContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, 0));
-    const prevContourGeo = new THREE.BufferGeometry().setFromPoints(prevContourPoints);
-    const prevContourMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, linewidth: 1.5 });
-    const prevContourLine = new THREE.Line(prevContourGeo, prevContourMat);
-    tunnelGroup.add(prevContourLine);
-
-    // E. Longitudinal Generator Rails along Key Shape Vertices
-    const railPositions: number[] = [];
-    if (customPoints && customPoints.length >= 3 && numPts <= 12) {
-      for (const p of profilePts) {
-        railPositions.push(p.x, p.y, 0, p.x, p.y, pullL);
-      }
-    } else {
-      railPositions.push(
-        0, 0.01, 0, 0, 0.01, pullL,      // Left Invert footing
-        w, 0.01, 0, w, 0.01, pullL,      // Right Invert footing
-        0, hw, 0, 0, hw, pullL,          // Left Springline (SPL)
-        w, hw, 0, w, hw, pullL,          // Right Springline (SPL)
-        cx, h, 0, cx, h, pullL           // Crown Apex
-      );
-    }
-    const railsGeo = new THREE.BufferGeometry();
-    railsGeo.setAttribute('position', new THREE.Float32BufferAttribute(railPositions, 3));
-    const railsMat = new THREE.LineBasicMaterial({ color: 0x64748b, linewidth: 1.5 });
-    const railsLines = new THREE.LineSegments(railsGeo, railsMat);
-    tunnelGroup.add(railsLines);
-
-    // F. Vertical Shaft 4-Quadrant & Center Median Signage in 3D Scene
-    if (isVertShaft) {
-      const r = w / 2;
-      const qLabels = [
-        { text: 'Q1: NE (0°-90°)', x: cx + r * 0.85, y: cy + r * 0.85, active: !isShaftHalfFace || shaftHalfSide === 'right_half' },
-        { text: 'Q2: ES (90°-180°)', x: cx + r * 0.85, y: cy - r * 0.85, active: !isShaftHalfFace || shaftHalfSide === 'right_half' },
-        { text: 'Q3: SW (180°-270°)', x: cx - r * 0.85, y: cy - r * 0.85, active: !isShaftHalfFace || shaftHalfSide === 'left_half' },
-        { text: 'Q4: WN (270°-360°)', x: cx - r * 0.85, y: cy + r * 0.85, active: !isShaftHalfFace || shaftHalfSide === 'left_half' },
-      ];
-      qLabels.forEach((ql) => {
-        if (!ql.active) return;
-        const sp = createBillboardLabel(ql.text, '#0f172a', '#38bdf8', 3.4, 0.72);
-        sp.position.set(ql.x, ql.y, pullL * 0.5);
-        tunnelGroup.add(sp);
+      const faceCapMat = new THREE.MeshStandardMaterial({
+        color: 0xe0f2fe,
+        transparent: true,
+        opacity: 0.22,
+        roughness: 0.3,
+        metalness: 0.05,
+        side: THREE.DoubleSide,
       });
-      if (isShaftHalfFace) {
-        const medSp = createBillboardLabel(
-          shaftMedianStatus === 'closed'
-            ? 'CENTER MEDIAN: CLOSED (ROCK)'
-            : 'CENTER MEDIAN: OPEN (EXCAVATED)',
-          shaftMedianStatus === 'closed' ? '#be123c' : '#047857',
-          '#ffffff',
-          4.2,
-          0.78
-        );
-        medSp.position.set(cx, cy, pullL + 0.25);
-        tunnelGroup.add(medSp);
+      const faceMesh = new THREE.Mesh(faceCapGeo, faceCapMat);
+      tunnelGroup.add(faceMesh);
+
+      // C. Excavation Face Contour (z = pullL) in Electric Cyan/Blue
+      const faceContourPoints: THREE.Vector3[] = [];
+      for (const pt of profilePts) {
+        faceContourPoints.push(new THREE.Vector3(pt.x, pt.y, pullL));
       }
+      faceContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, pullL));
+      const faceContourGeo = new THREE.BufferGeometry().setFromPoints(faceContourPoints);
+      const faceContourMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3 });
+      const faceContourLine = new THREE.Line(faceContourGeo, faceContourMat);
+      tunnelGroup.add(faceContourLine);
+
+      // D. Portal Entrance Outline at z = 0
+      const prevContourPoints: THREE.Vector3[] = [];
+      for (const pt of profilePts) {
+        prevContourPoints.push(new THREE.Vector3(pt.x, pt.y, 0));
+      }
+      prevContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, 0));
+      const prevContourGeo = new THREE.BufferGeometry().setFromPoints(prevContourPoints);
+      const prevContourMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, linewidth: 1.5 });
+      const prevContourLine = new THREE.Line(prevContourGeo, prevContourMat);
+      tunnelGroup.add(prevContourLine);
+
+      // E. Longitudinal Generator Rails along Key Shape Vertices
+      const railPositions: number[] = [];
+      if (customPoints && customPoints.length >= 3 && numPts <= 12) {
+        for (const p of profilePts) {
+          railPositions.push(p.x, p.y, 0, p.x, p.y, pullL);
+        }
+      } else {
+        railPositions.push(
+          0, 0.01, 0, 0, 0.01, pullL,
+          w, 0.01, 0, w, 0.01, pullL,
+          0, hw, 0, 0, hw, pullL,
+          w, hw, 0, w, hw, pullL,
+          cx, h, 0, cx, h, pullL
+        );
+      }
+      const railsGeo = new THREE.BufferGeometry();
+      railsGeo.setAttribute('position', new THREE.Float32BufferAttribute(railPositions, 3));
+      const railsMat = new THREE.LineBasicMaterial({ color: 0x64748b, linewidth: 1.5 });
+      const railsLines = new THREE.LineSegments(railsGeo, railsMat);
+      tunnelGroup.add(railsLines);
     }
 
     scene.add(tunnelGroup);
@@ -1384,15 +1538,19 @@ const NatmJoint3DInspectorModalContent: React.FC<
       window.removeEventListener('touchend', onTouchEnd);
       window.removeEventListener('touchcancel', onTouchEnd);
       window.removeEventListener('resize', handleResize);
+      scene.traverse((obj: any) => {
+        if (obj.geometry) obj.geometry.dispose?.();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach((m: any) => m.dispose?.());
+          } else {
+            obj.material.dispose?.();
+          }
+        }
+      });
       renderer.dispose();
-      tunnelGeo.dispose();
-      tunnelMat.dispose();
-      floorGeo.dispose();
-      floorMat.dispose();
-      railsGeo.dispose();
-      railsMat.dispose();
     };
-  }, [activeTab, tunnelGeometry]);
+  }, [activeTab, tunnelGeometry, showLegendOverlay]);
 
   // Handle immediate Three.js canvas re-layout when switching orientation or layout mode
   useEffect(() => {
@@ -1452,7 +1610,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
     const tracedHalfLen = Math.max(0.15, currentTraceLengthM / 2);
     const isCrownNonPenetratingHinge =
-      currentJoint.panel === 'crown' || isStrikeLineHingeLocked;
+      !tunnelGeometry.isVerticalShaft && (currentJoint.panel === 'crown' || isStrikeLineHingeLocked);
     const wArch = tunnelGeometry.widthM || 8.5;
     const hArch = tunnelGeometry.heightM || 7.5;
     const hwArch = tunnelGeometry.wallHeightM || 4.2;
@@ -1945,47 +2103,25 @@ const NatmJoint3DInspectorModalContent: React.FC<
         const sp2 = new THREE.Mesh(hingeSphereGeo, hingeSphereMat);
         sp2.position.copy(v2);
         group.add(sp2);
-
-        // Billboard tag along hinge axis
-        const hMid = v1.clone().add(v2).multiplyScalar(0.5);
-        const panelName = currentJoint.panel === 'crown'
-          ? 'CROWN ARCH AXIS'
-          : currentJoint.panel === 'left_wall'
-          ? 'LEFT WALL HINGE'
-          : currentJoint.panel === 'right_wall'
-          ? 'RIGHT WALL HINGE'
-          : 'FACE HINGE AXIS';
-        const tagAction = currentJoint.panel === 'crown' ? 'DIP TILT' : 'ROTATION';
-        const hLabel = createBillboardLabel(
-          `★ ${panelName}: ${hingePlaneResult.traceLengthM.toFixed(2)}m (${hingeDipDeg}° ${tagAction})`,
-          '#78350F',
-          '#FEF08A',
-          3.8,
-          0.65
-        );
-        hLabel.position.set(hMid.x, hMid.y + 0.38, hMid.z + 0.06);
-        group.add(hLabel);
       }
     }
 
-    // 5b. Billboard directly at Anchor / Crown Strike Cut Point
-    const billboardLabelText = isHingeRotationActive && hingePlaneResult
-      ? `DIP: ${hingePlaneResult.derivedDipDeg}° ➔ ${hingePlaneResult.derivedDipDirectionDeg}° | L=${currentTraceLengthM}m`
-      : isCrownJoint
-      ? `CROWN STRIKE: ${strikeInfo.strikePairLabel}`
-      : `DIP: ${dipAmount}° ➔ ${dipDirection}° | L=${currentTraceLengthM}m`;
-    const planeDipSprite = createBillboardLabel(
-      billboardLabelText,
-      '#0F172A',
-      isCrownJoint ? '#38BDF8' : '#FCD34D',
-      isCrownJoint ? 3.6 : 2.8,
-      0.65
-    );
-    planeDipSprite.position.set(ax, ay + (isCrownJoint ? 0.55 : 0.42), az);
-    group.add(planeDipSprite);
+    // 5b. Compact 3D Joint Tag (shown only when 'Show 3D Labels' is enabled so the joint plane stays unobstructed)
+    if (showLegendOverlay) {
+      const billboardLabelText = `${dipAmount}°/${dipDirection}° (${currentTraceLengthM}m)`;
+      const planeDipSprite = createBillboardLabel(
+        billboardLabelText,
+        '#0F172A',
+        '#FCD34D',
+        1.75,
+        0.34
+      );
+      planeDipSprite.position.set(ax, ay + 0.42, az);
+      group.add(planeDipSprite);
+    }
 
     // 6. Clean Multi-Surface Intersection Traces in 3D (Shown for EXTENDED and CLIPPED full-tunnel modes)
-    if (planeDisplayMode !== 'TRACED_LENGTH') {
+    if (planeDisplayMode !== 'TRACED_LENGTH' && !tunnelGeometry.isVerticalShaft) {
       const pullL = tunnelGeometry.pullLengthM || 3.0;
       const w = tunnelGeometry.widthM || 8.5;
       const hw = tunnelGeometry.wallHeightM || 4.2;
@@ -2064,6 +2200,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     hingeDipDeg,
     currentTraceLengthM,
     isStrikeLineHingeLocked,
+    showLegendOverlay,
   ]);
 
   // -------------------------------------------------------------------------
@@ -2465,7 +2602,17 @@ const NatmJoint3DInspectorModalContent: React.FC<
                                 Joint {j.id}
                               </span>
                               <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 uppercase font-mono">
-                                {j.panel.replace('_', ' ')}
+                                {tunnelGeometry.isVerticalShaft
+                                  ? j.panel === 'face'
+                                    ? 'SHAFT FACE (BOTTOM 0m)'
+                                    : j.panel === 'left_wall'
+                                    ? '1. NE WALL (0°-90°)'
+                                    : j.panel === 'crown'
+                                    ? '2. ES WALL (90°-180°)'
+                                    : j.panel === 'right_wall'
+                                    ? '3. SW WALL (180°-270°)'
+                                    : '4. WN WALL (270°-360°)'
+                                  : j.panel.replace('_', ' ')}
                               </span>
                             </div>
                             <span className="text-[10px] text-slate-400 font-mono">
@@ -2668,7 +2815,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     <div className="flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                       <span className="text-[11px] font-bold text-emerald-300">
-                        {currentJoint.panel === 'left_wall' ? 'Left Wall' : 'Right Wall'} Trace Hinge Axis:
+                        {tunnelGeometry.isVerticalShaft
+                          ? currentJoint.panel === 'left_wall'
+                            ? '1. NE Wall (0°–90°)'
+                            : currentJoint.panel === 'right_wall'
+                            ? '3. SW Wall (180°–270°)'
+                            : '4. WN Wall (270°–360°)'
+                          : currentJoint.panel === 'left_wall'
+                          ? 'Left Wall'
+                          : 'Right Wall'}{' '}
+                        Trace Hinge Axis:
                       </span>
                     </div>
                     <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold border border-emerald-500/40 text-[10px]">
@@ -2677,7 +2833,13 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   </div>
 
                   <p className="text-[10px] text-slate-300 leading-snug">
-                    The traced joint line on the {currentJoint.panel === 'left_wall' ? 'left sidewall' : 'right sidewall'} is locked as the <strong className="text-emerald-300">stationary hinge axis</strong>. Sliding the angle rotates the 3D plane into the rock mass or tunnel opening without drifting.
+                    The traced joint line on the{' '}
+                    {tunnelGeometry.isVerticalShaft
+                      ? 'vertical shaft quadrant wall'
+                      : currentJoint.panel === 'left_wall'
+                      ? 'left sidewall'
+                      : 'right sidewall'}{' '}
+                    is locked as the <strong className="text-emerald-300">stationary hinge axis</strong>. Sliding the angle rotates the 3D plane into the rock mass or shaft opening without drifting.
                   </p>
 
                   {/* Live Dip Angle Slider around Sidewall Traced Line */}
@@ -2797,7 +2959,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     <div className="flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
                       <span className="text-[11px] font-bold text-sky-300">
-                        Crown Strike Line Hinge &amp; Dip Tilt:
+                        {tunnelGeometry.isVerticalShaft
+                          ? '2. ES Wall (90°–180°) Trace Hinge & Dip Tilt:'
+                          : 'Crown Strike Line Hinge & Dip Tilt:'}
                       </span>
                     </div>
                     <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono font-bold border border-sky-500/40 text-[10px]">
@@ -2806,7 +2970,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   </div>
 
                   <p className="text-[10px] text-slate-300 leading-snug">
-                    The mapped Crown trace (<strong className="text-sky-300">{strikeInfo.strikePairLabel}</strong>) acts as a <strong className="text-sky-300">fixed non-penetrating Strike Line Hinge</strong> on the crown arch. Decreasing Dip Amount pivots the plane strictly downward from the crown hinge without penetrating the crown or changing Strike.
+                    {tunnelGeometry.isVerticalShaft ? (
+                      <>
+                        The mapped trace on <strong className="text-sky-300">2. ES Wall (90°–180°)</strong> acts as the{' '}
+                        <strong className="text-sky-300">stationary hinge axis</strong> on the vertical shaft wall (Pull 0m at bottom to {tunnelGeometry.pullLengthM}m at top).
+                      </>
+                    ) : (
+                      <>
+                        The mapped Crown trace (<strong className="text-sky-300">{strikeInfo.strikePairLabel}</strong>) acts as a <strong className="text-sky-300">fixed non-penetrating Strike Line Hinge</strong> on the crown arch. Decreasing Dip Amount pivots the plane strictly downward from the crown hinge without penetrating the crown or changing Strike.
+                      </>
+                    )}
                   </p>
 
                   {/* Live Dip Amount Slider */}
@@ -3406,12 +3579,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
               {/* Surface-by-surface Apparent Dip Breakdown */}
               <div className="space-y-1.5 text-[11px] font-mono">
-                {/* 1. Excavation Face */}
+                {/* 1. Excavation Face / Shaft Bottom Face */}
                 <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <strong className="text-cyan-400">Excavation Face</strong>
-                      <span className="text-[9.5px] text-slate-500 font-sans">(Transverse, 90° to Drive)</span>
+                      <strong className="text-cyan-400">
+                        {tunnelGeometry.isVerticalShaft ? 'Shaft Bottom Face (Pull 0m)' : 'Excavation Face'}
+                      </strong>
+                      <span className="text-[9.5px] text-slate-500 font-sans">
+                        {tunnelGeometry.isVerticalShaft ? '(Horizontal Bowl Bottom · 1m N→S Ref)' : '(Transverse, 90° to Drive)'}
+                      </span>
                     </div>
                     <div className="text-[10px] text-slate-300 mt-0.5">
                       {apparentMatrix.face.apparentDipDirectionLabel}
@@ -3439,12 +3616,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   </div>
                 </div>
 
-                {/* 2. Left Sidewall */}
+                {/* 2. Left Sidewall / 1. NE Wall */}
                 <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <strong className="text-slate-300">Left Sidewall</strong>
-                      <span className="text-[9.5px] text-slate-500 font-sans">(Longitudinal, 0° to Drive)</span>
+                      <strong className="text-slate-300">
+                        {tunnelGeometry.isVerticalShaft ? '1. NE Wall (0°–90°)' : 'Left Sidewall'}
+                      </strong>
+                      <span className="text-[9.5px] text-slate-500 font-sans">
+                        {tunnelGeometry.isVerticalShaft ? '(Nearest: 4. WN ◀ | ▶ 2. ES)' : '(Longitudinal, 0° to Drive)'}
+                      </span>
                     </div>
                     <div className="text-[10px] text-slate-300 mt-0.5">
                       {apparentMatrix.leftWall.apparentDipDirectionLabel}
@@ -3472,12 +3653,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   </div>
                 </div>
 
-                {/* 3. Right Sidewall */}
+                {/* 3. Right Sidewall / 3. SW Wall */}
                 <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <strong className="text-slate-300">Right Sidewall</strong>
-                      <span className="text-[9.5px] text-slate-500 font-sans">(Longitudinal, 0° to Drive)</span>
+                      <strong className="text-slate-300">
+                        {tunnelGeometry.isVerticalShaft ? '3. SW Wall (180°–270°)' : 'Right Sidewall'}
+                      </strong>
+                      <span className="text-[9.5px] text-slate-500 font-sans">
+                        {tunnelGeometry.isVerticalShaft ? '(Nearest: 2. ES ◀ | ▶ 4. WN)' : '(Longitudinal, 0° to Drive)'}
+                      </span>
                     </div>
                     <div className="text-[10px] text-slate-300 mt-0.5">
                       {apparentMatrix.rightWall.apparentDipDirectionLabel}
@@ -3505,12 +3690,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   </div>
                 </div>
 
-                {/* 4. Crown Arch */}
+                {/* 4. Crown Arch / 2. ES Wall */}
                 <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <strong className="text-sky-300">Crown Arch / Back</strong>
-                      <span className="text-[9.5px] text-slate-500 font-sans">(Horizontal Apex Tangent)</span>
+                      <strong className="text-sky-300">
+                        {tunnelGeometry.isVerticalShaft ? '2. ES Wall (90°–180°)' : 'Crown Arch / Back'}
+                      </strong>
+                      <span className="text-[9.5px] text-slate-500 font-sans">
+                        {tunnelGeometry.isVerticalShaft ? '(Nearest: 1. NE ◀ | ▶ 3. SW)' : '(Horizontal Apex Tangent)'}
+                      </span>
                     </div>
                     <div className="text-[10px] text-slate-300 mt-0.5">
                       {apparentMatrix.crown.apparentDipDirectionLabel}
@@ -3540,25 +3729,33 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
-                  <span className="text-[10px] text-slate-400 block">Face (m)</span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {tunnelGeometry.isVerticalShaft ? 'Bottom Face (m)' : 'Face (m)'}
+                  </span>
                   <strong className="text-amber-300 text-sm font-mono">
                     {observedLengths.faceM > 0 ? `${observedLengths.faceM}m` : '—'}
                   </strong>
                 </div>
                 <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
-                  <span className="text-[10px] text-slate-400 block">Left Wall (m)</span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {tunnelGeometry.isVerticalShaft ? '1. NE Wall (m)' : 'Left Wall (m)'}
+                  </span>
                   <strong className="text-amber-300 text-sm font-mono">
                     {observedLengths.leftWallM > 0 ? `${observedLengths.leftWallM}m` : '—'}
                   </strong>
                 </div>
                 <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
-                  <span className="text-[10px] text-slate-400 block">Right Wall (m)</span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {tunnelGeometry.isVerticalShaft ? '3. SW Wall (m)' : 'Right Wall (m)'}
+                  </span>
                   <strong className="text-amber-300 text-sm font-mono">
                     {observedLengths.rightWallM > 0 ? `${observedLengths.rightWallM}m` : '—'}
                   </strong>
                 </div>
                 <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
-                  <span className="text-[10px] text-slate-400 block">Crown (m)</span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {tunnelGeometry.isVerticalShaft ? '2. ES Wall (m)' : 'Crown (m)'}
+                  </span>
                   <strong className="text-amber-300 text-sm font-mono">
                     {observedLengths.crownM > 0 ? `${observedLengths.crownM}m` : '—'}
                   </strong>
@@ -3653,8 +3850,14 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   }`}
                 >
                 {[
-                  { id: 'VIEW_3D' as InspectionViewTab, label: '1. 3D Tunnel View' },
-                  { id: 'VIEW_UNROLLED_COMBINED' as InspectionViewTab, label: '2. Unrolled 2D Developed View' },
+                  {
+                    id: 'VIEW_3D' as InspectionViewTab,
+                    label: tunnelGeometry.isVerticalShaft ? '1. 3D Shaft Bowl View' : '1. 3D Tunnel View',
+                  },
+                  {
+                    id: 'VIEW_UNROLLED_COMBINED' as InspectionViewTab,
+                    label: tunnelGeometry.isVerticalShaft ? '2. Unrolled 2D Shaft Quadrant View' : '2. Unrolled 2D Developed View',
+                  },
                 ].map((t) => {
                   const isAct = activeTab === t.id;
                   return (
@@ -3772,10 +3975,10 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
                         : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                     }`}
-                    title="Toggle vector legend overlay"
+                    title="Toggle 3D reference labels and vector legend"
                   >
                     {showLegendOverlay ? <EyeOff className="w-3.5 h-3.5 text-amber-500" /> : <Eye className="w-3.5 h-3.5 text-cyan-500" />}
-                    <span>{showLegendOverlay ? 'Hide Legend' : 'Show Legend'}</span>
+                    <span>{showLegendOverlay ? 'Hide 3D Labels' : 'Show 3D Labels'}</span>
                   </button>
 
                   <div className="flex items-center gap-1">
@@ -3818,7 +4021,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   {/* Clean Three.js WebGL Canvas Mount */}
                   <div ref={threeMountRef} className="w-full h-full touch-none" />
 
-                  {/* PROMINENT TOP-CENTER TUNNEL DRIVE DIRECTION BANNER (ALWAYS VISIBLE & ROTATING IN REAL-TIME WITH TUNNEL) */}
+                  {/* COMPACT TOP-CENTER HEADING PILL */}
                   {(() => {
                     const thetaDeg = (cameraTheta * 180) / Math.PI;
                     const driveAngleDeg = ((-thetaDeg) % 360 + 360) % 360;
@@ -3827,74 +4030,27 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     return (
                       <div
                         onClick={snapToTunnelDrive}
-                        className={`absolute top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full backdrop-blur-md shadow-2xl pointer-events-auto cursor-pointer z-30 flex items-center gap-2.5 font-mono text-xs font-bold transition-all hover:scale-105 active:scale-95 border-2 select-none ${
+                        className={`absolute top-2.5 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full backdrop-blur-md shadow-md pointer-events-auto cursor-pointer z-20 flex items-center gap-2 font-mono text-[11px] font-bold transition-all border select-none ${
                           isLight
-                            ? 'bg-white/95 border-cyan-600 text-slate-900 shadow-cyan-950/10'
-                            : 'bg-slate-950/95 border-cyan-400 text-white shadow-cyan-500/20'
+                            ? 'bg-white/90 border-slate-300 text-slate-800'
+                            : 'bg-slate-950/85 border-slate-700 text-slate-100'
                         }`}
-                        title="Click to synchronize 3D camera with Tunnel Drive Axis (+Z / 000° Heading)"
+                        title="Click to align 3D view with heading"
                       >
-                        {/* Real-time Rotating Compass Vector Arrow synced with tunnel/camera orbit */}
                         <div
-                          className={`w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 shadow-inner ${
-                            isLight
-                              ? 'bg-cyan-100 border-cyan-600 text-cyan-900'
-                              : 'bg-cyan-950/90 border-cyan-400 text-cyan-300'
-                          }`}
+                          className="w-4 h-4 flex items-center justify-center transition-transform duration-75"
+                          style={{ transform: `rotate(${driveAngleDeg}deg)` }}
                         >
-                          <div
-                            className="w-full h-full flex items-center justify-center transition-transform duration-75 will-change-transform"
-                            style={{ transform: `rotate(${driveAngleDeg}deg)` }}
-                          >
-                            <Navigation className="w-4 h-4 text-cyan-500 fill-cyan-500/40" />
-                          </div>
+                          <Navigation className="w-3.5 h-3.5 text-cyan-500 fill-cyan-500/40" />
                         </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <span className={`font-black tracking-wide ${isLight ? 'text-cyan-800' : 'text-cyan-400'}`}>
-                            ▲ TUNNEL DRIVE (+Z):
-                          </span>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full font-black border text-xs ${
-                              isLight
-                                ? 'bg-cyan-100 border-cyan-400 text-cyan-950'
-                                : 'bg-cyan-500/25 border-cyan-400/50 text-cyan-100'
-                            }`}
-                          >
-                            N {Math.round(driveAz)}° E (000° TUNNEL AXIS)
-                          </span>
-                        </div>
-
-                        {/* Real-time view angle readout and Click to Sync button */}
-                        <span
-                          className={`text-[10.5px] px-2 py-0.5 rounded-full font-bold transition-colors ${
-                            isLight
-                              ? 'bg-slate-200 text-slate-800 hover:bg-cyan-600 hover:text-white'
-                              : 'bg-slate-800 text-cyan-300 hover:bg-cyan-500 hover:text-slate-950'
-                          }`}
-                        >
-                          Sync View ({Math.round(driveAngleDeg)}°)
+                        <span>
+                          {tunnelGeometry.isVerticalShaft
+                            ? `0° N REF · Ø${tunnelGeometry.widthM}m × ${tunnelGeometry.pullLengthM || 3}m Pull`
+                            : `DRIVE N ${Math.round(driveAz)}° E · ${tunnelGeometry.widthM}×${tunnelGeometry.heightM}m`}
                         </span>
                       </div>
                     );
                   })()}
-
-                  {/* TOP-LEFT: TUNNEL GEOMETRY & ADVANCE BADGE */}
-                  <div
-                    className={`absolute top-3 left-3 px-3 py-1.5 rounded-xl backdrop-blur-md shadow-xl pointer-events-none z-20 flex items-center gap-2 text-[11px] font-mono border transition-colors ${
-                      isLight
-                        ? 'bg-white/95 border-slate-300 text-slate-800'
-                        : 'bg-slate-950/90 border-slate-700/80 text-white'
-                    }`}
-                  >
-                    <span className={isLight ? 'text-slate-600' : 'text-slate-400'}>Section:</span>
-                    <strong className={isLight ? 'text-slate-900' : 'text-white'}>
-                      {tunnelGeometry.widthM}m W × {tunnelGeometry.heightM}m H
-                    </strong>
-                    <span className={isLight ? 'text-slate-400' : 'text-slate-600'}>|</span>
-                    <span className={isLight ? 'text-slate-600' : 'text-slate-400'}>Advance:</span>
-                    <strong className="text-amber-500 font-bold">{tunnelGeometry.pullLengthM || 3.0}m (Pull)</strong>
-                  </div>
 
                   {/* =========================================================
                       REAL-TIME SYNCHRONIZED 3D GEOLOGICAL COMPASS ROSE (DIAL)
@@ -3902,18 +4058,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   {showCompass && (() => {
                     const driveAz = tunnelGeometry.driveAzimuthDeg || 0;
                     const thetaDeg = (cameraTheta * 180) / Math.PI;
-                    // North rotation on screen plane
                     const northAngleDeg = (-driveAz - thetaDeg) % 360;
-                    // Tunnel drive axis rotation on screen plane
                     const driveAngleDeg = (-thetaDeg) % 360;
 
                     return (
-                      <div className="absolute top-14 right-3 z-20 font-mono select-none">
-                        <div className="p-3 rounded-2xl bg-slate-950/92 backdrop-blur-md border border-cyan-500/40 shadow-2xl space-y-2 w-48 text-center text-xs">
-                          <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                            <span className="font-bold text-[10px] text-cyan-300 uppercase flex items-center gap-1">
-                              <Compass className="w-3.5 h-3.5 text-cyan-400" />
-                              <span>Geological Compass</span>
+                      <div className="absolute top-12 right-3 z-20 font-mono select-none">
+                        <div className="p-2.5 rounded-2xl bg-slate-950/92 backdrop-blur-md border border-cyan-500/40 shadow-2xl space-y-1.5 w-36 text-center text-xs">
+                          <div className="flex items-center justify-between border-b border-slate-800 pb-1">
+                            <span className="font-bold text-[9.5px] text-cyan-300 uppercase flex items-center gap-1">
+                              <Compass className="w-3 h-3 text-cyan-400" />
+                              <span>Compass</span>
                             </span>
                             <button
                               type="button"
@@ -3925,16 +4079,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             </button>
                           </div>
 
-                          {/* Rotating 3D Compass Rose SVG */}
-                          <div className="relative w-28 h-28 mx-auto my-1 flex items-center justify-center">
+                          <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
                             <svg viewBox="0 0 120 120" className="w-full h-full">
-                              {/* Outer Fixed Bezel */}
                               <circle cx="60" cy="60" r="54" fill="#0f172a" stroke="#334155" strokeWidth="2" />
                               <circle cx="60" cy="60" r="48" fill="#020617" stroke="#1e293b" strokeWidth="1" />
-
-                              {/* Rotating Dial Group (synced with camera & north) */}
                               <g transform={`rotate(${northAngleDeg} 60 60)`}>
-                                {/* Azimuth Graduation Ticks (every 30 deg) */}
                                 {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((deg) => (
                                   <line
                                     key={deg}
@@ -3947,59 +4096,35 @@ const NatmJoint3DInspectorModalContent: React.FC<
                                     transform={`rotate(${deg} 60 60)`}
                                   />
                                 ))}
-
-                                {/* Cardinal Direction Labels */}
                                 <text x="60" y="27" fill="#f43f5e" fontSize="9" fontWeight="black" textAnchor="middle">N</text>
                                 <text x="96" y="63" fill="#cbd5e1" fontSize="8" fontWeight="bold" textAnchor="middle">E</text>
                                 <text x="60" y="100" fill="#cbd5e1" fontSize="8" fontWeight="bold" textAnchor="middle">S</text>
                                 <text x="24" y="63" fill="#cbd5e1" fontSize="8" fontWeight="bold" textAnchor="middle">W</text>
-
-                                {/* True North Needle (Red Arrow) */}
                                 <polygon points="60,18 64,55 56,55" fill="#f43f5e" />
-                                {/* South Needle (Silver) */}
                                 <polygon points="60,102 64,65 56,65" fill="#94a3b8" />
                               </g>
-
-                              {/* Tunnel Drive Heading Indicator (Cyan Line & Arrow) */}
                               <g transform={`rotate(${driveAngleDeg} 60 60)`}>
                                 <line x1="60" y1="60" x2="60" y2="22" stroke="#06b6d4" strokeWidth="2.5" strokeDasharray="3,2" />
                                 <polygon points="60,16 64,26 56,26" fill="#06b6d4" />
                               </g>
-
-                              {/* Center Pivot Pivot Pin */}
                               <circle cx="60" cy="60" r="4.5" fill="#020617" stroke="#38bdf8" strokeWidth="2" />
                             </svg>
                           </div>
 
-                          {/* Real-Time Synced Readouts */}
-                          <div className="space-y-0.5 text-[9.5px] border-t border-slate-800 pt-1.5">
-                            <div className="flex items-center justify-between text-slate-400">
-                              <span>Tunnel Drive:</span>
-                              <strong className="text-cyan-300">N {Math.round(driveAz)}° E</strong>
-                            </div>
-                            <div className="flex items-center justify-between text-slate-400">
-                              <span>Camera Bearing:</span>
-                              <strong className="text-amber-300">{Math.round((360 - (thetaDeg % 360)) % 360)}°</strong>
-                            </div>
-                          </div>
-
-                          {/* Quick Snap View Buttons */}
-                          <div className="grid grid-cols-2 gap-1 pt-1">
+                          <div className="grid grid-cols-2 gap-1 pt-0.5">
                             <button
                               type="button"
                               onClick={snapToNorth}
-                              className="px-1.5 py-1 rounded bg-slate-900 hover:bg-rose-500 hover:text-slate-950 text-rose-300 border border-rose-900/40 text-[9px] font-bold cursor-pointer transition-colors"
-                              title="Align 3D View to True North"
+                              className="px-1 py-0.5 rounded bg-slate-900 hover:bg-rose-500 hover:text-slate-950 text-rose-300 border border-rose-900/40 text-[8.5px] font-bold cursor-pointer transition-colors"
                             >
-                              Snap North
+                              North
                             </button>
                             <button
                               type="button"
                               onClick={snapToTunnelDrive}
-                              className="px-1.5 py-1 rounded bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-300 border border-cyan-900/40 text-[9px] font-bold cursor-pointer transition-colors"
-                              title="Align 3D View along Tunnel Drive Axis"
+                              className="px-1 py-0.5 rounded bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-300 border border-cyan-900/40 text-[8.5px] font-bold cursor-pointer transition-colors"
                             >
-                              Snap Drive
+                              Axis
                             </button>
                           </div>
                         </div>
@@ -4007,84 +4132,44 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     );
                   })()}
 
-                  {/* PROMINENT PLANE DIP & AMOUNT ON CANVAS ALIGNED WITH PLANE */}
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-2xl bg-slate-950/95 border-2 border-amber-400 text-white shadow-2xl backdrop-blur-md flex items-center gap-3 font-mono text-xs z-30 select-none pointer-events-auto">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-amber-400 font-black uppercase text-[11px]">Plane Dip:</span>
-                      <span className="px-2.5 py-0.5 rounded-lg bg-amber-500 text-slate-950 font-black text-sm shadow">
-                        {dipAmount ?? 60}°
-                      </span>
-                    </div>
-                    <span className="text-slate-600">|</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-cyan-400 font-bold uppercase text-[11px]">Direction:</span>
-                      <span className="px-2 py-0.5 rounded-lg bg-cyan-950 border border-cyan-500/50 text-cyan-300 font-black">
-                        ∠ {String(dipDirection ?? 135).padStart(3, '0')}° ({getTunnelRelativeDirectionLabel(dipDirection ?? 135)})
-                      </span>
-                    </div>
-                    <span className="text-slate-600">|</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-400 text-[11px]">Strike:</span>
-                      <strong className="text-amber-300 font-mono">
-                        {strikeInfo.strikePairLabel}
-                      </strong>
-                    </div>
+                  {/* SINGLE COMPACT BOTTOM STATUS PILL */}
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3.5 py-1.5 rounded-full bg-slate-950/90 border border-amber-400/70 text-white shadow-lg backdrop-blur-md flex items-center gap-2.5 font-mono text-[11px] z-20 select-none pointer-events-auto">
+                    <span className="text-amber-400 font-black">
+                      Dip {dipAmount ?? 60}°
+                    </span>
+                    <span className="text-slate-600">·</span>
+                    <span className="text-cyan-300 font-bold">
+                      Dir {String(dipDirection ?? 135).padStart(3, '0')}°
+                    </span>
+                    <span className="text-slate-600">·</span>
+                    <span className="text-slate-300">
+                      Strike {strikeInfo.strikePairLabel}
+                    </span>
                   </div>
-
-                  {/* HIGH-VISIBILITY 3D CUTTING PLANE HUD BADGE ALIGNED WITH THE PLANE */}
-                  {showInteriorPlane && (
-                    <div className="absolute bottom-3 left-3 p-2.5 rounded-xl bg-slate-950/95 backdrop-blur-md border border-amber-500/50 shadow-2xl pointer-events-none z-10 flex items-center gap-2.5 text-xs font-mono">
-                      <div
-                        className="w-4 h-4 rounded-full border-2 border-white/80 shadow-md shrink-0"
-                        style={{ backgroundColor: FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#f59e0b' }}
-                      />
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-amber-400 font-black">
-                            {currentJoint.panel === 'crown' ? 'CROWN STRIKE PLANE:' : 'PLANE ORIENTATION:'}
-                          </span>
-                          <span className="text-white font-extrabold">
-                            {currentJoint.panel === 'crown'
-                              ? `STRIKE ${strikeInfo.strikePairLabel} (DIP ${dipAmount ?? 60}° ➔ ${dipDirection ?? 135}°)`
-                              : `DIP ${dipAmount ?? 60}° ➔ ${dipDirection ?? 135}°`}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-400">
-                          {currentJoint.panel === 'crown' ? 'Crown Cut Point' : 'Anchor Point'}: X {(anchorPoint?.x != null && !isNaN(anchorPoint.x) ? anchorPoint.x : 3.0).toFixed(2)}m (Toward Pull), Y {(anchorPoint?.y != null && !isNaN(anchorPoint.y) ? anchorPoint.y : 4.25).toFixed(2)}m, Z {(anchorPoint?.z != null && !isNaN(anchorPoint.z) ? anchorPoint.z : 3.75).toFixed(2)}m
-                        </span>
-                      </div>
-                    </div>
-                  )}
 
                   {/* OPTIONAL GEOLOGICAL VECTORS LEGEND OVERLAY (HIDDEN BY DEFAULT FOR CLEAN CANVAS) */}
                   {showLegendOverlay && (
-                    <div className="absolute top-14 left-3 p-3 rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-800 font-mono text-[10.5px] space-y-1.5 shadow-xl pointer-events-none z-10">
-                      <div className="font-bold text-amber-400 uppercase text-[11px] flex items-center justify-between">
-                        <span>3D Geological Vectors</span>
+                    <div className="absolute top-12 left-3 p-2.5 rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-800 font-mono text-[10px] space-y-1 shadow-xl pointer-events-none z-10">
+                      <div className="font-bold text-amber-400 uppercase text-[10.5px]">
+                        3D Vectors &amp; Anchor
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded" style={{ backgroundColor: FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#f59e0b' }} />
+                        <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#f59e0b' }} />
                         <span className="text-slate-100 font-bold">
-                          Joint Plane {currentJoint.id} ({dipDirection}°/{dipAmount}°)
+                          {currentJoint.id} ({dipDirection}°/{dipAmount}° · L={currentTraceLengthM}m)
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="w-3 h-0.5 bg-sky-500" />
-                        <span className="text-sky-300">Strike Vector ({strikeInfo.strikeRhrDeg}°)</span>
+                        <span className="w-2.5 h-0.5 bg-sky-500" />
+                        <span className="text-sky-300">Strike ({strikeInfo.strikeRhrDeg}°)</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="w-3 h-0.5 bg-amber-500" />
-                        <span className="text-amber-300">Downward Dip Vector ({dipDirection}°)</span>
+                        <span className="w-2.5 h-0.5 bg-amber-500" />
+                        <span className="text-amber-300">Dip ({dipDirection}°)</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="w-3 h-0.5 bg-emerald-500" />
-                        <span className="text-emerald-300">Plane Normal Vector</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-red-600" />
-                        <span className="text-red-300">
-                          Anchor P0 ({anchorPoint.x.toFixed(1)}, {anchorPoint.y.toFixed(1)}, {anchorPoint.z.toFixed(1)})m
-                        </span>
+                        <span className="w-2.5 h-0.5 bg-emerald-500" />
+                        <span className="text-emerald-300">Normal Vector</span>
                       </div>
                     </div>
                   )}
@@ -4255,7 +4340,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
                     <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                       <span className="font-bold text-sm text-cyan-300 uppercase">
-                        Developed 2D Tunnel View (Left Wall + Crown + Right Wall + Excavation Face)
+                        {tunnelGeometry.isVerticalShaft
+                          ? 'Developed 2D Vertical Shaft View (Horizontal Quadrant Walls: Pull 0m Bottom → Pull 3m Top + Bottom Face)'
+                          : 'Developed 2D Tunnel View (Left Wall + Crown + Right Wall + Excavation Face)'}
                       </span>
                       <span className="text-xs text-amber-400 font-bold font-mono">
                         Joint {activeJoint.id} ({String(dipDirection).padStart(3, '0')}°/{dipAmount}° · {strikeInfo.strikePairLabel})
@@ -4264,18 +4351,26 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
                     <div className="w-full bg-slate-950 rounded-xl border border-slate-800 p-4 overflow-x-auto">
                       <svg viewBox="0 0 940 280" className="w-full min-w-[780px] h-auto select-none">
-                        {/* 1. LEFT WALL (X: 0..pullL, Z: 0..wallHeightM) */}
+                        {/* 1. LEFT WALL / 1. NE WALL */}
                         {tunnelGeometry.hasLeftWall !== false && (
                           <g>
                             <rect x="20" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
                             <text x="110" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                              1. LEFT WALL (0..{tunnelGeometry.pullLengthM}m)
+                              {tunnelGeometry.isVerticalShaft
+                                ? `1. NE WALL (0°–90° · Pull 0..${tunnelGeometry.pullLengthM}m)`
+                                : `1. LEFT WALL (0..${tunnelGeometry.pullLengthM}m)`}
                             </text>
                             {/* Stationing ticks at 0m, 1m, 2m, pullL */}
                             <line x1="20" y1="220" x2="200" y2="220" stroke="#64748b" strokeWidth="1" />
-                            <text x="20" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">0m</text>
-                            <text x="200" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">{tunnelGeometry.pullLengthM}m</text>
-                            <text x="110" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">Drive Advance (+X)</text>
+                            <text x="20" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                              {tunnelGeometry.isVerticalShaft ? '◀ 4.WN (0°N)' : '0m'}
+                            </text>
+                            <text x="200" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                              {tunnelGeometry.isVerticalShaft ? '2.ES ▶ (90°E)' : `${tunnelGeometry.pullLengthM}m`}
+                            </text>
+                            <text x="110" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                              {tunnelGeometry.isVerticalShaft ? 'Pull 0m Bottom → Pull Top' : 'Drive Advance (+X)'}
+                            </text>
 
                             {/* Observed traces on Left Wall */}
                             {allRoundJoints
@@ -4320,18 +4415,26 @@ const NatmJoint3DInspectorModalContent: React.FC<
                           </g>
                         )}
 
-                        {/* 2. CROWN ARCH / BACK (Y: 0..widthM, X: 0..pullL) */}
+                        {/* 2. CROWN ARCH / 2. ES WALL */}
                         {tunnelGeometry.hasCrown !== false && (
                           <g>
                             <rect x="220" y="40" width="220" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
                             <text x="330" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                              2. CROWN ARCH ({strikeInfo.strikePairLabel})
+                              {tunnelGeometry.isVerticalShaft
+                                ? `2. ES WALL (90°–180° · Pull 0..${tunnelGeometry.pullLengthM}m)`
+                                : `2. CROWN ARCH (${strikeInfo.strikePairLabel})`}
                             </text>
                             {/* Crown Centerline */}
                             <line x1="330" y1="40" x2="330" y2="220" stroke="#0284c7" strokeWidth="1" strokeDasharray="4,4" />
-                            <text x="330" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">C/L ({(tunnelGeometry.widthM / 2).toFixed(1)}m)</text>
-                            <text x="220" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">L-SPL</text>
-                            <text x="440" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">R-SPL</text>
+                            <text x="330" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">
+                              {tunnelGeometry.isVerticalShaft ? 'Pull 0m Bottom → Pull Top' : `C/L (${(tunnelGeometry.widthM / 2).toFixed(1)}m)`}
+                            </text>
+                            <text x="220" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                              {tunnelGeometry.isVerticalShaft ? '◀ 1.NE (90°E)' : 'L-SPL'}
+                            </text>
+                            <text x="440" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                              {tunnelGeometry.isVerticalShaft ? '3.SW ▶ (180°S)' : 'R-SPL'}
+                            </text>
 
                             {/* Observed traces on Crown */}
                             {allRoundJoints
@@ -4376,17 +4479,25 @@ const NatmJoint3DInspectorModalContent: React.FC<
                           </g>
                         )}
 
-                        {/* 3. RIGHT WALL (X: 0..pullL, Z: 0..wallHeightM) */}
+                        {/* 3. RIGHT WALL / 3. SW WALL */}
                         {tunnelGeometry.hasRightWall !== false && (
                           <g>
                             <rect x="460" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
                             <text x="550" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                              3. RIGHT WALL (0..{tunnelGeometry.pullLengthM}m)
+                              {tunnelGeometry.isVerticalShaft
+                                ? `3. SW WALL (180°–270° · Pull 0..${tunnelGeometry.pullLengthM}m)`
+                                : `3. RIGHT WALL (0..${tunnelGeometry.pullLengthM}m)`}
                             </text>
                             <line x1="460" y1="220" x2="640" y2="220" stroke="#64748b" strokeWidth="1" />
-                            <text x="460" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">0m</text>
-                            <text x="640" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">{tunnelGeometry.pullLengthM}m</text>
-                            <text x="550" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">Drive Advance (+X)</text>
+                            <text x="460" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                              {tunnelGeometry.isVerticalShaft ? '◀ 2.ES (180°S)' : '0m'}
+                            </text>
+                            <text x="640" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                              {tunnelGeometry.isVerticalShaft ? '4.WN ▶ (270°W)' : `${tunnelGeometry.pullLengthM}m`}
+                            </text>
+                            <text x="550" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                              {tunnelGeometry.isVerticalShaft ? 'Pull 0m Bottom → Pull Top' : 'Drive Advance (+X)'}
+                            </text>
 
                             {/* Observed traces on Right Wall */}
                             {allRoundJoints
@@ -4431,8 +4542,19 @@ const NatmJoint3DInspectorModalContent: React.FC<
                           </g>
                         )}
 
-                        {/* 4. TUNNEL FACE (Transverse Y: 0..widthM, Elevation Z: 0..heightM) */}
+                        {/* 4. TUNNEL FACE / SHAFT BOTTOM FACE */}
                         {(() => {
+                          if (tunnelGeometry.isVerticalShaft) {
+                            return (
+                              <g>
+                                <circle cx="790" cy="130" r="88" fill="#1e293b" stroke="#0ea5e9" strokeWidth="2" />
+                                {/* 1m North-to-South Reference Line */}
+                                <line x1="790" y1="42" x2="790" y2="218" stroke="#e11d48" strokeWidth="2" strokeDasharray="5,3" />
+                                <text x="790" y="54" fill="#fda4af" fontSize="8" fontWeight="bold" textAnchor="middle">0°N (0m REF)</text>
+                                <text x="790" y="214" fill="#fda4af" fontSize="8" fontWeight="bold" textAnchor="middle">180°S ({tunnelGeometry.widthM}m)</text>
+                              </g>
+                            );
+                          }
                           const customPts = tunnelGeometry.crossSectionPoints;
                           if (customPts && customPts.length >= 3) {
                             const minX = Math.min(...customPts.map((p) => p.x));
@@ -4462,15 +4584,27 @@ const NatmJoint3DInspectorModalContent: React.FC<
                           );
                         })()}
                         <text x="790" y="32" fill="#38bdf8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                          4. EXCAVATION FACE (X = {tunnelGeometry.pullLengthM}m)
+                          {tunnelGeometry.isVerticalShaft
+                            ? `4. SHAFT BOTTOM FACE (PULL 0m · 1m N→S REF)`
+                            : `4. EXCAVATION FACE (X = ${tunnelGeometry.pullLengthM}m)`}
                         </text>
                         {/* Centerline on Face */}
-                        <line x1="790" y1="40" x2="790" y2="220" stroke="#0284c7" strokeWidth="1" strokeDasharray="4,4" />
+                        {!tunnelGeometry.isVerticalShaft && (
+                          <line x1="790" y1="40" x2="790" y2="220" stroke="#0284c7" strokeWidth="1" strokeDasharray="4,4" />
+                        )}
                         <line x1="670" y1="220" x2="910" y2="220" stroke="#64748b" strokeWidth="1" />
-                        <text x="670" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">0m (Left)</text>
-                        <text x="790" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">C/L</text>
-                        <text x="910" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">{tunnelGeometry.widthM}m (Right)</text>
-                        <text x="790" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">Transverse Span (+Y)</text>
+                        <text x="670" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                          {tunnelGeometry.isVerticalShaft ? '270°W (0m)' : '0m (Left)'}
+                        </text>
+                        <text x="790" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">
+                          {tunnelGeometry.isVerticalShaft ? '1m N→S REF' : 'C/L'}
+                        </text>
+                        <text x="910" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                          {tunnelGeometry.isVerticalShaft ? `90°E (${tunnelGeometry.widthM}m)` : `${tunnelGeometry.widthM}m (Right)`}
+                        </text>
+                        <text x="790" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                          {tunnelGeometry.isVerticalShaft ? `Shaft Diameter Ø ${tunnelGeometry.widthM}m` : 'Transverse Span (+Y)'}
+                        </text>
 
                         {/* Observed traces on Face */}
                         {allRoundJoints

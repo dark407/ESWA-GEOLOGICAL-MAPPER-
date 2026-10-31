@@ -122,6 +122,30 @@ export function parseRoundChainageMeters(round: FieldExcavationRound): number {
 }
 
 /**
+ * Formats a panel ID into a human-readable perimeter zone name, adapting to Vertical Shaft quadrants
+ * ('1st Quad NE (0°–90°)', '2nd Quad ES (90°–180°)', '3rd Quad SW (180°–270°)', '4th Quad WN (270°–360°)', 'Center Median N–S')
+ * when in vertical shaft mode.
+ */
+export function formatSpotBoltPanelLabel(
+  panel: FieldPanelId | undefined,
+  isVerticalShaft: boolean = false
+): string {
+  if (!isVerticalShaft) {
+    if (panel === 'crown') return 'Crown Arch';
+    if (panel === 'left_wall') return 'Left Wall';
+    if (panel === 'right_wall') return 'Right Wall';
+    if (panel === 'center_median') return 'Center Median';
+    return 'Perimeter';
+  }
+  if (panel === 'crown') return '1st Quad NE (0°–90°)';
+  if (panel === 'right_wall') return '2nd Quad ES (90°–180°)';
+  if (panel === 'face') return '3rd Quad SW (180°–270°)';
+  if (panel === 'left_wall') return '4th Quad WN (270°–360°)';
+  if (panel === 'center_median') return 'Center Median Wall (0°–180°)';
+  return 'Shaft Wall Ring';
+}
+
+/**
  * Maps any panel ID to a valid perimeter installation surface ('crown' | 'left_wall' | 'right_wall').
  * Spot bolts are radial perimeter rock bolts and must NEVER be recommended on 'face'.
  */
@@ -268,6 +292,10 @@ export function analyzeAndRecommendSpotBolts(
     existingSupport,
   } = input;
 
+  const isVerticalShaft =
+    location.undergroundSubMode === 'vertical_shaft' ||
+    currentRound.undergroundSubMode === 'vertical_shaft';
+
   const chainageRD = parseRoundChainageMeters(currentRound);
   const pullLengthM = Math.max(0.5, currentRound.pullLengthMeters || 3.0);
   const chainageEndRD = Number((chainageRD + pullLengthM).toFixed(2));
@@ -336,7 +364,7 @@ export function analyzeAndRecommendSpotBolts(
     );
   });
 
-  // Analyze shear features for localized spalling / boundary separation on tunnel perimeter
+  // Analyze shear features for localized spalling / boundary separation on tunnel/shaft perimeter
   for (let idx = 0; idx < shearFeatures.length; idx++) {
     const sf = shearFeatures[idx];
     const pts = sf.points || [];
@@ -350,15 +378,17 @@ export function analyzeAndRecommendSpotBolts(
 
     // If a fault is drawn strictly in the middle of the excavation face without reaching the perimeter
     // (crown or walls), radial perimeter spot bolts cannot stitch the middle of the face; skip unless near perimeter.
-    if (rawPanel === 'face') {
+    if (rawPanel === 'face' && !isVerticalShaft) {
       const nearPerimeter = rawVNorm <= 0.35 || rawUNorm <= 0.25 || rawUNorm >= 0.75;
       if (!nearPerimeter) {
         continue;
       }
     }
 
-    // Never install radial spot bolts on 'face' — map to the corresponding perimeter panel ('crown', 'left_wall', 'right_wall')
-    const targetPanel = mapToPerimeterBoltPanel(rawPanel, rawUNorm, rawVNorm);
+    // Map to perimeter panel (in Vertical Shaft mode, 'face' when used on strip wall represents 3rd Quad SW, or map to perimeter)
+    const targetPanel: FieldPanelId = isVerticalShaft && rawPanel === 'face'
+      ? 'face'
+      : mapToPerimeterBoltPanel(rawPanel, rawUNorm, rawVNorm);
 
     // Check if within active excavation (not in hatched unexcavated bench)
     const insideHatched = isPointInsideHatchedExcavationPortion(
@@ -369,14 +399,30 @@ export function analyzeAndRecommendSpotBolts(
     );
     if (insideHatched) continue;
 
-    const uNorm = rawPanel === 'face' ? 0.5 : rawUNorm;
-    const vNorm = rawPanel === 'face' ? 0.25 : rawVNorm;
+    const uNorm = rawPanel === 'face' && !isVerticalShaft ? 0.5 : rawUNorm;
+    const vNorm = rawPanel === 'face' && !isVerticalShaft ? 0.25 : rawVNorm;
 
     let pullM = Number((pullLengthM * (0.3 + 0.4 * vNorm)).toFixed(2));
     let xM = Number(((uNorm - 0.5) * spanW).toFixed(2));
     let yM = Number(((1 - vNorm) * totalH).toFixed(2));
 
-    if (targetPanel === 'crown') {
+    if (isVerticalShaft) {
+      // In Vertical Shaft mode, place on the circular shaft ring of radius R = spanW / 2
+      const R = spanW / 2;
+      const quadStartDeg =
+        targetPanel === 'crown'
+          ? 0
+          : targetPanel === 'right_wall'
+          ? 90
+          : targetPanel === 'face'
+          ? 180
+          : 270;
+      const azDeg = quadStartDeg + uNorm * 90;
+      const azRad = (azDeg * Math.PI) / 180;
+      xM = Number((R * Math.sin(azRad)).toFixed(2));
+      yM = Number((R * Math.cos(azRad)).toFixed(2));
+      pullM = Number((pullLengthM * (1 - vNorm)).toFixed(2));
+    } else if (targetPanel === 'crown') {
       yM = Number((totalH * 0.92).toFixed(2));
       xM = Number(((uNorm - 0.5) * (spanW * 0.8)).toFixed(2));
       pullM = Number((pullLengthM * 0.5).toFixed(2));
@@ -423,28 +469,33 @@ export function analyzeAndRecommendSpotBolts(
         );
         const bRd = Number((chainageRD + bPull).toFixed(2));
         const bX = Number(
-          (targetPanel === 'crown' ? xM + (bIdx % 2 === 0 ? 0.25 : -0.25) : xM).toFixed(2)
+          (targetPanel === 'crown' && !isVerticalShaft
+            ? xM + (bIdx % 2 === 0 ? 0.25 : -0.25)
+            : xM).toFixed(2)
         );
         const bOffset = bX;
 
         const boltId = `sb-shear-${idx + 1}-${bIdx + 1}`;
         const boltLabel = `SB-SH${idx + 1}-${bIdx + 1}`;
 
-        const installAngle =
-          targetPanel === 'crown'
-            ? Math.max(55, Math.min(85, Math.round(90 - (sf.dipAmount || 60) + 20)))
-            : 25;
+        const installAngle = isVerticalShaft
+          ? 85
+          : targetPanel === 'crown'
+          ? Math.max(55, Math.min(85, Math.round(90 - (sf.dipAmount || 60) + 20)))
+          : 25;
         const installAzimuth = normalizeDeg((sf.dipDirection || driveDir) + 180);
         const fosAfterVal = Number(
           ((resistingBeforeKn + boltsCountForFeature * singleBoltCapacityKn) / Math.max(1, drivingKn)).toFixed(2)
         );
+        const panelLabel = formatSpotBoltPanelLabel(targetPanel, isVerticalShaft);
+        const stPrefix = isVerticalShaft ? 'Depth EL' : 'RD';
 
         hazards.push({
           id: `h-shear-${idx + 1}-${bIdx + 1}`,
           type: 'LITHOLOGY_SHEAR_CONTACT',
           panel: targetPanel,
           severity: 'HIGH',
-          description: `Mapped ${sf.featureType.replace('_', ' ').toUpperCase()} (${sf.label || 'Shear zone'}) on ${targetPanel.replace('_', ' ')} dipping ${sf.dipAmount || 60}°/${sf.dipDirection || 0}°. Risk of localized boundary separation.`,
+          description: `Mapped ${sf.featureType.replace('_', ' ').toUpperCase()} (${sf.label || 'Shear zone'}) on ${panelLabel} dipping ${sf.dipAmount || 60}°/${sf.dipDirection || 0}°. Risk of localized boundary separation.`,
           drivingForceKn: drivingKn,
           resistingForceBeforeKn: resistingBeforeKn,
           fosBefore,
@@ -475,7 +526,7 @@ export function analyzeAndRecommendSpotBolts(
           offsetMeters: bOffset,
           heightAboveInvertM: yM,
           recommendedByEngine: true,
-          hazardReason: `Stitches mapped ${sf.featureType.replace('_', ' ')} (${sf.label || 'Shear zone'}) on ${targetPanel.replace('_', ' ')} at RD ${bRd}m (Off ${bOffset >= 0 ? '+' : ''}${bOffset}m). Improves FoS from ${fosBefore} to ${fosAfterVal}.`,
+          hazardReason: `Stitches mapped ${sf.featureType.replace('_', ' ')} (${sf.label || 'Shear zone'}) on ${panelLabel} at ${stPrefix} ${bRd}m (Off ${bOffset >= 0 ? '+' : ''}${bOffset}m). Improves FoS from ${fosBefore} to ${fosAfterVal}.`,
         });
       }
     }
@@ -496,7 +547,7 @@ export function analyzeAndRecommendSpotBolts(
     );
   });
 
-  // Check crown kinematic wedge intersections (opposing dip directions on crown/upper walls)
+  // Check kinematic wedge intersections (opposing dip directions on crown/quadrant walls)
   let crownWedgeDetected = false;
   for (let i = 0; i < validJoints.length; i++) {
     for (let j = i + 1; j < validJoints.length; j++) {
@@ -574,7 +625,9 @@ export function analyzeAndRecommendSpotBolts(
           );
 
           const crownPullM = Number((pullLengthM * 0.5).toFixed(2));
-          const crownHeightM = Number((totalH * 0.94).toFixed(2));
+          const crownHeightM = isVerticalShaft
+            ? Number((spanW / 2 - 0.1).toFixed(2))
+            : Number((totalH * 0.94).toFixed(2));
 
           for (let b = 0; b < boltsNeeded; b++) {
             const latOffsetM = Number(
@@ -604,26 +657,31 @@ export function analyzeAndRecommendSpotBolts(
             }
 
             const boltId = `sb-crown-wedge-${b + 1}`;
-            const boltLabel = `SB-CRW-${b + 1}`;
+            const boltLabel = isVerticalShaft ? `SB-Q1W-${b + 1}` : `SB-CRW-${b + 1}`;
 
-            const installAngle = 75;
-            const installAzimuth =
-              latOffsetM >= 0
-                ? normalizeDeg(driveDir + 90)
-                : normalizeDeg(driveDir - 90);
+            const installAngle = isVerticalShaft ? 85 : 75;
+            const installAzimuth = isVerticalShaft
+              ? normalizeDeg(45 + latOffsetM * 12)
+              : latOffsetM >= 0
+              ? normalizeDeg(driveDir + 90)
+              : normalizeDeg(driveDir - 90);
             const fosAfterVal = Number(
               (
                 (resistingBeforeKn + boltsNeeded * singleBoltCapacityKn) /
                 Math.max(1, drivingForceKn)
               ).toFixed(2)
             );
+            const panelLabel = formatSpotBoltPanelLabel('crown', isVerticalShaft);
+            const stPrefix = isVerticalShaft ? 'Depth EL' : 'RD';
 
             hazards.push({
               id: `h-crown-wedge-${b + 1}`,
               type: 'CROWN_GRAVITY_WEDGE',
               panel: 'crown',
               severity: 'CRITICAL',
-              description: `Kinematic Crown Roof Wedge formed by intersecting sets (${j1.setId || `J${i + 1}`}: ${j1.dipAmount}°/${j1.dipDirection}° & ${j2.setId || `J${j + 1}`}: ${j2.dipAmount}°/${j2.dipDirection}°). Apex depth = ${apexDepthM}m, Wedge Weight = ${wedgeWeightKn} kN. FoS before = ${fosBefore}.`,
+              description: isVerticalShaft
+                ? `Kinematic Shaft Wall Keyblock Wedge on ${panelLabel} formed by intersecting sets (${j1.setId || `J${i + 1}`}: ${j1.dipAmount}°/${j1.dipDirection}° & ${j2.setId || `J${j + 1}`}: ${j2.dipAmount}°/${j2.dipDirection}°). Apex depth = ${apexDepthM}m, Wedge Weight = ${wedgeWeightKn} kN. FoS before = ${fosBefore}.`
+                : `Kinematic Crown Roof Wedge formed by intersecting sets (${j1.setId || `J${i + 1}`}: ${j1.dipAmount}°/${j1.dipDirection}° & ${j2.setId || `J${j + 1}`}: ${j2.dipAmount}°/${j2.dipDirection}°). Apex depth = ${apexDepthM}m, Wedge Weight = ${wedgeWeightKn} kN. FoS before = ${fosBefore}.`,
               drivingForceKn,
               resistingForceBeforeKn: resistingBeforeKn,
               fosBefore,
@@ -654,7 +712,9 @@ export function analyzeAndRecommendSpotBolts(
               offsetMeters: latOffsetM,
               heightAboveInvertM: crownHeightM,
               recommendedByEngine: true,
-              hazardReason: `Pins Crown Gravity Key Block (${j1.setId || `J${i + 1}`}×${j2.setId || `J${j + 1}`}, apex ${apexDepthM}m) on Crown at RD ${bRdM}m, Offset ${latOffsetM >= 0 ? '+' : ''}${latOffsetM}m. Improves FoS from ${fosBefore} to ${fosAfterVal}.`,
+              hazardReason: isVerticalShaft
+                ? `Pins Shaft Keyblock Wedge (${j1.setId || `J${i + 1}`}×${j2.setId || `J${j + 1}`}, apex ${apexDepthM}m) on ${panelLabel} at ${stPrefix} ${bRdM}m, Azimuth ${installAzimuth}°. Improves FoS from ${fosBefore} to ${fosAfterVal}.`
+                : `Pins Crown Gravity Key Block (${j1.setId || `J${i + 1}`}×${j2.setId || `J${j + 1}`}, apex ${apexDepthM}m) on Crown at RD ${bRdM}m, Offset ${latOffsetM >= 0 ? '+' : ''}${latOffsetM}m. Improves FoS from ${fosBefore} to ${fosAfterVal}.`,
             });
           }
         }
@@ -662,7 +722,7 @@ export function analyzeAndRecommendSpotBolts(
     }
   }
 
-  // Sidewall daylighting sliding slab hazards (only in Class III–V or when pattern bolts are disabled)
+  // Sidewall / Shaft Quadrant daylighting sliding slab hazards (only in Class III–V or when pattern bolts are disabled)
   for (let idx = 0; idx < parallelJoints.length; idx++) {
     const pj = parallelJoints[idx];
     const isDippingLeft = pj.dipDirection >= 180 && pj.dipDirection <= 360;
@@ -706,7 +766,7 @@ export function analyzeAndRecommendSpotBolts(
       const targetPullM = Number((pullLengthM * 0.5).toFixed(2));
       const targetRdM = Number((chainageRD + targetPullM).toFixed(2));
       const targetOffsetM = Number((wallSign * (spanW / 2 - 0.15)).toFixed(2));
-      const targetHeightM = Number((totalH * 0.48).toFixed(2));
+      const targetHeightM = isVerticalShaft ? 0.0 : Number((totalH * 0.48).toFixed(2));
 
       const checkPt = {
         x: targetPanel === 'left_wall' ? 30 : 380,
@@ -724,23 +784,32 @@ export function analyzeAndRecommendSpotBolts(
       }
 
       const boltId = `sb-wall-slab-${idx + 1}`;
-      const boltLabel = `SB-WL-${targetPanel === 'left_wall' ? 'L' : 'R'}${idx + 1}`;
+      const boltLabel = isVerticalShaft
+        ? `SB-${targetPanel === 'left_wall' ? 'Q4' : 'Q2'}-${idx + 1}`
+        : `SB-WL-${targetPanel === 'left_wall' ? 'L' : 'R'}${idx + 1}`;
 
-      const installAngle = 20;
-      const installAzimuth =
-        targetPanel === 'left_wall'
-          ? normalizeDeg(driveDir - 90)
-          : normalizeDeg(driveDir + 90);
+      const installAngle = isVerticalShaft ? 80 : 20;
+      const installAzimuth = isVerticalShaft
+        ? targetPanel === 'left_wall'
+          ? 315
+          : 135
+        : targetPanel === 'left_wall'
+        ? normalizeDeg(driveDir - 90)
+        : normalizeDeg(driveDir + 90);
       const fosAfterVal = Number(
         ((resistingBeforeKn + singleBoltCapacityKn) / Math.max(1, drivingShearKn)).toFixed(2)
       );
+      const panelLabel = formatSpotBoltPanelLabel(targetPanel, isVerticalShaft);
+      const stPrefix = isVerticalShaft ? 'Depth EL' : 'RD';
 
       hazards.push({
         id: `h-wall-slab-${idx + 1}`,
         type: 'SIDEWALL_SLIDING_SLAB',
         panel: targetPanel,
         severity: 'HIGH',
-        description: `Adverse strike joint (${pj.setId || 'J-Set'}) parallel to tunnel axis dipping ${pj.dipAmount}° into ${targetPanel.replace('_', ' ')}. Risk of daylighting planar wall slide.`,
+        description: isVerticalShaft
+          ? `Steeply dipping joint (${pj.setId || 'J-Set'}) dipping ${pj.dipAmount}° into ${panelLabel}. Risk of daylighting planar shaft wall slab.`
+          : `Adverse strike joint (${pj.setId || 'J-Set'}) parallel to tunnel axis dipping ${pj.dipAmount}° into ${targetPanel.replace('_', ' ')}. Risk of daylighting planar wall slide.`,
         drivingForceKn: drivingShearKn,
         resistingForceBeforeKn: resistingBeforeKn,
         fosBefore,
@@ -771,7 +840,7 @@ export function analyzeAndRecommendSpotBolts(
         offsetMeters: targetOffsetM,
         heightAboveInvertM: targetHeightM,
         recommendedByEngine: true,
-        hazardReason: `Anchors Sidewall Sliding Slab on ${targetPanel.replace('_', ' ')} (${pj.setId || 'J-Set'} dipping ${pj.dipAmount}°) at RD ${targetRdM}m, Off ${targetOffsetM >= 0 ? '+' : ''}${targetOffsetM}m. Improves FoS from ${fosBefore} to ${fosAfterVal}.`,
+        hazardReason: `Anchors ${isVerticalShaft ? 'Shaft Wall Sliding Slab' : 'Sidewall Sliding Slab'} on ${panelLabel} (${pj.setId || 'J-Set'} dipping ${pj.dipAmount}°) at ${stPrefix} ${targetRdM}m, Off ${targetOffsetM >= 0 ? '+' : ''}${targetOffsetM}m. Improves FoS from ${fosBefore} to ${fosAfterVal}.`,
       });
     }
   }
@@ -818,10 +887,11 @@ export function analyzeAndRecommendSpotBolts(
           : projPanel === 'right_wall'
           ? Number((spanW / 2 - 0.15).toFixed(2))
           : 0.0;
-      const projHeightM =
-        projPanel === 'crown'
-          ? Number((totalH * 0.92).toFixed(2))
-          : Number((totalH * 0.52).toFixed(2));
+      const projHeightM = isVerticalShaft
+        ? Number((spanW / 2 - 0.15).toFixed(2))
+        : projPanel === 'crown'
+        ? Number((totalH * 0.92).toFixed(2))
+        : Number((totalH * 0.52).toFixed(2));
 
       const alreadyCovered = recommendedBolts.some(
         (b) => b.panel === projPanel && Math.abs((b.chainageMeters || 0) - projRdM) < 1.2
@@ -832,13 +902,15 @@ export function analyzeAndRecommendSpotBolts(
         const prevRd = parseRoundChainageMeters(prevRound);
         const boltId = `sb-prev-proj-${pIdx + 1}`;
         const boltLabel = `SB-PRV-${pIdx + 1}`;
+        const panelLabel = formatSpotBoltPanelLabel(projPanel, isVerticalShaft);
+        const stPrefix = isVerticalShaft ? 'Depth EL' : 'RD';
 
         hazards.push({
           id: `h-prev-proj-${pIdx + 1}`,
           type: 'PREVIOUS_ROUND_CONTINUITY',
           panel: projPanel,
           severity: 'MODERATE',
-          description: `Continuous ${psf.featureType.replace('_', ' ')} from adjacent Round (RD ${prevRd}m) extends into current round on ${projPanel.replace('_', ' ')}.`,
+          description: `Continuous ${psf.featureType.replace('_', ' ')} from adjacent ${isVerticalShaft ? 'Sinking Lift' : 'Round'} (${stPrefix} ${prevRd}m) extends into current ${isVerticalShaft ? 'lift' : 'round'} on ${panelLabel}.`,
           drivingForceKn: 95.0,
           resistingForceBeforeKn: 65.0,
           fosBefore: 1.12,
@@ -860,7 +932,7 @@ export function analyzeAndRecommendSpotBolts(
           xMeters: projOffsetM,
           yMeters: projHeightM,
           lengthM: boltLengthM,
-          angleDeg: projPanel === 'crown' ? 75 : 25,
+          angleDeg: isVerticalShaft ? 85 : projPanel === 'crown' ? 75 : 25,
           azimuthDeg: normalizeDeg(driveDir + 180),
           diameterMm: boltDiameterMm,
           gradeMpa: steelGradeMpa,
@@ -869,7 +941,7 @@ export function analyzeAndRecommendSpotBolts(
           offsetMeters: projOffsetM,
           heightAboveInvertM: projHeightM,
           recommendedByEngine: true,
-          hazardReason: `Stitches continuous ${psf.featureType.replace('_', ' ')} from adjacent Round RD ${prevRd}m on ${projPanel.replace('_', ' ')} at RD ${projRdM}m.`,
+          hazardReason: `Stitches continuous ${psf.featureType.replace('_', ' ')} from adjacent ${stPrefix} ${prevRd}m on ${panelLabel} at ${stPrefix} ${projRdM}m.`,
         });
       }
     }
@@ -884,7 +956,7 @@ export function analyzeAndRecommendSpotBolts(
     (recommendedBolts.length * singleBoltCapacityKn).toFixed(1)
   );
 
-  const perimeterApproxM = spanW * 2 + totalH;
+  const perimeterApproxM = isVerticalShaft ? Math.PI * spanW : spanW * 2 + totalH;
   const equivalentSupportPressureAddedMpa = Number(
     (
       totalTensileCapacityAddedKn /
@@ -904,13 +976,16 @@ export function analyzeAndRecommendSpotBolts(
       ? ` Note: Active support preset (${selectedClassStr}) is lighter than the RMR89/Q calculated class (${computedRockClassStr}, RMR=${rmrLabel}, Q=${qLabel}), which is governed by systematic pattern spacing rather than localized spot bolts.`
       : '';
 
+  const stPrefix = isVerticalShaft ? 'Depth EL' : 'RD';
+  const perimDesc = isVerticalShaft ? 'Shaft Quadrant Walls (Q1–Q4)' : 'Crown/Walls';
+
   const summaryVerdict = spotBoltsNeeded
-    ? `RD ${chainageRD}m–${chainageEndRD}m (${selectedClassStr}): Identified ${hazards.length} localized perimeter hazard(s) on Crown/Walls requiring ${recommendedBolts.length} targeted spot bolt(s).`
-    : `NO SPOT BOLTS REQUIRED at RD ${chainageRD}m–${chainageEndRD}m (${selectedClassStr}): The tunnel crown and walls are geotechnically stable (FoS ≥ 1.50) with no unanchored kinematic wedges or mapped fault/shear zones.`;
+    ? `${stPrefix} ${chainageRD}m–${chainageEndRD}m (${selectedClassStr}): Identified ${hazards.length} localized perimeter hazard(s) on ${perimDesc} requiring ${recommendedBolts.length} targeted radial spot bolt(s).`
+    : `NO SPOT BOLTS REQUIRED at ${stPrefix} ${chainageRD}m–${chainageEndRD}m (${selectedClassStr}): The ${isVerticalShaft ? '360° vertical shaft wall quadrants' : 'tunnel crown and walls'} are geotechnically stable (FoS ≥ 1.50) with no unanchored kinematic wedges or mapped fault/shear zones.`;
 
   const geotechnicalRationale = spotBoltsNeeded
-    ? `Structural stability evaluation for Round RD ${chainageRD}m–${chainageEndRD}m (${selectedClassStr}, RMR89=${rmrLabel}, Q=${qLabel}) detected localized perimeter instability on the tunnel Crown/Walls. Recommending ${recommendedBolts.length} radial Ø${boltDiameterMm}mm spot bolt(s) (L=${boltLengthM}m, fy=${steelGradeMpa}MPa, Capacity=${singleBoltCapacityKn}kN each) installed strictly on the excavated perimeter (+${equivalentSupportPressureAddedMpa} MPa equivalent support pressure).${classOverrideNotice}`
-    : `Evaluated ${validJoints.length} mapped joint trace(s) and ${shearFeatures.length} fault/shear feature(s) in Round RD ${chainageRD}m–${chainageEndRD}m under ${selectedClassStr} (RMR89=${rmrLabel}, Q=${qLabel}). No fault/shear zone or unstable key block (FoS < 1.50) occurs on the Crown or Walls, and radial spot bolts are never placed on the excavation face.${classOverrideNotice}`;
+    ? `Structural stability evaluation for ${isVerticalShaft ? 'Shaft Lift' : 'Round'} ${stPrefix} ${chainageRD}m–${chainageEndRD}m (${selectedClassStr}, RMR89=${rmrLabel}, Q=${qLabel}) detected localized perimeter instability on the ${perimDesc}. Recommending ${recommendedBolts.length} radial Ø${boltDiameterMm}mm spot bolt(s) (L=${boltLengthM}m, fy=${steelGradeMpa}MPa, Capacity=${singleBoltCapacityKn}kN each) installed strictly on the excavated ${isVerticalShaft ? 'shaft wall ring' : 'perimeter'} (+${equivalentSupportPressureAddedMpa} MPa equivalent radial support pressure).${classOverrideNotice}`
+    : `Evaluated ${validJoints.length} mapped joint trace(s) and ${shearFeatures.length} fault/shear feature(s) in ${isVerticalShaft ? 'Shaft Lift' : 'Round'} ${stPrefix} ${chainageRD}m–${chainageEndRD}m under ${selectedClassStr} (RMR89=${rmrLabel}, Q=${qLabel}). No fault/shear zone or unstable key block (FoS < 1.50) occurs on the ${perimDesc}, and radial spot bolts are never placed on the ${isVerticalShaft ? 'horizontal shaft bottom sump face' : 'excavation face'}.${classOverrideNotice}`;
 
   return {
     spotBoltsNeeded,

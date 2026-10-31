@@ -29,6 +29,7 @@ import {
   FieldWaterMark,
   getExcavationBenchConfig,
   getPanelActiveExcavationBounds,
+  isStrikeOnlyHorizontalPanel,
   pruneFullyErasedLithologyStrokes,
   resolveRockDisplayInfo,
 } from '../engine/fieldMappingEngine';
@@ -49,6 +50,8 @@ import {
   VERTICAL_SHAFT_QUADRANT_META_MAP,
   computeVerticalShaftCircumferenceBreakdown,
   getActiveVerticalShaftPanels,
+  getVerticalShaftAdjacentWallLabels,
+  isVerticalShaftCenterMedianPanel,
   isVerticalShaftLocation,
   normalizeVerticalShaftCenterMedianStatus,
   normalizeVerticalShaftExcavationApproach,
@@ -3164,9 +3167,9 @@ export function computeUnfoldedStripBoxes(
   );
   const idealFaceW = Number((faceGeom.tunnelW * facePxPerMeter).toFixed(1));
   const idealFaceH = Number((faceGeom.tunnelH * facePxPerMeter).toFixed(1));
-  const stripY = topStripOnly ? 38 : 24;
-  const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 165);
-  const stripViewBoxH = topStripOnly ? Math.max(210, Math.round(stripY + stripH + 42)) : 790;
+  const stripY = topStripOnly ? 44 : 34;
+  const faceTopY = topStripOnly ? 24 : Math.round(stripY + stripH + 155);
+  const stripViewBoxH = topStripOnly ? Math.max(216, Math.round(stripY + stripH + 42)) : 790;
 
   return {
     faceGeom,
@@ -3251,6 +3254,10 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
     targetBoxH = 100,
     panelGeom?: { boxX: number; boxY: number; boxW: number; boxH: number }
   ) => {
+    const isVerticalShaftInStrip =
+      location.undergroundSubMode === 'vertical_shaft' ||
+      round.undergroundSubMode === 'vertical_shaft';
+
     const mapPt = (pt: FieldPoint2D): FieldPoint2D => {
       if (!useContinuousCadMapping || !panelGeom) return pt;
       const u = Math.max(
@@ -3261,6 +3268,18 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
         0.002,
         Math.min(0.998, (pt.y - panelGeom.boxY) / Math.max(1, panelGeom.boxH))
       );
+      if (
+        isVerticalShaftInStrip &&
+        (panel === 'left_wall' ||
+          panel === 'crown' ||
+          panel === 'right_wall' ||
+          panel === 'shaft_sn')
+      ) {
+        return {
+          x: Number((targetBoxX + u * targetBoxW).toFixed(1)),
+          y: Number((targetBoxY + v * targetBoxH).toFixed(1)),
+        };
+      }
       if (panel === 'left_wall') {
         // Horizontal X = Invert floor (v=1 -> sx=0) to Left Springline (v=0 -> sx=1)
         // Vertical Y = Face (u=1 -> sy=0 at top) to Start of Pull (u=0 -> sy=1 at bottom)
@@ -3298,6 +3317,18 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       if (!useContinuousCadMapping || !panelGeom) return pt;
       const u = (pt.x - panelGeom.boxX) / Math.max(1, panelGeom.boxW);
       const v = (pt.y - panelGeom.boxY) / Math.max(1, panelGeom.boxH);
+      if (
+        isVerticalShaftInStrip &&
+        (panel === 'left_wall' ||
+          panel === 'crown' ||
+          panel === 'right_wall' ||
+          panel === 'shaft_sn')
+      ) {
+        return {
+          x: Number((targetBoxX + u * targetBoxW).toFixed(1)),
+          y: Number((targetBoxY + v * targetBoxH).toFixed(1)),
+        };
+      }
       if (panel === 'left_wall') {
         const sx = 1 - v;
         const sy = 1 - u;
@@ -3333,14 +3364,13 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
     const scaleRadius =
       useContinuousCadMapping && panelGeom
         ? (() => {
-            const sxScale =
-              panel === 'crown'
-                ? targetBoxW / Math.max(1, panelGeom.boxW)
-                : targetBoxW / Math.max(1, panelGeom.boxH);
-            const syScale =
-              panel === 'crown'
-                ? targetBoxH / Math.max(1, panelGeom.boxH)
-                : targetBoxH / Math.max(1, panelGeom.boxW);
+            const isHorizPanel = isVerticalShaftInStrip || panel === 'crown';
+            const sxScale = isHorizPanel
+              ? targetBoxW / Math.max(1, panelGeom.boxW)
+              : targetBoxW / Math.max(1, panelGeom.boxH);
+            const syScale = isHorizPanel
+              ? targetBoxH / Math.max(1, panelGeom.boxH)
+              : targetBoxH / Math.max(1, panelGeom.boxW);
             const dispScale =
               dispGeomForPanel && dispGeomForPanel.pxPerMeter
                 ? stripPxPerMeter / Math.max(1, dispGeomForPanel.pxPerMeter)
@@ -3416,16 +3446,20 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           const pullLengthM = round.pullLengthMeters || 3.5;
           const wallHeightM = location.wallHeightM || location.heightM * 0.58;
           const widthM = location.widthM;
+          const shaftArcLenM = Number(((Math.PI * Math.max(1, widthM)) / 4).toFixed(2));
           const mappedPoints = t.metricPoints.map((mp) => {
             let sx = 0;
             let sy = 0;
-            if (panel === 'left_wall') {
+            if (isVerticalShaftInStrip) {
+              sx = Math.max(0, Math.min(1, mp.x / Math.max(0.1, shaftArcLenM)));
+              sy = Math.max(0, Math.min(1, (pullLengthM - mp.y) / pullLengthM));
+            } else if (panel === 'left_wall') {
               sx = Math.max(0, Math.min(1, mp.y / wallHeightM));
               sy = Math.max(0, Math.min(1, (pullLengthM - mp.x) / pullLengthM));
             } else if (panel === 'crown') {
               sx = Math.max(0, Math.min(1, mp.x / widthM));
               sy = Math.max(0, Math.min(1, (pullLengthM - mp.y) / pullLengthM));
-            } else if (panel === 'right_wall') {
+            } else if (panel === 'right_wall' || panel === 'shaft_sn') {
               sx = Math.max(0, Math.min(1, (wallHeightM - mp.y) / wallHeightM));
               sy = Math.max(0, Math.min(1, (pullLengthM - mp.x) / pullLengthM));
             }
@@ -3544,7 +3578,11 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             }
           : w
       );
-    const inlineLabels = computeTraceInlineLabelPlacements(traces);
+    const isVerticalShaftForTraces =
+      isVerticalShaftLocation(location) || round.undergroundSubMode === 'vertical_shaft';
+    const inlineLabels = computeTraceInlineLabelPlacements(traces, {
+      isVerticalShaft: isVerticalShaftForTraces,
+    });
 
     return (
       <g
@@ -3742,6 +3780,14 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               : FIELD_JOINT_GROUP_COLORS[tr.setId]?.stroke || '#0f172a';
           const trW = Math.max(1.2, Math.min(16, tr.strokeWidthPx ?? 3.8));
           const lbl = inlineLabels[tr.id];
+          const isStrikeOnlyTr = isStrikeOnlyHorizontalPanel(
+            tr.panel,
+            isVerticalShaftForTraces
+          );
+          const isConfirmed3D =
+            isStrikeOnlyTr &&
+            Boolean(tr.inspection3D && tr.inspection3D.isOrientationComplete !== false);
+          const showDipTick = !isStrikeOnlyTr || isConfirmed3D;
           const {
             mid,
             ux: tickUx,
@@ -3764,14 +3810,16 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-              <line
-                x1={mid.x}
-                y1={mid.y}
-                x2={tickX}
-                y2={tickY}
-                stroke={strokeColor}
-                strokeWidth="2.6"
-              />
+              {showDipTick && (
+                <line
+                  x1={mid.x}
+                  y1={mid.y}
+                  x2={tickX}
+                  y2={tickY}
+                  stroke={strokeColor}
+                  strokeWidth="2.6"
+                />
+              )}
               {lbl && (
                 <g
                   transform={`translate(${lbl.x}, ${lbl.y}) rotate(${lbl.angleDeg})`}
@@ -4102,15 +4150,17 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             <>
               <text
                 x={leftWallX + stripLeftWallW / 2}
-                y={stripY - 14}
+                y={isVerticalShaft ? stripY - 21 : stripY - 14}
                 textAnchor="middle"
-                fontSize="12.5"
+                fontSize={isVerticalShaft ? '11.5' : '12.5'}
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
               >
                 {isVerticalShaft
-                  ? `NORTH-EAST (0°–90°) (${leftWallLengthM.toFixed(2)}m)`
+                  ? isVerticalShaftCenterMedianPanel('left_wall', round)
+                    ? '3. CENTER MEDIAN (0°N–180°S)'
+                    : '1. NE (0°–90°)'
                   : `LEFT WALL (${leftWallLengthM.toFixed(2)}m)`}
               </text>
               {renderPanelContent(
@@ -4134,15 +4184,15 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             <>
               <text
                 x={crownX + stripCrownW / 2}
-                y={stripY - 14}
+                y={isVerticalShaft ? stripY - 21 : stripY - 14}
                 textAnchor="middle"
-                fontSize="12.5"
+                fontSize={isVerticalShaft ? '11.5' : '12.5'}
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
               >
                 {isVerticalShaft
-                  ? `EAST-SOUTH (90°–180°) (${crownLengthM.toFixed(2)}m)`
+                  ? '2. ES (90°–180°)'
                   : `CROWN (${crownLengthM.toFixed(2)}m)`}
               </text>
               {renderPanelContent(
@@ -4191,15 +4241,17 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             <>
               <text
                 x={rightWallX + stripRightWallW / 2}
-                y={stripY - 14}
+                y={isVerticalShaft ? stripY - 21 : stripY - 14}
                 textAnchor="middle"
-                fontSize="12.5"
+                fontSize={isVerticalShaft ? '11.5' : '12.5'}
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
               >
                 {isVerticalShaft
-                  ? `SOUTH-WEST (180°–270°) (${rightWallLengthM.toFixed(2)}m)`
+                  ? isVerticalShaftCenterMedianPanel('right_wall', round)
+                    ? '3. CENTER MEDIAN (0°N–180°S)'
+                    : '3. SW (180°–270°)'
                   : `RIGHT WALL (${rightWallLengthM.toFixed(2)}m)`}
               </text>
               {renderPanelContent(
@@ -4223,14 +4275,14 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             <>
               <text
                 x={shaftSnX + stripShaftSnW / 2}
-                y={stripY - 14}
+                y={stripY - 21}
                 textAnchor="middle"
-                fontSize="12.5"
+                fontSize="11.5"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
               >
-                {`WEST-NORTH (270°–360°) (${shaftSnLengthM.toFixed(2)}m)`}
+                4. WN (270°–360°)
               </text>
               {renderPanelContent(
                 'shaft_sn',
@@ -4249,6 +4301,34 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             </>
           )}
 
+          {/* Start & End North Boundary Bearing Labels on Strip Bottom in Vertical Shaft Mode */}
+          {isVerticalShaft && faceGeom.hasLeftWall && (
+            <text
+              x={leftWallX}
+              y={stripY + stripH + 18}
+              textAnchor="middle"
+              fontSize="10.5"
+              fontWeight="bold"
+              fontFamily="monospace"
+              fill="#0f172a"
+            >
+              0° N
+            </text>
+          )}
+          {isVerticalShaft && hasShaftSn && (
+            <text
+              x={shaftSnX + stripShaftSnW}
+              y={stripY + stripH + 18}
+              textAnchor="middle"
+              fontSize="10.5"
+              fontWeight="bold"
+              fontFamily="monospace"
+              fill="#0f172a"
+            >
+              360° N
+            </text>
+          )}
+
           {/* Vertical Fold / Quadrant Seam Lines */}
           {faceGeom.hasLeftWall && faceGeom.hasCrown && (
             <>
@@ -4265,7 +4345,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 x={crownX}
                 y={stripY + stripH + 18}
                 textAnchor="middle"
-                fontSize="11"
+                fontSize="10.5"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
@@ -4289,7 +4369,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 x={rightWallX}
                 y={stripY + stripH + 18}
                 textAnchor="middle"
-                fontSize="11"
+                fontSize="10.5"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
@@ -4313,7 +4393,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                 x={shaftSnX}
                 y={stripY + stripH + 18}
                 textAnchor="middle"
-                fontSize="11"
+                fontSize="10.5"
                 fontWeight="bold"
                 fontFamily="monospace"
                 fill="#0f172a"
@@ -4323,7 +4403,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             </>
           )}
 
-          {/* 1m Perimeter Ticks along the Top Horizontal Edge of the Continuous Strip (Arranged per user sketch: Left Wall 1..4 | Crown 1..7 | Right Wall 4..1) */}
+          {/* 1m Reference Pins along the Top Horizontal Edge of the Continuous Strip (All Quadrants Including 4th Quadrant WN) */}
           {faceGeom.hasLeftWall &&
             Array.from(
               { length: Math.floor(leftWallLengthM + 1e-4) },
@@ -4340,13 +4420,16 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                     x2={xPos}
                     y2={stripY}
                     stroke="#0f172a"
-                    strokeWidth="1.2"
+                    strokeWidth="1.3"
                   />
+                  {isVerticalShaft && (
+                    <circle cx={xPos} cy={stripY - 5} r="1.5" fill="#0f172a" />
+                  )}
                   <text
                     x={isSeam ? xPos - 3 : xPos}
-                    y={stripY - 5}
+                    y={isVerticalShaft ? stripY - 8 : stripY - 5}
                     textAnchor={isSeam ? 'end' : 'middle'}
-                    fontSize="11"
+                    fontSize={isVerticalShaft ? '10' : '11'}
                     fontFamily="monospace"
                     fontWeight="bold"
                     fill="#0f172a"
@@ -4373,13 +4456,16 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                     x2={xPos}
                     y2={stripY}
                     stroke="#0f172a"
-                    strokeWidth="1.2"
+                    strokeWidth="1.3"
                   />
+                  {isVerticalShaft && (
+                    <circle cx={xPos} cy={stripY - 5} r="1.5" fill="#0f172a" />
+                  )}
                   <text
                     x={isSeam ? xPos - 3 : xPos}
-                    y={stripY - 5}
+                    y={isVerticalShaft ? stripY - 8 : stripY - 5}
                     textAnchor={isSeam ? 'end' : 'middle'}
-                    fontSize="11"
+                    fontSize={isVerticalShaft ? '10' : '11'}
                     fontFamily="monospace"
                     fontWeight="bold"
                     fill="#0f172a"
@@ -4390,51 +4476,133 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
               );
             })}
 
-          {faceGeom.hasRightWall && (() => {
-            const rwMax = Math.floor(rightWallLengthM + 1e-4);
-            return (
-              <>
-                {Array.from({ length: rwMax }, (_, k) => {
-                  const mVal = rwMax - k;
-                  const xPos = rightWallX + k * stripPxPerMeter;
-                  if (xPos > rightWallX + stripRightWallW + 1) return null;
-                  const isSeam = k === 0;
+          {faceGeom.hasRightWall &&
+            (isVerticalShaft
+              ? Array.from(
+                  { length: Math.floor(rightWallLengthM + 1e-4) },
+                  (_, idx) => idx + 1
+                ).map((m) => {
+                  const xPos = rightWallX + m * stripPxPerMeter;
+                  if (xPos > shaftSnX + 1) return null;
+                  const isSeam = Math.abs(xPos - shaftSnX) < 2;
                   return (
-                    <g key={`cad-rw-tk-${mVal}`}>
+                    <g key={`cad-rw-shaft-tk-${m}`}>
                       <line
                         x1={xPos}
                         y1={stripY - 5}
                         x2={xPos}
                         y2={stripY}
                         stroke="#0f172a"
-                        strokeWidth="1.2"
+                        strokeWidth="1.3"
                       />
+                      <circle cx={xPos} cy={stripY - 5} r="1.5" fill="#0f172a" />
                       <text
-                        x={isSeam ? xPos + 3 : xPos}
-                        y={stripY - 5}
-                        textAnchor={isSeam ? 'start' : 'middle'}
-                        fontSize="11"
+                        x={isSeam ? xPos - 3 : xPos}
+                        y={stripY - 8}
+                        textAnchor={isSeam ? 'end' : 'middle'}
+                        fontSize="10"
                         fontFamily="monospace"
                         fontWeight="bold"
                         fill="#0f172a"
                       >
-                        {mVal}
+                        {m}
                       </text>
                     </g>
                   );
-                })}
-                {/* Outer Invert Tick Mark */}
-                <line
-                  x1={rightWallX + stripRightWallW}
-                  y1={stripY - 5}
-                  x2={rightWallX + stripRightWallW}
-                  y2={stripY}
-                  stroke="#0f172a"
-                  strokeWidth="1.2"
-                />
-              </>
-            );
-          })()}
+                })
+              : (() => {
+                  const rwMax = Math.floor(rightWallLengthM + 1e-4);
+                  return (
+                    <>
+                      {Array.from({ length: rwMax }, (_, k) => {
+                        const mVal = rwMax - k;
+                        const xPos = rightWallX + k * stripPxPerMeter;
+                        if (xPos > rightWallX + stripRightWallW + 1) return null;
+                        const isSeam = k === 0;
+                        return (
+                          <g key={`cad-rw-tk-${mVal}`}>
+                            <line
+                              x1={xPos}
+                              y1={stripY - 5}
+                              x2={xPos}
+                              y2={stripY}
+                              stroke="#0f172a"
+                              strokeWidth="1.2"
+                            />
+                            <text
+                              x={isSeam ? xPos + 3 : xPos}
+                              y={stripY - 5}
+                              textAnchor={isSeam ? 'start' : 'middle'}
+                              fontSize="11"
+                              fontFamily="monospace"
+                              fontWeight="bold"
+                              fill="#0f172a"
+                            >
+                              {mVal}
+                            </text>
+                          </g>
+                        );
+                      })}
+                      {/* Outer Invert Tick Mark */}
+                      <line
+                        x1={rightWallX + stripRightWallW}
+                        y1={stripY - 5}
+                        x2={rightWallX + stripRightWallW}
+                        y2={stripY}
+                        stroke="#0f172a"
+                        strokeWidth="1.2"
+                      />
+                    </>
+                  );
+                })())}
+
+          {/* 4th Quadrant (WN 270°–360°) 1m Top Reference Pins */}
+          {hasShaftSn && (
+            <>
+              {Array.from(
+                { length: Math.floor(shaftSnLengthM + 1e-4) },
+                (_, idx) => idx + 1
+              ).map((m) => {
+                const xPos = shaftSnX + m * stripPxPerMeter;
+                const endEdgeX = shaftSnX + stripShaftSnW;
+                if (xPos > endEdgeX + 1) return null;
+                const isEndEdge = Math.abs(xPos - endEdgeX) < 2;
+                return (
+                  <g key={`cad-sn-tk-${m}`}>
+                    <line
+                      x1={xPos}
+                      y1={stripY - 5}
+                      x2={xPos}
+                      y2={stripY}
+                      stroke="#0f172a"
+                      strokeWidth="1.3"
+                    />
+                    <circle cx={xPos} cy={stripY - 5} r="1.5" fill="#0f172a" />
+                    <text
+                      x={isEndEdge ? xPos - 3 : xPos}
+                      y={stripY - 8}
+                      textAnchor={isEndEdge ? 'end' : 'middle'}
+                      fontSize="10"
+                      fontFamily="monospace"
+                      fontWeight="bold"
+                      fill="#0f172a"
+                    >
+                      {m}
+                    </text>
+                  </g>
+                );
+              })}
+              {/* Outer 360° N End Reference Tick */}
+              <line
+                x1={shaftSnX + stripShaftSnW}
+                y1={stripY - 5}
+                x2={shaftSnX + stripShaftSnW}
+                y2={stripY}
+                stroke="#0f172a"
+                strokeWidth="1.3"
+              />
+            </>
+          )}
 
           {/* 1m Pull Ticks along BOTH Left & Right Vertical Edges of the Continuous Strip (Bottom is 0 -> Top is 3 / pull depth) */}
           {Array.from(
@@ -5395,6 +5563,27 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       const fSize = (11.5 * faceFontScale).toFixed(1);
       const qSize = (11.0 * faceFontScale).toFixed(1);
 
+      // 1m Reference Line starting from North (0°, top = 0m) to South (180°, bottom = D m)
+      const diaM = Math.max(1, shaftBreakdown.diameterM);
+      const pxPerM = boxH / diaM;
+      const maxMeterInt = Math.floor(diaM + 1e-4);
+      const refLineTicks: { m: number; y: number }[] = [];
+      for (let m = 0; m <= maxMeterInt; m += 1) {
+        refLineTicks.push({ m, y: top + m * pxPerM });
+      }
+      if (Math.abs(diaM - maxMeterInt) > 0.05) {
+        refLineTicks.push({ m: Number(diaM.toFixed(2)), y: bottom });
+      }
+
+      // 1m Circumference Ticks starting clockwise from North (0° = 0m)
+      const circumM = Math.max(1, shaftBreakdown.fullCircumferenceM);
+      const maxCircumInt = Math.floor(circumM - 0.15);
+      const circumStride = compact ? 2 : 1;
+      const circumTicks: { m: number; deg: number }[] = [];
+      for (let m = 0; m <= maxCircumInt; m += circumStride) {
+        circumTicks.push({ m, deg: (m / circumM) * 360 });
+      }
+
       const quadCallouts: {
         id: Exclude<FieldPanelId, 'face'>;
         angleDeg: number;
@@ -5437,6 +5626,95 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           className="pointer-events-none select-none"
           fontFamily="IBM Plex Mono, monospace"
         >
+          {/* ==============================================================
+              1M REFERENCE LINE STARTING FROM NORTH (0°, TOP = 0m) TO SOUTH (180°, BOTTOM = D m)
+              ============================================================== */}
+          <g>
+            <line
+              x1={cx}
+              y1={top}
+              x2={cx}
+              y2={bottom}
+              stroke="#DC2626"
+              strokeWidth={compact ? '2.0' : '2.6'}
+              strokeDasharray="8,4"
+            />
+            {/* East-West Cross Reference Diameter Line (270° W to 90° E) */}
+            <line
+              x1={left}
+              y1={cy}
+              x2={right}
+              y2={cy}
+              stroke="rgba(3, 105, 161, 0.45)"
+              strokeWidth="1.5"
+              strokeDasharray="6,4"
+            />
+            {refLineTicks.map((tk) => {
+              const isStartNorth = tk.m === 0;
+              const isEndSouth = Math.abs(tk.m - diaM) < 0.05;
+              return (
+                <g key={`ns-ref-1m-${tk.m}`}>
+                  <line
+                    x1={cx - (isStartNorth || isEndSouth ? 9 : 6)}
+                    y1={tk.y}
+                    x2={cx + (isStartNorth || isEndSouth ? 9 : 6)}
+                    y2={tk.y}
+                    stroke="#DC2626"
+                    strokeWidth={isStartNorth || isEndSouth ? '2.4' : '1.8'}
+                  />
+                  <circle
+                    cx={cx}
+                    cy={tk.y}
+                    r={isStartNorth || isEndSouth ? '3.5' : '2.3'}
+                    fill="#DC2626"
+                    stroke="#ffffff"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x={cx + 11}
+                    y={tk.y + 3.5}
+                    textAnchor="start"
+                    fontSize={compact ? '9.5' : '11.0'}
+                    fontWeight="900"
+                    fill="#B91C1C"
+                    stroke={haloColor}
+                    strokeWidth="2.8"
+                    paintOrder="stroke"
+                  >
+                    {isStartNorth
+                      ? '0m (N 0° REF START)'
+                      : isEndSouth
+                      ? `${tk.m}m (S 180°)`
+                      : `${tk.m}m`}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+
+          {/* 1m Circumference Ticks around Circular Perimeter starting from North (0°) */}
+          <g>
+            {circumTicks.map((ct) => {
+              const rad = ((ct.deg - 90) * Math.PI) / 180;
+              const xIn = cx + (rx - 5) * Math.cos(rad);
+              const yIn = cy + (ry - 5) * Math.sin(rad);
+              const xOut = cx + (rx + 5) * Math.cos(rad);
+              const yOut = cy + (ry + 5) * Math.sin(rad);
+              return (
+                <line
+                  key={`circum-1m-${ct.m}`}
+                  x1={xIn}
+                  y1={yIn}
+                  x2={xOut}
+                  y2={yOut}
+                  stroke="#0369A1"
+                  strokeWidth="1.5"
+                  opacity="0.75"
+                />
+              );
+            })}
+          </g>
+
           {/* Cardinal Compass Markers around Circular Vertical Shaft (0° N, 90° E, 180° S, 270° W) */}
           <g>
             {/* 0° NORTH (Top) */}
@@ -5467,7 +5745,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
               strokeWidth="3"
               paintOrder="stroke"
             >
-              ▲ 0° / 360° NORTH · SHAFT AZIMUTH {String(normDrive).padStart(3, '0')}°
+              ▲ 0° / 360° NORTH (REF LINE START 0m · 1m STEP) · AZIMUTH {String(normDrive).padStart(3, '0')}°
             </text>
 
             {/* 90° EAST (Right) */}
@@ -5529,7 +5807,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
               strokeWidth="3"
               paintOrder="stroke"
             >
-              ▼ 180° SOUTH
+              ▼ 180° SOUTH (REF LINE END {shaftBreakdown.diameterM.toFixed(1)}m)
             </text>
 
             {/* 270° WEST (Left) */}
@@ -5603,7 +5881,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             strokeWidth="3"
             paintOrder="stroke"
           >
-            {`SHAFT DIA D = ${shaftBreakdown.diameterM.toFixed(2)}m · CIRCUMFERENCE C = πD = ${shaftBreakdown.fullCircumferenceM.toFixed(2)}m · QUADRANT ARC = ${shaftBreakdown.quadrantArcLengthM.toFixed(2)}m`}
+            {`SHAFT DIA D = ${shaftBreakdown.diameterM.toFixed(2)}m (1m N→S REF LINE) · CIRCUMFERENCE C = πD = ${shaftBreakdown.fullCircumferenceM.toFixed(2)}m · QUADRANT ARC = ${shaftBreakdown.quadrantArcLengthM.toFixed(2)}m`}
           </text>
         </g>
       );
@@ -5855,10 +6133,14 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
   const oppStr = String(oppDrive).padStart(3, '0');
   const isVerticalShaft = isVerticalShaftLocation(effectiveLocation);
   const domainPanelMeta = getSurfacePanelLabelMap(mappingDomain, isVerticalShaft);
+  const isCenterMedianWall =
+    isVerticalShaft && isVerticalShaftCenterMedianPanel(activePanel, round);
   const shaftQuadMeta = isVerticalShaft
     ? VERTICAL_SHAFT_QUADRANT_META_MAP[activePanel]
     : null;
-  const panelDisplayName = shaftQuadMeta
+  const panelDisplayName = isCenterMedianWall
+    ? '3. CENTER MEDIAN WALL (0°N–180°S)'
+    : shaftQuadMeta
     ? shaftQuadMeta.numberedLabel
     : isSurface
     ? activePanel === 'crown'
@@ -6001,35 +6283,41 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       ? `▲ ${driveWordTitle} ${driveStr}°`
       : `▼ ${driveWordTitle} ${driveStr}°`;
 
+  const shaftAdjInfo = isVerticalShaft
+    ? getVerticalShaftAdjacentWallLabels(activePanel, round)
+    : null;
+
   const compactScale = Math.max(0.85, Math.min(1.15, Math.min(boxW, boxH) / 260));
   if (compact) {
-    const xAxisLabel =
-      orientMeta.xAxisKind === 'pull'
-        ? orientMeta.xZeroAtStart
-          ? `X: ${pullWordTitle} (0–${pullM}m) ▶`
-          : `◀ X: ${pullWordTitle} (${pullM}–0m)`
-        : activePanel === 'crown'
-        ? orientMeta.xZeroAtStart
-          ? `X: ${crownWordTitle} (0–${crownLengthM}m)`
-          : `X: ${crownWordTitle} (${crownLengthM}–0m)`
-        : orientMeta.xZeroAtStart
-        ? `X: ${heightDimName} (0–${splHeightM}m)`
-        : `X: ${heightDimName} (${splHeightM}–0m)`;
+    const xAxisLabel = isVerticalShaft && shaftAdjInfo
+      ? `◀ ${shaftAdjInfo.startAngleLabel} · ${panelWidthM.toFixed(2)}m · ${shaftAdjInfo.endAngleLabel} ▶`
+      : orientMeta.xAxisKind === 'pull'
+      ? orientMeta.xZeroAtStart
+        ? `X: ${pullWordTitle} (0–${pullM}m) ▶`
+        : `◀ X: ${pullWordTitle} (${pullM}–0m)`
+      : activePanel === 'crown'
+      ? orientMeta.xZeroAtStart
+        ? `X: ${crownWordTitle} (0–${crownLengthM}m)`
+        : `X: ${crownWordTitle} (${crownLengthM}–0m)`
+      : orientMeta.xZeroAtStart
+      ? `X: ${heightDimName} (0–${splHeightM}m)`
+      : `X: ${heightDimName} (${splHeightM}–0m)`;
 
-    const yAxisLabel =
-      orientMeta.yAxisKind === 'length'
-        ? activePanel === 'crown'
-          ? orientMeta.yZeroAtStart
-            ? `Y: ${crownWordTitle} (0→${crownLengthM}m)`
-            : `Y: ${crownWordTitle} (${crownLengthM}→0m)`
-          : orientMeta.yZeroAtStart
-          ? `Y: ${heightDimName} (0→${splHeightM}m)`
-          : `Y: ${heightDimName} (${splHeightM}→0m)`
+    const yAxisLabel = isVerticalShaft
+      ? `▲ PULL (0→${pullM}m)`
+      : orientMeta.yAxisKind === 'length'
+      ? activePanel === 'crown'
+        ? orientMeta.yZeroAtStart
+          ? `Y: ${crownWordTitle} (0→${crownLengthM}m)`
+          : `Y: ${crownWordTitle} (${crownLengthM}→0m)`
         : orientMeta.yZeroAtStart
-        ? `Y: ${pullWordTitle} (0→${pullM}m) ▼`
-        : `▲ Y: ${pullWordTitle} (${pullM}←0m)`;
+        ? `Y: ${heightDimName} (0→${splHeightM}m)`
+        : `Y: ${heightDimName} (${splHeightM}→0m)`
+      : orientMeta.yZeroAtStart
+      ? `Y: ${pullWordTitle} (0→${pullM}m) ▼`
+      : `▲ Y: ${pullWordTitle} (${pullM}←0m)`;
 
-    const yTicksOnRight = activePanel === 'right_wall';
+    const yTicksOnRight = !isVerticalShaft && activePanel === 'right_wall';
 
     return (
       <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
@@ -6048,31 +6336,62 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           {panelDisplayName}
         </text>
 
-        <text
-          x={
-            orientMeta.driveDirectionSide === 'left'
-              ? left
-              : orientMeta.driveDirectionSide === 'right'
-              ? right
-              : cx
-          }
-          y={top - 7}
-          textAnchor={
-            orientMeta.driveDirectionSide === 'left'
-              ? 'start'
-              : orientMeta.driveDirectionSide === 'right'
-              ? 'end'
-              : 'middle'
-          }
-          fontSize={Math.max(11, 12.5 * compactScale).toFixed(1)}
-          fontWeight="900"
-          fill={driveAzColor}
-          stroke={haloColor}
-          strokeWidth="2.6"
-          paintOrder="stroke"
-        >
-          {driveArrowBadge}
-        </text>
+        {isVerticalShaft && shaftAdjInfo ? (
+          <>
+            <text
+              x={left}
+              y={top - 7}
+              textAnchor="start"
+              fontSize={Math.max(10, 11 * compactScale).toFixed(1)}
+              fontWeight="900"
+              fill="#B45309"
+              stroke={haloColor}
+              strokeWidth="2.6"
+              paintOrder="stroke"
+            >
+              {`◀ ${shaftAdjInfo.leftNearestShort}`}
+            </text>
+            <text
+              x={right}
+              y={top - 7}
+              textAnchor="end"
+              fontSize={Math.max(10, 11 * compactScale).toFixed(1)}
+              fontWeight="900"
+              fill="#047857"
+              stroke={haloColor}
+              strokeWidth="2.6"
+              paintOrder="stroke"
+            >
+              {`${shaftAdjInfo.rightNearestShort} ▶`}
+            </text>
+          </>
+        ) : (
+          <text
+            x={
+              orientMeta.driveDirectionSide === 'left'
+                ? left
+                : orientMeta.driveDirectionSide === 'right'
+                ? right
+                : cx
+            }
+            y={top - 7}
+            textAnchor={
+              orientMeta.driveDirectionSide === 'left'
+                ? 'start'
+                : orientMeta.driveDirectionSide === 'right'
+                ? 'end'
+                : 'middle'
+            }
+            fontSize={Math.max(11, 12.5 * compactScale).toFixed(1)}
+            fontWeight="900"
+            fill={driveAzColor}
+            stroke={haloColor}
+            strokeWidth="2.6"
+            paintOrder="stroke"
+          >
+            {driveArrowBadge}
+          </text>
+        )}
 
         {horizTicks.map((tk) => (
           <g key={`c-h-${tk.m}`}>
@@ -6103,7 +6422,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
           x={cx}
           y={bottom + 30}
           textAnchor="middle"
-          fontSize={Math.max(11, 12.5 * compactScale).toFixed(1)}
+          fontSize={Math.max(10.5, 12 * compactScale).toFixed(1)}
           fontWeight="800"
           fill="#334155"
           stroke={haloColor}
@@ -6165,7 +6484,9 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
   const fTitle = (13.5 * singleFontScale).toFixed(1);
 
   const horizTitle =
-    orientMeta.xAxisKind === 'pull'
+    isVerticalShaft && shaftAdjInfo
+      ? `${shaftAdjInfo.quadrantTitle} · ARC ${panelWidthM.toFixed(2)}m (◀ ${shaftAdjInfo.startAngleLabel} → ${shaftAdjInfo.endAngleLabel} ▶)`
+      : orientMeta.xAxisKind === 'pull'
       ? orientMeta.xZeroAtStart
         ? `◀ ${oppStr}° — ${pullWord} = ${pullM.toFixed(2)}m (0→${pullM}m) — ${driveWord} ${driveStr}° ▶`
         : `◀ ${driveWord} ${driveStr}° — ${pullWord} = ${pullM.toFixed(2)}m (${pullM}←0m) — ${oppStr}° ▶`
@@ -6181,8 +6502,10 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       ? `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (◀ ${splRightShort} 0m / ${invertWord} ${splHeightM.toFixed(2)}m ▶)`
       : `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (◀ ${invertWord} ${splHeightM.toFixed(2)}m / ${splRightShort} 0m ▶)`;
 
-  const vertTitle =
-    orientMeta.yAxisKind === 'pull'
+  const leftVertTitle =
+    isVerticalShaft && shaftAdjInfo
+      ? `◀ LEFT: ${shaftAdjInfo.leftNearestShort} (${shaftAdjInfo.leftBoundaryDeg}) · PULL 0→${pullM.toFixed(1)}m`
+      : orientMeta.yAxisKind === 'pull'
       ? `▲ ${driveWord} ${driveStr}° — ${pullWord} = ${pullM.toFixed(2)}m (${pullM.toFixed(2)}m ← 0m) — ${oppStr}° ▼`
       : activePanel === 'crown'
       ? `${panelDisplayName} WIDTH = ${crownLengthM.toFixed(2)}m (▲ ${splRightShort} ${String(rightAz).padStart(3, '0')}° · C/L · ${splLeftShort} ${String(leftAz).padStart(3, '0')}° ▼)`
@@ -6190,8 +6513,15 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       ? `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (▲ ${splLeftShort} ${splHeightM.toFixed(2)}m / ▼ ${invertWord} 0m)`
       : `${panelDisplayName} HEIGHT = ${splHeightM.toFixed(2)}m (▲ ${splRightShort} ${splHeightM.toFixed(2)}m / ▼ ${invertWord} 0m)`;
 
+  const rightVertTitle =
+    isVerticalShaft && shaftAdjInfo
+      ? `RIGHT: ${shaftAdjInfo.rightNearestShort} (${shaftAdjInfo.rightBoundaryDeg}) ▶ · PULL 0→${pullM.toFixed(1)}m`
+      : leftVertTitle;
+
   const topEdgeLabel =
-    orientMeta.yAxisKind === 'pull'
+    isVerticalShaft && shaftAdjInfo
+      ? `◀ ${shaftAdjInfo.leftNearestShort}`
+      : orientMeta.yAxisKind === 'pull'
       ? `▲ ${driveWord} ${driveStr}° (${pullWord} ${pullM.toFixed(2)}m)`
       : activePanel === 'crown'
       ? `▲ ${splRightWord} (${crownLengthM.toFixed(2)}m)`
@@ -6199,8 +6529,15 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       ? `▲ ${splLeftWord} (${splHeightM.toFixed(2)}m)`
       : `▲ ${splRightWord} (${splHeightM.toFixed(2)}m)`;
 
+  const topRightEdgeLabel =
+    isVerticalShaft && shaftAdjInfo
+      ? `${shaftAdjInfo.rightNearestShort} ▶`
+      : driveArrowBadge;
+
   const bottomEdgeLabel =
-    orientMeta.yAxisKind === 'pull'
+    isVerticalShaft
+      ? `▼ PULL 0m (BOTTOM) → ${pullM.toFixed(1)}m (TOP)`
+      : orientMeta.yAxisKind === 'pull'
       ? `▼ ${pullWord} 0.00m (${oppStr}°)`
       : activePanel === 'crown'
       ? `▼ ${splLeftWord} (0.00m)`
@@ -6278,8 +6615,8 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
         </g>
       ))}
 
-      {/* Crown Center Line (C/L) Callout */}
-      {activePanel === 'crown' && (
+      {/* Crown or Shaft Wall Center Line (C/L) Callout */}
+      {(activePanel === 'crown' || isVerticalShaft) && (
         !orientMeta.isRotated90 ? (
           <text
             x={cx}
@@ -6292,7 +6629,9 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             strokeWidth="3"
             paintOrder="stroke"
           >
-            ▼ C/L ({(crownLengthM / 2).toFixed(2)}m)
+            {isVerticalShaft
+              ? `▲ PULL ${pullM.toFixed(1)}m · C/L ${(panelWidthM / 2).toFixed(2)}m`
+              : `▼ C/L (${(crownLengthM / 2).toFixed(2)}m)`}
           </text>
         ) : (
           <text
@@ -6306,12 +6645,12 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             strokeWidth="3"
             paintOrder="stroke"
           >
-            ◀ C/L ({(crownLengthM / 2).toFixed(2)}m)
+            ◀ C/L ({(panelWidthM / 2).toFixed(2)}m)
           </text>
         )
       )}
 
-      {/* Top-Left & Bottom-Left Edge Boundary Callouts + Drive Direction Badge */}
+      {/* Top-Left & Top-Right Nearest Wall / Boundary Callouts */}
       <text
         x={left + 4}
         y={top - 11}
@@ -6336,7 +6675,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
         strokeWidth="3"
         paintOrder="stroke"
       >
-        {driveArrowBadge}
+        {topRightEdgeLabel}
       </text>
       <text
         x={left + 4}
@@ -6351,6 +6690,22 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
       >
         {bottomEdgeLabel}
       </text>
+
+      {isVerticalShaft && shaftAdjInfo && (
+        <text
+          x={right - 4}
+          y={bottom + 33}
+          textAnchor="end"
+          fontSize={fEdge}
+          fontWeight="800"
+          fill="#047857"
+          stroke={haloColor}
+          strokeWidth="3"
+          paintOrder="stroke"
+        >
+          {`◀ ${shaftAdjInfo.startAngleLabel} → ${shaftAdjInfo.endAngleLabel} ▶`}
+        </text>
+      )}
 
       {/* Top Outer Length & Center Callout */}
       <text
@@ -6367,20 +6722,20 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
         {horizTitle}
       </text>
 
-      {/* Left & Right Vertical Length Callouts */}
+      {/* Left & Right Vertical Callouts (showing Nearest Left Wall & Nearest Right Wall in Vertical Shaft mode) */}
       <text
         x={left - 34}
         y={cy}
         textAnchor="middle"
         fontSize={fEdge}
         fontWeight="800"
-        fill={tickColor}
+        fill={isVerticalShaft ? '#B45309' : tickColor}
         stroke={haloColor}
         strokeWidth="3"
         paintOrder="stroke"
         transform={`rotate(-90, ${left - 34}, ${cy})`}
       >
-        {vertTitle}
+        {leftVertTitle}
       </text>
       <text
         x={right + 25}
@@ -6388,29 +6743,31 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
         textAnchor="middle"
         fontSize={fEdge}
         fontWeight="800"
-        fill={tickColor}
+        fill={isVerticalShaft ? '#047857' : tickColor}
         stroke={haloColor}
         strokeWidth="3"
         paintOrder="stroke"
         transform={`rotate(90, ${right + 25}, ${cy})`}
       >
-        {vertTitle}
+        {rightVertTitle}
       </text>
 
-      {/* Bottom Summary */}
-      <text
-        x={cx}
-        y={bottom + 46}
-        textAnchor="middle"
-        fontSize={fEdge}
-        fontWeight="800"
-        fill={tickColor}
-        stroke={haloColor}
-        strokeWidth="3"
-        paintOrder="stroke"
-      >
-        {horizTitle}
-      </text>
+      {/* Bottom Summary (only in horizontal tunnel mode to avoid redundancy in shaft mode) */}
+      {!isVerticalShaft && (
+        <text
+          x={cx}
+          y={bottom + 46}
+          textAnchor="middle"
+          fontSize={fEdge}
+          fontWeight="800"
+          fill={tickColor}
+          stroke={haloColor}
+          strokeWidth="3"
+          paintOrder="stroke"
+        >
+          {horizTitle}
+        </text>
+      )}
     </g>
   );
 };

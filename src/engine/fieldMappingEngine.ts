@@ -24,11 +24,17 @@ import {
   getVerticalShaftPanelPerimeterLoop,
   isVerticalShaftPanelActive,
   getActiveVerticalShaftPanels,
+  normalizeVerticalShaftExcavationApproach,
   normalizeVerticalShaftHalfSide,
   normalizeVerticalShaftCenterMedianStatus,
   type VerticalShaftHalfSide,
   type VerticalShaftCenterMedianStatus,
 } from './verticalShaftEngine';
+export {
+  normalizeVerticalShaftExcavationApproach,
+  normalizeVerticalShaftHalfSide,
+  normalizeVerticalShaftCenterMedianStatus,
+};
 
 export type FieldTunnelShapeType =
   | 'd_shaped'
@@ -781,6 +787,7 @@ export interface FieldExcavationRound {
   shaftInclinationDeg?: number; // Vertical shaft inclination (default 90 deg)
   undergroundSubMode?: UndergroundSubModeType;
   excavationApproach: string;
+  shaftExcavationMode?: string;
   /** Vertical Shaft Half-Face mode: which half is excavated ('left_half' = SW 180-270 & WN 270-360, 'right_half' = NE 0-90 & ES 90-180) */
   shaftHalfSide?: VerticalShaftHalfSide;
   /** Vertical Shaft Half-Face mode: whether the Center Median (0-180 deg N-S diameter line) is 'closed' (opposite half unexcavated rock wall) or 'open' (opposite half already excavated) */
@@ -3063,12 +3070,22 @@ export function loadFieldMappingStore(
             jointTraces: Array.isArray(r.jointTraces)
               ? r.jointTraces.map((t) => {
                   const pts = Array.isArray(t.points) ? t.points : [];
-                  if (t.panel === 'crown' && pts.length >= 2) {
+                  const isRowVerticalShaft =
+                    (effectiveDomain === 'TUNNEL' ? effectiveSubMode : r.undergroundSubMode) ===
+                    'vertical_shaft';
+                  const isStrikePanel = isStrikeOnlyHorizontalPanel(
+                    t.panel,
+                    isRowVerticalShaft
+                  );
+                  if (isStrikePanel && pts.length >= 2) {
                     const recalc = computeTraceOrientationFromTunnelDrive(
                       pts,
-                      'crown',
+                      t.panel,
                       r.tunnelDriveDirection ?? 0,
-                      t.crownDipSign || '+90'
+                      t.crownDipSign || '+90',
+                      resolvedActiveLocation?.widthM || 8.4,
+                      resolvedActiveLocation?.heightM || 7.2,
+                      isRowVerticalShaft
                     );
                     const hasCustomSavedDip =
                       Boolean(t.editedByCompass || t.inspection3D) &&
@@ -3547,20 +3564,34 @@ export function buildDipSurfacePolygonWithOutlineSnap(
  *     * Left Wall:    Right (3 o'clock) = Drive, Bottom (6 o'clock) = Drive+90°, Left (9 o'clock) = Drive+180°, Top (12 o'clock) = Drive+270°
  *     * Right Wall:   Left (9 o'clock) = Drive, Top (12 o'clock) = Drive+90°, Right (3 o'clock) = Drive+180°, Bottom (6 o'clock) = Drive+270°
  */
+/**
+ * Returns true if the given panel is a horizontal Strike-Only mapping plane:
+ * - In Standard Tunnel mode: 'crown' (horizontal roof) is Strike-Only until confirmed in 3D Inspection.
+ * - In Vertical Shaft mode: 'face' (horizontal shaft floor) is Strike-Only until confirmed in 3D Inspection,
+ *   whereas 'crown' is the 2nd Quadrant East-South (90°–180°) vertical wall!
+ */
+export function isStrikeOnlyHorizontalPanel(
+  panel: FieldPanelId,
+  isVerticalShaft = false
+): boolean {
+  return isVerticalShaft ? panel === 'face' : panel === 'crown';
+}
+
 export function computeTraceOrientationFromTunnelDrive(
   points: FieldPoint2D[],
   panel: FieldPanelId,
   tunnelDriveAzimuth: number,
   _crownDipSign: '+90' | '-90' = '+90',
   widthM = 8.4,
-  heightM = 7.2
+  heightM = 7.2,
+  isVerticalShaft = false
 ): {
   dipDirection: number;
   dipAmount: number;
   strike: number;
   traceLengthM: number;
 } {
-  const normAz = ((tunnelDriveAzimuth % 360) + 360) % 360;
+  const normAz = isVerticalShaft ? 0 : ((tunnelDriveAzimuth % 360) + 360) % 360;
   if (points.length < 2) {
     return {
       dipDirection: normAz,
@@ -3601,34 +3632,49 @@ export function computeTraceOrientationFromTunnelDrive(
   const avgScaleM = (widthM + heightM) / 2 / 780;
   const traceLengthM = Number(Math.max(0.2, totalCanvasLen * avgScaleM).toFixed(2));
 
-  // For Crown panel: The trace mapped overhead along the tunnel roof represents the STRIKE AXIS of the discontinuity.
-  // In structural geology / tunnel mapping, crown joints cut downward from the roof into the excavation.
-  // They must ALWAYS default to vertical (90° dip towards down) from strike and never be flat (0°).
-  // For other panels (Face, Sidewalls), dip amount is directly the inclination angle from horizontal.
+  const isStrikeOnly = isStrikeOnlyHorizontalPanel(panel, isVerticalShaft);
+
+  // For horizontal Strike-Only plane (Crown in Tunnel mode, or Shaft Face in Vertical Shaft mode):
+  // The trace mapped on the horizontal plane represents the STRIKE AXIS of the discontinuity.
+  // Until confirmed in 3D Joint Inspection, it defaults to 90° vertical dip.
+  // For vertical wall panels (including all 4 quadrant walls in Vertical Shaft mode), dip amount is directly the inclination angle from horizontal.
   const dipAngleFromHorizontal =
     (Math.atan2(Math.abs(rawDy), Math.abs(rawDx)) * 180) / Math.PI;
-  const dipAmount =
-    panel === 'crown'
-      ? 90
-      : Math.max(0, Math.min(90, Math.round(dipAngleFromHorizontal)));
+  const dipAmount = isStrikeOnly
+    ? 90
+    : Math.max(0, Math.min(90, Math.round(dipAngleFromHorizontal)));
 
   // Clockwise 360° angle of the backend start-to-end straight reference chord from Top (12 o'clock, -Y)
   const traceClockwiseDeg360 =
     ((Math.atan2(rawDx, -rawDy) * 180) / Math.PI + 360) % 360;
 
-  // Panel top (12 o'clock, -Y) azimuth based on Tunnel Drive Direction:
-  // - Face & Crown: Drive Direction is at Top (12 o'clock, -Y), Right (3 o'clock, +X) is (normAz + 90) % 360, Left (9 o'clock, -X) is (normAz + 270) % 360 -> Top is normAz
-  // - Left Wall:    Drive Direction is at Right (3 o'clock, +X) -> Top is (normAz + 270) % 360
-  // - Right Wall:   Drive Direction is at Left (9 o'clock, -X)  -> Top is (normAz + 90) % 360
-  const panelBaseAz =
-    panel === 'left_wall'
-      ? (normAz + 270) % 360
+  // Panel top (12 o'clock, -Y) azimuth:
+  // - In Vertical Shaft mode:
+  //   * Face: Top (-Y) is 0° North, Right (+X) is 90° East, Bottom (+Y) is 180° South, Left (-X) is 270° West -> Top is 0°
+  //   * 1st Q NE (left_wall): 0° to 90° -> panelBaseAz = 0°
+  //   * 2nd Q ES (crown):     90° to 180° -> panelBaseAz = 90°
+  //   * 3rd Q SW (right_wall):180° to 270° -> panelBaseAz = 180°
+  //   * 4th Q WN (shaft_sn):  270° to 360° -> panelBaseAz = 270°
+  // - In Tunnel mode:
+  //   * Face & Crown: Top is normAz
+  //   * Left Wall:    Top is (normAz + 270) % 360
+  //   * Right Wall:   Top is (normAz + 90) % 360
+  const panelBaseAz = isVerticalShaft
+    ? panel === 'face'
+      ? 0
+      : panel === 'left_wall'
+      ? 0
+      : panel === 'crown'
+      ? 90
       : panel === 'right_wall'
-      ? (normAz + 90) % 360
-      : normAz;
+      ? 180
+      : 270
+    : panel === 'left_wall'
+    ? (normAz + 270) % 360
+    : panel === 'right_wall'
+    ? (normAz + 90) % 360
+    : normAz;
 
-  // For Crown: The drawn trace line on the horizontal roof IS the strike axis.
-  // Strike runs along traceAzimuth, and dipDirection is perpendicular to strike dipping downward into the tunnel excavation.
   const traceAzimuth = Math.round(
     ((panelBaseAz + traceClockwiseDeg360) % 360 + 360) % 360
   );
@@ -3636,7 +3682,7 @@ export function computeTraceOrientationFromTunnelDrive(
   let dipDirection: number;
   let strike: number;
 
-  if (panel === 'crown') {
+  if (isStrikeOnly) {
     strike = traceAzimuth;
     dipDirection =
       _crownDipSign === '-90'
@@ -3747,6 +3793,7 @@ export function computeTraceInlineLabelPlacements(
   options?: {
     fontSize?: number;
     extraObstacles?: { x: number; y: number; radius?: number }[];
+    isVerticalShaft?: boolean;
   }
 ): Record<string, TraceInlineLabelPlacement> {
   const result: Record<string, TraceInlineLabelPlacement> = {};
@@ -3760,20 +3807,22 @@ export function computeTraceInlineLabelPlacements(
   }[] = [];
 
   const baseFontSize = options?.fontSize ?? 15;
+  const isVerticalShaft = Boolean(options?.isVerticalShaft);
 
   for (const tr of traces) {
     if (tr.points.length < 2) continue;
     const prefix = tr.label || (tr.setId === 'unassigned' ? 'J' : tr.setId || 'J');
-    const isCrown = tr.panel === 'crown';
-    const isCrownConfirmed3D =
-      isCrown && Boolean(tr.inspection3D && tr.inspection3D.isOrientationComplete !== false);
+    const isStrikeOnlyPanel = isStrikeOnlyHorizontalPanel(tr.panel, isVerticalShaft);
+    const isConfirmed3D =
+      isStrikeOnlyPanel &&
+      Boolean(tr.inspection3D && tr.inspection3D.isOrientationComplete !== false);
     const strikeVal =
       tr.strike !== undefined
         ? ((tr.strike % 360) + 360) % 360
         : ((tr.dipDirection - 90) % 360 + 360) % 360;
     const crownPair = getCrownStrikePair(strikeVal);
-    const text = isCrown
-      ? isCrownConfirmed3D
+    const text = isStrikeOnlyPanel
+      ? isConfirmed3D
         ? `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}° (STR ${crownPair.label})`
         : `${prefix} STR ${crownPair.label}`
       : `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`;
@@ -4513,6 +4562,10 @@ export function computePanelCanvasGeometry(
   };
 }
 
+export function isVerticalShaftLocation(location?: FieldTunnelLocationItem | null): boolean {
+  return location?.undergroundSubMode === 'vertical_shaft';
+}
+
 /**
  * Calculates physical metric coordinates for trace points along physical tunnel surfaces:
  * - left_wall:  x = pull advance [0..pullM], y = height above invert floor [0..wallHeightM]
@@ -4530,10 +4583,22 @@ export function computePhysicalMetricPoints(
   const pullM = geom.pullM;
   const wallHM = panel === 'right_wall' ? geom.rightWallLengthM : geom.leftWallLengthM;
   const crownArchM = geom.crownLengthM;
+  const isVertShaft = isVerticalShaftLocation(location) || round?.undergroundSubMode === 'vertical_shaft';
 
   return points.map((pt) => {
     const u = Math.max(0, Math.min(1, (pt.x - geom.boxX) / Math.max(1, geom.boxW)));
     const v = Math.max(0, Math.min(1, (pt.y - geom.boxY) / Math.max(1, geom.boxH)));
+
+    if (isVertShaft && (panel === 'left_wall' || panel === 'crown' || panel === 'right_wall' || panel === 'shaft_sn')) {
+      // Vertical Shaft Wall Panels are HORIZONTAL in canvas:
+      // u (0 -> 1, Left -> Right): Arc / Dia Length [0 .. arcLengthM]
+      // v (1 -> 0, Bottom -> Top): Pull Depth [0m at Bottom (v=1) -> pullM at Top (v=0)]
+      const arcLenM = panel === 'crown' ? crownArchM : wallHM;
+      return {
+        x: Number((u * arcLenM).toFixed(3)),
+        y: Number(((1 - v) * pullM).toFixed(3)),
+      };
+    }
 
     if (panel === 'left_wall') {
       // u: 0 = pull start (0m), 1 = face (pullM)
@@ -4581,11 +4646,16 @@ export function convertPhysicalMetricPointsToCanvas(
   const pullM = geom.pullM;
   const wallHM = panel === 'right_wall' ? geom.rightWallLengthM : geom.leftWallLengthM;
   const crownArchM = geom.crownLengthM;
+  const isVertShaft = isVerticalShaftLocation(location) || round?.undergroundSubMode === 'vertical_shaft';
 
   return metricPoints.map((mp) => {
     let u = 0;
     let v = 0;
-    if (panel === 'left_wall') {
+    if (isVertShaft && (panel === 'left_wall' || panel === 'crown' || panel === 'right_wall' || panel === 'shaft_sn')) {
+      const arcLenM = panel === 'crown' ? crownArchM : wallHM;
+      u = Math.max(0, Math.min(1, mp.x / Math.max(0.1, arcLenM)));
+      v = Math.max(0, Math.min(1, 1 - mp.y / Math.max(0.1, pullM)));
+    } else if (panel === 'left_wall') {
       u = Math.max(0, Math.min(1, mp.x / pullM));
       v = Math.max(0, Math.min(1, 1 - mp.y / wallHM));
     } else if (panel === 'crown') {
@@ -4620,11 +4690,18 @@ export function mapMetricPointToStripSvg(
   const pullM = geom.pullM;
   const wallHM = panel === 'right_wall' ? geom.rightWallLengthM : geom.leftWallLengthM;
   const crownArchM = geom.crownLengthM;
+  const isVertShaft = isVerticalShaftLocation(location) || round?.undergroundSubMode === 'vertical_shaft';
 
   let sx = 0;
   let sy = 0;
 
-  if (panel === 'left_wall') {
+  if (isVertShaft) {
+    // In Vertical Shaft mode, metricPt.x is horizontal arc length (0 -> arcLenM, left to right)
+    // and metricPt.y is vertical pull (0m at bottom -> pullM at top)
+    const arcLenM = panel === 'crown' ? crownArchM : wallHM;
+    sx = Math.max(0, Math.min(1, metricPt.x / Math.max(0.1, arcLenM)));
+    sy = Math.max(0, Math.min(1, (pullM - metricPt.y) / Math.max(0.1, pullM)));
+  } else if (panel === 'left_wall') {
     // sx: 0 = invert floor, 1 = left springline
     // sy: 0 = face (pullM), 1 = pull start (0m)
     sx = Math.max(0, Math.min(1, metricPt.y / wallHM));
@@ -4747,24 +4824,25 @@ export function computePanelOrientationReferenceMeta(
 ) {
   const tr = getFieldPanelTransform(round, panel, stageMode);
   const isRotated90 = tr.rotationDeg === 90 || tr.rotationDeg === 270;
+  const isVertShaft = round?.undergroundSubMode === 'vertical_shaft' || panel === 'shaft_sn';
   const lengthM = panel === 'crown' ? crownLengthM : splHeightM;
-  const isCrown = panel === 'crown';
-  const baseWidthM = isCrown ? crownLengthM : pullM;
-  const baseHeightM = isCrown ? pullM : lengthM;
+  const isHorizontalStrip = panel === 'crown' || (isVertShaft && panel !== 'face');
+  const baseWidthM = isHorizontalStrip ? lengthM : pullM;
+  const baseHeightM = isHorizontalStrip ? pullM : lengthM;
 
   const widthM = isRotated90 ? baseHeightM : baseWidthM;
   const heightM = isRotated90 ? baseWidthM : baseHeightM;
 
   // In canonical unmirrored space:
   // - left_wall has Drive on right (u = 1) and 0m Pull on left (u = 0)
-  // - crown has Drive on TOP (face advance) and 0m Pull on bottom
+  // - crown (and all Vertical Shaft wall portions) has Pull 0m at bottom and Pull 3m on top, and Arc/Dia Length 0m -> L m left to right
   // - right_wall has Drive on left (u = 0) and 0m Pull on right (u = 1)
   const uDrive = panel === 'right_wall' ? 0 : 1;
   const driveUV = transformCanonicalUVToDisplayUV(uDrive, 0.5, tr);
   // v = 0 is 0m on the Wall/Crown Length axis (SPL for walls, Left SPL for crown)
   const zeroLenUV = transformCanonicalUVToDisplayUV(0.5, 0, tr);
 
-  if (isCrown) {
+  if (isHorizontalStrip) {
     if (!isRotated90) {
       return {
         tr,
@@ -4773,13 +4851,13 @@ export function computePanelOrientationReferenceMeta(
         pullM,
         widthM,
         heightM,
-        xAxisKind: 'length' as const, // Crown arch from Left SPL to Right SPL
-        yAxisKind: 'pull' as const,   // Advance from 0m at bottom to 3m pull on top
+        xAxisKind: 'length' as const, // Arc / Dia length from Left (0m) to Right (lengthM)
+        yAxisKind: 'pull' as const,   // Pull Depth from 0m at BOTTOM to pullM (e.g. 3m) at TOP
         driveDirectionSide: 'top' as const,
-        /** True if 0m on X-axis (Left SPL) is at Left and increases rightward */
-        xZeroAtStart: true,
-        /** False means 0m is at Bottom (y = bottom) and increases upward to 3m on top */
-        yZeroAtStart: false,
+        /** True if 0m on X-axis (Arc / Dia Length) is at Left and increases rightward */
+        xZeroAtStart: !tr.mirrorH,
+        /** False means 0m Pull is at Bottom (y = bottom) and increases upward to 3m on Top */
+        yZeroAtStart: tr.mirrorV,
       };
     } else {
       return {
@@ -5903,8 +5981,22 @@ export function clampPointToFieldPanelOutline(
   }
 
   // Pull point radially toward the interior center of the active unhatched Face portion
-  const cx = geom.boxX + geom.boxW / 2;
-  const cy = excBounds.hasBenchDivision
+  const isShaft = location.undergroundSubMode === 'vertical_shaft';
+  const isHalfFaceShaft =
+    isShaft &&
+    normalizeVerticalShaftExcavationApproach(
+      round?.excavationApproach || round?.shaftExcavationMode
+    ) === 'Half Face';
+  const shaftHalfSide = normalizeVerticalShaftHalfSide(round?.shaftHalfSide);
+
+  const cx = isHalfFaceShaft
+    ? shaftHalfSide === 'left_half'
+      ? geom.boxX + geom.boxW * 0.28
+      : geom.boxX + geom.boxW * 0.72
+    : geom.boxX + geom.boxW / 2;
+  const cy = isShaft
+    ? geom.boxY + geom.boxH * 0.5
+    : excBounds.hasBenchDivision
     ? (minY + maxY) * 0.5
     : geom.boxY + geom.boxH * 0.6;
   let lo = 0;

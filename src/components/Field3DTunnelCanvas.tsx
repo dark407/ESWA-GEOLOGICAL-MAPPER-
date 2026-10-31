@@ -952,6 +952,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
    *
    * Rigid 3D Euler rotation ensures the tunnel NEVER shrinks, flattens, or expands when rotated!
    */
+  const isVerticalShaft = isVerticalShaftLocation(activeLocation);
+
   const projectTunnel3DPoint = (
     nx: number,
     ny: number,
@@ -962,6 +964,61 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     const H = Math.max(2, activeLocation.heightM);
     const L = Math.max(1, pullM);
 
+    if (isVerticalShaft) {
+      // =========================================================================
+      // VERTICAL SHAFT 3D BOWL GEOMETRY ("FACE IN BOTTOM LIKE A BOWL"):
+      // - Shaft Bottom Face (tPull = 0, Pull 0m) sits horizontally at the BOTTOM of the bowl (y3d = -L/2)
+      // - 4 Quadrant Walls (1. NE 0°–90°, 2. ES 90°–180°, 3. SW 180°–270°, 4. WN 270°–360°)
+      //   rise vertically from Pull 0m at the bottom (tPull = 0, y3d = -L/2) to Pull pullM at the top rim (tPull = 1, y3d = +L/2)!
+      // - Horizontal Plan Coordinates:
+      //   x3d = nx * W (270° West = -W/2 to 90° East = +W/2)
+      //   z3d = (ny - 0.5) * H (0° North = -H/2 to 180° South = +H/2)
+      // =========================================================================
+      const x3d = nx * W;
+      const y3d = (tPull - 0.5) * L;
+      const z3d = (ny - 0.5) * H;
+
+      // Default +38° downward pitch offset when at 0° so the user looks into the 3D shaft bowl
+      const yawRad = (insideYawDeg * Math.PI) / 180;
+      const effectivePitchDeg = Math.max(-85, Math.min(85, insidePitchDeg + 38));
+      const pitchRad = (effectivePitchDeg * Math.PI) / 180;
+
+      const maxDim = Math.max(W, H, L);
+      const camDist = maxDim * 2.25;
+
+      const x1 = x3d * Math.cos(yawRad) + z3d * Math.sin(yawRad);
+      const y1 = y3d;
+      const z1 = -x3d * Math.sin(yawRad) + z3d * Math.cos(yawRad);
+
+      const x2 = x1;
+      const y2 = y1 * Math.cos(pitchRad) - z1 * Math.sin(pitchRad);
+      const z2 = y1 * Math.sin(pitchRad) + z1 * Math.cos(pitchRad);
+
+      const depth = Math.max(maxDim * 0.4, camDist + z2);
+      const focal = 1380;
+      const x3dProj = 500 + (x2 * focal) / depth;
+      const y3dProj = 500 - (y2 * focal) / depth;
+
+      if (subMode === 'origami_fold') {
+        const f = foldPercent / 100;
+        let x2d = 500 + nx * 360;
+        let y2d = 500 + (ny - 0.5) * 360;
+        if (panelHint && panelHint !== 'face') {
+          x2d = 500 + nx * (360 + tPull * 210);
+          y2d = 500 + (ny - 0.5) * (360 + tPull * 210);
+        }
+        return {
+          x: x2d * (1 - f) + x3dProj * f,
+          y: y2d * (1 - f) + y3dProj * f,
+        };
+      }
+
+      return {
+        x: x3dProj,
+        y: y3dProj,
+      };
+    }
+
     // 3D physical coordinates (meters)
     const x3d = nx * W;
     const y3d = (0.5 - ny) * H;
@@ -970,8 +1027,6 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     // Camera rotation angles in radians
     const yawRad = (insideYawDeg * Math.PI) / 180;
     const pitchRad = (insidePitchDeg * Math.PI) / 180;
-
-
 
     if (subMode === 'origami_fold') {
       const f = foldPercent / 100;
@@ -1081,8 +1136,12 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     }
 
     if (isVerticalShaftLocation(activeLocation)) {
+      // In Vertical Shaft mode, all 4 wall panels are horizontal in canvas:
+      // u (0 -> 1, Left -> Right) = Quadrant Arc [0..1]
+      // v (1 -> 0, Bottom -> Top) = Pull Depth where v=1 (bottom) is Pull 0m (tPull=0, bottom face)
+      // and v=0 (top) is Pull pullM (tPull=1, top rim of bowl)
       const { nx, ny } = interpolatePerimeterAtV(panel, u);
-      const tPull = v;
+      const tPull = 1 - v;
       return projectTunnel3DPoint(nx, ny, tPull, panel);
     }
 
@@ -1280,14 +1339,21 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     if (!bestNode) return null;
 
     const geom = getPanelGeom(bestNode.panel);
-    // pullNorm: 0 at 0m pull (bestTPull = 1) -> 1 at face advance / pullM (bestTPull = 0)
-    const pullNorm = Math.max(0.0, Math.min(1.0, 1 - bestTPull));
+    // In Vertical Shaft mode: tPull = 0 is Pull 0m at the bottom face, tPull = 1 is Pull pullM at the top rim
+    const pullNorm = isVerticalShaft
+      ? Math.max(0.0, Math.min(1.0, bestTPull))
+      : Math.max(0.0, Math.min(1.0, 1 - bestTPull));
 
     let u = 0.5;
     let v = 0.5;
     let perimMeter = bestNode.edgeMeterFromStart;
 
-    if (bestNode.panel === 'crown') {
+    if (isVerticalShaft) {
+      // Horizontal shaft wall canvas: u = arc position (0..1 left to right), v = 1 - bestTPull (1 at bottom 0m, 0 at top pullM)
+      u = Math.max(0.002, Math.min(0.998, bestNode.v));
+      v = Math.max(0.002, Math.min(0.998, 1 - bestTPull));
+      perimMeter = bestNode.edgeMeterFromStart;
+    } else if (bestNode.panel === 'crown') {
       // Crown 2D: u across curved arch perimeter, v along pull advance (0 = face, 1 = 0m pull)
       u = Math.max(0.002, Math.min(0.998, bestNode.v));
       v = Math.max(0.002, Math.min(0.998, bestTPull));
@@ -1532,7 +1598,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
           let v = 0.5;
           if (isVerticalShaftLocation(activeLocation)) {
             u = Math.max(0.002, Math.min(0.998, node.v));
-            v = Math.max(0.002, Math.min(0.998, tPull));
+            v = Math.max(0.002, Math.min(0.998, 1 - tPull));
           } else if (node.panel === 'crown' || node.panel === 'shaft_sn') {
             u = Math.max(0.002, Math.min(0.998, node.v));
             v = Math.max(0.002, Math.min(0.998, tPull));
@@ -1595,6 +1661,11 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       anchorX = u - 0.5;
       anchorY = v;
       anchorZ = 0.02;
+    } else if (isVerticalShaft) {
+      const { nx, ny } = interpolatePerimeterAtV(targetTrace.panel, u);
+      anchorX = nx;
+      anchorY = ny;
+      anchorZ = 1 - v;
     } else if (targetTrace.panel === 'crown') {
       const { nx, ny } = interpolatePerimeterAtV('crown', u);
       anchorX = nx;
@@ -1620,7 +1691,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       anchorZ
     );
 
-    const otherPanels = (['left_wall', 'crown', 'right_wall', 'face'] as const).filter(
+    const otherPanels = (['left_wall', 'crown', 'right_wall', 'shaft_sn', 'face'] as const).filter(
       (p) => p !== targetTrace.panel && projected[p].length >= 2
     );
 
@@ -2691,20 +2762,22 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     getPanelGeom,
   ]);
 
-  // Build 3D surface wireframe, 1m × 1m true grid lines (starting at 0m on First Outer Line -> going inward through pull), & auto-fit viewBox
+  // Build 3D surface wireframe, 1m × 1m true grid lines, & auto-fit viewBox
   const surfaceMeshes = useMemo(() => {
-    const panels: ('left_wall' | 'crown' | 'right_wall')[] = [
+    const panels: ('left_wall' | 'crown' | 'right_wall' | 'shaft_sn')[] = [
       ...(perimeterData.hasLeftWall ? (['left_wall'] as const) : []),
       ...(perimeterData.hasCrown ? (['crown'] as const) : []),
       ...(perimeterData.hasRightWall ? (['right_wall'] as const) : []),
+      ...(perimeterData.hasShaftSn ? (['shaft_sn'] as const) : []),
     ];
 
-    // Exact 1.0m longitudinal pull steps starting from First Outer Line (0m, tPull = 1.0) inward through pull toward Inner Core (pullM, tPull = 0.0)
+    // Exact 1.0m longitudinal pull steps
     const meterPullFracs: { m: number; tPull: number }[] = [];
     const maxPullInt = Math.floor(pullM);
     for (let m = 1; m <= maxPullInt; m++) {
       const pullNorm = m / pullM; // 0m = 0 -> pullM = 1
-      const t = 1 - pullNorm; // First Outer Line = 1 -> Inner Core = 0
+      // In Vertical Shaft Bowl mode: tPull = 0 is Bottom Face (0m) and tPull = 1 is Top Rim (pullM)
+      const t = isVerticalShaft ? pullNorm : 1 - pullNorm;
       if (t > 0.02 && t < 0.98) {
         meterPullFracs.push({ m, tPull: t });
       }
@@ -2740,13 +2813,15 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
         .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
         .join(' ');
 
-      // 1m longitudinal grid lines along the perimeter (on Left Wall, starting from 0m at the outer invert starting edge v=0!)
+      // 1m longitudinal grid lines along the perimeter
       const panelLenM =
         panelId === 'left_wall'
           ? perimeterData.leftWallLenM
           : panelId === 'crown'
           ? perimeterData.crownLenM
-          : perimeterData.rightWallLenM;
+          : panelId === 'right_wall'
+          ? perimeterData.rightWallLenM
+          : perimeterData.shaftSnLenM || perimeterData.leftWallLenM;
       const perimMeterSteps = Math.max(1, Math.floor(panelLenM));
       const longitudinalGridLines: {
         m: number;
@@ -2805,7 +2880,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
         )
       : null;
 
-    // Invert Floor mesh (connecting bottom of left wall to bottom of right wall along tunnel drive)
+    // Invert Floor mesh (only for horizontal tunnel, never for Vertical Shaft Bowl where Face is at the bottom!)
     const lwNodes = perimeterData.nodes.filter((n) => n.panel === 'left_wall');
     const rwNodes = perimeterData.nodes.filter((n) => n.panel === 'right_wall');
     const leftInvertNode = lwNodes[0] || { nx: -0.5, ny: 1.0 };
@@ -2815,18 +2890,21 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     const invLFace = projectTunnel3DPoint(leftInvertNode.nx, leftInvertNode.ny, 0, 'left_wall');
     const invRFace = projectTunnel3DPoint(rightInvertNode.nx, rightInvertNode.ny, 0, 'right_wall');
     const invRPortal = projectTunnel3DPoint(rightInvertNode.nx, rightInvertNode.ny, 1, 'right_wall');
-    const invertFloorPts = `${invLPortal.x.toFixed(1)},${invLPortal.y.toFixed(1)} ${invLFace.x.toFixed(1)},${invLFace.y.toFixed(1)} ${invRFace.x.toFixed(1)},${invRFace.y.toFixed(1)} ${invRPortal.x.toFixed(1)},${invRPortal.y.toFixed(1)}`;
+    const invertFloorPts = isVerticalShaft
+      ? ''
+      : `${invLPortal.x.toFixed(1)},${invLPortal.y.toFixed(1)} ${invLFace.x.toFixed(1)},${invLFace.y.toFixed(1)} ${invRFace.x.toFixed(1)},${invRFace.y.toFixed(1)} ${invRPortal.x.toFixed(1)},${invRPortal.y.toFixed(1)}`;
 
     const invCenterPortal = projectTunnel3DPoint(0, 1.0, 1);
     const invCenterFace = projectTunnel3DPoint(0, 1.0, 0);
-    const invertRibs = meterPullFracs.map(({ m, tPull }) => ({
-      m,
-      p0: projectTunnel3DPoint(leftInvertNode.nx, leftInvertNode.ny, tPull, 'left_wall'),
-      p1: projectTunnel3DPoint(rightInvertNode.nx, rightInvertNode.ny, tPull, 'right_wall'),
-    }));
+    const invertRibs = isVerticalShaft
+      ? []
+      : meterPullFracs.map(({ m, tPull }) => ({
+          m,
+          p0: projectTunnel3DPoint(leftInvertNode.nx, leftInvertNode.ny, tPull, 'left_wall'),
+          p1: projectTunnel3DPoint(rightInvertNode.nx, rightInvertNode.ny, tPull, 'right_wall'),
+        }));
 
     // Fixed stable 1000×1000 canvas viewBox scaled ONLY by explicit user zoom/pan:
-    // Never resizes on rotation angle, preventing shrinking/expanding rubber-banding!
     const effectiveZoom = Math.max(0.65, Math.min(3.2, viewZoom));
     const zoomedW = 1000 / effectiveZoom;
     const zoomedH = 1000 / effectiveZoom;
@@ -2840,6 +2918,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       panelStrips.find((s) => s.panelId === 'right_wall')?.polyPts || '';
     const crownPts =
       panelStrips.find((s) => s.panelId === 'crown')?.polyPts || '';
+    const shaftSnPts =
+      panelStrips.find((s) => s.panelId === 'shaft_sn')?.polyPts || '';
 
     return {
       panelStrips,
@@ -2847,6 +2927,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       leftWallPts,
       rightWallPts,
       crownPts,
+      shaftSnPts,
       meterPullFracs,
       leftSplFace,
       leftSplPortal,
@@ -2870,6 +2951,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     viewPan.y,
     activeLocation,
     pullM,
+    isVerticalShaft,
   ]);
 
   const svgCursorStyle = useMemo(
@@ -2880,7 +2962,9 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     [insideNavMode, activeTool, lithologySubMode]
   );
 
-  const allPanels: FieldPanelId[] = ['left_wall', 'crown', 'right_wall', 'face'];
+  const allPanels: FieldPanelId[] = isVerticalShaft
+    ? ['left_wall', 'crown', 'right_wall', 'shaft_sn', 'face']
+    : ['left_wall', 'crown', 'right_wall', 'face'];
 
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-1 overflow-hidden">
@@ -3662,178 +3746,383 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             />
           )}
 
-          {/* Shared SPL Seam 3D Lines (L-SPL & R-SPL) + Outer 0m -> Inward Pull Grid Labels (No Core Clutter!) */}
+          {/* Shared SPL Seam 3D Lines (or Vertical Shaft 3D Bowl Quadrant Walls + Bottom Face 1m N-S Reference Line) */}
           {showTunnelOutline && (
             <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
-              {surfaceMeshes.leftSplFace && surfaceMeshes.leftSplPortal && (
-                <>
-                  <line
-                    x1={surfaceMeshes.leftSplFace.x}
-                    y1={surfaceMeshes.leftSplFace.y}
-                    x2={surfaceMeshes.leftSplPortal.x}
-                    y2={surfaceMeshes.leftSplPortal.y}
-                    stroke="#0284c7"
-                    strokeWidth="2.6"
-                    strokeDasharray="7 4"
-                  />
-                  <text
-                    x={surfaceMeshes.leftSplPortal.x - 5}
-                    y={surfaceMeshes.leftSplPortal.y - 4}
-                    textAnchor="end"
-                    fontSize="8.5"
-                    fontWeight="900"
-                    fill="#0284c7"
-                    stroke="#ffffff"
-                    strokeWidth="2.2"
-                    paintOrder="stroke"
-                  >
-                    L-SPL (0m)
-                  </text>
-                </>
-              )}
-              {surfaceMeshes.rightSplFace && surfaceMeshes.rightSplPortal && (
-                <>
-                  <line
-                    x1={surfaceMeshes.rightSplFace.x}
-                    y1={surfaceMeshes.rightSplFace.y}
-                    x2={surfaceMeshes.rightSplPortal.x}
-                    y2={surfaceMeshes.rightSplPortal.y}
-                    stroke="#0284c7"
-                    strokeWidth="2.6"
-                    strokeDasharray="7 4"
-                  />
-                  <text
-                    x={surfaceMeshes.rightSplPortal.x + 5}
-                    y={surfaceMeshes.rightSplPortal.y - 4}
-                    textAnchor="start"
-                    fontSize="8.5"
-                    fontWeight="900"
-                    fill="#0284c7"
-                    stroke="#ffffff"
-                    strokeWidth="2.2"
-                    paintOrder="stroke"
-                  >
-                    R-SPL (0m)
-                  </text>
-                </>
-              )}
+              {isVerticalShaft ? (
+                (() => {
+                  const diaM = Math.max(1, activeLocation.widthM);
+                  const maxMeterInt = Math.floor(diaM + 1e-4);
+                  const nTopRim = projectTunnel3DPoint(0, 0.0, 1.0, 'left_wall');
+                  const eTopRim = projectTunnel3DPoint(0.5, 0.5, 1.0, 'crown');
+                  const sTopRim = projectTunnel3DPoint(0, 1.0, 1.0, 'right_wall');
+                  const wTopRim = projectTunnel3DPoint(-0.5, 0.5, 1.0, 'shaft_sn');
 
-              {/* First Outer Grid = 0m -> Going Inward Through Pull (1m, 2m...) on Left Wall, Crown & Right Wall */}
-              {(() => {
-                const lwNodes = perimeterData.nodes.filter((n) => n.panel === 'left_wall');
-                const rwNodes = perimeterData.nodes.filter((n) => n.panel === 'right_wall');
-                const lwStart = lwNodes[0] || { nx: -0.48, ny: 0.98 };
-                const rwStart = rwNodes[rwNodes.length - 1] || { nx: 0.48, ny: 0.98 };
-                const crOuter = projectTunnel3DPoint(0, 0.02, 1.0, 'crown');
-                const lwOuter0 = projectTunnel3DPoint(lwStart.nx, lwStart.ny, 1.0, 'left_wall');
-                const rwOuter0 = projectTunnel3DPoint(rwStart.nx, rwStart.ny, 1.0, 'right_wall');
+                  const nBotFace = projectTunnel3DPoint(0, 0.0, 0.0, 'face');
+                  const eBotFace = projectTunnel3DPoint(0.5, 0.5, 0.0, 'face');
+                  const sBotFace = projectTunnel3DPoint(0, 1.0, 0.0, 'face');
+                  const wBotFace = projectTunnel3DPoint(-0.5, 0.5, 0.0, 'face');
+                  const centerBotFace = projectTunnel3DPoint(0, 0.5, 0.0, 'face');
 
-                return (
-                  <>
-                    {perimeterData.hasCrown && (
+                  const neMidRim = projectTunnel3DPoint(0.3535, 0.1465, 1.0, 'left_wall');
+                  const esMidRim = projectTunnel3DPoint(0.3535, 0.8535, 1.0, 'crown');
+                  const swMidRim = projectTunnel3DPoint(-0.3535, 0.8535, 1.0, 'right_wall');
+                  const wnMidRim = projectTunnel3DPoint(-0.3535, 0.1465, 1.0, 'shaft_sn');
+
+                  const nsTicks: { m: number; pt: { x: number; y: number } }[] = [];
+                  for (let m = 0; m <= maxMeterInt; m++) {
+                    const ny = m / diaM;
+                    nsTicks.push({
+                      m,
+                      pt: projectTunnel3DPoint(0, ny, 0.0, 'face'),
+                    });
+                  }
+
+                  return (
+                    <>
+                      {/* 4 Vertical Quadrant Seam Lines (0° N, 90° E, 180° S, 270° W) from Bottom Face (0m) to Top Rim (pullM) */}
+                      {[
+                        { bot: nBotFace, top: nTopRim, label: '0° NORTH (0m→' + pullM + 'm)', col: '#047857' },
+                        { bot: eBotFace, top: eTopRim, label: '90° EAST', col: '#0369a1' },
+                        { bot: sBotFace, top: sTopRim, label: '180° SOUTH', col: '#b45309' },
+                        { bot: wBotFace, top: wTopRim, label: '270° WEST', col: '#6d28d9' },
+                      ].map((seam, idx) => (
+                        <g key={`shaft-seam-${idx}`}>
+                          <line
+                            x1={seam.bot.x}
+                            y1={seam.bot.y}
+                            x2={seam.top.x}
+                            y2={seam.top.y}
+                            stroke={seam.col}
+                            strokeWidth="2.4"
+                            strokeDasharray="6 3"
+                          />
+                          <text
+                            x={seam.top.x}
+                            y={seam.top.y - 6}
+                            textAnchor="middle"
+                            fontSize="8.5"
+                            fontWeight="900"
+                            fill={seam.col}
+                            stroke="#ffffff"
+                            strokeWidth="2.4"
+                            paintOrder="stroke"
+                          >
+                            {seam.label}
+                          </text>
+                        </g>
+                      ))}
+
+                      {/* 1m North-to-South Reference Line on 3D Bottom Bowl Face (0° N = 0m to 180° S = D m) */}
+                      <line
+                        x1={nBotFace.x}
+                        y1={nBotFace.y}
+                        x2={sBotFace.x}
+                        y2={sBotFace.y}
+                        stroke="#dc2626"
+                        strokeWidth="2.4"
+                        strokeDasharray="6 3"
+                      />
+                      {nsTicks.map((tk) => (
+                        <g key={`3d-ns-tk-${tk.m}`}>
+                          <circle
+                            cx={tk.pt.x}
+                            cy={tk.pt.y}
+                            r={tk.m === 0 ? 3.2 : 2.2}
+                            fill="#dc2626"
+                            stroke="#ffffff"
+                            strokeWidth="0.9"
+                          />
+                          <text
+                            x={tk.pt.x + 6}
+                            y={tk.pt.y + 3}
+                            textAnchor="start"
+                            fontSize="7.5"
+                            fontWeight="900"
+                            fill="#b91c1c"
+                            stroke="#ffffff"
+                            strokeWidth="2.0"
+                            paintOrder="stroke"
+                          >
+                            {tk.m === 0 ? '0m (N)' : `${tk.m}m`}
+                          </text>
+                        </g>
+                      ))}
+
+                      {/* Shaft Bottom Face Label at Center of Bowl Floor */}
                       <text
-                        x={crOuter.x}
-                        y={crOuter.y - 7}
+                        x={centerBotFace.x}
+                        y={centerBotFace.y + 14}
                         textAnchor="middle"
-                        fontSize="8.5"
+                        fontSize="9"
                         fontWeight="900"
                         fill="#0f172a"
                         stroke="#ffffff"
-                        strokeWidth="2.4"
+                        strokeWidth="2.6"
                         paintOrder="stroke"
                       >
-                        CROWN • 0m (Outer Start)
+                        SHAFT BOTTOM FACE (PULL 0m)
                       </text>
-                    )}
 
-                    {perimeterData.hasLeftWall && (
-                      <>
+                      {/* 4 Quadrant Wall Names along Top Rim of 3D Bowl */}
+                      {perimeterData.hasLeftWall && (
                         <text
-                          x={lwOuter0.x - 4}
-                          y={lwOuter0.y + 11}
-                          textAnchor="end"
+                          x={neMidRim.x}
+                          y={neMidRim.y - 6}
+                          textAnchor="middle"
                           fontSize="8.5"
                           fontWeight="900"
-                          fill="#0f766e"
+                          fill="#047857"
                           stroke="#ffffff"
                           strokeWidth="2.4"
                           paintOrder="stroke"
                         >
-                          0m (L.Wall Start)
+                          1. NE WALL (0°–90°) • TOP {pullM}m
                         </text>
-                        {show1mGrid &&
-                          surfaceMeshes.meterPullFracs.map(({ m, tPull }) => {
-                            const pt = projectTunnel3DPoint(
-                              lwStart.nx,
-                              lwStart.ny,
-                              tPull,
-                              'left_wall'
-                            );
-                            return (
-                              <text
-                                key={`lw-pull-lbl-${m}`}
-                                x={pt.x}
-                                y={pt.y + 11}
-                                textAnchor="middle"
-                                fontSize="8"
-                                fontWeight="900"
-                                fill="#0f766e"
-                                stroke="#ffffff"
-                                strokeWidth="2.2"
-                                paintOrder="stroke"
-                              >
-                                {m}m
-                              </text>
-                            );
-                          })}
-                      </>
-                    )}
-
-                    {perimeterData.hasRightWall && (
-                      <>
+                      )}
+                      {perimeterData.hasCrown && (
                         <text
-                          x={rwOuter0.x + 4}
-                          y={rwOuter0.y + 11}
-                          textAnchor="start"
+                          x={esMidRim.x}
+                          y={esMidRim.y - 6}
+                          textAnchor="middle"
                           fontSize="8.5"
                           fontWeight="900"
-                          fill="#4338ca"
+                          fill="#b45309"
                           stroke="#ffffff"
                           strokeWidth="2.4"
                           paintOrder="stroke"
                         >
-                          0m (R.Wall Start)
+                          2. ES WALL (90°–180°) • TOP {pullM}m
                         </text>
-                        {show1mGrid &&
-                          surfaceMeshes.meterPullFracs.map(({ m, tPull }) => {
-                            const pt = projectTunnel3DPoint(
-                              rwStart.nx,
-                              rwStart.ny,
-                              tPull,
-                              'right_wall'
-                            );
-                            return (
-                              <text
-                                key={`rw-pull-lbl-${m}`}
-                                x={pt.x}
-                                y={pt.y + 11}
-                                textAnchor="middle"
-                                fontSize="8"
-                                fontWeight="900"
-                                fill="#4338ca"
-                                stroke="#ffffff"
-                                strokeWidth="2.2"
-                                paintOrder="stroke"
-                              >
-                                {m}m
-                              </text>
-                            );
-                          })}
+                      )}
+                      {perimeterData.hasRightWall && (
+                        <text
+                          x={swMidRim.x}
+                          y={swMidRim.y - 6}
+                          textAnchor="middle"
+                          fontSize="8.5"
+                          fontWeight="900"
+                          fill="#6d28d9"
+                          stroke="#ffffff"
+                          strokeWidth="2.4"
+                          paintOrder="stroke"
+                        >
+                          3. SW WALL (180°–270°) • TOP {pullM}m
+                        </text>
+                      )}
+                      {perimeterData.hasShaftSn && (
+                        <text
+                          x={wnMidRim.x}
+                          y={wnMidRim.y - 6}
+                          textAnchor="middle"
+                          fontSize="8.5"
+                          fontWeight="900"
+                          fill="#be185d"
+                          stroke="#ffffff"
+                          strokeWidth="2.4"
+                          paintOrder="stroke"
+                        >
+                          4. WN WALL (270°–360°) • TOP {pullM}m
+                        </text>
+                      )}
+
+                      {/* Pull Depth 1m Labels from Bottom Face (0m) up to Top Rim (pullM) */}
+                      {show1mGrid &&
+                        surfaceMeshes.meterPullFracs.map(({ m, tPull }) => {
+                          const pt = projectTunnel3DPoint(0.5, 0.5, tPull, 'crown');
+                          return (
+                            <text
+                              key={`shaft-pull-lbl-${m}`}
+                              x={pt.x + 6}
+                              y={pt.y + 3}
+                              textAnchor="start"
+                              fontSize="8"
+                              fontWeight="900"
+                              fill="#0369a1"
+                              stroke="#ffffff"
+                              strokeWidth="2.2"
+                              paintOrder="stroke"
+                            >
+                              Pull {m}m
+                            </text>
+                          );
+                        })}
+                    </>
+                  );
+                })()
+              ) : (
+                <>
+                  {surfaceMeshes.leftSplFace && surfaceMeshes.leftSplPortal && (
+                    <>
+                      <line
+                        x1={surfaceMeshes.leftSplFace.x}
+                        y1={surfaceMeshes.leftSplFace.y}
+                        x2={surfaceMeshes.leftSplPortal.x}
+                        y2={surfaceMeshes.leftSplPortal.y}
+                        stroke="#0284c7"
+                        strokeWidth="2.6"
+                        strokeDasharray="7 4"
+                      />
+                      <text
+                        x={surfaceMeshes.leftSplPortal.x - 5}
+                        y={surfaceMeshes.leftSplPortal.y - 4}
+                        textAnchor="end"
+                        fontSize="8.5"
+                        fontWeight="900"
+                        fill="#0284c7"
+                        stroke="#ffffff"
+                        strokeWidth="2.2"
+                        paintOrder="stroke"
+                      >
+                        L-SPL (0m)
+                      </text>
+                    </>
+                  )}
+                  {surfaceMeshes.rightSplFace && surfaceMeshes.rightSplPortal && (
+                    <>
+                      <line
+                        x1={surfaceMeshes.rightSplFace.x}
+                        y1={surfaceMeshes.rightSplFace.y}
+                        x2={surfaceMeshes.rightSplPortal.x}
+                        y2={surfaceMeshes.rightSplPortal.y}
+                        stroke="#0284c7"
+                        strokeWidth="2.6"
+                        strokeDasharray="7 4"
+                      />
+                      <text
+                        x={surfaceMeshes.rightSplPortal.x + 5}
+                        y={surfaceMeshes.rightSplPortal.y - 4}
+                        textAnchor="start"
+                        fontSize="8.5"
+                        fontWeight="900"
+                        fill="#0284c7"
+                        stroke="#ffffff"
+                        strokeWidth="2.2"
+                        paintOrder="stroke"
+                      >
+                        R-SPL (0m)
+                      </text>
+                    </>
+                  )}
+
+                  {/* First Outer Grid = 0m -> Going Inward Through Pull (1m, 2m...) on Left Wall, Crown & Right Wall */}
+                  {(() => {
+                    const lwNodes = perimeterData.nodes.filter((n) => n.panel === 'left_wall');
+                    const rwNodes = perimeterData.nodes.filter((n) => n.panel === 'right_wall');
+                    const lwStart = lwNodes[0] || { nx: -0.48, ny: 0.98 };
+                    const rwStart = rwNodes[rwNodes.length - 1] || { nx: 0.48, ny: 0.98 };
+                    const crOuter = projectTunnel3DPoint(0, 0.02, 1.0, 'crown');
+                    const lwOuter0 = projectTunnel3DPoint(lwStart.nx, lwStart.ny, 1.0, 'left_wall');
+                    const rwOuter0 = projectTunnel3DPoint(rwStart.nx, rwStart.ny, 1.0, 'right_wall');
+
+                    return (
+                      <>
+                        {perimeterData.hasCrown && (
+                          <text
+                            x={crOuter.x}
+                            y={crOuter.y - 7}
+                            textAnchor="middle"
+                            fontSize="8.5"
+                            fontWeight="900"
+                            fill="#0f172a"
+                            stroke="#ffffff"
+                            strokeWidth="2.4"
+                            paintOrder="stroke"
+                          >
+                            CROWN • 0m (Outer Start)
+                          </text>
+                        )}
+
+                        {perimeterData.hasLeftWall && (
+                          <>
+                            <text
+                              x={lwOuter0.x - 4}
+                              y={lwOuter0.y + 11}
+                              textAnchor="end"
+                              fontSize="8.5"
+                              fontWeight="900"
+                              fill="#0f766e"
+                              stroke="#ffffff"
+                              strokeWidth="2.4"
+                              paintOrder="stroke"
+                            >
+                              0m (L.Wall Start)
+                            </text>
+                            {show1mGrid &&
+                              surfaceMeshes.meterPullFracs.map(({ m, tPull }) => {
+                                const pt = projectTunnel3DPoint(
+                                  lwStart.nx,
+                                  lwStart.ny,
+                                  tPull,
+                                  'left_wall'
+                                );
+                                return (
+                                  <text
+                                    key={`lw-pull-lbl-${m}`}
+                                    x={pt.x}
+                                    y={pt.y + 11}
+                                    textAnchor="middle"
+                                    fontSize="8"
+                                    fontWeight="900"
+                                    fill="#0f766e"
+                                    stroke="#ffffff"
+                                    strokeWidth="2.2"
+                                    paintOrder="stroke"
+                                  >
+                                    {m}m
+                                  </text>
+                                );
+                              })}
+                          </>
+                        )}
+
+                        {perimeterData.hasRightWall && (
+                          <>
+                            <text
+                              x={rwOuter0.x + 4}
+                              y={rwOuter0.y + 11}
+                              textAnchor="start"
+                              fontSize="8.5"
+                              fontWeight="900"
+                              fill="#4338ca"
+                              stroke="#ffffff"
+                              strokeWidth="2.4"
+                              paintOrder="stroke"
+                            >
+                              0m (R.Wall Start)
+                            </text>
+                            {show1mGrid &&
+                              surfaceMeshes.meterPullFracs.map(({ m, tPull }) => {
+                                const pt = projectTunnel3DPoint(
+                                  rwStart.nx,
+                                  rwStart.ny,
+                                  tPull,
+                                  'right_wall'
+                                );
+                                return (
+                                  <text
+                                    key={`rw-pull-lbl-${m}`}
+                                    x={pt.x}
+                                    y={pt.y + 11}
+                                    textAnchor="middle"
+                                    fontSize="8"
+                                    fontWeight="900"
+                                    fill="#4338ca"
+                                    stroke="#ffffff"
+                                    strokeWidth="2.2"
+                                    paintOrder="stroke"
+                                  >
+                                    {m}m
+                                  </text>
+                                );
+                              })}
+                          </>
+                        )}
                       </>
-                    )}
-                  </>
-                );
-              })()}
+                    );
+                  })()}
+                </>
+              )}
             </g>
           )}
 
@@ -4776,59 +5065,59 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
     [activeLocation, activeRound]
   );
 
+  const shaftSnGeom = useMemo(
+    () => computePanelCanvasGeometry('shaft_sn', activeLocation, activeRound),
+    [activeLocation, activeRound]
+  );
+
   const getPanelGeom = (panel: FieldPanelId) => {
     if (panel === 'left_wall') return leftWallGeom;
     if (panel === 'crown') return crownGeom;
     if (panel === 'right_wall') return rightWallGeom;
+    if (panel === 'shaft_sn') return shaftSnGeom;
     return faceGeom;
   };
 
+  const isVerticalShaft = isVerticalShaftLocation(activeLocation);
+
   // Strip geometry inside SVG (340 x 192) — EXACT PROPORTIONAL CAD ALIGNMENT MATCHING STRIP LOG:
-  // Dynamically computed from physical perimeter development: [ Left Wall | Crown Arch | Right Wall ]
   const leftWallM = Math.max(0.5, stripMetrics.leftWallLengthM || 4.0);
   const crownM = Math.max(0.5, stripMetrics.crownLengthM || 8.5);
   const rightWallM = Math.max(0.5, stripMetrics.rightWallLengthM || 4.0);
-  const totalStripMetersW = leftWallM + crownM + rightWallM;
+  const shaftSnM = isVerticalShaft ? leftWallM : 0;
+  const totalStripMetersW = leftWallM + crownM + rightWallM + shaftSnM;
 
   const marginX = 14;
   const totalAvailW = 340 - marginX * 2; // 312px total strip span
   const lwW = Number(((leftWallM / totalStripMetersW) * totalAvailW).toFixed(1));
+  const crW = Number(((crownM / totalStripMetersW) * totalAvailW).toFixed(1));
   const rwW = Number(((rightWallM / totalStripMetersW) * totalAvailW).toFixed(1));
-  const crW = Number((totalAvailW - lwW - rwW).toFixed(1));
+  const snW = isVerticalShaft ? Number(Math.max(0, totalAvailW - lwW - crW - rwW).toFixed(1)) : 0;
 
   const lwX0 = marginX;
   const crX0 = lwX0 + lwW;
   const rwX0 = crX0 + crW;
-  const stripX1 = rwX0 + rwW;
+  const snX0 = rwX0 + rwW;
+  const stripX1 = isVerticalShaft ? snX0 + snW : rwX0 + rwW;
 
   const stripY0 = 15;
   const stripH = 88;
   const stripY1 = stripY0 + stripH; // 103 (0m collar at bottom, pullM at top)
 
-  const crownCenterlineX = Number((crX0 + crW / 2).toFixed(1));
+  const crownCenterlineX = isVerticalShaft
+    ? Number((lwX0 + totalAvailW / 2).toFixed(1))
+    : Number((crX0 + crW / 2).toFixed(1));
 
-  // Tunnel Face Canvas Outline positioned symmetrically below Crown Centerline (CL)
+  // Tunnel Face Canvas Outline positioned symmetrically below Centerline (CL)
   const faceY0 = stripY1 + 12;
   const tunnelW = Math.max(1, activeLocation.widthM || 8.5);
   const tunnelH = Math.max(1, activeLocation.heightM || 7.5);
   const tunnelAspect = tunnelH / tunnelW;
   const maxFaceH = 192 - faceY0 - 4; // 73px max
   const faceH = Number(Math.min(maxFaceH, Math.max(46, 64 * Math.min(1.05, tunnelAspect))).toFixed(1));
-  const faceW = Number(Math.min(crW * 1.05, Math.max(50, faceH / tunnelAspect)).toFixed(1));
+  const faceW = Number(Math.min((isVerticalShaft ? totalAvailW * 0.45 : crW * 1.05), Math.max(50, faceH / tunnelAspect)).toFixed(1));
   const faceX0 = Number((crownCenterlineX - faceW / 2).toFixed(1));
 
-  // Map a canonical panel (u, v) to the 2D Unfolded Sync Box SVG:
-  // In the canonical 2D panel coordinate system:
-  // - Crown: u across curve (0 = L-SPL, 1 = R-SPL); v along pull (0 = Face / 3m, 1 = 0m collar)
-  // - Left Wall: u along pull (0 = 0m collar, 1 = Face / 3m); v from SPL (0) to Invert (1)
-  // - Right Wall: u along pull (0 = Face / 3m, 1 = 0m collar); v from SPL (0) to Invert (1)
-  // - Face: u across width (0 = left, 1 = right); v down height (0 = apex, 1 = floor)
-  // In the Sync Box top strip:
-  //   Bottom Strip Line (stripY1) = 0m collar (pullNorm = 0)
-  //   Top Strip Line (stripY0) = pullM / Face (pullNorm = 1)
-  //   Left Wall: x = lwX0 (Floor / L-INV) -> crX0 (L-SPL)
-  //   Crown: x = crX0 (L-SPL) -> rwX0 (R-SPL)
-  //   Right Wall: x = rwX0 (R-SPL) -> stripX1 (Floor / R-INV)
   const mapUvToSyncSvg = React.useCallback(
     (panel: FieldPanelId, u: number, v: number): { x: number; y: number } => {
       if (panel === 'face') {
@@ -4841,7 +5130,14 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
       const clampedV = Math.max(0, Math.min(1, v));
       let pullNorm = 0;
       let sx = 0;
-      if (panel === 'crown') {
+      if (isVerticalShaft) {
+        // All 4 Vertical Shaft wall quadrants are horizontal: u = arc (0->1 left to right), v = 1 (0m bottom) -> 0 (pullM top)
+        pullNorm = 1 - clampedV;
+        if (panel === 'left_wall') sx = lwX0 + clampedU * lwW;
+        else if (panel === 'crown') sx = crX0 + clampedU * crW;
+        else if (panel === 'right_wall') sx = rwX0 + clampedU * rwW;
+        else sx = snX0 + clampedU * snW;
+      } else if (panel === 'crown') {
         // Crown: u = L-SPL (0) -> R-SPL (1); v = 0 (Face / 3m) -> 1 (0m collar)
         pullNorm = 1 - clampedV;
         sx = crX0 + clampedU * crW;
@@ -4858,7 +5154,7 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
       const sy = stripY1 - pullNorm * stripH;
       return { x: sx, y: sy };
     },
-    [faceX0, faceW, faceY0, faceH, stripY1, stripH, lwX0, lwW, crX0, crW, rwX0, rwW]
+    [faceX0, faceW, faceY0, faceH, stripY1, stripH, lwX0, lwW, crX0, crW, rwX0, rwW, snX0, snW, isVerticalShaft]
   );
 
   // Subscribe to zero-lag hover cursor & live draw events directly from 3D canvas
@@ -4933,8 +5229,13 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
     for (let m = 1; m < Math.floor(rightWallM); m++) {
       ticks.push({ x: Number((rwX0 + (m / rightWallM) * rwW).toFixed(1)) });
     }
+    if (isVerticalShaft && shaftSnM > 0) {
+      for (let m = 1; m < Math.floor(shaftSnM); m++) {
+        ticks.push({ x: Number((snX0 + (m / shaftSnM) * snW).toFixed(1)) });
+      }
+    }
     return ticks;
-  }, [leftWallM, crownM, rightWallM, lwX0, crX0, rwX0, lwW, crW, rwW]);
+  }, [leftWallM, crownM, rightWallM, shaftSnM, lwX0, crX0, rwX0, snX0, lwW, crW, rwW, snW, isVerticalShaft]);
 
   const faceSplY = faceY0 + (1 - (stripMetrics.splRatio || 0.58)) * faceH;
 
@@ -4942,7 +5243,7 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
     <div className="bg-slate-900 border-2 border-cyan-500/70 rounded-xl p-1 shadow-lg shrink-0 select-none">
       <div className="flex items-center justify-between gap-1 mb-0.5 px-1">
         <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300 font-mono">
-          SYNC • UNROLLED CAD STRIP
+          {isVerticalShaft ? 'SYNC • 4-QUADRANT SHAFT STRIP' : 'SYNC • UNROLLED CAD STRIP'}
         </span>
         {isJointPendingOk && (
           <button
@@ -4960,7 +5261,7 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
         viewBox="0 0 340 192"
         className="w-full h-[182px] bg-white rounded-lg border border-slate-700 block"
       >
-        {/* 1. Unfolded Strip Canvas Panels (Left Wall | Crown | Right Wall) - Arranged exact like strip log */}
+        {/* 1. Unfolded Strip Canvas Panels */}
         <rect
           x={lwX0}
           y={stripY0}
@@ -4988,6 +5289,17 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           stroke="#0f172a"
           strokeWidth="1.5"
         />
+        {isVerticalShaft && snW > 0 && (
+          <rect
+            x={snX0}
+            y={stripY0}
+            width={snW}
+            height={stripH}
+            fill="#ffffff"
+            stroke="#0f172a"
+            strokeWidth="1.5"
+          />
+        )}
 
         {/* Unified Continuous CAD Strip Perimeter Border */}
         <rect
@@ -5043,7 +5355,7 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           );
         })}
 
-        {/* Longitudinal Seam Lines matching Strip Log: L-SPL, Crown CL, R-SPL */}
+        {/* Longitudinal Seam Lines */}
         <line
           x1={crX0}
           y1={stripY0}
@@ -5053,15 +5365,17 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           strokeWidth="1.6"
           strokeDasharray="4 3"
         />
-        <line
-          x1={crownCenterlineX}
-          y1={stripY0}
-          x2={crownCenterlineX}
-          y2={stripY1}
-          stroke="#0284c7"
-          strokeWidth="1.3"
-          strokeDasharray="6 3 2 3"
-        />
+        {!isVerticalShaft && (
+          <line
+            x1={crownCenterlineX}
+            y1={stripY0}
+            x2={crownCenterlineX}
+            y2={stripY1}
+            stroke="#0284c7"
+            strokeWidth="1.3"
+            strokeDasharray="6 3 2 3"
+          />
+        )}
         <line
           x1={rwX0}
           y1={stripY0}
@@ -5071,6 +5385,17 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           strokeWidth="1.6"
           strokeDasharray="4 3"
         />
+        {isVerticalShaft && snW > 0 && (
+          <line
+            x1={snX0}
+            y1={stripY0}
+            x2={snX0}
+            y2={stripY1}
+            stroke="#0f172a"
+            strokeWidth="1.6"
+            strokeDasharray="4 3"
+          />
+        )}
 
         {/* Top Face Reference Line (pullM) & Bottom 0m Collar Reference Line */}
         <line
@@ -5090,7 +5415,7 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           strokeWidth="2.2"
         />
 
-        {/* Top = pullM (Face) & Bottom = 0m (Collar) Ruler Labels */}
+        {/* Top = pullM & Bottom = 0m Ruler Labels */}
         <text
           x={lwX0 - 2}
           y={stripY0 + 4}
@@ -5136,97 +5461,158 @@ export const Field3DNewTraceUnfoldedSyncBox: React.FC<Field3DNewTraceUnfoldedSyn
           0m
         </text>
 
-        {/* Top Panel Headers matching Strip Log Standard */}
-        <text
-          x={lwX0 + lwW / 2}
-          y={stripY0 - 3.5}
-          textAnchor="middle"
-          fontSize="7"
-          fontWeight="900"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#0f766e"
-        >
-          L.WALL ({leftWallM.toFixed(1)}m)
-        </text>
-        <text
-          x={crownCenterlineX}
-          y={stripY0 - 3.5}
-          textAnchor="middle"
-          fontSize="7.5"
-          fontWeight="900"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#0369a1"
-        >
-          CROWN ARCH ({crownM.toFixed(1)}m)
-        </text>
-        <text
-          x={rwX0 + rwW / 2}
-          y={stripY0 - 3.5}
-          textAnchor="middle"
-          fontSize="7"
-          fontWeight="900"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#4338ca"
-        >
-          R.WALL ({rightWallM.toFixed(1)}m)
-        </text>
+        {/* Top Panel Headers */}
+        {isVerticalShaft ? (
+          <>
+            <text
+              x={lwX0 + lwW / 2}
+              y={stripY0 - 3.5}
+              textAnchor="middle"
+              fontSize="6.5"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#047857"
+            >
+              1.NE ({leftWallM.toFixed(1)}m)
+            </text>
+            <text
+              x={crX0 + crW / 2}
+              y={stripY0 - 3.5}
+              textAnchor="middle"
+              fontSize="6.5"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#b45309"
+            >
+              2.ES ({crownM.toFixed(1)}m)
+            </text>
+            <text
+              x={rwX0 + rwW / 2}
+              y={stripY0 - 3.5}
+              textAnchor="middle"
+              fontSize="6.5"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#6d28d9"
+            >
+              3.SW ({rightWallM.toFixed(1)}m)
+            </text>
+            {snW > 0 && (
+              <text
+                x={snX0 + snW / 2}
+                y={stripY0 - 3.5}
+                textAnchor="middle"
+                fontSize="6.5"
+                fontWeight="900"
+                fontFamily="IBM Plex Mono, monospace"
+                fill="#be185d"
+              >
+                4.WN ({shaftSnM.toFixed(1)}m)
+              </text>
+            )}
+            {/* Compass Seam Labels at Bottom of Strip */}
+            <text x={lwX0} y={stripY1 + 8} textAnchor="middle" fontSize="6" fontWeight="900" fontFamily="IBM Plex Mono, monospace" fill="#047857">0°N</text>
+            <text x={crX0} y={stripY1 + 8} textAnchor="middle" fontSize="6" fontWeight="900" fontFamily="IBM Plex Mono, monospace" fill="#0369a1">90°E</text>
+            <text x={rwX0} y={stripY1 + 8} textAnchor="middle" fontSize="6" fontWeight="900" fontFamily="IBM Plex Mono, monospace" fill="#b45309">180°S</text>
+            {snW > 0 && (
+              <text x={snX0} y={stripY1 + 8} textAnchor="middle" fontSize="6" fontWeight="900" fontFamily="IBM Plex Mono, monospace" fill="#6d28d9">270°W</text>
+            )}
+            <text x={stripX1} y={stripY1 + 8} textAnchor="middle" fontSize="6" fontWeight="900" fontFamily="IBM Plex Mono, monospace" fill="#047857">360°N</text>
+          </>
+        ) : (
+          <>
+            <text
+              x={lwX0 + lwW / 2}
+              y={stripY0 - 3.5}
+              textAnchor="middle"
+              fontSize="7"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#0f766e"
+            >
+              L.WALL ({leftWallM.toFixed(1)}m)
+            </text>
+            <text
+              x={crownCenterlineX}
+              y={stripY0 - 3.5}
+              textAnchor="middle"
+              fontSize="7.5"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#0369a1"
+            >
+              CROWN ARCH ({crownM.toFixed(1)}m)
+            </text>
+            <text
+              x={rwX0 + rwW / 2}
+              y={stripY0 - 3.5}
+              textAnchor="middle"
+              fontSize="7"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#4338ca"
+            >
+              R.WALL ({rightWallM.toFixed(1)}m)
+            </text>
 
-        {/* Bottom Seam Labels matching Strip Log */}
-        <text
-          x={lwX0}
-          y={stripY1 + 8}
-          textAnchor="middle"
-          fontSize="6.5"
-          fontWeight="800"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#64748b"
-        >
-          L-INV
-        </text>
-        <text
-          x={crX0}
-          y={stripY1 + 8}
-          textAnchor="middle"
-          fontSize="6.8"
-          fontWeight="900"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#0284c7"
-        >
-          SPL
-        </text>
-        <text
-          x={crownCenterlineX}
-          y={stripY1 + 8}
-          textAnchor="middle"
-          fontSize="7"
-          fontWeight="900"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#0369a1"
-        >
-          CL
-        </text>
-        <text
-          x={rwX0}
-          y={stripY1 + 8}
-          textAnchor="middle"
-          fontSize="6.8"
-          fontWeight="900"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#0284c7"
-        >
-          SPL
-        </text>
-        <text
-          x={stripX1}
-          y={stripY1 + 8}
-          textAnchor="middle"
-          fontSize="6.5"
-          fontWeight="800"
-          fontFamily="IBM Plex Mono, monospace"
-          fill="#64748b"
-        >
-          R-INV
-        </text>
+            {/* Bottom Seam Labels matching Strip Log */}
+            <text
+              x={lwX0}
+              y={stripY1 + 8}
+              textAnchor="middle"
+              fontSize="6.5"
+              fontWeight="800"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#64748b"
+            >
+              L-INV
+            </text>
+            <text
+              x={crX0}
+              y={stripY1 + 8}
+              textAnchor="middle"
+              fontSize="6.8"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#0284c7"
+            >
+              SPL
+            </text>
+            <text
+              x={crownCenterlineX}
+              y={stripY1 + 8}
+              textAnchor="middle"
+              fontSize="7"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#0369a1"
+            >
+              CL
+            </text>
+            <text
+              x={rwX0}
+              y={stripY1 + 8}
+              textAnchor="middle"
+              fontSize="6.8"
+              fontWeight="900"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#0284c7"
+            >
+              SPL
+            </text>
+            <text
+              x={stripX1}
+              y={stripY1 + 8}
+              textAnchor="middle"
+              fontSize="6.5"
+              fontWeight="800"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#64748b"
+            >
+              R-INV
+            </text>
+          </>
+        )}
 
         {/* 2. Face Canvas Outline & Centerline Aligned with Crown CL below Strip */}
         <rect
