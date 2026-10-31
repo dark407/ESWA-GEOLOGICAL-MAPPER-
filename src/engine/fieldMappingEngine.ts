@@ -4568,12 +4568,12 @@ export function mapPanelPointToUnfoldedBox(
   stageMode: FieldTransformStageMode = 'field_canvas'
 ): FieldPoint2D {
   const u = Math.max(
-    0.002,
-    Math.min(0.998, (pt.x - panelGeom.boxX) / Math.max(1, panelGeom.boxW))
+    0,
+    Math.min(1, (pt.x - panelGeom.boxX) / Math.max(1, panelGeom.boxW))
   );
   const v = Math.max(
-    0.002,
-    Math.min(0.998, (pt.y - panelGeom.boxY) / Math.max(1, panelGeom.boxH))
+    0,
+    Math.min(1, (pt.y - panelGeom.boxY) / Math.max(1, panelGeom.boxH))
   );
 
   if (panel !== 'face' && round && stageMode !== 'fixed') {
@@ -4604,12 +4604,12 @@ export function mapUnfoldedBoxPointToPanel(
   stageMode: FieldTransformStageMode = 'field_canvas'
 ): FieldPoint2D {
   const sx = Math.max(
-    0.005,
-    Math.min(0.995, (unfoldedPt.x - targetBox.x) / Math.max(1, targetBox.w))
+    0,
+    Math.min(1, (unfoldedPt.x - targetBox.x) / Math.max(1, targetBox.w))
   );
   const sy = Math.max(
-    0.005,
-    Math.min(0.995, (unfoldedPt.y - targetBox.y) / Math.max(1, targetBox.h))
+    0,
+    Math.min(1, (unfoldedPt.y - targetBox.y) / Math.max(1, targetBox.h))
   );
 
   if (panel !== 'face' && round && stageMode !== 'fixed') {

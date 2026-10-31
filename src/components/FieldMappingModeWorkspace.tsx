@@ -10941,38 +10941,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   strokeWidth={isSel ? '4' : '2.6'}
                                   strokeDasharray="8,4"
                                 />
-                                <rect
-                                  x={centroid.x - Math.max(65, (tagPrefix.length + 11) * (effectiveLabelFontSize * 0.35) + 14)}
-                                  y={centroid.y - (isTCanvas ? 16 : 22)}
-                                  width={Math.max(130, (tagPrefix.length + 11) * (effectiveLabelFontSize * 0.7) + 28)}
-                                  height={isTCanvas ? 32 : 44}
-                                  rx={5}
-                                  ry={5}
-                                  fill={photoCanvasTheme === 'light' ? '#FFFFFF' : '#0B0F19'}
-                                  fillOpacity={0.94}
-                                  stroke={isSel ? '#38BDF8' : grp.stroke}
-                                  strokeWidth={isSel ? 2.4 : 1.2}
-                                  filter="drop-shadow(0px 1px 3px rgba(0,0,0,0.4))"
-                                />
                                 <text
                                   x={centroid.x}
-                                  y={centroid.y - (isTCanvas ? 2 : 4)}
-                                  textAnchor="middle"
-                                  fontSize={isTCanvas ? effectiveLabelFontSize * 0.85 : effectiveLabelFontSize}
-                                  fontWeight="900"
-                                  fill={grp.stroke}
-                                >
-                                  {tagPrefix}Dip Surface
-                                </text>
-                                <text
-                                  x={centroid.x}
-                                  y={centroid.y + (isTCanvas ? 11 : 16)}
+                                  y={centroid.y}
+                                  dominantBaseline="central"
                                   textAnchor="middle"
                                   fontSize={isTCanvas ? effectiveLabelFontSize * 0.9 : effectiveLabelFontSize * 1.05}
                                   fontWeight="900"
                                   fill={grp.stroke}
+                                  stroke="#ffffff"
+                                  strokeWidth="3.5"
+                                  paintOrder="stroke"
                                 >
-                                  {String(ds.dipDirection).padStart(3, '0')}° / {ds.dipAmount}°
+                                  {tagPrefix}{String(ds.dipDirection).padStart(3, '0')}° / {ds.dipAmount}°
                                 </text>
                               </g>
                             );

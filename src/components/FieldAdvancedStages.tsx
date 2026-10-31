@@ -3529,15 +3529,6 @@ export const FieldRockMassClassificationsStage: React.FC<{
                 );
               })}
             </div>
-
-            {/* Protection / Cavity Support Option inside RMR89 */}
-            <FieldProtectionCavitySupportDesigner
-              support={support}
-              onUpdateSupport={updateSupportFromClassifications}
-              location={activeLocation}
-              round={activeRound}
-              showLiveDrawing={Boolean(support.protectionSupportEnabled)}
-            />
           </div>
         )}
 
@@ -8601,22 +8592,6 @@ export const FieldSurveyOverbreakStage: React.FC<{
               3. Skip
             </button>
           </div>
-
-          {activeProject && onUpdateProject && (
-            <button
-              type="button"
-              onClick={() => setShowTemplateEditor((prev) => !prev)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border cursor-pointer transition-all ${
-                showTemplateEditor
-                  ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
-                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-amber-500/40'
-              }`}
-              title="Open or close Template Edit Options (Header Logos, Missing Tick-Boxes & Custom Word Template)"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>{showTemplateEditor ? 'Close Template Edit' : 'Template Edit'}</span>
-            </button>
-          )}
         </div>
 
         <div className="flex items-center gap-2">

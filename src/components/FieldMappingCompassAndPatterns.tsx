@@ -3,6 +3,7 @@ import {
   buildDipSurfaceOutlineAndCentroid,
   buildSmoothSvgPath,
   computeCrownLengthMeters,
+  computeDisplayPanelGeometry,
   computeFaceTunnelOutlineDetails,
   computePanelCanvasGeometry,
   computePanelOrientationReferenceMeta,
@@ -3275,9 +3276,60 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       return pt;
     };
 
-    const scaleRadius = useContinuousCadMapping && panelGeom
-      ? Math.min(targetBoxW / Math.max(1, panelGeom.boxH), targetBoxH / Math.max(1, panelGeom.boxW))
-      : 1;
+    const mapLithPt = (pt: FieldPoint2D): FieldPoint2D => {
+      if (!useContinuousCadMapping || !panelGeom) return pt;
+      const u = (pt.x - panelGeom.boxX) / Math.max(1, panelGeom.boxW);
+      const v = (pt.y - panelGeom.boxY) / Math.max(1, panelGeom.boxH);
+      if (panel === 'left_wall') {
+        const sx = 1 - v;
+        const sy = 1 - u;
+        return {
+          x: Number((targetBoxX + sx * targetBoxW).toFixed(1)),
+          y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
+        };
+      }
+      if (panel === 'crown') {
+        const sx = u;
+        const sy = v;
+        return {
+          x: Number((targetBoxX + sx * targetBoxW).toFixed(1)),
+          y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
+        };
+      }
+      if (panel === 'right_wall') {
+        const sx = v;
+        const sy = u;
+        return {
+          x: Number((targetBoxX + sx * targetBoxW).toFixed(1)),
+          y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
+        };
+      }
+      return pt;
+    };
+
+    const dispGeomForPanel =
+      useContinuousCadMapping && panel !== 'face'
+        ? computeDisplayPanelGeometry(panel, location, round, 'field_canvas')
+        : null;
+
+    const scaleRadius =
+      useContinuousCadMapping && panelGeom
+        ? (() => {
+            const sxScale =
+              panel === 'crown'
+                ? targetBoxW / Math.max(1, panelGeom.boxW)
+                : targetBoxW / Math.max(1, panelGeom.boxH);
+            const syScale =
+              panel === 'crown'
+                ? targetBoxH / Math.max(1, panelGeom.boxH)
+                : targetBoxH / Math.max(1, panelGeom.boxW);
+            const dispScale =
+              dispGeomForPanel && dispGeomForPanel.pxPerMeter
+                ? stripPxPerMeter / Math.max(1, dispGeomForPanel.pxPerMeter)
+                : 0;
+            return Math.max(sxScale, syScale, dispScale);
+          })()
+        : 1;
 
     const strokes = round.lithologyStrokes
       .filter((s) => s.panel === panel)
@@ -3291,14 +3343,21 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             Math.hypot(
               rawStrokePoly[0].x - rawStrokePoly[rawStrokePoly.length - 1].x,
               rawStrokePoly[0].y - rawStrokePoly[rawStrokePoly.length - 1].y
-            ) <= Math.max(48, (s.brushRadius || 24) * 1.8));
+            ) < 48);
+        const origRadius = s.brushRadius || 24;
+        const rawPanelStrokeW =
+          origRadius <= 8 ? Math.max(2, origRadius) : origRadius * 2;
         return useContinuousCadMapping
           ? {
               ...s,
               isClosed: isStrokeClosed,
-              points: s.points.map(mapPt),
-              polygon: s.polygon ? s.polygon.map(mapPt) : undefined,
-              brushRadius: Math.max(2, Number((s.brushRadius * scaleRadius).toFixed(1))),
+              points: s.points.map(mapLithPt),
+              polygon: s.polygon ? s.polygon.map(mapLithPt) : undefined,
+              brushRadius: Math.max(2, Number((origRadius * scaleRadius).toFixed(1))),
+              effectiveStrokeW: Math.max(
+                2,
+                Number((rawPanelStrokeW * scaleRadius).toFixed(1))
+              ),
               bandThicknessPx: s.bandThicknessPx
                 ? Math.max(4, Number((s.bandThicknessPx * scaleRadius).toFixed(1)))
                 : undefined,
@@ -3306,6 +3365,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           : {
               ...s,
               isClosed: isStrokeClosed,
+              effectiveStrokeW: Math.max(2, Math.round(rawPanelStrokeW)),
             };
       });
     const planes = round.dipPlaneSurfaces
@@ -3505,10 +3565,20 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           const patId = st.patternId || info.patternId;
           const strokePoly =
             st.polygon && st.polygon.length >= 3 ? st.polygon : st.points;
-          const d = buildSmoothSvgPath(strokePoly);
-          const baseStrokeW =
-            st.brushRadius <= 8 ? Math.max(2, st.brushRadius) : st.brushRadius * 2;
-          const effectiveStrokeW = Math.max(2, Math.round(baseStrokeW));
+          const d =
+            st.lineMode === 'linear'
+              ? strokePoly
+                  .map((p, pIdx) => `${pIdx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+                  .join(' ')
+              : buildSmoothSvgPath(strokePoly);
+          const effectiveStrokeW =
+            st.effectiveStrokeW ??
+            Math.max(
+              2,
+              Math.round(
+                st.brushRadius <= 8 ? Math.max(2, st.brushRadius) : st.brushRadius * 2
+              )
+            );
           const isClosed = Boolean(st.isClosed);
           const closedD = isClosed ? (d.endsWith('Z') || d.endsWith('z') ? d : `${d} Z`) : d;
           const indivLithDens = Math.round(
@@ -3543,12 +3613,6 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             info.fillColor ||
             info.color ||
             '#fef08a';
-          const outlineRockCol =
-            st.customColor ||
-            round.rockCustomColors?.[st.rockType] ||
-            round.lithologyColorByRock?.[st.rockType] ||
-            info.color ||
-            '#78350f';
           return (
             <g key={st.id} data-lithology-id={st.id}>
               {maskId && (
@@ -3569,9 +3633,10 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                         fill="none"
                         stroke="black"
                         strokeWidth={
-                          er.brushRadius <= 8
+                          er.effectiveStrokeW ??
+                          (er.brushRadius <= 8
                             ? Math.max(2, er.brushRadius)
-                            : er.brushRadius * 2
+                            : er.brushRadius * 2)
                         }
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -3580,7 +3645,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   </mask>
                 </defs>
               )}
-              {isClosed ? (
+              {isClosed && (
                 <>
                   {/* Rock color tint fill */}
                   <path
@@ -3598,41 +3663,28 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                     stroke="none"
                     mask={maskId ? `url(#${maskId})` : undefined}
                   />
-                  {/* Boundary outline stroke */}
-                  <path
-                    d={closedD}
-                    fill="none"
-                    stroke={colorMode === 'bw' ? '#0f172a' : outlineRockCol}
-                    strokeWidth={Math.max(1.8, Math.min(5, effectiveStrokeW * 0.15))}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    mask={maskId ? `url(#${maskId})` : undefined}
-                  />
-                </>
-              ) : (
-                <>
-                  {/* Open brush / stroke rock background tint */}
-                  <path
-                    d={d}
-                    fill="none"
-                    stroke={colorMode === 'bw' ? '#ffffff' : customRockCol}
-                    strokeWidth={effectiveStrokeW}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    mask={maskId ? `url(#${maskId})` : undefined}
-                  />
-                  {/* Rock pattern stroke */}
-                  <path
-                    d={d}
-                    fill="none"
-                    stroke={`url(#${patternUrlId})`}
-                    strokeWidth={effectiveStrokeW}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    mask={maskId ? `url(#${maskId})` : undefined}
-                  />
                 </>
               )}
+              {!altRocks && (
+                <path
+                  d={d}
+                  fill="none"
+                  stroke={colorMode === 'bw' ? '#ffffff' : customRockCol}
+                  strokeWidth={effectiveStrokeW}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  mask={maskId ? `url(#${maskId})` : undefined}
+                />
+              )}
+              <path
+                d={d}
+                fill="none"
+                stroke={`url(#${patternUrlId})`}
+                strokeWidth={effectiveStrokeW}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                mask={maskId ? `url(#${maskId})` : undefined}
+              />
             </g>
           );
         })}
