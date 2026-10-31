@@ -129,6 +129,7 @@ import {
   resolveLithologyFamilyForHex,
   resolveRockDisplayInfo,
   saveFieldMappingStore,
+  saveFieldMappingStoreImmediate,
   smoothFieldTracePoints,
 } from '../engine/fieldMappingEngine';
 import {
@@ -369,7 +370,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   };
 
-  const savedResume = useMemo(() => loadFieldMappingResumeState(initialMappingDomain), [initialMappingDomain]);
   const [workflowMode, setWorkflowMode] = useState<'field_mapping' | 'photo_mapping'>(
     initialWorkflowMode
   );
@@ -411,19 +411,37 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const mappingDomainRef = useRef<MappingDomainType>(mappingDomain);
   mappingDomainRef.current = mappingDomain;
 
+  const [undergroundSubMode, setUndergroundSubMode] = useState<'tunnel' | 'vertical_shaft'>(() => {
+    if (typeof window !== 'undefined') {
+      const savedSub = localStorage.getItem('eswa_active_underground_submode_v1');
+      if (savedSub === 'vertical_shaft' || savedSub === 'tunnel') {
+        return savedSub;
+      }
+    }
+    return 'tunnel';
+  });
+  const undergroundSubModeRef = useRef<'tunnel' | 'vertical_shaft'>(undergroundSubMode);
+  undergroundSubModeRef.current = undergroundSubMode;
+
+  const savedResume = useMemo(
+    () => loadFieldMappingResumeState(initialMappingDomain, undergroundSubMode),
+    [initialMappingDomain, undergroundSubMode]
+  );
+
   useEffect(() => {
     setWorkflowMode(initialWorkflowMode);
   }, [initialWorkflowMode]);
 
-  // 100% Automatic Persistent Store - strictly isolated by mapping domain
+  // 100% Automatic Persistent Store - strictly isolated by mapping domain AND underground sub-mode (Tunnel vs Vertical Shaft)
   const [store, setStore] = useState<FieldMappingStoreState>(() => {
-    const loaded = loadFieldMappingStore(initialMappingDomain);
-    if (resumeAtLastStage && savedResume) {
+    const loaded = loadFieldMappingStore(initialMappingDomain, undergroundSubMode);
+    const initialResume = loadFieldMappingResumeState(initialMappingDomain, undergroundSubMode);
+    if (resumeAtLastStage && initialResume) {
       return {
         ...loaded,
-        activeProjectId: savedResume.activeProjectId || loaded.activeProjectId,
-        activeLocationId: savedResume.activeLocationId || loaded.activeLocationId,
-        activeRoundId: savedResume.activeRoundId || loaded.activeRoundId,
+        activeProjectId: initialResume.activeProjectId || loaded.activeProjectId,
+        activeLocationId: initialResume.activeLocationId || loaded.activeLocationId,
+        activeRoundId: initialResume.activeRoundId || loaded.activeRoundId,
       };
     }
     return loaded;
@@ -443,16 +461,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [hoveredMineIntervalId, setHoveredMineIntervalId] = useState<string | null>(null);
   const [isAdvanceGeologicalAnalysisOpen, setIsAdvanceGeologicalAnalysisOpen] = useState<boolean>(false);
 
-  // Debounced auto-save strictly to active mapping domain
+  // Debounced auto-save strictly to active mapping domain & underground sub-mode
   const latestStoreRef = useRef(store);
   latestStoreRef.current = store;
 
   useEffect(() => {
     if (initialMappingDomain !== mappingDomain) {
-      saveFieldMappingStore(latestStoreRef.current, mappingDomain);
+      saveFieldMappingStoreImmediate(
+        latestStoreRef.current,
+        mappingDomain,
+        undergroundSubModeRef.current
+      );
       setMappingDomain(initialMappingDomain);
       mappingDomainRef.current = initialMappingDomain;
-      const nextStore = loadFieldMappingStore(initialMappingDomain);
+      const nextStore = loadFieldMappingStore(
+        initialMappingDomain,
+        undergroundSubModeRef.current
+      );
       setStore(nextStore);
       latestStoreRef.current = nextStore;
     }
@@ -473,8 +498,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   const handleSelectMappingDomain = (nextDomain: MappingDomainType) => {
     if (nextDomain === mappingDomain) return;
-    // 1. Immediately flush/save active store to current domain's isolated key
-    saveFieldMappingStore(latestStoreRef.current, mappingDomain);
+    // 1. Immediately flush/save active store to current domain & sub-mode's isolated key
+    saveFieldMappingStoreImmediate(
+      latestStoreRef.current,
+      mappingDomain,
+      undergroundSubModeRef.current
+    );
 
     // 2. Switch domain
     setMappingDomain(nextDomain);
@@ -482,7 +511,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     if (onChangeMappingDomain) onChangeMappingDomain(nextDomain);
 
     // 3. Load target domain's independent store
-    const nextStore = loadFieldMappingStore(nextDomain);
+    const nextStore = loadFieldMappingStore(nextDomain, undergroundSubModeRef.current);
     setStore(nextStore);
     latestStoreRef.current = nextStore;
 
@@ -501,7 +530,67 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
   };
 
-  const domainPanelMap = useMemo(() => getSurfacePanelLabelMap(mappingDomain), [mappingDomain]);
+  const isVerticalShaftMode =
+    mappingDomain === 'TUNNEL' && undergroundSubMode === 'vertical_shaft';
+
+  const handleSelectUndergroundSubMode = (mode: 'tunnel' | 'vertical_shaft') => {
+    if (mode === undergroundSubModeRef.current) return;
+
+    // 1. Immediately flush/save the current sub-mode's store to its isolated key before switching
+    saveFieldMappingStoreImmediate(
+      latestStoreRef.current,
+      mappingDomainRef.current,
+      undergroundSubModeRef.current
+    );
+
+    // 2. Switch active underground sub-mode and persist user preference
+    setUndergroundSubMode(mode);
+    undergroundSubModeRef.current = mode;
+    try {
+      localStorage.setItem('eswa_active_underground_submode_v1', mode);
+    } catch {
+      // Ignore
+    }
+
+    // 3. Load the target sub-mode's completely independent store (zero data intersection)
+    const nextStore = loadFieldMappingStore(mappingDomainRef.current, mode);
+    setStore(nextStore);
+    latestStoreRef.current = nextStore;
+
+    // 4. Reset transient creation/editing form state so Tunnel and Vertical Shaft inputs never bleed across modes
+    setEditingProjectId(null);
+    setEditingLocationId(null);
+    setShowNewProjectForm(false);
+    setShowNewLocationForm(false);
+    setShowNewFaceModal(false);
+    setNewProjName('');
+    setNewLocName('');
+    setNewLocShape(mode === 'vertical_shaft' ? 'circular' : '');
+    setNewLocWidth('');
+    setNewLocHeight('');
+    setNewLocWallHeight('');
+    setNewLocCrownRadius('');
+    setNewLocAzimuth('');
+    setNewLocInclination('90');
+    setLocValidationAttempted(false);
+    setFaceValidationAttempted(false);
+    setSetupWizardToast(null);
+    if (mode === 'tunnel' && activePanel === 'shaft_sn') {
+      setActivePanel('face');
+    }
+    if (!nextStore.activeProjectId) {
+      setSetupWindowStep('project');
+    } else if (!nextStore.activeLocationId) {
+      setSetupWindowStep('location');
+    } else {
+      setSetupWindowStep('face');
+    }
+  };
+
+  const domainPanelMap = useMemo(
+    () => getSurfacePanelLabelMap(mappingDomain, isVerticalShaftMode),
+    [mappingDomain, isVerticalShaftMode]
+  );
 
   const formatProjectNameForDomain = (rawName: string): string => {
     if (mappingDomain === 'TUNNEL') return rawName;
@@ -535,14 +624,22 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   }, [workflowMode, stage]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      saveFieldMappingStore(latestStoreRef.current, mappingDomainRef.current);
+      saveFieldMappingStore(
+        latestStoreRef.current,
+        mappingDomainRef.current,
+        undergroundSubModeRef.current
+      );
     }, 350);
     return () => window.clearTimeout(timer);
   }, [store]);
 
   useEffect(() => {
     const flushStoreNow = () => {
-      saveFieldMappingStore(latestStoreRef.current, mappingDomainRef.current);
+      saveFieldMappingStoreImmediate(
+        latestStoreRef.current,
+        mappingDomainRef.current,
+        undergroundSubModeRef.current
+      );
     };
     window.addEventListener('beforeunload', flushStoreNow);
     return () => {
@@ -693,10 +790,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   }, [stage, activeRound?.id, activeProject, activeLocation]);
 
   // Continuous background synchronization:
-  // Whenever traces or parameters update on Face, Left Wall, Crown, or Right Wall,
+  // Whenever traces or parameters update on Face, Left Wall, Crown, or Right Wall in Tunnel mode,
   // automatically synchronize with continuous 3D strip datasets in the background!
+  // Strictly isolated: Vertical Shaft mode never mutates or writes into Tunnel's Continuous 3D Strip Datasets.
   useEffect(() => {
     if (!activeRound || !activeLocation) return;
+    if (isVerticalShaftMode || activeLocation.undergroundSubMode === 'vertical_shaft') return;
     try {
       const fromSt = activeRound.chainageFrom || '';
       const toSt = activeRound.chainageTo || '';
@@ -914,6 +1013,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [newLocWallHeight, setNewLocWallHeight] = useState<string>('');
   const [newLocCrownRadius, setNewLocCrownRadius] = useState<string>('');
   const [newLocAzimuth, setNewLocAzimuth] = useState<string>('');
+  const [newLocInclination, setNewLocInclination] = useState<string>('90');
   const [newLocExcavationMode, setNewLocExcavationMode] = useState('');
   const [newLocExcavationApproach, setNewLocExcavationApproach] = useState('Full Face');
   const [locValidationAttempted, setLocValidationAttempted] = useState(false);
@@ -950,6 +1050,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [editLocWallHeight, setEditLocWallHeight] = useState(4.0);
   const [editLocCrownRadius, setEditLocCrownRadius] = useState(4.25);
   const [editLocAzimuth, setEditLocAzimuth] = useState(45);
+  const [editLocInclination, setEditLocInclination] = useState(90);
   const [editLocExcavationMode, setEditLocExcavationMode] = useState('Drill & Blast (Full Face)');
   const [editLocExcavationApproach, setEditLocExcavationApproach] = useState('Full Face');
 
@@ -1167,6 +1268,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     const timer = window.setTimeout(() => {
       const curDom = mappingDomainRef.current;
       if (curDom === 'TUNNEL') {
+        const curSub = undergroundSubModeRef.current;
         saveFieldMappingResumeState(
           {
             stage,
@@ -1176,6 +1278,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             activePanel,
             is3DMappingMode,
             mappingDomain: 'TUNNEL',
+            undergroundSubMode: curSub,
             chainageLabel: activeRound
               ? `CH ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
               : 'Field Session',
@@ -1183,7 +1286,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             stageLabel: FIELD_STAGE_LABELS[stage] || stage,
             updatedAt: new Date().toISOString(),
           },
-          'TUNNEL'
+          'TUNNEL',
+          curSub
         );
       } else {
         saveSurfaceMappingResumeState({
@@ -1370,8 +1474,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     updateActiveRound((r) => {
       const current = getFieldPanelTransform(r, panel, mode);
       const next = updater(current);
-      // Persist as Ideal Position so all rounds retain the user's preferred panel orientation/position
-      saveIdealPanelTransform(panel, next, mode);
+      // Persist as Ideal Position isolated by domain and underground sub-mode (Tunnel vs Vertical Shaft)
+      saveIdealPanelTransform(
+        panel,
+        next,
+        mode,
+        mappingDomainRef.current,
+        undergroundSubModeRef.current
+      );
       if (mode === 'joint_grouping') {
         return {
           ...r,
@@ -1396,7 +1506,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     const mode: FieldTransformStageMode =
       stage === 'joint_grouping' ? 'joint_grouping' : 'field_canvas';
     const current = getFieldPanelTransform(activeRound, panel, mode);
-    saveIdealPanelTransform(panel, current, mode);
+    saveIdealPanelTransform(
+      panel,
+      current,
+      mode,
+      mappingDomainRef.current,
+      undergroundSubModeRef.current
+    );
     setIsPanelMoveMode(false);
     setStore((prev) => ({
       ...prev,
@@ -4472,15 +4588,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     const locId = `floc-${Date.now() + 1}`;
     const defaultLoc: FieldTunnelLocationItem = {
       id: locId,
-      name: 'Main Drive - Face 1',
-      shape: 'd_shaped',
-      widthM: 8.5,
-      heightM: 7.5,
+      name: isVerticalShaftMode ? 'Vertical Shaft - Sinking Stage 1' : 'Main Drive - Face 1',
+      shape: isVerticalShaftMode ? 'circular' : 'd_shaped',
+      widthM: isVerticalShaftMode ? 8.0 : 8.5,
+      heightM: isVerticalShaftMode ? 8.0 : 7.5,
       wallHeightM: 4.0,
-      crownRadiusM: 4.25,
+      crownRadiusM: isVerticalShaftMode ? 4.0 : 4.25,
       defaultDriveAzimuth: 45,
+      shaftInclinationDeg: isVerticalShaftMode ? 90 : undefined,
+      undergroundSubMode: undergroundSubMode,
       defaultExcavationMode: 'Drill & Blast (Full Face)',
-      defaultExcavationApproach: 'Heading & Bench',
+      defaultExcavationApproach: isVerticalShaftMode ? 'Full Face' : 'Heading & Bench',
       rememberedRockTypes: [],
     };
     const newProj: FieldProjectItem = {
@@ -4492,6 +4610,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       createdAt: new Date().toISOString(),
       locations: [defaultLoc],
       customWordTemplate: null,
+      undergroundSubMode: undergroundSubMode,
     };
     const newRound = createDefaultExcavationRound(projId, defaultLoc, '100.0', 3.0);
     setStore((prev) => ({
@@ -4522,27 +4641,51 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
 
     if (mappingDomain === 'TUNNEL') {
-      if (!newLocShape) {
+      const resolvedShape: FieldTunnelShapeType | '' = isVerticalShaftMode
+        ? 'circular'
+        : newLocShape;
+      if (!resolvedShape) {
         setSetupWizardToast('Please select a Tunnel Shape from the dropdown (No Selection currently).');
         newLocShapeSelectRef.current?.focus();
         return;
       }
       const w = parseFloat(newLocWidth);
       if (isNaN(w) || w <= 0) {
-        setSetupWizardToast('Tunnel Width / Span is required (must be > 0 m).');
+        setSetupWizardToast(
+          isVerticalShaftMode
+            ? 'Shaft Width / Diameter is required (must be > 0 m).'
+            : 'Tunnel Width / Span is required (must be > 0 m).'
+        );
         newLocWidthInputRef.current?.focus();
         return;
       }
-      const h = parseFloat(newLocHeight);
+      const h = isVerticalShaftMode ? w : parseFloat(newLocHeight);
       if (isNaN(h) || h <= 0) {
         setSetupWizardToast('Tunnel Height is required (must be > 0 m).');
         newLocHeightInputRef.current?.focus();
         return;
       }
+      if (isVerticalShaftMode) {
+        const azCheck = parseFloat(newLocAzimuth);
+        if (newLocAzimuth.trim() === '' || isNaN(azCheck)) {
+          setSetupWizardToast('Shaft Reference Azimuth (°) is required.');
+          return;
+        }
+        const inclCheck = parseFloat(newLocInclination);
+        if (newLocInclination.trim() === '' || isNaN(inclCheck)) {
+          setSetupWizardToast('Shaft Inclination (°) is required.');
+          return;
+        }
+      }
 
-      const wallH = parseFloat(newLocWallHeight) || Number((h * 0.55).toFixed(2));
-      const crownR = parseFloat(newLocCrownRadius) || Number((w * 0.5).toFixed(2));
+      const wallH = isVerticalShaftMode
+        ? Number((w * 0.5).toFixed(2))
+        : parseFloat(newLocWallHeight) || Number((h * 0.55).toFixed(2));
+      const crownR = isVerticalShaftMode
+        ? Number((w * 0.5).toFixed(2))
+        : parseFloat(newLocCrownRadius) || Number((w * 0.5).toFixed(2));
       const az = parseFloat(newLocAzimuth) || 0;
+      const incl = parseFloat(newLocInclination) || 90;
 
       const locId = `floc-${Date.now()}`;
       const evalNewCustom = newLocCustomGeometry?.customProfile
@@ -4551,7 +4694,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       const loc: FieldTunnelLocationItem = {
         id: locId,
         name: trimmedName,
-        shape: newLocShape as FieldTunnelShapeType,
+        shape: resolvedShape as FieldTunnelShapeType,
         widthM: w,
         heightM: h,
         wallHeightM: wallH,
@@ -4566,6 +4709,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           ? Number(evalNewCustom.rightWallArcLength.toFixed(2))
           : newLocCustomGeometry?.rightWallHeight,
         defaultDriveAzimuth: az,
+        shaftInclinationDeg: isVerticalShaftMode ? incl : undefined,
+        undergroundSubMode: undergroundSubMode,
         defaultExcavationMode: newLocExcavationMode.trim() || 'Drill & Blast (Full Face)',
         defaultExcavationApproach: newLocExcavationApproach.trim() || 'Full Face',
         customCrossSectionPoints: newLocCustomPoints,
@@ -4583,12 +4728,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeRoundId: newRound.id,
       }));
       setNewLocName('');
-      setNewLocShape('');
+      setNewLocShape(isVerticalShaftMode ? 'circular' : '');
       setNewLocWidth('');
       setNewLocHeight('');
       setNewLocWallHeight('');
       setNewLocCrownRadius('');
       setNewLocAzimuth('');
+      setNewLocInclination('90');
       setNewLocCustomPoints(undefined);
       setNewLocCustomGeometry(undefined);
       setLocValidationAttempted(false);
@@ -4684,12 +4830,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     requestEditConfirmation('location', formatDomainLocName(loc.name), () => {
       setEditingLocationId(loc.id);
       setEditLocName(loc.name);
-      setEditLocShape(loc.shape || 'd_shaped');
+      setEditLocShape(isVerticalShaftMode ? 'circular' : loc.shape || 'd_shaped');
       setEditLocWidth(loc.widthM || 8.5);
-      setEditLocHeight(loc.heightM || 7.5);
+      setEditLocHeight(isVerticalShaftMode ? loc.widthM || 8.5 : loc.heightM || 7.5);
       setEditLocWallHeight(loc.wallHeightM || Number(((loc.heightM || 7.5) * 0.55).toFixed(2)));
       setEditLocCrownRadius(loc.crownRadiusM || Number(((loc.widthM || 8.5) * 0.5).toFixed(2)));
       setEditLocAzimuth(loc.defaultDriveAzimuth || 45);
+      setEditLocInclination(loc.shaftInclinationDeg ?? 90);
       setEditLocExcavationMode(loc.defaultExcavationMode || 'Drill & Blast (Full Face)');
       setEditLocExcavationApproach(loc.defaultExcavationApproach || 'Full Face');
     });
@@ -4698,10 +4845,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const handleSaveEditLocation = (locId: string) => {
     if (!activeProject || !editLocName.trim()) return;
     const w = Number(editLocWidth) || 8.5;
-    const h = Number(editLocHeight) || 7.5;
-    const wallH = Number(editLocWallHeight) || Number((h * 0.55).toFixed(2));
-    const crownR = Number(editLocCrownRadius) || Number((w * 0.5).toFixed(2));
-    const az = Number(editLocAzimuth) || 45;
+    const h = isVerticalShaftMode ? w : Number(editLocHeight) || 7.5;
+    const wallH = isVerticalShaftMode
+      ? Number((w * 0.5).toFixed(2))
+      : Number(editLocWallHeight) || Number((h * 0.55).toFixed(2));
+    const crownR = isVerticalShaftMode
+      ? Number((w * 0.5).toFixed(2))
+      : Number(editLocCrownRadius) || Number((w * 0.5).toFixed(2));
+    const az = Number(editLocAzimuth) || 0;
+    const incl = Number(editLocInclination) || 90;
 
     setStore((prev) => ({
       ...prev,
@@ -4714,12 +4866,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             return {
               ...l,
               name: editLocName.trim(),
-              shape: editLocShape,
+              shape: isVerticalShaftMode ? 'circular' : editLocShape,
               widthM: w,
               heightM: h,
               wallHeightM: wallH,
               crownRadiusM: crownR,
               defaultDriveAzimuth: az,
+              shaftInclinationDeg: isVerticalShaftMode ? incl : l.shaftInclinationDeg,
+              undergroundSubMode: undergroundSubMode,
               defaultExcavationMode: editLocExcavationMode.trim() || l.defaultExcavationMode,
               defaultExcavationApproach: editLocExcavationApproach.trim() || l.defaultExcavationApproach,
             };
@@ -4813,7 +4967,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   // Helper to update Chainage From or Pull and automatically recalculate Chainage To
   const handleUpdateChainageAndPull = (newChainageFrom: string, newPullM: number) => {
-    const parsedFrom = parseFloat(newChainageFrom.replace(/[^0-9.]/g, '')) || 0;
+    const raw = (newChainageFrom || '').trim();
+    const stationMatch = raw.match(/([+-]?\d+)\s*\+\s*(\d+(?:\.\d+)?)/);
+    let parsedFrom = 0;
+    if (stationMatch) {
+      const km = parseFloat(stationMatch[1]);
+      const m = parseFloat(stationMatch[2]);
+      if (Number.isFinite(km) && Number.isFinite(m)) {
+        parsedFrom = km * 1000 + m;
+      }
+    } else {
+      const numMatch = raw.match(/[+-]?\d+(?:\.\d+)?/);
+      if (numMatch) {
+        parsedFrom = parseFloat(numMatch[0]) || 0;
+      }
+    }
     const pull = Math.max(0.1, Number(newPullM) || 0);
     const computedTo = (parsedFrom + pull).toFixed(1);
     updateActiveRound((r) => ({
@@ -5254,6 +5422,32 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             </div>
 
             <div className="flex items-center gap-1.5">
+              {mappingDomain === 'TUNNEL' && (
+                <div className="flex items-center bg-slate-950 border border-slate-700 rounded-lg p-0.5 mr-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectUndergroundSubMode('tunnel')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-black transition-all cursor-pointer ${
+                      undergroundSubMode === 'tunnel'
+                        ? 'bg-amber-500 text-slate-950 shadow'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    Tunnel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectUndergroundSubMode('vertical_shaft')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-black transition-all cursor-pointer ${
+                      undergroundSubMode === 'vertical_shaft'
+                        ? 'bg-cyan-400 text-slate-950 shadow'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    Vertical Shaft
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() =>
@@ -5346,11 +5540,39 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 : 'md:col-span-4'
             } min-h-[220px] md:min-h-0 h-full bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 flex flex-col overflow-hidden`}
           >
-            <div className="flex items-center justify-between mb-2 gap-1">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                <FolderPlus className="w-4 h-4" />
-                1. Select Existing Project or Create New
-              </h2>
+            <div className="flex flex-wrap items-center justify-between mb-2 gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                  <FolderPlus className="w-4 h-4" />
+                  1. Select Existing Project or Create New
+                </h2>
+                {mappingDomain === 'TUNNEL' && (
+                  <div className="inline-flex items-center bg-slate-950 border border-slate-700 rounded-lg p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectUndergroundSubMode('tunnel')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer ${
+                        undergroundSubMode === 'tunnel'
+                          ? 'bg-amber-500 text-slate-950 shadow'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      Tunnel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectUndergroundSubMode('vertical_shaft')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer ${
+                        undergroundSubMode === 'vertical_shaft'
+                          ? 'bg-cyan-400 text-slate-950 shadow'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      Vertical Shaft
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -5818,76 +6040,134 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </div>
 
                   {mappingDomain === 'TUNNEL' ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <div>
-                        <div className="flex items-center justify-between mb-0.5">
-                          <label className="block text-[9.5px] font-bold text-slate-400">Tunnel Shape</label>
+                    isVerticalShaftMode ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                        <div>
+                          <label className="block text-[9.5px] font-bold text-cyan-300 mb-0.5">
+                            Shaft Shape (Circular Only)
+                          </label>
+                          <input
+                            type="text"
+                            readOnly
+                            value="Circular (Vertical Shaft)"
+                            className="w-full bg-slate-900 border border-cyan-500/50 rounded px-2 py-1 text-xs text-cyan-300 font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9.5px] font-bold text-amber-300 mb-0.5">
+                            Azimuth (°) *
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={360}
+                            placeholder="e.g. 0"
+                            value={newLocAzimuth}
+                            onChange={(e) => {
+                              setNewLocAzimuth(e.target.value);
+                              if (setupWizardToast) setSetupWizardToast(null);
+                            }}
+                            className={`w-full bg-slate-900 border rounded px-2 py-1 text-xs text-white font-mono ${
+                              locValidationAttempted && newLocAzimuth.trim() === ''
+                                ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                                : 'border-slate-700'
+                            }`}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9.5px] font-bold text-amber-300 mb-0.5">
+                            Inclination (°) *
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={90}
+                            placeholder="e.g. 90"
+                            value={newLocInclination}
+                            onChange={(e) => {
+                              setNewLocInclination(e.target.value);
+                              if (setupWizardToast) setSetupWizardToast(null);
+                            }}
+                            className={`w-full bg-slate-900 border rounded px-2 py-1 text-xs text-white font-mono ${
+                              locValidationAttempted && newLocInclination.trim() === ''
+                                ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                                : 'border-slate-700'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        <div>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <label className="block text-[9.5px] font-bold text-slate-400">Tunnel Shape</label>
+                            {newLocShape === 'freeform_custom' && (
+                              <button
+                                type="button"
+                                onClick={() => setCustomBuilderTarget('new_location')}
+                                className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-bold text-[9px] flex items-center gap-1 cursor-pointer"
+                                title="Open Quick Sketch Shape Creator"
+                              >
+                                <span>✏️ Shape Creator</span>
+                              </button>
+                            )}
+                          </div>
+                          <select
+                            ref={newLocShapeSelectRef}
+                            value={newLocShape}
+                            onChange={(e) => {
+                              const val = e.target.value as FieldTunnelShapeType | '';
+                              setNewLocShape(val);
+                              if (setupWizardToast) setSetupWizardToast(null);
+                              if (val === 'freeform_custom') {
+                                setCustomBuilderTarget('new_location');
+                              }
+                            }}
+                            onClick={(e) => {
+                              const target = e.target as HTMLSelectElement;
+                              if (target.value === 'freeform_custom') {
+                                setCustomBuilderTarget('new_location');
+                              }
+                            }}
+                            className={`w-full bg-slate-900 border rounded px-2 py-1 text-xs text-white focus:outline-none ${
+                              locValidationAttempted && !newLocShape
+                                ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                                : 'border-slate-700 focus:border-amber-400'
+                            }`}
+                          >
+                            <option value="">-- Select Tunnel Shape (No Selection) --</option>
+                            {FIELD_TUNNEL_SHAPES.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
                           {newLocShape === 'freeform_custom' && (
-                            <button
-                              type="button"
-                              onClick={() => setCustomBuilderTarget('new_location')}
-                              className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-bold text-[9px] flex items-center gap-1 cursor-pointer"
-                              title="Open Quick Sketch Shape Creator"
-                            >
-                              <span>✏️ Shape Creator</span>
-                            </button>
+                            <div className="mt-1 flex items-center justify-between gap-1 p-1 bg-amber-500/10 border border-amber-500/30 rounded text-[9.5px] text-amber-300">
+                              <span>Custom profile active ({newLocCustomPoints?.length || 0} pts)</span>
+                              <button
+                                type="button"
+                                onClick={() => setCustomBuilderTarget('new_location')}
+                                className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-black cursor-pointer hover:bg-amber-400"
+                              >
+                                Open Shape Creator →
+                              </button>
+                            </div>
                           )}
                         </div>
-                        <select
-                          ref={newLocShapeSelectRef}
-                          value={newLocShape}
-                          onChange={(e) => {
-                            const val = e.target.value as FieldTunnelShapeType | '';
-                            setNewLocShape(val);
-                            if (setupWizardToast) setSetupWizardToast(null);
-                            if (val === 'freeform_custom') {
-                              setCustomBuilderTarget('new_location');
-                            }
-                          }}
-                          onClick={(e) => {
-                            const target = e.target as HTMLSelectElement;
-                            if (target.value === 'freeform_custom') {
-                              setCustomBuilderTarget('new_location');
-                            }
-                          }}
-                          className={`w-full bg-slate-900 border rounded px-2 py-1 text-xs text-white focus:outline-none ${
-                            locValidationAttempted && !newLocShape
-                              ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
-                              : 'border-slate-700 focus:border-amber-400'
-                          }`}
-                        >
-                          <option value="">-- Select Tunnel Shape (No Selection) --</option>
-                          {FIELD_TUNNEL_SHAPES.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.label}
-                            </option>
-                          ))}
-                        </select>
-                        {newLocShape === 'freeform_custom' && (
-                          <div className="mt-1 flex items-center justify-between gap-1 p-1 bg-amber-500/10 border border-amber-500/30 rounded text-[9.5px] text-amber-300">
-                            <span>Custom profile active ({newLocCustomPoints?.length || 0} pts)</span>
-                            <button
-                              type="button"
-                              onClick={() => setCustomBuilderTarget('new_location')}
-                              className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-black cursor-pointer hover:bg-amber-400"
-                            >
-                              Open Shape Creator →
-                            </button>
-                          </div>
-                        )}
+                        <div>
+                          <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">Drive Azimuth (°)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={360}
+                            value={newLocAzimuth}
+                            onChange={(e) => setNewLocAzimuth(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">Drive Azimuth (°)</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={360}
-                          value={newLocAzimuth}
-                          onChange={(e) => setNewLocAzimuth(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
-                        />
-                      </div>
-                    </div>
+                    )
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       <div>
@@ -5925,10 +6205,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  <div className={`grid ${isVerticalShaftMode ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-4'} gap-1.5`}>
                     <div>
                       <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
-                        {mappingDomain === 'TUNNEL'
+                        {isVerticalShaftMode
+                          ? 'Width / Shaft Diameter (m) *'
+                          : mappingDomain === 'TUNNEL'
                           ? 'Width / Span (m)'
                           : mappingDomain === 'TRENCH'
                           ? 'Trench Width Wt (m)'
@@ -5938,7 +6220,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         ref={newLocWidthInputRef}
                         type="number"
                         step={0.1}
-                        placeholder="e.g. 8.4"
+                        placeholder="e.g. 8.0"
                         value={newLocWidth}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -5946,6 +6228,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           const w = Number(val);
                           if (!isNaN(w) && w > 0) {
                             setNewLocCrownRadius(String(Number((w * 0.5).toFixed(2))));
+                            if (isVerticalShaftMode) {
+                              setNewLocHeight(String(w));
+                              setNewLocWallHeight(String(Number((w * 0.5).toFixed(2))));
+                            }
                           }
                           if (setupWizardToast) setSetupWizardToast(null);
                         }}
@@ -5956,41 +6242,43 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         }`}
                       />
                     </div>
-                    <div>
-                      <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
-                        {mappingDomain === 'TUNNEL'
-                          ? 'Height (m)'
-                          : mappingDomain === 'BENCH'
-                          ? 'Bench Height Hb (m)'
-                          : mappingDomain === 'TRENCH'
-                          ? 'Trench Depth Dt (m)'
-                          : mappingDomain === 'ROCK_SURFACE'
-                          ? 'Exposure Height Hr (m)'
-                          : 'Slope Height Hs (m)'}
-                      </label>
-                      <input
-                        ref={newLocHeightInputRef}
-                        type="number"
-                        step={0.1}
-                        placeholder="e.g. 7.2"
-                        value={newLocHeight}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setNewLocHeight(val);
-                          const h = Number(val);
-                          if (!isNaN(h) && h > 0) {
-                            setNewLocWallHeight(String(Number((h * 0.55).toFixed(2))));
-                          }
-                          if (setupWizardToast) setSetupWizardToast(null);
-                        }}
-                        className={`w-full bg-slate-900 border rounded px-2 py-1 text-xs text-white font-mono focus:outline-none ${
-                          locValidationAttempted && (!newLocHeight || Number(newLocHeight) <= 0)
-                            ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
-                            : 'border-slate-700 focus:border-amber-400'
-                        }`}
-                      />
-                    </div>
-                    {mappingDomain === 'TUNNEL' && (
+                    {!isVerticalShaftMode && (
+                      <div>
+                        <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                          {mappingDomain === 'TUNNEL'
+                            ? 'Height (m)'
+                            : mappingDomain === 'BENCH'
+                            ? 'Bench Height Hb (m)'
+                            : mappingDomain === 'TRENCH'
+                            ? 'Trench Depth Dt (m)'
+                            : mappingDomain === 'ROCK_SURFACE'
+                            ? 'Exposure Height Hr (m)'
+                            : 'Slope Height Hs (m)'}
+                        </label>
+                        <input
+                          ref={newLocHeightInputRef}
+                          type="number"
+                          step={0.1}
+                          placeholder="e.g. 7.2"
+                          value={newLocHeight}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setNewLocHeight(val);
+                            const h = Number(val);
+                            if (!isNaN(h) && h > 0) {
+                              setNewLocWallHeight(String(Number((h * 0.55).toFixed(2))));
+                            }
+                            if (setupWizardToast) setSetupWizardToast(null);
+                          }}
+                          className={`w-full bg-slate-900 border rounded px-2 py-1 text-xs text-white font-mono focus:outline-none ${
+                            locValidationAttempted && (!newLocHeight || Number(newLocHeight) <= 0)
+                              ? 'border-rose-500 ring-2 ring-rose-500/25 bg-rose-500/10'
+                              : 'border-slate-700 focus:border-amber-400'
+                          }`}
+                        />
+                      </div>
+                    )}
+                    {mappingDomain === 'TUNNEL' && !isVerticalShaftMode && (
                       <>
                         <div>
                           <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
@@ -6136,81 +6424,123 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         </div>
 
                         {mappingDomain === 'TUNNEL' ? (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                            <div>
-                              <div className="flex items-center justify-between mb-0.5">
-                                <label className="block text-[9.5px] font-bold text-slate-400">
-                                  Tunnel Shape
+                          isVerticalShaftMode ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                              <div>
+                                <label className="block text-[9.5px] font-bold text-cyan-300 mb-0.5">
+                                  Shaft Shape (Circular Only)
                                 </label>
-                                {editLocShape === 'freeform_custom' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
+                                <input
+                                  type="text"
+                                  readOnly
+                                  value="Circular (Vertical Shaft)"
+                                  className="w-full bg-slate-900 border border-cyan-500/50 rounded px-2 py-1 text-xs text-cyan-300 font-bold"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9.5px] font-bold text-amber-300 mb-0.5">
+                                  Azimuth (°) *
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={360}
+                                  value={editLocAzimuth}
+                                  onChange={(e) => setEditLocAzimuth(Number(e.target.value))}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9.5px] font-bold text-amber-300 mb-0.5">
+                                  Inclination (°) *
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={90}
+                                  value={editLocInclination}
+                                  onChange={(e) => setEditLocInclination(Number(e.target.value))}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              <div>
+                                <div className="flex items-center justify-between mb-0.5">
+                                  <label className="block text-[9.5px] font-bold text-slate-400">
+                                    Tunnel Shape
+                                  </label>
+                                  {editLocShape === 'freeform_custom' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCustomBuilderLocationId(loc.id);
+                                        setCustomBuilderTarget('edit_location');
+                                      }}
+                                      className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-bold text-[9px] flex items-center gap-1 cursor-pointer"
+                                      title="Open Quick Sketch Shape Creator"
+                                    >
+                                      <span>✏️ Shape Creator</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <select
+                                  value={editLocShape}
+                                  onChange={(e) => {
+                                    const val = e.target.value as FieldTunnelShapeType;
+                                    setEditLocShape(val);
+                                    if (val === 'freeform_custom') {
                                       setCustomBuilderLocationId(loc.id);
                                       setCustomBuilderTarget('edit_location');
-                                    }}
-                                    className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-bold text-[9px] flex items-center gap-1 cursor-pointer"
-                                    title="Open Quick Sketch Shape Creator"
-                                  >
-                                    <span>✏️ Shape Creator</span>
-                                  </button>
+                                    }
+                                  }}
+                                  onClick={(e) => {
+                                    const target = e.target as HTMLSelectElement;
+                                    if (target.value === 'freeform_custom') {
+                                      setCustomBuilderLocationId(loc.id);
+                                      setCustomBuilderTarget('edit_location');
+                                    }
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                                >
+                                  {FIELD_TUNNEL_SHAPES.map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                      {s.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {editLocShape === 'freeform_custom' && (
+                                  <div className="mt-1 flex items-center justify-between gap-1 p-1 bg-amber-500/10 border border-amber-500/30 rounded text-[9.5px] text-amber-300">
+                                    <span>Custom profile active ({loc.customCrossSectionPoints?.length || 0} pts)</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCustomBuilderLocationId(loc.id);
+                                        setCustomBuilderTarget('edit_location');
+                                      }}
+                                      className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-black cursor-pointer hover:bg-amber-400"
+                                    >
+                                      Open Shape Creator →
+                                    </button>
+                                  </div>
                                 )}
                               </div>
-                              <select
-                                value={editLocShape}
-                                onChange={(e) => {
-                                  const val = e.target.value as FieldTunnelShapeType;
-                                  setEditLocShape(val);
-                                  if (val === 'freeform_custom') {
-                                    setCustomBuilderLocationId(loc.id);
-                                    setCustomBuilderTarget('edit_location');
-                                  }
-                                }}
-                                onClick={(e) => {
-                                  const target = e.target as HTMLSelectElement;
-                                  if (target.value === 'freeform_custom') {
-                                    setCustomBuilderLocationId(loc.id);
-                                    setCustomBuilderTarget('edit_location');
-                                  }
-                                }}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
-                              >
-                                {FIELD_TUNNEL_SHAPES.map((s) => (
-                                  <option key={s.id} value={s.id}>
-                                    {s.label}
-                                  </option>
-                                ))}
-                              </select>
-                              {editLocShape === 'freeform_custom' && (
-                                <div className="mt-1 flex items-center justify-between gap-1 p-1 bg-amber-500/10 border border-amber-500/30 rounded text-[9.5px] text-amber-300">
-                                  <span>Custom profile active ({loc.customCrossSectionPoints?.length || 0} pts)</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setCustomBuilderLocationId(loc.id);
-                                      setCustomBuilderTarget('edit_location');
-                                    }}
-                                    className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-black cursor-pointer hover:bg-amber-400"
-                                  >
-                                    Open Shape Creator →
-                                  </button>
-                                </div>
-                              )}
+                              <div>
+                                <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                                  Drive Azimuth (°)
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={360}
+                                  value={editLocAzimuth}
+                                  onChange={(e) => setEditLocAzimuth(Number(e.target.value))}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                                />
+                              </div>
                             </div>
-                            <div>
-                              <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
-                                Drive Azimuth (°)
-                              </label>
-                              <input
-                                type="number"
-                                min={0}
-                                max={360}
-                                value={editLocAzimuth}
-                                onChange={(e) => setEditLocAzimuth(Number(e.target.value))}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
-                              />
-                            </div>
-                          </div>
+                          )
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                             <div>
@@ -6240,10 +6570,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           </div>
                         )}
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        <div className={`grid ${isVerticalShaftMode ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-4'} gap-1.5`}>
                           <div>
                             <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
-                              {mappingDomain === 'TUNNEL'
+                              {isVerticalShaftMode
+                                ? 'Width / Shaft Diameter (m) *'
+                                : mappingDomain === 'TUNNEL'
                                 ? 'Width (m)'
                                 : mappingDomain === 'TRENCH'
                                 ? 'Width Wt (m)'
@@ -6257,33 +6589,39 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 const w = Number(e.target.value);
                                 setEditLocWidth(w);
                                 setEditLocCrownRadius(Number((w * 0.5).toFixed(2)));
+                                if (isVerticalShaftMode) {
+                                  setEditLocHeight(w);
+                                  setEditLocWallHeight(Number((w * 0.5).toFixed(2)));
+                                }
                               }}
                               className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
-                              {mappingDomain === 'TUNNEL'
-                                ? 'Height (m)'
-                                : mappingDomain === 'BENCH'
-                                ? 'Height Hb (m)'
-                                : mappingDomain === 'TRENCH'
-                                ? 'Depth Dt (m)'
-                                : 'Height (m)'}
-                            </label>
-                            <input
-                              type="number"
-                              step={0.1}
-                              value={editLocHeight}
-                              onChange={(e) => {
-                                const h = Number(e.target.value);
-                                setEditLocHeight(h);
-                                setEditLocWallHeight(Number((h * 0.55).toFixed(2)));
-                              }}
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
-                            />
-                          </div>
-                          {mappingDomain === 'TUNNEL' && (
+                          {!isVerticalShaftMode && (
+                            <div>
+                              <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
+                                {mappingDomain === 'TUNNEL'
+                                  ? 'Height (m)'
+                                  : mappingDomain === 'BENCH'
+                                  ? 'Height Hb (m)'
+                                  : mappingDomain === 'TRENCH'
+                                  ? 'Depth Dt (m)'
+                                  : 'Height (m)'}
+                              </label>
+                              <input
+                                type="number"
+                                step={0.1}
+                                value={editLocHeight}
+                                onChange={(e) => {
+                                  const h = Number(e.target.value);
+                                  setEditLocHeight(h);
+                                  setEditLocWallHeight(Number((h * 0.55).toFixed(2)));
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                              />
+                            </div>
+                          )}
+                          {mappingDomain === 'TUNNEL' && !isVerticalShaftMode && (
                             <>
                               <div>
                                 <label className="block text-[9.5px] font-bold text-slate-400 mb-0.5">
@@ -10377,6 +10715,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           ...(tLayout.faceGeom.hasRightWall
                             ? (['right_wall'] as FieldPanelId[])
                             : []),
+                          ...(isVerticalShaftMode ||
+                          activeLocation.undergroundSubMode === 'vertical_shaft'
+                            ? (['shaft_sn'] as FieldPanelId[])
+                            : []),
                           'face',
                         ]
                       : [activePanel];
@@ -12225,18 +12567,35 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         activeLocation,
                         activeRound
                       );
-                      const availableTabs: [FieldPanelId, string][] = [
-                        ['face', domainPanelMap.face.shortLabel],
-                        ...(fGeomBottom.hasLeftWall
-                          ? ([['left_wall', domainPanelMap.leftWall.shortLabel]] as [FieldPanelId, string][])
-                          : []),
-                        ...(fGeomBottom.hasRightWall
-                          ? ([['right_wall', domainPanelMap.rightWall.shortLabel]] as [FieldPanelId, string][])
-                          : []),
-                        ...(fGeomBottom.hasCrown
-                          ? ([['crown', domainPanelMap.crown.shortLabel]] as [FieldPanelId, string][])
-                          : []),
-                      ];
+                      const availableTabs: [FieldPanelId, string][] = isVerticalShaftMode
+                        ? [
+                            ['face', domainPanelMap.face.shortLabel],
+                            ['left_wall', domainPanelMap.leftWall.shortLabel],
+                            ['crown', domainPanelMap.crown.shortLabel],
+                            ['right_wall', domainPanelMap.rightWall.shortLabel],
+                            ['shaft_sn', domainPanelMap.shaftSn?.shortLabel || 'SN'],
+                          ]
+                        : [
+                            ['face', domainPanelMap.face.shortLabel],
+                            ...(fGeomBottom.hasLeftWall
+                              ? ([['left_wall', domainPanelMap.leftWall.shortLabel]] as [
+                                  FieldPanelId,
+                                  string,
+                                ][])
+                              : []),
+                            ...(fGeomBottom.hasRightWall
+                              ? ([['right_wall', domainPanelMap.rightWall.shortLabel]] as [
+                                  FieldPanelId,
+                                  string,
+                                ][])
+                              : []),
+                            ...(fGeomBottom.hasCrown
+                              ? ([['crown', domainPanelMap.crown.shortLabel]] as [
+                                  FieldPanelId,
+                                  string,
+                                ][])
+                              : []),
+                          ];
                       return availableTabs.map(([pid, label]) => (
                         <button
                           key={pid}
@@ -12292,7 +12651,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     data-action="navigate-to-group-joints"
                     className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] sm:text-xs uppercase tracking-wider flex items-center gap-1 shadow whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <span>5. Group Joints (All 4) →</span>
+                    <span>
+                      5. Group Joints ({isVerticalShaftMode ? 'All 5' : 'All 4'}) →
+                    </span>
                   </button>
                 </>
               ) : (
@@ -14437,6 +14798,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               mappingDomain={mappingDomain}
               surfaceParams={surfaceParams}
               surfaceSmrAnalysis={surfaceSmrAnalysis}
+              activeExcavationApproach={activeRound?.excavationApproach || 'full_face'}
               geometry={(() => {
                 const baseShape =
                   activeLocation?.shape === 'horseshoe'
@@ -14450,19 +14812,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     : activeLocation?.shape === 'freeform_custom'
                     ? 'freeform_custom'
                     : 'd_shaped';
+                const w = activeLocation?.widthM || 8.5;
+                const h = activeLocation?.heightM || 7.5;
+                const wh = activeLocation?.wallHeightM || 4.2;
                 const g =
                   activeLocation?.customGeometry ||
-                  createTunnelGeometry(
-                    activeLocation?.widthM || 8.5,
-                    activeLocation?.heightM || 7.5,
-                    activeLocation?.wallHeightM || 4.2,
-                    baseShape
-                  );
+                  createTunnelGeometry(w, h, wh, baseShape);
                 return {
                   ...g,
+                  type: baseShape,
                   width: activeLocation?.widthM || g.width || 8.5,
                   height: activeLocation?.heightM || g.height || 7.5,
                   wallHeight: activeLocation?.wallHeightM || g.wallHeight || 4.2,
+                  crownRadius: (activeLocation as any)?.crownRadiusM || g.crownRadius || w / 2,
                   crossSectionPoints:
                     activeLocation?.customCrossSectionPoints &&
                     activeLocation.customCrossSectionPoints.length >= 3
@@ -14725,6 +15087,38 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       (r.structuralFeatures?.length || 0) > 0 ||
                       (r.lithologyStrokes?.length || 0) > 0)
                 );
+                const baseShape =
+                  activeLocation.shape === 'horseshoe'
+                    ? 'horseshoe'
+                    : activeLocation.shape === 'circular'
+                    ? 'circular'
+                    : activeLocation.shape === 'modified_horseshoe'
+                    ? 'modified_horseshoe'
+                    : activeLocation.shape === 'rectangular'
+                    ? 'rectangular'
+                    : activeLocation.shape === 'freeform_custom'
+                    ? 'freeform_custom'
+                    : 'd_shaped';
+                const locW = activeLocation.widthM || 8.5;
+                const locH = activeLocation.heightM || 7.5;
+                const locWh = activeLocation.wallHeightM || 4.2;
+                const baseGeom =
+                  activeLocation.customGeometry ||
+                  createTunnelGeometry(locW, locH, locWh, baseShape);
+                const exactGeom = {
+                  ...baseGeom,
+                  type: baseShape,
+                  width: locW,
+                  height: locH,
+                  wallHeight: locWh,
+                  crownRadius: (activeLocation as any).crownRadiusM || baseGeom.crownRadius || locW / 2,
+                  crossSectionPoints:
+                    activeLocation.customCrossSectionPoints &&
+                    activeLocation.customCrossSectionPoints.length >= 3
+                      ? activeLocation.customCrossSectionPoints
+                      : baseGeom.crossSectionPoints,
+                };
+
                 return locRounds.map((r) => {
                   const pullLen = r.pullLengthMeters || 3.0;
                   const parsed = parsePullIntervalFromRecord(r.chainageFrom || '', r.chainageTo || '', pullLen);
@@ -14753,14 +15147,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     date: r.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
                     savedAt: r.updatedAt || new Date().toISOString(),
                     mappingMode: 'tunnel_3d',
-                    geometry:
-                      activeLocation.customGeometry ||
-                      createTunnelGeometry(
-                        activeLocation.widthM || 8.5,
-                        activeLocation.heightM || 7.5,
-                        activeLocation.wallHeightM || 4.2,
-                        activeLocation.shape === 'horseshoe' ? 'horseshoe' : 'd_shaped'
-                      ),
+                    geometry: exactGeom,
                     settings: {
                       projectName: activeProject?.projectName || 'Tunnel Project',
                       tunnelName: activeLocation.name,
@@ -14776,8 +15163,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     },
                     joints: (r.jointTraces || []).map((jt) => ({
                       id: jt.id,
-                      surface: 'face',
-                      points: jt.points,
+                      surface: (jt.panel === 'left_wall'
+                        ? 'leftWall'
+                        : jt.panel === 'right_wall'
+                        ? 'rightWall'
+                        : jt.panel || 'face') as SurfaceType,
+                      points: jt.points.map((pt) => {
+                        const isNorm = pt.x >= -0.05 && pt.x <= 1.05 && pt.y >= -0.05 && pt.y <= 1.05;
+                        return isNorm
+                          ? { x: (pt.x - 0.5) * locW, y: (1 - pt.y) * locH }
+                          : { x: pt.x, y: pt.y };
+                      }),
                       dipDirection: jt.dipDirection ?? 135,
                       dip: jt.dipAmount ?? 65,
                       strike: jt.strike ?? 45,
@@ -14788,10 +15184,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       .map((st) => ({
                         id: st.id,
                         surface: 'face',
-                        polygon: (st.polygon && st.polygon.length >= 2 ? st.polygon : st.points).map((pt) => ({
-                          x: (pt.x - 0.5) * (activeLocation.widthM || 8.5),
-                          y: (0.5 - pt.y) * (activeLocation.heightM || 7.5),
-                        })),
+                        polygon: (st.polygon && st.polygon.length >= 2 ? st.polygon : st.points).map((pt) => {
+                          const isNorm = pt.x >= -0.05 && pt.x <= 1.05 && pt.y >= -0.05 && pt.y <= 1.05;
+                          return isNorm
+                            ? { x: (pt.x - 0.5) * locW, y: (1 - pt.y) * locH }
+                            : { x: pt.x, y: pt.y };
+                        }),
                         lithologyName: st.rockName || r.rockType || 'Rock Mass',
                       })),
                     qIndexParams: {

@@ -266,28 +266,29 @@ export const WeakZoneAheadProjectorView: React.FC<WeakZoneAheadProjectorViewProp
               </span>
             </div>
 
-            {/* SVG LONGITUDINAL SECTION */}
-            <div className="w-full flex-1 min-h-[220px] flex items-center justify-center overflow-x-auto py-2">
-              <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-auto max-h-[300px]">
+            {/* SVG LONGITUDINAL SECTION (WHITE ENGINEERING CANVAS) */}
+            <div className="w-full flex-1 min-h-[220px] flex items-center justify-center overflow-x-auto py-2 bg-white border border-slate-300 rounded-lg">
+              <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-auto max-h-[300px] bg-white">
+                <rect width={svgWidth} height={svgHeight} fill="#ffffff" />
                 {/* Background Grid */}
                 <defs>
                   <pattern id="longGrid" width="40" height="20" patternUnits="userSpaceOnUse">
-                    <path d="M 40 0 L 0 0 0 20" fill="none" stroke="#1e293b" strokeWidth="0.8" />
+                    <path d="M 40 0 L 0 0 0 20" fill="none" stroke="#e2e8f0" strokeWidth="0.9" />
                   </pattern>
                   <linearGradient id="faultGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.45" />
-                    <stop offset="100%" stopColor="#e11d48" stopOpacity="0.2" />
+                    <stop offset="0%" stopColor="#e11d48" stopOpacity="0.32" />
+                    <stop offset="100%" stopColor="#be123c" stopOpacity="0.14" />
                   </linearGradient>
                 </defs>
-                <rect x={padLeft} y={padTop} width={plotWidth} height={plotHeight} fill="url(#longGrid)" />
+                <rect x={padLeft} y={padTop} width={plotWidth} height={plotHeight} fill="url(#longGrid)" stroke="#cbd5e1" strokeWidth="1" />
 
                 {/* Tunnel Crown Line (Top) & Invert Line (Bottom) */}
-                <line x1={padLeft} y1={padTop} x2={padLeft + plotWidth} y2={padTop} stroke="#38bdf8" strokeWidth="2.5" />
-                <line x1={padLeft} y1={padTop + plotHeight} x2={padLeft + plotWidth} y2={padTop + plotHeight} stroke="#0284c7" strokeWidth="2.5" />
-                <text x={padLeft + 8} y={padTop - 8} fill="#38bdf8" fontSize="10" fontFamily="monospace">
+                <line x1={padLeft} y1={padTop} x2={padLeft + plotWidth} y2={padTop} stroke="#0284c7" strokeWidth="2.5" />
+                <line x1={padLeft} y1={padTop + plotHeight} x2={padLeft + plotWidth} y2={padTop + plotHeight} stroke="#0369a1" strokeWidth="2.5" />
+                <text x={padLeft + 8} y={padTop - 8} fill="#0369a1" fontSize="10" fontFamily="monospace" fontWeight="bold">
                   Crown Apex (Y = {hTunnel}m)
                 </text>
-                <text x={padLeft + 8} y={padTop + plotHeight + 16} fill="#0284c7" fontSize="10" fontFamily="monospace">
+                <text x={padLeft + 8} y={padTop + plotHeight + 16} fill="#0f172a" fontSize="10" fontFamily="monospace" fontWeight="bold">
                   Invert Datum (Y = 0.0m)
                 </text>
 
@@ -297,7 +298,7 @@ export const WeakZoneAheadProjectorView: React.FC<WeakZoneAheadProjectorViewProp
                   y={padTop}
                   width={Math.max(0, xFace - padLeft)}
                   height={plotHeight}
-                  fill="rgba(56, 189, 248, 0.08)"
+                  fill="rgba(2, 132, 199, 0.08)"
                 />
 
                 {/* Unexcavated Ahead Ground (to right of Z_face) */}
@@ -306,14 +307,14 @@ export const WeakZoneAheadProjectorView: React.FC<WeakZoneAheadProjectorViewProp
                   y={padTop}
                   width={plotWidth - (xFace - padLeft)}
                   height={plotHeight}
-                  fill="rgba(15, 23, 42, 0.6)"
+                  fill="rgba(241, 245, 249, 0.55)"
                 />
 
                 {/* PROJECTED WEAK ZONE BAND (HW to FW) */}
                 <polygon
                   points={`${xEntryHwCrown},${padTop} ${xExitFwCrown},${padTop} ${xExitFwInvert},${padTop + plotHeight} ${xEntryHwInvert},${padTop + plotHeight}`}
                   fill="url(#faultGrad)"
-                  stroke="#f43f5e"
+                  stroke="#dc2626"
                   strokeWidth="2"
                   strokeDasharray="4 2"
                 />
@@ -324,23 +325,23 @@ export const WeakZoneAheadProjectorView: React.FC<WeakZoneAheadProjectorViewProp
                   y1={padTop}
                   x2={xFace}
                   y2={padTop + plotHeight}
-                  stroke="#f59e0b"
+                  stroke="#d97706"
                   strokeWidth="3.5"
                 />
-                <circle cx={xFace} cy={toPxY(yObs)} r="5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5" />
-                <text x={xFace - 6} y={padTop - 12} textAnchor="end" fill="#f59e0b" fontSize="11" fontFamily="monospace" fontWeight="bold">
+                <circle cx={xFace} cy={toPxY(yObs)} r="5" fill="#d97706" stroke="#ffffff" strokeWidth="1.5" />
+                <text x={xFace - 6} y={padTop - 12} textAnchor="end" fill="#b45309" fontSize="11" fontFamily="monospace" fontWeight="bold">
                   Current Face (Z = {zFace.toFixed(1)}m)
                 </text>
 
                 {/* Crown Intersection Marker */}
-                <circle cx={xCrown} cy={padTop} r="4.5" fill="#ef4444" stroke="#ffffff" strokeWidth="1.5" />
-                <text x={xCrown} y={padTop - 10} textAnchor="middle" fill="#f87171" fontSize="10" fontFamily="monospace" fontWeight="bold">
+                <circle cx={xCrown} cy={padTop} r="4.5" fill="#dc2626" stroke="#ffffff" strokeWidth="1.5" />
+                <text x={xCrown} y={padTop - 10} textAnchor="middle" fill="#b91c1c" fontSize="10" fontFamily="monospace" fontWeight="bold">
                   Z_crown ({projection.zCrown.toFixed(1)}m)
                 </text>
 
                 {/* Invert Intersection Marker */}
-                <circle cx={xInvert} cy={padTop + plotHeight} r="4.5" fill="#6366f1" stroke="#ffffff" strokeWidth="1.5" />
-                <text x={xInvert} y={padTop + plotHeight + 18} textAnchor="middle" fill="#818cf8" fontSize="10" fontFamily="monospace" fontWeight="bold">
+                <circle cx={xInvert} cy={padTop + plotHeight} r="4.5" fill="#4f46e5" stroke="#ffffff" strokeWidth="1.5" />
+                <text x={xInvert} y={padTop + plotHeight + 18} textAnchor="middle" fill="#3730a3" fontSize="10" fontFamily="monospace" fontWeight="bold">
                   Z_invert ({projection.zInvert.toFixed(1)}m)
                 </text>
 
@@ -357,11 +358,11 @@ export const WeakZoneAheadProjectorView: React.FC<WeakZoneAheadProjectorViewProp
                         y1={padTop}
                         x2={rx}
                         y2={padTop + plotHeight}
-                        stroke={isInsideWeakZone ? '#fb7185' : '#334155'}
+                        stroke={isInsideWeakZone ? '#dc2626' : '#94a3b8'}
                         strokeWidth={isInsideWeakZone ? '1.8' : '1'}
                         strokeDasharray={isInsideWeakZone ? '2 2' : '3 3'}
                       />
-                      <text x={rx} y={padTop + plotHeight - 6} textAnchor="end" fill={isInsideWeakZone ? '#fb7185' : '#64748b'} fontSize="9" fontFamily="monospace">
+                      <text x={rx - 2} y={padTop + plotHeight - 6} textAnchor="end" fill={isInsideWeakZone ? '#b91c1c' : '#475569'} fontSize="9" fontFamily="monospace" fontWeight="bold">
                         R{rIdx + 1}
                       </text>
                     </g>
@@ -374,8 +375,8 @@ export const WeakZoneAheadProjectorView: React.FC<WeakZoneAheadProjectorViewProp
                   const xPos = toPxX(zVal);
                   return (
                     <g key={idx}>
-                      <line x1={xPos} y1={padTop + plotHeight} x2={xPos} y2={padTop + plotHeight + 6} stroke="#64748b" strokeWidth="1" />
-                      <text x={xPos} y={padTop + plotHeight + 30} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                      <line x1={xPos} y1={padTop + plotHeight} x2={xPos} y2={padTop + plotHeight + 6} stroke="#475569" strokeWidth="1.2" />
+                      <text x={xPos} y={padTop + plotHeight + 30} textAnchor="middle" fill="#1e293b" fontSize="10" fontFamily="monospace" fontWeight="bold">
                         {zVal.toFixed(0)}m
                       </text>
                     </g>

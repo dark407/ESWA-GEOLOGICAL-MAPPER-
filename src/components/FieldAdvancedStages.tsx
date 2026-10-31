@@ -22,6 +22,7 @@ import {
   analyzeAndRecommendSpotBolts,
   computeBoltTensileCapacityKn,
   GeotechnicalSpotBoltRecommendationResult,
+  parseRoundChainageMeters,
 } from '../engine/geotechnicalSpotBoltEngine';
 import {
   APERTURE_OPTIONS,
@@ -4870,17 +4871,24 @@ export const FieldSupportSystemStage: React.FC<{
   const [isAnalyzingRec, setIsAnalyzingRec] = useState<boolean>(false);
   const [showRecDetails, setShowRecDetails] = useState<boolean>(true);
 
-  // Retrieve prior rounds for structural continuity inspection
+  // Retrieve prior rounds in the exact same project & tunnel location for structural continuity inspection
   const priorRoundsList: FieldExcavationRound[] = useMemo(() => {
     try {
       const raw = localStorage.getItem('eswa_apk_field_mapping_store_tunnel_v2');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed.rounds)) return parsed.rounds;
+        if (Array.isArray(parsed.rounds)) {
+          return parsed.rounds.filter(
+            (r: FieldExcavationRound) =>
+              r.id !== activeRound.id &&
+              r.locationId === activeRound.locationId &&
+              r.projectId === activeRound.projectId
+          );
+        }
       }
     } catch {}
     return [];
-  }, []);
+  }, [activeRound.id, activeRound.locationId, activeRound.projectId]);
 
   const nominalCapKn = useMemo(
     () => computeBoltTensileCapacityKn(newSpotDiaMm, newSpotGradeMpa),
@@ -5424,16 +5432,9 @@ export const FieldSupportSystemStage: React.FC<{
       facePoly3D,
     } = tunnel3DGeom;
 
-    if (isPointInsidePolygon2D(clickPt, facePoly3D)) {
-      panel = 'face';
-      u = Math.max(0.05, Math.min(0.95, (sx - innerX) / Math.max(1, innerW)));
-      v = Math.max(0.05, Math.min(0.95, (sy - innerY) / Math.max(1, innerH)));
-      pullMeter = Number(pullM.toFixed(2));
-      xMeters = Number(((u - 0.5) * W).toFixed(2));
-      yMeters = Number(((1 - v) * H).toFixed(2));
-    } else if (
+    if (
       isPointInsidePolygon2D(clickPt, crownPoly3D) ||
-      (sy <= innerY + innerH * 0.35 && sx >= tunnel3DGeom.outerX && sx <= tunnel3DGeom.outerX + tunnel3DGeom.outerW)
+      (sy <= innerY + innerH * 0.38 && sx >= tunnel3DGeom.outerX && sx <= tunnel3DGeom.outerX + tunnel3DGeom.outerW)
     ) {
       panel = 'crown';
       // Search best (vArc, tDepth) on 3D Crown surface
@@ -7164,7 +7165,9 @@ export const FieldSupportSystemStage: React.FC<{
                                       {b.panel.replace('_', ' ')}
                                     </td>
                                     <td className="border border-slate-800 px-1.5 py-0.5 font-mono text-center text-amber-300">
-                                      {b.chainageMeters ? `${b.chainageMeters.toFixed(2)}m` : `${(activeRound.chainageMeters || 0) + b.pullMeter}m`}
+                                      {b.chainageMeters !== undefined
+                                        ? `${b.chainageMeters.toFixed(2)}m`
+                                        : `${(parseRoundChainageMeters(activeRound) + b.pullMeter).toFixed(2)}m`}
                                     </td>
                                     <td className="border border-slate-800 px-1.5 py-0.5 font-mono text-center text-slate-200">
                                       {b.offsetMeters !== undefined ? `${b.offsetMeters >= 0 ? '+' : ''}${b.offsetMeters.toFixed(2)}m` : `${b.xMeters}m`}

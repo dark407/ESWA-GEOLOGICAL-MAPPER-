@@ -72,6 +72,7 @@ export interface GoogleUserAccountInfo {
 export interface FieldMappingResumeState {
   stage: string;
   mappingDomain?: MappingDomainType;
+  undergroundSubMode?: 'tunnel' | 'vertical_shaft';
   activeProjectId?: string | null;
   activeLocationId?: string | null;
   activeRoundId?: string | null;
@@ -157,21 +158,34 @@ export const PHOTOGRAMMETRY_SCREEN_LABELS: Record<string, string> = {
 // 1. RESUME STATE TRACKERS (FIELD FACE MAPPING & PHOTOGRAMMETRY FACE MAPPING)
 // ============================================================================
 
-export function saveFieldMappingResumeState(state: FieldMappingResumeState, domain?: MappingDomainType): void {
+export function saveFieldMappingResumeState(
+  state: FieldMappingResumeState,
+  domain?: MappingDomainType,
+  undergroundSubMode?: 'tunnel' | 'vertical_shaft'
+): void {
   try {
     const effDomain = (domain || state.mappingDomain || 'TUNNEL').toUpperCase() as MappingDomainType;
+    const effSubMode: 'tunnel' | 'vertical_shaft' =
+      effDomain === 'TUNNEL' &&
+      (undergroundSubMode === 'vertical_shaft' || state.undergroundSubMode === 'vertical_shaft')
+        ? 'vertical_shaft'
+        : 'tunnel';
     const normalized: FieldMappingResumeState = {
       ...state,
       mappingDomain: effDomain,
+      undergroundSubMode: effSubMode,
       activeProjectId: state.activeProjectId ?? state.projectId ?? null,
       activeLocationId: state.activeLocationId ?? state.locationId ?? null,
       activeRoundId: state.activeRoundId ?? state.roundId ?? null,
       stageLabel: state.stageLabel || FIELD_STAGE_LABELS[state.stage] || state.stage,
       updatedAt: state.updatedAt || state.savedAt || new Date().toISOString(),
     };
-    const domainKey = `eswa_field_mapping_resume_state_${effDomain.toLowerCase()}_v2`;
+    const domainKey =
+      effDomain === 'TUNNEL' && effSubMode === 'vertical_shaft'
+        ? 'eswa_field_mapping_resume_state_vertical_shaft_v2'
+        : `eswa_field_mapping_resume_state_${effDomain.toLowerCase()}_v2`;
     localStorage.setItem(domainKey, JSON.stringify(normalized));
-    if (effDomain === 'TUNNEL') {
+    if (effDomain === 'TUNNEL' && effSubMode === 'tunnel') {
       localStorage.setItem(FIELD_RESUME_STORAGE_KEY, JSON.stringify(normalized));
     }
   } catch {
@@ -179,26 +193,43 @@ export function saveFieldMappingResumeState(state: FieldMappingResumeState, doma
   }
 }
 
-export function loadFieldMappingResumeState(domain?: MappingDomainType): FieldMappingResumeState | null {
+export function loadFieldMappingResumeState(
+  domain?: MappingDomainType,
+  undergroundSubMode?: 'tunnel' | 'vertical_shaft'
+): FieldMappingResumeState | null {
   try {
     const effDomain = (domain || 'TUNNEL').toUpperCase() as MappingDomainType;
-    const domainKey = `eswa_field_mapping_resume_state_${effDomain.toLowerCase()}_v2`;
+    const effSubMode: 'tunnel' | 'vertical_shaft' =
+      effDomain === 'TUNNEL' && undergroundSubMode === 'vertical_shaft'
+        ? 'vertical_shaft'
+        : 'tunnel';
+    const domainKey =
+      effDomain === 'TUNNEL' && effSubMode === 'vertical_shaft'
+        ? 'eswa_field_mapping_resume_state_vertical_shaft_v2'
+        : `eswa_field_mapping_resume_state_${effDomain.toLowerCase()}_v2`;
     const raw = localStorage.getItem(domainKey);
     if (raw) {
       const parsed = JSON.parse(raw) as FieldMappingResumeState;
       if (parsed && typeof parsed === 'object' && parsed.stage) {
         if (!parsed.mappingDomain || parsed.mappingDomain === effDomain) {
+          if (effDomain === 'TUNNEL') {
+            const parsedSub = parsed.undergroundSubMode || 'tunnel';
+            if (parsedSub !== effSubMode) return null;
+          }
           return parsed;
         }
       }
     }
-    // Fallback to legacy key only if asking for TUNNEL
-    if (effDomain === 'TUNNEL') {
+    // Fallback to legacy key only if asking for TUNNEL in 'tunnel' sub-mode
+    if (effDomain === 'TUNNEL' && effSubMode === 'tunnel') {
       const legacyRaw = localStorage.getItem(FIELD_RESUME_STORAGE_KEY);
       if (legacyRaw) {
         const parsed = JSON.parse(legacyRaw) as FieldMappingResumeState;
         if (parsed && typeof parsed === 'object' && parsed.stage) {
-          if (!parsed.mappingDomain || parsed.mappingDomain === 'TUNNEL') {
+          if (
+            (!parsed.mappingDomain || parsed.mappingDomain === 'TUNNEL') &&
+            parsed.undergroundSubMode !== 'vertical_shaft'
+          ) {
             return parsed;
           }
         }

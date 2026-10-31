@@ -1,259 +1,292 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Play, Pause, RotateCcw, Eye, Layers } from 'lucide-react';
 import { TunnelGeometry } from '../types/tunnel';
+import { generateExactTunnelProfilePoints } from '../engine/advancedModelingAndAlignmentEngine';
 
 export interface FutureAdvance3DViewportProps {
+  geometry?: TunnelGeometry;
   spanW: number;
   heightH: number;
+  benchHeight?: number;
   wallHeight?: number;
-  geometry?: TunnelGeometry;
-  pullLength: number;
-  currentFaceChainage: number;
-  driveAzimuth: number;
+  pullLengthM?: number;
+  pullLength?: number;
+  currentChainage?: number;
+  currentFaceChainage?: number;
+  advanceDeltaM?: number;
   governingStrike: number;
   governingDip: number;
-  governingDipDirection: number;
-  governingSet: string;
-  governingType: string;
-  apparentDipDeg: number;
-  advanceRatePerVerticalMeter: number;
-}
-
-function getProfileOutline(
-  spanW: number,
-  heightH: number,
-  wallHeight: number,
-  geometry?: TunnelGeometry
-): { x: number; y: number }[] {
-  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
-    return geometry.crossSectionPoints;
-  }
-  const halfW = spanW / 2;
-  const wallH = Math.min(wallHeight, heightH * 0.6);
-  const archH = Math.max(0.5, heightH - wallH);
-  const pts: { x: number; y: number }[] = [];
-  pts.push({ x: -halfW, y: 0 });
-  pts.push({ x: -halfW, y: wallH });
-  const archSteps = 32;
-  for (let i = 1; i < archSteps; i++) {
-    const theta = Math.PI * (1 - i / archSteps);
-    pts.push({
-      x: halfW * Math.cos(theta),
-      y: wallH + archH * Math.sin(theta),
-    });
-  }
-  pts.push({ x: halfW, y: wallH });
-  pts.push({ x: halfW, y: 0 });
-  return pts;
+  governingDipDirection?: number;
+  governingSet?: string;
+  governingType?: string;
+  driveAzimuth: number;
+  apparentDipBetaApp?: number;
+  apparentDipDeg?: number;
+  advanceRatePerVerticalMeter?: number;
+  projectedCenterY?: number;
+  traceInsideFace?: boolean;
 }
 
 export const FutureAdvance3DViewport: React.FC<FutureAdvance3DViewportProps> = ({
-  spanW,
-  heightH,
-  wallHeight,
   geometry,
-  pullLength,
-  currentFaceChainage,
-  driveAzimuth,
-  governingStrike,
-  governingDip,
-  governingDipDirection,
-  governingSet,
-  governingType,
-  apparentDipDeg,
-  advanceRatePerVerticalMeter,
+  spanW: rawSpanW,
+  heightH: rawHeightH,
+  benchHeight: rawBenchHeight,
+  wallHeight: rawWallHeight,
+  pullLengthM: rawPullLengthM,
+  pullLength: rawPullLength,
+  currentChainage: rawCurrentChainage,
+  currentFaceChainage: rawCurrentFaceChainage,
+  advanceDeltaM: rawAdvanceDeltaM,
+  governingStrike: rawGovStrike,
+  governingDip: rawGovDip,
+  governingSet: rawGovSet,
+  driveAzimuth: rawDriveAzimuth,
+  apparentDipBetaApp: rawApparentDipBetaApp,
+  apparentDipDeg: rawApparentDipDeg,
+  projectedCenterY: rawProjectedCenterY,
+  traceInsideFace: rawTraceInsideFace,
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [selectedAdvanceDist, setSelectedAdvanceDist] = useState<number>(Math.max(3, pullLength * 3));
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [showAllRings, setShowAllRings] = useState<boolean>(true);
-  const [showPlaneMesh, setShowPlaneMesh] = useState<boolean>(true);
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const [probeDistanceAhead, setProbeDistanceAhead] = React.useState<number>(
+    Number.isFinite(rawAdvanceDeltaM) ? (rawAdvanceDeltaM as number) : 9.0
+  );
+
+  const spanW = Number.isFinite(rawSpanW) && rawSpanW > 0 ? rawSpanW : 8.4;
+  const heightH = Number.isFinite(rawHeightH) && rawHeightH > 0 ? rawHeightH : 7.2;
+  const benchHeight =
+    Number.isFinite(rawBenchHeight) && (rawBenchHeight as number) > 0
+      ? (rawBenchHeight as number)
+      : Number.isFinite(rawWallHeight) && (rawWallHeight as number) > 0
+      ? (rawWallHeight as number)
+      : heightH * 0.52;
+  const pullLengthM =
+    Number.isFinite(rawPullLengthM) && (rawPullLengthM as number) > 0
+      ? (rawPullLengthM as number)
+      : Number.isFinite(rawPullLength) && (rawPullLength as number) > 0
+      ? (rawPullLength as number)
+      : 3.5;
+  const currentChainage =
+    Number.isFinite(rawCurrentChainage)
+      ? (rawCurrentChainage as number)
+      : Number.isFinite(rawCurrentFaceChainage)
+      ? (rawCurrentFaceChainage as number)
+      : 100.0;
+  const advanceDeltaM = Number.isFinite(rawAdvanceDeltaM) ? (rawAdvanceDeltaM as number) : probeDistanceAhead;
+  const governingStrike = Number.isFinite(rawGovStrike) ? rawGovStrike : 125;
+  const governingDip = Number.isFinite(rawGovDip) ? rawGovDip : 60;
+  const governingSet = rawGovSet || 'J1';
+  const driveAzimuth = Number.isFinite(rawDriveAzimuth) ? rawDriveAzimuth : 45;
+  const apparentDipBetaApp =
+    Number.isFinite(rawApparentDipBetaApp)
+      ? (rawApparentDipBetaApp as number)
+      : Number.isFinite(rawApparentDipDeg)
+      ? (rawApparentDipDeg as number)
+      : 35.0;
+
+  const tanApp = Math.tan((apparentDipBetaApp * Math.PI) / 180);
+  const computedCenterY = Math.max(
+    0.2,
+    heightH - ((advanceDeltaM * Math.max(0.05, tanApp)) % (heightH * 1.15))
+  );
+  const projectedCenterY =
+    Number.isFinite(rawProjectedCenterY) ? (rawProjectedCenterY as number) : computedCenterY;
+  const traceInsideFace =
+    typeof rawTraceInsideFace === 'boolean'
+      ? rawTraceInsideFace
+      : projectedCenterY >= 0.15 && projectedCenterY <= heightH - 0.15;
 
   useEffect(() => {
-    if (!isPlaying) return;
-    const timer = setInterval(() => {
-      setSelectedAdvanceDist((prev) => {
-        if (prev >= 30) return 0;
-        return Number((prev + 0.5).toFixed(1));
-      });
-    }, 60);
-    return () => clearInterval(timer);
-  }, [isPlaying]);
-
-  useEffect(() => {
-    const container = containerRef.current;
+    const container = mountRef.current;
     if (!container) return;
 
-    const width = container.clientWidth || 720;
-    const height = container.clientHeight || 460;
+    const getDims = () => ({
+      width: Math.max(320, container.clientWidth || 560),
+      height: Math.max(280, container.clientHeight || 380),
+    });
 
+    const { width, height } = getDims();
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x060a12);
+    scene.background = new THREE.Color(0xffffff);
 
-    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
-    camera.position.set(spanW * 2.1, heightH * 1.65, 16);
+    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 1000);
+    camera.position.set(spanW * 2.1, heightH * 1.55, 16);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.localClippingEnabled = true;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, heightH * 0.45, -10);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, heightH * 0.45, -advanceDeltaM * 0.5);
 
-    scene.add(new THREE.AmbientLight(0x94a3b8, 0.8));
-    const dirLight = new THREE.DirectionalLight(0xf8fafc, 1.1);
-    dirLight.position.set(22, 34, 18);
-    scene.add(dirLight);
+    // Neutral Geotechnical CAD Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+    const dir1 = new THREE.DirectionalLight(0xffffff, 0.65);
+    dir1.position.set(22, 36, 20);
+    scene.add(dir1);
+    const dir2 = new THREE.DirectionalLight(0xf8fafc, 0.4);
+    dir2.position.set(-22, 18, -30);
+    scene.add(dir2);
 
-    const gridHelper = new THREE.GridHelper(60, 30, 0x1e293b, 0x0f172a);
-    gridHelper.position.set(0, -0.05, -10);
-    scene.add(gridHelper);
+    // Floor Grid along Tunnel Drive Axis (Z = +10m excavated to Z = -32m ahead)
+    const grid = new THREE.GridHelper(56, 28, 0x94a3b8, 0xe2e8f0);
+    grid.position.set(0, -0.02, -10);
+    scene.add(grid);
 
-    const wallH = wallHeight || geometry?.wallHeight || heightH * 0.55;
-    const profilePts = getProfileOutline(spanW, heightH, wallH, geometry);
-
-    const tunnelShape = new THREE.Shape();
-    profilePts.forEach((p, idx) => {
-      if (idx === 0) tunnelShape.moveTo(p.x, p.y);
-      else tunnelShape.lineTo(p.x, p.y);
-    });
-    tunnelShape.closePath();
-
-    // 1. Excavated Tunnel Behind Active Face (Z = +10m to Z = 0m)
-    const excavatedLen = 10;
-    const excavatedGeo = new THREE.ExtrudeGeometry(tunnelShape, {
-      steps: 5,
-      depth: excavatedLen,
-      bevelEnabled: false,
-    });
-    const excavatedMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.75,
-      metalness: 0.15,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.55,
-    });
-    scene.add(new THREE.Mesh(excavatedGeo, excavatedMat));
-
-    // 2. Future Unexcavated Corridor Ahead (Z = -30m to Z = 0m)
-    const futureLen = 30;
-    const futureGeo = new THREE.ExtrudeGeometry(tunnelShape, {
-      steps: 15,
-      depth: futureLen,
-      bevelEnabled: false,
-    });
-    futureGeo.translate(0, 0, -futureLen);
-    const futureMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
-      roughness: 0.5,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.18,
-      wireframe: true,
-    });
-    scene.add(new THREE.Mesh(futureGeo, futureMat));
-
-    // 3. Future Blast Pull Rings (+3m to +30m)
-    if (showAllRings) {
-      const stepPull = Math.max(1.5, pullLength || 3.0);
-      for (let d = 0; d <= 30; d += stepPull) {
-        const ringVecs = profilePts.map((p) => new THREE.Vector3(p.x, p.y, -d));
-        if (ringVecs.length > 0) ringVecs.push(ringVecs[0].clone());
-        const ringGeo = new THREE.BufferGeometry().setFromPoints(ringVecs);
-        const isCurrentFace = d === 0;
-        const ringMat = new THREE.LineBasicMaterial({
-          color: isCurrentFace ? 0x10b981 : 0x334155,
-          transparent: true,
-          opacity: isCurrentFace ? 0.95 : 0.55,
-        });
-        scene.add(new THREE.Line(ringGeo, ringMat));
+    const profilePts = generateExactTunnelProfilePoints(geometry, spanW, heightH, benchHeight);
+    const shape = new THREE.Shape();
+    if (profilePts.length >= 3) {
+      shape.moveTo(profilePts[0].x, profilePts[0].y);
+      for (let i = 1; i < profilePts.length; i++) {
+        shape.lineTo(profilePts[i].x, profilePts[i].y);
       }
+      shape.closePath();
     }
 
-    // 4. Active Probe Face Plane at Z = -selectedAdvanceDist
-    const probeGeo = new THREE.ShapeGeometry(tunnelShape);
-    const probeMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.24,
-      side: THREE.DoubleSide,
+    // 1. Excavated Tunnel Section (Z = 0m back to Z = +10m)
+    const excavatedLen = 10;
+    const excGeo = new THREE.ExtrudeGeometry(shape, {
+      depth: excavatedLen,
+      bevelEnabled: false,
+      steps: 1,
+      curveSegments: 24,
     });
-    const probeMesh = new THREE.Mesh(probeGeo, probeMat);
-    probeMesh.position.z = -selectedAdvanceDist;
-    scene.add(probeMesh);
-
-    const probeRingVecs = profilePts.map((p) => new THREE.Vector3(p.x, p.y, -selectedAdvanceDist));
-    if (probeRingVecs.length > 0) probeRingVecs.push(probeRingVecs[0].clone());
+    const excMat = new THREE.MeshStandardMaterial({
+      color: 0xcbd5e1,
+      roughness: 0.65,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.42,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    scene.add(new THREE.Mesh(excGeo, excMat));
     scene.add(
-      new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(probeRingVecs),
-        new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 })
+      new THREE.LineSegments(
+        new THREE.EdgesGeometry(excGeo, 15),
+        new THREE.LineBasicMaterial({ color: 0x334155 })
       )
     );
 
-    // 5. 3D Governing Structural Discontinuity / Fault Plane
-    const strikeRelRad = THREE.MathUtils.degToRad(governingStrike - driveAzimuth);
-    const dipRad = THREE.MathUtils.degToRad(governingDip);
-    const isFault = governingType.toLowerCase().includes('fault') || governingType.toLowerCase().includes('shear');
-    const planeColor = isFault ? 0xef4444 : 0xf59e0b;
+    // 2. Unexcavated Ahead Forecast Corridor (Z = 0m forward to Z = -30m)
+    const aheadLen = 30;
+    const aheadGeo = new THREE.ExtrudeGeometry(shape, {
+      depth: aheadLen,
+      bevelEnabled: false,
+      steps: 1,
+      curveSegments: 24,
+    });
+    aheadGeo.translate(0, 0, -aheadLen);
 
-    if (showPlaneMesh) {
-      const planeGroup = new THREE.Group();
-      const planeGeo = new THREE.PlaneGeometry(spanW * 2.5, 42, 18, 18);
-      const planeMat = new THREE.MeshStandardMaterial({
-        color: planeColor,
-        roughness: 0.35,
-        metalness: 0.1,
-        transparent: true,
-        opacity: 0.38,
-        side: THREE.DoubleSide,
+    const aheadMat = new THREE.MeshStandardMaterial({
+      color: 0xe0f2fe,
+      roughness: 0.7,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.2,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    scene.add(new THREE.Mesh(aheadGeo, aheadMat));
+    scene.add(
+      new THREE.LineSegments(
+        new THREE.EdgesGeometry(aheadGeo, 15),
+        new THREE.LineBasicMaterial({ color: 0x0284c7, transparent: true, opacity: 0.45 })
+      )
+    );
+
+    // Station Rings along Ahead Corridor every pullLengthM
+    const stepM = Math.max(1.5, pullLengthM);
+    for (let d = 0; d <= aheadLen; d += stepM) {
+      const z = -d;
+      const ringPts = profilePts.map((p) => new THREE.Vector3(p.x, p.y, z));
+      if (ringPts.length > 0) ringPts.push(ringPts[0].clone());
+      const isCurrentFace = d === 0;
+      const ringMat = new THREE.LineBasicMaterial({
+        color: isCurrentFace ? 0x0f172a : 0x94a3b8,
+        transparent: !isCurrentFace,
+        opacity: isCurrentFace ? 1.0 : 0.5,
       });
-      const planeMesh = new THREE.Mesh(planeGeo, planeMat);
-      planeMesh.rotation.order = 'YXZ';
-      planeMesh.rotation.y = -strikeRelRad;
-      planeMesh.rotation.x = Math.PI / 2 - dipRad;
-      planeGroup.add(planeMesh);
-
-      const planeWire = new THREE.LineSegments(
-        new THREE.EdgesGeometry(planeGeo),
-        new THREE.LineBasicMaterial({ color: planeColor, transparent: true, opacity: 0.9 })
-      );
-      planeWire.rotation.copy(planeMesh.rotation);
-      planeGroup.add(planeWire);
-
-      planeGroup.position.set(0, heightH, 0);
-      scene.add(planeGroup);
+      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPts), ringMat));
     }
 
-    // 6. Trace Line on Active Probe Face
-    const tanApp = Math.tan(THREE.MathUtils.degToRad(apparentDipDeg));
-    const traceYCenter = heightH - selectedAdvanceDist * tanApp;
-    if (traceYCenter >= -1.0 && traceYCenter <= heightH + 1.0) {
-      const clampedY = Math.max(0.1, Math.min(heightH - 0.1, traceYCenter));
-      const halfW = spanW / 2;
-      const tiltY = Math.sin(strikeRelRad) * 1.1;
-      const traceGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-halfW * 0.92, Math.max(0.1, Math.min(heightH - 0.1, clampedY - tiltY)), -selectedAdvanceDist + 0.04),
-        new THREE.Vector3(halfW * 0.92, Math.max(0.1, Math.min(heightH - 0.1, clampedY + tiltY)), -selectedAdvanceDist + 0.04),
-      ]);
-      scene.add(
-        new THREE.Line(
-          traceGeo,
-          new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 })
-        )
-      );
+    // 3. Interactive Probe Advance Face Plane at Z = -advanceDeltaM
+    const zProbe = -advanceDeltaM;
+    const probeFaceGeo = new THREE.ShapeGeometry(shape, 24);
+    probeFaceGeo.translate(0, 0, zProbe);
+
+    const probeMat = new THREE.MeshBasicMaterial({
+      color: traceInsideFace ? 0xd97706 : 0x0284c7,
+      transparent: true,
+      opacity: 0.25,
+      side: THREE.DoubleSide,
+    });
+    scene.add(new THREE.Mesh(probeFaceGeo, probeMat));
+
+    const probeOutlinePts = profilePts.map((p) => new THREE.Vector3(p.x, p.y, zProbe));
+    if (probeOutlinePts.length > 0) probeOutlinePts.push(probeOutlinePts[0].clone());
+    scene.add(
+      new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(probeOutlinePts),
+        new THREE.LineBasicMaterial({ color: traceInsideFace ? 0xb45309 : 0x0369a1 })
+      )
+    );
+
+    // 4. 3D Projected Structural Plane & Exact Intersection Trace on Probe Face
+    if (governingSet !== 'Unmapped' && governingDip > 0) {
+      const clipPlanes = [
+        new THREE.Plane(new THREE.Vector3(1, 0, 0), spanW * 0.65),
+        new THREE.Plane(new THREE.Vector3(-1, 0, 0), spanW * 0.65),
+        new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+        new THREE.Plane(new THREE.Vector3(0, -1, 0), heightH * 1.15),
+        new THREE.Plane(new THREE.Vector3(0, 0, 1), excavatedLen),
+        new THREE.Plane(new THREE.Vector3(0, 0, -1), aheadLen),
+      ];
+
+      const planeGeo = new THREE.PlaneGeometry(36, 36, 16, 16);
+      const relStrikeRad = (((governingStrike - driveAzimuth) * Math.PI) / 180);
+      const dipRad = (governingDip * Math.PI) / 180;
+
+      planeGeo.rotateY(-relStrikeRad);
+      planeGeo.rotateX(dipRad);
+      planeGeo.translate(0, projectedCenterY, zProbe);
+
+      const planeMat = new THREE.MeshStandardMaterial({
+        color: 0xdc2626,
+        roughness: 0.45,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.DoubleSide,
+        clippingPlanes: clipPlanes,
+      });
+      scene.add(new THREE.Mesh(planeGeo, planeMat));
+
+      // Intersection trace across the probe face at Z = zProbe
+      if (traceInsideFace) {
+        const slopeTan = Math.tan((apparentDipBetaApp * Math.PI) / 180) * 0.35;
+        const halfSpan = spanW * 0.46;
+        const yLeft = Math.max(0.1, Math.min(heightH - 0.1, projectedCenterY - halfSpan * slopeTan));
+        const yRight = Math.max(0.1, Math.min(heightH - 0.1, projectedCenterY + halfSpan * slopeTan));
+
+        const pStart = new THREE.Vector3(-halfSpan, yLeft, zProbe + 0.04);
+        const pEnd = new THREE.Vector3(halfSpan, yRight, zProbe + 0.04);
+        const curve = new THREE.LineCurve3(pStart, pEnd);
+        const tubeGeo = new THREE.TubeGeometry(curve, 12, Math.max(0.07, spanW * 0.01), 8, false);
+        const tubeMat = new THREE.MeshBasicMaterial({ color: 0xb91c1c });
+        scene.add(new THREE.Mesh(tubeGeo, tubeMat));
+      }
     }
 
-    let animId: number;
+    let reqId: number;
     const animate = () => {
-      animId = requestAnimationFrame(animate);
+      reqId = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
     };
@@ -261,132 +294,82 @@ export const FutureAdvance3DViewport: React.FC<FutureAdvance3DViewportProps> = (
 
     const handleResize = () => {
       if (!container) return;
-      const w = container.clientWidth || 720;
-      const h = container.clientHeight || 460;
-      camera.aspect = w / h;
+      const d = getDims();
+      camera.aspect = d.width / d.height;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      renderer.setSize(d.width, d.height);
     };
+
+    const resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver.observe(container);
     window.addEventListener('resize', handleResize);
 
     return () => {
-      cancelAnimationFrame(animId);
+      cancelAnimationFrame(reqId);
+      resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
   }, [
+    geometry,
     spanW,
     heightH,
-    wallHeight,
-    geometry,
-    pullLength,
-    driveAzimuth,
+    benchHeight,
+    pullLengthM,
+    currentChainage,
+    advanceDeltaM,
     governingStrike,
     governingDip,
-    governingDipDirection,
-    governingType,
-    apparentDipDeg,
-    selectedAdvanceDist,
-    showAllRings,
-    showPlaneMesh,
+    governingSet,
+    driveAzimuth,
+    apparentDipBetaApp,
+    projectedCenterY,
+    traceInsideFace,
   ]);
 
-  const tanApp = Math.tan((apparentDipDeg * Math.PI) / 180);
-  const traceElevAtProbe = heightH - selectedAdvanceDist * tanApp;
-  const isIntersectingFace = traceElevAtProbe >= 0 && traceElevAtProbe <= heightH;
+  const shapeLabel = (geometry?.crownGeometry || 'd_shaped').replace(/_/g, ' ').toUpperCase();
 
   return (
-    <div className="relative w-full h-full min-h-[440px] rounded-lg overflow-hidden border border-slate-800 bg-[#060a12] flex flex-col">
-      {/* Top CAD Viewport Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-900/95 border-b border-slate-800 z-10">
-        <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-[10px] font-mono font-bold text-sky-300 uppercase">
-            PROBE: RD {(currentFaceChainage + selectedAdvanceDist).toFixed(1)}m (+{selectedAdvanceDist.toFixed(1)}m)
-          </span>
-          <span className="text-[11px] font-mono text-slate-400 tabular-nums">
-            Plane: <strong className="text-slate-200">{governingSet} ({governingType})</strong> | α_app = <strong className="text-amber-300">{apparentDipDeg.toFixed(1)}°</strong>
-          </span>
-        </div>
+    <div className="relative w-full h-full min-h-[340px] rounded-xl overflow-hidden border border-slate-300 bg-white">
+      <div ref={mountRef} className="w-full h-full min-h-[340px]" />
 
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              isPlaying
-                ? 'bg-amber-600 text-white border-amber-400'
-                : 'bg-sky-600 hover:bg-sky-500 text-white border-sky-400'
-            }`}
-          >
-            {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-            {isPlaying ? 'Pause Probe' : 'Sweep +30m'}
-          </button>
-          <button
-            onClick={() => {
-              setIsPlaying(false);
-              setSelectedAdvanceDist(0);
-            }}
-            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
-            title="Reset to Current Face (0m)"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setShowPlaneMesh(!showPlaneMesh)}
-            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              showPlaneMesh
-                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
-            }`}
-          >
-            <Layers className="w-3 h-3" /> 3D Plane
-          </button>
-          <button
-            onClick={() => setShowAllRings(!showAllRings)}
-            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              showAllRings
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
-            }`}
-          >
-            <Eye className="w-3 h-3" /> Pull Rings
-          </button>
+      {/* Top-Left CAD Telemetry Badge */}
+      <div className="absolute top-2.5 left-2.5 bg-white/95 backdrop-blur-xs border border-slate-300 shadow-xs rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-slate-800 pointer-events-none space-y-0.5">
+        <div className="text-slate-900 font-bold flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-amber-600 inline-block" />
+          3D AHEAD FORECAST CORRIDOR (+{advanceDeltaM.toFixed(1)}m)
+        </div>
+        <div className="text-slate-600">
+          Shape: <strong className="text-slate-900">{shapeLabel}</strong> ({spanW.toFixed(2)}m × {heightH.toFixed(2)}m) | Probe Station: <strong className="text-slate-900">RD {(currentChainage + advanceDeltaM).toFixed(1)}m</strong>
+        </div>
+        <div className="text-slate-700">
+          Apparent Dip β<sub>app</sub>: <strong>{apparentDipBetaApp.toFixed(1)}°</strong> | Center Elev Y: <strong>{projectedCenterY.toFixed(2)}m</strong>
+        </div>
+        <div className={traceInsideFace ? 'text-amber-700 font-bold' : 'text-emerald-700 font-bold'}>
+          {traceInsideFace
+            ? `ACTIVE FACE INTERSECTION AT +${advanceDeltaM.toFixed(1)}m`
+            : 'PLANE EXITED TUNNEL BOUNDARY'}
         </div>
       </div>
 
-      {/* Advance Distance Scrubber Bar */}
-      <div className="px-3 py-1.5 bg-slate-900/60 border-b border-slate-800/80 flex items-center gap-3 z-10">
-        <span className="text-[10px] font-mono text-slate-400 uppercase shrink-0">Advance Distance (+m):</span>
+      {/* Bottom-Left Probe Distance Slider */}
+      <div className="absolute bottom-2 left-2.5 bg-white/95 border border-slate-300 rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-slate-800 shadow-xs flex items-center gap-2">
+        <span className="font-bold text-slate-700">Probe +ΔZ:</span>
         <input
           type="range"
           min={0}
           max={30}
           step={0.5}
-          value={selectedAdvanceDist}
-          onChange={(e) => {
-            setIsPlaying(false);
-            setSelectedAdvanceDist(Number(e.target.value));
-          }}
-          className="flex-1 accent-sky-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+          value={advanceDeltaM}
+          onChange={(e) => setProbeDistanceAhead(Number(e.target.value))}
+          className="w-28 accent-sky-600 cursor-pointer"
         />
-        <span className="text-[11px] font-mono font-bold text-sky-300 tabular-nums w-14 text-right">
-          +{selectedAdvanceDist.toFixed(1)}m
-        </span>
+        <span className="font-bold text-sky-700 tabular-nums">+{advanceDeltaM.toFixed(1)}m</span>
       </div>
 
-      {/* 3D Canvas Container */}
-      <div ref={containerRef} className="w-full flex-1 min-h-[360px] cursor-grab active:cursor-grabbing" />
-
-      {/* Bottom Engineering Readout */}
-      <div className="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-slate-400 tabular-nums">
-        <div>
-          TRACE ELEVATION AT PROBE: {' '}
-          <span className={isIntersectingFace ? 'text-emerald-400 font-bold' : 'text-slate-500 font-bold'}>
-            {isIntersectingFace ? `${traceElevAtProbe.toFixed(2)}m above invert` : 'Exited Tunnel Profile'}
-          </span>
-        </div>
-        <div>
-          ADVANCE PER 1m VERTICAL DROP: <span className="text-sky-300 font-bold">{advanceRatePerVerticalMeter.toFixed(2)}m / m</span>
-        </div>
+      {/* Bottom-Right CAD Controls Legend */}
+      <div className="absolute bottom-2 right-2 bg-white/95 border border-slate-300 rounded px-2 py-1 text-[9px] font-mono text-slate-600 pointer-events-none shadow-2xs">
+        CAD Orbit: Left-Drag | Zoom: Scroll | Pan: Right-Drag
       </div>
     </div>
   );

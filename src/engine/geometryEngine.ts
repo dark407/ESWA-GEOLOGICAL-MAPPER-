@@ -62,8 +62,8 @@ export function enforceStrictTunnelGeometryConstraints(
   totalPerimeter: number;
   perimeterRatio: number;
 } {
-  const safeWidth = Math.max(1.5, width);
-  const safeHeight = Math.max(1.5, height);
+  const safeWidth = Number.isFinite(width) ? Math.max(1.5, width) : 8.4;
+  const safeHeight = Number.isFinite(height) ? Math.max(1.5, height) : 7.2;
   const halfW = safeWidth / 2;
 
   if (profileType === 'circular') {

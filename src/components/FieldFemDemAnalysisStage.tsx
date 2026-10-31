@@ -391,21 +391,21 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
           };
 
     return (
-      <div className="relative w-full h-[470px] xl:h-[540px] min-h-[450px] shrink-0 bg-[#060A12] rounded-xl border border-slate-700/90 overflow-hidden shadow-inner">
+      <div className="relative w-full h-[470px] xl:h-[540px] min-h-[450px] shrink-0 bg-white rounded-xl border border-slate-300 overflow-hidden shadow-xs">
         <svg
           viewBox={`0 0 ${svgW} ${svgH}`}
           preserveAspectRatio="xMidYMid meet"
-          className="w-full h-full block select-none"
+          className="w-full h-full block select-none bg-white"
         >
           <defs>
             <radialGradient id={`rock-halo-${stageType}`} cx="50%" cy="54%" r="50%">
               <stop
                 offset="0%"
-                stopColor={isAfter ? '#0ea5e9' : '#f43f5e'}
-                stopOpacity="0.18"
+                stopColor={isAfter ? '#0284c7' : '#e11d48'}
+                stopOpacity="0.08"
               />
-              <stop offset="68%" stopColor="#0f172a" stopOpacity="0.08" />
-              <stop offset="100%" stopColor="#060A12" stopOpacity="0" />
+              <stop offset="68%" stopColor="#f8fafc" stopOpacity="0.04" />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
             </radialGradient>
 
             <linearGradient id={`legend-grad-${stageType}`} x1="0%" y1="100%" x2="0%" y2="0%">
@@ -429,7 +429,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
             >
               <path
                 d="M 0 1 L 10 5 L 0 9 z"
-                fill={isAfter ? '#34d399' : '#fb7185'}
+                fill={isAfter ? '#059669' : '#dc2626'}
               />
             </marker>
 
@@ -442,12 +442,12 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               markerHeight="5"
               orient="auto"
             >
-              <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#38bdf8" />
+              <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#0369a1" />
             </marker>
           </defs>
 
-          {/* Rock Mass Domain Background */}
-          <rect x="0" y="0" width={svgW} height={svgH} fill="#060A12" />
+          {/* Rock Mass Domain White Engineering Background */}
+          <rect x="0" y="0" width={svgW} height={svgH} fill="#ffffff" />
           <circle cx={cx} cy={cy} r={245} fill={`url(#rock-halo-${stageType})`} />
 
           {/* Background Engineering Coordinate Grid */}
@@ -460,7 +460,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 y1={16}
                 x2={x}
                 y2={svgH - 16}
-                stroke="#1e293b"
+                stroke="#cbd5e1"
                 strokeWidth="0.7"
                 strokeDasharray="2 3"
               />
@@ -475,7 +475,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 y1={y}
                 x2={svgW - 16}
                 y2={y}
-                stroke="#1e293b"
+                stroke="#cbd5e1"
                 strokeWidth="0.7"
                 strokeDasharray="2 3"
               />
@@ -483,7 +483,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
           })}
 
           {/* Far-Field In-Situ Stress Boundary Arrows (σv Top & σh Left/Right) */}
-          <g pointerEvents="none" opacity="0.88">
+          <g pointerEvents="none" opacity="0.92">
             {[-90, -45, 0, 45, 90].map((dx, i) => (
               <line
                 key={`sv-${i}`}
@@ -491,7 +491,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 y1={14}
                 x2={cx + dx}
                 y2={31}
-                stroke="#38bdf8"
+                stroke="#0369a1"
                 strokeWidth="1.5"
                 markerEnd={`url(#stress-arrow-${stageType})`}
               />
@@ -503,7 +503,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               fontSize="8.5"
               fontFamily="IBM Plex Mono, monospace"
               fontWeight="bold"
-              fill="#38bdf8"
+              fill="#0f172a"
             >
               σv = {analysisResult.inSituVerticalStressMpa} MPa (H={overburdenParam?.value ?? 85}m)
             </text>
@@ -515,7 +515,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                   y1={cy + dy}
                   x2={31}
                   y2={cy + dy}
-                  stroke="#38bdf8"
+                  stroke="#0369a1"
                   strokeWidth="1.5"
                   markerEnd={`url(#stress-arrow-${stageType})`}
                 />
@@ -524,7 +524,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                   y1={cy + dy}
                   x2={svgW - 63}
                   y2={cy + dy}
-                  stroke="#38bdf8"
+                  stroke="#0369a1"
                   strokeWidth="1.5"
                   markerEnd={`url(#stress-arrow-${stageType})`}
                 />
@@ -553,15 +553,15 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                   <polygon
                     points={(el.pointsSvg || []).map((p) => `${p.x},${p.y}`).join(' ')}
                     fill={fill}
-                    fillOpacity={activeMode === 'combined' ? 0.76 : 0.9}
+                    fillOpacity={activeMode === 'combined' ? 0.78 : 0.88}
                     stroke={
                       isSelected
-                        ? '#ffffff'
+                        ? '#0f172a'
                         : showMeshWireframe
-                        ? '#090D16'
+                        ? '#334155'
                         : fill
                     }
-                    strokeWidth={isSelected ? '2.2' : showMeshWireframe ? '0.75' : '0.25'}
+                    strokeWidth={isSelected ? '2.2' : showMeshWireframe ? '0.65' : '0.25'}
                     strokeLinejoin="round"
                   />
                   {/* Plastic Shear Yield Marker (×) on Yielded Triangular Elements */}
@@ -575,16 +575,16 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                         y1="-1.9"
                         x2="1.9"
                         y2="1.9"
-                        stroke="#ffe4e6"
-                        strokeWidth="1.0"
+                        stroke="#ffffff"
+                        strokeWidth="1.1"
                       />
                       <line
                         x1="-1.9"
                         y1="1.9"
                         x2="1.9"
                         y2="-1.9"
-                        stroke="#ffe4e6"
-                        strokeWidth="1.0"
+                        stroke="#ffffff"
+                        strokeWidth="1.1"
                       />
                     </g>
                   )}
@@ -601,7 +601,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 cx={nd.xSvg}
                 cy={nd.ySvg}
                 r="1.15"
-                fill="#f8fafc"
+                fill="#0f172a"
                 opacity="0.65"
                 pointerEvents="none"
               />
@@ -616,7 +616,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 <polygon
                   points={plasticPolyPts.map((p) => `${p.x},${p.y}`).join(' ')}
                   fill="none"
-                  stroke={isAfter ? '#fde047' : '#fb7185'}
+                  stroke={isAfter ? '#d97706' : '#dc2626'}
                   strokeWidth="2.4"
                   strokeDasharray="7 4"
                 />
@@ -626,10 +626,10 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                   width="132"
                   height="16"
                   rx="4"
-                  fill="#090D16"
-                  fillOpacity="0.92"
-                  stroke={isAfter ? '#fde047' : '#fb7185'}
-                  strokeWidth="1"
+                  fill="#ffffff"
+                  fillOpacity="0.95"
+                  stroke={isAfter ? '#d97706' : '#dc2626'}
+                  strokeWidth="1.2"
                 />
                 <text
                   x={cx + 108}
@@ -638,7 +638,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                   fontSize="8.2"
                   fontFamily="IBM Plex Mono, monospace"
                   fontWeight="bold"
-                  fill={isAfter ? '#fde047' : '#fda4af'}
+                  fill={isAfter ? '#b45309' : '#b91c1c'}
                 >
                   Rp={femState.plasticZoneRadiusMeters.toFixed(2)}m (dp=
                   {femState.plasticZoneDepthMeters.toFixed(2)}m)
@@ -658,9 +658,9 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                     y1={jp.y1Svg}
                     x2={jp.x2Svg}
                     y2={jp.y2Svg}
-                    stroke="#020617"
+                    stroke="#ffffff"
                     strokeWidth={isSliding ? '4.0' : '3.0'}
-                    opacity="0.75"
+                    opacity="0.85"
                   />
                   <line
                     x1={jp.x1Svg}
@@ -668,7 +668,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                     x2={jp.x2Svg}
                     y2={jp.y2Svg}
                     stroke={jp.color}
-                    strokeWidth={isSliding ? '2.4' : '1.7'}
+                    strokeWidth={isSliding ? '2.4' : '1.8'}
                     strokeDasharray={isSliding ? '5 2.5' : undefined}
                   />
                 </g>
@@ -683,10 +683,10 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               const isSelected = selectedBlock?.id === kb.id;
               const blockColor =
                 fos < 1.05
-                  ? '#f43f5e'
+                  ? '#dc2626'
                   : fos < 1.45
-                  ? '#f59e0b'
-                  : '#10b981';
+                  ? '#d97706'
+                  : '#059669';
 
               const shiftScale = !isAfter && fos < 1.15 ? 0.24 : 0.05;
               const tx = kb.moveVectorSvg.dx * shiftScale;
@@ -703,7 +703,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                     points={(kb.polygonSvg || []).map((p) => `${p.x},${p.y}`).join(' ')}
                     fill={blockColor}
                     fillOpacity={isSelected ? 0.72 : 0.52}
-                    stroke={isSelected ? '#ffffff' : blockColor}
+                    stroke={isSelected ? '#0f172a' : blockColor}
                     strokeWidth={isSelected ? '2.5' : '1.9'}
                   />
                   {showDeformationVectors && (
@@ -712,7 +712,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                       y1={kb.centroidSvg.y}
                       x2={kb.centroidSvg.x + kb.moveVectorSvg.dx * (isAfter ? 0.55 : 1.05)}
                       y2={kb.centroidSvg.y + kb.moveVectorSvg.dy * (isAfter ? 0.55 : 1.05)}
-                      stroke={isAfter ? '#34d399' : '#fb7185'}
+                      stroke={isAfter ? '#059669' : '#dc2626'}
                       strokeWidth="2.1"
                       markerEnd={`url(#vec-arrow-${stageType})`}
                     />
@@ -723,10 +723,10 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                     width="66"
                     height="14"
                     rx="3"
-                    fill="#020617"
-                    fillOpacity="0.88"
+                    fill="#ffffff"
+                    fillOpacity="0.95"
                     stroke={blockColor}
-                    strokeWidth="0.9"
+                    strokeWidth="1.1"
                   />
                   <text
                     x={kb.centroidSvg.x}
@@ -735,7 +735,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                     fontSize="7.8"
                     fontFamily="IBM Plex Mono, monospace"
                     fontWeight="bold"
-                    fill="#ffffff"
+                    fill="#0f172a"
                   >
                     {kb.id.replace('KB-', '')} FoS:{fos.toFixed(2)}
                   </text>
@@ -746,8 +746,8 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
           {/* 5. EXACT FED TUNNEL PROFILE CAVITY MASK (D-Shaped, Horseshoe, Circular, Rectangular, or Custom) */}
           <path
             d={analysisResult.tunnelClosedPathD}
-            fill="#04070E"
-            stroke={isAfter && isSupportInstalled ? '#38bdf8' : '#e2e8f0'}
+            fill="#ffffff"
+            stroke={isAfter && isSupportInstalled ? '#0284c7' : '#0f172a'}
             strokeWidth={isAfter && isSupportInstalled ? '3.0' : '2.2'}
             strokeLinejoin="round"
           />
@@ -762,20 +762,20 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               boxW={boxW}
               boxH={boxH}
               clipPathD={analysisResult.tunnelClosedPathD}
-              darkBackground
+              darkBackground={false}
               idSuffix={`fem-${stageType}-${activeRound.id}`}
             />
           )}
 
           {/* Springing Line (SPL) Reference inside Fed Tunnel Cavity */}
           {mappingDomain === 'TUNNEL' && activeLocation.shape !== 'circular' && (
-            <g pointerEvents="none" opacity="0.7">
+            <g pointerEvents="none" opacity="0.8">
               <line
                 x1={cx - boxW / 2 + 3}
                 y1={analysisResult.tunnelSplY}
                 x2={cx + boxW / 2 - 3}
                 y2={analysisResult.tunnelSplY}
-                stroke="#334155"
+                stroke="#64748b"
                 strokeWidth="1"
                 strokeDasharray="4 3"
               />
@@ -785,7 +785,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 fontSize="7"
                 fontFamily="IBM Plex Mono, monospace"
                 fontWeight="bold"
-                fill="#64748b"
+                fill="#334155"
               >
                 SPL
               </text>
@@ -795,7 +795,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 fontSize="7"
                 fontFamily="IBM Plex Mono, monospace"
                 fontWeight="bold"
-                fill="#64748b"
+                fill="#334155"
               >
                 SPL
               </text>
@@ -806,8 +806,8 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
           {showDeformedBoundary && (
             <polygon
               points={deformedBoundaryPoints}
-              fill={isAfter ? 'rgba(52, 211, 153, 0.05)' : 'rgba(244, 63, 94, 0.08)'}
-              stroke={isAfter ? '#34d399' : '#fb7185'}
+              fill={isAfter ? 'rgba(5, 150, 105, 0.06)' : 'rgba(220, 38, 38, 0.08)'}
+              stroke={isAfter ? '#059669' : '#dc2626'}
               strokeWidth="1.8"
               strokeDasharray="5 3"
               pointerEvents="none"
@@ -822,7 +822,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 <path
                   d={analysisResult.tunnelClosedPathD}
                   fill="none"
-                  stroke="#22d3ee"
+                  stroke="#0284c7"
                   strokeWidth={Math.max(
                     3.8,
                     Math.min(7.5, (analysisResult.supportBreakdown.shotcreteThicknessMm || 100) / 22)
@@ -843,7 +843,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                     })
                     .join(' ')}
                   fill="none"
-                  stroke="#c084fc"
+                  stroke="#7c3aed"
                   strokeWidth="2.4"
                   strokeDasharray="5 2.5"
                 />
@@ -858,7 +858,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                       y1={bv.y1}
                       x2={bv.x2}
                       y2={bv.y2}
-                      stroke="#020617"
+                      stroke="#ffffff"
                       strokeWidth="3.6"
                       strokeLinecap="round"
                     />
@@ -867,7 +867,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                       y1={bv.y1}
                       x2={bv.x2}
                       y2={bv.y2}
-                      stroke="#38bdf8"
+                      stroke="#0284c7"
                       strokeWidth="2.2"
                       strokeLinecap="round"
                     />
@@ -875,7 +875,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                       cx={bv.x1}
                       cy={bv.y1}
                       r="3.2"
-                      fill="#f59e0b"
+                      fill="#d97706"
                       stroke="#0f172a"
                       strokeWidth="1"
                     />
@@ -893,7 +893,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 y1={cy - boxH / 2 + 3}
                 x2={cx}
                 y2={cy - boxH / 2 + (isAfter ? 18 : 30)}
-                stroke={isAfter ? '#34d399' : '#fb7185'}
+                stroke={isAfter ? '#059669' : '#dc2626'}
                 strokeWidth="2.1"
                 markerEnd={`url(#vec-arrow-${stageType})`}
               />
@@ -903,7 +903,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 y1={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
                 x2={cx - boxW / 2 + (isAfter ? 18 : 28)}
                 y2={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                stroke={isAfter ? '#34d399' : '#fb7185'}
+                stroke={isAfter ? '#059669' : '#dc2626'}
                 strokeWidth="2.1"
                 markerEnd={`url(#vec-arrow-${stageType})`}
               />
@@ -913,7 +913,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 y1={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
                 x2={cx + boxW / 2 - (isAfter ? 18 : 28)}
                 y2={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                stroke={isAfter ? '#34d399' : '#fb7185'}
+                stroke={isAfter ? '#059669' : '#dc2626'}
                 strokeWidth="2.1"
                 markerEnd={`url(#vec-arrow-${stageType})`}
               />
@@ -928,10 +928,10 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               width="148"
               height="44"
               rx="6"
-              fill="#090D16"
-              fillOpacity="0.92"
-              stroke="#1e293b"
-              strokeWidth="1"
+              fill="#ffffff"
+              fillOpacity="0.96"
+              stroke="#cbd5e1"
+              strokeWidth="1.2"
             />
             <text
               x={cx}
@@ -940,7 +940,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               fontSize="8.2"
               fontFamily="IBM Plex Mono, monospace"
               fontWeight="bold"
-              fill="#94a3b8"
+              fill="#334155"
             >
               {analysisResult.excavationShapeLabel} ({analysisResult.spanWidthM}×
               {analysisResult.totalHeightM}m)
@@ -952,7 +952,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               fontSize="9.2"
               fontFamily="IBM Plex Mono, monospace"
               fontWeight="bold"
-              fill={isAfter ? '#34d399' : '#fda4af'}
+              fill={isAfter ? '#047857' : '#b91c1c'}
             >
               u_max = {femState.maxDisplacementMm.toFixed(2)} mm
             </text>
@@ -963,7 +963,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               fontSize="8.2"
               fontFamily="IBM Plex Mono, monospace"
               fontWeight="bold"
-              fill="#e2e8f0"
+              fill="#0f172a"
             >
               FoS(FEM):{femState.continuumFactorOfSafety.toFixed(2)} | DEM:
               {(isAfter
@@ -982,10 +982,10 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 width="44"
                 height="182"
                 rx="6"
-                fill="#090D16"
-                fillOpacity="0.92"
-                stroke="#334155"
-                strokeWidth="1"
+                fill="#ffffff"
+                fillOpacity="0.95"
+                stroke="#cbd5e1"
+                strokeWidth="1.2"
               />
               <text
                 x="14"
@@ -994,7 +994,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 fontSize="7.5"
                 fontFamily="IBM Plex Mono, monospace"
                 fontWeight="bold"
-                fill="#f8fafc"
+                fill="#0f172a"
               >
                 {legendMeta.title}
               </text>
@@ -1005,7 +1005,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 height="148"
                 rx="2"
                 fill={`url(#legend-grad-${stageType})`}
-                stroke="#64748b"
+                stroke="#475569"
                 strokeWidth="0.8"
               />
               <text
@@ -1014,7 +1014,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 fontSize="7.2"
                 fontFamily="IBM Plex Mono, monospace"
                 fontWeight="bold"
-                fill="#ffffff"
+                fill="#0f172a"
               >
                 {legendMeta.maxLabel}
               </text>
@@ -1023,7 +1023,8 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 y="80"
                 fontSize="7.2"
                 fontFamily="IBM Plex Mono, monospace"
-                fill="#e2e8f0"
+                fontWeight="bold"
+                fill="#334155"
               >
                 {legendMeta.midLabel}
               </text>
@@ -1032,7 +1033,8 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 y="151"
                 fontSize="7.2"
                 fontFamily="IBM Plex Mono, monospace"
-                fill="#cbd5e1"
+                fontWeight="bold"
+                fill="#475569"
               >
                 {legendMeta.minLabel}
               </text>
@@ -1046,16 +1048,16 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               y1="0"
               x2={Math.round(scalePxPerM * 2)}
               y2="0"
-              stroke="#cbd5e1"
+              stroke="#0f172a"
               strokeWidth="2"
             />
-            <line x1="0" y1="-4" x2="0" y2="4" stroke="#cbd5e1" strokeWidth="1.5" />
+            <line x1="0" y1="-4" x2="0" y2="4" stroke="#0f172a" strokeWidth="1.5" />
             <line
               x1={Math.round(scalePxPerM * 2)}
               y1="-4"
               x2={Math.round(scalePxPerM * 2)}
               y2="4"
-              stroke="#cbd5e1"
+              stroke="#0f172a"
               strokeWidth="1.5"
             />
             <text
@@ -1065,7 +1067,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               fontSize="7.8"
               fontFamily="IBM Plex Mono, monospace"
               fontWeight="bold"
-              fill="#f8fafc"
+              fill="#0f172a"
             >
               2.0 m
             </text>
@@ -1074,7 +1076,8 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               y="3"
               fontSize="8"
               fontFamily="IBM Plex Mono, monospace"
-              fill="#cbd5e1"
+              fontWeight="bold"
+              fill="#334155"
             >
               3-Node Triangular Mesh ({analysisResult.meshElements.length} CST Elements) • K0=
               {k0Param?.value ?? 1.15}

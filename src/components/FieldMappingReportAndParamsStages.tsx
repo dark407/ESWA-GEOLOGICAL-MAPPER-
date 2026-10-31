@@ -88,7 +88,7 @@ import {
 import { FieldFemDemReportEmbedSection } from './FieldFemDemAnalysisStage';
 import { createDefaultFemDemConfig } from '../engine/femDemAnalysisEngine';
 
-type StripAlignItemKind = 'joint' | 'vein' | 'feature' | 'lithology' | 'dip_plane';
+type StripAlignItemKind = 'joint' | 'vein' | 'feature';
 type JointPointActionMode = 'add_point' | 'bend' | 'move' | 'extend';
 
 interface StripAlignableItem {
@@ -204,7 +204,6 @@ export const FieldStripAlignmentStage: React.FC<{
     {
       jointTraces: FieldExcavationRound['jointTraces'];
       lithologyStrokes: FieldExcavationRound['lithologyStrokes'];
-      dipPlaneSurfaces: FieldExcavationRound['dipPlaneSurfaces'];
       structuralFeatures: NonNullable<FieldExcavationRound['structuralFeatures']>;
     }[]
   >([]);
@@ -236,10 +235,6 @@ export const FieldStripAlignmentStage: React.FC<{
           ...s,
           points: s.points.map((p) => ({ ...p })),
         })),
-        dipPlaneSurfaces: activeRound.dipPlaneSurfaces.map((d) => ({
-          ...d,
-          points: d.points.map((p) => ({ ...p })),
-        })),
         structuralFeatures: (activeRound.structuralFeatures || []).map((f) => ({
           ...f,
           points: f.points.map((p) => ({ ...p })),
@@ -256,7 +251,6 @@ export const FieldStripAlignmentStage: React.FC<{
       ...r,
       jointTraces: last.jointTraces,
       lithologyStrokes: last.lithologyStrokes,
-      dipPlaneSurfaces: last.dipPlaneSurfaces || r.dipPlaneSurfaces,
       structuralFeatures: last.structuralFeatures,
     }));
   };
@@ -372,7 +366,7 @@ export const FieldStripAlignmentStage: React.FC<{
   ): FieldPoint2D => {
     const { x, w, h, geom } = getPanelStripBox(panel);
     const pullM = geom.pullM;
-    const wallHM = geom.leftWallLengthM;
+    const wallHM = panel === 'right_wall' ? geom.rightWallLengthM : geom.leftWallLengthM;
     const crownArchM = geom.crownLengthM;
 
     const normX = Math.max(0.001, Math.min(0.999, (sx - x) / Math.max(1, w)));
@@ -597,32 +591,6 @@ export const FieldStripAlignmentStage: React.FC<{
             points: nextPoints,
             foliationDipDirection: ori.dipDirection,
             foliationDipAmount: ori.dipAmount,
-          };
-        }),
-      };
-    }
-    if (kind === 'lithology') {
-      return {
-        ...r,
-        lithologyStrokes: r.lithologyStrokes.map((st) => {
-          if (st.id !== id) return st;
-          return {
-            ...st,
-            points: nextPoints,
-            polygon: st.polygon ? nextPoints : undefined,
-          };
-        }),
-      };
-    }
-    if (kind === 'dip_plane') {
-      return {
-        ...r,
-        dipPlaneSurfaces: r.dipPlaneSurfaces.map((ds) => {
-          if (ds.id !== id) return ds;
-          return {
-            ...ds,
-            points: nextPoints,
-            outlinePolygon: ds.outlinePolygon ? nextPoints : undefined,
           };
         }),
       };
@@ -1875,7 +1843,7 @@ export const FieldStripAlignmentStage: React.FC<{
         </div>
       )}
 
-      {/* 2. Interactive Strip Item Inspector Card (Edit Joint Text, Set, Dip, Lithology, Dip Surface) */}
+      {/* 2. Interactive Strip Item Inspector Card (Edit Joint Text, Set, Dip, Vein, Structural Feature) */}
       {selectedTraceItem && activeSelectedTraceObj && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 sm:p-3 shrink-0 shadow-xl space-y-2">
           {/* Header row */}

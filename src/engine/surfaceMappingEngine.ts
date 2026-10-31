@@ -95,6 +95,13 @@ export interface SurfacePanelLabelMap {
     description: string;
     subtitle?: string;
   };
+  shaftSn?: {
+    shortLabel: string;
+    fullLabel: string;
+    badge: string;
+    description: string;
+    subtitle?: string;
+  };
 }
 
 export interface KinematicSetCheckResult {
@@ -354,7 +361,54 @@ export function loadSurfaceMappingResumeState(subType?: SurfaceMappingSubType): 
   }
 }
 
-export function getSurfacePanelLabelMap(domain: MappingDomainType): SurfacePanelLabelMap {
+export function getSurfacePanelLabelMap(
+  domain: MappingDomainType,
+  isVerticalShaft = false
+): SurfacePanelLabelMap {
+  if (domain === 'TUNNEL' && isVerticalShaft) {
+    return {
+      domainTitle: 'Vertical Shaft Face & Quadrant Mapping',
+      domainSubtitle: 'Circular Shaft Bottom Face + 4 Quadrant Wall Panels (NE, ES, SE, SN)',
+      stationPrefix: 'Shaft Depth EL / RD',
+      directionLabel: 'Shaft Reference Azimuth (°)',
+      roundLengthLabel: 'Sinking Lift / Pull Depth (m)',
+      face: {
+        shortLabel: 'Face',
+        fullLabel: '1. SHAFT FACE (Bottom Heading)',
+        badge: 'FACE',
+        description: 'Circular shaft sinking bottom face cross-section',
+        subtitle: 'Circular shaft sinking bottom face cross-section',
+      },
+      leftWall: {
+        shortLabel: 'NE',
+        fullLabel: '2. NE QUADRANT WALL (0°–90°)',
+        badge: 'NE',
+        description: 'North-East circular shaft quadrant wall strip (πD/4)',
+        subtitle: 'North-East circular shaft quadrant wall strip (πD/4)',
+      },
+      crown: {
+        shortLabel: 'ES',
+        fullLabel: '3. ES QUADRANT WALL (90°–180°)',
+        badge: 'ES',
+        description: 'East-South circular shaft quadrant wall strip (πD/4)',
+        subtitle: 'East-South circular shaft quadrant wall strip (πD/4)',
+      },
+      rightWall: {
+        shortLabel: 'SE',
+        fullLabel: '4. SE QUADRANT WALL (180°–270°)',
+        badge: 'SE',
+        description: 'South-East / SW circular shaft quadrant wall strip (πD/4)',
+        subtitle: 'South-East / SW circular shaft quadrant wall strip (πD/4)',
+      },
+      shaftSn: {
+        shortLabel: 'SN',
+        fullLabel: '5. SN QUADRANT WALL (270°–360°)',
+        badge: 'SN',
+        description: 'South-North / NW circular shaft quadrant wall strip (πD/4)',
+        subtitle: 'South-North / NW circular shaft quadrant wall strip (πD/4)',
+      },
+    };
+  }
   if (domain === 'BENCH') {
     return {
       domainTitle: 'Bench Mapping',

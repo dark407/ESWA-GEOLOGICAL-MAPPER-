@@ -1,98 +1,100 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Play, RotateCcw, Shield, Layers, Eye, AlertTriangle } from 'lucide-react';
 import { TunnelGeometry } from '../types/tunnel';
+import {
+  generateExactTunnelProfilePoints,
+  getCrownArchYAtX,
+} from '../engine/advancedModelingAndAlignmentEngine';
 
 export interface KinematicWedge3DViewportProps {
+  geometry?: TunnelGeometry;
   spanW: number;
   heightH: number;
+  benchHeight?: number;
   wallHeight?: number;
-  geometry?: TunnelGeometry;
-  wedgeVolumeM3: number;
-  wedgeWeightKn: number;
+  pullLengthM?: number;
   apexHeightM: number;
+  wedgeVolumeM3: number;
+  wedgeWeightMN?: number;
+  wedgeWeightKn?: number;
   fosUnbolted: number;
   fosBolted: number;
-  boltLengthM: number;
   boltSpacingM: number;
+  boltLengthM: number;
+  boltCapacityMN?: number;
   governingStrike: number;
   governingDip: number;
   governingDipDirection?: number;
-  driveAzimuth?: number;
-  failureMode: 'ROOF_FALL' | 'SLIDING_J1' | 'SLIDING_J2' | 'STABLE';
-}
-
-function getExactProfileOutline(
-  spanW: number,
-  heightH: number,
-  wallHeight: number,
-  geometry?: TunnelGeometry
-): { x: number; y: number }[] {
-  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
-    return geometry.crossSectionPoints;
-  }
-  const halfW = spanW / 2;
-  const wallH = Math.min(wallHeight, heightH * 0.6);
-  const archH = Math.max(0.5, heightH - wallH);
-  const pts: { x: number; y: number }[] = [];
-  pts.push({ x: -halfW, y: 0 });
-  pts.push({ x: -halfW, y: wallH });
-  const archSteps = 32;
-  for (let i = 1; i < archSteps; i++) {
-    const theta = Math.PI * (1 - i / archSteps);
-    pts.push({
-      x: halfW * Math.cos(theta),
-      y: wallH + archH * Math.sin(theta),
-    });
-  }
-  pts.push({ x: halfW, y: wallH });
-  pts.push({ x: halfW, y: 0 });
-  return pts;
+  driveAzimuth: number;
+  failureMode?: string;
 }
 
 export const KinematicWedge3DViewport: React.FC<KinematicWedge3DViewportProps> = ({
-  spanW,
-  heightH,
-  wallHeight,
   geometry,
-  wedgeVolumeM3,
-  wedgeWeightKn,
-  apexHeightM,
-  fosUnbolted,
-  fosBolted,
-  boltLengthM,
-  boltSpacingM,
-  governingStrike,
-  governingDip,
-  driveAzimuth = 45,
-  failureMode,
+  spanW: rawSpanW,
+  heightH: rawHeightH,
+  benchHeight: rawBenchHeight,
+  wallHeight: rawWallHeight,
+  pullLengthM: rawPullLengthM,
+  apexHeightM: rawApexHeightM,
+  wedgeVolumeM3: rawWedgeVolumeM3,
+  wedgeWeightMN: rawWedgeWeightMN,
+  wedgeWeightKn: rawWedgeWeightKn,
+  fosUnbolted: rawFosUnbolted,
+  fosBolted: rawFosBolted,
+  boltSpacingM: rawBoltSpacingM,
+  boltLengthM: rawBoltLengthM,
+  governingStrike: rawGovStrike,
+  governingDip: rawGovDip,
+  driveAzimuth: rawDriveAzimuth,
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [showBolts, setShowBolts] = useState(true);
-  const [showBoundingPlanes, setShowBoundingPlanes] = useState(true);
-  const [wireframeTunnel, setWireframeTunnel] = useState(false);
-  const [detachSimulation, setDetachSimulation] = useState(false);
+  const mountRef = useRef<HTMLDivElement | null>(null);
 
-  const detachProgressRef = useRef(0);
-  const wedgeGroupRef = useRef<THREE.Group | null>(null);
-
-  const effectiveFoS = showBolts ? fosBolted : fosUnbolted;
-  const isUnstable = effectiveFoS < 1.0;
-  const isMarginal = effectiveFoS >= 1.0 && effectiveFoS < 1.5;
+  const spanW = Number.isFinite(rawSpanW) && rawSpanW > 0 ? rawSpanW : 8.4;
+  const heightH = Number.isFinite(rawHeightH) && rawHeightH > 0 ? rawHeightH : 7.2;
+  const benchHeight =
+    Number.isFinite(rawBenchHeight) && (rawBenchHeight as number) > 0
+      ? (rawBenchHeight as number)
+      : Number.isFinite(rawWallHeight) && (rawWallHeight as number) > 0
+      ? (rawWallHeight as number)
+      : heightH * 0.52;
+  const pullLengthM =
+    Number.isFinite(rawPullLengthM) && (rawPullLengthM as number) > 0
+      ? (rawPullLengthM as number)
+      : 3.5;
+  const apexHeightM = Number.isFinite(rawApexHeightM) && rawApexHeightM > 0 ? rawApexHeightM : 1.8;
+  const wedgeVolumeM3 = Number.isFinite(rawWedgeVolumeM3) ? rawWedgeVolumeM3 : 12.5;
+  const wedgeWeightMN =
+    Number.isFinite(rawWedgeWeightMN)
+      ? (rawWedgeWeightMN as number)
+      : Number.isFinite(rawWedgeWeightKn)
+      ? (rawWedgeWeightKn as number) / 1000
+      : (wedgeVolumeM3 * 26.5) / 1000;
+  const fosUnbolted = Number.isFinite(rawFosUnbolted) ? rawFosUnbolted : 0.85;
+  const fosBolted = Number.isFinite(rawFosBolted) ? rawFosBolted : 1.75;
+  const boltSpacingM = Number.isFinite(rawBoltSpacingM) && rawBoltSpacingM > 0 ? rawBoltSpacingM : 1.5;
+  const boltLengthM = Number.isFinite(rawBoltLengthM) && rawBoltLengthM > 0 ? rawBoltLengthM : 4.0;
+  const governingStrike = Number.isFinite(rawGovStrike) ? rawGovStrike : 125;
+  const governingDip = Number.isFinite(rawGovDip) ? rawGovDip : 60;
+  const driveAzimuth = Number.isFinite(rawDriveAzimuth) ? rawDriveAzimuth : 45;
 
   useEffect(() => {
-    const container = containerRef.current;
+    const container = mountRef.current;
     if (!container) return;
 
-    const width = container.clientWidth || 720;
-    const height = container.clientHeight || 460;
+    const getDims = () => ({
+      width: Math.max(320, container.clientWidth || 560),
+      height: Math.max(280, container.clientHeight || 380),
+    });
 
+    const { width, height } = getDims();
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x060a12);
+    scene.background = new THREE.Color(0xffffff);
 
-    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 500);
-    camera.position.set(spanW * 1.15, heightH * 0.9, spanW * 1.65);
+    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 1000);
+    const maxDim = Math.max(spanW, heightH, pullLengthM * 2);
+    camera.position.set(maxDim * 1.25, heightH * 1.15, maxDim * 1.35);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
@@ -101,207 +103,226 @@ export const KinematicWedge3DViewport: React.FC<KinematicWedge3DViewportProps> =
     container.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, heightH * 0.62, 0);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, heightH * 0.68, 0);
 
-    scene.add(new THREE.AmbientLight(0x94a3b8, 0.85));
-    const dirLight = new THREE.DirectionalLight(0xf8fafc, 1.15);
-    dirLight.position.set(15, 25, 20);
-    scene.add(dirLight);
+    // Neutral Geotechnical CAD Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+    const dir1 = new THREE.DirectionalLight(0xffffff, 0.65);
+    dir1.position.set(18, 32, 24);
+    scene.add(dir1);
+    const dir2 = new THREE.DirectionalLight(0xf8fafc, 0.4);
+    dir2.position.set(-18, 16, -20);
+    scene.add(dir2);
 
-    const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.45);
-    fillLight.position.set(-15, -5, -15);
-    scene.add(fillLight);
+    // Reference Floor Grid on White Canvas
+    const corridorLen = Math.max(8, pullLengthM * 2.5);
+    const gridSpan = Math.ceil(Math.max(spanW * 2.4, corridorLen * 1.6, 16) / 2) * 2;
+    const grid = new THREE.GridHelper(gridSpan, gridSpan, 0x94a3b8, 0xe2e8f0);
+    grid.position.y = -0.02;
+    scene.add(grid);
 
-    const gridHelper = new THREE.GridHelper(32, 32, 0x1e293b, 0x0f172a);
-    gridHelper.position.y = -0.05;
-    scene.add(gridHelper);
+    // 1. Exact Fed Tunnel Excavation Shell & Station Rings
+    const profilePts = generateExactTunnelProfilePoints(geometry, spanW, heightH, benchHeight);
+    if (profilePts.length >= 3) {
+      const shape = new THREE.Shape();
+      shape.moveTo(profilePts[0].x, profilePts[0].y);
+      for (let i = 1; i < profilePts.length; i++) {
+        shape.lineTo(profilePts[i].x, profilePts[i].y);
+      }
+      shape.closePath();
 
-    const wallH = wallHeight || geometry?.wallHeight || heightH * 0.55;
-    const profilePts = getExactProfileOutline(spanW, heightH, wallH, geometry);
-    const tunnelLength = 14;
-
-    // 1. Exact Tunnel Profile Extrusion
-    const tunnelShape = new THREE.Shape();
-    profilePts.forEach((p, idx) => {
-      if (idx === 0) tunnelShape.moveTo(p.x, p.y);
-      else tunnelShape.lineTo(p.x, p.y);
-    });
-    tunnelShape.closePath();
-
-    const extrudeGeo = new THREE.ExtrudeGeometry(tunnelShape, {
-      steps: 14,
-      depth: tunnelLength,
-      bevelEnabled: false,
-    });
-    extrudeGeo.translate(0, 0, -tunnelLength / 2);
-
-    const tunnelMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.75,
-      metalness: 0.15,
-      side: THREE.BackSide,
-      transparent: true,
-      opacity: wireframeTunnel ? 0.15 : 0.48,
-      wireframe: wireframeTunnel,
-    });
-    scene.add(new THREE.Mesh(extrudeGeo, tunnelMat));
-
-    // CAD Profile Station Rings
-    for (let z = -tunnelLength / 2; z <= tunnelLength / 2; z += 2.0) {
-      const ringVecs = profilePts.map((p) => new THREE.Vector3(p.x, p.y, z));
-      if (ringVecs.length > 0) ringVecs.push(ringVecs[0].clone());
-      const ringGeo = new THREE.BufferGeometry().setFromPoints(ringVecs);
-      const isFaceRing = Math.abs(z - tunnelLength / 2) < 0.01;
-      const ringMat = new THREE.LineBasicMaterial({
-        color: isFaceRing ? 0x38bdf8 : 0x334155,
-        transparent: true,
-        opacity: isFaceRing ? 0.95 : 0.5,
+      const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
+        depth: corridorLen,
+        bevelEnabled: false,
+        steps: 1,
+        curveSegments: 24,
       });
-      scene.add(new THREE.Line(ringGeo, ringMat));
+      extrudeGeo.translate(0, 0, -corridorLen / 2);
+
+      const shellMat = new THREE.MeshStandardMaterial({
+        color: 0xe2e8f0,
+        roughness: 0.7,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      scene.add(new THREE.Mesh(extrudeGeo, shellMat));
+
+      const shellEdges = new THREE.EdgesGeometry(extrudeGeo, 15);
+      scene.add(
+        new THREE.LineSegments(
+          shellEdges,
+          new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.65 })
+        )
+      );
+
+      // Station rings every 2.0m along the corridor
+      const ringMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.55 });
+      for (let z = -corridorLen / 2; z <= corridorLen / 2 + 0.05; z += Math.max(1.5, pullLengthM * 0.5)) {
+        const ringPts = profilePts.map((p) => new THREE.Vector3(p.x, p.y, z));
+        ringPts.push(ringPts[0].clone());
+        scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPts), ringMat));
+      }
     }
 
-    // 2. 3D Tetrahedral Wedge at Crown / Haunch
-    const wedgeGroup = new THREE.Group();
-    wedgeGroupRef.current = wedgeGroup;
+    // 2. Exact 3D Tetrahedral Crown Wedge Conforming to Fed Crown Arch
+    const clampedApex = Math.max(0.5, Math.min(heightH * 0.75, apexHeightM));
+    const relAngleRad = (((governingStrike - driveAzimuth) * Math.PI) / 180);
+    const dipScale = Math.max(0.55, Math.cos(((governingDip - 50) * Math.PI) / 180));
+    const halfBaseX = Math.min(spanW * 0.44, Math.max(spanW * 0.2, clampedApex * 1.15 * dipScale));
+    const halfBaseZ = Math.min(corridorLen * 0.36, Math.max(1.2, clampedApex * 1.25));
 
-    const baseHalfSpan = Math.min(spanW * 0.34, Math.max(0.8, Math.cbrt(Math.max(0.2, wedgeVolumeM3)) * 0.72));
-    const baseHalfLen = Math.min(4.2, Math.max(1.0, baseHalfSpan * 1.25));
-    const clampedApex = Math.min(4.5, Math.max(0.45, apexHeightM));
+    const skewX = Math.sin(relAngleRad) * (halfBaseX * 0.22);
+    const skewZ = Math.cos(relAngleRad) * (halfBaseZ * 0.16);
 
-    const relSkewRad = THREE.MathUtils.degToRad((governingStrike - driveAzimuth + 360) % 180);
-    const skewX = Math.sin(relSkewRad) * 0.45;
+    // Base perimeter vertices sit on the exact crown arch elevation y(x)
+    const x1 = -halfBaseX;
+    const z1 = -halfBaseZ * 0.65;
+    const y1 = getCrownArchYAtX(geometry, x1, spanW, heightH, benchHeight);
 
-    const v0 = new THREE.Vector3(skewX, heightH + clampedApex, 0); // Apex inside rock mass
-    const v1 = new THREE.Vector3(-baseHalfSpan, heightH - 0.3, -baseHalfLen);
-    const v2 = new THREE.Vector3(baseHalfSpan, heightH - 0.3, -baseHalfLen * 0.65);
-    const v3 = new THREE.Vector3(0, heightH - 0.15, baseHalfLen);
+    const x2 = halfBaseX;
+    const z2 = -halfBaseZ * 0.65;
+    const y2 = getCrownArchYAtX(geometry, x2, spanW, heightH, benchHeight);
+
+    const x3 = skewX * 0.4;
+    const z3 = halfBaseZ * 0.95;
+    const y3 = getCrownArchYAtX(geometry, x3, spanW, heightH, benchHeight);
+
+    // Apex V0 inside the overlying crown rock mass at heightH + clampedApex
+    const v0 = new THREE.Vector3(skewX, heightH + clampedApex, skewZ);
+    const v1 = new THREE.Vector3(x1, y1, z1);
+    const v2 = new THREE.Vector3(x2, y2, z2);
+    const v3 = new THREE.Vector3(x3, y3, z3);
 
     const wedgeGeo = new THREE.BufferGeometry();
-    const vertices = new Float32Array([
-      v0.x, v0.y, v0.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z,
-      v0.x, v0.y, v0.z, v2.x, v2.y, v2.z, v3.x, v3.y, v3.z,
-      v0.x, v0.y, v0.z, v3.x, v3.y, v3.z, v1.x, v1.y, v1.z,
-      v1.x, v1.y, v1.z, v3.x, v3.y, v3.z, v2.x, v2.y, v2.z,
+    const positions = new Float32Array([
+      // Joint Plane 1 (Left-Front)
+      v0.x, v0.y, v0.z, v1.x, v1.y, v1.z, v3.x, v3.y, v3.z,
+      // Joint Plane 2 (Right-Front)
+      v0.x, v0.y, v0.z, v3.x, v3.y, v3.z, v2.x, v2.y, v2.z,
+      // Joint Plane 3 (Rear Release)
+      v0.x, v0.y, v0.z, v2.x, v2.y, v2.z, v1.x, v1.y, v1.z,
+      // Excavation Daylighting Base Triangle
+      v1.x, v1.y, v1.z, v2.x, v2.y, v2.z, v3.x, v3.y, v3.z,
     ]);
-    wedgeGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    wedgeGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     wedgeGeo.computeVertexNormals();
 
-    const wedgeColor = isUnstable ? 0xef4444 : isMarginal ? 0xf59e0b : 0x10b981;
+    const wedgeFillColor =
+      fosBolted < 1.0 ? 0xdc2626 : fosBolted < 1.5 ? 0xd97706 : 0x059669;
+
     const wedgeMat = new THREE.MeshStandardMaterial({
-      color: wedgeColor,
-      roughness: 0.35,
-      metalness: 0.15,
+      color: wedgeFillColor,
+      roughness: 0.45,
+      metalness: 0.05,
       transparent: true,
-      opacity: 0.86,
+      opacity: 0.58,
       side: THREE.DoubleSide,
     });
-    const wedgeMesh = new THREE.Mesh(wedgeGeo, wedgeMat);
-    wedgeGroup.add(wedgeMesh);
+    scene.add(new THREE.Mesh(wedgeGeo, wedgeMat));
 
-    const wedgeEdges = new THREE.EdgesGeometry(wedgeGeo);
-    wedgeGroup.add(
+    // Bold Black CAD Wireframe of the Tetrahedral Wedge
+    const wedgeEdgePts = [
+      v0, v1,
+      v0, v2,
+      v0, v3,
+      v1, v2,
+      v2, v3,
+      v3, v1,
+    ];
+    const wedgeEdgeGeo = new THREE.BufferGeometry().setFromPoints(wedgeEdgePts);
+    scene.add(
       new THREE.LineSegments(
-        wedgeEdges,
-        new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 })
+        wedgeEdgeGeo,
+        new THREE.LineBasicMaterial({ color: 0x0f172a })
       )
     );
 
-    // Gravity Resultant Vector Arrow
-    const arrowOrigin = new THREE.Vector3(0, heightH - 0.15, 0);
-    const arrowHelper = new THREE.ArrowHelper(
-      new THREE.Vector3(0, -1, 0),
-      arrowOrigin,
-      Math.min(2.4, Math.max(1.1, wedgeWeightKn / 220)),
-      wedgeColor,
-      0.4,
-      0.26
+    // Gravity Load Vector Arrow from Wedge Centroid
+    const centroid = new THREE.Vector3()
+      .add(v0)
+      .add(v1)
+      .add(v2)
+      .add(v3)
+      .multiplyScalar(0.25);
+    const loadArrowLen = Math.max(1.1, Math.min(2.4, clampedApex * 0.75));
+    scene.add(
+      new THREE.ArrowHelper(
+        new THREE.Vector3(0, -1, 0),
+        centroid,
+        loadArrowLen,
+        0xb91c1c,
+        0.36,
+        0.22
+      )
     );
-    wedgeGroup.add(arrowHelper);
-    scene.add(wedgeGroup);
 
-    // 3. Bounding Discontinuity Planes (J1, J2) oriented by real strike/dip
-    if (showBoundingPlanes) {
-      const dipRad = THREE.MathUtils.degToRad(governingDip || 60);
-      const planeSize = Math.max(spanW, heightH) * 0.9;
-      const pGeo = new THREE.PlaneGeometry(planeSize, planeSize);
+    // 3. Radial Rock Bolts & Face Bearing Plates Anchored to Exact Arch Surface
+    const safeSpacing = Math.max(0.8, Math.min(3.0, boltSpacingM));
+    const safeBoltLen = Math.max(1.5, Math.min(8.0, boltLengthM));
+    const boltGroup = new THREE.Group();
 
-      const p1Mat = new THREE.MeshBasicMaterial({
-        color: 0x38bdf8,
-        transparent: true,
-        opacity: 0.14,
-        side: THREE.DoubleSide,
-      });
-      const p1 = new THREE.Mesh(pGeo, p1Mat);
-      p1.position.set(-baseHalfSpan * 0.45, heightH + clampedApex * 0.35, 0);
-      p1.rotation.z = -dipRad;
-      p1.rotation.y = relSkewRad * 0.35;
-      scene.add(p1);
+    const numRowsZ = Math.max(2, Math.min(5, Math.floor((halfBaseZ * 1.8) / safeSpacing) + 1));
+    const numColsX = Math.max(2, Math.min(5, Math.floor((halfBaseX * 1.9) / safeSpacing) + 1));
 
-      const p2Mat = new THREE.MeshBasicMaterial({
-        color: 0xa855f7,
-        transparent: true,
-        opacity: 0.14,
-        side: THREE.DoubleSide,
-      });
-      const p2 = new THREE.Mesh(pGeo, p2Mat);
-      p2.position.set(baseHalfSpan * 0.45, heightH + clampedApex * 0.35, 0);
-      p2.rotation.z = dipRad;
-      p2.rotation.y = -relSkewRad * 0.35;
-      scene.add(p2);
-    }
+    const boltStemMat = new THREE.MeshStandardMaterial({
+      color: 0x0284c7,
+      roughness: 0.35,
+      metalness: 0.4,
+    });
+    const plateMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      roughness: 0.4,
+      metalness: 0.6,
+    });
 
-    // 4. Radial Pattern Rockbolts Normal to True Crown Perimeter
-    if (showBolts) {
-      const boltGroup = new THREE.Group();
-      const boltMat = new THREE.MeshStandardMaterial({
-        color: 0x22d3ee,
-        metalness: 0.7,
-        roughness: 0.2,
-        emissive: 0x0891b2,
-        emissiveIntensity: 0.35,
-      });
-      const plateMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.25 });
+    for (let rz = 0; rz < numRowsZ; rz++) {
+      const zPos =
+        -halfBaseZ * 0.55 +
+        (numRowsZ > 1 ? (rz / (numRowsZ - 1)) * (halfBaseZ * 1.35) : 0);
+      for (let cx = 0; cx < numColsX; cx++) {
+        const xPos =
+          -halfBaseX * 0.78 +
+          (numColsX > 1 ? (cx / (numColsX - 1)) * (halfBaseX * 1.56) : 0);
+        const yArch = getCrownArchYAtX(geometry, xPos, spanW, heightH, benchHeight);
 
-      const crownPts = profilePts.filter((p) => p.y >= wallH * 0.75);
-      const stepIdx = Math.max(1, Math.floor(crownPts.length / Math.max(3, Math.round(spanW / boltSpacingM))));
-      const sampledCrownPts = crownPts.filter((_, idx) => idx % stepIdx === 0);
+        const collarPos = new THREE.Vector3(xPos, yArch, zPos);
+        const outwardNormal = new THREE.Vector3(xPos * 0.28, 1.0, 0).normalize();
+        const anchorTip = collarPos.clone().addScaledVector(outwardNormal, safeBoltLen);
 
-      for (let z = -3.0; z <= 3.0; z += Math.max(1.0, boltSpacingM)) {
-        sampledCrownPts.forEach((pt) => {
-          const centerY = wallH;
-          const dir = new THREE.Vector3(pt.x, Math.max(0.25, pt.y - centerY), 0).normalize();
-          const startPos = new THREE.Vector3(pt.x, pt.y, z);
-          const midPos = startPos.clone().addScaledVector(dir, boltLengthM / 2);
+        const boltDir = new THREE.Vector3().subVectors(anchorTip, collarPos);
+        const len = boltDir.length();
+        const cylGeo = new THREE.CylinderGeometry(0.045, 0.045, len, 10);
+        const cylMesh = new THREE.Mesh(cylGeo, boltStemMat);
 
-          const cylGeo = new THREE.CylinderGeometry(0.04, 0.04, boltLengthM, 8);
-          const boltMesh = new THREE.Mesh(cylGeo, boltMat);
-          boltMesh.position.copy(midPos);
-          boltMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-          boltGroup.add(boltMesh);
+        const midPt = new THREE.Vector3().addVectors(collarPos, anchorTip).multiplyScalar(0.5);
+        cylMesh.position.copy(midPt);
+        cylMesh.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 1, 0),
+          boltDir.clone().normalize()
+        );
+        boltGroup.add(cylMesh);
 
-          const plateGeo = new THREE.BoxGeometry(0.26, 0.06, 0.26);
-          const plateMesh = new THREE.Mesh(plateGeo, plateMat);
-          plateMesh.position.copy(startPos);
-          plateMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-          boltGroup.add(plateMesh);
-        });
+        // Bearing plate at excavation collar
+        const plateGeo = new THREE.BoxGeometry(0.28, 0.06, 0.28);
+        const plateMesh = new THREE.Mesh(plateGeo, plateMat);
+        plateMesh.position.copy(collarPos);
+        plateMesh.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 1, 0),
+          boltDir.clone().normalize()
+        );
+        boltGroup.add(plateMesh);
       }
-      scene.add(boltGroup);
     }
+    scene.add(boltGroup);
 
-    let animId: number;
+    let reqId: number;
     const animate = () => {
-      animId = requestAnimationFrame(animate);
-      if (detachSimulation && wedgeGroupRef.current) {
-        detachProgressRef.current = Math.min(1, detachProgressRef.current + 0.018);
-        const dropY = detachProgressRef.current * detachProgressRef.current * (heightH * 0.52);
-        wedgeGroupRef.current.position.y = -dropY;
-      } else if (wedgeGroupRef.current) {
-        detachProgressRef.current = 0;
-        wedgeGroupRef.current.position.y = 0;
-      }
+      reqId = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
     };
@@ -309,120 +330,70 @@ export const KinematicWedge3DViewport: React.FC<KinematicWedge3DViewportProps> =
 
     const handleResize = () => {
       if (!container) return;
-      const w = container.clientWidth || 720;
-      const h = container.clientHeight || 460;
-      camera.aspect = w / h;
+      const d = getDims();
+      camera.aspect = d.width / d.height;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      renderer.setSize(d.width, d.height);
     };
+
+    const resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver.observe(container);
     window.addEventListener('resize', handleResize);
 
     return () => {
-      cancelAnimationFrame(animId);
+      cancelAnimationFrame(reqId);
+      resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
   }, [
+    geometry,
     spanW,
     heightH,
-    wallHeight,
-    geometry,
-    wedgeVolumeM3,
-    wedgeWeightKn,
+    benchHeight,
+    pullLengthM,
     apexHeightM,
+    wedgeVolumeM3,
+    wedgeWeightMN,
     fosUnbolted,
     fosBolted,
-    boltLengthM,
     boltSpacingM,
+    boltLengthM,
     governingStrike,
     governingDip,
     driveAzimuth,
-    showBolts,
-    showBoundingPlanes,
-    wireframeTunnel,
-    detachSimulation,
-    isUnstable,
-    isMarginal,
   ]);
 
-  return (
-    <div className="relative w-full h-full min-h-[440px] rounded-lg overflow-hidden border border-slate-800 bg-[#060a12] flex flex-col">
-      {/* Top CAD Viewport Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-900/95 border-b border-slate-800 z-10">
-        <div className="flex items-center gap-2">
-          <span
-            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase border flex items-center gap-1 ${
-              isUnstable
-                ? 'bg-rose-500/15 text-rose-300 border-rose-500/40'
-                : isMarginal
-                ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
-                : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-            }`}
-          >
-            {isUnstable && <AlertTriangle className="w-3 h-3" />}
-            FoS = {effectiveFoS.toFixed(2)} ({failureMode.replace(/_/g, ' ')})
-          </span>
-          <span className="text-[11px] font-mono text-slate-400 tabular-nums">
-            V = <strong className="text-slate-200">{wedgeVolumeM3.toFixed(2)} m³</strong> | W = <strong className="text-amber-300">{wedgeWeightKn.toFixed(0)} kN</strong> | Apex = <strong className="text-sky-300">{apexHeightM.toFixed(2)} m</strong>
-          </span>
-        </div>
+  const shapeLabel = (geometry?.crownGeometry || 'd_shaped').replace(/_/g, ' ').toUpperCase();
 
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setShowBolts(!showBolts)}
-            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              showBolts
-                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
+  return (
+    <div className="relative w-full h-full min-h-[340px] rounded-xl overflow-hidden border border-slate-300 bg-white">
+      <div ref={mountRef} className="w-full h-full min-h-[340px]" />
+
+      {/* Top-Left CAD Telemetry Badge */}
+      <div className="absolute top-2.5 left-2.5 bg-white/95 backdrop-blur-xs border border-slate-300 shadow-xs rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-slate-800 pointer-events-none space-y-0.5">
+        <div className="text-slate-900 font-bold flex items-center gap-1.5">
+          <span
+            className={`w-2 h-2 rounded-full inline-block ${
+              fosBolted < 1.0 ? 'bg-rose-600' : fosBolted < 1.5 ? 'bg-amber-500' : 'bg-emerald-600'
             }`}
-          >
-            <Shield className="w-3 h-3" /> Bolts ({boltLengthM}m @ {boltSpacingM}m)
-          </button>
-          <button
-            onClick={() => setShowBoundingPlanes(!showBoundingPlanes)}
-            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              showBoundingPlanes
-                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
-            }`}
-          >
-            <Layers className="w-3 h-3" /> J1/J2 Planes
-          </button>
-          <button
-            onClick={() => setWireframeTunnel(!wireframeTunnel)}
-            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              wireframeTunnel
-                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
-            }`}
-          >
-            <Eye className="w-3 h-3" /> Shell
-          </button>
-          <button
-            onClick={() => setDetachSimulation(!detachSimulation)}
-            className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              detachSimulation
-                ? 'bg-rose-600 text-white border-rose-400'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-            }`}
-          >
-            {detachSimulation ? <RotateCcw className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-            {detachSimulation ? 'Reset Wedge' : 'Test Kinematic Drop'}
-          </button>
+          />
+          3D KINEMATIC TETRAHEDRAL WEDGE &amp; BOLT ANCHORAGE
+        </div>
+        <div className="text-slate-600">
+          Shape: <strong className="text-slate-900">{shapeLabel}</strong> ({spanW.toFixed(2)}m × {heightH.toFixed(2)}m) | Apex h<sub>w</sub>: <strong className="text-slate-900">{apexHeightM.toFixed(2)}m</strong>
+        </div>
+        <div className="text-slate-700">
+          Vol: <strong>{wedgeVolumeM3.toFixed(1)} m³</strong> | Weight: <strong>{wedgeWeightMN.toFixed(2)} MN</strong> | Bolts: <strong>L={boltLengthM}m @ {boltSpacingM}m×{boltSpacingM}m</strong>
+        </div>
+        <div className={fosBolted >= 1.5 ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>
+          FoS Unbolted: {fosUnbolted.toFixed(2)} ➔ Bolted FoS: {fosBolted.toFixed(2)}
         </div>
       </div>
 
-      {/* 3D Canvas Container */}
-      <div ref={containerRef} className="w-full flex-1 min-h-[390px] cursor-grab active:cursor-grabbing" />
-
-      {/* Bottom Engineering Status Bar */}
-      <div className="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-slate-400 tabular-nums">
-        <div>
-          UNBOLTED FoS: <span className="text-rose-400 font-bold">{fosUnbolted.toFixed(2)}</span> → BOLTED FoS: <span className="text-emerald-400 font-bold">{fosBolted.toFixed(2)}</span>
-        </div>
-        <div>
-          BOLT EMBEDMENT PAST APEX: <span className={boltLengthM > apexHeightM + 0.5 ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>{(boltLengthM - apexHeightM).toFixed(2)} m</span>
-        </div>
+      {/* Bottom-Right CAD Controls Legend */}
+      <div className="absolute bottom-2 right-2 bg-white/95 border border-slate-300 rounded px-2 py-1 text-[9px] font-mono text-slate-600 pointer-events-none shadow-2xs">
+        CAD Orbit: Left-Drag | Zoom: Scroll | Pan: Right-Drag
       </div>
     </div>
   );

@@ -925,14 +925,12 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       const halfW = W / 2;
 
       let panel: FieldPanelId = 'crown';
-      if (Math.abs(pt.z - pullM) < 0.25) {
-        panel = 'face';
-      } else if (pt.x <= -halfW * 0.85) {
-        panel = 'left_wall';
-      } else if (pt.x >= halfW * 0.85) {
-        panel = 'right_wall';
-      } else {
+      if (pt.y >= H * 0.62) {
         panel = 'crown';
+      } else if (pt.x < 0) {
+        panel = 'left_wall';
+      } else {
+        panel = 'right_wall';
       }
 
       const nextIdx = (support.spotBolts?.length || 0) + 1;

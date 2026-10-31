@@ -46,6 +46,9 @@ import {
   feedDataFromNatmActiveState,
   AlignmentDomainSegment,
   FaultZoneCrossing,
+  generateExactTunnelProfilePoints,
+  clipProfilePolygonToYBand,
+  getCrownArchYAtX,
 } from '../engine/advancedModelingAndAlignmentEngine';
 import {
   assessModuleDataReadiness,
@@ -75,6 +78,7 @@ export interface AdvancedGeologicalAnalysisModalProps {
   rockMassSummary?: any;
   overbreakAnalysis?: any;
   junctionFactorData?: any;
+  activeExcavationApproach?: string;
   onOpenJunctionCalculator?: () => void;
   onClearJunctionFactor?: () => void;
 }
@@ -237,26 +241,12 @@ function buildSvgTunnelProfilePath(
   cx: number,
   baseY: number,
   scale: number
-): { pathD: string; pointsSvg: { x: number; y: number; rawX: number; rawY: number }[] } {
-  let rawPts: { x: number; y: number }[] = [];
-  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
-    rawPts = geometry.crossSectionPoints;
-  } else {
-    const halfW = spanW / 2;
-    const clampedWall = Math.min(wallH, heightH * 0.6);
-    const archH = Math.max(0.5, heightH - clampedWall);
-    rawPts.push({ x: -halfW, y: 0 });
-    rawPts.push({ x: -halfW, y: clampedWall });
-    for (let i = 1; i < 28; i++) {
-      const theta = Math.PI * (1 - i / 28);
-      rawPts.push({
-        x: halfW * Math.cos(theta),
-        y: clampedWall + archH * Math.sin(theta),
-      });
-    }
-    rawPts.push({ x: halfW, y: clampedWall });
-    rawPts.push({ x: halfW, y: 0 });
-  }
+): {
+  pathD: string;
+  rawPts: { x: number; y: number }[];
+  pointsSvg: { x: number; y: number; rawX: number; rawY: number }[];
+} {
+  const rawPts = generateExactTunnelProfilePoints(geometry, spanW, heightH, wallH);
 
   const pointsSvg = rawPts.map((pt) => ({
     x: cx + pt.x * scale,
@@ -270,7 +260,7 @@ function buildSvgTunnelProfilePath(
       ? pointsSvg.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ') + ' Z'
       : '';
 
-  return { pathD, pointsSvg };
+  return { pathD, rawPts, pointsSvg };
 }
 
 export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysisModalProps> = ({
@@ -287,6 +277,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   surfaceParams,
   surfaceSmrAnalysis,
   savedProjects = [],
+  activeExcavationApproach,
 }) => {
   const [activeTab, setActiveTab] = useState<AdvancedAnalysisTab>('EXCAVATION_3D_LOG');
 
@@ -329,12 +320,28 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
 
   const currentModuleReadiness = readinessByTab[activeTab];
 
+  const mapApproachToStage = (app?: string): ExcavationStageType => {
+    const norm = (app || '').toLowerCase();
+    if (norm.includes('top') || norm.includes('heading')) return 'TOP_HEADING';
+    if (norm.includes('bench')) return 'BENCH';
+    if (norm.includes('invert')) return 'INVERT';
+    return 'FULL_FACE';
+  };
+
   // Interactive Solver Controls (initialized from live fedData)
-  const [activeExcavationStage, setActiveExcavationStage] = useState<ExcavationStageType>('FULL_FACE');
+  const [activeExcavationStage, setActiveExcavationStage] = useState<ExcavationStageType>(() =>
+    mapApproachToStage(activeExcavationApproach)
+  );
   const [customDriveAzimuth, setCustomDriveAzimuth] = useState<number>(fedData.driveAzimuth);
   const [customStrike, setCustomStrike] = useState<number>(fedData.governingJoint?.strike ?? 125);
   const [customDip, setCustomDip] = useState<number>(fedData.governingJoint?.dip ?? 60);
   const [customDipDirection, setCustomDipDirection] = useState<number>(fedData.governingJoint?.dipDirection ?? 215);
+
+  useEffect(() => {
+    if (activeExcavationApproach) {
+      setActiveExcavationStage(mapApproachToStage(activeExcavationApproach));
+    }
+  }, [activeExcavationApproach]);
 
   // Wedge & Bolt Solver Controls
   const [frictionAngleDeg, setFrictionAngleDeg] = useState<number>(32);
@@ -988,7 +995,8 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                     heightH,
                     fedData.benchHeight,
                     0,
-                    pullLength
+                    pullLength,
+                    geometry
                   );
                   return (
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
@@ -999,10 +1007,14 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                           heightH={heightH}
                           benchHeight={fedData.benchHeight}
                           crownRadius={fedData.crownRadius}
-                          pullLength={pullLength}
+                          pullLengthM={pullLength}
+                          chainageStart={currentFaceChainageNum}
                           activeStage={activeExcavationStage}
                           geometry={geometry}
                           driveAzimuth={customDriveAzimuth}
+                          governingStrike={customStrike}
+                          governingDip={customDip}
+                          governingSet={fedData.governingJoint?.set || 'J1'}
                           mappedTraces={mapped3DTraces}
                           onStageSelect={setActiveExcavationStage}
                         />
@@ -1022,7 +1034,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
 
                           <div className="grid grid-cols-2 gap-1.5">
                             {(['FULL_FACE', 'TOP_HEADING', 'BENCH', 'INVERT'] as ExcavationStageType[]).map((st) => {
-                              const b = computeStageElevationBounds(st, spanW, heightH, fedData.benchHeight, 0, pullLength);
+                              const b = computeStageElevationBounds(st, spanW, heightH, fedData.benchHeight, 0, pullLength, geometry);
                               const active = activeExcavationStage === st;
                               return (
                                 <button
@@ -1038,60 +1050,57 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                                     {st.replace('_', ' ')}
                                   </div>
                                   <div className="text-[10px] font-mono text-slate-400 tabular-nums mt-0.5">
-                                    Y: {b.yMin.toFixed(1)}m → {b.yMax.toFixed(1)}m
+                                    Y: {b.yMin.toFixed(1)}m → {b.yMax.toFixed(1)}m ({b.crossSectionArea.toFixed(1)}m²)
                                   </div>
                                 </button>
                               );
                             })}
                           </div>
 
-                          {/* Exact 2D CAD Tunnel Profile Cross-Section with Stage Highlight */}
-                          <div className="bg-[#04070d] border border-slate-800 rounded-lg p-2.5">
-                            <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                          {/* Exact 2D CAD Tunnel Profile Cross-Section on White Background */}
+                          <div className="bg-white border border-slate-300 rounded-lg p-2.5 shadow-2xs">
+                            <div className="flex items-center justify-between text-[10px] font-mono text-slate-700 font-bold mb-1">
                               <span>2D CAD CROSS-SECTION ({shapeLabel})</span>
-                              <span className="text-sky-400 tabular-nums">{spanW.toFixed(2)}m × {heightH.toFixed(2)}m</span>
+                              <span className="text-sky-700 tabular-nums">{spanW.toFixed(2)}m × {heightH.toFixed(2)}m</span>
                             </div>
-                            <svg viewBox="0 0 320 240" className="w-full h-44">
-                              <defs>
-                                <clipPath id="stageClipRect">
-                                  <rect
-                                    x="0"
-                                    y={195 - stageBounds.yMax * (150 / Math.max(1, heightH)) - 10}
-                                    width="320"
-                                    height={Math.max(12, (stageBounds.yMax - stageBounds.yMin) * (150 / Math.max(1, heightH)) + 16)}
-                                  />
-                                </clipPath>
-                              </defs>
+                            <svg viewBox="0 0 320 240" className="w-full h-44 bg-white">
+                              <rect width="320" height="240" fill="#ffffff" />
                               {(() => {
                                 const scale = Math.min(200 / Math.max(1, spanW), 145 / Math.max(1, heightH));
                                 const cx = 160;
                                 const baseY = 195;
-                                const { pathD } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
+                                const { pathD, rawPts } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
+                                const clippedRawPts = clipProfilePolygonToYBand(rawPts, stageBounds.yMin, stageBounds.yMax);
+                                const clippedPathD =
+                                  clippedRawPts.length >= 3
+                                    ? clippedRawPts
+                                        .map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${(cx + pt.x * scale).toFixed(1)} ${(baseY - pt.y * scale).toFixed(1)}`)
+                                        .join(' ') + ' Z'
+                                    : pathD;
                                 const zMinY = baseY - stageBounds.yMin * scale;
                                 const zMaxY = baseY - stageBounds.yMax * scale;
 
                                 return (
                                   <>
                                     {/* CAD Grid */}
-                                    <line x1="25" y1={baseY} x2="295" y2={baseY} stroke="#1e293b" strokeWidth="1" />
-                                    <line x1={cx} y1="20" x2={cx} y2="215" stroke="#1e293b" strokeWidth="1" strokeDasharray="3,3" />
-                                    {/* Full Tunnel Reference Ghost */}
-                                    <path d={pathD} fill="#0f172a" stroke="#475569" strokeWidth="1.5" strokeDasharray="4,3" />
-                                    {/* Active Stage Highlighted Portion */}
+                                    <line x1="25" y1={baseY} x2="295" y2={baseY} stroke="#94a3b8" strokeWidth="1.2" />
+                                    <line x1={cx} y1="20" x2={cx} y2="215" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="3,3" />
+                                    {/* Full Tunnel Reference Outline */}
+                                    <path d={pathD} fill="#f8fafc" stroke="#475569" strokeWidth="1.5" strokeDasharray="4,3" />
+                                    {/* Active Stage Exact Clipped Polygon */}
                                     <path
-                                      d={pathD}
-                                      clipPath="url(#stageClipRect)"
-                                      fill="rgba(14,165,233,0.22)"
-                                      stroke="#38bdf8"
+                                      d={clippedPathD}
+                                      fill="rgba(2, 132, 199, 0.22)"
+                                      stroke="#0284c7"
                                       strokeWidth="2.5"
                                     />
                                     {/* Stage Elevation Cut Lines */}
-                                    <line x1="35" y1={zMaxY} x2="285" y2={zMaxY} stroke="#10b981" strokeWidth="1" strokeDasharray="3,3" />
-                                    <line x1="35" y1={zMinY} x2="285" y2={zMinY} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,3" />
-                                    <text x="38" y={Math.max(14, zMaxY - 4)} fill="#10b981" fontSize="9" fontFamily="monospace">
+                                    <line x1="35" y1={zMaxY} x2="285" y2={zMaxY} stroke="#059669" strokeWidth="1.2" strokeDasharray="3,3" />
+                                    <line x1="35" y1={zMinY} x2="285" y2={zMinY} stroke="#d97706" strokeWidth="1.2" strokeDasharray="3,3" />
+                                    <text x="38" y={Math.max(14, zMaxY - 4)} fill="#047857" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
                                       Y_max = {stageBounds.yMax.toFixed(2)}m
                                     </text>
-                                    <text x="38" y={Math.min(232, zMinY + 11)} fill="#f59e0b" fontSize="9" fontFamily="monospace">
+                                    <text x="38" y={Math.min(232, zMinY + 11)} fill="#b45309" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
                                       Y_min = {stageBounds.yMin.toFixed(2)}m
                                     </text>
                                   </>
@@ -1102,6 +1111,10 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                         </div>
 
                         <div className="bg-slate-950/90 border border-slate-800 rounded p-2.5 space-y-1 text-[11px] font-mono tabular-nums">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Active Stage Area / Volume:</span>
+                            <span className="text-emerald-400 font-bold">{stageBounds.crossSectionArea.toFixed(2)} m² / {stageBounds.volume.toFixed(1)} m³</span>
+                          </div>
                           <div className="flex justify-between">
                             <span className="text-slate-400">Active Stage Height:</span>
                             <span className="text-white font-bold">{(stageBounds.yMax - stageBounds.yMin).toFixed(2)} m</span>
@@ -1139,6 +1152,8 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                   <SequentialFace3DReconstructionView
                     spanW={spanW}
                     heightH={heightH}
+                    tunnelWidth={spanW}
+                    tunnelHeight={heightH}
                     geometry={geometry}
                     initialFaceLogs={fedData.historicalFaceLogs}
                   />
@@ -1151,9 +1166,12 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                       <FutureAdvance3DViewport
                         spanW={spanW}
                         heightH={heightH}
+                        benchHeight={wallH}
                         wallHeight={wallH}
                         geometry={geometry}
+                        pullLengthM={pullLength}
                         pullLength={pullLength}
+                        currentChainage={currentFaceChainageNum}
                         currentFaceChainage={currentFaceChainageNum}
                         driveAzimuth={customDriveAzimuth}
                         governingStrike={customStrike}
@@ -1161,6 +1179,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                         governingDipDirection={customDipDirection}
                         governingSet={fedData.governingJoint?.set || 'J1'}
                         governingType={fedData.governingJoint?.type || 'Discontinuity'}
+                        apparentDipBetaApp={apparentCalculations.apparentDipWallDeg}
                         apparentDipDeg={apparentCalculations.apparentDipWallDeg}
                         advanceRatePerVerticalMeter={apparentCalculations.advanceRatePerVerticalMeter}
                       />
@@ -1229,21 +1248,25 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                 {/* ==================== 5. 3D KINEMATIC WEDGE & BOLT FOS ==================== */}
                 {activeTab === 'WEDGE_FOS' && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-                    {/* Left 8 Cols: 3D Kinematic Wedge + 2D Exact Profile Cross-Section */}
+                    {/* Left 8 Cols: 3D Kinematic Wedge */}
                     <div className="lg:col-span-8 flex flex-col gap-4">
                       <div className="min-h-[450px] flex-1 flex flex-col">
                         <KinematicWedge3DViewport
                           spanW={spanW}
                           heightH={heightH}
+                          benchHeight={wallH}
                           wallHeight={wallH}
+                          pullLengthM={pullLength}
                           geometry={geometry}
                           wedgeVolumeM3={wedgeAnalysis.wedgeVolumeM3}
+                          wedgeWeightMN={wedgeAnalysis.wedgeWeightKn / 1000}
                           wedgeWeightKn={wedgeAnalysis.wedgeWeightKn}
                           apexHeightM={wedgeAnalysis.apexHeightM}
                           fosUnbolted={wedgeAnalysis.fosUnbolted}
                           fosBolted={wedgeAnalysis.fosBolted}
                           boltLengthM={boltLengthM}
                           boltSpacingM={boltSpacingM}
+                          boltCapacityMN={boltCapacityKn / 1000}
                           governingStrike={customStrike}
                           governingDip={customDip}
                           governingDipDirection={customDipDirection}
@@ -1276,41 +1299,44 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                           </span>
                         </div>
 
-                        {/* 2D CAD Cross-Section with Exact Tunnel Profile & Crown Wedge */}
-                        <div className="bg-[#04070d] border border-slate-800 rounded-lg p-2">
-                          <div className="flex justify-between text-[10px] font-mono text-slate-400 mb-1">
+                        {/* 2D CAD Cross-Section with Exact Tunnel Profile & Crown Wedge on White Background */}
+                        <div className="bg-white border border-slate-300 rounded-lg p-2 shadow-2xs">
+                          <div className="flex justify-between text-[10px] font-mono text-slate-700 font-bold mb-1">
                             <span>2D CAD WEDGE &amp; BOLT ANCHORAGE</span>
-                            <span className="text-sky-300 tabular-nums">Apex = {wedgeAnalysis.apexHeightM.toFixed(2)}m</span>
+                            <span className="text-sky-700 tabular-nums">Apex = {wedgeAnalysis.apexHeightM.toFixed(2)}m</span>
                           </div>
-                          <svg viewBox="0 0 320 220" className="w-full h-40">
+                          <svg viewBox="0 0 320 220" className="w-full h-40 bg-white">
+                            <rect width="320" height="220" fill="#ffffff" />
                             {(() => {
-                              const scale = Math.min(180 / Math.max(1, spanW), 110 / Math.max(1, heightH));
+                              const scale = Math.min(180 / Math.max(1, spanW), 105 / Math.max(1, heightH));
                               const cx = 160;
                               const baseY = 195;
                               const { pathD, pointsSvg } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
                               const crownY = baseY - heightH * scale;
-                              const apexY = Math.max(16, crownY - wedgeAnalysis.apexHeightM * scale);
-                              const halfWedgePx = Math.min(spanW * 0.34 * scale, 65);
-                              const crownEdgeY = crownY + 12;
+                              const apexY = Math.max(14, crownY - wedgeAnalysis.apexHeightM * scale);
+                              const halfWedgeM = Math.min(spanW * 0.34, 65 / Math.max(1, scale));
+                              const halfWedgePx = halfWedgeM * scale;
+                              const archYAtWedgeBase = getCrownArchYAtX(geometry, halfWedgeM, spanW, heightH, wallH);
+                              const crownEdgeY = baseY - archYAtWedgeBase * scale;
 
                               return (
                                 <>
-                                  <line x1="25" y1={baseY} x2="295" y2={baseY} stroke="#1e293b" strokeWidth="1" />
-                                  <path d={pathD} fill="#0f172a" stroke="#64748b" strokeWidth="2" />
+                                  <line x1="25" y1={baseY} x2="295" y2={baseY} stroke="#94a3b8" strokeWidth="1.2" />
+                                  <path d={pathD} fill="#f8fafc" stroke="#0f172a" strokeWidth="2" />
                                   {/* Tetrahedral Wedge Polygon */}
                                   <polygon
                                     points={`${cx - halfWedgePx},${crownEdgeY} ${cx},${apexY} ${cx + halfWedgePx},${crownEdgeY}`}
-                                    fill={wedgeAnalysis.fosBolted < 1.5 ? 'rgba(239,68,68,0.28)' : 'rgba(16,185,129,0.25)'}
-                                    stroke={wedgeAnalysis.fosBolted < 1.5 ? '#ef4444' : '#10b981'}
+                                    fill={wedgeAnalysis.fosBolted < 1.5 ? 'rgba(220,38,38,0.22)' : 'rgba(5,150,105,0.22)'}
+                                    stroke={wedgeAnalysis.fosBolted < 1.5 ? '#dc2626' : '#059669'}
                                     strokeWidth="2"
                                   />
                                   {/* Radial Pattern Bolts Normal to Crown */}
                                   {pointsSvg
-                                    .filter((p) => p.rawY >= wallH * 0.85)
+                                    .filter((p) => p.rawY >= wallH * 0.8)
                                     .filter((_, i, arr) => i % Math.max(1, Math.floor(arr.length / 5)) === 0)
                                     .map((pt, idx) => {
                                       const dx = pt.rawX;
-                                      const dy = Math.max(0.3, pt.rawY - wallH * 0.7);
+                                      const dy = Math.max(0.3, pt.rawY - wallH * 0.65);
                                       const len = Math.hypot(dx, dy) || 1;
                                       const ux = dx / len;
                                       const uy = dy / len;
@@ -1323,12 +1349,12 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                                           y1={pt.y}
                                           x2={x2}
                                           y2={y2}
-                                          stroke="#22d3ee"
-                                          strokeWidth="1.8"
+                                          stroke="#0284c7"
+                                          strokeWidth="2"
                                         />
                                       );
                                     })}
-                                  <text x={cx + halfWedgePx + 6} y={apexY + 10} fill="#f8fafc" fontSize="9" fontFamily="monospace">
+                                  <text x={cx + halfWedgePx + 6} y={Math.max(24, apexY + 12)} fill="#0f172a" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
                                     W = {wedgeAnalysis.wedgeWeightKn.toFixed(0)} kN
                                   </text>
                                 </>
@@ -1405,7 +1431,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                 {activeTab === 'APPARENT_DIP_SOLVER' && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
                     {/* Left 8 Cols: Dual CAD Stereonet & Unfolded Wall/Face Apparent Trace Diagram */}
-                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                    <div className="lg:col-span-8 bg-slate-900/80 border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 mb-3">
                         <div>
                           <div className="text-xs font-mono font-bold text-white uppercase">
@@ -1421,21 +1447,22 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center my-auto">
-                        {/* Equal-Angle Stereonet SVG */}
-                        <div className="bg-slate-950/90 border border-slate-800/80 rounded-lg p-3 flex flex-col items-center">
-                          <div className="text-[10px] font-mono text-slate-400 uppercase mb-1">
+                        {/* Equal-Angle Stereonet SVG on White Engineering Canvas */}
+                        <div className="bg-white border border-slate-300 rounded-lg p-3 flex flex-col items-center shadow-2xs">
+                          <div className="text-[10px] font-mono text-slate-700 font-bold uppercase mb-1">
                             Lower Hemisphere Stereonet
                           </div>
-                          <svg viewBox="0 0 260 260" className="w-56 h-56">
-                            <circle cx="130" cy="130" r="102" fill="#060a12" stroke="#475569" strokeWidth="1.5" />
-                            <circle cx="130" cy="130" r="68" fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="3,3" />
-                            <circle cx="130" cy="130" r="34" fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="3,3" />
-                            <line x1="130" y1="22" x2="130" y2="238" stroke="#1e293b" strokeWidth="1" />
-                            <line x1="22" y1="130" x2="238" y2="130" stroke="#1e293b" strokeWidth="1" />
-                            <text x="126" y="16" fill="#94a3b8" fontSize="10" fontFamily="monospace" fontWeight="bold">N</text>
-                            <text x="242" y="133" fill="#64748b" fontSize="9" fontFamily="monospace">E</text>
-                            <text x="126" y="252" fill="#64748b" fontSize="9" fontFamily="monospace">S</text>
-                            <text x="10" y="133" fill="#64748b" fontSize="9" fontFamily="monospace">W</text>
+                          <svg viewBox="0 0 260 260" className="w-56 h-56 bg-white">
+                            <rect width="260" height="260" fill="#ffffff" />
+                            <circle cx="130" cy="130" r="102" fill="#f8fafc" stroke="#0f172a" strokeWidth="1.8" />
+                            <circle cx="130" cy="130" r="68" fill="none" stroke="#94a3b8" strokeWidth="1" strokeDasharray="3,3" />
+                            <circle cx="130" cy="130" r="34" fill="none" stroke="#94a3b8" strokeWidth="1" strokeDasharray="3,3" />
+                            <line x1="130" y1="22" x2="130" y2="238" stroke="#cbd5e1" strokeWidth="1" />
+                            <line x1="22" y1="130" x2="238" y2="130" stroke="#cbd5e1" strokeWidth="1" />
+                            <text x="126" y="16" fill="#0f172a" fontSize="10" fontFamily="monospace" fontWeight="bold">N</text>
+                            <text x="242" y="133" fill="#334155" fontSize="9.5" fontFamily="monospace" fontWeight="bold">E</text>
+                            <text x="126" y="252" fill="#334155" fontSize="9.5" fontFamily="monospace" fontWeight="bold">S</text>
+                            <text x="10" y="133" fill="#334155" fontSize="9.5" fontFamily="monospace" fontWeight="bold">W</text>
 
                             {/* Tunnel Drive Axis Vector */}
                             {(() => {
@@ -1445,11 +1472,11 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                               const x2 = 130 + 102 * Math.cos(azRad);
                               const y2 = 130 + 102 * Math.sin(azRad);
                               return (
-                                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#38bdf8" strokeWidth="2" strokeDasharray="5,3" />
+                                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#0284c7" strokeWidth="2.2" strokeDasharray="5,3" />
                               );
                             })()}
 
-                            {/* All Mapped Joint Poles & Governing Great Circle */}
+                            {/* All Mapped Joint Poles */}
                             {mapped3DTraces.map((jt, idx) => {
                               const poleAzRad = (((jt.dipDirection + 180) % 360 - 90) * Math.PI) / 180;
                               const rPole = 102 * Math.tan(((jt.dip / 2) * Math.PI) / 180);
@@ -1457,8 +1484,8 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                               const py = 130 + rPole * Math.sin(poleAzRad);
                               return (
                                 <g key={jt.id || idx}>
-                                  <circle cx={px} cy={py} r="4" fill="#f59e0b" stroke="#060a12" strokeWidth="1" />
-                                  <text x={px + 6} y={py + 3} fill="#fcd34d" fontSize="8" fontFamily="monospace">
+                                  <circle cx={px} cy={py} r="4.5" fill="#d97706" stroke="#ffffff" strokeWidth="1.2" />
+                                  <text x={px + 6} y={py + 3} fill="#0f172a" fontSize="8.5" fontFamily="monospace" fontWeight="bold">
                                     {jt.set}
                                   </text>
                                 </g>
@@ -1467,58 +1494,66 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                           </svg>
                         </div>
 
-                        {/* Apparent Dip Vector Decomposition on Wall & Face */}
-                        <div className="bg-slate-950/90 border border-slate-800/80 rounded-lg p-3 flex flex-col items-center">
-                          <div className="text-[10px] font-mono text-slate-400 uppercase mb-1">
+                        {/* Apparent Dip Vector Decomposition on Wall & Face on White Canvas */}
+                        <div className="bg-white border border-slate-300 rounded-lg p-3 flex flex-col items-center shadow-2xs">
+                          <div className="text-[10px] font-mono text-slate-700 font-bold uppercase mb-1">
                             Wall vs Face Apparent Trace Inclination
                           </div>
-                          <svg viewBox="0 0 260 260" className="w-56 h-56">
+                          <svg viewBox="0 0 260 260" className="w-56 h-56 bg-white">
+                            <rect width="260" height="260" fill="#ffffff" />
                             {/* Upper Box: Sidewall Profile */}
-                            <rect x="25" y="22" width="210" height="92" fill="#060a12" stroke="#334155" strokeWidth="1.5" />
-                            <text x="32" y="36" fill="#94a3b8" fontSize="9" fontFamily="monospace">
+                            <rect x="20" y="18" width="220" height="96" fill="#f8fafc" stroke="#334155" strokeWidth="1.5" />
+                            <text x="28" y="33" fill="#0f172a" fontSize="9" fontFamily="monospace" fontWeight="bold">
                               SIDEWALL TRACE (α_wall = {apparentCalculations.apparentDipWallDeg.toFixed(1)}°)
                             </text>
                             {(() => {
                               const rad = (apparentCalculations.apparentDipWallDeg * Math.PI) / 180;
                               const dx = 65 * Math.cos(rad);
-                              const dy = 36 * Math.sin(rad);
+                              const dy = 34 * Math.sin(rad);
                               return (
                                 <line
                                   x1={130 - dx}
                                   y1={72 - dy}
                                   x2={130 + dx}
                                   y2={72 + dy}
-                                  stroke="#10b981"
-                                  strokeWidth="2.5"
+                                  stroke="#059669"
+                                  strokeWidth="2.8"
                                 />
                               );
                             })()}
 
-                            {/* Lower Box: Active Face Profile */}
-                            <rect x="25" y="138" width="210" height="98" fill="#060a12" stroke="#334155" strokeWidth="1.5" />
-                            <text x="32" y="152" fill="#94a3b8" fontSize="9" fontFamily="monospace">
+                            {/* Lower Box: Active Face Profile with Exact Fed Tunnel Shape */}
+                            <rect x="20" y="130" width="220" height="114" fill="#f8fafc" stroke="#334155" strokeWidth="1.5" />
+                            <text x="28" y="144" fill="#0f172a" fontSize="9" fontFamily="monospace" fontWeight="bold">
                               FACE TRACE (α_face = {apparentCalculations.apparentDipFaceDeg.toFixed(1)}°)
                             </text>
                             {(() => {
+                              const scale = Math.min(110 / Math.max(1, spanW), 72 / Math.max(1, heightH));
+                              const { pathD } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, 130, 232, scale);
                               const rad = (apparentCalculations.apparentDipFaceDeg * Math.PI) / 180;
-                              const dx = 65 * Math.cos(rad);
-                              const dy = 36 * Math.sin(rad);
+                              const halfSpanPx = Math.min(48, spanW * 0.44 * scale);
+                              const dx = halfSpanPx * Math.cos(rad);
+                              const dy = halfSpanPx * Math.sin(rad);
+                              const cyFace = 232 - heightH * 0.5 * scale;
                               return (
-                                <line
-                                  x1={130 - dx}
-                                  y1={192 - dy}
-                                  x2={130 + dx}
-                                  y2={192 + dy}
-                                  stroke="#f59e0b"
-                                  strokeWidth="2.5"
-                                />
+                                <>
+                                  <path d={pathD} fill="#ffffff" stroke="#0f172a" strokeWidth="1.5" />
+                                  <line
+                                    x1={130 - dx}
+                                    y1={cyFace - dy}
+                                    x2={130 + dx}
+                                    y2={cyFace + dy}
+                                    stroke="#d97706"
+                                    strokeWidth="2.5"
+                                  />
+                                </>
                               );
                             })()}
                           </svg>
                         </div>
                       </div>
 
-                      <div className="bg-slate-950 border border-slate-800 rounded p-2.5 text-[11px] font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2 tabular-nums">
+                      <div className="bg-slate-950 border border-slate-800 rounded p-2.5 text-[11px] font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2 tabular-nums mt-3">
                         <span>tan(α_wall) = tan(δ) · |sin(Strike - Azimuth)|</span>
                         <span className="text-emerald-400 font-bold">
                           α_wall = {apparentCalculations.apparentDipWallDeg.toFixed(2)}° | α_face = {apparentCalculations.apparentDipFaceDeg.toFixed(2)}°
@@ -1635,7 +1670,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                 {activeTab === 'PALMSTROM_BLOCKS' && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
                     {/* Left 8 Cols: 2D Isometric CAD Block Polyhedron & Sieve Curve */}
-                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                    <div className="lg:col-span-8 bg-slate-900/80 border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                         <div>
                           <div className="text-xs font-mono font-bold text-white uppercase">
@@ -1650,8 +1685,9 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                         </span>
                       </div>
 
-                      <div className="my-auto py-4">
-                        <svg viewBox="0 0 560 250" className="w-full h-60">
+                      <div className="my-auto py-3 bg-white border border-slate-300 rounded-lg my-3">
+                        <svg viewBox="0 0 560 250" className="w-full h-60 bg-white">
+                          <rect width="560" height="250" fill="#ffffff" />
                           {(() => {
                             const maxS = Math.max(standupAndBlockAnalysis.s1, standupAndBlockAnalysis.s2, standupAndBlockAnalysis.s3, 0.3);
                             const wx = (standupAndBlockAnalysis.s1 / maxS) * 95;
@@ -1664,50 +1700,50 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                                 {/* Isometric 3D Unit Rock Block */}
                                 <polygon
                                   points={`${cx - wx * 0.5},${cy - wy * 0.5} ${cx + wx * 0.5},${cy - wy * 0.5} ${cx + wx * 0.5},${cy + wy * 0.5} ${cx - wx * 0.5},${cy + wy * 0.5}`}
-                                  fill="rgba(14,165,233,0.22)"
-                                  stroke="#38bdf8"
+                                  fill="rgba(2,132,199,0.18)"
+                                  stroke="#0f172a"
                                   strokeWidth="2"
                                 />
                                 <polygon
                                   points={`${cx - wx * 0.5},${cy - wy * 0.5} ${cx - wx * 0.5 + wz * 0.6},${cy - wy * 0.5 - wz * 0.45} ${cx + wx * 0.5 + wz * 0.6},${cy - wy * 0.5 - wz * 0.45} ${cx + wx * 0.5},${cy - wy * 0.5}`}
-                                  fill="rgba(56,189,248,0.32)"
-                                  stroke="#38bdf8"
+                                  fill="rgba(14,165,233,0.28)"
+                                  stroke="#0f172a"
                                   strokeWidth="2"
                                 />
                                 <polygon
                                   points={`${cx + wx * 0.5},${cy - wy * 0.5} ${cx + wx * 0.5 + wz * 0.6},${cy - wy * 0.5 - wz * 0.45} ${cx + wx * 0.5 + wz * 0.6},${cy + wy * 0.5 - wz * 0.45} ${cx + wx * 0.5},${cy + wy * 0.5}`}
-                                  fill="rgba(2,132,199,0.28)"
-                                  stroke="#38bdf8"
+                                  fill="rgba(3,105,161,0.24)"
+                                  stroke="#0f172a"
                                   strokeWidth="2"
                                 />
-                                <text x={cx - 35} y={cy + wy * 0.5 + 18} fill="#38bdf8" fontSize="10" fontFamily="monospace">
+                                <text x={cx - 35} y={cy + wy * 0.5 + 18} fill="#0369a1" fontSize="10" fontFamily="monospace" fontWeight="bold">
                                   S₁ = {standupAndBlockAnalysis.s1.toFixed(2)}m
                                 </text>
-                                <text x={cx - wx * 0.5 - 68} y={cy} fill="#10b981" fontSize="10" fontFamily="monospace">
+                                <text x={cx - wx * 0.5 - 68} y={cy} fill="#047857" fontSize="10" fontFamily="monospace" fontWeight="bold">
                                   S₂ = {standupAndBlockAnalysis.s2.toFixed(2)}m
                                 </text>
-                                <text x={cx + wx * 0.5 + wz * 0.6 + 8} y={cy - wy * 0.5 - wz * 0.2} fill="#f59e0b" fontSize="10" fontFamily="monospace">
+                                <text x={cx + wx * 0.5 + wz * 0.6 + 8} y={cy - wy * 0.5 - wz * 0.2} fill="#b45309" fontSize="10" fontFamily="monospace" fontWeight="bold">
                                   S₃ = {standupAndBlockAnalysis.s3.toFixed(2)}m
                                 </text>
 
-                                {/* Right Side: Jv -> RQD Correlation Bar */}
-                                <rect x="330" y="38" width="205" height="175" rx="6" fill="#0b1120" stroke="#1e293b" strokeWidth="1.5" />
-                                <text x="345" y="60" fill="#94a3b8" fontSize="10" fontFamily="monospace" fontWeight="bold">
+                                {/* Right Side: Jv -> RQD Correlation Box */}
+                                <rect x="330" y="38" width="205" height="175" rx="6" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1.5" />
+                                <text x="345" y="60" fill="#0f172a" fontSize="10" fontFamily="monospace" fontWeight="bold">
                                   PALMSTRÖM RQD CORRELATIONS
                                 </text>
-                                <text x="345" y="88" fill="#e2e8f0" fontSize="11" fontFamily="monospace">
+                                <text x="345" y="88" fill="#1e293b" fontSize="11" fontFamily="monospace" fontWeight="bold">
                                   Jv = {standupAndBlockAnalysis.jvVolumetricCount.toFixed(2)} joints/m³
                                 </text>
-                                <text x="345" y="116" fill="#10b981" fontSize="11" fontFamily="monospace">
+                                <text x="345" y="116" fill="#047857" fontSize="11" fontFamily="monospace" fontWeight="bold">
                                   RQD (1982) = {standupAndBlockAnalysis.rqdPalmstrom1982.toFixed(1)}%
                                 </text>
-                                <text x="345" y="142" fill="#38bdf8" fontSize="11" fontFamily="monospace">
+                                <text x="345" y="142" fill="#0369a1" fontSize="11" fontFamily="monospace" fontWeight="bold">
                                   RQD (2005) = {standupAndBlockAnalysis.rqdPalmstrom2005.toFixed(1)}%
                                 </text>
-                                <text x="345" y="170" fill="#f59e0b" fontSize="11" fontFamily="monospace">
+                                <text x="345" y="170" fill="#b45309" fontSize="11" fontFamily="monospace" fontWeight="bold">
                                   D_eq = {(standupAndBlockAnalysis.equivalentBlockDiaM * 100).toFixed(1)} cm
                                 </text>
-                                <text x="345" y="195" fill="#94a3b8" fontSize="9.5" fontFamily="monospace">
+                                <text x="345" y="195" fill="#475569" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
                                   {standupAndBlockAnalysis.blockClass}
                                 </text>
                               </g>
@@ -1769,8 +1805,8 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                 {/* ==================== 9. HOEK-BROWN (2002) ROCK MASS CRITERION ==================== */}
                 {activeTab === 'HOEK_BROWN_ROCK' && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-                    {/* Left 8 Cols: Principal Stress Failure Envelope SVG */}
-                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                    {/* Left 8 Cols: Principal Stress Failure Envelope SVG on White Canvas */}
+                    <div className="lg:col-span-8 bg-slate-900/80 border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                         <div>
                           <div className="text-xs font-mono font-bold text-white uppercase">
@@ -1785,10 +1821,12 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                         </span>
                       </div>
 
-                      <div className="my-auto py-2">
-                        <svg viewBox="0 0 560 260" className="w-full h-64">
-                          <line x1="55" y1="220" x2="520" y2="220" stroke="#475569" strokeWidth="1.5" />
-                          <line x1="55" y1="20" x2="55" y2="220" stroke="#475569" strokeWidth="1.5" />
+                      <div className="my-auto py-2 bg-white border border-slate-300 rounded-lg my-3">
+                        <svg viewBox="0 0 560 260" className="w-full h-64 bg-white">
+                          <rect width="560" height="260" fill="#ffffff" />
+                          <rect x="55" y="20" width="465" height="200" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
+                          <line x1="55" y1="220" x2="520" y2="220" stroke="#0f172a" strokeWidth="1.5" />
+                          <line x1="55" y1="20" x2="55" y2="220" stroke="#0f172a" strokeWidth="1.5" />
                           {(() => {
                             const pts = hoekBrownAnalysis.envelopePoints;
                             const maxSig3 = Math.max(1, pts[pts.length - 1]?.sig3 || 20);
@@ -1802,11 +1840,11 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                               .join(' ');
                             return (
                               <>
-                                <polyline fill="none" stroke="#38bdf8" strokeWidth="2.5" points={polyPts} />
-                                <text x="240" y="245" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                                <polyline fill="none" stroke="#0284c7" strokeWidth="2.8" points={polyPts} />
+                                <text x="200" y="245" fill="#0f172a" fontSize="10" fontFamily="monospace" fontWeight="bold">
                                   Minor Principal Stress σ₃ (0 → {maxSig3.toFixed(1)} MPa)
                                 </text>
-                                <text x="65" y="34" fill="#38bdf8" fontSize="10" fontFamily="monospace">
+                                <text x="68" y="38" fill="#0369a1" fontSize="10" fontFamily="monospace" fontWeight="bold">
                                   Major Principal Stress σ₁ (Max {maxSig1.toFixed(1)} MPa)
                                 </text>
                               </>
@@ -1925,7 +1963,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                 {/* ==================== 10. BIENIAWSKI STAND-UP TIME & ACTIVE SPAN ==================== */}
                 {activeTab === 'STANDUP_TIME_SPAN' && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                    <div className="lg:col-span-8 bg-slate-900/80 border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                         <div>
                           <div className="text-xs font-mono font-bold text-white uppercase">
@@ -1940,21 +1978,23 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                         </span>
                       </div>
 
-                      <div className="my-auto py-3">
-                        <svg viewBox="0 0 560 250" className="w-full h-60">
+                      <div className="my-auto py-2 bg-white border border-slate-300 rounded-lg my-3">
+                        <svg viewBox="0 0 560 250" className="w-full h-60 bg-white">
+                          <rect width="560" height="250" fill="#ffffff" />
+                          <rect x="60" y="20" width="460" height="195" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
                           {/* Log-Log Standup Time Bands for RMR 20, 40, 60, 80 */}
-                          <line x1="60" y1="215" x2="520" y2="215" stroke="#475569" strokeWidth="1.5" />
-                          <line x1="60" y1="20" x2="60" y2="215" stroke="#475569" strokeWidth="1.5" />
+                          <line x1="60" y1="215" x2="520" y2="215" stroke="#0f172a" strokeWidth="1.5" />
+                          <line x1="60" y1="20" x2="60" y2="215" stroke="#0f172a" strokeWidth="1.5" />
                           {[20, 40, 60, 80].map((rmrCurve, idx) => {
                             const x1 = 60;
                             const y1 = 215 - (rmrCurve / 100) * 165;
-                            const x2 = 480;
+                            const x2 = 475;
                             const y2 = Math.min(215, y1 + 65);
-                            const colors = ['#ef4444', '#f59e0b', '#38bdf8', '#10b981'];
+                            const colors = ['#dc2626', '#d97706', '#0284c7', '#059669'];
                             return (
                               <g key={rmrCurve}>
-                                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={colors[idx]} strokeWidth="1.8" strokeDasharray="4,3" />
-                                <text x={x2 + 6} y={y2 + 3} fill={colors[idx]} fontSize="9" fontFamily="monospace">
+                                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={colors[idx]} strokeWidth="2" strokeDasharray="4,3" />
+                                <text x={x2 + 6} y={y2 + 3} fill={colors[idx]} fontSize="9.5" fontFamily="monospace" fontWeight="bold">
                                   RMR {rmrCurve}
                                 </text>
                               </g>
@@ -1963,18 +2003,18 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                           {/* Active Operating Point */}
                           {(() => {
                             const logT = Math.max(-1, Math.min(5, Math.log10(standupAndBlockAnalysis.standupHours)));
-                            const px = 60 + ((logT + 1) / 6) * 420;
+                            const px = 60 + ((logT + 1) / 6) * 415;
                             const py = 215 - Math.min(185, (standupAndBlockAnalysis.activeSpanM / 20) * 185);
                             return (
                               <g>
-                                <circle cx={px} cy={py} r="6" fill="#38bdf8" stroke="#ffffff" strokeWidth="2" />
-                                <text x={px + 10} y={py - 6} fill="#ffffff" fontSize="10" fontFamily="monospace" fontWeight="bold">
+                                <circle cx={px} cy={py} r="6" fill="#0284c7" stroke="#ffffff" strokeWidth="2" />
+                                <text x={Math.min(340, px + 10)} y={Math.max(32, py - 6)} fill="#0f172a" fontSize="10" fontFamily="monospace" fontWeight="bold">
                                   Active Face ({standupAndBlockAnalysis.standupHours.toFixed(1)}h, {standupAndBlockAnalysis.activeSpanM.toFixed(1)}m)
                                 </text>
                               </g>
                             );
                           })()}
-                          <text x="210" y="240" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                          <text x="190" y="240" fill="#0f172a" fontSize="10" fontFamily="monospace" fontWeight="bold">
                             Stand-Up Time (Log Scale: 0.1 hr → 10⁵ hrs)
                           </text>
                         </svg>
@@ -2012,8 +2052,8 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                 {/* ==================== 11. HYDROGEOLOGICAL INFLOW & GROUTING ==================== */}
                 {activeTab === 'HYDRO_INFLOW' && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-                    {/* Left 8 Cols: Exact Tunnel Profile Hydrostatic Head & Pre-Grouting Ring SVG */}
-                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                    {/* Left 8 Cols: Exact Tunnel Profile Hydrostatic Head & Pre-Grouting Ring SVG on White Canvas */}
+                    <div className="lg:col-span-8 bg-slate-900/80 border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                         <div>
                           <div className="text-xs font-mono font-bold text-white uppercase">
@@ -2028,10 +2068,11 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                         </span>
                       </div>
 
-                      <div className="my-auto py-2">
-                        <svg viewBox="0 0 520 240" className="w-full h-60">
+                      <div className="my-auto py-2 bg-white border border-slate-300 rounded-lg my-3">
+                        <svg viewBox="0 0 520 240" className="w-full h-60 bg-white">
+                          <rect width="520" height="240" fill="#ffffff" />
                           {(() => {
-                            const scale = Math.min(160 / Math.max(1, spanW), 115 / Math.max(1, heightH));
+                            const scale = Math.min(160 / Math.max(1, spanW), 110 / Math.max(1, heightH));
                             const cx = 260;
                             const baseY = 195;
                             const { pathD } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
@@ -2048,21 +2089,21 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                             return (
                               <>
                                 {/* Water Table Line */}
-                                <line x1="40" y1="22" x2="480" y2="22" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="6,3" />
-                                <text x="45" y="16" fill="#38bdf8" fontSize="9.5" fontFamily="monospace">
+                                <line x1="40" y1="24" x2="480" y2="24" stroke="#0284c7" strokeWidth="1.8" strokeDasharray="6,3" />
+                                <text x="45" y="17" fill="#0369a1" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
                                   PIEZOMETRIC HEAD H_w = {waterHeadM}m ({hydroAnalysis.hydrostaticPressureMpa.toFixed(2)} MPa)
                                 </text>
                                 {/* Pre-Injection Grouted Halo */}
                                 <path
                                   d={groutRing.pathD}
-                                  fill="rgba(14,165,233,0.10)"
+                                  fill="rgba(2,132,199,0.12)"
                                   stroke="#0284c7"
-                                  strokeWidth="1.5"
+                                  strokeWidth="1.8"
                                   strokeDasharray="4,3"
                                 />
                                 {/* Exact Tunnel Profile */}
-                                <path d={pathD} fill="#0f172a" stroke="#38bdf8" strokeWidth="2.2" />
-                                <text x={cx - 65} y="222" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                                <path d={pathD} fill="#ffffff" stroke="#0f172a" strokeWidth="2.5" />
+                                <text x={cx - 85} y="226" fill="#0f172a" fontSize="10" fontFamily="monospace" fontWeight="bold">
                                   Grouted Inflow: {hydroAnalysis.groutedLitersPerMinPer100m.toFixed(1)} L/min/100m
                                 </text>
                               </>
@@ -2136,7 +2177,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                 {/* ==================== 12. PORTAL CUT & STABILIZATION ==================== */}
                 {activeTab === 'SLOPE_STABILITY_AND_STABILIZATION' && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-                    <div className="lg:col-span-8 bg-[#04070d] border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
+                    <div className="lg:col-span-8 bg-slate-900/80 border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                         <div>
                           <div className="text-xs font-mono font-bold text-white uppercase">
@@ -2151,18 +2192,19 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                         </span>
                       </div>
 
-                      <div className="my-auto py-2">
-                        <svg viewBox="0 0 540 240" className="w-full h-60">
+                      <div className="my-auto py-2 bg-white border border-slate-300 rounded-lg my-3">
+                        <svg viewBox="0 0 540 240" className="w-full h-60 bg-white">
+                          <rect width="540" height="240" fill="#ffffff" />
                           {/* Portal Cut Slope & Daylight Failure Plane CAD Cross-Section */}
                           <line x1="40" y1="205" x2="500" y2="205" stroke="#475569" strokeWidth="1.5" />
                           <polygon
                             points="120,205 230,45 470,45 470,205"
-                            fill="#0f172a"
-                            stroke="#64748b"
+                            fill="#f1f5f9"
+                            stroke="#0f172a"
                             strokeWidth="2"
                           />
                           {/* Failure Plane */}
-                          <line x1="120" y1="205" x2="345" y2="45" stroke="#ef4444" strokeWidth="2.2" strokeDasharray="5,3" />
+                          <line x1="120" y1="205" x2="345" y2="45" stroke="#dc2626" strokeWidth="2.4" strokeDasharray="5,3" />
                           {/* Tensioned Rock Anchors */}
                           {[85, 125, 165].map((yPos, idx) => {
                             const xStart = 120 + ((205 - yPos) / 160) * 110;
@@ -2173,12 +2215,12 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                                 y1={yPos}
                                 x2={xStart + 115}
                                 y2={yPos + 28}
-                                stroke="#22d3ee"
-                                strokeWidth="2.2"
+                                stroke="#0284c7"
+                                strokeWidth="2.4"
                               />
                             );
                           })}
-                          <text x="135" y="224" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                          <text x="120" y="226" fill="#0f172a" fontSize="10" fontFamily="monospace" fontWeight="bold">
                             Unreinforced FoS = {slopeAndStabilizationAnalysis.fosSlopeUnreinforced.toFixed(2)} → Anchored FoS = {slopeAndStabilizationAnalysis.fosSlopeReinforced.toFixed(2)}
                           </text>
                         </svg>

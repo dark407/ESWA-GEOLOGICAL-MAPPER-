@@ -1,270 +1,321 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   ExcavationStageType,
   computeStageElevationBounds,
+  unwrappedToSkin3D,
+  generateExactTunnelProfilePoints,
+  clipProfilePolygonToYBand,
 } from '../engine/advancedModelingAndAlignmentEngine';
 import { TunnelGeometry } from '../types/tunnel';
-import { RotateCcw, Eye, Layers, Compass } from 'lucide-react';
 
-export interface Mapped3DTraceItem {
-  id: string;
-  set: string;
-  dip: number;
-  dipDirection: number;
-  strike?: number;
-  type?: string;
-}
-
-interface ExcavationSpecific3DLogViewportProps {
+export interface ExcavationSpecific3DLogViewportProps {
+  geometry?: TunnelGeometry;
   spanW: number;
   heightH: number;
-  benchHeight: number;
-  crownRadius: number;
-  pullLength: number;
+  benchHeight?: number;
+  crownRadius?: number;
+  pullLengthM?: number;
+  pullLength?: number;
+  chainageStart?: number;
   activeStage: ExcavationStageType;
-  geometry?: TunnelGeometry;
-  driveAzimuth?: number;
-  mappedTraces?: Mapped3DTraceItem[];
+  governingStrike?: number;
+  governingDip?: number;
+  governingSet?: string;
+  driveAzimuth: number;
+  mappedTraces?: {
+    id?: string;
+    set?: string;
+    type?: string;
+    strike?: number;
+    dip: number;
+    dipDirection: number;
+  }[];
   onStageSelect?: (stage: ExcavationStageType) => void;
 }
 
-function getProfilePerimeterPoints(
-  spanW: number,
-  heightH: number,
-  benchHeight: number,
-  geometry?: TunnelGeometry
-): { x: number; z: number }[] {
-  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
-    return geometry.crossSectionPoints.map((pt) => ({ x: pt.x, z: pt.y }));
-  }
-  const halfW = spanW / 2;
-  const wallH = Math.min(benchHeight, heightH * 0.6);
-  const archH = Math.max(0.5, heightH - wallH);
-  const pts: { x: number; z: number }[] = [];
-  const wallSteps = 12;
-  for (let i = 0; i <= wallSteps; i++) {
-    pts.push({ x: -halfW, z: (i / wallSteps) * wallH });
-  }
-  const archSteps = 32;
-  for (let i = 1; i < archSteps; i++) {
-    const theta = Math.PI * (1 - i / archSteps);
-    pts.push({
-      x: halfW * Math.cos(theta),
-      z: wallH + archH * Math.sin(theta),
-    });
-  }
-  for (let i = wallSteps; i >= 0; i--) {
-    pts.push({ x: halfW, z: (i / wallSteps) * wallH });
-  }
-  const invSteps = 12;
-  for (let i = 1; i < invSteps; i++) {
-    const t = i / invSteps;
-    pts.push({
-      x: halfW * (1 - 2 * t),
-      z: -0.12 * heightH * Math.sin(t * Math.PI),
-    });
-  }
-  return pts;
-}
-
 export const ExcavationSpecific3DLogViewport: React.FC<ExcavationSpecific3DLogViewportProps> = ({
-  spanW,
-  heightH,
-  benchHeight,
-  crownRadius,
-  pullLength,
-  activeStage,
   geometry,
-  driveAzimuth = 45,
+  spanW: rawSpanW,
+  heightH: rawHeightH,
+  benchHeight: rawBenchHeight,
+  pullLengthM: rawPullLengthM,
+  pullLength: rawPullLength,
+  chainageStart: rawChainageStart,
+  activeStage,
+  governingStrike: rawGovStrike,
+  governingDip: rawGovDip,
+  governingSet: rawGovSet,
+  driveAzimuth: rawDriveAzimuth,
   mappedTraces = [],
 }) => {
-  const mountRef = useRef<HTMLDivElement>(null);
-  const [wireframe, setWireframe] = useState(false);
-  const [showTraces, setShowTraces] = useState(true);
-  const [showGhostFullProfile, setShowGhostFullProfile] = useState(true);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const mountRef = useRef<HTMLDivElement | null>(null);
 
-  const bounds = computeStageElevationBounds(activeStage, spanW, heightH, benchHeight, 0, pullLength);
-  const profileLabel = (geometry?.crownGeometry || 'D-Shaped').replace(/_/g, ' ').toUpperCase();
+  const spanW = Number.isFinite(rawSpanW) && rawSpanW > 0 ? rawSpanW : 8.4;
+  const heightH = Number.isFinite(rawHeightH) && rawHeightH > 0 ? rawHeightH : 7.2;
+  const benchHeight =
+    Number.isFinite(rawBenchHeight) && (rawBenchHeight as number) > 0
+      ? (rawBenchHeight as number)
+      : heightH * 0.5;
+  const pullLengthM =
+    Number.isFinite(rawPullLengthM) && (rawPullLengthM as number) > 0
+      ? (rawPullLengthM as number)
+      : Number.isFinite(rawPullLength) && (rawPullLength as number) > 0
+      ? (rawPullLength as number)
+      : 3.5;
+  const chainageStart = Number.isFinite(rawChainageStart) ? (rawChainageStart as number) : 100;
+  const driveAzimuth = Number.isFinite(rawDriveAzimuth) ? rawDriveAzimuth : 45;
+
+  const firstTrace = mappedTraces[0];
+  const governingDip =
+    Number.isFinite(rawGovDip)
+      ? (rawGovDip as number)
+      : firstTrace
+      ? firstTrace.dip
+      : 55;
+  const governingStrike =
+    Number.isFinite(rawGovStrike)
+      ? (rawGovStrike as number)
+      : firstTrace
+      ? firstTrace.strike ?? ((firstTrace.dipDirection - 90 + 360) % 360)
+      : 125;
+  const governingSet =
+    rawGovSet || (firstTrace ? firstTrace.set || 'J1' : 'J1');
+
+  const fullProfilePts = generateExactTunnelProfilePoints(geometry, spanW, heightH, benchHeight);
+  const bounds = computeStageElevationBounds(
+    activeStage,
+    spanW,
+    heightH,
+    benchHeight,
+    chainageStart,
+    chainageStart + pullLengthM,
+    geometry
+  );
 
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
-    const width = container.clientWidth || 720;
-    const height = container.clientHeight || 480;
+    const getDims = () => ({
+      width: Math.max(320, container.clientWidth || 560),
+      height: Math.max(280, container.clientHeight || 380),
+    });
 
+    const { width, height } = getDims();
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x060a12);
+    scene.background = new THREE.Color(0xffffff);
 
-    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
-    camera.position.set(spanW * 1.45, pullLength * 0.95, heightH * 1.75);
-    cameraRef.current = camera;
+    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 1000);
+    const maxDim = Math.max(spanW, heightH, pullLengthM);
+    camera.position.set(maxDim * 1.45, maxDim * 0.95, maxDim * 1.55);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.localClippingEnabled = true;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
-    controls.target.set(0, heightH * 0.42, -pullLength * 0.5);
-    controlsRef.current = controls;
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, heightH * 0.45, 0);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.72));
-    const dirLight1 = new THREE.DirectionalLight(0x38bdf8, 1.0);
-    dirLight1.position.set(18, 28, 22);
-    scene.add(dirLight1);
+    // Neutral Engineering CAD Lighting
+    const ambient = new THREE.AmbientLight(0xffffff, 0.85);
+    scene.add(ambient);
 
-    const dirLight2 = new THREE.DirectionalLight(0xf59e0b, 0.45);
-    dirLight2.position.set(-18, -10, -15);
-    scene.add(dirLight2);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.65);
+    keyLight.position.set(20, 35, 25);
+    scene.add(keyLight);
 
-    // CAD Floor Reference Grid
-    const grid = new THREE.GridHelper(32, 32, 0x1e293b, 0x0f172a);
-    grid.position.y = -Math.abs(bounds.yMin) - 0.15;
+    const fillLight = new THREE.DirectionalLight(0xf8fafc, 0.4);
+    fillLight.position.set(-20, 15, -20);
+    scene.add(fillLight);
+
+    // Technical Floor Datum Grid on White Canvas
+    const gridSpan = Math.ceil(Math.max(spanW * 2.4, pullLengthM * 2.6, 16) / 2) * 2;
+    const grid = new THREE.GridHelper(gridSpan, gridSpan, 0x94a3b8, 0xe2e8f0);
+    grid.position.y = -0.02;
     scene.add(grid);
 
-    const perimeterPts = getProfilePerimeterPoints(spanW, heightH, benchHeight, geometry);
-    const segY = 24;
+    // Coordinate Axes Reference at Left Invert
+    const axesOrigin = new THREE.Vector3(-spanW * 0.65, 0, pullLengthM / 2);
+    const arrowLen = Math.max(1.2, maxDim * 0.16);
+    scene.add(new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), axesOrigin, arrowLen, 0xdc2626, 0.28, 0.16));
+    scene.add(new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), axesOrigin, arrowLen, 0x16a34a, 0.28, 0.16));
+    scene.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), axesOrigin, arrowLen, 0x2563eb, 0.28, 0.16));
 
-    // 1. Ghost Full Profile (CAD reference frame)
-    if (showGhostFullProfile && activeStage !== 'FULL_FACE') {
-      const ghostLoopPts = perimeterPts.map((p) => new THREE.Vector3(p.x, p.z, 0));
-      ghostLoopPts.push(ghostLoopPts[0].clone());
-      const ghostGeo = new THREE.BufferGeometry().setFromPoints(ghostLoopPts);
-      const ghostMat = new THREE.LineBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.45 });
-      for (const zPos of [0, -pullLength * 0.5, -pullLength]) {
-        const ring = new THREE.Line(ghostGeo, ghostMat);
-        ring.position.z = zPos;
-        scene.add(ring);
-      }
+    // 1. Full Tunnel Reference Ghost Wireframe (Start & End Station Rings + Longitudinal Stringers)
+    const ghostGroup = new THREE.Group();
+    const zFront = pullLengthM / 2;
+    const zBack = -pullLengthM / 2;
+
+    const ringPtsFront = fullProfilePts.map((p) => new THREE.Vector3(p.x, p.y, zFront));
+    if (ringPtsFront.length > 0) ringPtsFront.push(ringPtsFront[0].clone());
+    const ringPtsBack = fullProfilePts.map((p) => new THREE.Vector3(p.x, p.y, zBack));
+    if (ringPtsBack.length > 0) ringPtsBack.push(ringPtsBack[0].clone());
+
+    const ghostMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.55 });
+    ghostGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPtsFront), ghostMat));
+    ghostGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPtsBack), ghostMat));
+
+    // Intermediate station rings every 1.0m
+    const ringStep = Math.max(0.5, pullLengthM / Math.max(2, Math.round(pullLengthM)));
+    for (let z = zBack + ringStep; z < zFront - 0.05; z += ringStep) {
+      const midRing = fullProfilePts.map((p) => new THREE.Vector3(p.x, p.y, z));
+      if (midRing.length > 0) midRing.push(midRing[0].clone());
+      const midMat = new THREE.LineBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.5 });
+      ghostGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(midRing), midMat));
     }
 
-    // 2. Active Stage Filtered Profile Extrusion
-    const stagePts = perimeterPts.filter((p) => p.z >= bounds.yMin - 0.08 && p.z <= bounds.yMax + 0.08);
-    const activePts = stagePts.length >= 3 ? stagePts : perimeterPts;
-
-    const vertices: number[] = [];
-    const indices: number[] = [];
-    const nPts = activePts.length;
-    const closeLoop = activeStage === 'FULL_FACE';
-
-    for (let j = 0; j <= segY; j++) {
-      const zAxial = -(j / segY) * pullLength;
-      for (let i = 0; i < nPts; i++) {
-        vertices.push(activePts[i].x, activePts[i].z, zAxial);
-      }
+    // Longitudinal CAD stringers around perimeter
+    const stride = Math.max(1, Math.floor(fullProfilePts.length / 12));
+    for (let i = 0; i < fullProfilePts.length; i += stride) {
+      const p = fullProfilePts[i];
+      const stringerGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(p.x, p.y, zFront),
+        new THREE.Vector3(p.x, p.y, zBack),
+      ]);
+      ghostGroup.add(new THREE.Line(stringerGeo, ghostMat));
     }
+    scene.add(ghostGroup);
 
-    for (let j = 0; j < segY; j++) {
-      for (let i = 0; i < (closeLoop ? nPts : nPts - 1); i++) {
-        const nextI = (i + 1) % nPts;
-        const a = j * nPts + i;
-        const b = j * nPts + nextI;
-        const c = (j + 1) * nPts + i;
-        const d = (j + 1) * nPts + nextI;
-        indices.push(a, b, d);
-        indices.push(a, d, c);
+    // 2. Active Stage Exact Clipped 3D Solid & Crisp CAD Wireframe
+    const stagePolyPts = clipProfilePolygonToYBand(fullProfilePts, bounds.yMin, bounds.yMax);
+    if (stagePolyPts.length >= 3) {
+      const shape = new THREE.Shape();
+      shape.moveTo(stagePolyPts[0].x, stagePolyPts[0].y);
+      for (let i = 1; i < stagePolyPts.length; i++) {
+        shape.lineTo(stagePolyPts[i].x, stagePolyPts[i].y);
       }
-    }
+      shape.closePath();
 
-    const skinGeo = new THREE.BufferGeometry();
-    skinGeo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    skinGeo.setIndex(indices);
-    skinGeo.computeVertexNormals();
-
-    const stageColor =
-      activeStage === 'TOP_HEADING'
-        ? 0x0ea5e9
-        : activeStage === 'BENCH'
-        ? 0xf59e0b
-        : activeStage === 'INVERT'
-        ? 0x10b981
-        : 0x3b82f6;
-
-    const skinMat = new THREE.MeshStandardMaterial({
-      color: stageColor,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: wireframe ? 0.16 : 0.42,
-      wireframe,
-      roughness: 0.45,
-      metalness: 0.2,
-    });
-    scene.add(new THREE.Mesh(skinGeo, skinMat));
-
-    // 3. CAD Station Rings every 1.0m along pull length
-    const numStationRings = Math.max(2, Math.round(pullLength));
-    for (let r = 0; r <= numStationRings; r++) {
-      const zPos = -(r / numStationRings) * pullLength;
-      const isEndRing = r === 0 || r === numStationRings;
-      const ringVecs = activePts.map((p) => new THREE.Vector3(p.x, p.z, zPos));
-      if (closeLoop && ringVecs.length > 0) ringVecs.push(ringVecs[0].clone());
-      const ringGeo = new THREE.BufferGeometry().setFromPoints(ringVecs);
-      const ringMat = new THREE.LineBasicMaterial({
-        color: isEndRing ? 0x38bdf8 : 0x1e293b,
-        transparent: true,
-        opacity: isEndRing ? 0.95 : 0.55,
+      const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
+        depth: pullLengthM,
+        bevelEnabled: false,
+        steps: 1,
+        curveSegments: 24,
       });
-      scene.add(new THREE.Line(ringGeo, ringMat));
-    }
+      extrudeGeo.translate(0, 0, -pullLengthM / 2);
 
-    // 4. Stage Horizon Cut Planes (Springline / Bench Floor)
-    if (activeStage !== 'FULL_FACE') {
-      const cutY = activeStage === 'TOP_HEADING' ? bounds.yMin : bounds.yMax;
-      const cutPlaneGeo = new THREE.PlaneGeometry(spanW * 1.08, pullLength);
-      const cutPlaneMat = new THREE.MeshBasicMaterial({
-        color: 0x38bdf8,
+      const stageColorMap: Record<ExcavationStageType, number> = {
+        FULL_FACE: 0x0284c7,
+        TOP_HEADING: 0xd97706,
+        BENCH: 0x059669,
+        INVERT: 0x4f46e5,
+      };
+      const stageAccent = stageColorMap[activeStage] || 0x0284c7;
+
+      const stageMat = new THREE.MeshStandardMaterial({
+        color: stageAccent,
+        roughness: 0.55,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.22,
         side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.12,
+        depthWrite: false,
       });
-      const cutMesh = new THREE.Mesh(cutPlaneGeo, cutPlaneMat);
-      cutMesh.rotation.x = Math.PI / 2;
-      cutMesh.position.set(0, cutY, -pullLength * 0.5);
-      scene.add(cutMesh);
+      const stageMesh = new THREE.Mesh(extrudeGeo, stageMat);
+      scene.add(stageMesh);
+
+      // Bold CAD Edges for the Active Stage Prism
+      const edgesGeo = new THREE.EdgesGeometry(extrudeGeo, 12);
+      const edgesLine = new THREE.LineSegments(
+        edgesGeo,
+        new THREE.LineBasicMaterial({ color: 0x0f172a })
+      );
+      scene.add(edgesLine);
+
+      // Front & Back Stage Face Outlines
+      const frontStagePts = stagePolyPts.map((p) => new THREE.Vector3(p.x, p.y, zFront));
+      frontStagePts.push(frontStagePts[0].clone());
+      const backStagePts = stagePolyPts.map((p) => new THREE.Vector3(p.x, p.y, zBack));
+      backStagePts.push(backStagePts[0].clone());
+
+      const stageOutlineMat = new THREE.LineBasicMaterial({ color: stageAccent });
+      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(frontStagePts), stageOutlineMat));
+      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(backStagePts), stageOutlineMat));
     }
 
-    // 5. Real Mapped Discontinuity / Fault Planes Intersecting the 3D Shell
-    if (showTraces && mappedTraces.length > 0) {
-      const palette = [0xef4444, 0xf59e0b, 0x10b981, 0xa855f7, 0xec4899, 0x38bdf8];
-      mappedTraces.slice(0, 8).forEach((tr, idx) => {
-        const dipRad = THREE.MathUtils.degToRad(tr.dip);
-        const relStrikeDeg = (tr.dipDirection - 90 - driveAzimuth + 360) % 360;
-        const strikeRad = THREE.MathUtils.degToRad(relStrikeDeg);
+    // 3. Bench / Top-Heading Cut Plane (Horizontal Datum)
+    const clampedBenchH = Math.min(Math.max(0.8, benchHeight), heightH - 0.8);
+    if (activeStage === 'TOP_HEADING' || activeStage === 'BENCH') {
+      const benchPlaneGeo = new THREE.PlaneGeometry(spanW * 1.06, pullLengthM * 1.04);
+      benchPlaneGeo.rotateX(-Math.PI / 2);
+      benchPlaneGeo.translate(0, clampedBenchH, 0);
 
-        const planeSize = Math.max(spanW, heightH, pullLength) * 1.15;
-        const planeGeo = new THREE.PlaneGeometry(planeSize, planeSize, 12, 12);
-        const colorHex = palette[idx % palette.length];
-
-        const planeMat = new THREE.MeshStandardMaterial({
-          color: colorHex,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.28,
-          roughness: 0.3,
-        });
-        const planeMesh = new THREE.Mesh(planeGeo, planeMat);
-        const zOffset = -pullLength * ((idx + 1) / (Math.min(mappedTraces.length, 8) + 1));
-        planeMesh.position.set(0, (bounds.yMin + bounds.yMax) * 0.5, zOffset);
-        planeMesh.rotation.order = 'YXZ';
-        planeMesh.rotation.y = -strikeRad;
-        planeMesh.rotation.x = Math.PI / 2 - dipRad;
-        scene.add(planeMesh);
-
-        const edgesGeo = new THREE.EdgesGeometry(planeGeo);
-        const edgesMat = new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 });
-        const edgesLine = new THREE.LineSegments(edgesGeo, edgesMat);
-        edgesLine.position.copy(planeMesh.position);
-        edgesLine.rotation.copy(planeMesh.rotation);
-        scene.add(edgesLine);
+      const benchPlaneMat = new THREE.MeshBasicMaterial({
+        color: 0xd97706,
+        transparent: true,
+        opacity: 0.14,
+        side: THREE.DoubleSide,
+        depthWrite: false,
       });
+      scene.add(new THREE.Mesh(benchPlaneGeo, benchPlaneMat));
+
+      const benchEdge = new THREE.EdgesGeometry(benchPlaneGeo);
+      scene.add(
+        new THREE.LineSegments(benchEdge, new THREE.LineBasicMaterial({ color: 0xb45309 }))
+      );
+    }
+
+    // 4. Governing Structural Discontinuity Plane & 3D Skin Trace
+    if (governingSet !== 'Unmapped' && governingDip > 0) {
+      const clipPlanes = [
+        new THREE.Plane(new THREE.Vector3(1, 0, 0), spanW * 0.52),
+        new THREE.Plane(new THREE.Vector3(-1, 0, 0), spanW * 0.52),
+        new THREE.Plane(new THREE.Vector3(0, 1, 0), -bounds.yMin),
+        new THREE.Plane(new THREE.Vector3(0, -1, 0), bounds.yMax),
+        new THREE.Plane(new THREE.Vector3(0, 0, 1), pullLengthM * 0.52),
+        new THREE.Plane(new THREE.Vector3(0, 0, -1), pullLengthM * 0.52),
+      ];
+
+      const planeSpan = Math.max(spanW, heightH, pullLengthM) * 1.6;
+      const jointGeo = new THREE.PlaneGeometry(planeSpan, planeSpan, 12, 12);
+      const relStrikeRad = (((governingStrike - driveAzimuth) * Math.PI) / 180);
+      const dipRad = (governingDip * Math.PI) / 180;
+
+      jointGeo.rotateY(-relStrikeRad);
+      jointGeo.rotateX(dipRad);
+      jointGeo.translate(0, (bounds.yMin + bounds.yMax) * 0.5, 0);
+
+      const jointMat = new THREE.MeshStandardMaterial({
+        color: 0xdc2626,
+        roughness: 0.4,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.32,
+        side: THREE.DoubleSide,
+        clippingPlanes: clipPlanes,
+      });
+      scene.add(new THREE.Mesh(jointGeo, jointMat));
+
+      // 3D Skin Trace projected via unwrappedToSkin3D
+      const skinTracePts: THREE.Vector3[] = [];
+      const halfPerim = (Math.PI * (spanW / 2)) / 2 + Math.max(0.5, heightH - spanW / 2);
+      const steps = 48;
+      for (let i = 0; i <= steps; i++) {
+        const u = i / steps;
+        const s = -halfPerim * 0.85 + u * (halfPerim * 1.7);
+        const zOffset =
+          Math.sin(u * Math.PI * 1.4 + relStrikeRad) *
+          (pullLengthM * 0.38) *
+          Math.cos(dipRad * 0.5);
+        const pt3d = unwrappedToSkin3D(s, zOffset, spanW, heightH, geometry);
+        if (pt3d.y >= bounds.yMin - 0.05 && pt3d.y <= bounds.yMax + 0.05) {
+          skinTracePts.push(new THREE.Vector3(pt3d.x, pt3d.y, pt3d.z));
+        }
+      }
+
+      if (skinTracePts.length >= 2) {
+        const traceCurve = new THREE.CatmullRomCurve3(skinTracePts);
+        const tubeGeo = new THREE.TubeGeometry(traceCurve, 40, Math.max(0.05, spanW * 0.009), 8, false);
+        const tubeMat = new THREE.MeshBasicMaterial({ color: 0xb91c1c });
+        scene.add(new THREE.Mesh(tubeGeo, tubeMat));
+      }
     }
 
     let reqId: number;
@@ -277,118 +328,66 @@ export const ExcavationSpecific3DLogViewport: React.FC<ExcavationSpecific3DLogVi
 
     const handleResize = () => {
       if (!container) return;
-      const w = container.clientWidth || 720;
-      const h = container.clientHeight || 480;
-      camera.aspect = w / h;
+      const d = getDims();
+      camera.aspect = d.width / d.height;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      renderer.setSize(d.width, d.height);
     };
+
+    const resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver.observe(container);
     window.addEventListener('resize', handleResize);
 
     return () => {
       cancelAnimationFrame(reqId);
+      resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
-  }, [spanW, heightH, benchHeight, crownRadius, pullLength, activeStage, geometry, driveAzimuth, mappedTraces, wireframe, showTraces, showGhostFullProfile, bounds.yMin, bounds.yMax]);
+  }, [
+    geometry,
+    spanW,
+    heightH,
+    benchHeight,
+    pullLengthM,
+    chainageStart,
+    activeStage,
+    governingStrike,
+    governingDip,
+    governingSet,
+    driveAzimuth,
+    bounds.yMin,
+    bounds.yMax,
+  ]);
 
-  const setPresetCamera = (preset: 'ISO' | 'FACE' | 'CROWN' | 'RIGHT_WALL') => {
-    if (!cameraRef.current || !controlsRef.current) return;
-    const cam = cameraRef.current;
-    const ctrl = controlsRef.current;
-    const targetY = (bounds.yMin + bounds.yMax) * 0.5;
-    const targetZ = -pullLength * 0.5;
-
-    if (preset === 'ISO') {
-      cam.position.set(spanW * 1.45, heightH * 1.35, pullLength * 0.85);
-    } else if (preset === 'FACE') {
-      cam.position.set(0, targetY, pullLength * 1.5);
-    } else if (preset === 'CROWN') {
-      cam.position.set(0, heightH * 2.4, targetZ);
-    } else if (preset === 'RIGHT_WALL') {
-      cam.position.set(spanW * 2.2, targetY, targetZ);
-    }
-    ctrl.target.set(0, targetY, targetZ);
-    ctrl.update();
-  };
+  const shapeLabel = (geometry?.crownGeometry || 'd_shaped').replace(/_/g, ' ').toUpperCase();
 
   return (
-    <div className="relative w-full h-full min-h-[440px] bg-[#060a12] rounded-lg overflow-hidden border border-slate-800 flex flex-col">
-      {/* Top CAD Viewport Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-900/95 border-b border-slate-800 z-10">
-        <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-[10px] font-mono font-bold text-sky-300 uppercase">
-            STAGE: {activeStage.replace(/_/g, ' ')}
-          </span>
-          <span className="text-[11px] font-mono text-slate-400 tabular-nums">
-            Profile: <strong className="text-slate-200">{profileLabel}</strong> ({spanW.toFixed(2)}m × {heightH.toFixed(2)}m)
-          </span>
-          <span className="text-[11px] font-mono text-slate-400 tabular-nums hidden sm:inline">
-            | Elev Y: <strong className="text-emerald-400">{bounds.yMin.toFixed(2)}m → {bounds.yMax.toFixed(2)}m</strong>
-          </span>
-        </div>
+    <div className="relative w-full h-full min-h-[340px] rounded-xl overflow-hidden border border-slate-300 bg-white">
+      <div ref={mountRef} className="w-full h-full min-h-[340px]" />
 
-        <div className="flex items-center gap-1.5">
-          {(['ISO', 'FACE', 'CROWN', 'RIGHT_WALL'] as const).map((view) => (
-            <button
-              key={view}
-              onClick={() => setPresetCamera(view)}
-              className="px-2 py-1 rounded text-[10px] font-mono font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-            >
-              {view.replace('_', ' ')}
-            </button>
-          ))}
-          <button
-            onClick={() => setShowTraces(!showTraces)}
-            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              showTraces
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
-            }`}
-          >
-            <Compass className="w-3 h-3" /> Planes ({mappedTraces.length})
-          </button>
-          <button
-            onClick={() => setShowGhostFullProfile(!showGhostFullProfile)}
-            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              showGhostFullProfile
-                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
-            }`}
-          >
-            <Layers className="w-3 h-3" /> Datum Frame
-          </button>
-          <button
-            onClick={() => setWireframe(!wireframe)}
-            className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition flex items-center gap-1 ${
-              wireframe
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
-            }`}
-          >
-            <Eye className="w-3 h-3" /> Mesh
-          </button>
-          <button
-            onClick={() => setPresetCamera('ISO')}
-            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
-            title="Reset 3D View"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
+      {/* Top-Left CAD Telemetry Badge */}
+      <div className="absolute top-2.5 left-2.5 bg-white/95 backdrop-blur-xs border border-slate-300 shadow-xs rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-slate-800 pointer-events-none space-y-0.5">
+        <div className="text-slate-900 font-bold flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-sky-600 inline-block" />
+          3D STAGE CAD SOLID ({activeStage.replace('_', ' ')})
+        </div>
+        <div className="text-slate-600">
+          Shape: <strong className="text-slate-900">{shapeLabel}</strong> | W={spanW.toFixed(2)}m × H={heightH.toFixed(2)}m | Pull={pullLengthM.toFixed(2)}m
+        </div>
+        <div className="text-slate-700">
+          Elev: [{bounds.yMin.toFixed(2)}m, {bounds.yMax.toFixed(2)}m] | Area: <strong>{bounds.crossSectionArea.toFixed(2)} m²</strong> | Vol: <strong>{bounds.volume.toFixed(1)} m³</strong>
+        </div>
+        <div className="text-rose-700 font-semibold">
+          {governingSet !== 'Unmapped'
+            ? `Plane ${governingSet}: Strike ${governingStrike}° / Dip ${governingDip}°`
+            : 'No Mapped Discontinuity Plane'}
         </div>
       </div>
 
-      {/* 3D Canvas Container */}
-      <div ref={mountRef} className="w-full flex-1 min-h-[390px] cursor-grab active:cursor-grabbing" />
-
-      {/* Bottom Engineering Scale & Coordinate Legend */}
-      <div className="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-slate-400 tabular-nums">
-        <div>
-          PULL LENGTH L = <span className="text-slate-200 font-bold">{pullLength.toFixed(2)}m</span> | STATION RINGS: 1.0m INTERVAL
-        </div>
-        <div>
-          MAPPED STRUCTURAL PLANES ON SHELL: <span className="text-emerald-400 font-bold">{mappedTraces.length}</span>
-        </div>
+      {/* Bottom-Right CAD Controls Legend */}
+      <div className="absolute bottom-2 right-2 bg-white/95 border border-slate-300 rounded px-2 py-1 text-[9px] font-mono text-slate-600 pointer-events-none shadow-2xs">
+        CAD Orbit: Left-Drag | Zoom: Scroll | Pan: Right-Drag
       </div>
     </div>
   );

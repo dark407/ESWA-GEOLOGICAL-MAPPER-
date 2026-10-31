@@ -16,6 +16,11 @@ import {
   restorePhotosInFieldStore,
   offloadPhotosFromFieldStore,
 } from './fastAsyncStorageEngine';
+import {
+  computeVerticalShaftPanelCanvasGeometry,
+  computeVerticalShaftTCanvasLayout,
+  getVerticalShaftSurfaceConfig,
+} from './verticalShaftEngine';
 
 export type FieldTunnelShapeType =
   | 'd_shaped'
@@ -30,7 +35,9 @@ export type FieldTunnelShapeType =
 
 export type MappingDomainType = 'TUNNEL' | 'BENCH' | 'TRENCH' | 'SLOPE' | 'ROCK_SURFACE';
 
-export type FieldPanelId = 'face' | 'crown' | 'left_wall' | 'right_wall';
+export type UndergroundSubModeType = 'tunnel' | 'vertical_shaft';
+
+export type FieldPanelId = 'face' | 'crown' | 'left_wall' | 'right_wall' | 'shaft_sn';
 
 export type FieldLithologyId = string;
 
@@ -763,6 +770,8 @@ export interface FieldExcavationRound {
   dateAndTimeOfExcavation: string;
   modeOfExcavation: string;
   tunnelDriveDirection: number; // 0..360 deg azimuth
+  shaftInclinationDeg?: number; // Vertical shaft inclination (default 90 deg)
+  undergroundSubMode?: UndergroundSubModeType;
   excavationApproach: string;
   /** Bench height in meters from the tunnel invert when Top Heading & Benching, Top Heading, or Benching is chosen */
   benchHeightMeters?: number;
@@ -1087,6 +1096,8 @@ export interface FieldTunnelLocationItem {
   rememberedRockTypes?: FieldRememberedRockItem[];
   defaultDisciplineMode?: FieldGeologyDisciplineMode;
   mappingDomain?: MappingDomainType;
+  undergroundSubMode?: UndergroundSubModeType;
+  shaftInclinationDeg?: number;
   surfaceParams?: SurfaceGeometryParameters;
 }
 
@@ -1113,6 +1124,7 @@ export interface FieldProjectItem {
   chainageGroupIntervalM?: number;
   customChainageRanges?: FieldProjectChainageRange[];
   defaultDisciplineMode?: FieldGeologyDisciplineMode;
+  undergroundSubMode?: UndergroundSubModeType;
 }
 
 export interface FieldMappingStoreState {
@@ -1127,9 +1139,13 @@ export interface FieldMappingStoreState {
 }
 
 export const FIELD_MAPPING_STORAGE_KEY = 'eswa_apk_field_mapping_store_tunnel_v2';
+export const VERTICAL_SHAFT_MAPPING_STORAGE_KEY = 'eswa_apk_field_mapping_store_vertical_shaft_v2';
 export const SURFACE_MAPPING_STORAGE_KEY = 'eswa_surface_mapping_store_bench_v2';
 
-export function getFieldMappingStorageKey(domain?: MappingDomainType): string {
+export function getFieldMappingStorageKey(
+  domain?: MappingDomainType,
+  undergroundSubMode?: UndergroundSubModeType
+): string {
   const clean = (domain || 'TUNNEL').toUpperCase();
   switch (clean) {
     case 'BENCH':
@@ -1142,12 +1158,21 @@ export function getFieldMappingStorageKey(domain?: MappingDomainType): string {
       return 'eswa_surface_mapping_store_rock_surface_v2';
     case 'TUNNEL':
     default:
-      return 'eswa_apk_field_mapping_store_tunnel_v2';
+      if (undergroundSubMode === 'vertical_shaft') {
+        return VERTICAL_SHAFT_MAPPING_STORAGE_KEY;
+      }
+      return FIELD_MAPPING_STORAGE_KEY;
   }
 }
 
-export function getFieldIdealPanelTransformsKey(domain?: MappingDomainType): string {
+export function getFieldIdealPanelTransformsKey(
+  domain?: MappingDomainType,
+  undergroundSubMode?: UndergroundSubModeType
+): string {
   const clean = (domain || 'TUNNEL').toLowerCase();
+  if (clean === 'tunnel' && undergroundSubMode === 'vertical_shaft') {
+    return 'eswa_apk_ideal_panel_transforms_vertical_shaft_v2';
+  }
   return `eswa_apk_ideal_panel_transforms_${clean}_v2`;
 }
 
@@ -1174,51 +1199,65 @@ function sanitizePanelTransform(raw?: Partial<FieldPanelTransform> | null): Fiel
   };
 }
 
-export function loadIdealPanelTransforms(domain?: MappingDomainType): StoredIdealPanelTransforms {
+export function loadIdealPanelTransforms(
+  domain?: MappingDomainType,
+  undergroundSubMode?: UndergroundSubModeType
+): StoredIdealPanelTransforms {
   const domKey = (domain || 'TUNNEL').toUpperCase();
-  if (cachedIdealTransformsByDomain[domKey]) return cachedIdealTransformsByDomain[domKey]!;
-  const storageKey = getFieldIdealPanelTransformsKey(domain);
+  const cacheKey =
+    domKey === 'TUNNEL' && undergroundSubMode === 'vertical_shaft'
+      ? 'TUNNEL_VERTICAL_SHAFT'
+      : domKey;
+  if (cachedIdealTransformsByDomain[cacheKey]) return cachedIdealTransformsByDomain[cacheKey]!;
+  const storageKey = getFieldIdealPanelTransformsKey(domain, undergroundSubMode);
   try {
     const raw = localStorage.getItem(storageKey);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<StoredIdealPanelTransforms>;
-      cachedIdealTransformsByDomain[domKey] = {
+      cachedIdealTransformsByDomain[cacheKey] = {
         field_canvas: parsed.field_canvas || {},
         joint_grouping: parsed.joint_grouping || {},
       };
-      return cachedIdealTransformsByDomain[domKey]!;
+      return cachedIdealTransformsByDomain[cacheKey]!;
     }
-    // Check legacy key for TUNNEL fallback
-    if (domKey === 'TUNNEL') {
+    // Check legacy key for TUNNEL fallback only (never for vertical_shaft)
+    if (domKey === 'TUNNEL' && undergroundSubMode !== 'vertical_shaft') {
       const legacyRaw = localStorage.getItem('eswa_apk_ideal_panel_transforms_v1');
       if (legacyRaw) {
         const legacyParsed = JSON.parse(legacyRaw) as Partial<StoredIdealPanelTransforms>;
-        cachedIdealTransformsByDomain[domKey] = {
+        cachedIdealTransformsByDomain[cacheKey] = {
           field_canvas: legacyParsed.field_canvas || {},
           joint_grouping: legacyParsed.joint_grouping || {},
         };
-        return cachedIdealTransformsByDomain[domKey]!;
+        return cachedIdealTransformsByDomain[cacheKey]!;
       }
     }
   } catch {
     // Ignore storage read failure
   }
-  cachedIdealTransformsByDomain[domKey] = {
+  cachedIdealTransformsByDomain[cacheKey] = {
     field_canvas: {},
     joint_grouping: {},
   };
-  return cachedIdealTransformsByDomain[domKey]!;
+  return cachedIdealTransformsByDomain[cacheKey]!;
 }
 
 export function saveIdealPanelTransform(
   panel: FieldPanelId,
   transform: FieldPanelTransform,
   stageMode: FieldTransformStageMode = 'field_canvas',
-  domain?: MappingDomainType
+  domain?: MappingDomainType,
+  undergroundSubMode?: UndergroundSubModeType
 ): void {
   if (panel === 'face' || stageMode === 'fixed') return;
   const domKey = (domain || 'TUNNEL').toUpperCase();
-  const current = loadIdealPanelTransforms(domain);
+  const effSubMode: UndergroundSubModeType | undefined =
+    panel === 'shaft_sn' ? 'vertical_shaft' : undergroundSubMode;
+  const cacheKey =
+    domKey === 'TUNNEL' && effSubMode === 'vertical_shaft'
+      ? 'TUNNEL_VERTICAL_SHAFT'
+      : domKey;
+  const current = loadIdealPanelTransforms(domain, effSubMode);
   const clean = sanitizePanelTransform(transform);
   if (stageMode === 'joint_grouping') {
     current.joint_grouping = {
@@ -1231,8 +1270,8 @@ export function saveIdealPanelTransform(
       [panel]: clean,
     };
   }
-  cachedIdealTransformsByDomain[domKey] = current;
-  const storageKey = getFieldIdealPanelTransformsKey(domain);
+  cachedIdealTransformsByDomain[cacheKey] = current;
+  const storageKey = getFieldIdealPanelTransformsKey(domain, effSubMode);
   try {
     localStorage.setItem(storageKey, JSON.stringify(current));
   } catch {
@@ -1243,12 +1282,15 @@ export function saveIdealPanelTransform(
 export function getIdealFieldPanelTransform(
   panel: FieldPanelId,
   stageMode: FieldTransformStageMode = 'field_canvas',
-  domain?: MappingDomainType
+  domain?: MappingDomainType,
+  undergroundSubMode?: UndergroundSubModeType
 ): FieldPanelTransform {
   if (panel === 'face' || stageMode === 'fixed') {
     return sanitizePanelTransform(null);
   }
-  const ideal = loadIdealPanelTransforms(domain);
+  const effSubMode: UndergroundSubModeType | undefined =
+    panel === 'shaft_sn' ? 'vertical_shaft' : undergroundSubMode;
+  const ideal = loadIdealPanelTransforms(domain, effSubMode);
   const map = stageMode === 'joint_grouping' ? ideal.joint_grouping : ideal.field_canvas;
   return sanitizePanelTransform(map?.[panel]);
 }
@@ -1257,11 +1299,13 @@ export function isPanelAtIdealPosition(
   round: FieldExcavationRound | null | undefined,
   panel: FieldPanelId,
   stageMode: FieldTransformStageMode = 'field_canvas',
-  domain?: MappingDomainType
+  domain?: MappingDomainType,
+  undergroundSubMode?: UndergroundSubModeType
 ): boolean {
   if (panel === 'face' || stageMode === 'fixed') return true;
+  const effSubMode = undergroundSubMode || round?.undergroundSubMode;
   const current = getFieldPanelTransform(round, panel, stageMode);
-  const ideal = getIdealFieldPanelTransform(panel, stageMode, domain);
+  const ideal = getIdealFieldPanelTransform(panel, stageMode, domain, effSubMode);
   return (
     Math.abs(current.offsetX - ideal.offsetX) < 0.5 &&
     Math.abs(current.offsetY - ideal.offsetY) < 0.5 &&
@@ -2576,6 +2620,32 @@ export function generateProfessionalGeologicalDescription(
   return `${lithSentence} ${structureSentence}${featSentence} ${classSentence} ${obSentence}`;
 }
 
+/**
+ * Parses a chainage string (e.g. "100", "RD 100.5", "1+250", "0+100.5", "CH 100 (Round 1)")
+ * into numeric meters without concatenating unrelated digits.
+ */
+export function parseChainageStringToMeters(rawStr: string | undefined, fallback: number = 0): number {
+  if (!rawStr || typeof rawStr !== 'string') return fallback;
+  const raw = rawStr.trim();
+  if (!raw) return fallback;
+  const stationMatch = raw.match(/([+-]?\d+)\s*\+\s*(\d+(?:\.\d+)?)/);
+  if (stationMatch) {
+    const km = parseFloat(stationMatch[1]);
+    const m = parseFloat(stationMatch[2]);
+    if (Number.isFinite(km) && Number.isFinite(m)) {
+      return Number((km * 1000 + m).toFixed(2));
+    }
+  }
+  const numMatch = raw.match(/[+-]?\d+(?:\.\d+)?/);
+  if (numMatch) {
+    const val = parseFloat(numMatch[0]);
+    if (Number.isFinite(val)) {
+      return Number(val.toFixed(2));
+    }
+  }
+  return fallback;
+}
+
 export function createNewExcavationRound(
   project: FieldProjectItem,
   location: FieldTunnelLocationItem,
@@ -2593,7 +2663,7 @@ export function createNewExcavationRound(
 
   const nextFrom = previousRound ? previousRound.chainageTo : '1240.00';
   const pullM = previousRound?.pullLengthMeters || 3.0;
-  const numericFrom = parseFloat(nextFrom.replace(/[^0-9.]/g, '')) || 1240;
+  const numericFrom = parseChainageStringToMeters(nextFrom, 1240);
   const nextTo = (numericFrom + pullM).toFixed(2);
   const nextSupport = (numericFrom - 0.5).toFixed(2);
 
@@ -2613,6 +2683,10 @@ export function createNewExcavationRound(
     projectId: project.id,
     locationId: location.id,
     mappingDomain: effDomain,
+    undergroundSubMode:
+      location.undergroundSubMode || project.undergroundSubMode || previousRound?.undergroundSubMode || 'tunnel',
+    shaftInclinationDeg:
+      location.shaftInclinationDeg ?? previousRound?.shaftInclinationDeg ?? (location.undergroundSubMode === 'vertical_shaft' ? 90 : undefined),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     chainageFrom: nextFrom,
@@ -2626,11 +2700,17 @@ export function createNewExcavationRound(
     photoPromptHandled: false,
     collectedPhotos: [],
     panelTransforms: {
-      ...(loadIdealPanelTransforms().field_canvas || {}),
+      ...(loadIdealPanelTransforms(
+        effDomain,
+        location.undergroundSubMode || project.undergroundSubMode || 'tunnel'
+      ).field_canvas || {}),
       ...(previousRound?.panelTransforms || {}),
     },
     groupJointPanelTransforms: {
-      ...(loadIdealPanelTransforms().joint_grouping || {}),
+      ...(loadIdealPanelTransforms(
+        effDomain,
+        location.undergroundSubMode || project.undergroundSubMode || 'tunnel'
+      ).joint_grouping || {}),
       ...(previousRound?.groupJointPanelTransforms || {}),
     },
     lithologyStrokes: [],
@@ -2685,14 +2765,22 @@ export function createNewExcavationRound(
   };
 }
 
-export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingStoreState {
+export function loadFieldMappingStore(
+  domain?: MappingDomainType,
+  undergroundSubMode?: UndergroundSubModeType
+): FieldMappingStoreState {
   const effectiveDomain = domain || 'TUNNEL';
-  const storageKey = getFieldMappingStorageKey(effectiveDomain);
+  const effectiveSubMode: UndergroundSubModeType =
+    effectiveDomain === 'TUNNEL' && undergroundSubMode === 'vertical_shaft'
+      ? 'vertical_shaft'
+      : 'tunnel';
+  const storageKey = getFieldMappingStorageKey(effectiveDomain, effectiveSubMode);
   try {
     let raw = localStorage.getItem(storageKey);
-    // Legacy migration check if new key does not exist yet
+
+    // One-time migration & strict isolation between Tunnel and Vertical Shaft
     if (!raw) {
-      if (effectiveDomain === 'TUNNEL') {
+      if (effectiveDomain === 'TUNNEL' && effectiveSubMode === 'tunnel') {
         const legacy = localStorage.getItem('eswa_apk_field_mapping_store_v1');
         if (legacy) {
           raw = legacy;
@@ -2702,7 +2790,45 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
             // Ignore
           }
         }
-      } else {
+      } else if (effectiveDomain === 'TUNNEL' && effectiveSubMode === 'vertical_shaft') {
+        // Check if any projects were explicitly created in Vertical Shaft mode inside the Tunnel store prior to separation
+        try {
+          const tunnelRaw = localStorage.getItem(FIELD_MAPPING_STORAGE_KEY);
+          if (tunnelRaw) {
+            const parsedTunnel = JSON.parse(tunnelRaw) as FieldMappingStoreState;
+            if (parsedTunnel && Array.isArray(parsedTunnel.projects)) {
+              const pureShaftProjects = parsedTunnel.projects.filter(
+                (p) =>
+                  p.undergroundSubMode === 'vertical_shaft' &&
+                  Array.isArray(p.locations) &&
+                  p.locations.some(
+                    (l) =>
+                      l.name === 'Vertical Shaft - Sinking Stage 1' ||
+                      (l.undergroundSubMode === 'vertical_shaft' && /shaft/i.test(l.name))
+                  )
+              );
+              if (pureShaftProjects.length > 0) {
+                const shaftProjIds = new Set(pureShaftProjects.map((p) => p.id));
+                const shaftRounds = (parsedTunnel.rounds || []).filter((r) =>
+                  shaftProjIds.has(r.projectId)
+                );
+                const migratedShaftStore: FieldMappingStoreState = {
+                  projects: pureShaftProjects,
+                  rounds: shaftRounds,
+                  activeProjectId: pureShaftProjects[0]?.id || null,
+                  activeLocationId: pureShaftProjects[0]?.locations?.[0]?.id || null,
+                  activeRoundId: shaftRounds[0]?.id || null,
+                  rememberedRocks: parsedTunnel.rememberedRocks || [],
+                };
+                raw = JSON.stringify(migratedShaftStore);
+                localStorage.setItem(storageKey, raw);
+              }
+            }
+          }
+        } catch {
+          // Ignore migration failure
+        }
+      } else if (effectiveDomain !== 'TUNNEL') {
         const legacySurf = localStorage.getItem('eswa_apk_surface_mapping_store_v1');
         if (legacySurf) {
           try {
@@ -2730,42 +2856,159 @@ export function loadFieldMappingStore(domain?: MappingDomainType): FieldMappingS
         parsed.projects.length > 0 &&
         Array.isArray(parsed.rounds)
       ) {
+        // Strictly filter & sanitize projects and locations so Tunnel and Vertical Shaft never intersect
+        let filteredProjects = parsed.projects.map((p) => ({
+          ...p,
+          locations: Array.isArray(p.locations) ? p.locations : [],
+        }));
+
+        if (effectiveDomain === 'TUNNEL') {
+          if (effectiveSubMode === 'vertical_shaft') {
+            filteredProjects = filteredProjects
+              .filter((p) => p.undergroundSubMode !== 'tunnel')
+              .map((p) => ({
+                ...p,
+                undergroundSubMode: 'vertical_shaft' as UndergroundSubModeType,
+                locations: p.locations
+                  .filter((l) => l.undergroundSubMode !== 'tunnel')
+                  .map((l) => {
+                    const d = Math.max(1, Number(l.widthM) || 8.0);
+                    return {
+                      ...l,
+                      undergroundSubMode: 'vertical_shaft' as UndergroundSubModeType,
+                      shape: 'circular' as FieldTunnelShapeType,
+                      widthM: d,
+                      heightM: d,
+                      wallHeightM: Number((d * 0.5).toFixed(2)),
+                      crownRadiusM: Number((d * 0.5).toFixed(2)),
+                      shaftInclinationDeg: l.shaftInclinationDeg ?? 90,
+                    };
+                  }),
+              }))
+              .filter((p) => p.locations.length > 0);
+          } else {
+            // Tunnel mode: strip out any pure Vertical Shaft projects/locations and heal any previously toggled Tunnel projects
+            filteredProjects = filteredProjects
+              .filter(
+                (p) =>
+                  !(
+                    p.undergroundSubMode === 'vertical_shaft' &&
+                    p.locations.every(
+                      (l) =>
+                        l.name === 'Vertical Shaft - Sinking Stage 1' ||
+                        (l.undergroundSubMode === 'vertical_shaft' && /vertical\s*shaft/i.test(l.name))
+                    )
+                  )
+              )
+              .map((p) => ({
+                ...p,
+                undergroundSubMode: 'tunnel' as UndergroundSubModeType,
+                locations: p.locations
+                  .filter(
+                    (l) =>
+                      l.name !== 'Vertical Shaft - Sinking Stage 1' &&
+                      !(l.undergroundSubMode === 'vertical_shaft' && /vertical\s*shaft/i.test(l.name))
+                  )
+                  .map((l) => ({
+                    ...l,
+                    undergroundSubMode: 'tunnel' as UndergroundSubModeType,
+                  })),
+              }))
+              .filter((p) => p.locations.length > 0);
+          }
+        }
+
+        if (filteredProjects.length === 0) {
+          return {
+            projects: [],
+            rounds: [],
+            activeProjectId: null,
+            activeLocationId: null,
+            activeRoundId: null,
+            rememberedRocks: Array.isArray(parsed.rememberedRocks) ? parsed.rememberedRocks : [],
+          };
+        }
+
+        const validProjIds = new Set(filteredProjects.map((p) => p.id));
+        const validLocIds = new Set(
+          filteredProjects.flatMap((p) => p.locations.map((l) => l.id))
+        );
+        const filteredRounds = parsed.rounds.filter(
+          (r) => validProjIds.has(r.projectId) && validLocIds.has(r.locationId)
+        );
+
+        const resolvedActiveProject =
+          filteredProjects.find((p) => p.id === parsed.activeProjectId) || filteredProjects[0];
+        const resolvedActiveLocation =
+          resolvedActiveProject.locations.find((l) => l.id === parsed.activeLocationId) ||
+          resolvedActiveProject.locations[0] ||
+          null;
+        const resolvedActiveRound =
+          filteredRounds.find(
+            (r) =>
+              r.id === parsed.activeRoundId &&
+              r.projectId === resolvedActiveProject.id &&
+              r.locationId === resolvedActiveLocation?.id
+          ) ||
+          filteredRounds.find(
+            (r) =>
+              r.projectId === resolvedActiveProject.id &&
+              r.locationId === resolvedActiveLocation?.id
+          ) ||
+          null;
+
         const defaultSets = createDefaultDiscontinuitySets();
-        // Automatically lock in any panel transforms currently positioned on the user's canvas as the Ideal Position
-        const idealStore = loadIdealPanelTransforms(effectiveDomain);
         const orderedRounds = [
-          ...parsed.rounds.filter((r) => r.id === parsed.activeRoundId),
-          ...parsed.rounds.filter((r) => r.id !== parsed.activeRoundId),
+          ...filteredRounds.filter((r) => r.id === resolvedActiveRound?.id),
+          ...filteredRounds.filter((r) => r.id !== resolvedActiveRound?.id),
         ];
+        const panelListForIdeal: FieldPanelId[] =
+          effectiveSubMode === 'vertical_shaft'
+            ? ['left_wall', 'crown', 'right_wall', 'shaft_sn']
+            : ['left_wall', 'crown', 'right_wall'];
         for (const r of orderedRounds) {
           if (r.panelTransforms) {
-            (['left_wall', 'crown', 'right_wall'] as FieldPanelId[]).forEach((pid) => {
+            panelListForIdeal.forEach((pid) => {
               if (r.panelTransforms?.[pid]) {
-                saveIdealPanelTransform(pid, r.panelTransforms[pid]!, 'field_canvas', effectiveDomain);
+                saveIdealPanelTransform(
+                  pid,
+                  r.panelTransforms[pid]!,
+                  'field_canvas',
+                  effectiveDomain,
+                  effectiveSubMode
+                );
               }
             });
           }
           if (r.groupJointPanelTransforms) {
-            (['left_wall', 'crown', 'right_wall'] as FieldPanelId[]).forEach((pid) => {
+            panelListForIdeal.forEach((pid) => {
               if (r.groupJointPanelTransforms?.[pid]) {
-                saveIdealPanelTransform(pid, r.groupJointPanelTransforms[pid]!, 'joint_grouping', effectiveDomain);
+                saveIdealPanelTransform(
+                  pid,
+                  r.groupJointPanelTransforms[pid]!,
+                  'joint_grouping',
+                  effectiveDomain,
+                  effectiveSubMode
+                );
               }
             });
           }
         }
-        const finalIdeal = loadIdealPanelTransforms(effectiveDomain);
+        const finalIdeal = loadIdealPanelTransforms(effectiveDomain, effectiveSubMode);
 
         return restorePhotosInFieldStore({
           ...parsed,
+          activeProjectId: resolvedActiveProject.id,
+          activeLocationId: resolvedActiveLocation?.id || null,
+          activeRoundId: resolvedActiveRound?.id || null,
           idealPanelTransforms: finalIdeal.field_canvas,
           idealGroupJointPanelTransforms: finalIdeal.joint_grouping,
-          projects: parsed.projects.map((p) => ({
-            ...p,
-            locations: Array.isArray(p.locations) ? p.locations : [],
-          })),
-          rounds: parsed.rounds.map((r) => ({
+          projects: filteredProjects,
+          rounds: filteredRounds.map((r) => ({
             ...r,
             mappingDomain: r.mappingDomain || effectiveDomain,
+            undergroundSubMode:
+              effectiveDomain === 'TUNNEL' ? effectiveSubMode : r.undergroundSubMode,
             panelTransforms: {
               ...finalIdeal.field_canvas,
               ...(r.panelTransforms || {}),
@@ -2900,10 +3143,23 @@ export function createDefaultSurfaceMappingStore(_domain: MappingDomainType = 'B
   };
 }
 
-export function saveFieldMappingStoreImmediate(state: FieldMappingStoreState, domain?: MappingDomainType): void {
+export function saveFieldMappingStoreImmediate(
+  state: FieldMappingStoreState,
+  domain?: MappingDomainType,
+  undergroundSubMode?: UndergroundSubModeType
+): void {
   const activeR = state.rounds.find((r) => r.id === state.activeRoundId);
+  const activeP = state.projects.find((p) => p.id === state.activeProjectId) || state.projects[0];
+  const activeL =
+    activeP?.locations.find((l) => l.id === state.activeLocationId) || activeP?.locations[0];
   const effectiveDomain = domain || activeR?.mappingDomain || 'TUNNEL';
-  const storageKey = getFieldMappingStorageKey(effectiveDomain);
+  const effectiveSubMode: UndergroundSubModeType =
+    undergroundSubMode ||
+    activeR?.undergroundSubMode ||
+    activeL?.undergroundSubMode ||
+    activeP?.undergroundSubMode ||
+    'tunnel';
+  const storageKey = getFieldMappingStorageKey(effectiveDomain, effectiveSubMode);
   try {
     const cleanState = offloadPhotosFromFieldStore(state);
     localStorage.setItem(storageKey, JSON.stringify(cleanState));
@@ -2928,10 +3184,23 @@ export function saveFieldMappingStoreImmediate(state: FieldMappingStoreState, do
   }
 }
 
-export function saveFieldMappingStore(state: FieldMappingStoreState, domain?: MappingDomainType): void {
+export function saveFieldMappingStore(
+  state: FieldMappingStoreState,
+  domain?: MappingDomainType,
+  undergroundSubMode?: UndergroundSubModeType
+): void {
   const activeR = state.rounds.find((r) => r.id === state.activeRoundId);
+  const activeP = state.projects.find((p) => p.id === state.activeProjectId) || state.projects[0];
+  const activeL =
+    activeP?.locations.find((l) => l.id === state.activeLocationId) || activeP?.locations[0];
   const effectiveDomain = domain || activeR?.mappingDomain || 'TUNNEL';
-  const storageKey = getFieldMappingStorageKey(effectiveDomain);
+  const effectiveSubMode: UndergroundSubModeType =
+    undergroundSubMode ||
+    activeR?.undergroundSubMode ||
+    activeL?.undergroundSubMode ||
+    activeP?.undergroundSubMode ||
+    'tunnel';
+  const storageKey = getFieldMappingStorageKey(effectiveDomain, effectiveSubMode);
   // Non-blocking 2000ms debounced save dispatched inside requestIdleCallback so typing & drawing never lag
   scheduleIdleSave(
     storageKey,
@@ -3913,6 +4182,8 @@ export interface FieldLocationSurfaceConfig {
   splHeightM: number;
   tunnelW: number;
   tunnelH: number;
+  isVerticalShaft?: boolean;
+  shaftSnLengthM?: number;
 }
 
 /**
@@ -4053,6 +4324,11 @@ export function getLocationSurfaceConfig(
   const isOpenNoCrown = location.shape === 'open_slush_no_crown' || isSinglePanelSurface;
   const isOpenPreset = isOpenNoLeft || isOpenNoRight || isOpenNoCrown;
 
+  // Isolated delegation for Vertical Shaft mode (Tunnel mode continues untouched below)
+  if (location.undergroundSubMode === 'vertical_shaft') {
+    return getVerticalShaftSurfaceConfig(location);
+  }
+
   return {
     isCustom: false,
     isClosed: !isOpenPreset || isSinglePanelSurface,
@@ -4067,6 +4343,8 @@ export function getLocationSurfaceConfig(
     splHeightM,
     tunnelW,
     tunnelH,
+    isVerticalShaft: false,
+    shaftSnLengthM: 0,
   };
 }
 
@@ -4114,6 +4392,9 @@ export function computePanelCanvasGeometry(
   location: FieldTunnelLocationItem,
   round: FieldExcavationRound
 ): FieldPanelCanvasGeometry {
+  if (location.undergroundSubMode === 'vertical_shaft') {
+    return computeVerticalShaftPanelCanvasGeometry(panel, location, round);
+  }
   const surf = getLocationSurfaceConfig(location);
   const {
     tunnelW,
@@ -4143,7 +4424,7 @@ export function computePanelCanvasGeometry(
   } else if (panel === 'left_wall') {
     panelWidthM = pullM;
     panelHeightM = Math.max(0.5, leftWallLengthM || splHeightM);
-  } else if (panel === 'right_wall') {
+  } else if (panel === 'right_wall' || panel === 'shaft_sn') {
     panelWidthM = pullM;
     panelHeightM = Math.max(0.5, rightWallLengthM || splHeightM);
   }
@@ -4206,7 +4487,7 @@ export function computePhysicalMetricPoints(
 ): { x: number; y: number }[] {
   const geom = computePanelCanvasGeometry(panel, location, round);
   const pullM = geom.pullM;
-  const wallHM = geom.leftWallLengthM;
+  const wallHM = panel === 'right_wall' ? geom.rightWallLengthM : geom.leftWallLengthM;
   const crownArchM = geom.crownLengthM;
 
   return points.map((pt) => {
@@ -4229,8 +4510,8 @@ export function computePhysicalMetricPoints(
         y: Number(((1 - v) * pullM).toFixed(3)),
       };
     }
-    if (panel === 'right_wall') {
-      // On Right Wall canvas, u=0 (left) is Face advance (pullM) and u=1 (right) is Start of Round (0m)
+    if (panel === 'right_wall' || panel === 'shaft_sn') {
+      // On Right Wall / SN Wall canvas, u=0 (left) is Face advance (pullM) and u=1 (right) is Start of Round (0m)
       return {
         x: Number(((1 - u) * pullM).toFixed(3)),
         y: Number(((1 - v) * wallHM).toFixed(3)),
@@ -4257,7 +4538,7 @@ export function convertPhysicalMetricPointsToCanvas(
 ): FieldPoint2D[] {
   const geom = computePanelCanvasGeometry(panel, location, round);
   const pullM = geom.pullM;
-  const wallHM = geom.leftWallLengthM;
+  const wallHM = panel === 'right_wall' ? geom.rightWallLengthM : geom.leftWallLengthM;
   const crownArchM = geom.crownLengthM;
 
   return metricPoints.map((mp) => {
@@ -4269,7 +4550,7 @@ export function convertPhysicalMetricPointsToCanvas(
     } else if (panel === 'crown') {
       u = Math.max(0, Math.min(1, mp.x / crownArchM));
       v = Math.max(0, Math.min(1, 1 - mp.y / pullM));
-    } else if (panel === 'right_wall') {
+    } else if (panel === 'right_wall' || panel === 'shaft_sn') {
       u = Math.max(0, Math.min(1, (pullM - mp.x) / pullM));
       v = Math.max(0, Math.min(1, 1 - mp.y / wallHM));
     } else {
@@ -4296,7 +4577,7 @@ export function mapMetricPointToStripSvg(
 ): FieldPoint2D {
   const geom = computePanelCanvasGeometry(panel, location, round);
   const pullM = geom.pullM;
-  const wallHM = geom.leftWallLengthM;
+  const wallHM = panel === 'right_wall' ? geom.rightWallLengthM : geom.leftWallLengthM;
   const crownArchM = geom.crownLengthM;
 
   let sx = 0;
@@ -4351,7 +4632,12 @@ export function getFieldPanelTransform(
 
   const raw = sourceMap?.[panel];
   if (!raw) {
-    return getIdealFieldPanelTransform(panel, stageMode);
+    return getIdealFieldPanelTransform(
+      panel,
+      stageMode,
+      round?.mappingDomain,
+      round?.undergroundSubMode
+    );
   }
   return sanitizePanelTransform(raw);
 }
@@ -5784,6 +6070,13 @@ export function computeTCanvasLayout(
   location: FieldTunnelLocationItem,
   round: FieldExcavationRound
 ) {
+  if (location.undergroundSubMode === 'vertical_shaft') {
+    return computeVerticalShaftTCanvasLayout(
+      location,
+      round,
+      computePanelOrientationReferenceMeta
+    );
+  }
   const faceGeom = computePanelCanvasGeometry('face', location, round);
   const crownGeom = computePanelCanvasGeometry('crown', location, round);
   const leftWallGeom = computePanelCanvasGeometry('left_wall', location, round);
@@ -5883,6 +6176,22 @@ export function computeTCanvasLayout(
   const rightWallX = Number((baseRightWallX + rwMeta.tr.tOffsetX).toFixed(1));
   const rightWallY = Number((stripY + rwMeta.tr.tOffsetY).toFixed(1));
 
+  const shaftSnGeom = computePanelCanvasGeometry('shaft_sn', location, round);
+  const isVerticalShaft = location.undergroundSubMode === 'vertical_shaft';
+  const snMeta = computePanelOrientationReferenceMeta(
+    'shaft_sn',
+    round,
+    rightWallSpanM,
+    crownHeightM,
+    pullSpanM,
+    'joint_grouping'
+  );
+  const shaftSnW = isVerticalShaft ? Number((snMeta.widthM * stripPxPerM).toFixed(1)) : 0;
+  const shaftSnH = isVerticalShaft ? Number((snMeta.heightM * stripPxPerM).toFixed(1)) : 0;
+  const baseShaftSnX = baseRightWallX + (faceGeom.hasRightWall ? rightWallW + panelGapX : 0);
+  const shaftSnX = Number((baseShaftSnX + snMeta.tr.tOffsetX).toFixed(1));
+  const shaftSnY = Number((stripY + snMeta.tr.tOffsetY).toFixed(1));
+
   const boxes: Record<
     FieldPanelId,
     { x: number; y: number; w: number; h: number; geom: FieldPanelCanvasGeometry }
@@ -5891,6 +6200,7 @@ export function computeTCanvasLayout(
     left_wall: { x: leftWallX, y: leftWallY, w: leftWallW, h: leftWallH, geom: leftWallGeom },
     crown: { x: crownX, y: crownY, w: crownW, h: crownH, geom: crownGeom },
     right_wall: { x: rightWallX, y: rightWallY, w: rightWallW, h: rightWallH, geom: rightWallGeom },
+    shaft_sn: { x: shaftSnX, y: shaftSnY, w: shaftSnW, h: shaftSnH, geom: shaftSnGeom },
   };
 
   return {
@@ -5898,6 +6208,7 @@ export function computeTCanvasLayout(
     crownGeom,
     leftWallGeom,
     rightWallGeom,
+    shaftSnGeom,
     tunnelW,
     tunnelH,
     splHeightM,
@@ -5975,6 +6286,7 @@ export function resolveTCanvasPanelAtPoint(
     ...(layout.faceGeom.hasLeftWall ? (['left_wall'] as FieldPanelId[]) : []),
     ...(layout.faceGeom.hasCrown ? (['crown'] as FieldPanelId[]) : []),
     ...(layout.faceGeom.hasRightWall ? (['right_wall'] as FieldPanelId[]) : []),
+    ...(location.undergroundSubMode === 'vertical_shaft' ? (['shaft_sn'] as FieldPanelId[]) : []),
     'face',
   ];
   for (const p of panels) {
@@ -6355,8 +6667,8 @@ export function buildFieldMappingTwoPageWordHtml(
           <th style="background:#f1f5f9;">Hoek-Brown Strength &amp; Bearing</th>
           <td colspan="7">
             Cohesion c' = <strong>${(25 + (round.gsiValue || 55) * 0.9).toFixed(0)} kPa</strong> |
-            Friction φ' = <strong>{(28 + (round.gsiValue || 55) * 0.22).toFixed(1)}°</strong> |
-            Modulus Erm = <strong>{(8.5 + (round.gsiValue || 55) * 0.28).toFixed(1)} GPa</strong> |
+            Friction φ' = <strong>${(28 + (round.gsiValue || 55) * 0.22).toFixed(1)}°</strong> |
+            Modulus Erm = <strong>${(8.5 + (round.gsiValue || 55) * 0.28).toFixed(1)} GPa</strong> |
             <strong>Safe Foundation Bearing Capacity q_all: ${(180 + (round.gsiValue || 55) * 6.5).toFixed(0)} kPa</strong>
           </td>
         </tr>`
@@ -8195,7 +8507,7 @@ export function createDefaultExcavationRound(
     locations: [location],
   };
   const round = createNewExcavationRound(dummyProj, location, null, domain);
-  const parsedFrom = parseFloat(chainageFrom.replace(/[^0-9.]/g, '')) || 1240;
+  const parsedFrom = parseChainageStringToMeters(chainageFrom, 1240);
   round.chainageFrom = chainageFrom;
   round.pullLengthMeters = pullM;
   round.chainageTo = (parsedFrom + pullM).toFixed(1);
@@ -8266,6 +8578,7 @@ export const FIELD_PANEL_DISPLAY_LABELS: Record<FieldPanelId, string> = {
   face: 'FACE',
   crown: 'CROWN',
   right_wall: 'RIGHT WALL',
+  shaft_sn: 'SN WALL',
 };
 
 /**

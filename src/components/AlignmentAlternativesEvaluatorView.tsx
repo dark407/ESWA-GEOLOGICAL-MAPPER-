@@ -236,21 +236,22 @@ export const AlignmentAlternativesEvaluatorView: React.FC<AlignmentAlternativesE
             </span>
           </div>
 
-          <div className="w-full overflow-x-auto py-2 flex justify-center">
-            <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-auto max-h-[190px]">
+          <div className="w-full overflow-x-auto py-2 flex justify-center bg-white border border-slate-300 rounded-lg">
+            <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-auto max-h-[190px] bg-white">
+              <rect width={svgW} height={svgH} fill="#ffffff" />
               {/* Sweep Grid */}
-              <rect x={padL} y={padT} width={pw} height={ph} fill="#0b1120" stroke="#1e293b" />
-              <line x1={padL} y1={toSweepY(35)} x2={padL + pw} y2={toSweepY(35)} stroke="#065f46" strokeWidth="1" strokeDasharray="3 3" />
-              <line x1={padL} y1={toSweepY(60)} x2={padL + pw} y2={toSweepY(60)} stroke="#9a3412" strokeWidth="1" strokeDasharray="3 3" />
-              <text x={padL + 6} y={toSweepY(35) - 4} fill="#10b981" fontSize="9">
+              <rect x={padL} y={padT} width={pw} height={ph} fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1" />
+              <line x1={padL} y1={toSweepY(35)} x2={padL + pw} y2={toSweepY(35)} stroke="#059669" strokeWidth="1.2" strokeDasharray="3 3" />
+              <line x1={padL} y1={toSweepY(60)} x2={padL + pw} y2={toSweepY(60)} stroke="#ea580c" strokeWidth="1.2" strokeDasharray="3 3" />
+              <text x={padL + 6} y={toSweepY(35) - 4} fill="#047857" fontSize="9" fontWeight="bold">
                 Low Risk Zone (&lt; 35)
               </text>
-              <text x={padL + 6} y={toSweepY(60) - 4} fill="#f97316" fontSize="9">
+              <text x={padL + 6} y={toSweepY(60) - 4} fill="#c2410c" fontSize="9" fontWeight="bold">
                 Moderate Risk Zone (35-60)
               </text>
 
               {/* Optimization Curve */}
-              <polyline points={curvePolyline} fill="none" stroke="#38bdf8" strokeWidth="2.5" />
+              <polyline points={curvePolyline} fill="none" stroke="#0284c7" strokeWidth="2.5" />
 
               {/* Marker for Candidate Alignments */}
               {evaluatedCandidates.map((c, i) => {
@@ -258,9 +259,9 @@ export const AlignmentAlternativesEvaluatorView: React.FC<AlignmentAlternativesE
                 const cy = toSweepY(c.compositeRiskScore);
                 return (
                   <g key={i}>
-                    <line x1={cx} y1={padT} x2={cx} y2={padT + ph} stroke="#f59e0b" strokeWidth="1" strokeDasharray="2 2" />
-                    <circle cx={cx} cy={cy} r="4.5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5" />
-                    <text x={cx} y={cy - 8} textAnchor="middle" fill="#fcd34d" fontSize="9" fontWeight="bold">
+                    <line x1={cx} y1={padT} x2={cx} y2={padT + ph} stroke="#d97706" strokeWidth="1.2" strokeDasharray="2 2" />
+                    <circle cx={cx} cy={cy} r="4.5" fill="#d97706" stroke="#ffffff" strokeWidth="1.5" />
+                    <text x={cx} y={cy - 8} textAnchor="middle" fill="#b45309" fontSize="9" fontWeight="bold">
                       {c.name.split(' ')[1]} ({c.compositeRiskScore})
                     </text>
                   </g>
@@ -270,8 +271,8 @@ export const AlignmentAlternativesEvaluatorView: React.FC<AlignmentAlternativesE
               {/* Sweet spot marker */}
               {bestSweep && (
                 <g>
-                  <circle cx={toSweepX(bestSweep.azimuth)} cy={toSweepY(bestSweep.compositeRisk)} r="5.5" fill="#10b981" stroke="#ffffff" strokeWidth="2" />
-                  <text x={toSweepX(bestSweep.azimuth)} y={toSweepY(bestSweep.compositeRisk) + 16} textAnchor="middle" fill="#34d399" fontSize="9" fontWeight="bold">
+                  <circle cx={toSweepX(bestSweep.azimuth)} cy={toSweepY(bestSweep.compositeRisk)} r="5.5" fill="#059669" stroke="#ffffff" strokeWidth="2" />
+                  <text x={toSweepX(bestSweep.azimuth)} y={toSweepY(bestSweep.compositeRisk) + 16} textAnchor="middle" fill="#047857" fontSize="9" fontWeight="bold">
                     Optimal: {bestSweep.azimuth}°
                   </text>
                 </g>
@@ -283,8 +284,8 @@ export const AlignmentAlternativesEvaluatorView: React.FC<AlignmentAlternativesE
                 const x = toSweepX(az);
                 return (
                   <g key={i}>
-                    <line x1={x} y1={padT + ph} x2={x} y2={padT + ph + 5} stroke="#64748b" />
-                    <text x={x} y={padT + ph + 18} textAnchor="middle" fill="#94a3b8" fontSize="10">
+                    <line x1={x} y1={padT + ph} x2={x} y2={padT + ph + 5} stroke="#475569" strokeWidth="1.2" />
+                    <text x={x} y={padT + ph + 18} textAnchor="middle" fill="#1e293b" fontSize="10" fontWeight="bold">
                       {az}°
                     </text>
                   </g>

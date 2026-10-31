@@ -50,11 +50,248 @@ export interface ExcavationStageBounds {
 }
 
 /**
+ * Generates an exact closed 2D cross-section polygon in physical meters:
+ * X in [-W/2, +W/2], Y in [0, H] (Invert = 0, Crown = H).
+ * Points are ordered clockwise starting from Left Invert (-W/2, 0) -> Left Wall -> Crown Arch -> Right Wall -> Right Invert (+W/2, 0).
+ */
+export function generateExactTunnelProfilePoints(
+  geometry?: TunnelGeometry,
+  spanWOverride?: number,
+  heightHOverride?: number,
+  wallHeightOverride?: number
+): { x: number; y: number }[] {
+  const W = Math.max(1.0, spanWOverride ?? geometry?.width ?? 8.4);
+  const H = Math.max(1.0, heightHOverride ?? geometry?.height ?? 7.2);
+  const halfW = W / 2;
+  const rawWallH = wallHeightOverride ?? geometry?.wallHeight ?? H * 0.52;
+  const wallH = Math.max(0.15 * H, Math.min(0.85 * H, rawWallH));
+  const crownType = geometry?.crownGeometry || 'd_shaped';
+
+  if (geometry?.crossSectionPoints && geometry.crossSectionPoints.length >= 4) {
+    const xs = geometry.crossSectionPoints.map((p) => p.x);
+    const ys = geometry.crossSectionPoints.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const spanX = Math.max(0.001, maxX - minX);
+    const spanY = Math.max(0.001, maxY - minY);
+    return geometry.crossSectionPoints.map((p) => ({
+      x: Number(((((p.x - minX) / spanX) - 0.5) * W).toFixed(4)),
+      y: Number((((p.y - minY) / spanY) * H).toFixed(4)),
+    }));
+  }
+
+  const pts: { x: number; y: number }[] = [];
+
+  if (crownType === 'rectangular') {
+    const wallSteps = 12;
+    const roofSteps = 16;
+    for (let i = 0; i <= wallSteps; i++) {
+      pts.push({ x: -halfW, y: Number(((i / wallSteps) * H).toFixed(4)) });
+    }
+    for (let i = 1; i < roofSteps; i++) {
+      pts.push({ x: Number((-halfW + (i / roofSteps) * W).toFixed(4)), y: H });
+    }
+    for (let i = wallSteps; i >= 0; i--) {
+      pts.push({ x: halfW, y: Number(((i / wallSteps) * H).toFixed(4)) });
+    }
+    for (let i = roofSteps - 1; i >= 1; i--) {
+      pts.push({ x: Number((-halfW + (i / roofSteps) * W).toFixed(4)), y: 0 });
+    }
+    return pts;
+  }
+
+  if (crownType === 'circular') {
+    const steps = 64;
+    const cx = 0;
+    const cy = H / 2;
+    const rx = halfW;
+    const ry = H / 2;
+    for (let i = 0; i < steps; i++) {
+      const angle = -Math.PI / 2 - (i / steps) * Math.PI * 2;
+      pts.push({
+        x: Number((cx + rx * Math.cos(angle)).toFixed(4)),
+        y: Number((cy + ry * Math.sin(angle)).toFixed(4)),
+      });
+    }
+    return pts;
+  }
+
+  if (crownType === 'horseshoe' || crownType === 'modified_horseshoe') {
+    const isModified = crownType === 'modified_horseshoe';
+    const footHalfW = isModified ? halfW * 0.88 : halfW * 0.82;
+    const invertSag = isModified ? H * 0.04 : 0;
+    const wallSteps = 14;
+    const archSteps = 32;
+    const invertSteps = 12;
+
+    for (let i = 0; i <= wallSteps; i++) {
+      const t = i / wallSteps;
+      const y = invertSag + t * (wallH - invertSag);
+      const x = -footHalfW - (halfW - footHalfW) * Math.sin((t * Math.PI) / 2);
+      pts.push({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) });
+    }
+    const archH = Math.max(0.2, H - wallH);
+    for (let i = 1; i < archSteps; i++) {
+      const theta = Math.PI * (1 - i / archSteps);
+      const x = halfW * Math.cos(theta);
+      const y = wallH + archH * Math.sin(theta);
+      pts.push({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) });
+    }
+    for (let i = wallSteps; i >= 0; i--) {
+      const t = i / wallSteps;
+      const y = invertSag + t * (wallH - invertSag);
+      const x = footHalfW + (halfW - footHalfW) * Math.sin((t * Math.PI) / 2);
+      pts.push({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) });
+    }
+    for (let i = 1; i < invertSteps; i++) {
+      const u = i / invertSteps;
+      const x = footHalfW * (1 - 2 * u);
+      const y = invertSag * Math.pow(2 * u - 1, 2);
+      pts.push({ x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) });
+    }
+    return pts;
+  }
+
+  // Default: 'd_shaped' (vertical walls from y=0 to y=wallH, elliptical arch from wallH to H, flat invert at y=0)
+  const wallSteps = 12;
+  const archSteps = 36;
+  const invertSteps = 10;
+  const archH = Math.max(0.1, H - wallH);
+
+  for (let i = 0; i <= wallSteps; i++) {
+    pts.push({ x: -halfW, y: Number(((i / wallSteps) * wallH).toFixed(4)) });
+  }
+  for (let i = 1; i < archSteps; i++) {
+    const theta = Math.PI * (1 - i / archSteps);
+    pts.push({
+      x: Number((halfW * Math.cos(theta)).toFixed(4)),
+      y: Number((wallH + archH * Math.sin(theta)).toFixed(4)),
+    });
+  }
+  for (let i = wallSteps; i >= 0; i--) {
+    pts.push({ x: halfW, y: Number(((i / wallSteps) * wallH).toFixed(4)) });
+  }
+  for (let i = 1; i < invertSteps; i++) {
+    const u = i / invertSteps;
+    pts.push({ x: Number((halfW * (1 - 2 * u)).toFixed(4)), y: 0 });
+  }
+  return pts;
+}
+
+/**
+ * Returns the exact roof/crown Y elevation (in [0, H]) at transverse coordinate x in [-W/2, +W/2]
+ * for the given tunnel geometry.
+ */
+export function getCrownArchYAtX(
+  geometry: TunnelGeometry | undefined,
+  x: number,
+  spanW?: number,
+  heightH?: number,
+  wallHeightOverride?: number
+): number {
+  const W = Math.max(1.0, spanW ?? geometry?.width ?? 8.4);
+  const H = Math.max(1.0, heightH ?? geometry?.height ?? 7.2);
+  const halfW = W / 2;
+  const clampedX = Math.max(-halfW, Math.min(halfW, x));
+  const rawWallH = wallHeightOverride ?? geometry?.wallHeight ?? H * 0.52;
+  const wallH = Math.max(0.15 * H, Math.min(0.85 * H, rawWallH));
+  const crownType = geometry?.crownGeometry || 'd_shaped';
+
+  if (crownType === 'rectangular') {
+    return H;
+  }
+  if (crownType === 'circular') {
+    const ratio = Math.min(1, Math.abs(clampedX) / halfW);
+    return H / 2 + (H / 2) * Math.sqrt(Math.max(0, 1 - ratio * ratio));
+  }
+  const ratio = Math.min(1, Math.abs(clampedX) / halfW);
+  return wallH + (H - wallH) * Math.sqrt(Math.max(0, 1 - ratio * ratio));
+}
+
+/**
+ * Computes exact 2D polygon area using the Shoelace formula.
+ */
+export function computePolygonArea2D(pts: { x: number; y: number }[]): number {
+  if (!pts || pts.length < 3) return 0;
+  let sum = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % pts.length];
+    sum += p1.x * p2.y - p2.x * p1.y;
+  }
+  return Math.abs(sum) * 0.5;
+}
+
+/**
+ * Clips a closed 2D polygon against the horizontal elevation band [yMin, yMax]
+ * using Sutherland-Hodgman polygon clipping. Guarantees a closed loop with flat cut edges.
+ */
+export function clipProfilePolygonToYBand(
+  pts: { x: number; y: number }[],
+  yMin: number,
+  yMax: number
+): { x: number; y: number }[] {
+  if (!pts || pts.length < 3) return [];
+
+  const clipLower = (poly: { x: number; y: number }[], minVal: number) => {
+    const out: { x: number; y: number }[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const cur = poly[i];
+      const prev = poly[(i + poly.length - 1) % poly.length];
+      const curIn = cur.y >= minVal - 1e-6;
+      const prevIn = prev.y >= minVal - 1e-6;
+      if (curIn) {
+        if (!prevIn) {
+          const dy = cur.y - prev.y;
+          const t = Math.abs(dy) > 1e-9 ? (minVal - prev.y) / dy : 0;
+          out.push({ x: prev.x + t * (cur.x - prev.x), y: minVal });
+        }
+        out.push(cur);
+      } else if (prevIn) {
+        const dy = cur.y - prev.y;
+        const t = Math.abs(dy) > 1e-9 ? (minVal - prev.y) / dy : 0;
+        out.push({ x: prev.x + t * (cur.x - prev.x), y: minVal });
+      }
+    }
+    return out;
+  };
+
+  const clipUpper = (poly: { x: number; y: number }[], maxVal: number) => {
+    const out: { x: number; y: number }[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const cur = poly[i];
+      const prev = poly[(i + poly.length - 1) % poly.length];
+      const curIn = cur.y <= maxVal + 1e-6;
+      const prevIn = prev.y <= maxVal + 1e-6;
+      if (curIn) {
+        if (!prevIn) {
+          const dy = cur.y - prev.y;
+          const t = Math.abs(dy) > 1e-9 ? (maxVal - prev.y) / dy : 0;
+          out.push({ x: prev.x + t * (cur.x - prev.x), y: maxVal });
+        }
+        out.push(cur);
+      } else if (prevIn) {
+        const dy = cur.y - prev.y;
+        const t = Math.abs(dy) > 1e-9 ? (maxVal - prev.y) / dy : 0;
+        out.push({ x: prev.x + t * (cur.x - prev.x), y: maxVal });
+      }
+    }
+    return out;
+  };
+
+  const afterLower = clipLower(pts, yMin);
+  if (afterLower.length < 3) return [];
+  return clipUpper(afterLower, yMax);
+}
+
+/**
  * Stage Elevation Bounds & Area:
  * Full Face: Y in [0, H_total]
  * Top Heading: Y in [H_bench, H_total]
  * Bench: Y in [0, H_bench]
- * Invert: Y in [-H_invert, 0] or lower concave arch
+ * Invert: Y in [0, H_invert]
  */
 export function computeStageElevationBounds(
   stage: ExcavationStage,
@@ -62,43 +299,35 @@ export function computeStageElevationBounds(
   totalHeight: number,
   benchHeight: number,
   zStart: number,
-  zEnd: number
+  zEnd: number,
+  geometry?: TunnelGeometry
 ): ExcavationStageBounds {
   const pullLength = Math.max(0.1, zEnd - zStart);
-  const R = width / 2;
-  const H_wall = Math.max(0.5, totalHeight - R);
-  const H_bench = Math.min(Math.max(1.0, benchHeight), totalHeight - 1.0);
-
-  // Approximate D-shaped / horseshoe cross section area
-  // Arch area = pi * R^2 / 2; Wall area = 2 * R * H_wall
-  const totalArea = 0.5 * Math.PI * R * R + 2 * R * H_wall;
+  const H_bench = Math.min(Math.max(0.8, benchHeight), totalHeight - 0.8);
 
   let yMin = 0;
   let yMax = totalHeight;
-  let crossSectionArea = totalArea;
 
   if (stage === 'TOP_HEADING') {
     yMin = H_bench;
     yMax = totalHeight;
-    // Top heading area = arch area + (H_wall - H_bench) * 2 * R
-    const lowerWall = Math.max(0, H_wall - H_bench);
-    crossSectionArea = 0.5 * Math.PI * R * R + 2 * R * lowerWall;
   } else if (stage === 'BENCH') {
     yMin = 0;
     yMax = H_bench;
-    crossSectionArea = 2 * R * H_bench;
   } else if (stage === 'INVERT') {
     yMin = 0;
-    yMax = Math.min(1.5, H_bench * 0.3);
-    crossSectionArea = 2 * R * yMax * 0.7;
+    yMax = Math.min(1.5, Math.max(0.6, H_bench * 0.35));
   }
 
+  const profilePts = generateExactTunnelProfilePoints(geometry, width, totalHeight, benchHeight);
+  const stagePoly = clipProfilePolygonToYBand(profilePts, yMin, yMax);
+  const crossSectionArea = Math.max(0.5, computePolygonArea2D(stagePoly));
   const volume = crossSectionArea * pullLength;
 
   return {
     stage,
-    yMin,
-    yMax,
+    yMin: Number(yMin.toFixed(3)),
+    yMax: Number(yMax.toFixed(3)),
     crossSectionArea: Number(crossSectionArea.toFixed(2)),
     volume: Number(volume.toFixed(2)),
   };
@@ -108,45 +337,80 @@ export function computeStageElevationBounds(
  * 2D Unwrapped Strip (s, Z) -> 3D Tunnel Skin Coordinates (X, Y, Z)
  * Perimeter convention:
  * Center crown is s = 0.
- * Left: s in [-pi*R/2 - H_wall, 0]
- * Right: s in [0, pi*R/2 + H_wall]
+ * Left: s < 0 along Left Arch & Left Wall down to Left Invert.
+ * Right: s > 0 along Right Arch & Right Wall down to Right Invert.
  */
 export function unwrappedToSkin3D(
   s: number,
   z: number,
   width: number,
-  totalHeight: number
+  totalHeight: number,
+  geometry?: TunnelGeometry
 ): TunnelSkinPoint3D {
+  const crownType = geometry?.crownGeometry || 'd_shaped';
   const R = width / 2;
-  const H_wall = Math.max(0.5, totalHeight - R);
-  const halfArchPerimeter = (Math.PI * R) / 2;
+  const rawWallH = geometry?.wallHeight ?? Math.max(0.5, totalHeight - R);
+  const H_wall = crownType === 'rectangular'
+    ? totalHeight
+    : crownType === 'circular'
+    ? totalHeight / 2
+    : Math.max(0.15 * totalHeight, Math.min(0.85 * totalHeight, rawWallH));
 
-  // Left Wall: s < -halfArchPerimeter
+  if (crownType === 'rectangular') {
+    const halfTop = R;
+    if (Math.abs(s) <= halfTop) {
+      return { x: Number(s.toFixed(3)), y: Number(totalHeight.toFixed(3)), z: Number(z.toFixed(3)) };
+    }
+    const wallDist = Math.abs(s) - halfTop;
+    return {
+      x: Number((s < 0 ? -R : R).toFixed(3)),
+      y: Number(Math.max(0, totalHeight - wallDist).toFixed(3)),
+      z: Number(z.toFixed(3)),
+    };
+  }
+
+  if (crownType === 'circular') {
+    const rEff = (width + totalHeight) / 4;
+    const theta = Math.max(-Math.PI, Math.min(Math.PI, s / Math.max(0.5, rEff)));
+    const x = R * Math.sin(theta);
+    const y = totalHeight / 2 + (totalHeight / 2) * Math.cos(theta);
+    return {
+      x: Number(x.toFixed(3)),
+      y: Number(Math.max(0, y).toFixed(3)),
+      z: Number(z.toFixed(3)),
+    };
+  }
+
+  const archH = Math.max(0.2, totalHeight - H_wall);
+  const rArchEff = Math.sqrt((R * R + archH * archH) / 2);
+  const halfArchPerimeter = (Math.PI * rArchEff) / 2;
+
   if (s < -halfArchPerimeter) {
-    const wallDist = -s - halfArchPerimeter; // distance down the left wall from springline
+    const wallDist = -s - halfArchPerimeter;
     return {
       x: -R,
-      y: Math.max(0, H_wall - wallDist),
+      y: Number(Math.max(0, H_wall - wallDist).toFixed(3)),
       z,
     };
   }
-
-  // Right Wall: s > halfArchPerimeter
   if (s > halfArchPerimeter) {
-    const wallDist = s - halfArchPerimeter; // distance down the right wall from springline
+    const wallDist = s - halfArchPerimeter;
     return {
       x: R,
-      y: Math.max(0, H_wall - wallDist),
+      y: Number(Math.max(0, H_wall - wallDist).toFixed(3)),
       z,
     };
   }
 
-  // Crown Arch: s in [-halfArchPerimeter, +halfArchPerimeter]
-  const thetaArch = s / R; // radians from crown center (s=0 => theta=0 => top crown)
+  const frac = s / Math.max(0.1, halfArchPerimeter);
+  const theta = (frac * Math.PI) / 2;
+  const x = R * Math.sin(theta);
+  const y = H_wall + archH * Math.cos(theta);
+
   return {
-    x: R * Math.sin(thetaArch),
-    y: H_wall + R * Math.cos(thetaArch),
-    z,
+    x: Number(x.toFixed(3)),
+    y: Number(y.toFixed(3)),
+    z: Number(z.toFixed(3)),
   };
 }
 
@@ -1257,13 +1521,61 @@ export function feedDataFromNatmActiveState(
     frictionAngle: (j as any).frictionAngle || 32,
   }));
 
-  // Construct historical face logs STRICTLY from real savedProjects / logged rounds
+  // Helper to normalize any polyline coordinate set (whether pixel SVG, 0..1 normalized, or physical meters)
+  // into exact physical face meters: x in [-W/2, +W/2], y in [0, H]
+  const normalizePolylineToMeters = (
+    rawPts: { x: number; y: number }[],
+    w: number,
+    h: number
+  ): { x: number; y: number }[] => {
+    if (!rawPts || rawPts.length === 0) return [];
+    const maxAbsX = Math.max(...rawPts.map((p) => Math.abs(p.x)));
+    const maxAbsY = Math.max(...rawPts.map((p) => Math.abs(p.y)));
+    const minX = Math.min(...rawPts.map((p) => p.x));
+    const minY = Math.min(...rawPts.map((p) => p.y));
+
+    // Case 1: Normalized [0, 1] coordinates
+    if (minX >= -0.05 && maxAbsX <= 1.05 && minY >= -0.05 && maxAbsY <= 1.05) {
+      return rawPts.map((p) => ({
+        x: Number(((p.x - 0.5) * w).toFixed(3)),
+        y: Number(((1 - p.y) * h).toFixed(3)),
+      }));
+    }
+
+    // Case 2: Pixel SVG coordinates (e.g. Face canvas 130..390, 130..350 or 0..520)
+    if (maxAbsX > w * 1.25 || maxAbsY > h * 1.25) {
+      return rawPts.map((p) => {
+        const normX = Math.max(-0.5, Math.min(0.5, (p.x - 260) / 240));
+        const normY = Math.max(0, Math.min(1, (350 - p.y) / 220));
+        return {
+          x: Number((normX * w).toFixed(3)),
+          y: Number((normY * h).toFixed(3)),
+        };
+      });
+    }
+
+    // Case 3: Already in physical meters (x in [-w/2, +w/2], y in [-h/2, +h] or [0, h])
+    return rawPts.map((p) => ({
+      x: Number(Math.max(-w / 2, Math.min(w / 2, p.x)).toFixed(3)),
+      y: Number(Math.max(0, Math.min(h, p.y < 0 ? p.y + h / 2 : p.y)).toFixed(3)),
+    }));
+  };
+
+  // Construct historical face logs from savedProjects / logged rounds
   const historicalFaceLogs: SequentialFaceLog[] = [];
   if (savedProjects && savedProjects.length > 0) {
     savedProjects.forEach((proj) => {
-      const ch = proj.numericChainageMeters ?? 100;
-      const projRmr = proj.rmrParams?.totalRmr && proj.rmrParams.totalRmr > 0 ? proj.rmrParams.totalRmr : (rmrTotal ?? 50);
-      const projQ = proj.qIndexParams?.qValue && proj.qIndexParams.qValue > 0 ? proj.qIndexParams.qValue : (qValue ?? 2.0);
+      const ch = proj.numericChainageMeters ?? currentFaceChainageNum;
+      const projW = proj.geometry?.width || spanW;
+      const projH = proj.geometry?.height || heightH;
+      const projRmr =
+        proj.rmrParams?.totalRmr && proj.rmrParams.totalRmr > 0
+          ? proj.rmrParams.totalRmr
+          : rmrTotal ?? 55;
+      const projQ =
+        proj.qIndexParams?.qValue && proj.qIndexParams.qValue > 0
+          ? proj.qIndexParams.qValue
+          : qValue ?? 2.5;
       const projGsi = Math.max(10, Math.min(95, projRmr - 5));
 
       const regionContacts = (proj.lithologyRegions || [])
@@ -1271,7 +1583,7 @@ export function feedDataFromNatmActiveState(
         .map((lr) => ({
           id: lr.id,
           lithologyName: lr.lithologyName || proj.settings?.lithology || lithologyName,
-          polyline: lr.polygon.map((p) => ({ x: p.x, y: p.y })),
+          polyline: normalizePolylineToMeters(lr.polygon, projW, projH),
         }));
 
       const jointContacts =
@@ -1282,16 +1594,13 @@ export function feedDataFromNatmActiveState(
                 const pts = j.geometry || (j as any).points;
                 return pts && pts.length >= 2;
               })
-              .slice(0, 4)
+              .slice(0, 5)
               .map((j, jIdx) => {
                 const pts: { x: number; y: number }[] = j.geometry || (j as any).points || [];
                 return {
                   id: `${proj.id}-jt-${jIdx}`,
                   lithologyName: `${j.set || 'J1'} (${proj.settings?.lithology || lithologyName})`,
-                  polyline: pts.map((p) => ({
-                    x: (p.x - 0.5) * (proj.geometry?.width || spanW),
-                    y: (0.5 - p.y) * (proj.geometry?.height || heightH),
-                  })),
+                  polyline: normalizePolylineToMeters(pts, projW, projH),
                 };
               });
 
@@ -1304,6 +1613,111 @@ export function feedDataFromNatmActiveState(
         meanQ: projQ,
         meanGsi: projGsi,
       });
+    });
+  }
+
+  // Ensure active round is represented across its pull length [currentFaceChainageNum, currentFaceChainageNum + pullLengthM]
+  // when only 0 or 1 station exists so 3D Sequential Face Reconstruction always renders the round prism accurately
+  if (historicalFaceLogs.length === 0 && candidateJoints.length > 0) {
+    const activeContacts = candidateJoints
+      .filter((j) => {
+        const pts = j.geometry || (j as any).points;
+        return pts && pts.length >= 2;
+      })
+      .slice(0, 5)
+      .map((j, idx) => {
+        const pts: { x: number; y: number }[] = j.geometry || (j as any).points || [];
+        return {
+          id: `active-jt-${idx}`,
+          lithologyName: `${j.set || 'J1'} (${lithologyName})`,
+          polyline: normalizePolylineToMeters(pts, spanW, heightH),
+        };
+      });
+
+    if (activeContacts.length === 0 && governingJoint) {
+      const dipRad = (governingJoint.dip * Math.PI) / 180;
+      const dy = Math.min(heightH * 0.35, spanW * 0.4 * Math.tan(dipRad) * 0.35);
+      activeContacts.push({
+        id: 'active-gov-contact',
+        lithologyName: `${governingJoint.set} (${lithologyName})`,
+        polyline: [
+          { x: Number((-spanW * 0.42).toFixed(2)), y: Number((heightH * 0.55 - dy).toFixed(2)) },
+          { x: 0, y: Number((heightH * 0.55).toFixed(2)) },
+          { x: Number((spanW * 0.42).toFixed(2)), y: Number((heightH * 0.55 + dy).toFixed(2)) },
+        ],
+      });
+    }
+
+    if (activeContacts.length > 0) {
+      historicalFaceLogs.push({
+        id: 'active-round-start',
+        chainageMeters: currentFaceChainageNum,
+        faceChainageStr: `RD ${currentFaceChainageNum.toFixed(1)}m`,
+        contacts: activeContacts,
+        meanRmr: rmrTotal ?? 55,
+        meanQ: qValue ?? 2.5,
+        meanGsi: gsiValue ?? 50,
+      });
+    }
+  }
+
+  if (historicalFaceLogs.length === 1) {
+    const baseLog = historicalFaceLogs[0];
+    const dipDeg = governingJoint ? governingJoint.dip : 45;
+    const relStrikeDeg = governingJoint
+      ? (governingJoint.dipDirection - driveAzimuth + 360) % 360
+      : 30;
+    const shiftY = Math.max(
+      -heightH * 0.25,
+      Math.min(
+        heightH * 0.25,
+        Math.cos((relStrikeDeg * Math.PI) / 180) *
+          Math.tan((Math.min(75, dipDeg) * Math.PI) / 180) *
+          pullLengthM *
+          0.25
+      )
+    );
+    const shiftX = Math.max(
+      -spanW * 0.2,
+      Math.min(
+        spanW * 0.2,
+        Math.sin((relStrikeDeg * Math.PI) / 180) * pullLengthM * 0.18
+      )
+    );
+
+    const endChainage = Number((baseLog.chainageMeters + pullLengthM).toFixed(2));
+    const fallbackContacts =
+      baseLog.contacts.length > 0
+        ? baseLog.contacts
+        : [
+            {
+              id: `${baseLog.id}-horizon`,
+              lithologyName: lithologyName,
+              polyline: [
+                { x: Number((-spanW * 0.42).toFixed(2)), y: Number((heightH * 0.5).toFixed(2)) },
+                { x: 0, y: Number((heightH * 0.54).toFixed(2)) },
+                { x: Number((spanW * 0.42).toFixed(2)), y: Number((heightH * 0.48).toFixed(2)) },
+              ],
+            },
+          ];
+
+    baseLog.contacts = fallbackContacts;
+
+    historicalFaceLogs.push({
+      id: `${baseLog.id}-end`,
+      chainageMeters: endChainage,
+      faceChainageStr: `RD ${endChainage.toFixed(1)}m`,
+      contacts: fallbackContacts.map((c) => ({
+        id: `${c.id}-end`,
+        lithologyName: c.lithologyName,
+        polyline: c.polyline.map((p) => ({
+          x: Number(Math.max(-spanW * 0.48, Math.min(spanW * 0.48, p.x + shiftX)).toFixed(3)),
+          y: Number(Math.max(0.2, Math.min(heightH - 0.2, p.y + shiftY)).toFixed(3)),
+        })),
+      })),
+      meanRmr: baseLog.meanRmr,
+      meanQ: baseLog.meanQ,
+      meanGsi: baseLog.meanGsi,
     });
   }
 
