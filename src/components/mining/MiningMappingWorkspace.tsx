@@ -280,6 +280,19 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     setChannelSamples(next.samples);
   };
 
+  // Photo Calibration
+  const [photoCalibration, setPhotoCalibration] = useState<MiningPhotoCalibration>({
+    imageUrl: currentStope?.facePhotoUrl || '',
+    scalePixelsPerMeter: 80,
+    originX: 0,
+    originY: 0,
+    opacity: 0.7,
+    rotationDeg: 0,
+    widthM: 4.8,
+    heightM: 4.2,
+    isCalibrated: false,
+  });
+
   // Re-sync all state when active stope changes
   useEffect(() => {
     if (currentStope) {
@@ -307,19 +320,6 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       setRedoStack([]);
     }
   }, [currentStope?.id]);
-
-  // Photo Calibration
-  const [photoCalibration, setPhotoCalibration] = useState<MiningPhotoCalibration>({
-    imageUrl: currentStope?.facePhotoUrl || '',
-    scalePixelsPerMeter: 80,
-    originX: 0,
-    originY: 0,
-    opacity: 0.7,
-    rotationDeg: 0,
-    widthM: 4.8,
-    heightM: 4.2,
-    isCalibrated: false,
-  });
 
   // Canvas Viewport & Navigation
   const [zoom, setZoom] = useState<number>(1.0);

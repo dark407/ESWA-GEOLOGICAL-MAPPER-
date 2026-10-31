@@ -151,6 +151,40 @@ export interface Field3DSyncTraceState {
   } | null;
 }
 
+// ============================================================================
+// LIGHTWEIGHT 3D -> SYNC BOX PUB-SUB CHANNEL (ZERO PARENT WORKSPACE RE-RENDERS)
+// ============================================================================
+type Field3DHoverCursorPayload = {
+  panel: FieldPanelId;
+  u: number;
+  v: number;
+  pullMeter: number;
+  perimMeter: number;
+} | null;
+
+const field3DHoverListeners = new Set<(hover: Field3DHoverCursorPayload) => void>();
+const field3DDrawListeners = new Set<(state: Field3DSyncTraceState) => void>();
+const field3DPendingJointListeners = new Set<(pending: boolean) => void>();
+const field3DConfirmJointListeners = new Set<() => void>();
+let currentField3DPendingJoint = false;
+
+function emitField3DHoverCursor(hover: Field3DHoverCursorPayload) {
+  field3DHoverListeners.forEach((fn) => fn(hover));
+}
+
+function emitField3DDrawState(state: Field3DSyncTraceState) {
+  field3DDrawListeners.forEach((fn) => fn(state));
+}
+
+function emitField3DPendingJointChange(pending: boolean) {
+  currentField3DPendingJoint = pending;
+  field3DPendingJointListeners.forEach((fn) => fn(pending));
+}
+
+function triggerField3DConfirmJoint() {
+  field3DConfirmJointListeners.forEach((fn) => fn());
+}
+
 type FieldCanvasTool =
   | '1_lithology'
   | '2_vein_foliation'
@@ -574,6 +608,10 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     emitField3DPendingJointChange(false);
   }, []);
 
+  // Continuous 3D multi-surface stroke state + latest single trace IDs for the Right-Window Unfolded Sync Box
+  const [isDrawing3D, setIsDrawing3D] = useState<boolean>(false);
+  const [latestCompletedIds, setLatestCompletedIds] = useState<string[]>([]);
+
   const cancelPendingJoint = React.useCallback(() => {
     if (!pendingTraceSession) return;
     const idsToRemove = new Set(
@@ -725,9 +763,6 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     []
   );
 
-  // Continuous 3D multi-surface stroke state + latest single trace IDs for the Right-Window Unfolded Sync Box
-  const [isDrawing3D, setIsDrawing3D] = useState<boolean>(false);
-  const [latestCompletedIds, setLatestCompletedIds] = useState<string[]>([]);
   const [liveStrokeSamples, setLiveStrokeSamples] = useState<
     {
       svgX: number;
@@ -4585,40 +4620,6 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     </div>
   );
 });
-
-// ============================================================================
-// LIGHTWEIGHT 3D -> SYNC BOX PUB-SUB CHANNEL (ZERO PARENT WORKSPACE RE-RENDERS)
-// ============================================================================
-type Field3DHoverCursorPayload = {
-  panel: FieldPanelId;
-  u: number;
-  v: number;
-  pullMeter: number;
-  perimMeter: number;
-} | null;
-
-const field3DHoverListeners = new Set<(hover: Field3DHoverCursorPayload) => void>();
-const field3DDrawListeners = new Set<(state: Field3DSyncTraceState) => void>();
-const field3DPendingJointListeners = new Set<(pending: boolean) => void>();
-const field3DConfirmJointListeners = new Set<() => void>();
-let currentField3DPendingJoint = false;
-
-function emitField3DHoverCursor(hover: Field3DHoverCursorPayload) {
-  field3DHoverListeners.forEach((fn) => fn(hover));
-}
-
-function emitField3DDrawState(state: Field3DSyncTraceState) {
-  field3DDrawListeners.forEach((fn) => fn(state));
-}
-
-function emitField3DPendingJointChange(pending: boolean) {
-  currentField3DPendingJoint = pending;
-  field3DPendingJointListeners.forEach((fn) => fn(pending));
-}
-
-function triggerField3DConfirmJoint() {
-  field3DConfirmJointListeners.forEach((fn) => fn());
-}
 
 // ============================================================================
 // RIGHT-WINDOW TOP: 2D UNFOLDED SYNC BOX (NEW TRACE ONLY + OUTLINE & REFERENCE LINES)

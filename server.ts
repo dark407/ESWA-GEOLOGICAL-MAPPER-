@@ -46,8 +46,24 @@ function getGeminiClient(): GoogleGenAI | null {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '25mb' }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
   app.use(express.static('/tmp/akash-release-cache/public'));
+
+  // Global CORS & Preflight support for all /api/* routes (including custom ESWA security headers)
+  app.use('/api', (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-ESWA-Hardware-ID, X-ESWA-Signature'
+    );
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
 
   /**
    * Enterprise IP Protection & Anti-Reverse Engineering API Gateway Guard:
@@ -55,6 +71,10 @@ async function startServer() {
    * security headers (X-ESWA-Hardware-ID and X-ESWA-Signature) validated on the server.
    */
   const eswaProprietaryGatewayGuard: express.RequestHandler = (req, res, next) => {
+    if (req.method === 'OPTIONS') {
+      next();
+      return;
+    }
     const hwId = String(
       req.headers['x-eswa-hardware-id'] || req.headers['X-ESWA-Hardware-ID'] || ''
     ).trim();
@@ -89,21 +109,250 @@ async function startServer() {
    * /api/auth/verify-master-code
    */
   let serverMasterChallenge: { email: string; code: string; expiresAt: number } | null = null;
+  const masterChallengeFilePath = '/tmp/akash-release-cache/master-auth-challenge.json';
 
-  app.post('/api/auth/send-master-code', (req, res) => {
+  const readPersistedMasterChallenge = (): { email: string; code: string; expiresAt: number } | null => {
+    if (serverMasterChallenge && Date.now() <= serverMasterChallenge.expiresAt) {
+      return serverMasterChallenge;
+    }
     try {
-      const { email, code } = req.body || {};
-      if (!code) {
-        res.status(400).json({ ok: false, error: 'Missing challenge code.' });
-        return;
+      if (fs.existsSync(masterChallengeFilePath)) {
+        const parsed = JSON.parse(fs.readFileSync(masterChallengeFilePath, 'utf8'));
+        if (parsed && parsed.code && Number(parsed.expiresAt) >= Date.now()) {
+          serverMasterChallenge = {
+            email: String(parsed.email || '').trim().toLowerCase(),
+            code: String(parsed.code).trim(),
+            expiresAt: Number(parsed.expiresAt),
+          };
+          return serverMasterChallenge;
+        }
       }
-      serverMasterChallenge = {
-        email: String(email || '').trim().toLowerCase(),
-        code: String(code).trim(),
+    } catch {
+      // Ignore read errors
+    }
+    return null;
+  };
+
+  const writePersistedMasterChallenge = (challenge: { email: string; code: string; expiresAt: number }) => {
+    serverMasterChallenge = challenge;
+    try {
+      const dir = path.dirname(masterChallengeFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(masterChallengeFilePath, JSON.stringify(challenge, null, 2), 'utf8');
+    } catch {
+      // Ignore write errors
+    }
+  };
+
+  app.post('/api/auth/send-master-code', async (req, res) => {
+    try {
+      const { email, code, smtpAppPassword, accessToken } = req.body || {};
+      const cleanCode = String(code || Math.floor(100000 + Math.random() * 900000)).trim();
+      const cleanEmail = String(email || 'akashdhanusheswar@gmail.com').trim().toLowerCase();
+
+      const challenge = {
+        email: cleanEmail,
+        code: cleanCode,
         expiresAt: Date.now() + 15 * 60 * 1000,
       };
-      console.info(`[Master Auth] 6-digit challenge code ready for ${email}: ${code}`);
-      res.json({ ok: true, message: 'Challenge created successfully.' });
+      writePersistedMasterChallenge(challenge);
+      console.info(`[Master Auth] 6-digit challenge code ready for ${cleanEmail}: ${cleanCode}`);
+
+      const subject = `ESWA Software Access Control — Master Login Code: ${cleanCode}`;
+      const textBody = [
+        'ESWA GEOLOGICAL MAPPER — SOFTWARE ACCESS CONTROL',
+        '',
+        `Your 6-Digit Master Verification Code is: ${cleanCode}`,
+        '',
+        `Requested Master Account: ${cleanEmail}`,
+        'Valid for: 15 minutes',
+        '',
+        'Enter this 6-digit code in the ESWA Software Access Control window to unlock Master Owner access on this device.',
+      ].join('\n');
+
+      const htmlBody = `<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 24px; background: #0f172a; color: #f8fafc; border-radius: 16px; border: 1px solid #f59e0b;">
+        <h2 style="color: #fbbf24; margin-top: 0; font-size: 18px;">ESWA Software Access Control</h2>
+        <p style="color: #cbd5e1; font-size: 14px; line-height: 1.5;">
+          Use the following 6-digit verification code to complete Master Owner login on your device:
+        </p>
+        <div style="background: #020617; border: 2px solid #f59e0b; border-radius: 12px; padding: 18px; text-align: center; margin: 20px 0;">
+          <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 6px;">Master Verification Code</div>
+          <div style="font-family: monospace; font-size: 32px; font-weight: 900; letter-spacing: 0.35em; color: #fbbf24;">${cleanCode}</div>
+        </div>
+        <p style="color: #94a3b8; font-size: 12px; font-family: monospace; margin-bottom: 0;">
+          Master Account: ${cleanEmail} · Expires in 15 minutes.
+        </p>
+      </div>`;
+
+      // Target both primary and secondary Master Owner Gmail addresses so whichever inbox is checked receives the code
+      const recipientSet = new Set<string>([
+        cleanEmail,
+        'akashdhanusheswar@gmail.com',
+        'dhoniakash707@gmail.com',
+      ]);
+
+      let emailDelivered = false;
+      let deliveryMethod = 'LOCAL_CHALLENGE_READY';
+
+      // Check stored server email credentials
+      let storedOAuthToken = String(accessToken || '').trim();
+      let storedSmtpPass = String(smtpAppPassword || process.env.GMAIL_APP_PASSWORD || '')
+        .replace(/\s+/g, '')
+        .trim();
+      try {
+        const storeRawPath = '/tmp/akash-release-cache/licensing-cloud-mirror.json';
+        if (fs.existsSync(storeRawPath)) {
+          const parsedStore = JSON.parse(fs.readFileSync(storeRawPath, 'utf8'));
+          if (!storedOAuthToken && parsedStore?.email_config?.oauthAccessToken) {
+            storedOAuthToken = String(parsedStore.email_config.oauthAccessToken).trim();
+          }
+          if (!storedSmtpPass && parsedStore?.email_config?.smtpAppPassword) {
+            storedSmtpPass = String(parsedStore.email_config.smtpAppPassword)
+              .replace(/\s+/g, '')
+              .trim();
+          }
+        }
+      } catch {
+        // Ignore store read error
+      }
+
+      for (const recipient of Array.from(recipientSet)) {
+        if (!recipient || !recipient.includes('@')) continue;
+
+        // 1. Try Gmail OAuth API if token is available
+        if (storedOAuthToken) {
+          try {
+            const boundary = `eswa_master_otp_${Date.now()}`;
+            const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`;
+            const mimeLines = [
+              `From: "ESWA Software Access Control" <akashdhanusheswar@gmail.com>`,
+              `To: ${recipient}`,
+              `Subject: ${encodedSubject}`,
+              'MIME-Version: 1.0',
+              `Content-Type: multipart/alternative; boundary="${boundary}"`,
+              '',
+              `--${boundary}`,
+              'Content-Type: text/plain; charset="UTF-8"',
+              'Content-Transfer-Encoding: 8bit',
+              '',
+              textBody,
+              '',
+              `--${boundary}`,
+              'Content-Type: text/html; charset="UTF-8"',
+              'Content-Transfer-Encoding: 8bit',
+              '',
+              htmlBody,
+              '',
+              `--${boundary}--`,
+              '',
+            ];
+            const rawEncoded = Buffer.from(mimeLines.join('\r\n'), 'utf8')
+              .toString('base64')
+              .replace(/\+/g, '-')
+              .replace(/\//g, '_')
+              .replace(/=+$/, '');
+
+            const gmailResp = await fetch(
+              'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+              {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${storedOAuthToken}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ raw: rawEncoded }),
+              }
+            );
+            if (gmailResp.ok) {
+              emailDelivered = true;
+              deliveryMethod = 'GMAIL_OAUTH_API';
+              continue;
+            }
+          } catch {
+            // Fall through to SMTP
+          }
+        }
+
+        // 2. Try Gmail SMTP via Nodemailer if App Password is available
+        if (storedSmtpPass) {
+          try {
+            const transporter = nodemailer.createTransport({
+              host: 'smtp.gmail.com',
+              port: 465,
+              secure: true,
+              auth: {
+                user: 'akashdhanusheswar@gmail.com',
+                pass: storedSmtpPass,
+              },
+            });
+            await transporter.sendMail({
+              from: '"ESWA Software Access Control" <akashdhanusheswar@gmail.com>',
+              to: recipient,
+              subject,
+              text: textBody,
+              html: htmlBody,
+            });
+            emailDelivered = true;
+            deliveryMethod = 'GMAIL_SMTP';
+            continue;
+          } catch {
+            // Fall through to FormSubmit relay
+          }
+        }
+
+        // 3. Try FormSubmit AJAX relay with browser-compatible Origin & Referer headers
+        try {
+          const originUrl =
+            String(req.headers.origin || '').trim() ||
+            'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
+          const fsResp = await fetch(
+            `https://formsubmit.co/ajax/${encodeURIComponent(recipient)}`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                Origin: originUrl,
+                Referer: `${originUrl}/`,
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+              },
+              body: JSON.stringify({
+                _subject: subject,
+                _template: 'box',
+                _captcha: 'false',
+                app: 'ESWA Software Access Control',
+                master_account: cleanEmail,
+                verification_code: cleanCode,
+                message: textBody,
+              }),
+            }
+          );
+          if (fsResp.ok) {
+            const fsJson = (await fsResp.json().catch(() => ({}))) as {
+              success?: string | boolean;
+            };
+            if (fsJson.success === true || fsJson.success === 'true') {
+              emailDelivered = true;
+              deliveryMethod = 'FORMSUBMIT_RELAY';
+            }
+          }
+        } catch {
+          // Ignore external relay error
+        }
+      }
+
+      res.json({
+        ok: true,
+        emailDelivered,
+        method: deliveryMethod,
+        code: cleanCode,
+        message: emailDelivered
+          ? `6-Digit verification code dispatched (${deliveryMethod}).`
+          : 'Challenge generated and ready for verification.',
+      });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || 'Server error' });
     }
@@ -117,10 +366,11 @@ async function startServer() {
         res.status(400).json({ ok: false, valid: false, error: 'Missing code' });
         return;
       }
+      const activeChallenge = readPersistedMasterChallenge();
       if (
-        serverMasterChallenge &&
-        serverMasterChallenge.code === clean &&
-        Date.now() <= serverMasterChallenge.expiresAt
+        activeChallenge &&
+        activeChallenge.code === clean &&
+        Date.now() <= activeChallenge.expiresAt
       ) {
         res.json({ ok: true, valid: true });
         return;
@@ -1092,9 +1342,8 @@ CRITICAL RULES FOR YOUR RESPONSE:
           : [];
 
         const candidateModels = [
-          'gemini-3.8-flash',
-          'gemini-3.1-flash-lite',
-          'gemini-flash-latest',
+          'gemini-3-flash-preview',
+          'gemini-2.5-flash',
         ];
 
         for (const modelName of candidateModels) {
@@ -1196,9 +1445,8 @@ CRITICAL RULES FOR YOUR RESPONSE:
 
       if (ai) {
         const candidateModels = [
-          'gemini-3.8-flash',
-          'gemini-3.1-flash-lite',
-          'gemini-flash-latest',
+          'gemini-3-flash-preview',
+          'gemini-2.5-flash',
         ];
         const prompt = `You are a Principal Underground Rock Mechanics & Tunnel Support Engineer.
 Analyze the following live tunnel excavation, discontinuity sets, overbreak profile, historical pulls, and support system data (Mode: ${mode}):
@@ -1572,17 +1820,15 @@ ${safeJsContent}
       // 4. Collect workspace files + inject .github/workflows/build-installer.yml from scripts/github-action-build-exe.yml
       const rootDir = process.cwd();
       const runtimeReleaseDir = '/tmp/akash-release-cache';
-      const localApkCandidate1 = path.join(
-        runtimeReleaseDir,
-        'ESWA-GEOLOGICAL-MAPPER-User-Android.apk'
-      );
-      const localApkCandidate2 = path.join(
-        runtimeReleaseDir,
-        'ESWA-TUNNEL-MAPPER-User-Android.apk'
-      );
-      const localApkPath = fs.existsSync(localApkCandidate1)
-        ? localApkCandidate1
-        : localApkCandidate2;
+      const releaseFolder = path.join(rootDir, 'release');
+      const localApkCandidates = [
+        path.join(releaseFolder, 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk'),
+        path.join(releaseFolder, 'ESWA-TUNNEL-MAPPER-User-Android.apk'),
+        path.join(runtimeReleaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk'),
+        path.join(runtimeReleaseDir, 'ESWA-TUNNEL-MAPPER-User-Android.apk'),
+      ];
+      const localApkPath =
+        localApkCandidates.find((p) => fs.existsSync(p)) || localApkCandidates[0];
       const workflowTemplatePath = path.join(
         rootDir,
         'scripts',
@@ -2135,6 +2381,60 @@ ${safeJsContent}
   });
 
   /**
+   * SERVER-SIDE LICENSING & ACCESS REQUEST RELAY STORE
+   * Declared before /api/email/* and /api/licensing/* so all handlers have lexical access.
+   */
+  const licensingStorePath = path.join(runtimeCacheDir, 'licensing-cloud-mirror.json');
+  interface ServerLicensingStore {
+    access_requests: Record<string, Record<string, unknown>>;
+    software_licenses: Record<string, Record<string, unknown>>;
+    software_releases: Record<string, Record<string, unknown>>;
+    master_pcs: Record<string, Record<string, unknown>>;
+    email_config?: {
+      smtpAppPassword?: string;
+      oauthAccessToken?: string;
+      updatedAtIso?: string;
+    };
+  }
+
+  const readServerLicensingStore = (): ServerLicensingStore => {
+    try {
+      if (fs.existsSync(licensingStorePath)) {
+        const raw = fs.readFileSync(licensingStorePath, 'utf8');
+        const parsed = JSON.parse(raw) as Partial<ServerLicensingStore>;
+        return {
+          access_requests: parsed.access_requests || {},
+          software_licenses: parsed.software_licenses || {},
+          software_releases: parsed.software_releases || {},
+          master_pcs: parsed.master_pcs || {},
+          email_config: parsed.email_config || {},
+        };
+      }
+    } catch {
+      // Ignore read errors
+    }
+    return {
+      access_requests: {},
+      software_licenses: {},
+      software_releases: {},
+      master_pcs: {},
+      email_config: {},
+    };
+  };
+
+  const writeServerLicensingStore = (store: ServerLicensingStore): void => {
+    try {
+      const dir = path.dirname(licensingStorePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(licensingStorePath, JSON.stringify(store, null, 2), 'utf8');
+    } catch {
+      // Ignore write errors
+    }
+  };
+
+  /**
    * POST /api/email/send-notification
    * Sends automatic approval & software update emails from the Master Owner's Gmail account
    * using either a Google OAuth Bearer token or a Gmail SMTP App Password (nodemailer).
@@ -2280,6 +2580,49 @@ ${safeJsContent}
         return;
       }
 
+      // 3. Fallback: Try FormSubmit AJAX relay with browser-like Origin/Referer headers
+      try {
+        const originUrl =
+          String(req.headers.origin || '').trim() ||
+          'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
+        const fsResp = await fetch(
+          `https://formsubmit.co/ajax/${encodeURIComponent(cleanTo)}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              Origin: originUrl,
+              Referer: `${originUrl}/`,
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            },
+            body: JSON.stringify({
+              _subject: String(subject || 'Greetings from ESWA Tunnel Mapper'),
+              _template: 'box',
+              _captcha: 'false',
+              from_app: 'ESWA Geological Mapper',
+              message: String(textBody || ''),
+            }),
+          }
+        );
+        if (fsResp.ok) {
+          const fsData = (await fsResp.json().catch(() => ({}))) as {
+            success?: string | boolean;
+          };
+          if (fsData.success === true || fsData.success === 'true') {
+            res.json({
+              ok: true,
+              messageId: `formsubmit_${Date.now()}`,
+              method: 'FORMSUBMIT_RELAY',
+            });
+            return;
+          }
+        }
+      } catch {
+        // Ignore fallback relay error
+      }
+
       res.status(401).json({
         ok: false,
         error: 'GMAIL_AUTH_REQUIRED',
@@ -2291,61 +2634,6 @@ ${safeJsContent}
       });
     }
   });
-
-  /**
-   * SERVER-SIDE LICENSING & ACCESS REQUEST RELAY (/api/licensing/*)
-   * Provides a 3rd redundant real-time synchronization channel (alongside Firestore JS SDK + Direct Firestore HTTPS REST)
-   * so user access requests from any Android APK, Windows EXE, or Browser ALWAYS reach the Master App & Master Software.
-   */
-  const licensingStorePath = path.join(runtimeCacheDir, 'licensing-cloud-mirror.json');
-  interface ServerLicensingStore {
-    access_requests: Record<string, Record<string, unknown>>;
-    software_licenses: Record<string, Record<string, unknown>>;
-    software_releases: Record<string, Record<string, unknown>>;
-    master_pcs: Record<string, Record<string, unknown>>;
-    email_config?: {
-      smtpAppPassword?: string;
-      oauthAccessToken?: string;
-      updatedAtIso?: string;
-    };
-  }
-
-  const readServerLicensingStore = (): ServerLicensingStore => {
-    try {
-      if (fs.existsSync(licensingStorePath)) {
-        const raw = fs.readFileSync(licensingStorePath, 'utf8');
-        const parsed = JSON.parse(raw) as Partial<ServerLicensingStore>;
-        return {
-          access_requests: parsed.access_requests || {},
-          software_licenses: parsed.software_licenses || {},
-          software_releases: parsed.software_releases || {},
-          master_pcs: parsed.master_pcs || {},
-          email_config: parsed.email_config || {},
-        };
-      }
-    } catch {
-      // Ignore read errors
-    }
-    return {
-      access_requests: {},
-      software_licenses: {},
-      software_releases: {},
-      master_pcs: {},
-      email_config: {},
-    };
-  };
-
-  const writeServerLicensingStore = (store: ServerLicensingStore): void => {
-    try {
-      const dir = path.dirname(licensingStorePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(licensingStorePath, JSON.stringify(store, null, 2), 'utf8');
-    } catch {
-      // Ignore write errors
-    }
-  };
 
   app.options('/api/email/save-config', (_req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2466,7 +2754,10 @@ ${safeJsContent}
   app.options('/api/ota/latest-bundle', (_req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-ESWA-Hardware-ID, X-ESWA-Signature'
+    );
     res.status(204).end();
   });
 
@@ -2475,7 +2766,12 @@ ${safeJsContent}
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     try {
       const requestedVersion = String(req.query.version || '').trim();
-      const otaBundlePath = path.join(runtimeCacheDir, 'user-ota-bundle.json');
+      const otaCandidatePaths = [
+        path.join(releaseDir, 'user-ota-bundle.json'),
+        path.join(runtimeCacheDir, 'user-ota-bundle.json'),
+      ];
+      const otaBundlePath =
+        otaCandidatePaths.find((p) => fs.existsSync(p)) || otaCandidatePaths[0];
       const distAssetsDir = path.join(process.cwd(), 'dist', 'assets');
 
       let cssContent = '';

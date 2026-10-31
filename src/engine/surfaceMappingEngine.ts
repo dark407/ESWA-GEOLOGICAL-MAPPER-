@@ -1,6 +1,6 @@
 import { JointSet, SurfaceType, TunnelGeometry } from '../types/tunnel';
 import { createTunnelGeometry } from './geometryEngine';
-import { FieldPanelId } from './fieldMappingEngine';
+import type { FieldPanelId } from './fieldMappingEngine';
 
 export type MappingDomainType = 'TUNNEL' | 'BENCH' | 'TRENCH' | 'SLOPE' | 'ROCK_SURFACE';
 export type SurfaceMappingSubType = 'BENCH' | 'TRENCH' | 'SLOPE' | 'ROCK_SURFACE';

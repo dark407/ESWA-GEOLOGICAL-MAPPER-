@@ -378,8 +378,6 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     fedData.governingJoint?.dipDirection,
   ]);
 
-  if (!isOpen) return null;
-
   const spanW = fedData.spanW;
   const heightH = fedData.heightH;
   const wallH = geometry.wallHeight || fedData.benchHeight || heightH * 0.55;
@@ -829,6 +827,8 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
 
   // Ready count across all 15 modules
   const readyCount = Object.values(readinessByTab).filter((r) => r.canCalculate).length;
+
+  if (!isOpen) return null;
 
   return (
     <div

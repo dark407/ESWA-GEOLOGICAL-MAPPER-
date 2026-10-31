@@ -295,7 +295,14 @@ const NumericStepperInput: React.FC<NumericStepperInputProps> = ({
   );
 };
 
-export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps> = ({
+export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps> = (props) => {
+  if (!props.isOpen || !props.activeJoint) return null;
+  return <NatmJoint3DInspectorModalContent {...props} activeJoint={props.activeJoint} />;
+};
+
+const NatmJoint3DInspectorModalContent: React.FC<
+  NatmJoint3DInspectorModalProps & { activeJoint: FieldJointTrace }
+> = ({
   isOpen,
   onClose,
   activeJoint,
@@ -303,8 +310,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
   tunnelGeometry,
   onSaveJoint,
 }) => {
-  if (!isOpen || !activeJoint) return null;
-
   // Real-Time Theme Integration (supports light & dark themes seamlessly)
   const { theme, palette } = useTheme();
   const isLight = theme === 'light' || Boolean(palette?.isLightBg);
@@ -373,6 +378,24 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     currentJoint.inspection3D?.angularUncertaintyDeg ?? 3.0
   );
 
+  // Persistence & Geological Interpretation
+  const [persistenceInterpretation, setPersistenceInterpretation] = useState<string>(
+    currentJoint.inspection3D?.persistenceInterpretation ||
+      'Visible trace exposed across excavation face. Continuity into crown arch observed with tight intact rock bridge.'
+  );
+  const [persistenceAssumptions, setPersistenceAssumptions] = useState<string>(
+    currentJoint.inspection3D?.persistenceAssumptions ||
+      'Orientation assumed planar within the excavation volume. Planar extrapolation clipped to tunnel cross-section perimeter.'
+  );
+  const [persistenceConfidence, setPersistenceConfidence] = useState<'HIGH' | 'MEDIUM' | 'LOW'>(
+    currentJoint.inspection3D?.persistenceConfidence || 'MEDIUM'
+  );
+
+  // Cross-Surface Linking
+  const [linkedTraceIds, setLinkedTraceIds] = useState<string[]>(
+    currentJoint.inspection3D?.linkedTraceIds || []
+  );
+
   // When switching currentJointId, load its orientation parameters
   useEffect(() => {
     const isCr = currentJoint.panel === 'crown';
@@ -438,24 +461,6 @@ export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps>
     return Math.max(5.0, Math.round(Math.max(w, h) * 0.65 * 10) / 10);
   }, [tunnelGeometry.widthM, tunnelGeometry.heightM]);
   const [planeExtensionM, setPlaneExtensionM] = useState<number>(defaultCalculatedExt);
-
-  // Persistence & Geological Interpretation
-  const [persistenceInterpretation, setPersistenceInterpretation] = useState<string>(
-    currentJoint.inspection3D?.persistenceInterpretation ||
-      'Visible trace exposed across excavation face. Continuity into crown arch observed with tight intact rock bridge.'
-  );
-  const [persistenceAssumptions, setPersistenceAssumptions] = useState<string>(
-    currentJoint.inspection3D?.persistenceAssumptions ||
-      'Orientation assumed planar within the excavation volume. Planar extrapolation clipped to tunnel cross-section perimeter.'
-  );
-  const [persistenceConfidence, setPersistenceConfidence] = useState<'HIGH' | 'MEDIUM' | 'LOW'>(
-    currentJoint.inspection3D?.persistenceConfidence || 'MEDIUM'
-  );
-
-  // Cross-Surface Linking
-  const [linkedTraceIds, setLinkedTraceIds] = useState<string[]>(
-    currentJoint.inspection3D?.linkedTraceIds || []
-  );
 
   // Pair Intersection Comparison Target
   const otherJoints = useMemo(

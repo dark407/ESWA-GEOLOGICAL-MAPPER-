@@ -18,7 +18,7 @@ import {
 import firebaseConfig from '../firebase-applet-config.json';
 
 export const RUNTIME_PUBLIC_ORIGIN =
-  'https://ais-pre-rbj2jpy2po3ssp54klqlu3-728524179497.asia-northeast1.run.app';
+  'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
 
 export function getApiBase(): string {
   if (typeof window === 'undefined') return RUNTIME_PUBLIC_ORIGIN;

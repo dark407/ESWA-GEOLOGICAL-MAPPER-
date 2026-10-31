@@ -542,14 +542,6 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
   const [draftJointPoints, setDraftJointPoints] = useState<Point2D[]>([]);
   const [draggingDraftJointIdx, setDraggingDraftJointIdx] = useState<number | null>(null);
 
-  // Automatically clear transient drawers when switching Ribbon Windows (cadRibbonTab)
-  useEffect(() => {
-    if (cadRibbonTab !== 'CLASSIFICATION_SHEET') {
-      setShowSetTableDrawer(false);
-      setShowAILearningDrawer(false);
-    }
-  }, [cadRibbonTab]);
-
   // Auto-open Properties sidebar once user selects or completes a geological element
   useEffect(() => {
     if (
@@ -567,49 +559,6 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
     selectedControlPointId,
   ]);
 
-  // Automatically clear unrelated selections and draft rubber-band lines when switching activeTool
-  useEffect(() => {
-    if (
-      activeTool !== 'control_point' &&
-      activeTool !== 'overbreak' &&
-      activeTool !== 'select'
-    ) {
-      setSelectedControlPointId(null);
-    }
-    if (activeTool !== 'geological_symbol' && activeTool !== 'select') {
-      setSelectedSymbolId(null);
-    }
-    if (activeTool !== 'lithology' && activeTool !== 'select') {
-      setSelectedLithologyRegionId(null);
-      setIsDrawingLithologyPolygon(false);
-      setDraftLithologyPoints([]);
-    }
-    if (
-      activeTool !== 'add_joint' &&
-      activeTool !== 'redraw_joint' &&
-      activeTool !== 'append_joint'
-    ) {
-      setDraftJointPoints([]);
-      setIsFreehandDrawingJoint(false);
-    }
-    if (
-      activeTool !== 'select' &&
-      activeTool !== 'dip_probe' &&
-      activeTool !== 'add_joint' &&
-      activeTool !== 'redraw_joint' &&
-      activeTool !== 'append_joint'
-    ) {
-      setSelectedJointId(null);
-      setSelectedJointVertexIdx(null);
-    }
-    if (activeTool !== 'photo_fit') {
-      setAddingControlPointMode(false);
-      setDrawingCustomMaskMode(false);
-    }
-    if (activeTool !== 'measure') {
-      setMeasurePts([]);
-    }
-  }, [activeTool]);
   const [draftFeatureType, setDraftFeatureType] = useState<GeologicalFeatureType>('joint');
   const [draftSetId, setDraftSetId] = useState<string>('J1');
   const [syncFeaturesWithPhotoTransform, setSyncFeaturesWithPhotoTransform] =
@@ -731,6 +680,58 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
   );
   const [showAILearningDrawer, setShowAILearningDrawer] = useState<boolean>(false);
   const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
+
+  // Automatically clear transient drawers when switching Ribbon Windows (cadRibbonTab)
+  useEffect(() => {
+    if (cadRibbonTab !== 'CLASSIFICATION_SHEET') {
+      setShowSetTableDrawer(false);
+      setShowAILearningDrawer(false);
+    }
+  }, [cadRibbonTab]);
+
+  // Automatically clear unrelated selections and draft rubber-band lines when switching activeTool
+  useEffect(() => {
+    if (
+      activeTool !== 'control_point' &&
+      activeTool !== 'overbreak' &&
+      activeTool !== 'select'
+    ) {
+      setSelectedControlPointId(null);
+    }
+    if (activeTool !== 'geological_symbol' && activeTool !== 'select') {
+      setSelectedSymbolId(null);
+    }
+    if (activeTool !== 'lithology' && activeTool !== 'select') {
+      setSelectedLithologyRegionId(null);
+      setIsDrawingLithologyPolygon(false);
+      setDraftLithologyPoints([]);
+    }
+    if (
+      activeTool !== 'add_joint' &&
+      activeTool !== 'redraw_joint' &&
+      activeTool !== 'append_joint'
+    ) {
+      setDraftJointPoints([]);
+      setIsFreehandDrawingJoint(false);
+    }
+    if (
+      activeTool !== 'select' &&
+      activeTool !== 'dip_probe' &&
+      activeTool !== 'add_joint' &&
+      activeTool !== 'redraw_joint' &&
+      activeTool !== 'append_joint'
+    ) {
+      setSelectedJointId(null);
+      setSelectedJointVertexIdx(null);
+    }
+    if (activeTool !== 'photo_fit') {
+      setAddingControlPointMode(false);
+      setDrawingCustomMaskMode(false);
+    }
+    if (activeTool !== 'measure') {
+      setMeasurePts([]);
+    }
+  }, [activeTool]);
   const [layerOrder, setLayerOrder] = useState<string[]>([
     'photo',
     'lithology',

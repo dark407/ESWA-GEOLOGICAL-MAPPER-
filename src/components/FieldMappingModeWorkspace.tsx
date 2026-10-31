@@ -415,6 +415,38 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     setWorkflowMode(initialWorkflowMode);
   }, [initialWorkflowMode]);
 
+  // 100% Automatic Persistent Store - strictly isolated by mapping domain
+  const [store, setStore] = useState<FieldMappingStoreState>(() => {
+    const loaded = loadFieldMappingStore(initialMappingDomain);
+    if (resumeAtLastStage && savedResume) {
+      return {
+        ...loaded,
+        activeProjectId: savedResume.activeProjectId || loaded.activeProjectId,
+        activeLocationId: savedResume.activeLocationId || loaded.activeLocationId,
+        activeRoundId: savedResume.activeRoundId || loaded.activeRoundId,
+      };
+    }
+    return loaded;
+  });
+  const [stage, setStage] = useState<FieldWorkflowStage>(() => {
+    if (initialStage) return initialStage;
+    if (resumeAtLastStage && savedResume?.stage) {
+      return savedResume.stage as FieldWorkflowStage;
+    }
+    return 'project_setup';
+  });
+
+  // Underground Mine Geology interactive sub-tool & interval hover states
+  const [activeMineSubTool, setActiveMineSubTool] = useState<
+    'none' | 'channel_line' | 'ore_waste_line'
+  >('none');
+  const [hoveredMineIntervalId, setHoveredMineIntervalId] = useState<string | null>(null);
+  const [isAdvanceGeologicalAnalysisOpen, setIsAdvanceGeologicalAnalysisOpen] = useState<boolean>(false);
+
+  // Debounced auto-save strictly to active mapping domain
+  const latestStoreRef = useRef(store);
+  latestStoreRef.current = store;
+
   useEffect(() => {
     if (initialMappingDomain !== mappingDomain) {
       saveFieldMappingStore(latestStoreRef.current, mappingDomain);
@@ -495,45 +527,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const formatDomainProjName = formatProjectNameForDomain;
   const formatDomainLocName = formatLocationNameForDomain;
 
-  // 100% Automatic Persistent Store - strictly isolated by mapping domain
-  const [store, setStore] = useState<FieldMappingStoreState>(() => {
-    const loaded = loadFieldMappingStore(initialMappingDomain);
-    if (resumeAtLastStage && savedResume) {
-      return {
-        ...loaded,
-        activeProjectId: savedResume.activeProjectId || loaded.activeProjectId,
-        activeLocationId: savedResume.activeLocationId || loaded.activeLocationId,
-        activeRoundId: savedResume.activeRoundId || loaded.activeRoundId,
-      };
-    }
-    return loaded;
-  });
-  const [stage, setStage] = useState<FieldWorkflowStage>(() => {
-    if (initialStage) return initialStage;
-    if (resumeAtLastStage && savedResume?.stage) {
-      return savedResume.stage as FieldWorkflowStage;
-    }
-    return 'project_setup';
-  });
-
-  // Underground Mine Geology interactive sub-tool & interval hover states
-  const [activeMineSubTool, setActiveMineSubTool] = useState<
-    'none' | 'channel_line' | 'ore_waste_line'
-  >('none');
-  const [hoveredMineIntervalId, setHoveredMineIntervalId] = useState<string | null>(null);
-  const [isAdvanceGeologicalAnalysisOpen, setIsAdvanceGeologicalAnalysisOpen] = useState<boolean>(false);
-
   // Ensure Field Mapping never lands on 'photo_fit'
   useEffect(() => {
     if (workflowMode === 'field_mapping' && stage === 'photo_fit') {
       setStage('field_canvas');
     }
   }, [workflowMode, stage]);
-
-
-  // Debounced auto-save strictly to active mapping domain
-  const latestStoreRef = useRef(store);
-  latestStoreRef.current = store;
   useEffect(() => {
     const timer = window.setTimeout(() => {
       saveFieldMappingStore(latestStoreRef.current, mappingDomainRef.current);
@@ -1079,6 +1078,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       // safe
     }
   }, []);
+
+  const [selectedVeinBandId, setSelectedVeinBandId] = useState<string | null>(null);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [selectedDipSurfaceId, setSelectedDipSurfaceId] = useState<string | null>(null);
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
+  const [is3DJointInspectorOpen, setIs3DJointInspectorOpen] = useState<boolean>(false);
+  const [inspectedJointId, setInspectedJointId] = useState<string | null>(null);
 
   // Double-tap & double-click tracker to jump into 3D Joint Inspector for a joint set
   const lastJointTapTimeRef = useRef<{ id: string; time: number } | null>(null);
@@ -1775,12 +1781,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [geoFeatureSymbolSize, setGeoFeatureSymbolSize] = useState<number>(100);
   const [geoFeatureSymbolDensity, setGeoFeatureSymbolDensity] = useState<number>(100);
   const [pencilLineMode, setPencilLineMode] = useState<'smooth' | 'linear'>('smooth');
-  const [selectedVeinBandId, setSelectedVeinBandId] = useState<string | null>(null);
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
-  const [selectedDipSurfaceId, setSelectedDipSurfaceId] = useState<string | null>(null);
-  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
-  const [is3DJointInspectorOpen, setIs3DJointInspectorOpen] = useState<boolean>(false);
-  const [inspectedJointId, setInspectedJointId] = useState<string | null>(null);
   const [showPhotoUnderlay] = useState<boolean>(false);
 
   // Drawing sub-tool ('pencil' | 'brush' | 'spline' | 'polyline') for ALL features other than Mark Water ('6_water_mark') & Erase ('eraser')
@@ -1964,15 +1964,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     );
   };
 
-  useEffect(() => {
-    if (!isPencilTool && pending2DTrace) {
-      if (pending2DTrace.points.length >= 2) {
-        commitPending2DTraceToRound(pending2DTrace);
-      } else {
-        setPending2DTrace(null);
-      }
-    }
-  }, [isPencilTool]);
   // Pointer start screen-space tracker
   const pointerStartClientRef = useRef<{ x: number; y: number; movedEnough: boolean } | null>(
     null
@@ -3374,6 +3365,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     }
     setPending2DTrace(null);
   };
+
+  useEffect(() => {
+    if (!isPencilTool && pending2DTrace) {
+      if (pending2DTrace.points.length >= 2) {
+        commitPending2DTraceToRound(pending2DTrace);
+      } else {
+        setPending2DTrace(null);
+      }
+    }
+  }, [isPencilTool]);
 
   const handleRadialAction = (actionId: string) => {
     setRadialMenuPos(null);

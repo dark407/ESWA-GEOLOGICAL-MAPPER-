@@ -15,7 +15,7 @@
 // - 270° = LEFT (-Y)
 // ============================================================================
 
-import { FieldPanelId, FieldPoint2D, FieldJointTrace } from './fieldMappingEngine';
+import type { FieldPanelId, FieldPoint2D, FieldJointTrace } from './fieldMappingEngine';
 
 export interface Vec3D {
   x: number; // Tunnel-relative X: Longitudinal drive axis (0..pullLengthM, positive forward)

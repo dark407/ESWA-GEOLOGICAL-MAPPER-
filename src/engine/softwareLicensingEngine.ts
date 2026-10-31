@@ -189,11 +189,6 @@ const FIRESTORE_REST_ENDPOINTS = [
     databaseId: 'ai-studio-eswatunnelmapper-f9204c8f-e68c-461b-9014-9cb7c208d62c',
     apiKey: 'AIzaSyBhhbCXp1Vbn82flPxJku388k_ojRXaKA0',
   },
-  {
-    projectId: 'gen-lang-client-0610274527',
-    databaseId: 'ai-studio-eswatunnelmapper-f9204c8f-e68c-461b-9014-9cb7c208d62c',
-    apiKey: 'AIzaSyDJErsPqcj1w1p7P9IYDqEp6vIdb-1qoP4',
-  },
 ] as const;
 
 type FirestoreRestFieldValue = {
@@ -721,9 +716,21 @@ export function getLocalMasterPcBypass(): boolean {
   try {
     if (localStorage.getItem(LOCAL_MASTER_PC_BYPASS_KEY) === 'true') return true;
     const sess = getLocalActivatedSession();
-    if (sess?.userId === 'dhoniakash407@gmail.com' || sess?.userId === 'akashdhanusheswar@gmail.com') return true;
+    if (
+      sess?.userId === 'dhoniakash407@gmail.com' ||
+      sess?.userId === 'dhoniakash707@gmail.com' ||
+      sess?.userId === 'akashdhanusheswar@gmail.com'
+    ) {
+      return true;
+    }
     const creds = getStoredAdminCredentials();
-    if (creds?.email === 'dhoniakash407@gmail.com' || creds?.email === 'akashdhanusheswar@gmail.com') return true;
+    if (
+      creds?.email === 'dhoniakash407@gmail.com' ||
+      creds?.email === 'dhoniakash707@gmail.com' ||
+      creds?.email === 'akashdhanusheswar@gmail.com'
+    ) {
+      return true;
+    }
     if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.includes('run.app') || window.location.hostname.includes('aistudio'))) {
       return true;
     }
@@ -1000,11 +1007,19 @@ export function isMasterAdminLoggedIn(): boolean {
     if (getLocalMasterPcBypass()) return true;
     const creds = getStoredAdminCredentials();
     const email = (creds?.email || '').trim().toLowerCase();
-    if (email === 'dhoniakash407@gmail.com' || email === 'akashdhanusheswar@gmail.com') {
+    if (
+      email === 'dhoniakash407@gmail.com' ||
+      email === 'dhoniakash707@gmail.com' ||
+      email === 'akashdhanusheswar@gmail.com'
+    ) {
       return true;
     }
     const sess = getLocalActivatedSession();
-    if (sess?.userId === 'dhoniakash407@gmail.com' || sess?.userId === 'akashdhanusheswar@gmail.com') {
+    if (
+      sess?.userId === 'dhoniakash407@gmail.com' ||
+      sess?.userId === 'dhoniakash707@gmail.com' ||
+      sess?.userId === 'akashdhanusheswar@gmail.com'
+    ) {
       return true;
     }
   } catch {

@@ -16,8 +16,6 @@ export const NatmRockMechanicsAndLookAheadHub: React.FC<NatmRockMechanicsAndLook
   faceChainage = 'CH 102+45.0',
   isFloatingModal = false,
 }) => {
-  if (!isOpen) return null;
-
   const [activeTab, setActiveTab] = useState<'WEDGE' | 'SOLVER' | 'LOOKAHEAD'>('WEDGE');
 
   // Tab 1: Wedge State

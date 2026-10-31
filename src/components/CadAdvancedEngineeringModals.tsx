@@ -342,8 +342,6 @@ export const RockSupportPatternModal: React.FC<RockSupportPatternModalProps> = (
   supportConfig,
   onUpdateSupportConfig,
 }) => {
-  if (!isOpen) return null;
-
   const qVal = useMemo(() => {
     const rqdJn = (qParams.rqd || 70) / Math.max(0.5, qParams.jn || 9);
     const jrJa = (qParams.jr || 1.5) / Math.max(0.5, qParams.ja || 2);
@@ -361,6 +359,8 @@ export const RockSupportPatternModal: React.FC<RockSupportPatternModalProps> = (
       ),
     [geometry, supportConfig, settings.roundLength, qVal]
   );
+
+  if (!isOpen) return null;
 
   // SVG preview scaling
   const viewW = 620;

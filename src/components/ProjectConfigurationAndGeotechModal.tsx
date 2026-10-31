@@ -63,8 +63,6 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
   onUpdateQParamStatus,
   onShowToast,
 }) => {
-  if (!isOpen) return null;
-
   const [activeTab, setActiveTab] = useState<ConfigTab>('PROJECT_DRIVE');
 
   // Local working copy of state to allow discard or apply
@@ -119,6 +117,8 @@ export const ProjectConfigurationAndGeotechModal: React.FC<ProjectConfigurationA
     const q = (rqd / jn) * (jr / ja) * (jw / srf);
     return Math.max(0.001, Math.min(1000, Number(q.toFixed(3))));
   }, [localQ]);
+
+  if (!isOpen) return null;
 
   // Handle Chainage Sync
   const handleFaceChainageChange = (valStr: string) => {

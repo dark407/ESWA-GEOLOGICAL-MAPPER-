@@ -531,6 +531,10 @@ export const Tunnel3DPhotoCanvas: React.FC<Tunnel3DPhotoCanvasProps> = ({
     const leftWallCanvas = leftWallPhotoUrl
       ? document.createElement('canvas')
       : createGeologicalWallCanvas('left', isLightMode);
+    const leftWallTexture = new THREE.CanvasTexture(leftWallCanvas);
+    leftWallTexture.colorSpace = THREE.SRGBColorSpace;
+    leftWallTexture.wrapS = THREE.ClampToEdgeWrapping;
+    leftWallTexture.wrapT = THREE.ClampToEdgeWrapping;
     if (leftWallPhotoUrl) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -545,10 +549,6 @@ export const Tunnel3DPhotoCanvas: React.FC<Tunnel3DPhotoCanvasProps> = ({
       };
       img.src = leftWallPhotoUrl;
     }
-    const leftWallTexture = new THREE.CanvasTexture(leftWallCanvas);
-    leftWallTexture.colorSpace = THREE.SRGBColorSpace;
-    leftWallTexture.wrapS = THREE.ClampToEdgeWrapping;
-    leftWallTexture.wrapT = THREE.ClampToEdgeWrapping;
 
     const leftWallGeom = new THREE.PlaneGeometry(pullDepth, splH, 16, 12);
     // Position plane at left wall facing inwards (+X)
@@ -569,6 +569,10 @@ export const Tunnel3DPhotoCanvas: React.FC<Tunnel3DPhotoCanvasProps> = ({
     const rightWallCanvas = rightWallPhotoUrl
       ? document.createElement('canvas')
       : createGeologicalWallCanvas('right', isLightMode);
+    const rightWallTexture = new THREE.CanvasTexture(rightWallCanvas);
+    rightWallTexture.colorSpace = THREE.SRGBColorSpace;
+    rightWallTexture.wrapS = THREE.ClampToEdgeWrapping;
+    rightWallTexture.wrapT = THREE.ClampToEdgeWrapping;
     if (rightWallPhotoUrl) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -583,10 +587,6 @@ export const Tunnel3DPhotoCanvas: React.FC<Tunnel3DPhotoCanvasProps> = ({
       };
       img.src = rightWallPhotoUrl;
     }
-    const rightWallTexture = new THREE.CanvasTexture(rightWallCanvas);
-    rightWallTexture.colorSpace = THREE.SRGBColorSpace;
-    rightWallTexture.wrapS = THREE.ClampToEdgeWrapping;
-    rightWallTexture.wrapT = THREE.ClampToEdgeWrapping;
 
     const rightWallGeom = new THREE.PlaneGeometry(pullDepth, splH, 16, 12);
     // Position plane at right wall facing inwards (-X)
@@ -607,6 +607,10 @@ export const Tunnel3DPhotoCanvas: React.FC<Tunnel3DPhotoCanvasProps> = ({
     const crownCanvas = crownPhotoUrl
       ? document.createElement('canvas')
       : createGeologicalCrownCanvas(isLightMode);
+    const crownTexture = new THREE.CanvasTexture(crownCanvas);
+    crownTexture.colorSpace = THREE.SRGBColorSpace;
+    crownTexture.wrapS = THREE.ClampToEdgeWrapping;
+    crownTexture.wrapT = THREE.ClampToEdgeWrapping;
     if (crownPhotoUrl) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -621,10 +625,6 @@ export const Tunnel3DPhotoCanvas: React.FC<Tunnel3DPhotoCanvasProps> = ({
       };
       img.src = crownPhotoUrl;
     }
-    const crownTexture = new THREE.CanvasTexture(crownCanvas);
-    crownTexture.colorSpace = THREE.SRGBColorSpace;
-    crownTexture.wrapS = THREE.ClampToEdgeWrapping;
-    crownTexture.wrapT = THREE.ClampToEdgeWrapping;
 
     // Build curved parametric arch vault
     const archSegsX = 32;

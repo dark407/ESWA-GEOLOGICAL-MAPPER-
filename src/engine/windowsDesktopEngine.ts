@@ -330,7 +330,7 @@ export function saveConfiguredGithubRepo(rawInput: string): string {
 }
 
 export const PUBLIC_SHARED_APP_ORIGIN =
-  'https://ais-pre-rbj2jpy2po3ssp54klqlu3-728524179497.asia-northeast1.run.app';
+  'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
 
 export function getPublicShareOrigin(): string {
   if (typeof window === 'undefined') return PUBLIC_SHARED_APP_ORIGIN;
@@ -457,24 +457,16 @@ export function getGithubMasterAndroidApkDownloadUrl(_customRepo?: string): stri
 }
 
 const DEV_CLOUD_APP_ORIGIN =
-  'https://ais-dev-a4hhtle4c5nnrzjnsyntzb-386382408800.asia-southeast1.run.app';
+  'https://ais-dev-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
 
 function getCandidateServerBases(): string[] {
   if (typeof window === 'undefined') return [''];
   const origin = (window.location.origin || '').trim();
   const isHttp = origin.startsWith('http://') || origin.startsWith('https://');
-  const candidates: string[] = [];
   if (isHttp) {
-    candidates.push('');
-    candidates.push(origin);
+    return [''];
   }
-  if (!candidates.includes(DEV_CLOUD_APP_ORIGIN)) {
-    candidates.push(DEV_CLOUD_APP_ORIGIN);
-  }
-  if (!candidates.includes(PUBLIC_SHARED_APP_ORIGIN)) {
-    candidates.push(PUBLIC_SHARED_APP_ORIGIN);
-  }
-  return candidates;
+  return [PUBLIC_SHARED_APP_ORIGIN, DEV_CLOUD_APP_ORIGIN];
 }
 
 const cachedApkBlobUrls: Record<'master' | 'user', { blobUrl: string; sizeMb: string } | null> = {
