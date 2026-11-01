@@ -500,7 +500,13 @@ export const FieldInBuiltCameraStage: React.FC<{
     : FIELD_TUNNEL_SHAPES.find((s) => s.id === activeLocation.shape)?.label ||
       activeLocation.shape.replace(/_/g, ' ').toUpperCase();
 
-  // Top portion options: Face, Crown, LW, RW (as requested: "face, crown, lw, rw")
+  const isVertShaft = !isSurface && isVerticalShaftLocation(activeLocation);
+  const shaftExcApproach = normalizeVerticalShaftExcavationApproach(activeRound.excavationApproach);
+  const isShaftHalfFace = isVertShaft && shaftExcApproach === 'Half Face';
+  const shaftHalfSide = normalizeVerticalShaftHalfSide(activeRound.shaftHalfSide);
+  const qLenM = Number(((Math.PI * locWidthM) / 4).toFixed(1));
+
+  // Top portion options: adapts to Vertical Shaft, Surface Mapping, or Tunnel
   const allPortions = useMemo<{
     id: FieldPanelId;
     title: string;
@@ -508,40 +514,88 @@ export const FieldInBuiltCameraStage: React.FC<{
     portionCode: string;
     dimLabel: string;
     available: boolean;
-  }[]>(() => [
-    {
-      id: 'face',
-      title: isSurface ? surfMap.face.fullLabel : 'Face',
-      shortLabel: isSurface ? surfMap.face.shortLabel : 'Face',
-      portionCode: 'FACE',
-      dimLabel: `${locWidthM.toFixed(1)}m × ${locHeightM.toFixed(1)}m`,
-      available: true,
-    },
-    {
-      id: 'crown',
-      title: isSurface ? surfMap.crown.fullLabel : 'Crown',
-      shortLabel: isSurface ? surfMap.crown.shortLabel : 'Crown',
-      portionCode: 'CROWN',
-      dimLabel: `${(Number(surfCfg.crownLengthM) || locWidthM).toFixed(1)}m × ${pullM.toFixed(1)}m`,
-      available: isSurface ? surfCfg.hasCrown : true,
-    },
-    {
-      id: 'left_wall',
-      title: 'LEFT WALL',
-      shortLabel: 'LEFT WALL',
-      portionCode: 'LEFTWALL',
-      dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
-      available: isSurface ? surfCfg.hasLeftWall : true,
-    },
-    {
-      id: 'right_wall',
-      title: 'RIGHT WALL',
-      shortLabel: 'RIGHT WALL',
-      portionCode: 'RIGHTWALL',
-      dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
-      available: isSurface ? surfCfg.hasRightWall : true,
-    },
-  ], [isSurface, surfMap, surfCfg, locWidthM, locHeightM, pullM, splH]);
+  }[]>(() => {
+    if (isVertShaft) {
+      return [
+        {
+          id: 'face',
+          title: isShaftHalfFace
+            ? `Shaft Half-Face (${shaftHalfSide === 'left_half' ? 'SW–WN' : 'NE–ES'})`
+            : 'Shaft Sump Face',
+          shortLabel: 'Shaft Face',
+          portionCode: 'SHAFT_FACE',
+          dimLabel: `Ø${locWidthM.toFixed(1)}m`,
+          available: true,
+        },
+        {
+          id: 'left_wall',
+          title: 'Q1: NE Wall (0°–90°)',
+          shortLabel: 'Q1: NE Wall',
+          portionCode: 'Q1_NE_WALL',
+          dimLabel: `${qLenM}m × ${pullM.toFixed(1)}m`,
+          available: !isShaftHalfFace || shaftHalfSide === 'right_half',
+        },
+        {
+          id: 'crown',
+          title: 'Q2: ES Wall (90°–180°)',
+          shortLabel: 'Q2: ES Wall',
+          portionCode: 'Q2_ES_WALL',
+          dimLabel: `${qLenM}m × ${pullM.toFixed(1)}m`,
+          available: !isShaftHalfFace || shaftHalfSide === 'right_half',
+        },
+        {
+          id: 'right_wall',
+          title: 'Q3: SW Wall (180°–270°)',
+          shortLabel: 'Q3: SW Wall',
+          portionCode: 'Q3_SW_WALL',
+          dimLabel: `${qLenM}m × ${pullM.toFixed(1)}m`,
+          available: !isShaftHalfFace || shaftHalfSide === 'left_half',
+        },
+        {
+          id: 'shaft_sn',
+          title: 'Q4: WN Wall (270°–360°)',
+          shortLabel: 'Q4: WN Wall',
+          portionCode: 'Q4_WN_WALL',
+          dimLabel: `${qLenM}m × ${pullM.toFixed(1)}m`,
+          available: !isShaftHalfFace || shaftHalfSide === 'left_half',
+        },
+      ];
+    }
+    return [
+      {
+        id: 'face',
+        title: isSurface ? surfMap.face.fullLabel : 'Face',
+        shortLabel: isSurface ? surfMap.face.shortLabel : 'Face',
+        portionCode: 'FACE',
+        dimLabel: `${locWidthM.toFixed(1)}m × ${locHeightM.toFixed(1)}m`,
+        available: true,
+      },
+      {
+        id: 'crown',
+        title: isSurface ? surfMap.crown.fullLabel : 'Crown',
+        shortLabel: isSurface ? surfMap.crown.shortLabel : 'Crown',
+        portionCode: 'CROWN',
+        dimLabel: `${(Number(surfCfg.crownLengthM) || locWidthM).toFixed(1)}m × ${pullM.toFixed(1)}m`,
+        available: isSurface ? surfCfg.hasCrown : true,
+      },
+      {
+        id: 'left_wall',
+        title: isSurface ? surfMap.leftWall.fullLabel : 'LEFT WALL',
+        shortLabel: isSurface ? surfMap.leftWall.shortLabel : 'LEFT WALL',
+        portionCode: 'LEFTWALL',
+        dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
+        available: isSurface ? surfCfg.hasLeftWall : true,
+      },
+      {
+        id: 'right_wall',
+        title: isSurface ? surfMap.rightWall.fullLabel : 'RIGHT WALL',
+        shortLabel: isSurface ? surfMap.rightWall.shortLabel : 'RIGHT WALL',
+        portionCode: 'RIGHTWALL',
+        dimLabel: `${pullM.toFixed(1)}m × ${splH.toFixed(1)}m`,
+        available: isSurface ? surfCfg.hasRightWall : true,
+      },
+    ];
+  }, [isVertShaft, isShaftHalfFace, shaftHalfSide, qLenM, isSurface, surfMap, surfCfg, locWidthM, locHeightM, pullM, splH]);
 
   const availablePortions = useMemo(() => {
     return (
@@ -557,6 +611,8 @@ export const FieldInBuiltCameraStage: React.FC<{
   const [targetPanel, setTargetPanel] = useState<FieldPanelId>('face');
   const [liveCameraActive, setLiveCameraActive] = useState(false);
   const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'requesting' | 'active' | 'blocked' | 'unsupported'>('idle');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [shutterFlash, setShutterFlash] = useState(false);
@@ -574,6 +630,11 @@ export const FieldInBuiltCameraStage: React.FC<{
   const multiFileInputRef = useRef<HTMLInputElement | null>(null);
   const nativeCameraCaptureRef = useRef<HTMLInputElement | null>(null);
 
+  const isMobileTouchDevice = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  }, []);
+
   useEffect(() => {
     const exists = availablePortions.some((p) => p.id === targetPanel);
     if (!exists && availablePortions.length > 0) {
@@ -586,23 +647,55 @@ export const FieldInBuiltCameraStage: React.FC<{
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setLiveCameraActive(false);
     setCameraStatus('idle');
   };
 
-  const startCamera = async (facing: 'environment' | 'user' = cameraFacingMode) => {
+  // Ensure <video> always receives streamRef when liveCameraActive becomes true
+  useEffect(() => {
+    if (liveCameraActive && streamRef.current && videoRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+      videoRef.current.play().catch(() => {});
+    }
+  }, [liveCameraActive]);
+
+  const startCamera = async (
+    facing: 'environment' | 'user' = cameraFacingMode,
+    customDeviceId?: string
+  ) => {
     setCameraStatus('requesting');
     setCameraError(null);
-    stopCamera();
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
 
     if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setLiveCameraActive(false);
       setCameraStatus('unsupported');
-      setCameraError('WebRTC camera API is not accessible in this browser or iframe container.');
+      setCameraError('WebRTC camera API requires a secure HTTPS context or camera permission.');
       return;
     }
 
-    const constraintTiers: MediaStreamConstraints[] = [
+    const targetDevId = customDeviceId !== undefined ? customDeviceId : selectedDeviceId;
+
+    const constraintTiers: MediaStreamConstraints[] = [];
+    if (targetDevId) {
+      constraintTiers.push({
+        video: {
+          deviceId: { exact: targetDevId },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+    }
+    constraintTiers.push(
       {
         video: {
           facingMode: { ideal: facing },
@@ -620,8 +713,8 @@ export const FieldInBuiltCameraStage: React.FC<{
       {
         video: true,
         audio: false,
-      },
-    ];
+      }
+    );
 
     let stream: MediaStream | null = null;
     let lastErr: any = null;
@@ -640,32 +733,57 @@ export const FieldInBuiltCameraStage: React.FC<{
       setLiveCameraActive(true);
       setCameraStatus('active');
       setCameraError(null);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      }, 50);
+
+      // Enumerate available cameras so user can switch between multiple cameras if available
+      if (navigator.mediaDevices.enumerateDevices) {
+        navigator.mediaDevices
+          .enumerateDevices()
+          .then((devices) => {
+            const cams = devices.filter((d) => d.kind === 'videoinput');
+            setVideoDevices(cams);
+            const activeTrack = stream?.getVideoTracks()?.[0];
+            const activeDevId = activeTrack?.getSettings?.()?.deviceId;
+            if (activeDevId) {
+              setSelectedDeviceId(activeDevId);
+            }
+          })
+          .catch(() => {});
+      }
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
     } else {
       setLiveCameraActive(false);
       setCameraStatus('blocked');
       const errName = lastErr?.name || '';
       const msg =
         errName === 'NotAllowedError' || errName === 'PermissionDeniedError'
-          ? 'Browser or sandbox iframe policy blocked direct camera access.'
+          ? 'Camera permission was blocked by the browser. Click the camera/lock icon in your browser address bar to allow camera access, then click "Retry Live Camera".'
           : errName === 'NotFoundError' || errName === 'DevicesNotFoundError'
-          ? 'No hardware video camera detected on this system.'
+          ? 'No hardware video camera was detected on this device.'
           : errName === 'NotReadableError' || errName === 'TrackStartError'
-          ? 'Camera hardware is busy in another program.'
-          : `Live stream restricted (${errName || 'Sandbox restriction'}). Use the native device camera or 1-click authentic rock exposure test below.`;
+          ? 'Camera hardware is currently in use by another application.'
+          : `Could not start live camera stream (${errName || 'Permission required'}). Click "Open Live Camera" to retry or use Sample Capture below.`;
       setCameraError(msg);
     }
   };
 
   const handleToggleCameraFacing = () => {
+    if (videoDevices.length > 1) {
+      const currentIdx = videoDevices.findIndex((d) => d.deviceId === selectedDeviceId);
+      const nextIdx = (currentIdx + 1) % videoDevices.length;
+      const nextDev = videoDevices[nextIdx];
+      if (nextDev && nextDev.deviceId) {
+        setSelectedDeviceId(nextDev.deviceId);
+        startCamera(cameraFacingMode, nextDev.deviceId);
+        return;
+      }
+    }
     const nextMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
     setCameraFacingMode(nextMode);
-    startCamera(nextMode);
+    startCamera(nextMode, '');
   };
 
   // Launch camera immediately when in camera mode; stop when leaving
@@ -705,6 +823,8 @@ export const FieldInBuiltCameraStage: React.FC<{
         ? 'LEFTWALL'
         : panelId === 'right_wall'
         ? 'RIGHTWALL'
+        : panelId === 'shaft_sn'
+        ? 'SHAFT_Q4_WN'
         : String(panelId).toUpperCase();
 
     const d = new Date();
@@ -801,11 +921,10 @@ export const FieldInBuiltCameraStage: React.FC<{
     img.src = authenticDataUrl;
   };
 
-  // Snap photo with auto-upscale, underground shadow lift, and automated renaming
-  // Gracefully generates authentic rock exposure if live stream is blocked
+  // Snap photo from active live camera stream with auto-upscale, shadow lift, and automated renaming
   const handleSnapFieldPhoto = () => {
     if (!liveCameraActive || !videoRef.current) {
-      handleLoadAuthenticSamplePhoto();
+      startCamera(cameraFacingMode, selectedDeviceId);
       return;
     }
 
@@ -861,7 +980,7 @@ export const FieldInBuiltCameraStage: React.FC<{
     }));
 
     setSelectedPhotoId(newPhotoId);
-    setLastNotification(`✓ Captured & Enhanced: ${fileName}`);
+    setLastNotification(`✓ Captured Live Photo: ${fileName}`);
     setTimeout(() => setLastNotification(null), 3500);
   };
 
@@ -940,6 +1059,7 @@ export const FieldInBuiltCameraStage: React.FC<{
 
   // Handle proceed to next step
   const handleProceedToNextStep = () => {
+    stopCamera();
     if (workflowMode === 'photo_mapping') {
       if (onProceedToPhotoFit) {
         onProceedToPhotoFit();
@@ -1031,7 +1151,7 @@ export const FieldInBuiltCameraStage: React.FC<{
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-4 bg-slate-950 flex flex-col">
-      {/* Hidden Native Mobile Hardware Camera Capture Input (Bypasses iframe permissions) */}
+      {/* Hidden Mobile OS Camera Capture Input (Only used if user explicitly taps Mobile OS Camera fallback) */}
       <input
         ref={nativeCameraCaptureRef}
         type="file"
@@ -1088,7 +1208,10 @@ export const FieldInBuiltCameraStage: React.FC<{
               {onSwitchToUploadGrid && (
                 <button
                   type="button"
-                  onClick={onSwitchToUploadGrid}
+                  onClick={() => {
+                    stopCamera();
+                    onSwitchToUploadGrid();
+                  }}
                   className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1 cursor-pointer"
                   title="Switch to 4-Portion Overview Grid"
                 >
@@ -1126,32 +1249,74 @@ export const FieldInBuiltCameraStage: React.FC<{
             {/* Overlaid Live Camera HUD when video is active */}
             {liveCameraActive && (
               <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-sm border border-emerald-500/50 px-2.5 py-1 rounded-lg text-emerald-300 text-[11px] font-mono font-bold">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 bg-slate-950/85 backdrop-blur-sm border border-emerald-500/50 px-2.5 py-1 rounded-lg text-emerald-300 text-[11px] font-mono font-bold">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>LIVE STREAM ACTIVE ({cameraFacingMode.toUpperCase()})</span>
+                    <span>LIVE CAMERA ACTIVE • {activePortionInfo.shortLabel.toUpperCase()}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleToggleCameraFacing}
-                    className="pointer-events-auto p-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-200 cursor-pointer shadow-lg flex items-center gap-1.5 text-xs font-bold"
-                    title="Flip between Environment and User camera"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Flip Camera</span>
-                  </button>
+
+                  <div className="flex items-center gap-2 pointer-events-auto">
+                    {videoDevices.length > 1 && (
+                      <select
+                        value={selectedDeviceId}
+                        onChange={(e) => {
+                          const devId = e.target.value;
+                          setSelectedDeviceId(devId);
+                          startCamera(cameraFacingMode, devId);
+                        }}
+                        className="bg-slate-900/90 border border-slate-700 text-slate-200 text-xs font-semibold rounded-xl px-2.5 py-1.5"
+                      >
+                        {videoDevices.map((d, idx) => (
+                          <option key={d.deviceId || idx} value={d.deviceId}>
+                            {d.label || `Camera ${idx + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleToggleCameraFacing}
+                      className="p-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-200 cursor-pointer shadow-lg flex items-center gap-1.5 text-xs font-bold"
+                      title="Switch between Front and Rear camera"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Switch Camera</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={stopCamera}
+                      className="px-2.5 py-1.5 rounded-xl bg-rose-950/90 hover:bg-rose-900 border border-rose-700/60 text-rose-200 cursor-pointer shadow-lg text-xs font-bold"
+                      title="Pause / Stop Live Camera"
+                    >
+                      Stop
+                    </button>
+                  </div>
                 </div>
 
                 {/* Reticle / Crosshair */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-40">
-                  <div className="w-48 h-48 border border-dashed border-amber-400 rounded-full flex items-center justify-center">
+                  <div className="w-56 h-56 border border-dashed border-amber-400 rounded-full flex items-center justify-center">
                     <div className="w-8 h-8 border-t-2 border-b-2 border-l-2 border-r-2 border-amber-300" />
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] font-mono text-slate-300 bg-slate-950/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-800">
-                  <span>{activeProject.projectName} • {activePortionInfo.title}</span>
-                  <span>{rdChainageStr}</span>
+                {/* Live Shutter Button & Bottom HUD */}
+                <div className="flex flex-col items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSnapFieldPhoto}
+                    className="pointer-events-auto group flex items-center gap-3 px-6 py-3 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm uppercase tracking-wider shadow-2xl ring-4 ring-white/30 cursor-pointer transition-all active:scale-95"
+                  >
+                    <Camera className="w-5 h-5" />
+                    <span>Capture {activePortionInfo.shortLabel} Photo</span>
+                  </button>
+
+                  <div className="w-full flex items-center justify-between text-[11px] font-mono text-slate-300 bg-slate-950/85 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-800">
+                    <span>{activeProject.projectName} • {activePortionInfo.title} ({activePortionInfo.dimLabel})</span>
+                    <span>{rdChainageStr}</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -1164,7 +1329,7 @@ export const FieldInBuiltCameraStage: React.FC<{
                   alt={activePortionPhoto.label}
                   className="max-h-[70vh] w-auto object-contain bg-black"
                 />
-                <div className="absolute top-3 left-3 right-3 flex items-center justify-between bg-slate-950/90 border border-amber-500/50 px-3 py-1.5 rounded-xl text-xs font-mono text-amber-300 shadow-xl">
+                <div className="absolute top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 bg-slate-950/90 border border-amber-500/50 px-3 py-1.5 rounded-xl text-xs font-mono text-amber-300 shadow-xl">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>SAVED PHOTO: {activePortionInfo.shortLabel} ({activePortionPhoto.resolutionLabel || 'HD'})</span>
@@ -1172,24 +1337,18 @@ export const FieldInBuiltCameraStage: React.FC<{
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => nativeCameraCaptureRef.current?.click()}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px] font-bold cursor-pointer"
+                      onClick={() => startCamera(cameraFacingMode, selectedDeviceId)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow"
                     >
-                      📱 Retake Photo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => startCamera(cameraFacingMode)}
-                      className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[11px] font-bold cursor-pointer"
-                    >
-                      🔄 Live Stream
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Open Live Camera to Retake</span>
                     </button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Geological Field Viewfinder HUD when no video stream & no photo yet (NEVER A DEAD BLANK SCREEN) */}
+            {/* Geological Field Viewfinder HUD when no video stream & no photo yet */}
             {!liveCameraActive && !activePortionPhoto && (
               <div className="relative w-full h-full flex flex-col items-center justify-center p-6 text-center select-none bg-radial from-slate-900 to-slate-950">
                 {/* Geological Crosshair Reticle Graphic */}
@@ -1206,34 +1365,67 @@ export const FieldInBuiltCameraStage: React.FC<{
                   </div>
 
                   <h3 className="text-base font-black uppercase tracking-wider text-slate-100 flex items-center gap-2">
-                    <span>Field Camera Viewfinder Ready</span>
+                    <span>
+                      {cameraStatus === 'requesting'
+                        ? 'Starting Live Hardware Camera...'
+                        : 'Field Camera Viewfinder Ready'}
+                    </span>
                     <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-mono">
                       {activePortionInfo.title}
                     </span>
                   </h3>
 
-                  {/* Button: Upload File in Photogrammetry Mode vs Native Device Camera in Field Mapping Mode */}
-                  <div className="w-full max-w-xs mt-3">
-                    {workflowMode === 'photo_mapping' ? (
-                      <button
-                        type="button"
-                        onClick={() => multiFileInputRef.current?.click()}
-                        className="w-full p-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
-                        title="Upload photos for photogrammetry analysis"
-                      >
-                        <Upload className="w-4 h-4" />
-                        <span>📁 Upload File</span>
-                      </button>
-                    ) : (
+                  {cameraError && (
+                    <div className="mt-2.5 px-3.5 py-2 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-200 text-xs max-w-md">
+                      {cameraError}
+                    </div>
+                  )}
+
+                  {/* Primary Action Buttons: Open Live Camera Stream (WebRTC) + Optional Upload/Sample */}
+                  <div className="w-full max-w-sm mt-4 flex flex-col gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => startCamera(cameraFacingMode, selectedDeviceId)}
+                      className="w-full p-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>
+                        {cameraStatus === 'requesting'
+                          ? 'Connecting Camera...'
+                          : '📷 Open Live Camera'}
+                      </span>
+                    </button>
+
+                    {isMobileTouchDevice && (
                       <button
                         type="button"
                         onClick={() => nativeCameraCaptureRef.current?.click()}
-                        className="w-full p-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer transition-all active:scale-95"
+                        className="w-full p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
                       >
-                        <Camera className="w-4 h-4" />
-                        <span>📱 Native Device Camera</span>
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>📱 Open Mobile OS Camera App</span>
                       </button>
                     )}
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => multiFileInputRef.current?.click()}
+                        className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Upload File</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleLoadAuthenticSamplePhoto}
+                        className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Sample Photo</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1252,7 +1444,7 @@ export const FieldInBuiltCameraStage: React.FC<{
             )}
           </div>
 
-          {/* Bottom Bar: Device upload, Click Photo, and End Camera */}
+          {/* Bottom Bar: Live Camera Controls, Upload File, Inspect, and Next Step */}
           <div className="bg-slate-950 border-t border-slate-800 px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2.5 sm:gap-3 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x">
             <div className="flex items-center gap-2 shrink-0">
               <input
@@ -1266,6 +1458,27 @@ export const FieldInBuiltCameraStage: React.FC<{
                   e.target.value = '';
                 }}
               />
+
+              {liveCameraActive ? (
+                <button
+                  type="button"
+                  onClick={handleSnapFieldPhoto}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap shadow-md"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Capture Photo ({activePortionInfo.shortLabel})</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => startCamera(cameraFacingMode, selectedDeviceId)}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap shadow-md"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Open Live Camera</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => multiFileInputRef.current?.click()}
@@ -1865,6 +2078,95 @@ export const FieldFourPhotoUploadStage: React.FC<{
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const cameraInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // In-app Live Camera Modal state for individual panel cards
+  const [activeCameraModalPanel, setActiveCameraModalPanel] = useState<FieldPanelId | null>(null);
+  const [modalCameraActive, setModalCameraActive] = useState(false);
+  const [modalCameraFacing, setModalCameraFacing] = useState<'environment' | 'user'>('environment');
+  const [modalCameraError, setModalCameraError] = useState<string | null>(null);
+  const modalVideoRef = useRef<HTMLVideoElement | null>(null);
+  const modalStreamRef = useRef<MediaStream | null>(null);
+
+  const stopModalCamera = () => {
+    if (modalStreamRef.current) {
+      modalStreamRef.current.getTracks().forEach((t) => t.stop());
+      modalStreamRef.current = null;
+    }
+    if (modalVideoRef.current) {
+      modalVideoRef.current.srcObject = null;
+    }
+    setModalCameraActive(false);
+  };
+
+  const startModalCamera = async (
+    panelId: FieldPanelId,
+    facing: 'environment' | 'user' = modalCameraFacing
+  ) => {
+    setActiveCameraModalPanel(panelId);
+    setModalCameraError(null);
+    stopModalCamera();
+
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia
+    ) {
+      setModalCameraError('WebRTC camera API requires HTTPS or camera permission.');
+      return;
+    }
+
+    const tiers: MediaStreamConstraints[] = [
+      {
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      },
+      {
+        video: { facingMode: { ideal: facing } },
+        audio: false,
+      },
+      {
+        video: true,
+        audio: false,
+      },
+    ];
+
+    let stream: MediaStream | null = null;
+    let lastErr: any = null;
+    for (const c of tiers) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(c);
+        if (stream) break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    if (stream) {
+      modalStreamRef.current = stream;
+      setModalCameraActive(true);
+      setTimeout(() => {
+        if (modalVideoRef.current) {
+          modalVideoRef.current.srcObject = stream;
+          modalVideoRef.current.play().catch(() => {});
+        }
+      }, 40);
+    } else {
+      setModalCameraActive(false);
+      setModalCameraError(
+        `Camera access blocked (${lastErr?.name || 'Permission denied'}). Allow camera access in browser settings or click Retry.`
+      );
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopModalCamera();
+    };
+  }, []);
+
   const isSurface = mappingDomain !== 'TUNNEL';
   const surfMap = getSurfacePanelLabelMap(mappingDomain);
   const surfCfg = getLocationSurfaceConfig(activeLocation);
@@ -1988,6 +2290,60 @@ export const FieldFourPhotoUploadStage: React.FC<{
   const surfaceMetaList = allSurfaceMetaList
     .filter((s) => s.available)
     .map((s, i) => ({ ...s, stepNum: i + 1 }));
+
+  const handleSnapModalCameraPhoto = () => {
+    if (!activeCameraModalPanel || !modalVideoRef.current || !modalCameraActive) return;
+    const panelId = activeCameraModalPanel;
+    const processed = processCleanFieldCameraFrame({
+      source: modalVideoRef.current,
+      panel: panelId,
+      projectName: activeProject.projectName,
+      locationName: activeLocation.name,
+      tunnelShapeLabel: isSurface
+        ? `${mappingDomain} RECTANGULAR`
+        : activeLocation.shape.toUpperCase(),
+      widthM: activeLocation.widthM,
+      heightM: activeLocation.heightM,
+      chainageFrom: activeRound.chainageFrom,
+      chainageTo: activeRound.chainageTo,
+      shotNumber: activeRound.collectedPhotos.length + 1,
+      enableAutoUpscale: true,
+      enableShadowRemove: true,
+    });
+    const pInfo = surfaceMetaList.find((p) => p.id === panelId);
+    const newPhoto: FieldCollectedPhoto = {
+      id: `livecam-${panelId}-${Date.now()}`,
+      panel: panelId,
+      dataUrl: processed.dataUrl,
+      label: pInfo ? pInfo.title.replace(/^\d+\.\s*/, '') : `${panelId} Photo`,
+      capturedAt: new Date().toISOString(),
+      projectName: activeProject.projectName,
+      locationName: activeLocation.name,
+      rdChainage: processed.rdChainage,
+      panelLabel: processed.panelLabel,
+      tunnelShapeLabel: isSurface
+        ? `${mappingDomain} (${activeLocation.widthM}m × ${activeLocation.heightM}m)`
+        : `${activeLocation.shape.toUpperCase()} (${activeLocation.widthM}m × ${activeLocation.heightM}m)`,
+      dateTimeFormatted: processed.dateTimeFormatted,
+      autoUpscaled: true,
+      shadowRemoved: true,
+      resolutionLabel: '1600×1000 HD Live Camera Capture',
+    };
+    onUpdateRound((prev) => ({
+      ...prev,
+      photoPromptHandled: true,
+      collectedPhotos: [
+        ...prev.collectedPhotos.filter((p) => p.panel !== panelId),
+        newPhoto,
+      ],
+      photoFits: {
+        ...(prev.photoFits || {}),
+        [panelId]: prev.photoFits?.[panelId] || getFieldPhotoFitConfig(prev, panelId),
+      },
+    }));
+    stopModalCamera();
+    setActiveCameraModalPanel(null);
+  };
 
   // Helper to load sample photo for a single panel
   const handleLoadSampleForPanel = (panelId: FieldPanelId) => {
@@ -2301,9 +2657,9 @@ export const FieldFourPhotoUploadStage: React.FC<{
 
                     <button
                       type="button"
-                      onClick={() => cameraInputRefs.current[surf.id]?.click()}
+                      onClick={() => startModalCamera(surf.id, modalCameraFacing)}
                       className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-                      title="Capture with Phone/Tablet Native Camera"
+                      title="Open Live Camera Viewfinder to capture photo"
                     >
                       <Camera className="w-3.5 h-3.5" />
                       <span>Camera</span>
@@ -2364,6 +2720,120 @@ export const FieldFourPhotoUploadStage: React.FC<{
           </button>
         </div>
       </div>
+
+      {/* In-App Live Camera Modal for Individual Panel Capture */}
+      {activeCameraModalPanel && (
+        <div
+          onClick={() => {
+            stopModalCamera();
+            setActiveCameraModalPanel(null);
+          }}
+          className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-3xl w-full bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+          >
+            <div className="px-4 py-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Camera className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-black uppercase tracking-wider text-white">
+                  Live Camera Capture •{' '}
+                  {surfaceMetaList.find((s) => s.id === activeCameraModalPanel)?.title ||
+                    activeCameraModalPanel}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextFacing = modalCameraFacing === 'environment' ? 'user' : 'environment';
+                    setModalCameraFacing(nextFacing);
+                    startModalCamera(activeCameraModalPanel, nextFacing);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Flip Camera</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopModalCamera();
+                    setActiveCameraModalPanel(null);
+                  }}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="relative bg-black min-h-[360px] max-h-[65vh] flex items-center justify-center overflow-hidden">
+              <video
+                ref={modalVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full max-h-[65vh] object-cover ${
+                  modalCameraActive ? 'block' : 'hidden'
+                }`}
+              />
+              {!modalCameraActive && (
+                <div className="p-6 text-center max-w-md space-y-3">
+                  <Camera className="w-10 h-10 text-amber-400 mx-auto" />
+                  <div className="text-sm font-bold text-slate-200">
+                    {modalCameraError || 'Connecting to Live Camera...'}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startModalCamera(activeCameraModalPanel, modalCameraFacing)}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider cursor-pointer"
+                    >
+                      Retry Live Camera
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const pid = activeCameraModalPanel;
+                        stopModalCamera();
+                        setActiveCameraModalPanel(null);
+                        handleLoadSampleForPanel(pid);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer"
+                    >
+                      Use Sample Rock Photo
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 py-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  stopModalCamera();
+                  setActiveCameraModalPanel(null);
+                }}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!modalCameraActive}
+                onClick={handleSnapModalCameraPhoto}
+                className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Capture & Save Photo</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

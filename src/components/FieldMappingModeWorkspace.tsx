@@ -8688,18 +8688,31 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </button>
                   <div className="flex flex-wrap items-center gap-2">
                     {workflowMode === 'field_mapping' ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleApplySurfaceDimensionsToLocation();
-                          setStage('field_canvas');
-                        }}
-                        className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer flex items-center gap-2"
-                      >
-                        <span>
-                          {`Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Open Canvas →`}
-                        </span>
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleApplySurfaceDimensionsToLocation();
+                            setStage('field_canvas');
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs border border-emerald-500/40 cursor-pointer"
+                        >
+                          Skip Field Camera → Canvas
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleApplySurfaceDimensionsToLocation();
+                            setCameraViewTab('live_camera');
+                            setStage('camera_prompt');
+                          }}
+                          className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer flex items-center gap-2"
+                        >
+                          <span>
+                            {`Save ${domainPanelMap.domainTitle.replace(' Mapping', '')} Station & Open Field Camera →`}
+                          </span>
+                        </button>
+                      </>
                     ) : (
                       <button
                         type="button"
