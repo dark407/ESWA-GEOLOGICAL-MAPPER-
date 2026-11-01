@@ -530,9 +530,9 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                           <td className="p-2.5 text-cyan-300 font-bold">
                             {(s.features?.length || 0) + (s.veins?.length || 0)} mapped
                           </td>
-                          <td className="p-2.5">{s.targetCutoffGrade.toFixed(2)} g/t</td>
+                          <td className="p-2.5">{(s.targetCutoffGrade ?? 0).toFixed(2)} g/t</td>
                           <td className="p-2.5 font-bold text-emerald-400">
-                            {s.dilutedGradeCalculated ? `${s.dilutedGradeCalculated.toFixed(2)} g/t` : '—'}
+                            {s.dilutedGradeCalculated ? `${Number(s.dilutedGradeCalculated).toFixed(2)} g/t` : '—'}
                           </td>
                           <td className="p-2.5">
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-slate-700">
@@ -687,9 +687,9 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                             {h.collarDipDeg}° / {h.collarAzimuthDeg}°
                           </td>
                           <td className="p-2.5 font-bold text-slate-100">{h.runs?.length || 0} runs</td>
-                          <td className="p-2.5 text-emerald-400">{h.overallRecoveryPercent.toFixed(1)}%</td>
-                          <td className="p-2.5 text-cyan-300">{h.overallRqdPercent.toFixed(1)}%</td>
-                          <td className="p-2.5 text-amber-300 font-bold">{h.significantInterceptsSummary}</td>
+                          <td className="p-2.5 text-emerald-400">{(h.overallRecoveryPercent ?? 0).toFixed(1)}%</td>
+                          <td className="p-2.5 text-cyan-300">{(h.overallRqdPercent ?? 0).toFixed(1)}%</td>
+                          <td className="p-2.5 text-amber-300 font-bold">{h.significantInterceptsSummary || 'Awaiting User Input'}</td>
                           <td className="p-2.5 text-right space-x-1">
                             {!isAct && (
                               <button

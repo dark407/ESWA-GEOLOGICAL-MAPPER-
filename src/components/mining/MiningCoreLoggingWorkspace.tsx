@@ -40,6 +40,7 @@ import {
   deleteMiningDrillHole,
   getActiveMiningDrillHoleId,
   setActiveMiningDrillHoleId,
+  sanitizeMiningDrillHole,
 } from '../../engine/miningStorageEngine';
 import { IndustryMode } from '../../types/tunnel';
 
@@ -145,13 +146,50 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
   onBackToMainWindow,
   onSelectHole,
 }) => {
-  const [holes, setHoles] = useState<MiningDrillHoleRecord[]>(() => loadMiningDrillHoles());
+  const [holes, setHoles] = useState<MiningDrillHoleRecord[]>(() => {
+    const loaded = loadMiningDrillHoles();
+    if (loaded.length > 0) return loaded;
+    const initialHole = createMiningDrillHole({
+      holeId: 'DDH-KD-001',
+      targetOreZone: '',
+      purpose: 'EXPLORATION',
+      coreDiameter: 'HQ',
+      drillingMethod: 'Wireline Triple-Tube Diamond Core',
+      collarEasting: 48250,
+      collarNorthing: 12500,
+      collarElevationMrl: 620,
+      collarDipDeg: -60,
+      collarAzimuthDeg: 90,
+      totalDrilledDepthM: 0,
+      runs: [],
+      assayIntervals: [],
+      coreBoxPhotos: [],
+    });
+    return [initialHole];
+  });
   const [activeHoleId, setActiveHoleId] = useState<string>(() => {
     const savedId = getActiveMiningDrillHoleId();
     const loaded = loadMiningDrillHoles();
     if (savedId && loaded.some((h) => h.id === savedId)) return savedId;
     return loaded[0]?.id || '';
   });
+
+  useEffect(() => {
+    const onHydrated = () => {
+      const loaded = loadMiningDrillHoles();
+      if (loaded.length > 0) {
+        setHoles(loaded);
+        const savedId = getActiveMiningDrillHoleId();
+        if (savedId && loaded.some((h) => h.id === savedId)) {
+          setActiveHoleId(savedId);
+        } else {
+          setActiveHoleId(loaded[0].id);
+        }
+      }
+    };
+    window.addEventListener('eswa-idb-hydrated', onHydrated);
+    return () => window.removeEventListener('eswa-idb-hydrated', onHydrated);
+  }, []);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('runs');
   const [selectedBoxIndex, setSelectedBoxIndex] = useState<number>(0);
@@ -269,9 +307,62 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
     geologistNotes: '',
   });
 
-  const activeHole = useMemo(() => {
-    return holes.find((h) => h.id === activeHoleId) || holes[0];
-  }, [holes, activeHoleId]);
+  const fallbackHole = useMemo<MiningDrillHoleRecord>(() => {
+    const now = new Date().toISOString();
+    const today = now.slice(0, 10);
+    return {
+      id: 'DH-DEFAULT-001',
+      projectId: 'PRJ-MIN-001',
+      holeId: 'DDH-KD-001',
+      holeType: 'DIAMOND_CORE_DDH',
+      collarEasting: 48250,
+      collarNorthing: 12500,
+      collarElevationMrl: 620,
+      collarDipDeg: -60,
+      collarAzimuthDeg: 90,
+      totalDrilledDepthM: 0,
+      coreDiameter: 'HQ',
+      drillingMethod: 'Wireline Triple-Tube Diamond Core',
+      drillingContractor: '',
+      explorationConsultant: '',
+      miningCompany: '',
+      drillingRigModel: '',
+      startDate: today,
+      completionDate: today,
+      loggedBy: '',
+      purpose: 'EXPLORATION',
+      targetOreZone: '',
+      cutOffGrade: 1.5,
+      primaryGradeUnit: 'g/t Au',
+      runs: [],
+      assayIntervals: [],
+      coreBoxPhotos: [],
+      signOff: {
+        contractorRepName: '',
+        contractorDesignation: 'Drilling Supervisor',
+        contractorCompany: '',
+        contractorDate: today,
+        consultantRepName: '',
+        consultantDesignation: 'Senior Exploration Geologist',
+        consultantCompany: '',
+        consultantDate: today,
+        clientRepName: '',
+        clientDesignation: 'Chief Mine Geologist (Competent Person)',
+        clientCompany: '',
+        clientDate: today,
+        remarks: '',
+      },
+      overallRecoveryPercent: 0,
+      overallRqdPercent: 0,
+      significantInterceptsSummary: 'Awaiting User Input',
+      createdAt: now,
+      updatedAt: now,
+    };
+  }, []);
+
+  const activeHole = useMemo<MiningDrillHoleRecord>(() => {
+    return holes.find((h) => h.id === activeHoleId) || holes[0] || fallbackHole;
+  }, [holes, activeHoleId, fallbackHole]);
 
   useEffect(() => {
     if (activeHole && onSelectHole) {
@@ -282,18 +373,23 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
   // Persist changes to active hole
   const updateActiveHole = (updater: (hole: MiningDrillHoleRecord) => MiningDrillHoleRecord) => {
     if (!activeHole) return;
-    const updatedHole = updater(activeHole);
+    const updatedHole = updater({
+      ...activeHole,
+      runs: Array.isArray(activeHole.runs) ? activeHole.runs : [],
+      assayIntervals: Array.isArray(activeHole.assayIntervals) ? activeHole.assayIntervals : [],
+      coreBoxPhotos: Array.isArray(activeHole.coreBoxPhotos) ? activeHole.coreBoxPhotos : [],
+    });
 
     // Recompute summary statistics strictly from user-logged runs
-    const runs = [...(updatedHole.runs || [])].sort((a, b) => a.fromDepthM - b.fromDepthM);
+    const runs = [...(updatedHole.runs || [])].sort((a, b) => (a.fromDepthM ?? 0) - (b.fromDepthM ?? 0));
     let totalDrilled = 0;
     let totalRec = 0;
     let totalSolid = 0;
     runs.forEach((r) => {
-      const len = Math.max(0, r.toDepthM - r.fromDepthM);
+      const len = Math.max(0, (r.toDepthM ?? 0) - (r.fromDepthM ?? 0));
       totalDrilled += len;
-      totalRec += Math.min(len, Math.max(0, r.recoveredLengthM));
-      totalSolid += Math.min(len, Math.max(0, r.solidCoreLengthRqdM));
+      totalRec += Math.min(len, Math.max(0, r.recoveredLengthM ?? 0));
+      totalSolid += Math.min(len, Math.max(0, r.solidCoreLengthRqdM ?? 0));
     });
 
     const overallRecoveryPercent = totalDrilled > 0 ? Number(((totalRec / totalDrilled) * 100).toFixed(1)) : 0;
@@ -310,11 +406,11 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
         let minFrom = Infinity;
         let maxTo = -Infinity;
         oreRuns.forEach((r) => {
-          const l = Math.max(0, r.toDepthM - r.fromDepthM);
+          const l = Math.max(0, (r.toDepthM ?? 0) - (r.fromDepthM ?? 0));
           oreLen += l;
           weightedSum += l * (r.assayGradeAu || 0);
-          if (r.fromDepthM < minFrom) minFrom = r.fromDepthM;
-          if (r.toDepthM > maxTo) maxTo = r.toDepthM;
+          if ((r.fromDepthM ?? 0) < minFrom) minFrom = r.fromDepthM ?? 0;
+          if ((r.toDepthM ?? 0) > maxTo) maxTo = r.toDepthM ?? 0;
         });
         const avgGrade = oreLen > 0 ? weightedSum / oreLen : 0;
         interceptSummary = `${oreLen.toFixed(2)}m @ ${avgGrade.toFixed(2)} ${unit} (from ${minFrom.toFixed(1)}m to ${maxTo.toFixed(1)}m)`;
@@ -332,8 +428,13 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
       updatedAt: new Date().toISOString(),
     };
 
-    const nextHoles = holes.map((h) => (h.id === finalizedHole.id ? finalizedHole : h));
+    const exists = holes.some((h) => h.id === finalizedHole.id);
+    const nextHoles = exists
+      ? holes.map((h) => (h.id === finalizedHole.id ? finalizedHole : h))
+      : [finalizedHole, ...holes];
     setHoles(nextHoles);
+    setActiveHoleId(finalizedHole.id);
+    setActiveMiningDrillHoleId(finalizedHole.id);
     saveMiningDrillHoles(nextHoles);
   };
 
@@ -484,13 +585,33 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
   };
 
   const handleDeleteCurrentHole = () => {
-    if (!activeHole || holes.length <= 1) return;
+    if (!activeHole) return;
     deleteMiningDrillHole(activeHole.id);
     const remaining = loadMiningDrillHoles();
-    setHoles(remaining);
     if (remaining.length > 0) {
+      setHoles(remaining);
       setActiveHoleId(remaining[0].id);
       setActiveMiningDrillHoleId(remaining[0].id);
+    } else {
+      const freshHole = createMiningDrillHole({
+        holeId: 'DDH-KD-001',
+        targetOreZone: '',
+        purpose: 'EXPLORATION',
+        coreDiameter: 'HQ',
+        drillingMethod: 'Wireline Triple-Tube Diamond Core',
+        collarEasting: 48250,
+        collarNorthing: 12500,
+        collarElevationMrl: 620,
+        collarDipDeg: -60,
+        collarAzimuthDeg: 90,
+        totalDrilledDepthM: 0,
+        runs: [],
+        assayIntervals: [],
+        coreBoxPhotos: [],
+      });
+      setHoles([freshHole]);
+      setActiveHoleId(freshHole.id);
+      setActiveMiningDrillHoleId(freshHole.id);
     }
     setConfirmDeleteHole(false);
   };
@@ -1023,12 +1144,19 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result));
-        if (parsed && parsed.holeId && Array.isArray(parsed.runs)) {
-          const importedHole: MiningDrillHoleRecord = {
+        if (parsed && Array.isArray(parsed.drillHoles) && parsed.drillHoles.length > 0) {
+          const importedList = parsed.drillHoles.map((dh: any) => sanitizeMiningDrillHole(dh));
+          const merged = [...importedList, ...holes.filter((h) => !importedList.some((imp: MiningDrillHoleRecord) => imp.id === h.id))];
+          setHoles(merged);
+          saveMiningDrillHoles(merged);
+          setActiveHoleId(importedList[0].id);
+          setActiveMiningDrillHoleId(importedList[0].id);
+        } else if (parsed && (parsed.holeId || Array.isArray(parsed.runs))) {
+          const importedHole: MiningDrillHoleRecord = sanitizeMiningDrillHole({
             ...parsed,
             id: parsed.id || `DH-${Date.now().toString(36).toUpperCase()}`,
             updatedAt: new Date().toISOString(),
-          };
+          });
           const exists = holes.some((h) => h.id === importedHole.id);
           const next = exists
             ? holes.map((h) => (h.id === importedHole.id ? importedHole : h))
@@ -1130,8 +1258,6 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
     return { len, tcr, rqd, rqdInfo: getRqdRatingInfo(rqd), trueDip: att.trueDip, trueDipDir: att.trueDipDir };
   }, [runForm, activeHole]);
 
-  if (!activeHole) return null;
-
   return (
     <div className="flex flex-col h-full w-full bg-[#060a10] text-slate-100 overflow-hidden select-none">
       {/* ================================================================= */}
@@ -1183,9 +1309,9 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
               }}
               className="bg-slate-900 border border-slate-700 hover:border-amber-500/50 rounded-lg px-3 py-1.5 text-xs font-bold text-amber-300 focus:outline-none cursor-pointer"
             >
-              {holes.map((h) => (
+              {(holes.length > 0 ? holes : [activeHole]).map((h) => (
                 <option key={h.id} value={h.id}>
-                  {h.holeId} — {h.targetOreZone || 'Exploration Hole'} ({h.runs.length} runs)
+                  {h.holeId} — {h.targetOreZone || 'Exploration Hole'} ({(h.runs || []).length} runs)
                 </option>
               ))}
             </select>
@@ -1961,7 +2087,7 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                                 className="w-8 h-9 rounded border border-white/20 shrink-0 flex items-center justify-center text-[9px] font-black text-white/90 shadow-inner"
                                 style={{ backgroundColor: run.lithologyColor || '#065f46' }}
                               >
-                                {run.structureType.slice(0, 3)}
+                                {(run.structureType || 'FOL').slice(0, 3)}
                               </div>
                               <div className="truncate">
                                 <div className="font-bold text-white truncate">{run.lithology}</div>
@@ -1971,14 +2097,14 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
 
                             <div className="col-span-2 pr-3">
                               <div className="flex items-center justify-between text-[10px] font-mono mb-1">
-                                <span className="font-bold text-white">{run.rqdPercent.toFixed(1)}%</span>
-                                <span className="text-slate-400">TCR {run.coreRecoveryPercent.toFixed(0)}%</span>
+                                <span className="font-bold text-white">{(run.rqdPercent ?? 0).toFixed(1)}%</span>
+                                <span className="text-slate-400">TCR {(run.coreRecoveryPercent ?? 0).toFixed(0)}%</span>
                               </div>
                               <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
                                 <div
                                   className="h-full transition-all"
                                   style={{
-                                    width: `${Math.min(100, run.rqdPercent)}%`,
+                                    width: `${Math.min(100, run.rqdPercent ?? 0)}%`,
                                     backgroundColor: rqdInfo.barColor,
                                   }}
                                 />
@@ -1988,7 +2114,7 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                             <div className="col-span-2 pr-2 truncate">
                               <div className="text-[11px] text-slate-200 truncate">{run.alteration}</div>
                               <div className="text-[10px] text-amber-300 font-mono">
-                                Sulfides: {run.sulfidePercent ?? 0}% • {run.veinDensityPerM} v/m
+                                Sulfides: {run.sulfidePercent ?? 0}% • {run.veinDensityPerM ?? 0} v/m
                               </div>
                             </div>
 
@@ -2047,7 +2173,9 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                     </div>
                   </div>
 
-                  {coreBoxes[selectedBoxIndex] && (
+                  {(coreBoxes[selectedBoxIndex] || coreBoxes[0]) && (() => {
+                    const activeBox = coreBoxes[selectedBoxIndex] || coreBoxes[0];
+                    return (
                     <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-x-auto">
                       <svg viewBox="0 0 860 260" className="w-full h-auto min-w-[640px]">
                         {/* Outer Wooden/Plastic Core Tray Frame */}
@@ -2062,15 +2190,15 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                           strokeWidth="3"
                         />
                         <text x="26" y="32" fill="#f8fafc" fontSize="13" fontWeight="bold" fontFamily="monospace">
-                          {activeHole.holeId} — CORE BOX #{coreBoxes[selectedBoxIndex].boxNumber} ({coreBoxes[selectedBoxIndex].fromDepth.toFixed(2)}m to {coreBoxes[selectedBoxIndex].toDepth.toFixed(2)}m)
+                          {activeHole.holeId} — CORE BOX #{activeBox.boxNumber} ({activeBox.fromDepth.toFixed(2)}m to {activeBox.toDepth.toFixed(2)}m)
                         </text>
 
-                        {coreBoxes[selectedBoxIndex].runs.map((run, rIdx) => {
+                        {activeBox.runs.map((run, rIdx) => {
                           const yTop = 48 + rIdx * 64;
-                          const recRatio = Math.min(1, Math.max(0.05, run.coreRecoveryPercent / 100));
+                          const recRatio = Math.min(1, Math.max(0.05, (run.coreRecoveryPercent ?? 0) / 100));
                           const coreWidth = 740 * recRatio;
                           const isOre = (run.assayGradeAu ?? 0) >= (activeHole.cutOffGrade ?? 1.5);
-                          const numFractures = Math.min(25, Math.max(1, Math.round(run.fracturesPerMeter * run.drilledLengthM)));
+                          const numFractures = Math.min(25, Math.max(1, Math.round((run.fracturesPerMeter ?? 3) * (run.drilledLengthM ?? 1))));
 
                           return (
                             <g
@@ -2139,7 +2267,7 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                                 fontWeight="bold"
                                 fontFamily="monospace"
                               >
-                                {run.fromDepthM.toFixed(1)}m
+                                {(run.fromDepthM ?? 0).toFixed(1)}m
                               </text>
 
                               {/* End Depth Marker Wooden Block */}
@@ -2153,7 +2281,7 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                                 fontWeight="bold"
                                 fontFamily="monospace"
                               >
-                                {run.toDepthM.toFixed(1)}m
+                                {(run.toDepthM ?? 0).toFixed(1)}m
                               </text>
 
                               {/* Overlay Run Info Label */}
@@ -2165,7 +2293,7 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                                 fontWeight="bold"
                                 fontFamily="monospace"
                               >
-                                Run #{run.runNumber}: {run.lithology} | RQD {run.rqdPercent.toFixed(0)}% | {run.structureType} α={run.structureDipToCoreAxisDeg}°
+                                Run #{run.runNumber}: {run.lithology} | RQD {(run.rqdPercent ?? 0).toFixed(0)}% | {run.structureType || 'FOL'} α={run.structureDipToCoreAxisDeg ?? 55}°
                               </text>
                               <text
                                 x="78"
@@ -2181,7 +2309,8 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                         })}
                       </svg>
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               </>
             )}

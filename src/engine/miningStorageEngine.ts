@@ -329,9 +329,137 @@ export function deleteMiningStope(id: string): void {
 // EXPLORATION & PRODUCTION DRILL HOLES CRUD
 // ---------------------------------------------------------------------------
 
+export function sanitizeMiningDrillHole(raw: Partial<MiningDrillHoleRecord>): MiningDrillHoleRecord {
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  const runs: MiningCoreRun[] = Array.isArray(raw.runs)
+    ? raw.runs.filter(Boolean).map((r, idx) => ({
+        ...r,
+        id: r?.id || `RUN-${idx + 1}`,
+        runNumber: Number(r?.runNumber ?? idx + 1),
+        fromDepthM: Number(r?.fromDepthM ?? 0),
+        toDepthM: Number(r?.toDepthM ?? 0),
+        drilledLengthM: Number(r?.drilledLengthM ?? Math.max(0, Number(r?.toDepthM ?? 0) - Number(r?.fromDepthM ?? 0))),
+        recoveredLengthM: Number(r?.recoveredLengthM ?? 0),
+        coreRecoveryPercent: Number(r?.coreRecoveryPercent ?? 0),
+        solidCoreLengthRqdM: Number(r?.solidCoreLengthRqdM ?? 0),
+        rqdPercent: Number(r?.rqdPercent ?? 0),
+        fracturesPerMeter: Number(r?.fracturesPerMeter ?? 3),
+        pointLoadIs50Mpa: Number(r?.pointLoadIs50Mpa ?? 5.0),
+        lithology: r?.lithology || 'Hangingwall Amphibolite',
+        lithologyColor: r?.lithologyColor || '#065f46',
+        rockStrength: r?.rockStrength || 'R4 - Strong (50-100 MPa)',
+        alteration: r?.alteration || 'Unaltered / Fresh',
+        alterationIntensity: Number(r?.alterationIntensity ?? 1),
+        mineralization: r?.mineralization || 'Trace disseminated pyrite (<1%)',
+        sulfidePercent: Number(r?.sulfidePercent ?? 0),
+        oreZoneCategory: r?.oreZoneCategory || 'WASTE',
+        veinDensityPerM: Number(r?.veinDensityPerM ?? 1),
+        structureType: r?.structureType || 'FOLIATION',
+        structureDipToCoreAxisDeg: Number(r?.structureDipToCoreAxisDeg ?? 55),
+        betaAngleDeg: Number(r?.betaAngleDeg ?? 180),
+        jointRoughness: r?.jointRoughness || 'Rough Undulating',
+        jointAlteration: r?.jointAlteration || 'Unaltered (Ja=1)',
+        infilling: r?.infilling || 'Quartz-Calcite',
+        waterCondition: r?.waterCondition || 'Dry',
+        weatheringGrade: r?.weatheringGrade || 'FRESH',
+        boxNumber: Number(r?.boxNumber ?? 1),
+        sampleId: r?.sampleId || '',
+        qaqcType: r?.qaqcType || 'REGULAR',
+        assayGradeAu: Number(r?.assayGradeAu ?? 0),
+        assayGradeCu: Number(r?.assayGradeCu ?? 0),
+        specificGravity: Number(r?.specificGravity ?? 2.78),
+        geologistNotes: r?.geologistNotes || '',
+      }))
+    : [];
+
+  const assayIntervals: MiningAssayInterval[] = Array.isArray(raw.assayIntervals)
+    ? raw.assayIntervals.filter(Boolean).map((a, idx) => ({
+        ...a,
+        sampleId: a?.sampleId || `SAM-${String(idx + 1).padStart(3, '0')}`,
+        fromDepthM: Number(a?.fromDepthM ?? 0),
+        toDepthM: Number(a?.toDepthM ?? 1.5),
+        intervalLengthM: Number(a?.intervalLengthM ?? Math.max(0, Number(a?.toDepthM ?? 1.5) - Number(a?.fromDepthM ?? 0))),
+        primaryAssayGrade: Number(a?.primaryAssayGrade ?? 0),
+        primaryGradeUnit: a?.primaryGradeUnit || raw.primaryGradeUnit || 'g/t Au',
+        secondaryAssayGrade: Number(a?.secondaryAssayGrade ?? 0),
+        secondaryGradeUnit: a?.secondaryGradeUnit || '% Cu',
+        specificGravityEstimated: Number(a?.specificGravityEstimated ?? 2.8),
+        qaqcCategory: a?.qaqcCategory || 'NORMAL_SAMPLE',
+        qaqcPass: a?.qaqcPass ?? true,
+        assayLaboratory: a?.assayLaboratory || 'SGS Geochemical Lab',
+        certificateNumber: a?.certificateNumber || '',
+      }))
+    : [];
+
+  const coreBoxPhotos = Array.isArray(raw.coreBoxPhotos)
+    ? raw.coreBoxPhotos.filter(Boolean).map((p, idx) => ({
+        ...p,
+        id: p?.id || `PHOTO-${idx + 1}`,
+        boxNumber: Number(p?.boxNumber ?? idx + 1),
+        fromDepth: Number(p?.fromDepth ?? 0),
+        toDepth: Number(p?.toDepth ?? 6),
+        condition: (p?.condition as 'Wet' | 'Dry' | 'Natural') || 'Wet',
+        imageUrl: p?.imageUrl || '',
+        caption: p?.caption || `Core Box #${idx + 1}`,
+        dateTaken: p?.dateTaken || today,
+      }))
+    : [];
+
+  return {
+    id: raw.id || `DH-${Date.now().toString(36).toUpperCase()}`,
+    projectId: raw.projectId || 'PRJ-MIN-001',
+    holeId: raw.holeId || 'DDH-KD-001',
+    holeType: raw.holeType || 'DIAMOND_CORE_DDH',
+    collarEasting: Number(raw.collarEasting ?? 0),
+    collarNorthing: Number(raw.collarNorthing ?? 0),
+    collarElevationMrl: Number(raw.collarElevationMrl ?? 620.0),
+    collarDipDeg: Number(raw.collarDipDeg ?? -60),
+    collarAzimuthDeg: Number(raw.collarAzimuthDeg ?? 90),
+    totalDrilledDepthM: Number(raw.totalDrilledDepthM ?? 0),
+    coreDiameter: raw.coreDiameter || 'HQ',
+    drillingMethod: raw.drillingMethod || 'Wireline Triple-Tube Diamond Core',
+    drillingContractor: raw.drillingContractor || '',
+    explorationConsultant: raw.explorationConsultant || '',
+    miningCompany: raw.miningCompany || '',
+    drillingRigModel: raw.drillingRigModel || '',
+    startDate: raw.startDate || today,
+    completionDate: raw.completionDate || today,
+    loggedBy: raw.loggedBy || '',
+    purpose: raw.purpose || 'EXPLORATION',
+    targetOreZone: raw.targetOreZone || '',
+    cutOffGrade: Number(raw.cutOffGrade ?? 1.5),
+    primaryGradeUnit: raw.primaryGradeUnit || 'g/t Au',
+    runs,
+    assayIntervals,
+    coreBoxPhotos,
+    signOff: {
+      contractorRepName: raw.signOff?.contractorRepName || '',
+      contractorDesignation: raw.signOff?.contractorDesignation || 'Drilling Supervisor',
+      contractorCompany: raw.signOff?.contractorCompany || raw.drillingContractor || '',
+      contractorDate: raw.signOff?.contractorDate || today,
+      consultantRepName: raw.signOff?.consultantRepName || raw.loggedBy || '',
+      consultantDesignation: raw.signOff?.consultantDesignation || 'Senior Exploration Geologist',
+      consultantCompany: raw.signOff?.consultantCompany || raw.explorationConsultant || '',
+      consultantDate: raw.signOff?.consultantDate || today,
+      clientRepName: raw.signOff?.clientRepName || '',
+      clientDesignation: raw.signOff?.clientDesignation || 'Chief Mine Geologist (Competent Person)',
+      clientCompany: raw.signOff?.clientCompany || raw.miningCompany || '',
+      clientDate: raw.signOff?.clientDate || today,
+      remarks: raw.signOff?.remarks || '',
+    },
+    overallRecoveryPercent: Number(raw.overallRecoveryPercent ?? 0),
+    overallRqdPercent: Number(raw.overallRqdPercent ?? 0),
+    significantInterceptsSummary: raw.significantInterceptsSummary || 'Awaiting User Input',
+    createdAt: raw.createdAt || now,
+    updatedAt: raw.updatedAt || now,
+  };
+}
+
 export function loadMiningDrillHoles(): MiningDrillHoleRecord[] {
   const loaded = loadHighCapacityCollection<MiningDrillHoleRecord>(MINING_DRILLHOLES_KEY);
-  return Array.isArray(loaded) ? loaded : [];
+  if (!Array.isArray(loaded)) return [];
+  return loaded.filter(Boolean).map((h) => sanitizeMiningDrillHole(h));
 }
 
 export function saveMiningDrillHoles(holes: MiningDrillHoleRecord[]): void {

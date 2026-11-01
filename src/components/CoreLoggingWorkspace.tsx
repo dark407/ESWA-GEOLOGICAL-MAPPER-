@@ -633,12 +633,24 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
       const raw = localStorage.getItem(getModeStorageKey(mode));
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed;
         }
       }
     } catch {}
     return [];
+  };
+
+  const persistBoreholesForMode = (list: BoreholeRecord[], activeId?: string) => {
+    setBoreholes(list);
+    try {
+      localStorage.setItem(getModeStorageKey(activeIndustryMode), JSON.stringify(list));
+      saveBoreholeRecordsToStorage(list);
+      if (activeId) {
+        localStorage.setItem(getModeActiveIdKey(activeIndustryMode), activeId);
+        setActiveBoreholeId(activeId);
+      }
+    } catch {}
   };
 
   const [boreholes, setBoreholes] = useState<BoreholeRecord[]>([]);
@@ -686,7 +698,16 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
 
   // Load boreholes on mount and when industry mode changes
   useEffect(() => {
-    const list = loadBoreholesForMode(activeIndustryMode);
+    let list = loadBoreholesForMode(activeIndustryMode);
+    if (list.length === 0) {
+      const initialBh = createEmptyBorehole(
+        activeIndustryMode === 'MINING' ? 'DDH-01' : activeIndustryMode === 'TBM' ? 'PRB-01' : 'BH-01'
+      );
+      list = [initialBh];
+      try {
+        localStorage.setItem(getModeStorageKey(activeIndustryMode), JSON.stringify(list));
+      } catch {}
+    }
     setBoreholes(list);
     const lastActive =
       typeof window !== 'undefined'
@@ -708,17 +729,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
     const nextList = exists
       ? boreholes.map((b) => (b.id === updated.id ? { ...updated, updatedAt: new Date().toISOString() } : b))
       : [{ ...updated, updatedAt: new Date().toISOString() }, ...boreholes];
-    setBoreholes(nextList);
-    if (!activeBoreholeIdState) {
-      setActiveBoreholeIdState(updated.id);
-    }
-    try {
-      localStorage.setItem(getModeStorageKey(activeIndustryMode), JSON.stringify(nextList));
-      localStorage.setItem(getModeActiveIdKey(activeIndustryMode), updated.id);
-    } catch {}
+    const nextActiveId = activeBoreholeIdState || updated.id;
+    setActiveBoreholeIdState(nextActiveId);
+    persistBoreholesForMode(nextList, updated.id);
   };
 
-  const blankFallbackBorehole = useMemo(() => createEmptyBorehole(''), []);
+  const blankFallbackBorehole = useMemo(() => createEmptyBorehole('BH-01'), []);
   const currentBorehole = boreholes.find((b) => b.id === activeBoreholeIdState) || boreholes[0] || blankFallbackBorehole;
   const summary = calculateBoreholeSummary(currentBorehole);
   const rqdBadge = getRqdBadgeColor(summary.overallRqdRating);
@@ -852,24 +868,25 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
     }
 
     const updated = [newBh, ...boreholes];
-    setBoreholes(updated);
-    saveBoreholeRecordsToStorage(updated);
     setActiveBoreholeIdState(newBh.id);
-    setActiveBoreholeId(newBh.id);
+    persistBoreholesForMode(updated, newBh.id);
     setIsCreateBoreholeModalOpen(false);
     setActiveTab('metadata'); // First show the created hole detail
   };
 
   // Delete borehole
   const handleDeleteBorehole = (id: string) => {
-    if (boreholes.length <= 1) {
-      return;
-    }
     const remaining = boreholes.filter((b) => b.id !== id);
-    setBoreholes(remaining);
-    saveBoreholeRecordsToStorage(remaining);
-    setActiveBoreholeIdState(remaining[0].id);
-    setActiveBoreholeId(remaining[0].id);
+    if (remaining.length > 0) {
+      setActiveBoreholeIdState(remaining[0].id);
+      persistBoreholesForMode(remaining, remaining[0].id);
+    } else {
+      const freshBh = createEmptyBorehole(
+        activeIndustryMode === 'MINING' ? 'DDH-01' : activeIndustryMode === 'TBM' ? 'PRB-01' : 'BH-01'
+      );
+      setActiveBoreholeIdState(freshBh.id);
+      persistBoreholesForMode([freshBh], freshBh.id);
+    }
   };
 
   // Add / Edit Run helpers
@@ -909,15 +926,16 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
   };
 
   const handleSaveRun = (run: CoreRunRecord) => {
-    const existingIndex = currentBorehole.runs.findIndex((r) => r.id === run.id);
-    let nextRuns = [...currentBorehole.runs];
+    const baseRuns = Array.isArray(currentBorehole.runs) ? currentBorehole.runs : [];
+    const existingIndex = baseRuns.findIndex((r) => r.id === run.id);
+    let nextRuns = [...baseRuns];
     if (existingIndex >= 0) {
       nextRuns[existingIndex] = run;
     } else {
       nextRuns.push(run);
     }
     // Sort runs by depthFrom
-    nextRuns.sort((a, b) => a.depthFrom - b.depthFrom);
+    nextRuns.sort((a, b) => (a.depthFrom ?? 0) - (b.depthFrom ?? 0));
     // Renumber runs sequentially
     nextRuns = nextRuns.map((r, idx) => ({ ...r, runNumber: idx + 1 }));
 
@@ -1128,9 +1146,9 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
                 onChange={(e) => handleSelectBorehole(e.target.value)}
                 className="pl-3 pr-8 py-1 rounded-lg text-xs font-mono font-black bg-slate-800 text-slate-100 border border-slate-700 cursor-pointer appearance-none shadow-xs focus:border-orange-500 focus:outline-hidden"
               >
-                {boreholes.map((b) => (
+                {(boreholes.length > 0 ? boreholes : [currentBorehole]).map((b) => (
                   <option key={b.id} value={b.id} className="text-slate-100 bg-slate-900 font-bold">
-                    {b.boreholeId} ({b.chainageLabel || b.projectName || 'Log'})
+                    {b.boreholeId || 'BH-01'} ({b.chainageLabel || b.projectName || 'Log'})
                   </option>
                 ))}
               </select>
@@ -2733,8 +2751,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
               activeBoreholeId={currentBorehole.id}
               onSelectBorehole={handleSelectBorehole}
               onUpdateBoreholesList={(list) => {
-                setBoreholes(list);
-                saveBoreholeRecordsToStorage(list);
+                persistBoreholesForMode(list, list[0]?.id);
               }}
               onCreateNewHole={handleOpenCreateBorehole}
               onOpenReportForBorehole={(b) => {
@@ -3500,8 +3517,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
           activeBoreholeId={currentBorehole.id}
           onSelectBorehole={handleSelectBorehole}
           onUpdateBoreholesList={(list) => {
-            setBoreholes(list);
-            saveBoreholeRecordsToStorage(list);
+            persistBoreholesForMode(list, list[0]?.id);
           }}
           onCreateNewHole={handleOpenCreateBorehole}
           onOpenReportForBorehole={(b) => {
