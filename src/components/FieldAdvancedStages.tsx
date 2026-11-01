@@ -46,7 +46,10 @@ import {
   FieldTunnelLocationItem,
   GROUNDWATER_OPTIONS,
   INFILLING_OPTIONS,
+  isVerticalShaftLocation,
+  normalizeVerticalShaftCenterMedianStatus,
   normalizeVerticalShaftExcavationApproach,
+  normalizeVerticalShaftHalfSide,
   parseUploadedWordTemplateFile,
   PERSISTENCE_OPTIONS,
   ROUGHNESS_OPTIONS,
@@ -3933,15 +3936,17 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
     const rShaftPx = 92; // Leaves room for radial rock bolts (up to ~48px) and labels
     const pxPerMeter = (rShaftPx * 2) / shaftDiaM;
 
-    const shaftApproach = normalizeVerticalShaftExcavationApproach(
-      round?.excavationApproach || location.excavationApproach
-    );
+    const rawShaftApproach = String(round?.excavationApproach || '');
+    const shaftApproach = normalizeVerticalShaftExcavationApproach(rawShaftApproach);
     const isHalfShaft =
-      shaftApproach === 'Half Face — 1st & 2nd Quad (NE–ES)' ||
-      shaftApproach === 'Half Face — 3rd & 4th Quad (SW–WN)';
-    const activeHalfIsEast = shaftApproach === 'Half Face — 1st & 2nd Quad (NE–ES)';
+      shaftApproach === 'Half Face' || rawShaftApproach.startsWith('Half Face');
+    const activeHalfIsEast =
+      rawShaftApproach === 'Half Face — 1st & 2nd Quad (NE–ES)' ||
+      (isHalfShaft && round?.shaftHalfSide !== 'left_half');
     const medianDivisionCondition =
-      round?.shaftMedianDivisionCondition || location.shaftMedianDivisionCondition || 'closed';
+      round?.shaftCenterMedianStatus ||
+      (round as { shaftMedianDivisionCondition?: string })?.shaftMedianDivisionCondition ||
+      'closed';
 
     // Generate 1m perimeter tick marks starting from 0° North clockwise
     const total1mTicks = Math.floor(shaftPerimM);
@@ -4549,17 +4554,19 @@ export const FieldSupportSystem2DDrawingSvg: React.FC<{
           (support.spotBolts || []).map((sb, idx) => {
             let azDeg = sb.azimuthDeg;
             if (azDeg === undefined) {
-              if (sb.xMeters || sb.yMeters) {
+              const uNorm = Math.max(0.08, Math.min(0.92, Number.isFinite(sb.u) ? sb.u : 0.5));
+              if (sb.panel === 'left_wall') {
+                azDeg = uNorm * 90; // Q1 NE (0°–90°)
+              } else if (sb.panel === 'crown') {
+                azDeg = 90 + uNorm * 90; // Q2 ES (90°–180°)
+              } else if (sb.panel === 'right_wall') {
+                azDeg = 180 + uNorm * 90; // Q3 SW (180°–270°)
+              } else if (sb.panel === 'shaft_sn') {
+                azDeg = 270 + uNorm * 90; // Q4 WN (270°–360°)
+              } else if (sb.xMeters || sb.yMeters) {
                 azDeg = ((Math.atan2(sb.xMeters, sb.yMeters || 0.01) * 180) / Math.PI + 360) % 360;
               } else {
-                azDeg =
-                  sb.panel === 'crown'
-                    ? 45
-                    : sb.panel === 'right_wall'
-                    ? 135
-                    : sb.panel === 'face'
-                    ? 225
-                    : 315;
+                azDeg = 45;
               }
             }
             const azRad = (azDeg * Math.PI) / 180;
@@ -8233,18 +8240,117 @@ export const FieldSupportSystemStage: React.FC<{
                     strokeWidth="2"
                   />
 
-                  {/* Intermediate 3D Tunnel Shape Ribs */}
+                  {/* Shotcrete Lining Shell Indicator on 2.5D Tunnel / Shaft Profile */}
+                  {Boolean(support.shotcreteEnabled) && (
+                    <g pointerEvents="none">
+                      <polygon
+                        points={tunnel3DGeom.crownPointsStr}
+                        fill="#38bdf8"
+                        fillOpacity="0.14"
+                        stroke="#38bdf8"
+                        strokeWidth="2.8"
+                      />
+                      {support.shotcreteScope === 'crown_and_wall' && (
+                        <>
+                          <polygon
+                            points={tunnel3DGeom.leftWallPointsStr}
+                            fill="#38bdf8"
+                            fillOpacity="0.1"
+                            stroke="#38bdf8"
+                            strokeWidth="2.4"
+                          />
+                          <polygon
+                            points={tunnel3DGeom.rightWallPointsStr}
+                            fill="#38bdf8"
+                            fillOpacity="0.1"
+                            stroke="#38bdf8"
+                            strokeWidth="2.4"
+                          />
+                        </>
+                      )}
+                    </g>
+                  )}
+
+                  {/* Wire Mesh Grid Overlay on 2.5D Tunnel / Shaft Profile */}
+                  {Boolean(support.wireMeshEnabled) && (
+                    <g pointerEvents="none" stroke="#14b8a6" strokeOpacity="0.55" strokeWidth="1" strokeDasharray="2 2">
+                      {[0.2, 0.4, 0.6, 0.8].map((tFrac, mIdx) => {
+                        const pLOut = samplePointAlongPolyline(tunnel3DGeom.outerLeft, tFrac);
+                        const pLIn = samplePointAlongPolyline(tunnel3DGeom.innerLeft, tFrac);
+                        const pCOut = samplePointAlongPolyline(tunnel3DGeom.outerCrown, tFrac);
+                        const pCIn = samplePointAlongPolyline(tunnel3DGeom.innerCrown, tFrac);
+                        const pROut = samplePointAlongPolyline(tunnel3DGeom.outerRight, tFrac);
+                        const pRIn = samplePointAlongPolyline(tunnel3DGeom.innerRight, tFrac);
+                        return (
+                          <React.Fragment key={`mesh-25d-${mIdx}`}>
+                            <line x1={pCOut.x} y1={pCOut.y} x2={pCIn.x} y2={pCIn.y} />
+                            {support.wireMeshScope === 'crown_and_wall' && (
+                              <>
+                                <line x1={pLOut.x} y1={pLOut.y} x2={pLIn.x} y2={pLIn.y} />
+                                <line x1={pROut.x} y1={pROut.y} x2={pRIn.x} y2={pRIn.y} />
+                              </>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </g>
+                  )}
+
+                  {/* Intermediate 3D Tunnel / Shaft Ribs (Highlighted for Lattice Girder / ISMB Curb Ring) */}
                   {[tunnel3DGeom.ring33, tunnel3DGeom.ring67].map((ring, rIdx) => (
                     <path
                       key={`ring-3d-${rIdx}`}
                       d={ring.wallStrokePathD}
                       fill="none"
-                      stroke="#38bdf8"
-                      strokeOpacity="0.28"
-                      strokeWidth="1"
-                      strokeDasharray="3 2"
+                      stroke={
+                        support.ismbEnabled
+                          ? '#f59e0b'
+                          : support.latticeGirderEnabled
+                          ? '#a855f7'
+                          : '#38bdf8'
+                      }
+                      strokeOpacity={
+                        support.ismbEnabled || support.latticeGirderEnabled ? '0.92' : '0.28'
+                      }
+                      strokeWidth={
+                        support.ismbEnabled ? '3.0' : support.latticeGirderEnabled ? '2.2' : '1'
+                      }
+                      strokeDasharray={
+                        support.ismbEnabled
+                          ? undefined
+                          : support.latticeGirderEnabled
+                          ? '4 2'
+                          : '3 2'
+                      }
                     />
                   ))}
+
+                  {/* Systematic Pattern Rock Bolts on 2.5D Profile */}
+                  {Boolean(support.rockBoltsEnabled) &&
+                    [0.33, 0.67].map((tRing, rIdx) =>
+                      [0.2, 0.5, 0.8].map((uPos, bIdx) => {
+                        const cOut = samplePointAlongPolyline(tunnel3DGeom.outerCrown, uPos);
+                        const cIn = samplePointAlongPolyline(tunnel3DGeom.innerCrown, uPos);
+                        const bx = cOut.x + (cIn.x - cOut.x) * tRing;
+                        const by = cOut.y + (cIn.y - cOut.y) * tRing;
+                        const ang = (uPos - 0.5) * 1.1;
+                        const ex = bx + Math.sin(ang) * 16;
+                        const ey = by - Math.cos(ang) * 16;
+                        return (
+                          <g key={`sys-25d-${rIdx}-${bIdx}`} pointerEvents="none">
+                            <line
+                              x1={bx}
+                              y1={by}
+                              x2={ex}
+                              y2={ey}
+                              stroke="#3b82f6"
+                              strokeWidth="2"
+                            />
+                            <circle cx={bx} cy={by} r="2.8" fill="#60a5fa" stroke="#0f172a" strokeWidth="0.9" />
+                          </g>
+                        );
+                      })
+                    )}
                   {activeLocation.shape !== 'rectangular' && (
                     <g stroke="#38bdf8" strokeOpacity="0.55" strokeWidth="1.1" strokeDasharray="3 2">
                       <line
@@ -8691,25 +8797,87 @@ export const FieldSurveyOverbreakStage: React.FC<{
     [activeRound.surveyOverbreak, activeLocation]
   );
 
+  const isVertShaft =
+    isVerticalShaftLocation(activeLocation) ||
+    activeRound.undergroundSubMode === 'vertical_shaft';
+  const shaftApproach = normalizeVerticalShaftExcavationApproach(
+    activeRound.excavationApproach
+  );
+  const isShaftHalfFace = isVertShaft && shaftApproach === 'Half Face';
+  const shaftHalfSide =
+    activeRound.excavationApproach === 'Half Face — 3rd & 4th Quad (SW–WN)'
+      ? 'left_half'
+      : activeRound.excavationApproach === 'Half Face — 1st & 2nd Quad (NE–ES)'
+      ? 'right_half'
+      : normalizeVerticalShaftHalfSide(activeRound.shaftHalfSide);
+  const shaftMedianStatus = normalizeVerticalShaftCenterMedianStatus(
+    activeRound.shaftCenterMedianStatus ||
+      (activeRound as { shaftMedianDivisionCondition?: string })
+        .shaftMedianDivisionCondition
+  );
+
   const W = Math.max(2, activeLocation.widthM || 8);
-  const H = Math.max(2, activeLocation.heightM || 7);
+  const H = isVertShaft ? W : Math.max(2, activeLocation.heightM || 7);
   const pullM = Math.max(0.5, activeRound.pullLengthMeters || 3.0);
 
-  // Design tunnel face outline inside 600x460 SVG with proportional aspect ratio matching W x H
-  const maxBoxW = 430;
-  const maxBoxH = 350;
+  // Design tunnel / shaft face outline inside 600x460 SVG with proportional aspect ratio matching W x H
+  const maxBoxW = isVertShaft ? 330 : 430;
+  const maxBoxH = isVertShaft ? 330 : 350;
   const scalePxPerM = Math.min(maxBoxW / W, maxBoxH / H);
   const boxW = Math.round(W * scalePxPerM);
-  const boxH = Math.round(H * scalePxPerM);
+  const boxH = isVertShaft ? boxW : Math.round(H * scalePxPerM);
   const boxX = Math.round(300 - boxW / 2);
   const boxY = Math.round(230 - boxH / 2);
 
   const faceDetails = useMemo(
-    () => computeFaceTunnelOutlineDetails(activeLocation, boxX, boxY, boxW, boxH),
-    [activeLocation, boxX, boxY, boxW, boxH]
+    () =>
+      computeFaceTunnelOutlineDetails(
+        isVertShaft ? { ...activeLocation, shape: 'circular', heightM: W } : activeLocation,
+        boxX,
+        boxY,
+        boxW,
+        boxH
+      ),
+    [activeLocation, isVertShaft, W, boxX, boxY, boxW, boxH]
   );
 
   const designPolyPts = useMemo(() => {
+    if (isVertShaft) {
+      const cx = boxX + boxW / 2;
+      const cy = boxY + boxH / 2;
+      const r = boxW / 2;
+      if (isShaftHalfFace) {
+        const pts: { x: number; y: number }[] = [];
+        const steps = 24;
+        if (shaftHalfSide === 'right_half') {
+          // 0°N (-90° screen) to 180°S (+90° screen) clockwise
+          for (let i = 0; i <= steps; i++) {
+            const ang = -Math.PI / 2 + (i / steps) * Math.PI;
+            pts.push({
+              x: Number((cx + r * Math.cos(ang)).toFixed(1)),
+              y: Number((cy + r * Math.sin(ang)).toFixed(1)),
+            });
+          }
+        } else {
+          // 180°S (+90° screen) to 360°N (270° screen) clockwise
+          for (let i = 0; i <= steps; i++) {
+            const ang = Math.PI / 2 + (i / steps) * Math.PI;
+            pts.push({
+              x: Number((cx + r * Math.cos(ang)).toFixed(1)),
+              y: Number((cy + r * Math.sin(ang)).toFixed(1)),
+            });
+          }
+        }
+        return pts;
+      }
+      return Array.from({ length: 36 }, (_, idx) => {
+        const ang = -Math.PI / 2 + (idx / 36) * 2 * Math.PI;
+        return {
+          x: Number((cx + r * Math.cos(ang)).toFixed(1)),
+          y: Number((cy + r * Math.sin(ang)).toFixed(1)),
+        };
+      });
+    }
     const raw = [
       ...(faceDetails.leftWallPoly || []),
       ...(faceDetails.crownPoly || []),
@@ -8725,7 +8893,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
           { x: boxX + boxW, y: boxY + boxH * 0.45 },
           { x: boxX + boxW, y: boxY + boxH },
         ];
-  }, [faceDetails, boxX, boxY, boxW, boxH]);
+  }, [isVertShaft, isShaftHalfFace, shaftHalfSide, faceDetails, boxX, boxY, boxW, boxH]);
 
   // Shoelace polygon area in square meters
   const computePolygonAreaM2 = (pts: { x: number; y: number }[]) => {
@@ -8745,8 +8913,13 @@ export const FieldSurveyOverbreakStage: React.FC<{
   };
 
   const designAreaM2 = useMemo(
-    () => Number(computePolygonAreaM2(designPolyPts).toFixed(2)),
-    [designPolyPts, W, H]
+    () =>
+      isVertShaft
+        ? Number(
+            (isShaftHalfFace ? (Math.PI * W * W) / 8 : (Math.PI * W * W) / 4).toFixed(2)
+          )
+        : Number(computePolygonAreaM2(designPolyPts).toFixed(2)),
+    [isVertShaft, isShaftHalfFace, designPolyPts, W, H]
   );
 
   const paylineOffsetMm = survey.paylineOffsetMm ?? 150;
@@ -8754,8 +8927,11 @@ export const FieldSurveyOverbreakStage: React.FC<{
   const scaleX = boxW / Math.max(0.1, W);
   const scaleY = boxH / Math.max(0.1, H);
   const centroid = useMemo(
-    () => ({ x: boxX + boxW / 2, y: boxY + boxH * 0.55 }),
-    [boxX, boxW, boxY, boxH]
+    () => ({
+      x: boxX + boxW / 2,
+      y: isVertShaft ? boxY + boxH / 2 : boxY + boxH * 0.55,
+    }),
+    [isVertShaft, boxX, boxW, boxY, boxH]
   );
 
   const paylinePolyPts = useMemo(() => {
@@ -8769,8 +8945,16 @@ export const FieldSurveyOverbreakStage: React.FC<{
   }, [designPolyPts, paylineOffsetMm, scaleX, scaleY, centroid]);
 
   const paylineAreaM2 = useMemo(
-    () => Number(computePolygonAreaM2(paylinePolyPts).toFixed(2)),
-    [paylinePolyPts, boxX, boxW, boxY, boxH, W, H]
+    () =>
+      isVertShaft
+        ? Number(
+            (isShaftHalfFace
+              ? (Math.PI * Math.pow(W / 2 + paylineOffsetMm / 1000, 2)) / 2
+              : Math.PI * Math.pow(W / 2 + paylineOffsetMm / 1000, 2)
+            ).toFixed(2)
+          )
+        : Number(computePolygonAreaM2(paylinePolyPts).toFixed(2)),
+    [isVertShaft, isShaftHalfFace, paylineOffsetMm, paylinePolyPts, boxX, boxW, boxY, boxH, W, H]
   );
 
   // Automatically sync professional geological & overbreak description when entering stage if default or unpopulated
@@ -8859,7 +9043,9 @@ export const FieldSurveyOverbreakStage: React.FC<{
           overbreakContractStatus: 'exact_design',
         };
       } else {
-        const closedPts = [...pts, { x: boxX + boxW, y: boxY + boxH }, { x: boxX, y: boxY + boxH }];
+        const closedPts = isVertShaft
+          ? pts
+          : [...pts, { x: boxX + boxW, y: boxY + boxH }, { x: boxX, y: boxY + boxH }];
         const excavArea = computePolygonAreaM2(closedPts);
         const diffArea = excavArea - designAreaM2;
         const obArea = Number(Math.max(0, diffArea).toFixed(2));
@@ -8910,7 +9096,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
         // Compute max outward distance from design perimeter in meters
         let maxDepthM = 0;
         const centerSvgX = boxX + boxW / 2;
-        const centerSvgY = boxY + boxH * 0.6;
+        const centerSvgY = isVertShaft ? boxY + boxH / 2 : boxY + boxH * 0.6;
         for (const sp of pts) {
           let nearestDistM = Infinity;
           for (const dp of designPolyPts) {
@@ -8991,7 +9177,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
   // Helper to find nearest point on design polygon and the outward normal vector
   const getDesignNormalAtPoint = (pt: { x: number; y: number }) => {
     const centerSvgX = boxX + boxW / 2;
-    const centerSvgY = boxY + boxH * 0.6;
+    const centerSvgY = isVertShaft ? boxY + boxH / 2 : boxY + boxH * 0.6;
     let nearestDp = designPolyPts[0] || { x: centerSvgX, y: centerSvgY };
     let minD = Infinity;
     for (const dp of designPolyPts) {
@@ -9011,7 +9197,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
 
   const computePointDeviationMm = (pt: { x: number; y: number }): number => {
     const centerSvgX = boxX + boxW / 2;
-    const centerSvgY = boxY + boxH * 0.6;
+    const centerSvgY = isVertShaft ? boxY + boxH / 2 : boxY + boxH * 0.6;
     const { nearestDp } = getDesignNormalAtPoint(pt);
     const rPt = Math.hypot(pt.x - centerSvgX, pt.y - centerSvgY);
     const rDp = Math.hypot(nearestDp.x - centerSvgX, nearestDp.y - centerSvgY);
@@ -9078,6 +9264,11 @@ export const FieldSurveyOverbreakStage: React.FC<{
         return;
       }
     }
+    if (isVertShaft && isShaftHalfFace) {
+      const cx = boxX + boxW / 2;
+      if (shaftHalfSide === 'right_half' && coords.x < cx - 2) return;
+      if (shaftHalfSide === 'left_half' && coords.x > cx + 2) return;
+    }
     const xM = Number((((coords.x - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
     const yM = Number((((boxY + boxH - coords.y) / boxH) * H).toFixed(2));
     const devMm = computePointDeviationMm(coords);
@@ -9099,6 +9290,14 @@ export const FieldSurveyOverbreakStage: React.FC<{
         coords = { ...coords, y: Number(benchY.toFixed(1)) };
       }
     }
+    if (isVertShaft && isShaftHalfFace) {
+      const cx = boxX + boxW / 2;
+      if (shaftHalfSide === 'right_half' && coords.x < cx) {
+        coords = { ...coords, x: Number(cx.toFixed(1)) };
+      } else if (shaftHalfSide === 'left_half' && coords.x > cx) {
+        coords = { ...coords, x: Number(cx.toFixed(1)) };
+      }
+    }
     setHoverCoord(coords);
 
     if (draggingPointIdx !== null && survey.surveyPoints && draggingPointIdx < survey.surveyPoints.length) {
@@ -9118,12 +9317,16 @@ export const FieldSurveyOverbreakStage: React.FC<{
   const handleAutoSampleOverbreakTrace = () => {
     const samplePts = designPolyPts.map((p, idx) => {
       const cx = boxX + boxW / 2;
-      const cy = boxY + boxH * 0.65;
+      const cy = isVertShaft ? boxY + boxH / 2 : boxY + boxH * 0.65;
       const dx = p.x - cx;
       const dy = p.y - cy;
       const len = Math.hypot(dx, dy) || 1;
-      // Add realistic crown/shoulder overbreak (12–26px outward)
-      const extraPx = idx > 3 && idx < designPolyPts.length - 3 ? 18 + (idx % 3) * 5 : 4;
+      // Add realistic crown/shoulder/quadrant overbreak (12–26px outward)
+      const extraPx = isVertShaft
+        ? 10 + ((idx * 5) % 14)
+        : idx > 3 && idx < designPolyPts.length - 3
+        ? 18 + (idx % 3) * 5
+        : 4;
       const xVal = Number((p.x + (dx / len) * extraPx).toFixed(1));
       const yVal = Number((p.y + (dy / len) * extraPx).toFixed(1));
       const xM = Number((((xVal - (boxX + boxW / 2)) / boxW) * W).toFixed(2));
@@ -9145,14 +9348,18 @@ export const FieldSurveyOverbreakStage: React.FC<{
 
   const handleDownloadSampleTotalStationCsv = () => {
     const cx = boxX + boxW / 2;
-    const cy = boxY + boxH * 0.65;
+    const cy = isVertShaft ? boxY + boxH / 2 : boxY + boxH * 0.65;
     const rows = [
       'Point_ID,Zone,Design_X_m,Design_Y_m,Survey_X_m,Survey_Y_m,Deviation_mm',
       ...designPolyPts.map((p, idx) => {
         const dx = p.x - cx;
         const dy = p.y - cy;
         const len = Math.hypot(dx, dy) || 1;
-        const extraPx = idx > 3 && idx < designPolyPts.length - 3 ? 16 + (idx % 3) * 5 : 5;
+        const extraPx = isVertShaft
+          ? 12 + ((idx * 5) % 12)
+          : idx > 3 && idx < designPolyPts.length - 3
+          ? 16 + (idx % 3) * 5
+          : 5;
         const sx = p.x + (dx / len) * extraPx;
         const sy = p.y + (dy / len) * extraPx;
         const desXM = Number((((p.x - (boxX + boxW / 2)) / boxW) * W).toFixed(3));
@@ -9160,12 +9367,19 @@ export const FieldSurveyOverbreakStage: React.FC<{
         const survXM = Number((((sx - (boxX + boxW / 2)) / boxW) * W).toFixed(3));
         const survYM = Number((((boxY + boxH - sy) / boxH) * H).toFixed(3));
         const devMm = computePointDeviationMm({ x: sx, y: sy });
-        const zone =
-          desYM > H * 0.65
-            ? 'Crown'
-            : desXM < 0
-            ? 'Left_Wall'
-            : 'Right_Wall';
+        const zone = isVertShaft
+          ? desXM >= 0 && desYM >= H / 2
+            ? 'Q1_NE_0_90'
+            : desXM >= 0 && desYM < H / 2
+            ? 'Q2_ES_90_180'
+            : desXM < 0 && desYM < H / 2
+            ? 'Q3_SW_180_270'
+            : 'Q4_WN_270_360'
+          : desYM > H * 0.65
+          ? 'Crown'
+          : desXM < 0
+          ? 'Left_Wall'
+          : 'Right_Wall';
         return `P${idx + 1},${zone},${desXM},${desYM},${survXM},${survYM},${devMm}`;
       }),
     ];
@@ -9731,11 +9945,14 @@ export const FieldSurveyOverbreakStage: React.FC<{
               {/* Shaded Overbreak Area Polygon (Behind Design Profile) */}
               {(survey.surveyPoints || []).length >= 3 && (
                 <polygon
-                  points={[
-                    ...(survey.surveyPoints || []),
-                    { x: boxX + boxW, y: boxY + boxH },
-                    { x: boxX, y: boxY + boxH },
-                  ]
+                  points={(isVertShaft
+                    ? survey.surveyPoints || []
+                    : [
+                        ...(survey.surveyPoints || []),
+                        { x: boxX + boxW, y: boxY + boxH },
+                        { x: boxX, y: boxY + boxH },
+                      ]
+                  )
                     .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
                     .join(' ')}
                   fill={
@@ -9749,7 +9966,7 @@ export const FieldSurveyOverbreakStage: React.FC<{
                 />
               )}
 
-              {/* Design Tunnel Face Outline */}
+              {/* Design Tunnel / Circular Vertical Shaft Face Outline */}
               <polygon
                 points={designPolyPts
                   .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
@@ -9759,17 +9976,105 @@ export const FieldSurveyOverbreakStage: React.FC<{
                 strokeWidth="2.6"
               />
 
+              {/* Vertical Shaft 4-Quadrant & Half-Face Hatched Unexcavated Overlay */}
+              {isVertShaft && (() => {
+                const cx = boxX + boxW / 2;
+                const cy = boxY + boxH / 2;
+                const r = boxW / 2;
+                const unexcavPath =
+                  shaftHalfSide === 'right_half'
+                    ? `M ${cx} ${cy - r} A ${r} ${r} 0 0 0 ${cx} ${cy + r} Z`
+                    : `M ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx} ${cy + r} Z`;
+                return (
+                  <g pointerEvents="none">
+                    <defs>
+                      <pattern
+                        id={`shaft-surv-hatch-${activeRound.id}`}
+                        width="10"
+                        height="10"
+                        patternTransform="rotate(45 0 0)"
+                        patternUnits="userSpaceOnUse"
+                      >
+                        <line x1="0" y1="0" x2="0" y2="10" stroke="#475569" strokeWidth="2.2" />
+                      </pattern>
+                    </defs>
+                    {isShaftHalfFace && (
+                      <>
+                        <path
+                          d={unexcavPath}
+                          fill={`url(#shaft-surv-hatch-${activeRound.id})`}
+                          opacity={shaftMedianStatus === 'closed' ? 0.55 : 0.25}
+                          stroke="#475569"
+                          strokeWidth="1.8"
+                          strokeDasharray="5 3"
+                        />
+                        <line
+                          x1={cx}
+                          y1={cy - r}
+                          x2={cx}
+                          y2={cy + r}
+                          stroke={shaftMedianStatus === 'closed' ? '#d97706' : '#0284c7'}
+                          strokeWidth="2.8"
+                          strokeDasharray={shaftMedianStatus === 'closed' ? undefined : '7 4'}
+                        />
+                        <text
+                          x={cx + (shaftHalfSide === 'right_half' ? -r * 0.48 : r * 0.48)}
+                          y={cy}
+                          textAnchor="middle"
+                          fontSize="9"
+                          fontWeight="900"
+                          fontFamily="IBM Plex Mono, monospace"
+                          fill="#334155"
+                          stroke="#ffffff"
+                          strokeWidth="2.5"
+                          paintOrder="stroke"
+                        >
+                          {shaftMedianStatus === 'closed' ? 'UNEXCAVATED ROCK' : 'ALREADY EXCAVATED'}
+                        </text>
+                      </>
+                    )}
+                    {/* 0°N, 90°E, 180°S, 270°W Cardinal Badges & Quadrant Labels */}
+                    <text x={cx} y={cy - r - 8} textAnchor="middle" fontSize="9.5" fontWeight="900" fontFamily="monospace" fill="#0f172a">
+                      0° N
+                    </text>
+                    <text x={cx + r + 10} y={cy + 3} textAnchor="start" fontSize="9.5" fontWeight="900" fontFamily="monospace" fill="#0f172a">
+                      90° E
+                    </text>
+                    <text x={cx} y={cy + r + 14} textAnchor="middle" fontSize="9.5" fontWeight="900" fontFamily="monospace" fill="#0f172a">
+                      180° S
+                    </text>
+                    <text x={cx - r - 10} y={cy + 3} textAnchor="end" fontSize="9.5" fontWeight="900" fontFamily="monospace" fill="#0f172a">
+                      270° W
+                    </text>
+                    <text x={cx + r * 0.52} y={cy - r * 0.52} textAnchor="middle" fontSize="8.5" fontWeight="800" fontFamily="monospace" fill="#0369a1">
+                      Q1 NE (0°–90°)
+                    </text>
+                    <text x={cx + r * 0.52} y={cy + r * 0.58} textAnchor="middle" fontSize="8.5" fontWeight="800" fontFamily="monospace" fill="#047857">
+                      Q2 ES (90°–180°)
+                    </text>
+                    <text x={cx - r * 0.52} y={cy + r * 0.58} textAnchor="middle" fontSize="8.5" fontWeight="800" fontFamily="monospace" fill="#b45309">
+                      Q3 SW (180°–270°)
+                    </text>
+                    <text x={cx - r * 0.52} y={cy - r * 0.52} textAnchor="middle" fontSize="8.5" fontWeight="800" fontFamily="monospace" fill="#6d28d9">
+                      Q4 WN (270°–360°)
+                    </text>
+                  </g>
+                );
+              })()}
+
               {/* Dotted Bench Line & Hatched Bench / Top Portion on top of Design Tunnel Outline */}
-              <FieldTunnelBenchHatchAndLineSvg
-                location={activeLocation}
-                round={activeRound}
-                boxX={boxX}
-                boxY={boxY}
-                boxW={boxW}
-                boxH={boxH}
-                clipPathD={faceDetails.closedFillPathD}
-                idSuffix={`survey-ob-top-${activeRound.id}`}
-              />
+              {!isVertShaft && (
+                <FieldTunnelBenchHatchAndLineSvg
+                  location={activeLocation}
+                  round={activeRound}
+                  boxX={boxX}
+                  boxY={boxY}
+                  boxW={boxW}
+                  boxH={boxH}
+                  clipPathD={faceDetails.closedFillPathD}
+                  idSuffix={`survey-ob-top-${activeRound.id}`}
+                />
+              )}
 
               {/* Connected Survey Trace & Located Survey Points */}
               {(survey.surveyPoints || []).length >= 2 && (

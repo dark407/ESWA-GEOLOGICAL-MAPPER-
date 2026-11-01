@@ -15293,6 +15293,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               surfaceParams={surfaceParams}
               surfaceSmrAnalysis={surfaceSmrAnalysis}
               activeExcavationApproach={activeRound?.excavationApproach || 'full_face'}
+              isVerticalShaft={isVerticalShaftMode || activeLocation?.undergroundSubMode === 'vertical_shaft'}
+              shaftHalfSide={normalizeVerticalShaftHalfSide(activeRound?.shaftHalfSide)}
+              shaftCenterMedianStatus={normalizeVerticalShaftCenterMedianStatus(activeRound?.shaftCenterMedianStatus)}
               geometry={(() => {
                 const baseShape =
                   activeLocation?.shape === 'horseshoe'

@@ -1,141 +1,147 @@
-# Zero-Default Strict Parameter Input & "Not Selected" Verification Plan
+# Over NATM — Continuous 3D Logging & Unified 6-Stage Geotechnical Pipeline Plan
 
-Comprehensive architectural and user-experience plan to eliminate synthetic pre-selected defaults across the entire application lifecycle (Project Setup, Tunnel Geometry, Lithology, Barton Q, Bieniawski RMR89, and Hoek-Brown GSI), enforcing high-contrast amber "Not Selected" indicators and strict "Not Assessed" classification gates.
+A unified, 6-stage geotechnical engineering pipeline that synchronizes logged excavation rounds from **Underground Face Mapping** into **Over NATM Continuous 3D Logging** across both **Tunnel (Horizontal / Inclined)** and **Vertical Shaft (Circular / Half-Circle)** excavations—progressing seamlessly from Round Selection & Sync through Clean ESWA 3D CAD Editing, High-Precision 3D Joint Inspection, Continuous Full-Length FEM/DEM Verification, Advanced Longitudinal Analysis, and the Final A3 Landscape Report.
 
 ---
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following decisions were explicitly confirmed by the user in Phase 1 clarification:
-> - **Scope of Zero Defaults**: Applied universally across **All workflows** (Project Setup, Heading / Tunnel Geometry, Field Excavation Rounds, Lithology / Discontinuity parameters, and Geotechnical Classifications).
-> - **Unselected State Representation**: Whenever an option or field is unchosen, render a high-contrast amber status badge: `Not Selected · Tap to Choose / Enter`, with an active prompt banner indicating completion is required.
-> - **Classification Evaluation Invariant**: When any mandatory classification parameter is unselected, Barton Q, Bieniawski RMR, and Hoek-Brown GSI strictly evaluate to `Not Assessed` (never defaulting to partial synthetic scores or dummy fallback values).
-
-- **Confirmed Decision 1**: Fields will no longer initialize with synthetic boilerplate values (e.g., no default 135° drive azimuth, no auto-selected "Quartzite", no pre-checked "Dripping" water condition, and no pre-filled Barton Q numbers).
-- **Confirmed Decision 2**: Interactive controls (segmented buttons, dropdown pickers, and numeric fields) will support an explicit empty/unselected initial state `null | undefined` with amber `Not Selected` visual indicators.
+> The following architectural and UX decisions were explicitly confirmed by the user during Phase 1 clarification:
+> - **Unified 6-Step Wizard Navigation**: All 6 stages (`1. Setup & Sync` → `2. ESWA 3D CAD` → `3. 3D Analysis & Joint Inspector` → `4. Continuous FEM/DEM` → `5. Advanced Analysis` → `6. A3 Report`) are organized into a unified workspace with a persistent top step bar so engineers can advance sequentially or jump back to refine edits at any time.
+> - **Unlogged Chainage / Depth Gaps**: Whenever an RD chainage or shaft depth interval is missing between logged rounds, the interval is preserved at true scale as a **blank white/dark gap bounded by dashed RD/depth lines**—never filled with synthetic rock data or collapsed.
+> - **Vertical Shaft 2D Strip Unfolding**: In Vertical Shaft mode, the 2D continuous strip log inside ESWA CAD and the A3 Report unfolds the cylindrical shaft wall into **4 compass-quadrant columns (`1. NE 0°–90°`, `2. ES 90°–180°`, `3. SW 180°–270°`, `4. WN 270°–360°`)** arranged vertically by sink depth (or active half-circle quadrants when Half-Circle mode is used).
+> - **Continuous Full-Length FEM/DEM Visualization**: Stage 4 renders both a **Continuous Longitudinal Profile** along the entire selected chainage/depth and **Per-Round Cross-Section Slices** comparing **Before Support (Unreinforced)** vs. **After Support (Reinforced)** stress, displacement, plastic radius, and Safety Factor.
 
 ---
 
 ## 1. Overview & Core Concept
 
-Underground tunnel and mine mapping requires absolute engineering accountability. If software automatically pre-populates default rock mass parameters (such as $RQD = 75\%$, $J_n = 9$, or D-shaped 8.5m geometry), an engineer might unknowingly export reports with synthetic data rather than site-verified physical measurements.
+In NATM and underground shaft sinking, geotechnical engineers map individual advance pulls in **Underground Face Mapping** and then synthesize those rounds into a continuous 3D/2D geological strip record to evaluate structural continuity, design support transitions, and issue certified A3 engineering logs.
 
-This update transitions the entire application to an **Explicit Field Assessment Architecture**:
-1. **Zero Pre-Selected Defaults**: All new projects, heading locations, excavation rounds, geometric cross-sections, and geotechnical matrices start in an unselected, clean state.
-2. **Prominent "Not Selected" Visual Cues**: Any unchosen option displays a high-visibility amber badge (`bg-amber-950/40 border border-amber-500/50 text-amber-300 font-mono text-xs`) prompting the user to feed authentic data.
-3. **Calculated Gating & Audit Readiness**: Rock mass classification ratings (Barton Q, RMR89, GSI) remain strictly flagged as `Not Assessed` until 100% of required parameters are explicitly entered by the geologist.
+Previously, the Continuous 3D Logging workflow was loosely coupled, tunnel-centric, and suffered from visual label clutter inside the CAD strip canvas. This upgrade establishes a **single, common 6-stage workflow** that adapts automatically to **Tunnel** and **Vertical Shaft** geometries:
+
+1. **Stage 1 — Excavation Mode, Project, Location & RD / Depth Range Sync**: Toggle between **Tunnel** and **Vertical Shaft**, filter saved projects and locations accordingly, inspect all logged face/sink rounds with their exact pull intervals (`fromRd` to `toRd`), and choose the target **From RD/Depth** and **To RD/Depth** range.
+2. **Stage 2 — Clean ESWA 3D CAD Strip Log Editor**: Syncs the selected pulls directly into a clutter-free 2D/3D strip canvas. Unlogged intervals remain blank with dashed RD boundary lines. Provides full interactive CAD tools directly on the strip canvas: **Edit Text / Callouts**, **Delete**, **Move Joint**, **Merge Joints** (across adjacent pulls), **Expand / Extend Joint** (drag endpoints or extrapolate across pulls), **Draw Joint**, and **Edit Dip/Strike**.
+3. **Stage 3 — Complete 3D Analysis & High-Precision 3D Joint Inspection**: Interactive 3D tunnel arch or vertical cylindrical/half-circle shaft viewport where every continuous joint plane, fault zone, and lithology boundary is reconstructed in 3D space. Engineers can isolate and inspect any joint with high precision—viewing its true 3D cutting plane, dip/dip-direction (or strike hinge), persistence across rounds, and kinematic wedge intersection.
+4. **Stage 4 — Continuous Full-Length FEM / DEM Analysis (Before & After Support)**: Uses the continuous chain of rock mass parameters ($Q$, RMR, GSI, $\sigma_{ci}$, overburden $H$) and installed support details (bolts, shotcrete, steel ribs, curb ring) per round along the entire selected length to compute high-precision **Before Support** vs. **After Support** elasto-plastic FEM and discrete-block DEM behavior.
+5. **Stage 5 — Continuous Advanced Geotechnical Analysis**: Multi-round longitudinal analytics derived from the synced chainage/depth dataset—including longitudinal $Q$/RMR/GSI profiles, support pressure demand vs. installed capacity, kinematic wedge factor-of-safety along chainage/depth, stand-up time & active span checks, water inflow profile, and look-ahead/sink ahead hazard forecasting.
+6. **Stage 6 — Final A3 Landscape Continuous Engineering Report**: Print-ready ISO A3 engineering sheet integrating the edited CAD strip log (Tunnel 3-zone or Shaft 4-quadrant layout), true-scale blank unlogged gaps, 3D joint inspection schedule, continuous FEM/DEM verification summary, and per-round rock mass & support ledger.
 
 ---
 
 ## 2. User Experience & Visual Design
 
-### Key User Flows
+### End-to-End 6-Stage User Flow
 
 ```
-┌────────────────────────────────┐
-│  New Project / Round Launch    │ ──> All parameters blank / unselected
-└───────────────┬────────────────┘
-                │
-                ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Visual State: "Not Selected" Amber Indicators                │
-│ • Tunnel Shape: [Not Selected ⚠️]                           │
-│ • Drive Azimuth: [___° · Required]                          │
-│ • Lithology: [Not Selected · Tap to Assign]                 │
-│ • Q-System: [Not Assessed — 6 Parameters Missing]           │
-└───────────────┬─────────────────────────────────────────────┘
-                │
-                ▼ (User feeds real data)
-┌─────────────────────────────────────────────────────────────┐
-│ Real-Time Verification & Bound Clamping                     │
-│ • Verified Azimuth [000°–360°]                              │
-│ • Validated ISRM / Barton Param [Jn, Jr, Ja, Jw, SRF]       │
-│ • Status updates to [Verified ✓ Emerald]                    │
-└───────────────┬─────────────────────────────────────────────┘
-                │
-                ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Final Classification & Verified Export                      │
-│ • Barton Q & RMR89 calculate only when complete             │
-│ • Data Sheets & Reports export 100% authentic site records  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                     OVER NATM — CONTINUOUS 3D LOGGING WIZARD                     │
+│  [1. Setup & Sync] ──> [2. ESWA 3D CAD] ──> [3. 3D Joint Inspector]              │
+│        ──> [4. Continuous FEM/DEM] ──> [5. Advanced Analysis] ──> [6. A3 Report] │
+└────────────────────────────────────────┬─────────────────────────────────────────┘
+                                         │
+       ┌─────────────────────────────────┼─────────────────────────────────┐
+       ▼                                 ▼                                 ▼
+┌────────────────────────────┐  ┌──────────────────────────┐  ┌────────────────────────────┐
+│ Stage 1: Mode & Range Sync │  │ Stage 2: Clean ESWA CAD  │  │ Stage 3: 3D Joint Inspect  │
+│ • Toggle: Tunnel | Shaft   │  │ • Zero clutter strip log │  │ • 3D Tunnel / Shaft mesh   │
+│ • Select Project & Location│  │ • Blank dashed RD gaps   │  │ • Click any joint plane    │
+│ • View logged pulls table  │  │ • Edit Text, Delete,     │  │ • True 3D plane cutting,   │
+│ • Pick From RD → To RD     │  │   Move, Merge, Expand    │  │   dip/strike & wedge check │
+└──────────────┬─────────────┘  └─────────────┬────────────┘  └──────────────┬─────────────┘
+               │                              │                              │
+               └──────────────────────────────┼──────────────────────────────┘
+                                              ▼
+       ┌──────────────────────────────────────┼────────────────────────────────────┐
+       ▼                                      ▼                                    ▼
+┌────────────────────────────┐  ┌──────────────────────────┐  ┌────────────────────────────┐
+│ Stage 4: Full FEM / DEM    │  │ Stage 5: Advanced Geotech│  │ Stage 6: Final A3 Report   │
+│ • Longitudinal profile     │  │ • Multi-round Q/RMR/GSI  │  │ • Synced CAD strip diagram │
+│   (Before vs After Support)│  │ • Kinematic wedge profile│  │ • Unlogged RD gap markers  │
+│ • Per-round 2D/3D cross-   │  │ • Stand-up time, water   │  │ • Joint & FEM/DEM tables   │
+│   section slice inspector  │  │   inflow & look-ahead    │  │ • Vector SVG / Print export│
+└────────────────────────────┘  └──────────────────────────┘  └────────────────────────────┘
 ```
 
-### Visual Identity & Theme Tokens
-- **"Not Selected" Badge**: High-contrast amber warning badge adhering to the anti-slop guidelines:
-  ```css
-  bg-amber-950/40 border border-amber-500/60 text-amber-300 font-mono text-xs px-2.5 py-1 rounded
-  ```
-- **"Not Assessed" Indicator**: Quiet slate badge for incomplete ratings:
-  ```css
-  bg-slate-900/60 border border-slate-700 text-slate-400 font-mono text-xs px-2.5 py-1 rounded
-  ```
-- **Prompt Banner**: Warning toast / banner above action buttons if the user attempts to proceed without selecting required fields:
-  ```css
-  bg-amber-500/10 border-l-4 border-amber-500 p-3 text-amber-200 text-xs font-mono
-  ```
+### Visual Design & Anti-Clutter Principles
+- **Clean Strip Canvas Contract**: Inside the Stage 2 ESWA 3D CAD canvas and Stage 6 A3 strip diagram, intrusive floating badges, overlapping multi-line joint callout boxes, and decorative telemetry clutter are eliminated. Joint traces render as crisp structural polylines with compact, non-overlapping dip/strike ticks (`J1 65°/140°`) and user-positioned text annotations.
+- **Unlogged Gap Visualization**: Missing RD/depth intervals between logged rounds render as clean, uncoloured intervals bounded by dashed horizontal/vertical chainage lines (`stroke-dasharray="6,4"`) with a subtle centered annotation (`UNLOGGED INTERVAL: RD 120.0m – 125.0m`) so spatial scale is 100% preserved.
+- **Tabular Engineering Numerals**: All chainage/depth readouts, dip/dip-direction angles, FEM displacements ($u_{max}$ in $\text{mm}$), plastic radii ($R_p$ in $\text{m}$), and Factors of Safety ($FoS$) enforce `tabular-nums` (`font-mono`) for vertical alignment across tables and longitudinal charts.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-### Decision 1: Nullable Parameter Types vs. Zero Sentinel Values
-- **Chosen Approach**: Transition `RmrParameters`, `QIndexParameters`, and `TunnelSettings` to strictly support nullable fields (`null | undefined`) rather than using `0` as an unassigned sentinel.
-- **Why**: In rock mechanics, `0` is a valid mathematical value (e.g., $0^\circ$ True North drive azimuth, $0\text{ MPa}$ UCS lower bound, or $0\text{ mm}$ shotcrete). Using `0` creates dangerous ambiguity between "user entered zero" and "unassigned default". `null` guarantees intentionality.
+### Decision 1: Live Bidirectional State Across All 6 Stages
+- **Chosen Approach**: Edits performed in **Stage 2 (ESWA 3D CAD)**—such as merging two joint segments across adjacent rounds, extending a joint trace with the Expand tool, deleting an artifact trace, or editing text annotations—immediately update the shared `ContinuousTunnelStripDataset` state consumed by **Stage 3 (3D Joint Inspection)**, **Stage 4 (Continuous FEM/DEM)**, **Stage 5 (Advanced Analysis)**, and **Stage 6 (A3 Report)**.
+- **Why**: Guarantees a single source of truth so engineers never see stale traces when moving from CAD editing to 3D kinematic inspection or final A3 printing.
 
-### Decision 2: Clear "Tap to Select" Segmented Controls
-- **Chosen Approach**: Segmented button groups (such as Shape selection: D-Shaped, Horseshoe, Circular, or Excavation Approach: Full Face, Heading & Bench) will initialize with none active if unchosen, displaying an amber `Not Selected` prompt above the group until the user makes an explicit selection.
-- **Why**: Eliminates passive acceptance of whichever button was first in the DOM list.
+### Decision 2: Geometry-Aware Unfolding for Tunnel vs. Vertical Shaft
+- **Chosen Approach**:
+  - **Tunnel Mode**: Unfolds the arch perimeter into `Left Wall | Crown | Right Wall` along horizontal chainage (`From RD` $\rightarrow$ `To RD`), while respecting Top Heading vs. Benching excavation masks.
+  - **Vertical Shaft Mode**: Unfolds the circular ($360^\circ$) or half-circle ($180^\circ$ with median wall) shaft perimeter into compass quadrants (`1. NE 0°–90° | 2. ES 90°–180° | 3. SW 180°–270° | 4. WN 270°–360°`) progressing downward by depth (`From Depth` $\rightarrow$ `To Depth`).
+- **Why**: Preserves exact azimuthal orientation and spatial continuity for both horizontal drives and vertical shafts without distorting joint intersections.
 
-### Decision 3: Non-Blocking Mapping vs. Strict Classification Gating
-- **Chosen Approach**: Allow geologists to freely trace joint lines and sketch on the CAD canvas even if geotechnical classification parameters are still pending; but strictly gate the Q-System, RMR, and GSI classification results as `Not Assessed` on all canvases, inspection sheets, and exports.
-- **Why**: Respects rapid field workflows where joint geometry is traced at the face first, and laboratory UCS or joint surface roughness index is assessed later at the site office.
+### Decision 3: Dedicated "Expand / Extend Joint" CAD Tool Alongside Move & Merge
+- **Chosen Approach**: Add a dedicated **Expand Joint (`expand_joint`)** tool in Stage 2 ESWA CAD that lets the user drag either endpoint of a joint trace or extrapolate it across adjacent pull boundaries along its true dip/strike trajectory, complementing **Move Joint**, **Merge Joints**, **Edit Text**, and **Delete**.
+- **Why**: In continuous strip logging, a major discontinuity mapped in Round $N$ often projects into Round $N+1$; allowing direct endpoint expansion and cross-pull merging makes continuous structural correlation fast and accurate.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                             Global State Store                              │
-│  • TunnelSettings: { driveDirection: number | null, ... }                   │
-│  • TunnelGeometry: { width: number | null, height: number | null, ... }     │
-│  • QIndexParameters: { rqd: number | null, jn: number | null, ... }        │
-│  • ParameterInputStatus: Record<ParamKey, 'assessed' | 'not_assessed'>      │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │
-                   ┌───────────────────┴───────────────────┐
-                   ▼                                       ▼
-┌──────────────────────────────────────┐  ┌───────────────────────────────────┐
-│     Project & Geotech Modal UI       │  │   Field Mapping Mode Workspace    │
-│ • ClampedNumericInput (empty state)  │  │ • Empty-state segmented controls  │
-│ • Amber "Not Selected" badges        │  │ • Unassigned Lithology / Water    │
-│ • Real-time field prompts            │  │ • Explicit selection triggers     │
-└──────────────────┬───────────────────┘  └─────────────────┬─────────────────┘
-                   │                                        │
-                   └───────────────────┬────────────────────┘
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                   Rock Mass Classification Engine Check                     │
-│   evaluateQSystemWithValidation() / calculateBieniawskiRmr()                │
-│   • If ANY required field is null/unassessed -> isComplete = false          │
-│   • Returns: qValue = null, label = "Not Assessed"                          │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │
-                   ┌───────────────────┴───────────────────┐
-                   ▼                                       ▼
-┌──────────────────────────────────────┐  ┌───────────────────────────────────┐
-│    Engineering Sheet (SVG / Canvas)  │  │    PDF & Word Export Engine       │
-│ • Amber / Slate "Not Assessed" box   │  │ • Clean ISO tables:               │
-│ • Zero synthetic default values      │  │   "Not Assessed" across all rows  │
-└──────────────────────────────────────┘  └───────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                 Underground Face Mapping Saved Projects & Rounds                  │
+│   • Excavation Mode: 'TUNNEL' | 'SHAFT' (Full Circle / Half-Circle + Median)      │
+│   • Per-Round Pull: { fromRd, toRd, joints, lithology, Q, RMR, GSI, support, H }  │
+└─────────────────────────────────────────┬─────────────────────────────────────────┘
+                                          │
+                                          ▼
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│          Continuous 3D Strip Synchronization & Gap Detection Engine               │
+│   • Filters by Mode (Tunnel vs Shaft) -> Project -> Location -> [From RD, To RD]  │
+│   • Sorts rounds by RD/Depth and detects unlogged intervals                       │
+│   • Emits MAPPED pulls + MISSING_GAP intervals (true-scale blank intervals)       │
+│   • Reconstructs 2D unfolded coordinates & 3D spatial joint planes                │
+└─────────────────────────────────────────┬─────────────────────────────────────────┘
+                                          │
+        ┌─────────────────────────────────┼─────────────────────────────────┐
+        ▼                                 ▼                                 ▼
+┌───────────────────────┐     ┌───────────────────────┐     ┌───────────────────────┐
+│ Stage 2: ESWA 3D CAD  │     │ Stage 3: 3D Inspector │     │ Stages 4 & 5: Continuous│
+│ • Clean 2D/3D Canvas  │     │ • 3D Tunnel / Shaft   │     │ FEM/DEM & Adv Geotech │
+│ • Move / Merge /      │────>│   Mesh + Joint Planes │────>│ • Per-round & full-   │
+│   Expand / Delete /   │     │ • Precision Plane     │     │   length Before vs    │
+│   Edit Text & Strike  │     │   & Wedge Inspector   │     │   After Support solver│
+└───────────┬───────────┘     └───────────┬───────────┘     └───────────┬───────────┘
+            │                             │                             │
+            └─────────────────────────────┼─────────────────────────────┘
+                                          ▼
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                   Stage 6: Final A3 Landscape Engineering Report                  │
+│   • Renders Clean Edited Strip Log + Dashed Blank Gaps + 3D Projection            │
+│   • Includes Continuous FEM/DEM Support Verification & Rock Mass Summary Table    │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Components to Update in Execution Phase:
-1. `src/types/tunnel.ts`: Allow nullable parameter values in `TunnelSettings`, `TunnelGeometry`, `RmrParameters`, and `QIndexParameters`.
-2. `src/engine/rockMassClassificationEngine.ts`: Update default parameter initializers to return unassessed (`null`) states, with validation checks ensuring no calculation occurs until all mandatory parameters are populated.
-3. `src/components/ClampedNumericInput.tsx`: Enhance support for empty/null states with an amber `Not Selected · Tap to Enter` badge and clear input placeholder.
-4. `src/components/ProjectConfigurationAndGeotechModal.tsx`: Render amber `Not Selected` indicators for unselected dropdowns and segmented controls; display prompt banners for missing data.
-5. `src/components/FieldMappingModeWorkspace.tsx`: Initialize new projects, locations, and rounds with zero defaults, showing `Not Selected` indicators across form fields.
-6. `src/engine/pdfAndWordExportEngine.ts` & `src/components/EngineeringSheetModal.tsx`: Maintain the strict `Not Assessed` status across all export channels.
+### Core Engineering Modules in Execution Phase
+1. **Stage 1 Setup & Range Sync**:
+   - Mode switcher (`Tunnel` vs. `Vertical Shaft`) that filters available projects/locations and displays a visual pull coverage timeline highlighting mapped rounds (`MAPPED`) and unlogged gaps (`MISSING_GAP`) between the chosen `From RD` and `To RD`.
+2. **Stage 2 Clean ESWA 3D CAD Strip Editor**:
+   - Decluttered 2D unfolded strip log and synchronized 3D preview supporting both Tunnel (`Left Wall | Crown | Right Wall`) and Vertical Shaft (`NE | ES | SW | WN` or Half-Circle + Median Wall).
+   - Interactive CAD toolset: **Select**, **Draw Joint**, **Move Joint**, **Expand / Extend Joint** (endpoint drag & cross-pull projection), **Merge Joints**, **Edit Dip/Strike**, **Edit Text / Annotation**, and **Delete**.
+   - True-scale blank rendering for `MISSING_GAP` intervals with dashed RD/depth boundary lines.
+3. **Stage 3 Complete 3D Analysis & High-Precision Joint Inspector**:
+   - Interactive Three.js 3D viewport rendering the full chainage/depth excavation geometry, lithology zones, and true 3D dipping joint discs/planes slicing the excavation perimeter.
+   - High-precision Joint Inspection Drawer displaying selected joint true dip/dip-direction, strike hinge, persistence length across pulls, JRC/JCS roughness, aperture/filling, and 3D tetrahedral wedge kinematics ($FoS$, sliding vector, block volume).
+4. **Stage 4 Continuous Full-Length FEM / DEM Analysis (Before & After Support)**:
+   - Continuous analytical/numerical elasto-plastic FEM & discrete-element DEM solver evaluating every mapped pull along the selected chainage/depth using each round's rock mass properties ($Q$, RMR, GSI, $\sigma_{ci}$, $m_i$, $D$, overburden $H$) and installed support (bolt length/spacing, shotcrete thickness, steel sets/curb ring).
+   - Dual-view visualization:
+     - **Longitudinal Profile View**: Full-length chainage/depth plots comparing **Before Support (Unreinforced)** vs. **After Support (Reinforced)** crown/wall displacement ($u_{max}$), plastic zone radius ($R_p$), support pressure vs. capacity, and Factor of Safety ($FoS$).
+     - **Per-Round Cross-Section Slice View**: Interactive 2D/3D FEM/DEM contour and block-stability cross-section for any clicked pull along the profile (adapting accurately to Tunnel arch/heading/bench or Shaft circular/half-circle geometry).
+5. **Stage 5 Continuous Advanced Geotechnical Analysis**:
+   - Multi-round longitudinal profile of Barton $Q$, Bieniawski RMR89, and Hoek-Brown GSI, kinematic wedge mobilization risk along chainage/depth, stand-up time vs. unsupported span envelope, groundwater inflow estimation, and look-ahead/sink-ahead hazard forecast.
+6. **Stage 6 Final A3 Continuous Engineering Report**:
+   - ISO A3 landscape report uniting the edited CAD strip log, dashed blank unlogged intervals, 3D structural block diagram, continuous FEM/DEM Before/After verification table, and rock mass classification schedule with vector SVG and print/PDF export.

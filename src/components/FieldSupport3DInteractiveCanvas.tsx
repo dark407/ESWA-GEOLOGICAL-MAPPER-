@@ -28,8 +28,12 @@ import {
   FieldSupportSystemConfig,
   FieldTunnelLocationItem,
   getLocationSurfaceConfig,
-  normalizeVerticalShaftExcavationApproach,
 } from '../engine/fieldMappingEngine';
+import {
+  normalizeVerticalShaftExcavationApproach,
+  normalizeVerticalShaftHalfSide,
+  normalizeVerticalShaftCenterMedianStatus,
+} from '../engine/verticalShaftEngine';
 import { formatSpotBoltPanelLabel } from '../engine/geotechnicalSpotBoltEngine';
 
 export interface FieldSupport3DInteractiveCanvasProps {
@@ -320,21 +324,30 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
     if (isVerticalShaft) {
       // ======================================================================
       // VERTICAL SHAFT 3D CYLINDRICAL SUPPORT SYSTEM (NATM & NMT SHAFT METHOD)
+      // Renders all given shaft supports:
+      // 1. 3D Cylindrical Shotcrete Lining Shell (with thickness & end-cap rings)
+      // 2. 3D High-Tensile Wire Mesh Cylindrical Grid + Diamond Spike Plates
+      // 3. 3D Circular Lattice Girder Truss Rings (3-bar chord + web lacing)
+      // 4. 3D Circular ISMB / ISHB Steel Curb Rings (flanges + bolted splice plates)
+      // 5. 3D Radial Pattern Rock Bolts (3D rebar cylinders + bearing plates + resin cones)
+      // 6. 3D Collar Micropile / Pipe Roofing Ring & Shaft Perimeter Spiling Ring
+      // 7. 3D Annulus Consolidation Grouting Boreholes & Grout Bulbs + Overbreak Cavity Pocket
+      // 8. 3D Radial Spot Bolts with 3D Orientation Arcs & Quadrant Alignment (Q1 NE..Q4 WN)
       // ======================================================================
       const R = W / 2;
       const yTop = pullM / 2;
       const yBottom = -pullM / 2;
-      const shaftApproach = normalizeVerticalShaftExcavationApproach(
-        activeRound.excavationApproach || activeLocation.excavationApproach
+      const rawApproach = String(activeRound.excavationApproach || '');
+      const shaftApproachNorm = normalizeVerticalShaftExcavationApproach(rawApproach);
+      const shaftHalfSideNorm = normalizeVerticalShaftHalfSide(
+        activeRound.shaftHalfSide || rawApproach
       );
-      const isHalfShaft =
-        shaftApproach === 'Half Face — 1st & 2nd Quad (NE–ES)' ||
-        shaftApproach === 'Half Face — 3rd & 4th Quad (SW–WN)';
-      const activeHalfIsEast = shaftApproach === 'Half Face — 1st & 2nd Quad (NE–ES)';
-      const medianCondition =
-        activeRound.shaftMedianDivisionCondition ||
-        activeLocation.shaftMedianDivisionCondition ||
-        'closed';
+      const medianCondition = normalizeVerticalShaftCenterMedianStatus(
+        activeRound.shaftCenterMedianStatus ||
+          (activeRound as { shaftMedianDivisionCondition?: string }).shaftMedianDivisionCondition
+      );
+      const isHalfShaft = shaftApproachNorm === 'Half Face' || rawApproach.startsWith('Half Face');
+      const activeHalfIsEast = !isHalfShaft || shaftHalfSideNorm === 'right_half';
 
       const gridHelper = new THREE.GridHelper(Math.max(20, W * 2.5), 20, 0x0284c7, 0x1e293b);
       gridHelper.position.set(0, yBottom - 0.02, 0);
@@ -342,8 +355,8 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
 
       const azStartDeg = isHalfShaft ? (activeHalfIsEast ? 0 : 180) : 0;
       const azSweepDeg = isHalfShaft ? 180 : 360;
-      const radialSegments = 48;
-      const ySegments = Math.max(4, Math.round(pullM * 2));
+      const radialSegments = 64;
+      const ySegments = Math.max(6, Math.round(pullM * 3));
 
       const vertices: number[] = [];
       const normals: number[] = [];
@@ -389,7 +402,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       const wireMat = new THREE.LineBasicMaterial({
         color: isLightMode ? 0x94a3b8 : 0x334155,
         transparent: true,
-        opacity: 0.3,
+        opacity: 0.26,
       });
       scene.add(new THREE.LineSegments(wireGeom, wireMat));
 
@@ -414,29 +427,54 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       sumpMesh.position.set(0, yBottom, 0);
       scene.add(sumpMesh);
 
-      // Center Median Wall in Half-Face Shaft Mode when Closed
-      if (isHalfShaft && medianCondition === 'closed') {
-        const medGeom = new THREE.PlaneGeometry(R * 2, pullM);
-        medGeom.rotateY(Math.PI / 2);
-        const medMat = new THREE.MeshStandardMaterial({
-          color: 0x334155,
-          roughness: 0.85,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.65,
-        });
-        scene.add(new THREE.Mesh(medGeom, medMat));
+      // Unexcavated Half Ghost Outline & Center Median Wall in Half-Face Shaft Mode
+      if (isHalfShaft) {
+        const unexcavStartDeg = activeHalfIsEast ? 180 : 0;
+        const ghostPtsTop: THREE.Vector3[] = [];
+        const ghostPtsBot: THREE.Vector3[] = [];
+        for (let ir = 0; ir <= 32; ir++) {
+          const azDeg = unexcavStartDeg + (ir / 32) * 180;
+          const azRad = (azDeg * Math.PI) / 180;
+          ghostPtsTop.push(new THREE.Vector3(R * Math.sin(azRad), yTop, -R * Math.cos(azRad)));
+          ghostPtsBot.push(new THREE.Vector3(R * Math.sin(azRad), yBottom, -R * Math.cos(azRad)));
+        }
+        const ghostLineTop = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(ghostPtsTop),
+          new THREE.LineDashedMaterial({ color: 0x64748b, dashSize: 0.3, gapSize: 0.2 })
+        );
+        ghostLineTop.computeLineDistances();
+        scene.add(ghostLineTop);
+
+        const ghostLineBot = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(ghostPtsBot),
+          new THREE.LineDashedMaterial({ color: 0x64748b, dashSize: 0.3, gapSize: 0.2 })
+        );
+        ghostLineBot.computeLineDistances();
+        scene.add(ghostLineBot);
+
+        if (medianCondition === 'closed') {
+          const medGeom = new THREE.PlaneGeometry(R * 2, pullM);
+          medGeom.rotateY(Math.PI / 2);
+          const medMat = new THREE.MeshStandardMaterial({
+            color: 0x334155,
+            roughness: 0.82,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.72,
+          });
+          scene.add(new THREE.Mesh(medGeom, medMat));
+        }
       }
 
-      // Top Collar Ring (0m) & Bottom Sump Ring (pullM) + Cardinal Markers
-      const makeRingPts = (yLevel: number, rVal: number) => {
+      // Helper for ring points at any elevation yLevel and radius rVal
+      const makeRingPts = (yLevel: number, rVal: number, closeMedian = true) => {
         const pts: THREE.Vector3[] = [];
         for (let ir = 0; ir <= radialSegments; ir++) {
           const azDeg = azStartDeg + (ir / radialSegments) * azSweepDeg;
           const azRad = (azDeg * Math.PI) / 180;
           pts.push(new THREE.Vector3(rVal * Math.sin(azRad), yLevel, -rVal * Math.cos(azRad)));
         }
-        if (isHalfShaft) {
+        if (isHalfShaft && closeMedian && medianCondition === 'closed') {
           pts.push(new THREE.Vector3(0, yLevel, -rVal));
         }
         return pts;
@@ -455,48 +493,123 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
         )
       );
 
-      // North / East / South / West Cardinal Pins on Top Collar Ring
+      // Vertical Quadrant Division Lines (0° N, 90° E, 180° S, 270° W) & Cardinal Markers
       [
-        { az: 0, color: 0xef4444 },
-        { az: 90, color: 0x38bdf8 },
-        { az: 180, color: 0x10b981 },
-        { az: 270, color: 0xa855f7 },
+        { az: 0, color: 0xef4444, label: '0°N' },
+        { az: 90, color: 0x38bdf8, label: '90°E' },
+        { az: 180, color: 0x10b981, label: '180°S' },
+        { az: 270, color: 0xa855f7, label: '270°W' },
       ].forEach((cm) => {
         const rad = (cm.az * Math.PI) / 180;
+        const px = R * Math.sin(rad);
+        const pz = -R * Math.cos(rad);
         const pin = new THREE.Mesh(
           new THREE.SphereGeometry(0.18, 12, 12),
           new THREE.MeshBasicMaterial({ color: cm.color })
         );
-        pin.position.set(R * Math.sin(rad), yTop, -R * Math.cos(rad));
+        pin.position.set(px, yTop, pz);
         scene.add(pin);
+
+        const vertLine = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(px, yTop, pz),
+            new THREE.Vector3(px, yBottom, pz),
+          ]),
+          new THREE.LineDashedMaterial({ color: cm.color, dashSize: 0.25, gapSize: 0.15 })
+        );
+        vertLine.computeLineDistances();
+        scene.add(vertLine);
       });
 
-      // 1. Shotcrete Shaft Wall Ring Shell
+      // ----------------------------------------------------------------------
+      // 1. 3D SHOTCRETE CYLINDRICAL SHAFT LINING SHELL
+      // ----------------------------------------------------------------------
       if (support.shotcreteEnabled) {
-        const scThickM = Math.max(
-          0.05,
-          Math.min(0.25, (support.shotcreteCrownThicknessMm || 100) / 1000)
-        );
-        const scRingPts = makeRingPts(yTop, R - scThickM);
-        const scBotPts = makeRingPts(yBottom, R - scThickM);
-        scene.add(
-          new THREE.Line(
-            new THREE.BufferGeometry().setFromPoints(scRingPts),
-            new THREE.LineBasicMaterial({ color: 0x94a3b8 })
-          )
-        );
-        scene.add(
-          new THREE.Line(
-            new THREE.BufferGeometry().setFromPoints(scBotPts),
-            new THREE.LineBasicMaterial({ color: 0x94a3b8 })
-          )
-        );
+        const rawScThickM = (support.shotcreteCrownThicknessMm || 100) / 1000;
+        // Visually scale thickness (min 0.14m in 3D space) so 50mm-250mm shotcrete lining is clearly visible
+        const visualScThick = Math.max(0.14, Math.min(0.42, rawScThickM * 1.8));
+        const rInner = Math.max(0.5, R - visualScThick);
+        const rOuter = R - 0.01;
+
+        const scVerts: number[] = [];
+        const scIndices: number[] = [];
+        const scSegs = 48;
+
+        for (let ir = 0; ir <= scSegs; ir++) {
+          const azDeg = azStartDeg + (ir / scSegs) * azSweepDeg;
+          const azRad = (azDeg * Math.PI) / 180;
+          const nx = Math.sin(azRad);
+          const nz = -Math.cos(azRad);
+          // 0: Top Outer, 1: Top Inner, 2: Bot Outer, 3: Bot Inner
+          scVerts.push(rOuter * nx, yTop, rOuter * nz);
+          scVerts.push(rInner * nx, yTop, rInner * nz);
+          scVerts.push(rOuter * nx, yBottom, rOuter * nz);
+          scVerts.push(rInner * nx, yBottom, rInner * nz);
+        }
+
+        for (let ir = 0; ir < scSegs; ir++) {
+          const b0 = ir * 4;
+          const b1 = (ir + 1) * 4;
+          // Inner cylindrical shotcrete face
+          scIndices.push(b0 + 1, b0 + 3, b1 + 1);
+          scIndices.push(b1 + 1, b0 + 3, b1 + 3);
+          // Outer cylindrical shotcrete face
+          scIndices.push(b0 + 0, b1 + 0, b0 + 2);
+          scIndices.push(b1 + 0, b1 + 2, b0 + 2);
+          // Top collar annulus cap (shows shotcrete thickness clearly from top view)
+          scIndices.push(b0 + 0, b0 + 1, b1 + 0);
+          scIndices.push(b1 + 0, b0 + 1, b1 + 1);
+          // Bottom sump annulus cap
+          scIndices.push(b0 + 2, b1 + 2, b0 + 3);
+          scIndices.push(b1 + 2, b1 + 3, b0 + 3);
+        }
+
+        const scGeom = new THREE.BufferGeometry();
+        scGeom.setAttribute('position', new THREE.Float32BufferAttribute(scVerts, 3));
+        scGeom.setIndex(scIndices);
+        scGeom.computeVertexNormals();
+
+        const scMat = new THREE.MeshStandardMaterial({
+          color: support.shotcreteType === 'SFRS' ? 0x38bdf8 : 0x94a3b8,
+          roughness: 0.65,
+          metalness: 0.18,
+          transparent: true,
+          opacity: 0.42,
+          side: THREE.DoubleSide,
+        });
+        scene.add(new THREE.Mesh(scGeom, scMat));
+
+        // Center Median Shotcrete Layer if Half-Face Closed & crown_and_wall
+        if (isHalfShaft && medianCondition === 'closed' && support.shotcreteScope === 'crown_and_wall') {
+          const medScGeom = new THREE.BoxGeometry(visualScThick * 0.85, pullM, R * 1.96);
+          const medScMesh = new THREE.Mesh(medScGeom, scMat);
+          medScMesh.position.set(activeHalfIsEast ? visualScThick * 0.45 : -visualScThick * 0.45, 0, 0);
+          scene.add(medScMesh);
+        }
+
+        // Bold Shotcrete Inner Boundary Rings at Top & Bottom + Mid Construction Joint Rings
+        const numScHorizRings = Math.max(2, Math.round(pullM / 1.0));
+        for (let ih = 0; ih <= numScHorizRings; ih++) {
+          const ry = yTop - (ih / numScHorizRings) * pullM;
+          scene.add(
+            new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(makeRingPts(ry, rInner, false)),
+              new THREE.LineBasicMaterial({
+                color: support.shotcreteType === 'SFRS' ? 0x38bdf8 : 0xcbd5e1,
+                transparent: true,
+                opacity: ih === 0 || ih === numScHorizRings ? 0.95 : 0.45,
+              })
+            )
+          );
+        }
       }
 
-      // 2. Wire Mesh Cylindrical Grid on Shaft Wall
+      // ----------------------------------------------------------------------
+      // 2. 3D WIRE MESH CYLINDRICAL GRID + DIAMOND SPIKE PLATES
+      // ----------------------------------------------------------------------
       if (support.wireMeshEnabled) {
         const meshPts: THREE.Vector3[] = [];
-        const rMesh = R - 0.04;
+        const rMesh = R - (support.shotcreteEnabled ? 0.16 : 0.05);
         for (let ir = 0; ir <= radialSegments; ir += 2) {
           const azDeg = azStartDeg + (ir / radialSegments) * azSweepDeg;
           const azRad = (azDeg * Math.PI) / 180;
@@ -504,10 +617,10 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
           const mz = -rMesh * Math.cos(azRad);
           meshPts.push(new THREE.Vector3(mx, yTop, mz), new THREE.Vector3(mx, yBottom, mz));
         }
-        const numHoriz = Math.max(3, Math.round(pullM / 0.5));
+        const numHoriz = Math.max(4, Math.round(pullM / 0.4));
         for (let ih = 0; ih <= numHoriz; ih++) {
           const ry = yTop - (ih / numHoriz) * pullM;
-          const ringP = makeRingPts(ry, rMesh);
+          const ringP = makeRingPts(ry, rMesh, false);
           for (let i = 0; i < ringP.length - 1; i++) {
             meshPts.push(ringP[i], ringP[i + 1]);
           }
@@ -515,45 +628,214 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
         scene.add(
           new THREE.LineSegments(
             new THREE.BufferGeometry().setFromPoints(meshPts),
-            new THREE.LineBasicMaterial({ color: 0x0d9488, transparent: true, opacity: 0.65 })
+            new THREE.LineBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.85 })
           )
         );
-      }
 
-      // 3. Circular Steel Curb Rings / Circular Lattice Girder Rings (Horizontal Rings Spaced Vertically)
-      if (
-        (activeLayerFilter === 'ALL' || activeLayerFilter === 'STEEL_RIBS') &&
-        (support.latticeGirderEnabled || support.ismbEnabled)
-      ) {
-        const ribSpacing = support.latticeGirderSpacingM || support.ismbSpacingM || 1.2;
-        const numRings = Math.max(1, Math.floor(pullM / ribSpacing));
-        for (let ir = 1; ir <= numRings; ir++) {
-          const ry = Math.max(yBottom, yTop - ir * ribSpacing);
-          const curbTorus = new THREE.Mesh(
-            new THREE.TorusGeometry(R - 0.08, support.ismbEnabled ? 0.075 : 0.055, 8, 48),
-            new THREE.MeshStandardMaterial({
-              color: support.ismbEnabled ? 0xf59e0b : 0xa855f7,
-              metalness: 0.7,
-              roughness: 0.3,
-            })
-          );
-          curbTorus.rotation.x = Math.PI / 2;
-          curbTorus.position.set(0, ry, 0);
-          scene.add(curbTorus);
+        // Diamond Spike Anchor Plates at Mesh Intersections
+        const plateMat = new THREE.MeshStandardMaterial({
+          color: 0x10b981,
+          metalness: 0.75,
+          roughness: 0.25,
+        });
+        for (let ih = 1; ih < numHoriz; ih += 2) {
+          const ry = yTop - (ih / numHoriz) * pullM;
+          for (let ir = 0; ir < radialSegments; ir += 8) {
+            const azDeg = azStartDeg + (ir / radialSegments) * azSweepDeg;
+            const azRad = (azDeg * Math.PI) / 180;
+            const pMesh = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.03), plateMat);
+            pMesh.position.set(rMesh * Math.sin(azRad), ry, -rMesh * Math.cos(azRad));
+            pMesh.lookAt(0, ry, 0);
+            pMesh.rotateZ(Math.PI / 4);
+            scene.add(pMesh);
+          }
         }
       }
 
-      // 4. Radial Shaft Pattern Rock Bolts Around 360° Shaft Wall
+      // ----------------------------------------------------------------------
+      // 3A. CIRCULAR LATTICE GIRDER RINGS (3-Bar Truss Ring + Web Lacing)
+      // ----------------------------------------------------------------------
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'STEEL_RIBS') &&
+        support.latticeGirderEnabled
+      ) {
+        const lgSpacing = Math.max(0.4, support.latticeGirderSpacingM || 1.2);
+        const numLgRings = Math.max(2, Math.ceil(pullM / lgSpacing));
+        const rLg = R - 0.11;
+        const lgChordMat = new THREE.MeshStandardMaterial({
+          color: 0xa855f7,
+          metalness: 0.75,
+          roughness: 0.25,
+          emissive: 0x581c87,
+          emissiveIntensity: 0.25,
+        });
+
+        for (let ir = 0; ir < numLgRings; ir++) {
+          const tRing = numLgRings === 1 ? 0.5 : (ir + 0.35) / numLgRings;
+          const ry = Math.max(yBottom + 0.12, Math.min(yTop - 0.12, yTop - tRing * pullM));
+
+          // Main Circular LG Chord Ring (supports full 360° or active 180° half-shaft)
+          const chordPts: THREE.Vector3[] = [];
+          const upperChordPts: THREE.Vector3[] = [];
+          const lowerChordPts: THREE.Vector3[] = [];
+          const webPts: THREE.Vector3[] = [];
+          const lgSegs = 48;
+
+          for (let is = 0; is <= lgSegs; is++) {
+            const azDeg = azStartDeg + (is / lgSegs) * azSweepDeg;
+            const azRad = (azDeg * Math.PI) / 180;
+            const sinA = Math.sin(azRad);
+            const cosA = -Math.cos(azRad);
+
+            const pInner = new THREE.Vector3((rLg - 0.06) * sinA, ry, (rLg - 0.06) * cosA);
+            const pUp = new THREE.Vector3((rLg + 0.04) * sinA, ry + 0.07, (rLg + 0.04) * cosA);
+            const pLow = new THREE.Vector3((rLg + 0.04) * sinA, ry - 0.07, (rLg + 0.04) * cosA);
+            chordPts.push(pInner);
+            upperChordPts.push(pUp);
+            lowerChordPts.push(pLow);
+
+            if (is % 2 === 0) {
+              webPts.push(pInner, pUp, pUp, pLow, pLow, pInner);
+            } else {
+              webPts.push(pUp, pInner, pInner, pLow);
+            }
+          }
+
+          if (!isHalfShaft) {
+            const lgTorus = new THREE.Mesh(
+              new THREE.TorusGeometry(rLg, 0.045, 10, 56),
+              lgChordMat
+            );
+            lgTorus.rotation.x = Math.PI / 2;
+            lgTorus.position.set(0, ry, 0);
+            scene.add(lgTorus);
+          } else {
+            const curve = new THREE.CatmullRomCurve3(chordPts);
+            const tubeGeom = new THREE.TubeGeometry(curve, 48, 0.045, 10, false);
+            scene.add(new THREE.Mesh(tubeGeom, lgChordMat));
+          }
+
+          // Upper & lower outer chords + diagonal sinusoidal web truss lacing
+          scene.add(
+            new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(upperChordPts),
+              new THREE.LineBasicMaterial({ color: 0xc084fc })
+            )
+          );
+          scene.add(
+            new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(lowerChordPts),
+              new THREE.LineBasicMaterial({ color: 0xc084fc })
+            )
+          );
+          scene.add(
+            new THREE.LineSegments(
+              new THREE.BufferGeometry().setFromPoints(webPts),
+              new THREE.LineBasicMaterial({ color: 0xd8b4fe, transparent: true, opacity: 0.85 })
+            )
+          );
+        }
+      }
+
+      // ----------------------------------------------------------------------
+      // 3B. CIRCULAR ISMB / ISHB STEEL CURB RINGS (With Bolted Splice Plates)
+      // ----------------------------------------------------------------------
+      if (
+        (activeLayerFilter === 'ALL' || activeLayerFilter === 'STEEL_RIBS') &&
+        support.ismbEnabled
+      ) {
+        const ismbSpacing = Math.max(0.4, support.ismbSpacingM || 1.0);
+        const numCurbRings = Math.max(2, Math.ceil(pullM / ismbSpacing));
+        const rCurb = R - 0.14;
+        const curbMat = new THREE.MeshStandardMaterial({
+          color: 0xf97316,
+          metalness: 0.8,
+          roughness: 0.22,
+          emissive: 0x9a3412,
+          emissiveIntensity: 0.25,
+        });
+        const spliceMat = new THREE.MeshStandardMaterial({
+          color: 0xfbbf24,
+          metalness: 0.85,
+          roughness: 0.2,
+        });
+
+        for (let ir = 0; ir < numCurbRings; ir++) {
+          const tRing = numCurbRings === 1 ? 0.5 : (ir + 0.65) / numCurbRings;
+          const ry = Math.max(yBottom + 0.1, Math.min(yTop - 0.1, yTop - tRing * pullM));
+
+          if (!isHalfShaft) {
+            const curbTorus = new THREE.Mesh(
+              new THREE.TorusGeometry(rCurb, 0.08, 12, 56),
+              curbMat
+            );
+            curbTorus.rotation.x = Math.PI / 2;
+            curbTorus.position.set(0, ry, 0);
+            scene.add(curbTorus);
+          } else {
+            const halfPts: THREE.Vector3[] = [];
+            for (let is = 0; is <= 40; is++) {
+              const azDeg = azStartDeg + (is / 40) * azSweepDeg;
+              const azRad = (azDeg * Math.PI) / 180;
+              halfPts.push(new THREE.Vector3(rCurb * Math.sin(azRad), ry, -rCurb * Math.cos(azRad)));
+            }
+            const curve = new THREE.CatmullRomCurve3(halfPts);
+            scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.08, 12, false), curbMat));
+
+            // Median Strut Beam if Half-Shaft Closed
+            if (medianCondition === 'closed') {
+              const strutMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(0.14, 0.16, rCurb * 2),
+                curbMat
+              );
+              strutMesh.position.set(0, ry, 0);
+              scene.add(strutMesh);
+            }
+          }
+
+          // Bolted Splice Plates every 45° around the Steel Curb Ring
+          const numSplices = isHalfShaft ? 5 : 8;
+          for (let isp = 0; isp < numSplices; isp++) {
+            const azDeg = azStartDeg + (isp / Math.max(1, isHalfShaft ? numSplices - 1 : numSplices)) * azSweepDeg;
+            const azRad = (azDeg * Math.PI) / 180;
+            const spMesh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.18), spliceMat);
+            spMesh.position.set(rCurb * Math.sin(azRad), ry, -rCurb * Math.cos(azRad));
+            spMesh.lookAt(0, ry, 0);
+            scene.add(spMesh);
+          }
+        }
+      }
+
+      // ----------------------------------------------------------------------
+      // 4. 3D RADIAL SHAFT PATTERN ROCK BOLTS (3D Rebar Cylinders + Faceplates + Cones)
+      // ----------------------------------------------------------------------
       if (
         (activeLayerFilter === 'ALL' || activeLayerFilter === 'PATTERN_BOLTS') &&
         support.rockBoltsEnabled
       ) {
-        const boltLen = support.rockBoltLengthM || 4.0;
-        const circumfSp = Math.max(0.8, support.rockBoltInPlaneSpacingM || 1.5);
-        const vertRingSp = Math.max(0.8, support.rockBoltLongitudinalSpacingM || 1.5);
-        const numVertRings = Math.max(1, Math.floor(pullM / vertRingSp));
+        const boltLen = Math.max(1.5, support.rockBoltLengthM || 4.0);
+        const circumfSp = Math.max(0.6, support.rockBoltInPlaneSpacingM || 1.5);
+        const vertRingSp = Math.max(0.6, support.rockBoltLongitudinalSpacingM || 1.5);
+        const numVertRings = Math.max(2, Math.ceil(pullM / vertRingSp));
         const arcLengthM = (azSweepDeg / 360) * Math.PI * W;
-        const boltsPerRing = Math.max(4, Math.min(24, Math.round(arcLengthM / circumfSp)));
+        const boltsPerRing = Math.max(6, Math.min(28, Math.round(arcLengthM / circumfSp)));
+
+        const rebarMat = new THREE.MeshStandardMaterial({
+          color: 0x38bdf8,
+          metalness: 0.75,
+          roughness: 0.28,
+          emissive: 0x0369a1,
+          emissiveIntensity: 0.35,
+        });
+        const plateMat = new THREE.MeshStandardMaterial({
+          color: 0xe2e8f0,
+          metalness: 0.85,
+          roughness: 0.2,
+        });
+        const coneMat = new THREE.MeshStandardMaterial({
+          color: 0x0284c7,
+          roughness: 0.4,
+        });
 
         for (let ir = 0; ir < numVertRings; ir++) {
           const ry = yTop - ((ir + 0.5) / numVertRings) * pullM;
@@ -564,44 +846,94 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
             const startPt = normal.clone().multiplyScalar(R);
             startPt.y = ry;
             const endPt = startPt.clone().add(normal.clone().multiplyScalar(boltLen));
+            const midPt = startPt.clone().add(endPt).multiplyScalar(0.5);
 
-            scene.add(
-              new THREE.Line(
-                new THREE.BufferGeometry().setFromPoints([startPt, endPt]),
-                new THREE.LineBasicMaterial({
-                  color: 0x38bdf8,
-                  transparent: true,
-                  opacity: 0.75,
-                })
-              )
+            // 3D Cylindrical Rebar Stem
+            const rebarMesh = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.038, 0.038, boltLen, 8),
+              rebarMat
             );
+            rebarMesh.position.copy(midPt);
+            rebarMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+            scene.add(rebarMesh);
 
+            // 3D Bearing Faceplate & Nut at Shaft Wall Collar
             const plateMesh = new THREE.Mesh(
-              new THREE.BoxGeometry(0.18, 0.18, 0.04),
-              new THREE.MeshStandardMaterial({ color: 0x64748b })
+              new THREE.BoxGeometry(0.24, 0.24, 0.05),
+              plateMat
             );
             plateMesh.position.copy(startPt);
             plateMesh.lookAt(endPt);
             scene.add(plateMesh);
+
+            // 3D Distal Anchor Cone
+            const anchorCone = new THREE.Mesh(
+              new THREE.ConeGeometry(0.08, 0.22, 8),
+              coneMat
+            );
+            anchorCone.position.copy(endPt);
+            anchorCone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+            scene.add(anchorCone);
+          }
+
+          // Center Median Wall Rock Bolts when Half-Shaft Closed & crown_and_wall
+          if (isHalfShaft && medianCondition === 'closed' && support.rockBoltScope === 'crown_and_wall') {
+            const medNormal = new THREE.Vector3(activeHalfIsEast ? -1 : 1, 0, 0);
+            const medBoltCount = Math.max(2, Math.round((R * 1.6) / circumfSp));
+            for (let im = 0; im < medBoltCount; im++) {
+              const zPos = -R * 0.75 + (im / Math.max(1, medBoltCount - 1)) * (R * 1.5);
+              const mStart = new THREE.Vector3(0, ry, zPos);
+              const mLen = boltLen * 0.65;
+              const mEnd = mStart.clone().add(medNormal.clone().multiplyScalar(mLen));
+              const mMid = mStart.clone().add(mEnd).multiplyScalar(0.5);
+
+              const mRebar = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.035, 0.035, mLen, 8),
+                rebarMat
+              );
+              mRebar.position.copy(mMid);
+              mRebar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), medNormal);
+              scene.add(mRebar);
+
+              const mPlate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.05), plateMat);
+              mPlate.position.copy(mStart);
+              mPlate.lookAt(mEnd);
+              scene.add(mPlate);
+            }
           }
         }
       }
 
-      // 5. Collar Micropile Ring (Pipe Roofing) Around Shaft Perimeter
+      // ----------------------------------------------------------------------
+      // 5. COLLAR MICROPILE RING / PIPE ROOFING UMBRELLA AROUND SHAFT PERIMETER
+      // ----------------------------------------------------------------------
       if (
         (activeLayerFilter === 'ALL' || activeLayerFilter === 'PIPE_ROOFING') &&
-        support.protectionSupportEnabled &&
         support.pipeRoofingEnabled
       ) {
-        const pipeLen = Math.min(8.0, support.pipeRoofingLengthM || 6.0);
+        const pipeLen = Math.min(10.0, Math.max(2.5, support.pipeRoofingLengthM || 6.0));
         const lookoutRad = ((support.pipeRoofingAngleDeg ?? 7.0) * Math.PI) / 180;
-        const numPipes = 20;
+        const numPipes = Math.max(
+          12,
+          Math.min(
+            36,
+            Math.round((Math.PI * W) / Math.max(0.25, (support.pipeRoofingSpacingCm || 40) / 100))
+          )
+        );
+        const pipeMat = new THREE.MeshStandardMaterial({
+          color: 0xf97316,
+          roughness: 0.35,
+          metalness: 0.75,
+          emissive: 0x7c2d12,
+          emissiveIntensity: 0.2,
+        });
+
         for (let ip = 0; ip < numPipes; ip++) {
           const azDeg = azStartDeg + (ip / numPipes) * azSweepDeg;
           const azRad = (azDeg * Math.PI) / 180;
           const normal = new THREE.Vector3(Math.sin(azRad), 0, -Math.cos(azRad)).normalize();
           const collarPt = normal.clone().multiplyScalar(R + 0.06);
-          collarPt.y = yBottom + 0.35;
+          collarPt.y = yTop - 0.15;
           const dir = new THREE.Vector3(
             normal.x * Math.sin(lookoutRad),
             -Math.cos(lookoutRad),
@@ -610,8 +942,8 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
           const tipPt = collarPt.clone().add(dir.clone().multiplyScalar(pipeLen));
           const midPt = collarPt.clone().add(tipPt).multiplyScalar(0.5);
           const pipeMesh = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.055, 0.055, pipeLen, 8),
-            new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.4, metalness: 0.7 })
+            new THREE.CylinderGeometry(0.06, 0.06, pipeLen, 10),
+            pipeMat
           );
           pipeMesh.position.copy(midPt);
           pipeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
@@ -619,37 +951,138 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
         }
       }
 
-      // 6. Shaft Perimeter Spiling Ring (Forepoling)
+      // ----------------------------------------------------------------------
+      // 6. SHAFT PERIMETER SPILING RING (FOREPOLING)
+      // ----------------------------------------------------------------------
       if (
         (activeLayerFilter === 'ALL' || activeLayerFilter === 'FOREPOLING') &&
-        support.protectionSupportEnabled &&
         support.forepolingEnabled
       ) {
-        const spileLen = support.forepolingLengthM || 4.0;
+        const spileLen = Math.max(2.0, support.forepolingLengthM || 4.0);
         const spileRad = ((support.forepolingAngleDeg ?? 10.0) * Math.PI) / 180;
         const numSpiles = 24;
+        const spileMat = new THREE.MeshStandardMaterial({
+          color: 0xeab308,
+          metalness: 0.75,
+          roughness: 0.3,
+          emissive: 0x713f12,
+          emissiveIntensity: 0.25,
+        });
         for (let is = 0; is < numSpiles; is++) {
           const azDeg = azStartDeg + (is / numSpiles) * azSweepDeg;
           const azRad = (azDeg * Math.PI) / 180;
           const normal = new THREE.Vector3(Math.sin(azRad), 0, -Math.cos(azRad)).normalize();
-          const collarPt = normal.clone().multiplyScalar(R);
-          collarPt.y = yBottom;
+          const collarPt = normal.clone().multiplyScalar(R + 0.02);
+          collarPt.y = yBottom + 0.15;
           const dir = new THREE.Vector3(
             normal.x * Math.sin(spileRad),
             -Math.cos(spileRad),
             normal.z * Math.sin(spileRad)
           ).normalize();
           const tipPt = collarPt.clone().add(dir.clone().multiplyScalar(spileLen));
-          scene.add(
-            new THREE.Line(
-              new THREE.BufferGeometry().setFromPoints([collarPt, tipPt]),
-              new THREE.LineBasicMaterial({ color: 0xeab308, linewidth: 2 })
-            )
+          const midPt = collarPt.clone().add(tipPt).multiplyScalar(0.5);
+
+          const spileMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.035, 0.035, spileLen, 8),
+            spileMat
           );
+          spileMesh.position.copy(midPt);
+          spileMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+          scene.add(spileMesh);
         }
       }
 
-      // 7. Radial Shaft Spot Bolts in 3D
+      // ----------------------------------------------------------------------
+      // 7. 3D ANNULUS CONSOLIDATION GROUTING & OVERBREAK CAVITY SUPPORT POCKET
+      // ----------------------------------------------------------------------
+      if (support.groutingEnabled) {
+        const gHoleLen = Math.max(2.5, Math.min(10.0, support.groutingHoleLengthM || 6.0));
+        const gHoleCount = Math.max(4, Math.min(24, support.groutingHoleCount || 8));
+        const groutLanceMat = new THREE.MeshStandardMaterial({
+          color: 0x14b8a6,
+          metalness: 0.65,
+          roughness: 0.3,
+        });
+        const groutBulbMat = new THREE.MeshStandardMaterial({
+          color: 0x2dd4bf,
+          transparent: true,
+          opacity: 0.26,
+          roughness: 0.5,
+        });
+
+        for (let ig = 0; ig < gHoleCount; ig++) {
+          const azDeg = azStartDeg + ((ig + 0.5) / gHoleCount) * azSweepDeg;
+          const azRad = (azDeg * Math.PI) / 180;
+          const normal = new THREE.Vector3(Math.sin(azRad), 0, -Math.cos(azRad)).normalize();
+          const ry = ig % 2 === 0 ? yTop - pullM * 0.32 : yTop - pullM * 0.68;
+          const startPt = normal.clone().multiplyScalar(R);
+          startPt.y = ry;
+          const dir = new THREE.Vector3(normal.x * 0.96, -0.28, normal.z * 0.96).normalize();
+          const endPt = startPt.clone().add(dir.clone().multiplyScalar(gHoleLen));
+          const midPt = startPt.clone().add(endPt).multiplyScalar(0.5);
+
+          const lanceMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.032, 0.032, gHoleLen, 8),
+            groutLanceMat
+          );
+          lanceMesh.position.copy(midPt);
+          lanceMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+          scene.add(lanceMesh);
+
+          // Permeation Grout Bulb around distal zone of borehole
+          const bulbCenter = startPt.clone().add(dir.clone().multiplyScalar(gHoleLen * 0.65));
+          const bulbMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.38, 0.24, gHoleLen * 0.55, 12),
+            groutBulbMat
+          );
+          bulbMesh.position.copy(bulbCenter);
+          bulbMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+          scene.add(bulbMesh);
+        }
+      }
+
+      if (
+        support.protectionSupportMode === 'Cavity Support' ||
+        (support.groutingEnabled && (support.cavityDepthM || 0) > 0.2)
+      ) {
+        const cavDepth = Math.max(0.5, Math.min(4.0, support.cavityDepthM || 1.2));
+        const cavWidth = Math.max(1.0, Math.min(W * 0.8, support.cavityWidthM || 3.0));
+        const cavLocZone = (support as { cavityLocationZone?: string }).cavityLocationZone;
+        const cavAzDeg =
+          cavLocZone === 'Left Wall / Shoulder'
+            ? 315
+            : cavLocZone === 'Right Wall / Shoulder'
+            ? 135
+            : 45;
+        const cavAzRad = (cavAzDeg * Math.PI) / 180;
+        const cavNormal = new THREE.Vector3(Math.sin(cavAzRad), 0, -Math.cos(cavAzRad)).normalize();
+        const cavCenter = cavNormal.clone().multiplyScalar(R + cavDepth * 0.45);
+        cavCenter.y = 0;
+
+        const cavGeom = new THREE.BoxGeometry(cavWidth, pullM * 0.65, cavDepth);
+        const cavMat = new THREE.MeshStandardMaterial({
+          color: 0xf43f5e,
+          transparent: true,
+          opacity: 0.34,
+          roughness: 0.7,
+        });
+        const cavMesh = new THREE.Mesh(cavGeom, cavMat);
+        cavMesh.position.copy(cavCenter);
+        cavMesh.lookAt(0, 0, 0);
+        scene.add(cavMesh);
+
+        const cavWire = new THREE.LineSegments(
+          new THREE.EdgesGeometry(cavGeom),
+          new THREE.LineBasicMaterial({ color: 0xfda4af })
+        );
+        cavWire.position.copy(cavCenter);
+        cavWire.lookAt(0, 0, 0);
+        scene.add(cavWire);
+      }
+
+      // ----------------------------------------------------------------------
+      // 8. 3D RADIAL SHAFT SPOT BOLTS (Aligned with Q1 NE, Q2 ES, Q3 SW, Q4 WN)
+      // ----------------------------------------------------------------------
       if (
         (activeLayerFilter === 'ALL' || activeLayerFilter === 'SPOT_BOLTS') &&
         support.spotBoltsEnabled &&
@@ -665,14 +1098,20 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
             if (sb.xMeters || sb.yMeters) {
               azDeg = ((Math.atan2(sb.xMeters, sb.yMeters || 0.01) * 180) / Math.PI + 360) % 360;
             } else {
+              // Exact Vertical Shaft Quadrant Mapping from verticalShaftEngine.ts:
+              // left_wall = Q1 NE (0°–90°), crown = Q2 ES (90°–180°),
+              // right_wall = Q3 SW (180°–270°), shaft_sn = Q4 WN (270°–360°)
+              const uRatio = Number.isFinite(sb.u) ? sb.u : 0.5;
               azDeg =
-                sb.panel === 'crown'
-                  ? 45
+                sb.panel === 'left_wall'
+                  ? uRatio * 90
+                  : sb.panel === 'crown'
+                  ? 90 + uRatio * 90
                   : sb.panel === 'right_wall'
-                  ? 135
-                  : sb.panel === 'face'
-                  ? 225
-                  : 315;
+                  ? 180 + uRatio * 90
+                  : sb.panel === 'shaft_sn'
+                  ? 270 + uRatio * 90
+                  : 45;
             }
           }
           const azRad = (azDeg * Math.PI) / 180;
@@ -694,13 +1133,13 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
           const tip3D = collar3D.clone().add(boltDir.clone().multiplyScalar(bLen));
 
           const boltMesh = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.04, 0.04, bLen, 10),
+            new THREE.CylinderGeometry(isSelected ? 0.055 : 0.045, isSelected ? 0.055 : 0.045, bLen, 12),
             new THREE.MeshStandardMaterial({
               color: isSelected ? 0xf59e0b : 0xf43f5e,
-              roughness: 0.3,
-              metalness: 0.8,
+              roughness: 0.25,
+              metalness: 0.85,
               emissive: isSelected ? 0xb45309 : 0x881337,
-              emissiveIntensity: isSelected ? 0.6 : 0.2,
+              emissiveIntensity: isSelected ? 0.65 : 0.3,
             })
           );
           boltMesh.position.copy(collar3D.clone().add(tip3D).multiplyScalar(0.5));
@@ -708,7 +1147,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
           scene.add(boltMesh);
 
           const tipConeMesh = new THREE.Mesh(
-            new THREE.ConeGeometry(0.085, 0.22, 10),
+            new THREE.ConeGeometry(0.1, 0.25, 10),
             new THREE.MeshStandardMaterial({ color: isSelected ? 0xfef08a : 0xfb7185 })
           );
           tipConeMesh.position.copy(tip3D);
@@ -716,7 +1155,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
           scene.add(tipConeMesh);
 
           const plateMesh = new THREE.Mesh(
-            new THREE.BoxGeometry(0.26, 0.26, 0.04),
+            new THREE.BoxGeometry(0.3, 0.3, 0.05),
             new THREE.MeshStandardMaterial({
               color: isSelected ? 0xf59e0b : 0xe2e8f0,
               metalness: 0.85,
@@ -728,7 +1167,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
           scene.add(plateMesh);
 
           if (isSelected && showNormals) {
-            const normalRayEnd = collar3D.clone().add(surfNormal.clone().multiplyScalar(2.0));
+            const normalRayEnd = collar3D.clone().add(surfNormal.clone().multiplyScalar(2.2));
             const normalLine = new THREE.Line(
               new THREE.BufferGeometry().setFromPoints([collar3D, normalRayEnd]),
               new THREE.LineDashedMaterial({ color: 0x38bdf8, dashSize: 0.15, gapSize: 0.1 })
@@ -1340,14 +1779,17 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
       if (validShaftHit) {
         const pt = validShaftHit.point;
         const azDeg = ((Math.atan2(pt.x, -pt.z) * 180) / Math.PI + 360) % 360;
+        // Exact Vertical Shaft Quadrant Mapping from verticalShaftEngine.ts:
+        // 0°–90°: left_wall (Q1 NE), 90°–180°: crown (Q2 ES),
+        // 180°–270°: right_wall (Q3 SW), 270°–360°: shaft_sn (Q4 WN)
         const panel: FieldPanelId =
           azDeg < 90
-            ? 'crown'
+            ? 'left_wall'
             : azDeg < 180
-            ? 'right_wall'
+            ? 'crown'
             : azDeg < 270
-            ? 'face'
-            : 'left_wall';
+            ? 'right_wall'
+            : 'shaft_sn';
         const pullMeter = Number(Math.max(0, Math.min(pullM, yTop - pt.y)).toFixed(2));
         const R = W / 2;
         const azRad = (azDeg * Math.PI) / 180;
@@ -1480,7 +1922,7 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
             </div>
             <div className="text-[10px] text-slate-400">
               {isVerticalShaft
-                ? 'True 3D Vertical Shaft View — Inspect radial spot bolts across Q1 NE, Q2 ES, Q3 SW, Q4 WN, circular curb rings, and perimeter spiling'
+                ? 'True 3D Vertical Shaft View — Shows given 360° Shotcrete Shell, Wire Mesh, Radial Pattern Bolts, Circular Curb/LG Rings, Spiling, Grouting & Radial Spot Bolts'
                 : 'True 3D Spatial View — Simply select and orient Spot Bolts, Pipe Roofing Umbrella, Forepoling & Pattern Rockbolts'}
             </div>
           </div>
@@ -1494,17 +1936,17 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
               ...(support.spotBoltsEnabled && (support.spotBolts || []).length > 0
                 ? [{ id: 'SPOT_BOLTS' as const, label: isVerticalShaft ? 'Radial Spot Bolts' : 'Spot Bolts' }]
                 : []),
-              ...(support.protectionSupportEnabled && support.pipeRoofingEnabled
+              ...(support.pipeRoofingEnabled
                 ? [{ id: 'PIPE_ROOFING' as const, label: isVerticalShaft ? 'Micropile Ring' : 'Pipe Roofing' }]
                 : []),
-              ...(support.protectionSupportEnabled && support.forepolingEnabled
+              ...(support.forepolingEnabled
                 ? [{ id: 'FOREPOLING' as const, label: isVerticalShaft ? 'Shaft Spiling' : 'Forepoling' }]
                 : []),
               ...(support.rockBoltsEnabled
                 ? [{ id: 'PATTERN_BOLTS' as const, label: isVerticalShaft ? 'Radial Pattern Bolts' : 'Pattern Bolts' }]
                 : []),
               ...(support.latticeGirderEnabled || support.ismbEnabled
-                ? [{ id: 'STEEL_RIBS' as const, label: isVerticalShaft ? 'Curb Rings' : 'Steel Sets' }]
+                ? [{ id: 'STEEL_RIBS' as const, label: isVerticalShaft ? 'Curb / LG Rings' : 'Steel Sets' }]
                 : []),
             ]
           ).map((filter) => (
@@ -1522,6 +1964,100 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Quick Given Support Toggles Bar — Allows instant enabling/inspection of any support layer in 3D */}
+      <div className="flex flex-wrap items-center gap-1.5 bg-slate-950/90 border border-slate-800 rounded-lg px-2.5 py-1.5 text-[10.5px]">
+        <span className="font-black uppercase tracking-wider text-amber-400 mr-1">
+          3D Given Supports:
+        </span>
+        {[
+          {
+            key: 'shotcreteEnabled' as const,
+            enabled: Boolean(support.shotcreteEnabled),
+            label: isVerticalShaft
+              ? `Shotcrete Ring (${support.shotcreteCrownThicknessMm || 100}mm)`
+              : `Shotcrete (${support.shotcreteCrownThicknessMm || 100}mm)`,
+            activeClass: 'bg-sky-500/20 border-sky-400 text-sky-200',
+          },
+          {
+            key: 'wireMeshEnabled' as const,
+            enabled: Boolean(support.wireMeshEnabled),
+            label: isVerticalShaft ? '360° Wire Mesh' : 'Wire Mesh',
+            activeClass: 'bg-emerald-500/20 border-emerald-400 text-emerald-200',
+          },
+          {
+            key: 'rockBoltsEnabled' as const,
+            enabled: Boolean(support.rockBoltsEnabled),
+            label: isVerticalShaft
+              ? `Radial Pattern Bolts (${support.rockBoltLengthM || 4}m)`
+              : `Pattern Bolts (${support.rockBoltLengthM || 4}m)`,
+            activeClass: 'bg-cyan-500/20 border-cyan-400 text-cyan-200',
+          },
+          {
+            key: 'latticeGirderEnabled' as const,
+            enabled: Boolean(support.latticeGirderEnabled),
+            label: isVerticalShaft ? 'Circular LG Ring' : 'Lattice Girder',
+            activeClass: 'bg-purple-500/20 border-purple-400 text-purple-200',
+          },
+          {
+            key: 'ismbEnabled' as const,
+            enabled: Boolean(support.ismbEnabled),
+            label: isVerticalShaft ? 'Steel Curb Ring' : 'ISMB Steel Rib',
+            activeClass: 'bg-orange-500/20 border-orange-400 text-orange-200',
+          },
+          {
+            key: 'forepolingEnabled' as const,
+            enabled: Boolean(support.forepolingEnabled),
+            label: isVerticalShaft ? 'Perimeter Spiling' : 'Forepoling',
+            activeClass: 'bg-yellow-500/20 border-yellow-400 text-yellow-200',
+          },
+          {
+            key: 'pipeRoofingEnabled' as const,
+            enabled: Boolean(support.pipeRoofingEnabled),
+            label: isVerticalShaft ? 'Collar Micropiles' : 'Pipe Roofing',
+            activeClass: 'bg-amber-500/20 border-amber-400 text-amber-200',
+          },
+          {
+            key: 'groutingEnabled' as const,
+            enabled: Boolean(support.groutingEnabled),
+            label: isVerticalShaft ? 'Annulus Grouting' : 'Grouting',
+            activeClass: 'bg-teal-500/20 border-teal-400 text-teal-200',
+          },
+        ].map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => {
+              const nextVal = !item.enabled;
+              if (
+                item.key === 'forepolingEnabled' ||
+                item.key === 'pipeRoofingEnabled' ||
+                item.key === 'groutingEnabled'
+              ) {
+                onUpdateSupport({
+                  [item.key]: nextVal,
+                  protectionSupportEnabled: nextVal ? true : support.protectionSupportEnabled,
+                });
+              } else {
+                onUpdateSupport({ [item.key]: nextVal });
+              }
+            }}
+            className={`px-2 py-0.5 rounded border font-mono font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              item.enabled
+                ? item.activeClass
+                : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
+            }`}
+            title={`Click to ${item.enabled ? 'disable' : 'enable'} ${item.label} in 3D & 2D Support System`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                item.enabled ? 'bg-current' : 'bg-slate-600'
+              }`}
+            />
+            <span>{item.label}</span>
+          </button>
+        ))}
       </div>
 
       {/* Main 3D Viewport with Floating Controls */}
@@ -1631,8 +2167,10 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
               !support.latticeGirderEnabled &&
               !support.ismbEnabled &&
               !(support.spotBoltsEnabled && (support.spotBolts?.length || 0) > 0) &&
-              !(support.protectionSupportEnabled && (support.forepolingEnabled || support.pipeRoofingEnabled || support.groutingEnabled)) && (
-                <span className="text-slate-400 italic">None (Unsupported round)</span>
+              !support.forepolingEnabled &&
+              !support.pipeRoofingEnabled &&
+              !support.groutingEnabled && (
+                <span className="text-slate-400 italic">None (Select a Support Class or toggle supports above)</span>
               )}
             {support.spotBoltsEnabled && (support.spotBolts?.length || 0) > 0 && (
               <span className="flex items-center gap-1 text-rose-400">
@@ -1640,16 +2178,22 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
                 {isVerticalShaft ? 'Radial Spot Bolt' : 'Spot Bolt'} ({support.spotBolts?.length || 0})
               </span>
             )}
-            {support.protectionSupportEnabled && support.pipeRoofingEnabled && (
+            {support.pipeRoofingEnabled && (
               <span className="flex items-center gap-1 text-orange-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block" />{' '}
                 {isVerticalShaft ? 'Micropile Ring' : 'Pipe Roof'} (∠{support.pipeRoofingAngleDeg ?? 7}°)
               </span>
             )}
-            {support.protectionSupportEnabled && support.forepolingEnabled && (
+            {support.forepolingEnabled && (
               <span className="flex items-center gap-1 text-amber-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block" />{' '}
                 {isVerticalShaft ? 'Shaft Spiling Ring' : 'Forepoling'} (∠{support.forepolingAngleDeg ?? 10}°)
+              </span>
+            )}
+            {support.groutingEnabled && (
+              <span className="flex items-center gap-1 text-teal-300">
+                <span className="w-2.5 h-2.5 rounded-full bg-teal-400 inline-block" />{' '}
+                {isVerticalShaft ? 'Annulus Grouting' : 'Grouting'} ({support.groutingHoleLengthM ?? 6}m)
               </span>
             )}
             {support.rockBoltsEnabled && (
@@ -1660,13 +2204,13 @@ export const FieldSupport3DInteractiveCanvas: React.FC<FieldSupport3DInteractive
             )}
             {support.shotcreteEnabled && (
               <span className="flex items-center gap-1 text-slate-300">
-                <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block" />{' '}
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-300 inline-block" />{' '}
                 {isVerticalShaft ? 'Shotcrete Shaft Ring' : 'Shotcrete'} ({support.shotcreteCrownThicknessMm}mm)
               </span>
             )}
             {support.wireMeshEnabled && (
-              <span className="flex items-center gap-1 text-teal-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-teal-400 inline-block" />{' '}
+              <span className="flex items-center gap-1 text-emerald-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" />{' '}
                 {isVerticalShaft ? 'Shaft Wall Mesh' : 'Wire Mesh'}
               </span>
             )}

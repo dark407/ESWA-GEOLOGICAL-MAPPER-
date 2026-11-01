@@ -1,1579 +1,3349 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
-  Box,
-  Check,
-  CheckCircle2,
-  Download,
-  Edit,
-  Edit3,
-  FileCode2,
-  FileSpreadsheet,
-  Printer,
-  Save,
-  Send,
-  Sliders,
-  Table,
   X,
+  Printer,
+  Box,
+  Layers,
+  Sparkles,
+  PenTool,
+  FolderGit2,
+  CheckCircle2,
+  Cpu,
+  TrendingUp,
+  FileText,
+  ArrowRight,
+  RefreshCw,
 } from 'lucide-react';
+import { SavedProjectRecord } from '../types/tunnel';
 import {
-  ContinuousStripTrace,
   ContinuousTunnelStripDataset,
-  createPowerTunnelReferenceDataset,
-  exportContinuousStripToDXF,
-  resolveStripTraceColor,
-  runAiTrendAlignmentOnDataset,
+  ContinuousStripTrace,
+  loadAllContinuousStripDatasets,
+  saveAllContinuousStripDatasets,
+  getUnifiedContinuousProjectsAndLocations,
+  compileContinuousDatasetFromFieldAndSavedRecords,
+  extendStripTraceAcrossPull,
+  computeContinuous3DJointInspectionSchedule,
+  computeContinuousStripFemDemProfile,
+  computeContinuousAdvancedGeotechProfile,
+  UnifiedContinuousProjectItem,
+  UnifiedContinuousLocationItem,
 } from '../engine/continuous3DStripEngine';
-import { exportContinuousTunnelLogAsA3Pdf } from '../engine/fieldMappingEngine';
-
-import {
-  EswaCadContinuousStripModal,
-} from './EswaCadContinuousStripModal';
 import { ContinuousTunnel3DCanvas } from './ContinuousTunnel3DCanvas';
+import { EswaCadContinuousStripModal } from './EswaCadContinuousStripModal';
+import { ContinuousFemDem3DViewport } from './ContinuousFemDem3DViewport';
 
 export interface A3ContinuousTunnelLogModalProps {
   isOpen: boolean;
   onClose: () => void;
-  dataset: ContinuousTunnelStripDataset;
-  onUpdateDataset: (updated: ContinuousTunnelStripDataset) => void;
+  dataset?: ContinuousTunnelStripDataset;
+  onUpdateDataset?: (updated: ContinuousTunnelStripDataset) => void;
   initialCadOpen?: boolean;
   userDeviceId?: string;
   userEmail?: string;
+  savedProjects?: SavedProjectRecord[];
+  initialDatasetId?: string;
 }
-
-export type A3ViewMode = 'generated' | 'uploaded' | 'split' | 'overlay';
-export type CustomizerStep = 'titleBlock' | 'geometry' | 'columns' | 'pulls' | 'theme';
 
 export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProps> = ({
   isOpen,
   onClose,
-  dataset: initialDataset,
+  dataset: propDataset,
   onUpdateDataset,
   initialCadOpen = false,
-  userDeviceId = 'ESWA-LOCAL',
-  userEmail = '',
+  savedProjects = [],
+  initialDatasetId,
 }) => {
-  const [dataset, setDataset] = useState<ContinuousTunnelStripDataset>(initialDataset);
-
-  // Sync state if initialDataset changes
-  useEffect(() => {
-    setDataset(initialDataset);
-  }, [initialDataset]);
-
-  // CAD Modal state - opens immediately if initialCadOpen is set
-  const [isCadModalOpen, setIsCadModalOpen] = useState<boolean>(Boolean(initialCadOpen));
-  const [is3DCanvasOpen, setIs3DCanvasOpen] = useState<boolean>(false);
-  const [selected3DTraceId, setSelected3DTraceId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (initialCadOpen) {
-      setIsCadModalOpen(true);
-    }
-  }, [initialCadOpen]);
-
-  // Review Modal state
-  const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
-  const [reviewerDeviceIdInput, setReviewerDeviceIdInput] = useState<string>('');
-  const [reviewerNameInput, setReviewerNameInput] = useState<string>('');
-  const [submissionNotesInput, setSubmissionNotesInput] = useState<string>('');
-  const [reviewSubmittedSuccess, setReviewSubmittedSuccess] = useState<boolean>(false);
-
-  // Zoom scale for A3 sheet view
-  const [sheetZoom, setSheetZoom] = useState<number>(1.0);
-  const [isExportingA3, setIsExportingA3] = useState<boolean>(false);
-  const [a3ExportBanner, setA3ExportBanner] = useState<string | null>(null);
-
-  // Step-by-Step Customizer Drawer
-  const [isCustomizerOpen, setIsCustomizerOpen] = useState<boolean>(false);
-  const [customizerStep, setCustomizerStep] = useState<CustomizerStep>('titleBlock');
-
-  // Blueprint / Presentation Style: 'nhpc_standard' | 'cad_monochrome' | 'eswa_color'
-  const [presentationTheme, setPresentationTheme] = useState<'nhpc_standard' | 'cad_monochrome' | 'eswa_color'>(
-    'nhpc_standard'
+  // 6-Stage Unified Pipeline State:
+  // 1 = Setup & Range Sync | 2 = ESWA 3D CAD | 3 = 3D Joint Inspection | 4 = Continuous FEM/DEM | 5 = Advanced Analysis | 6 = Final A3 Report
+  const [activeWizardStage, setActiveWizardStage] = useState<1 | 2 | 3 | 4 | 5 | 6>(
+    initialCadOpen ? 2 : 6
   );
 
-  // Column visibility toggles
-  const [visibleColumns, setVisibleColumns] = useState({
-    chainage: true,
-    date: true,
-    round: true,
-    lithology: true,
-    weathering: true,
-    ucs: true,
-    joints: true,
-    water: true,
-    rmrQ: true,
-    rqd: true,
-    support: true,
-    overbreak: true,
-    convergence: true,
-    photo: true,
-    remarks: true,
-  });
-
-  // Bounds & Geometry
-  const fromRd = dataset.viewFromRd ?? 250;
-  const toRd = dataset.viewToRd ?? 300;
-  const totalLengthM = Math.max(1, toRd - fromRd);
-
-  const leftWallHeight = dataset.leftWallHeightM || dataset.leftWallArcLengthM || 4.5;
-  const crownWidth = dataset.crownWidthM || dataset.crownArcLengthM || 9.0;
-  const rightWallHeight = dataset.rightWallHeightM || dataset.rightWallArcLengthM || 4.5;
-  const totalPerimeterM = leftWallHeight + crownWidth + rightWallHeight;
-
-  // Active pulls strictly based on available dataset (no fake auto-data)
-  const displayPulls = useMemo(() => {
-    return dataset.pulls || [];
-  }, [dataset.pulls]);
-
-  // Save changes from CAD back to state & memory
-  const handleCadSave = (updated: ContinuousTunnelStripDataset) => {
-    setDataset(updated);
-    onUpdateDataset(updated);
-  };
-
-  // Run AI Trend Alignment
-  const handleAiAlign = () => {
-    const aligned = runAiTrendAlignmentOnDataset(dataset);
-    setDataset(aligned.updatedDataset);
-    onUpdateDataset(aligned.updatedDataset);
-  };
-
-  // Export DXF
-  const handleExportDxf = () => {
-    try {
-      const dxfContent = exportContinuousStripToDXF(dataset);
-      const blob = new Blob([dxfContent], { type: 'application/dxf' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${dataset.projectName || 'Tunnel'}_Continuous_Log_CH${fromRd}-${toRd}.dxf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('DXF export error:', err);
+  useEffect(() => {
+    if (isOpen) {
+      setActiveWizardStage(initialCadOpen ? 2 : 6);
     }
-  };
+  }, [isOpen, initialCadOpen]);
 
-  // Direct A3 Landscape PDF Export
-  const handleExportA3Pdf = () => {
-    try {
-      setIsExportingA3(true);
-      setA3ExportBanner('Generating high-resolution A3 Landscape PDF (420×297mm)...');
-      exportContinuousTunnelLogAsA3Pdf(dataset);
-      setA3ExportBanner('A3 Landscape PDF downloaded successfully!');
-      setTimeout(() => setA3ExportBanner(null), 3500);
-    } catch (err) {
-      console.error('A3 PDF export error:', err);
-      setA3ExportBanner('PDF export failed. Opening print dialog...');
-      window.print();
-    } finally {
-      setIsExportingA3(false);
+  const storedDatasets = useMemo(() => loadAllContinuousStripDatasets(), [isOpen, propDataset?.id]);
+
+  const [localDataset, setLocalDataset] = useState<ContinuousTunnelStripDataset>(
+    () =>
+      propDataset ||
+      storedDatasets.find((d) => d.id === initialDatasetId) ||
+      storedDatasets[0]
+  );
+
+  useEffect(() => {
+    if (propDataset) {
+      setLocalDataset(propDataset);
     }
-  };
+  }, [propDataset]);
 
-  // Print / A3 Landscape Sheet
-  const handlePrintA3 = () => {
-    document.body.classList.add('print-a3-landscape');
-    window.print();
-    setTimeout(() => document.body.classList.remove('print-a3-landscape'), 1200);
-  };
+  // Stage 1 inline sync state
+  const [syncExcavationMode, setSyncExcavationMode] = useState<'TUNNEL' | 'SHAFT'>(
+    localDataset?.excavationMode || 'TUNNEL'
+  );
+  const projectList = useMemo<UnifiedContinuousProjectItem[]>(
+    () => getUnifiedContinuousProjectsAndLocations(syncExcavationMode, savedProjects),
+    [syncExcavationMode, savedProjects, isOpen]
+  );
 
-  // Submit for Review
-  const handleSubmitForReview = () => {
-    const updated: ContinuousTunnelStripDataset = {
-      ...dataset,
-      reviewStatus: 'SUBMITTED_FOR_REVIEW',
-      submittedAt: new Date().toISOString(),
-      reviewerDeviceId: reviewerDeviceIdInput || 'ESWA-REVIEWER-HEAD',
-      reviewerName: reviewerNameInput || 'Lead Geotechnical Engineer',
-      reviewerNotes: submissionNotesInput,
-      updatedAt: new Date().toISOString(),
-    };
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('');
+  const [syncFromRd, setSyncFromRd] = useState<number>(localDataset?.viewFromRd ?? 0);
+  const [syncToRd, setSyncToRd] = useState<number>(localDataset?.viewToRd ?? 25);
 
-    setDataset(updated);
-    onUpdateDataset(updated);
-    setReviewSubmittedSuccess(true);
-    setTimeout(() => {
-      setReviewSubmittedSuccess(false);
-      setIsReviewModalOpen(false);
-    }, 1500);
-  };
+  useEffect(() => {
+    if (projectList.length === 0) {
+      setSelectedProjectId('');
+      setSelectedLocationId('');
+      return;
+    }
+    const proj =
+      projectList.find((p) => p.id === selectedProjectId) ||
+      projectList.find(
+        (p) => p.projectName.toLowerCase() === (localDataset?.projectName || '').toLowerCase()
+      ) ||
+      projectList[0];
+    setSelectedProjectId(proj.id);
 
-  // Update a single property on dataset
-  const updateDatasetProp = (key: keyof ContinuousTunnelStripDataset, val: any) => {
-    const updated = { ...dataset, [key]: val, updatedAt: new Date().toISOString() };
-    setDataset(updated);
-    onUpdateDataset(updated);
-  };
+    const loc =
+      proj.locations.find((l) => l.id === selectedLocationId) ||
+      proj.locations.find(
+        (l) => l.name.toLowerCase() === (localDataset?.tunnelLocationName || '').toLowerCase()
+      ) ||
+      proj.locations[0];
+    if (loc) {
+      setSelectedLocationId(loc.id);
+      if (loc.rounds.length > 0) {
+        const minR = Math.min(...loc.rounds.map((r) => r.fromRd));
+        const maxR = Math.max(...loc.rounds.map((r) => r.toRd));
+        setSyncFromRd(minR);
+        setSyncToRd(Math.max(minR + 2, maxR));
+      }
+    }
+  }, [syncExcavationMode, projectList]);
 
-  // Update pull property
-  const updatePullProp = (pullIdx: number, prop: string, val: any) => {
-    const updatedPulls = [...(dataset.pulls || [])];
-    if (updatedPulls[pullIdx]) {
-      updatedPulls[pullIdx] = { ...updatedPulls[pullIdx], [prop]: val };
-      const updated = { ...dataset, pulls: updatedPulls, updatedAt: new Date().toISOString() };
-      setDataset(updated);
+  const activeSyncProject = useMemo<UnifiedContinuousProjectItem | null>(
+    () => projectList.find((p) => p.id === selectedProjectId) || projectList[0] || null,
+    [projectList, selectedProjectId]
+  );
+
+  const activeSyncLocation = useMemo<UnifiedContinuousLocationItem | null>(
+    () =>
+      activeSyncProject?.locations.find((l) => l.id === selectedLocationId) ||
+      activeSyncProject?.locations[0] ||
+      null,
+    [activeSyncProject, selectedLocationId]
+  );
+
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [showWedgeBlocks3D, setShowWedgeBlocks3D] = useState<boolean>(true);
+  const [femViewMode, setFemViewMode] = useState<'3D_AND_2D' | '3D_ONLY' | 'LONGITUDINAL' | 'CROSS_SECTION'>('3D_AND_2D');
+  const [selectedFemPullId, setSelectedFemPullId] = useState<string>('');
+  const [customOverburdenOverrideM, setCustomOverburdenOverrideM] = useState<string>('');
+  const [appliedOverburdenOverrideM, setAppliedOverburdenOverrideM] = useState<number | null>(null);
+  const stripSvgRef = useRef<SVGSVGElement | null>(null);
+
+  // Build active dataset (applying optional overburden override in Stage 4)
+  const dataset = useMemo<ContinuousTunnelStripDataset>(() => {
+    if (appliedOverburdenOverrideM !== null && appliedOverburdenOverrideM > 0) {
+      return {
+        ...localDataset,
+        overburdenDepthM: appliedOverburdenOverrideM,
+        pulls: (localDataset.pulls || []).map((p) => ({
+          ...p,
+          overburdenDepthM: appliedOverburdenOverrideM,
+        })),
+      };
+    }
+    return localDataset;
+  }, [localDataset, appliedOverburdenOverrideM]);
+
+  // Derived schedules for Stage 3, Stage 4, and Stage 5
+  const jointInspectionSchedule = useMemo(
+    () => computeContinuous3DJointInspectionSchedule(dataset),
+    [dataset]
+  );
+
+  const femDemProfile = useMemo(
+    () => computeContinuousStripFemDemProfile(dataset),
+    [dataset]
+  );
+
+  const advancedGeotechProfile = useMemo(
+    () => computeContinuousAdvancedGeotechProfile(dataset),
+    [dataset]
+  );
+
+  useEffect(() => {
+    const firstMapped = femDemProfile.find((p) => p.status === 'MAPPED');
+    if (firstMapped && (!selectedFemPullId || !femDemProfile.some((p) => p.pullId === selectedFemPullId))) {
+      setSelectedFemPullId(firstMapped.pullId);
+    }
+  }, [femDemProfile, selectedFemPullId]);
+
+  if (!isOpen || !dataset) return null;
+
+  const isShaft = dataset.excavationMode === 'SHAFT';
+  const startRd = dataset.viewFromRd;
+  const endRd = dataset.viewToRd;
+  const totalRdLength = Math.max(2, endRd - startRd);
+  const totalUnrolledWidthM = Math.max(
+    6,
+    (dataset.upperZoneWidthM || 10) + (dataset.lowerZoneWidthM || 8)
+  );
+
+  const leftWallArcM = dataset.leftWallArcLengthM || totalUnrolledWidthM * 0.28;
+  const crownArcM = dataset.crownArcLengthM || totalUnrolledWidthM * 0.44;
+
+  // SVG coordinate system for the 2D unrolled strip chart in Stage 6 (A3 Report)
+  const svgW = 1100;
+  const svgH = 260;
+  const padL = 85;
+  const padR = 25;
+  const padT = 22;
+  const padB = 22;
+  const plotW = svgW - padL - padR;
+  const plotH = svgH - padT - padB;
+
+  const rdToX = (rd: number) => padL + ((rd - startRd) / totalRdLength) * plotW;
+  const yToSvgY = (yM: number) => padT + (yM / totalUnrolledWidthM) * plotH;
+
+  // Tunnel 3-zone divider Y positions
+  const yTunnelCrownTop = yToSvgY(leftWallArcM);
+  const yTunnelRightWallTop = yToSvgY(leftWallArcM + crownArcM);
+
+  // Shaft 4-quadrant divider Y positions (1. NE 0-90, 2. ES 90-180, 3. SW 180-270, 4. WN 270-360)
+  const yShaftQ1 = yToSvgY(totalUnrolledWidthM * 0.25);
+  const yShaftQ2 = yToSvgY(totalUnrolledWidthM * 0.5);
+  const yShaftQ3 = yToSvgY(totalUnrolledWidthM * 0.75);
+
+  const handleSaveCadEdits = (updated: ContinuousTunnelStripDataset) => {
+    setLocalDataset(updated);
+    if (onUpdateDataset) {
       onUpdateDataset(updated);
     }
+    const all = loadAllContinuousStripDatasets();
+    const idx = all.findIndex((d) => d.id === updated.id);
+    if (idx >= 0) all[idx] = updated;
+    else all.unshift(updated);
+    saveAllContinuousStripDatasets(all);
   };
 
-  if (!isOpen) return null;
+  const handleExtendTraceInStage3 = (
+    traceId: string,
+    direction: 'start' | 'end' | 'both' | 'full_span',
+    distanceM: number
+  ) => {
+    const updatedTraces: ContinuousStripTrace[] = (dataset.traces || []).map((t) =>
+      t.id === traceId
+        ? extendStripTraceAcrossPull(
+            t,
+            direction,
+            distanceM,
+            totalUnrolledWidthM,
+            startRd,
+            endRd
+          )
+        : t
+    );
+    handleSaveCadEdits({
+      ...dataset,
+      traces: updatedTraces,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  const handleSyncRangeInStage1 = () => {
+    const fallbackProject: UnifiedContinuousProjectItem = activeSyncProject || {
+      id: `proj-${syncExcavationMode.toLowerCase()}-default`,
+      projectName: dataset.projectName || 'NATM Project',
+      clientName: dataset.clientName || 'Client',
+      contractorName: dataset.contractorName || 'Contractor',
+      excavationMode: syncExcavationMode,
+      locations: [],
+    };
+    const fallbackLocation: UnifiedContinuousLocationItem = activeSyncLocation || {
+      id: `loc-${syncExcavationMode.toLowerCase()}-default`,
+      name: dataset.tunnelLocationName || 'Main Heading',
+      excavationMode: syncExcavationMode,
+      diameterWidthM: dataset.tunnelDiameterWidthM || 8.0,
+      heightM: dataset.tunnelArchHeightM || 6.0,
+      driveAzimuthDeg: 45,
+      overburdenDepthM: dataset.overburdenDepthM || 110,
+      rounds: [],
+    };
+
+    const compiled = compileContinuousDatasetFromFieldAndSavedRecords({
+      excavationMode: syncExcavationMode,
+      projectItem: fallbackProject,
+      locationItem: fallbackLocation,
+      fromRd: Math.min(syncFromRd, syncToRd),
+      toRd: Math.max(syncFromRd + 0.5, syncToRd),
+      existingDataset: dataset,
+    });
+    handleSaveCadEdits(compiled);
+    setActiveWizardStage(2);
+  };
+
+  const selectedJointScheduleItem =
+    jointInspectionSchedule.find((j) => j.traceId === selectedTraceId) ||
+    jointInspectionSchedule[0] ||
+    null;
+
+  const activeFemSlice =
+    femDemProfile.find((r) => r.pullId === selectedFemPullId && r.status === 'MAPPED') ||
+    femDemProfile.find((r) => r.status === 'MAPPED') ||
+    femDemProfile[0];
+
+  const wizardSteps: Array<{
+    stage: 1 | 2 | 3 | 4 | 5 | 6;
+    title: string;
+    subtitle: string;
+    icon: React.ReactNode;
+  }> = [
+    {
+      stage: 1,
+      title: '1. Setup & RD Sync',
+      subtitle: isShaft ? 'Shaft Mode & Depth' : 'Tunnel Mode & RD',
+      icon: <FolderGit2 className="w-3.5 h-3.5" />,
+    },
+    {
+      stage: 2,
+      title: '2. ESWA 3D CAD',
+      subtitle: 'Clean Strip & Edit',
+      icon: <PenTool className="w-3.5 h-3.5" />,
+    },
+    {
+      stage: 3,
+      title: '3. 3D Joint Inspect',
+      subtitle: 'Planes & 3D Wedges',
+      icon: <Box className="w-3.5 h-3.5" />,
+    },
+    {
+      stage: 4,
+      title: '4. Continuous FEM/DEM',
+      subtitle: 'Before vs After Support',
+      icon: <Cpu className="w-3.5 h-3.5" />,
+    },
+    {
+      stage: 5,
+      title: '5. Advanced Analysis',
+      subtitle: 'Q/RMR & Look-Ahead',
+      icon: <TrendingUp className="w-3.5 h-3.5" />,
+    },
+    {
+      stage: 6,
+      title: '6. Final A3 Report',
+      subtitle: 'ISO A3 Engineering Sheet',
+      icon: <FileText className="w-3.5 h-3.5" />,
+    },
+  ];
 
   return (
-    <>
-      <div className="fixed inset-0 z-[9992] flex flex-col bg-stone-950 text-stone-100 overflow-hidden animate-in fade-in duration-200">
-        {/* Top Control Header Bar - Harmonized & Cleanly Grouped */}
-        <div className="h-14 bg-stone-900 border-b border-stone-800 px-3 sm:px-4 flex items-center justify-between shrink-0 shadow-lg print:hidden gap-3 z-30">
-          {/* Left: Info */}
-          <div className="flex items-center gap-3 shrink min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400 shrink-0">
-              <FileSpreadsheet className="w-4 h-4" />
+    <div className="fixed inset-0 z-[150] bg-slate-950/95 backdrop-blur-md flex flex-col overflow-hidden">
+      {/* Top Unified 6-Stage Pipeline Bar (Hidden when printing) */}
+      <div className="print:hidden bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex flex-col gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+              <Layers className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
-              <h1 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2 truncate">
-                <span className="truncate">A3 Continuous Tunnel Log</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30 shrink-0">
-                  CH {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-black uppercase tracking-wider text-white">
+                  Over NATM — Continuous 3D Logging &amp; Engineering Pipeline
+                </h2>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                    isShaft
+                      ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                      : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                  }`}
+                >
+                  {isShaft
+                    ? `VERTICAL SHAFT (${
+                        dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE'
+                          ? `Half-Circle • Median ${(dataset.shaftCenterMedianStatus || 'closed').toUpperCase()}`
+                          : 'Full 360° Circle'
+                      })`
+                    : 'HORIZONTAL / INCLINED TUNNEL'}
                 </span>
-                {dataset.reviewStatus && (
-                  <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded border shrink-0 ${
-                      dataset.reviewStatus === 'APPROVED'
-                        ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                        : dataset.reviewStatus === 'SUBMITTED_FOR_REVIEW'
-                        ? 'bg-amber-950 text-amber-300 border-amber-800'
-                        : 'bg-stone-800 text-stone-300 border-stone-700'
-                    }`}
-                  >
-                    {dataset.reviewStatus === 'SUBMITTED_FOR_REVIEW' ? 'Under Review' : dataset.reviewStatus}
-                  </span>
-                )}
-              </h1>
-              <p className="text-[11px] text-stone-400 truncate max-w-xs sm:max-w-md">
-                {dataset.projectName || 'Project'} • {dataset.tunnelLocationName || 'Tunnel Heading'}
+              </div>
+              <p className="text-[11px] text-slate-400">
+                {dataset.projectName} • {dataset.tunnelLocationName} •{' '}
+                {isShaft ? 'Depth' : 'RD'} {startRd.toFixed(1)}m to {endRd.toFixed(1)}m (
+                {dataset.pulls.filter((p) => p.status === 'MAPPED').length} Mapped Rounds,{' '}
+                {dataset.pulls.filter((p) => p.status === 'MISSING_GAP').length} Unlogged Gaps)
               </p>
             </div>
           </div>
 
-          {/* Center: Sheet Zoom & Scale Info */}
-          <div className="hidden md:flex items-center gap-2 bg-stone-950 px-3 py-1 rounded-lg border border-stone-800 text-xs h-8">
-            <span className="font-semibold text-stone-300">A3 Technical Drawing</span>
-            <div className="h-3.5 w-px bg-stone-800" />
-            <button
-              type="button"
-              onClick={() => setSheetZoom(1.0)}
-              className="px-2 py-0.5 rounded font-mono text-[11px] text-stone-200 hover:text-white bg-stone-900 border border-stone-800 cursor-pointer"
-              title="Mouse Wheel / 2-Finger Pinch to Zoom. Click to reset to 100%."
-            >
-              {Math.round(sheetZoom * 100)}% (1:1)
-            </button>
-          </div>
-
-          {/* Right Action Buttons: All unified to h-8 */}
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Cluster 1: Edit & Model */}
-            <div className="flex items-center bg-stone-800 border border-stone-700 rounded-lg p-0.5 h-8">
-              <button
-                type="button"
-                onClick={() => setIsCadModalOpen(true)}
-                className="h-7 px-2.5 rounded-md bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-                title="Open ESWA CAD to edit the continuous strip canvas, move joints, add discontinuities, and lithology"
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Active Dataset Switcher */}
+            <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1">
+              <span className="text-[10px] font-bold uppercase text-slate-400">Active Log:</span>
+              <select
+                value={dataset.id}
+                onChange={(e) => {
+                  const found = storedDatasets.find((d) => d.id === e.target.value);
+                  if (found) {
+                    setLocalDataset(found);
+                    if (onUpdateDataset) onUpdateDataset(found);
+                    setSelectedTraceId(null);
+                  }
+                }}
+                className="bg-transparent text-xs font-bold text-amber-300 focus:outline-none cursor-pointer max-w-[260px] truncate"
               >
-                <Edit3 className="w-3.5 h-3.5 text-white" />
-                <span>Edit CAD Canvas</span>
-              </button>
-              <div className="h-3.5 w-px bg-stone-700 mx-0.5" />
-              <button
-                type="button"
-                onClick={() => setIs3DCanvasOpen(true)}
-                className="h-7 px-2.5 rounded-md text-stone-200 hover:text-white hover:bg-stone-700/80 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
-                title="Open 3D Continuous Tunnel Canvas to inspect each joint in 3D"
-              >
-                <Box className="w-3.5 h-3.5 text-amber-300" />
-                <span>3D Canvas</span>
-              </button>
+                {[dataset, ...storedDatasets.filter((d) => d.id !== dataset.id)].map((d) => (
+                  <option key={d.id} value={d.id} className="bg-slate-900 text-white">
+                    [{d.excavationMode === 'SHAFT' ? 'SHAFT' : 'TUNNEL'}] {d.projectName} —{' '}
+                    {d.tunnelLocationName} ({d.viewFromRd}–{d.viewToRd}m)
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Cluster 2: Customizer Drawer Toggle */}
-            <button
-              type="button"
-              onClick={() => setIsCustomizerOpen(!isCustomizerOpen)}
-              className={`h-8 px-2.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border ${
-                isCustomizerOpen
-                  ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-xs font-bold'
-                  : 'bg-stone-800 hover:bg-stone-750 text-stone-200 border-stone-700'
-              }`}
-              title="Open step-by-step customizer to adjust title block, bands, and formatting"
-            >
-              <Sliders className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Customize Report</span>
-            </button>
-
-            <div className="h-4 w-px bg-stone-800 shrink-0 hidden sm:block" />
-
-            {/* Cluster 3: Output Actions */}
-            <button
-              type="button"
-              disabled={isExportingA3}
-              onClick={handleExportA3Pdf}
-              className={`h-8 px-3 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer ${
-                isExportingA3
-                  ? 'bg-orange-400 text-stone-950 opacity-75 cursor-wait'
-                  : 'bg-orange-600 hover:bg-orange-500 text-white shadow-orange-600/20'
-              }`}
-              title="Download high-resolution A3 Landscape PDF (420×297mm)"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>{isExportingA3 ? 'Exporting...' : 'A3 PDF'}</span>
-            </button>
+            {activeWizardStage === 6 && (
+              <button
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition-all cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                Print A3 Landscape PDF
+              </button>
+            )}
 
             <button
-              type="button"
-              onClick={handlePrintA3}
-              className="h-8 px-2.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium text-xs flex items-center gap-1.5 border border-stone-700 transition cursor-pointer hidden md:flex"
-              title="Print A3 Drawing Sheet"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExportDxf}
-              className="h-8 w-8 rounded-lg text-stone-300 hover:text-white hover:bg-stone-800 border border-stone-700 transition cursor-pointer flex items-center justify-center shrink-0"
-              title="Export AutoCAD DXF"
-            >
-              <FileCode2 className="w-4 h-4" />
-            </button>
-
-            <div className="h-4 w-px bg-stone-800 shrink-0" />
-
-            {/* Close */}
-            <button
-              type="button"
               onClick={onClose}
-              className="h-8 w-8 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition cursor-pointer flex items-center justify-center shrink-0"
-              title="Close Window"
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/80 text-slate-400 hover:text-rose-300 border border-slate-700 transition-colors cursor-pointer"
+              title="Close Continuous 3D Logging Pipeline"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {a3ExportBanner && (
-          <div className="mx-4 my-2 px-3.5 py-2 rounded-xl bg-orange-950/90 text-orange-200 border border-orange-500/50 text-xs font-bold flex items-center gap-2 animate-in fade-in shrink-0">
-            <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0" />
-            <span>{a3ExportBanner}</span>
-          </div>
-        )}
+        {/* 6-Step Wizard Navigation Bar */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-1.5 pt-1">
+          {wizardSteps.map((s) => {
+            const isActive = activeWizardStage === s.stage;
+            const isCompleted = activeWizardStage > s.stage;
+            return (
+              <button
+                key={s.stage}
+                onClick={() => setActiveWizardStage(s.stage)}
+                className={`flex items-center justify-between px-3 py-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-amber-500/20 border-amber-400 text-white shadow-sm'
+                    : isCompleted
+                    ? 'bg-emerald-950/30 border-emerald-700/50 text-emerald-300 hover:bg-slate-800'
+                    : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={`p-1 rounded ${
+                      isActive
+                        ? 'bg-amber-500 text-slate-950'
+                        : isCompleted
+                        ? 'bg-emerald-600/30 text-emerald-300'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {s.icon}
+                  </div>
+                  <div className="truncate">
+                    <div className="text-[11px] font-black leading-tight truncate">{s.title}</div>
+                    <div className="text-[9px] opacity-75 truncate">{s.subtitle}</div>
+                  </div>
+                </div>
+                {isCompleted && (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 ml-1" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-        {/* Main Body Area: Exact Engineering A3 Landscape Drawing Sheet (Replicating User's Attached PDF) */}
-        <div className="flex-1 flex overflow-hidden relative">
-          <div className="flex-1 overflow-auto p-4 sm:p-6 bg-stone-950 flex flex-col items-center">
-            {/* True A3 Landscape Sheet Canvas (420mm × 297mm ratio, 1400px width) */}
-            <div
-              style={{
-                transform: `scale(${sheetZoom})`,
-              transformOrigin: 'top center',
-              marginBottom: `${(sheetZoom - 1) * 980}px`,
-            }}
-            className="w-[1400px] min-w-[1400px] bg-white text-stone-950 p-5 rounded-none shadow-2xl border-4 border-stone-950 flex flex-col font-sans transition-transform duration-150 print:m-0 print:p-2 print:shadow-none print:w-full print:border-none"
-          >
-            {/* Standard Engineering Margin Border */}
-            <div className="border-2 border-stone-950 p-2 sm:p-2.5 flex flex-col bg-white">
-              {/* SECTION 1: Header Engineering Title Block (Compact Engineering Fonts) */}
-              <div className="border-2 border-stone-950 mb-2">
-                <div className="grid grid-cols-12 divide-x-2 divide-stone-950 text-xs">
-                  {/* Left: Client & Project Info */}
-                  <div className="col-span-8 p-2 flex flex-col justify-between bg-stone-50">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="text-[8px] font-bold text-stone-500 uppercase tracking-widest block">
-                          PROJECT / CLIENT
-                        </span>
-                        <h2 className="text-sm font-black tracking-tight text-stone-950 uppercase leading-snug">
-                          {dataset.projectName || 'MIDDLE MARSYANGDI HYDROELECTRIC PROJECT'}
-                        </h2>
-                        <span className="text-[9.5px] font-bold text-stone-700 block mt-0.5">
-                          EMPLOYER / CLIENT: {dataset.clientName || 'NEPAL ELECTRICITY AUTHORITY'}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[8px] font-bold text-stone-500 uppercase tracking-wider block">
-                          SCALE (H &amp; V)
-                        </span>
-                        <span className="text-xs font-black font-mono">1 : 100</span>
-                      </div>
+      {/* ============================================================================
+          STAGE 1: EXCAVATION MODE, PROJECT, LOCATION & RD / DEPTH RANGE SYNC
+         ============================================================================ */}
+      {activeWizardStage === 1 && (
+        <div className="flex-1 overflow-y-auto p-6 bg-slate-950 text-slate-100">
+          <div className="max-w-5xl mx-auto space-y-6">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                    Stage 1 of 6 • Underground Face Mapping Synchronization
+                  </span>
+                  <h3 className="text-lg font-black text-white mt-0.5">
+                    Select Excavation Mode, Project, Location &amp; Target{' '}
+                    {syncExcavationMode === 'SHAFT' ? 'Depth' : 'Chainage (RD)'} Range
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Directly syncs with all logged Tunnel faces and Vertical Shaft rounds from Underground Face Mapping. Any missing RD/Depth intervals remain blank at true spatial scale.
+                  </p>
+                </div>
+
+                {/* Excavation Mode Toggle */}
+                <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                  <button
+                    onClick={() => setSyncExcavationMode('TUNNEL')}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                      syncExcavationMode === 'TUNNEL'
+                        ? 'bg-cyan-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Tunnel (Horizontal / Inclined)
+                  </button>
+                  <button
+                    onClick={() => setSyncExcavationMode('SHAFT')}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                      syncExcavationMode === 'SHAFT'
+                        ? 'bg-purple-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Vertical Shaft (Circle / Half-Circle)
+                  </button>
+                </div>
+              </div>
+
+              {/* Project & Location Selector + Range Pickers */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-1 bg-slate-950/90 border border-slate-800 rounded-xl p-4 space-y-3">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                      1A. Project
+                    </label>
+                    <select
+                      value={selectedProjectId}
+                      onChange={(e) => {
+                        const nextProjId = e.target.value;
+                        setSelectedProjectId(nextProjId);
+                        const pObj = projectList.find((p) => p.id === nextProjId);
+                        const firstLoc = pObj?.locations[0];
+                        if (firstLoc) {
+                          setSelectedLocationId(firstLoc.id);
+                          if (firstLoc.rounds.length > 0) {
+                            setSyncFromRd(Math.min(...firstLoc.rounds.map((r) => r.fromRd)));
+                            setSyncToRd(Math.max(...firstLoc.rounds.map((r) => r.toRd)));
+                          }
+                        }
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-white"
+                    >
+                      {projectList.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.projectName} ({p.locations.length} loc)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                      1B. {syncExcavationMode === 'SHAFT' ? 'Shaft Location' : 'Tunnel Heading'}
+                    </label>
+                    <select
+                      value={selectedLocationId}
+                      onChange={(e) => {
+                        const nextLocId = e.target.value;
+                        setSelectedLocationId(nextLocId);
+                        const lObj = activeSyncProject?.locations.find((l) => l.id === nextLocId);
+                        if (lObj && lObj.rounds.length > 0) {
+                          setSyncFromRd(Math.min(...lObj.rounds.map((r) => r.fromRd)));
+                          setSyncToRd(Math.max(...lObj.rounds.map((r) => r.toRd)));
+                        }
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-white"
+                    >
+                      {(activeSyncProject?.locations || []).map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name} ({l.rounds.length} logged rounds)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="md:col-span-2 bg-slate-950/90 border border-slate-800 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      2. Choose {syncExcavationMode === 'SHAFT' ? 'Shaft Depth Range (m)' : 'Chainage Range (From RD to To RD)'}
+                    </label>
+                    {activeSyncLocation && activeSyncLocation.rounds.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setSyncFromRd(Math.min(...activeSyncLocation.rounds.map((r) => r.fromRd)));
+                          setSyncToRd(Math.max(...activeSyncLocation.rounds.map((r) => r.toRd)));
+                        }}
+                        className="text-[10px] font-bold text-amber-400 hover:underline cursor-pointer"
+                      >
+                        Reset to Full Logged Span
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block mb-1">
+                        From {syncExcavationMode === 'SHAFT' ? 'Depth (m)' : 'RD (m)'}
+                      </span>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={syncFromRd}
+                        onChange={(e) => setSyncFromRd(Number(e.target.value) || 0)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono font-bold text-white"
+                      />
                     </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block mb-1">
+                        To {syncExcavationMode === 'SHAFT' ? 'Depth (m)' : 'RD (m)'}
+                      </span>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={syncToRd}
+                        onChange={(e) => setSyncToRd(Number(e.target.value) || 0)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono font-bold text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                    <div className="mt-1.5 grid grid-cols-3 gap-2 text-[9.5px] pt-1 border-t border-stone-300">
-                      <div>
-                        <span className="text-[7.5px] text-stone-500 font-bold block uppercase">TUNNEL / HEADING:</span>
-                        <strong className="text-stone-950 text-[10px] font-bold">{dataset.tunnelLocationName || 'POWER TUNNEL (HRT)'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-[7.5px] text-stone-500 font-bold block uppercase">CHAINAGE SCOPE:</span>
-                        <strong className="text-stone-950 font-mono text-[10px] font-bold">
-                          CH {fromRd.toFixed(2)} m TO CH {toRd.toFixed(2)} m
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-[7.5px] text-stone-500 font-bold block uppercase">TOTAL ADVANCE:</span>
-                        <strong className="text-stone-950 font-mono text-[10px] font-bold">
-                          {totalLengthM.toFixed(2)} m
-                        </strong>
-                      </div>
+              {/* Logged Rounds Table in Selected Project/Location */}
+              {activeSyncLocation && (
+                <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200">
+                      Logged Face / Shaft Rounds in {activeSyncProject?.projectName} — {activeSyncLocation.name}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Click Set From / Set To to bound the 3D strip log range
+                    </span>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-900/50 text-slate-400 border-b border-slate-800 text-[10px] uppercase">
+                          <th className="py-2 px-3">Round</th>
+                          <th className="py-2 px-3">
+                            {syncExcavationMode === 'SHAFT' ? 'Depth Interval' : 'RD Interval'}
+                          </th>
+                          <th className="py-2 px-3">Pull Length</th>
+                          <th className="py-2 px-3">Rock Class &amp; Q / RMR</th>
+                          <th className="py-2 px-3">Rock Type</th>
+                          <th className="py-2 px-3">Quick Range</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeSyncLocation.rounds.map((r, idx) => {
+                          const inRange =
+                            r.toRd > Math.min(syncFromRd, syncToRd) &&
+                            r.fromRd < Math.max(syncFromRd, syncToRd);
+                          return (
+                            <tr
+                              key={idx}
+                              className={`border-b border-slate-800/60 ${
+                                inRange ? 'bg-amber-500/10 text-white' : 'text-slate-400'
+                              }`}
+                            >
+                              <td className="py-2 px-3 font-mono font-bold">#{r.roundNumber}</td>
+                              <td className="py-2 px-3 font-mono font-bold text-amber-300">
+                                {r.fromRd.toFixed(1)}m – {r.toRd.toFixed(1)}m
+                              </td>
+                              <td className="py-2 px-3 font-mono">{r.pullLengthM.toFixed(1)}m</td>
+                              <td className="py-2 px-3">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-800 font-bold text-[10px]">
+                                  {r.rockClass}
+                                </span>{' '}
+                                <span className="font-mono text-[11px] text-cyan-300 ml-1">
+                                  Q={r.qValue.toFixed(2)} | RMR={r.rmrValue}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3">{r.rockType}</td>
+                              <td className="py-2 px-3 space-x-2">
+                                <button
+                                  onClick={() => setSyncFromRd(r.fromRd)}
+                                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-cyan-600 text-[10px] font-bold text-slate-200 cursor-pointer"
+                                >
+                                  Set From ({r.fromRd}m)
+                                </button>
+                                <button
+                                  onClick={() => setSyncToRd(r.toRd)}
+                                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-amber-600 text-[10px] font-bold text-slate-200 cursor-pointer"
+                                >
+                                  Set To ({r.toRd}m)
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <div className="text-xs text-slate-400">
+                  Unlogged intervals inside [{Math.min(syncFromRd, syncToRd).toFixed(1)}m –{' '}
+                  {Math.max(syncFromRd, syncToRd).toFixed(1)}m] are preserved as clean blank gaps with dashed boundaries.
+                </div>
+                <button
+                  onClick={handleSyncRangeInStage1}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Sync Selected Pulls into Stage 2 (ESWA 3D CAD)
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================
+          STAGE 2: CLEAN ESWA 3D CAD STRIP LOG EDITOR (EMBEDDED)
+         ============================================================================ */}
+      {activeWizardStage === 2 && (
+        <div className="flex-1 overflow-hidden flex flex-col">
+          <EswaCadContinuousStripModal
+            isOpen={true}
+            embeddedMode={true}
+            onClose={() => setActiveWizardStage(6)}
+            dataset={dataset}
+            onSaveDataset={handleSaveCadEdits}
+            onNextStage={(updatedDataset) => {
+              handleSaveCadEdits(updatedDataset);
+              setActiveWizardStage(3);
+            }}
+          />
+        </div>
+      )}
+
+      {/* ============================================================================
+          STAGE 3: COMPLETE 3D ANALYSIS & HIGH-PRECISION 3D JOINT INSPECTION
+         ============================================================================ */}
+      {activeWizardStage === 3 && (
+        <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12 bg-slate-950 text-slate-100">
+          {/* Left 7 Cols: Interactive 3D Tunnel / Shaft Viewport */}
+          <div className="lg:col-span-7 h-full flex flex-col border-r border-slate-800 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-cyan-400">
+                  Stage 3 of 6 • High-Precision 3D Structural &amp; Wedge Inspection
+                </span>
+                <h3 className="text-sm font-black text-white">
+                  3D {isShaft ? 'Vertical Shaft Cylinder / Half-Circle' : 'NATM Tunnel Arch'}{' '}
+                  Discontinuity &amp; Tetrahedral Wedge Model
+                </h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowWedgeBlocks3D((v) => !v)}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                    showWedgeBlocks3D
+                      ? 'bg-rose-600/30 border-rose-500 text-rose-200'
+                      : 'bg-slate-800 border-slate-700 text-slate-400'
+                  }`}
+                >
+                  {showWedgeBlocks3D ? '3D Wedge Blocks: ON' : '3D Wedge Blocks: OFF'}
+                </button>
+                <button
+                  onClick={() => setActiveWizardStage(4)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black cursor-pointer"
+                >
+                  Next: Continuous FEM/DEM
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0">
+              <ContinuousTunnel3DCanvas
+                dataset={dataset}
+                selectedTraceId={selectedTraceId}
+                onSelectTrace={(id) => setSelectedTraceId(id)}
+                showWedgeBlocks={showWedgeBlocks3D}
+                onExtendTrace={handleExtendTraceInStage3}
+              />
+            </div>
+          </div>
+
+          {/* Right 5 Cols: High-Precision 3D Joint Inspection Schedule & Plane Equation Inspector */}
+          <div className="lg:col-span-5 h-full flex flex-col overflow-hidden bg-slate-900/70">
+            {selectedJointScheduleItem ? (
+              <div className="p-4 border-b border-slate-800 bg-slate-900 space-y-3 shrink-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-mono text-xs font-black">
+                      {selectedJointScheduleItem.label} ({selectedJointScheduleItem.setId})
+                    </span>
+                    <span className="text-xs font-bold text-white">
+                      {selectedJointScheduleItem.structureType} • Dip {selectedJointScheduleItem.dipDeg}° / DipDir{' '}
+                      {String(selectedJointScheduleItem.dipDirectionDeg).padStart(3, '0')}°
+                    </span>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                      selectedJointScheduleItem.riskRating === 'CRITICAL'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                        : selectedJointScheduleItem.riskRating === 'MODERATE'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    }`}
+                  >
+                    {selectedJointScheduleItem.kinematicMode} ({selectedJointScheduleItem.riskRating})
+                  </span>
+                </div>
+
+                {/* 3D Plane Equation & Barton-Bandis Shear Parameters */}
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+                    <div className="text-[9px] uppercase font-bold text-slate-400">
+                      True 3D Cutting Plane Equation
+                    </div>
+                    <div className="font-mono font-bold text-cyan-300 mt-0.5">
+                      {selectedJointScheduleItem.planeEquationStr}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      Span: {isShaft ? 'Depth' : 'RD'} {selectedJointScheduleItem.fromRd.toFixed(1)}m –{' '}
+                      {selectedJointScheduleItem.toRd.toFixed(1)}m (
+                      {selectedJointScheduleItem.persistenceLengthM.toFixed(1)}m)
                     </div>
                   </div>
 
-                  {/* Right: Technical QA / Drawing Info */}
-                  <div className="col-span-4 p-2 text-[9.5px] flex flex-col justify-between bg-stone-100">
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <div>
-                        <span className="text-[7.5px] text-stone-500 font-bold uppercase block">DRAWING NO:</span>
-                        <strong className="text-stone-950 font-mono text-[10px]">PT-GEO-AB-01</strong>
-                      </div>
-                      <div>
-                        <span className="text-[7.5px] text-stone-500 font-bold uppercase block">STATUS / REV:</span>
-                        <strong className="text-orange-700 font-bold font-mono text-[10px]">REV 0 ({dataset.reviewStatus || 'AS BUILT'})</strong>
-                      </div>
-                      <div>
-                        <span className="text-[7.5px] text-stone-500 font-bold uppercase block">MAPPED BY:</span>
-                        <strong className="text-stone-950 text-[9.5px] truncate block">{dataset.geologistContractor || 'B. R. Mahtee'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-[7.5px] text-stone-500 font-bold uppercase block">CHECKED BY:</span>
-                        <strong className="text-stone-950 text-[9.5px] truncate block">{dataset.geologistClient || 'Dr. Gunasekara'}</strong>
-                      </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+                    <div className="text-[9px] uppercase font-bold text-slate-400">
+                      Barton-Bandis Roughness &amp; Friction
+                    </div>
+                    <div className="font-mono font-bold text-amber-300 mt-0.5">
+                      JRC = {selectedJointScheduleItem.jrc} | JCS = {selectedJointScheduleItem.jcsMpa} MPa
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      Peak Friction φ_p = {selectedJointScheduleItem.bartonFrictionAngleDeg}° •{' '}
+                      {selectedJointScheduleItem.apertureMm}mm ({selectedJointScheduleItem.infilling})
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-stone-900 text-white px-3 py-1 text-center font-black text-[10px] tracking-widest uppercase flex items-center justify-between">
-                  <span>GEOLOGICAL &quot;AS BUILT&quot; CONTINUOUS TUNNEL LOG &amp; SUPPORT REPORT</span>
-                  <span className="font-mono text-[9px] text-orange-300 font-normal">
-                    DRIVE DIRECTION: 160°N • GRADIENT: +0.166%
+                {/* 3D Tetrahedral Wedge Block Kinematics */}
+                <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 flex items-center justify-between text-xs">
+                  <div>
+                    <div className="text-[9px] uppercase font-bold text-slate-400">
+                      3D Tetrahedral Wedge Block &amp; Sliding Vector
+                    </div>
+                    <div className="font-mono text-white font-bold mt-0.5">
+                      Vol = {selectedJointScheduleItem.wedgeBlockVolumeM3.toFixed(2)} m³ • Apex ={' '}
+                      {selectedJointScheduleItem.wedgeApexHeightM.toFixed(2)} m
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      Sliding Plunge/Azimuth: {selectedJointScheduleItem.slidingPlungeDeg}° /{' '}
+                      {String(selectedJointScheduleItem.slidingDirectionAzimuthDeg).padStart(3, '0')}° • Zones:{' '}
+                      {selectedJointScheduleItem.surfaceZones.join(', ')}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] text-rose-400 font-mono font-bold">
+                      FoS Unsup: {selectedJointScheduleItem.fosUnreinforced.toFixed(2)}
+                    </div>
+                    <div className="text-xs text-emerald-400 font-mono font-black">
+                      FoS Sup: {selectedJointScheduleItem.fosReinforced.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick 3D Joint Expand / Extend Controls */}
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] font-bold uppercase text-slate-400">
+                    Expand / Extrapolate Joint Across Adjacent Pulls:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() =>
+                        handleExtendTraceInStage3(selectedJointScheduleItem.traceId, 'start', 1.5)
+                      }
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-cyan-600 text-[10px] font-bold text-slate-200 cursor-pointer"
+                    >
+                      -1.5m Start
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleExtendTraceInStage3(selectedJointScheduleItem.traceId, 'end', 1.5)
+                      }
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-cyan-600 text-[10px] font-bold text-slate-200 cursor-pointer"
+                    >
+                      +1.5m End
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleExtendTraceInStage3(selectedJointScheduleItem.traceId, 'both', 2.0)
+                      }
+                      className="px-2 py-1 rounded bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500 hover:text-slate-950 text-[10px] font-black text-amber-300 cursor-pointer"
+                    >
+                      Expand Both (+2.0m)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Complete 3D Joint Inspection Table */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="text-xs font-black uppercase tracking-wider text-slate-300 mb-2">
+                All Mapped Discontinuities &amp; 3D Wedge Schedule ({jointInspectionSchedule.length})
+              </div>
+              <table className="w-full text-left border-collapse text-[11px]">
+                <thead>
+                  <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 text-[9px] uppercase">
+                    <th className="py-2 px-2">ID / Set</th>
+                    <th className="py-2 px-2">Dip / Dir</th>
+                    <th className="py-2 px-2">{isShaft ? 'Depth Span' : 'RD Span'}</th>
+                    <th className="py-2 px-2">JRC / JCS</th>
+                    <th className="py-2 px-2">Wedge Vol</th>
+                    <th className="py-2 px-2">FoS (Bef → Aft)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jointInspectionSchedule.map((item) => {
+                    const isSel = item.traceId === (selectedJointScheduleItem?.traceId || '');
+                    return (
+                      <tr
+                        key={item.traceId}
+                        onClick={() => setSelectedTraceId(item.traceId)}
+                        className={`border-b border-slate-800/70 cursor-pointer transition-colors ${
+                          isSel
+                            ? 'bg-cyan-500/15 text-white'
+                            : 'hover:bg-slate-800/60 text-slate-300'
+                        }`}
+                      >
+                        <td className="py-2 px-2 font-mono font-bold text-cyan-300">
+                          {item.label} ({item.setId})
+                        </td>
+                        <td className="py-2 px-2 font-mono">
+                          {item.dipDeg}° / {String(item.dipDirectionDeg).padStart(3, '0')}°
+                        </td>
+                        <td className="py-2 px-2 font-mono">
+                          {item.fromRd.toFixed(1)}–{item.toRd.toFixed(1)}m
+                        </td>
+                        <td className="py-2 px-2 font-mono">
+                          {item.jrc} / {item.jcsMpa}MPa
+                        </td>
+                        <td className="py-2 px-2 font-mono">
+                          {item.wedgeBlockVolumeM3.toFixed(2)} m³
+                        </td>
+                        <td className="py-2 px-2 font-mono">
+                          <span className="text-rose-400 font-bold">
+                            {item.fosUnreinforced.toFixed(2)}
+                          </span>{' '}
+                          →{' '}
+                          <span className="text-emerald-400 font-black">
+                            {item.fosReinforced.toFixed(2)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================
+          STAGE 4: CONTINUOUS FULL-LENGTH FEM / DEM ANALYSIS (BEFORE VS AFTER SUPPORT)
+         ============================================================================ */}
+      {activeWizardStage === 4 && (
+        <div className="flex-1 overflow-y-auto p-5 bg-slate-950 text-slate-100 space-y-5">
+          {/* Header & Overburden / View Mode Bar */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                Stage 4 of 6 • High-Precision Elasto-Plastic FEM &amp; Discrete Wedge DEM Along Full{' '}
+                {isShaft ? 'Shaft Depth' : 'Tunnel Length'}
+              </span>
+              <h3 className="text-base font-black text-white">
+                Continuous Before Support (Unreinforced) vs. After Support (Reinforced) Numerical Verification
+              </h3>
+              <p className="text-xs text-slate-400">
+                Evaluates Hoek-Brown / Duncan-Fama elasto-plastic continuum yield and 3D discrete wedge DEM mobilization across every logged pull.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Overburden Override Input with OK button */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5">
+                <span className="text-[10px] font-bold uppercase text-slate-400">
+                  Overburden H (m):
+                </span>
+                <input
+                  type="number"
+                  placeholder={isShaft ? 'Auto (=Depth)' : 'e.g. 110'}
+                  value={customOverburdenOverrideM}
+                  onChange={(e) => setCustomOverburdenOverrideM(e.target.value)}
+                  className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs font-mono font-bold text-white"
+                />
+                <button
+                  onClick={() => {
+                    const parsed = parseFloat(customOverburdenOverrideM);
+                    if (!isNaN(parsed) && parsed > 0) {
+                      setAppliedOverburdenOverrideM(parsed);
+                    } else {
+                      setAppliedOverburdenOverrideM(null);
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-black cursor-pointer"
+                >
+                  OK
+                </button>
+                {appliedOverburdenOverrideM !== null && (
+                  <button
+                    onClick={() => {
+                      setAppliedOverburdenOverrideM(null);
+                      setCustomOverburdenOverrideM('');
+                    }}
+                    className="text-[10px] text-rose-400 hover:underline ml-1 cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              {/* View Mode Switcher */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                {(
+                  [
+                    { id: '3D_AND_2D', label: '3D Before/After + 2D Slices' },
+                    { id: '3D_ONLY', label: '3D FEM/DEM Only' },
+                    { id: 'LONGITUDINAL', label: 'Longitudinal Profile' },
+                    { id: 'CROSS_SECTION', label: 'Per-Round Cross-Section' },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setFemViewMode(m.id)}
+                    className={`px-2.5 py-1 rounded text-[10px] font-black uppercase cursor-pointer ${
+                      femViewMode === m.id
+                        ? 'bg-cyan-600 text-white'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={() => setActiveWizardStage(5)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black cursor-pointer"
+              >
+                Next: Advanced Analysis
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* 0. CONTINUOUS 3D FEM / DEM VIEWPORT (BEFORE SUPPORT VS AFTER SUPPORT IN 3D) */}
+          {(femViewMode === '3D_AND_2D' || femViewMode === '3D_ONLY') && (
+            <ContinuousFemDem3DViewport
+              dataset={dataset}
+              femDemProfile={femDemProfile}
+              jointSchedule={jointInspectionSchedule}
+              selectedPullId={activeFemSlice?.pullId || selectedFemPullId}
+              onSelectPullId={(pid) => setSelectedFemPullId(pid)}
+            />
+          )}
+
+          {/* 1. LONGITUDINAL PROFILE VIEW (BEFORE SUPPORT VS AFTER SUPPORT ALONG FULL LENGTH) */}
+          {(femViewMode === '3D_AND_2D' || femViewMode === 'LONGITUDINAL') && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-white">
+                    Longitudinal FEM / DEM Profile ({isShaft ? 'Depth' : 'Chainage RD'}{' '}
+                    {startRd.toFixed(1)}m to {endRd.toFixed(1)}m)
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Click any round column on the profile below to inspect its 2D Before vs. After Support Cross-Section Slice. Unlogged gaps are shown with dashed boundaries.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 text-[11px] font-bold">
+                  <span className="flex items-center gap-1.5 text-rose-400">
+                    <span className="w-3 h-0.5 bg-rose-500 inline-block" /> Before Support (Unreinforced)
+                  </span>
+                  <span className="flex items-center gap-1.5 text-emerald-400">
+                    <span className="w-3 h-0.5 bg-emerald-400 inline-block" /> After Support (Reinforced)
                   </span>
                 </div>
               </div>
 
-              {/* SECTION 2: Continuous Unrolled Geological Profile (Holds ~45% of Total Vertical Sheet Space) */}
-              <div className="border-2 border-stone-950 mb-2 bg-white shadow-xs">
-                <div className="flex border-b-2 border-stone-950">
-                  {/* Left Label Header matching Parameter Table Column below (Width 220px) */}
-                  <div className="w-[220px] min-w-[220px] p-2 bg-stone-100 border-r-2 border-stone-950 flex flex-col justify-between text-[8.5px] font-bold text-stone-800">
-                    <div>
-                      <span className="block text-[11px] font-black uppercase text-stone-900 tracking-wider">
-                        UNROLLED PROFILE
-                      </span>
-                      <span className="text-[8px] text-stone-600 block mt-0.5">
-                        VIEWED FROM INSIDE LOOKING TO FACE
-                      </span>
-                      <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-orange-100 border border-orange-300 text-orange-800 font-mono text-[7.5px] font-bold">
-                        Scale 1:100 H &amp; V
-                      </span>
-                    </div>
+              <div className="w-full overflow-x-auto bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <svg viewBox="0 0 1000 220" className="w-full h-52">
+                  <line x1={60} y1={30} x2={970} y2={30} stroke="#1e293b" strokeDasharray="3,3" />
+                  <line x1={60} y1={100} x2={970} y2={100} stroke="#1e293b" strokeDasharray="3,3" />
+                  <line x1={60} y1={175} x2={970} y2={175} stroke="#334155" />
 
-                    <div className="space-y-2 text-[8px] font-mono text-stone-700 py-3 border-y border-stone-300">
-                      <div>
-                        <span className="text-stone-500 block text-[7px] uppercase">Left Springline:</span>
-                        <strong className="text-stone-900 text-[8.5px]">{dataset.leftCornerAzimuthLabel || '340°N'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-stone-500 block text-[7px] uppercase">Crown Arch:</span>
-                        <strong className="text-stone-900 text-[8.5px]">CL (Centerline)</strong>
-                      </div>
-                      <div>
-                        <span className="text-stone-500 block text-[7px] uppercase">Right Springline:</span>
-                        <strong className="text-stone-900 text-[8.5px]">{dataset.rightCornerAzimuthLabel || '160°N'}</strong>
-                      </div>
-                      <div className="text-stone-600 font-sans pt-1 border-t border-stone-200">
-                        Perimeter: <strong>{totalPerimeterM.toFixed(2)}m</strong>
-                      </div>
-                    </div>
+                  <text x={10} y={34} fontSize={9} fill="#94a3b8" fontWeight={700}>
+                    Disp / FoS
+                  </text>
+                  <text x={10} y={104} fontSize={9} fill="#94a3b8" fontWeight={700}>
+                    Mid-Range
+                  </text>
+                  <text x={10} y={178} fontSize={9} fill="#94a3b8" fontWeight={700}>
+                    0.0 Baseline
+                  </text>
 
-                    <div className="text-[7.5px] text-stone-500 leading-snug">
-                      Discontinuities, lithology &amp; support elements projected onto unfolded tunnel perimeter.
-                    </div>
+                  {femDemProfile.map((p, idx) => {
+                    const x1 = 60 + ((p.fromRd - startRd) / totalRdLength) * 910;
+                    const x2 = 60 + ((p.toRd - startRd) / totalRdLength) * 910;
+                    const cx = (x1 + x2) / 2;
+                    const isSelected = p.pullId === activeFemSlice?.pullId;
+
+                    if (p.status === 'MISSING_GAP') {
+                      return (
+                        <g key={`fem-gap-${p.fromRd}-${idx}`}>
+                          <rect
+                            x={x1}
+                            y={20}
+                            width={Math.max(2, x2 - x1)}
+                            height={155}
+                            fill="#0f172a"
+                            stroke="#475569"
+                            strokeDasharray="5,4"
+                          />
+                          <text
+                            x={cx}
+                            y={100}
+                            fontSize={9}
+                            fontWeight={800}
+                            fill="#64748b"
+                            textAnchor="middle"
+                          >
+                            UNLOGGED GAP ({p.fromRd}–{p.toRd}m)
+                          </text>
+                        </g>
+                      );
+                    }
+
+                    const maxDispScale = Math.max(
+                      35,
+                      ...femDemProfile.map((item) => item.unreinforcedDispMm)
+                    );
+                    const yBeforeDisp =
+                      175 - Math.min(140, (p.unreinforcedDispMm / maxDispScale) * 140);
+                    const yAfterDisp =
+                      175 - Math.min(140, (p.reinforcedDispMm / maxDispScale) * 140);
+
+                    return (
+                      <g
+                        key={`fem-col-${p.pullId}`}
+                        onClick={() => setSelectedFemPullId(p.pullId)}
+                        className="cursor-pointer"
+                      >
+                        <rect
+                          x={x1}
+                          y={20}
+                          width={Math.max(4, x2 - x1)}
+                          height={155}
+                          fill={isSelected ? 'rgba(245, 158, 11, 0.14)' : 'transparent'}
+                          stroke="#1e293b"
+                        />
+                        <rect
+                          x={cx - 12}
+                          y={yBeforeDisp}
+                          width={10}
+                          height={175 - yBeforeDisp}
+                          fill="#f43f5e"
+                          opacity={0.8}
+                          rx={2}
+                        />
+                        <rect
+                          x={cx + 2}
+                          y={yAfterDisp}
+                          width={10}
+                          height={175 - yAfterDisp}
+                          fill="#10b981"
+                          opacity={0.9}
+                          rx={2}
+                        />
+                        <text
+                          x={cx - 7}
+                          y={yBeforeDisp - 4}
+                          fontSize={8}
+                          fill="#fda4af"
+                          textAnchor="middle"
+                          fontWeight={700}
+                        >
+                          {p.unreinforcedDispMm.toFixed(1)}mm
+                        </text>
+                        <text
+                          x={cx + 7}
+                          y={yAfterDisp - 4}
+                          fontSize={8}
+                          fill="#6ee7b7"
+                          textAnchor="middle"
+                          fontWeight={800}
+                        >
+                          {p.reinforcedDispMm.toFixed(1)}mm
+                        </text>
+                        <text
+                          x={cx}
+                          y={192}
+                          fontSize={9}
+                          fill={isSelected ? '#fbbf24' : '#cbd5e1'}
+                          textAnchor="middle"
+                          fontWeight={800}
+                        >
+                          {p.fromRd}–{p.toRd}m
+                        </text>
+                        <text
+                          x={cx}
+                          y={206}
+                          fontSize={8}
+                          fill="#38bdf8"
+                          textAnchor="middle"
+                          fontWeight={700}
+                        >
+                          FoS: {p.unreinforcedContinuumFos.toFixed(2)} →{' '}
+                          {p.reinforcedContinuumFos.toFixed(2)}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+            </div>
+          )}
+
+          {/* 2. PER-ROUND 2D CROSS-SECTION SLICE VIEW (BEFORE VS AFTER SUPPORT FOR TUNNEL OR VERTICAL SHAFT) */}
+          {(femViewMode === '3D_AND_2D' || femViewMode === 'CROSS_SECTION') && activeFemSlice && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Left 7 Cols: Side-by-Side Before Support vs After Support 2D Mesh & Plastic Zone Slices */}
+              <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-cyan-400">
+                      Per-Round Cross-Section Slice (
+                      {isShaft ? 'Vertical Shaft Section' : 'Tunnel Arch Section'})
+                    </span>
+                    <h4 className="text-sm font-black text-white">
+                      {isShaft ? 'Depth' : 'RD'} {activeFemSlice.fromRd.toFixed(1)}m –{' '}
+                      {activeFemSlice.toRd.toFixed(1)}m • {activeFemSlice.rockClass} (Q=
+                      {activeFemSlice.qValue.toFixed(2)}, H=
+                      {activeFemSlice.overburdenDepthM.toFixed(0)}m, σ₀=
+                      {activeFemSlice.inSituStressMpa.toFixed(2)} MPa)
+                    </h4>
                   </div>
 
-                  {/* Strip Canvas (Width 1140px, Height 470px - Occupies near 45% of Sheet Space) */}
-                  <div className="w-[1140px] min-w-[1140px] bg-white overflow-hidden relative">
-                    <svg
-                      width={1140}
-                      height={470}
-                      className="bg-white block"
-                    >
-                      <defs>
-                        <pattern id="qtzPattern" width="10" height="10" patternUnits="userSpaceOnUse">
-                          <circle cx="3" cy="3" r="1.2" fill="#d97706" />
-                          <circle cx="8" cy="8" r="1.2" fill="#d97706" />
-                        </pattern>
-                        <pattern id="phPattern" width="10" height="10" patternUnits="userSpaceOnUse">
-                          <line x1="0" y1="10" x2="10" y2="0" stroke="#0284c7" strokeWidth="1" />
-                        </pattern>
-                        <pattern id="grPattern" width="12" height="12" patternUnits="userSpaceOnUse">
-                          <path d="M 3 6 L 9 6 M 6 3 L 6 9" stroke="#dc2626" strokeWidth="1" />
-                        </pattern>
-                        <pattern id="veinPattern" width="14" height="14" patternUnits="userSpaceOnUse">
-                          <text x="2" y="11" fontSize="10" fontWeight="bold" fill="#b45309">+</text>
-                        </pattern>
-                      </defs>
+                  <select
+                    value={activeFemSlice.pullId}
+                    onChange={(e) => setSelectedFemPullId(e.target.value)}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-bold text-amber-300"
+                  >
+                    {femDemProfile
+                      .filter((r) => r.status === 'MAPPED')
+                      .map((r) => (
+                        <option key={r.pullId} value={r.pullId}>
+                          {isShaft ? 'Depth' : 'RD'} {r.fromRd}–{r.toRd}m — {r.rockClass}
+                        </option>
+                      ))}
+                  </select>
+                </div>
 
-                      {/* Strip Background Frame: Top Y=24, Height=410 */}
-                      <rect
-                        x={0}
-                        y={24}
-                        width={1140}
-                        height={410}
-                        fill="#fafaf9"
-                        stroke="#292524"
-                        strokeWidth="1.8"
-                      />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* BEFORE SUPPORT SLICE */}
+                  <div className="bg-slate-950 border border-rose-500/30 rounded-xl p-3 flex flex-col items-center">
+                    <div className="w-full flex items-center justify-between text-xs font-black text-rose-400 mb-1">
+                      <span>A. BEFORE SUPPORT (UNREINFORCED)</span>
+                      <span className="font-mono">
+                        FoS = {activeFemSlice.unreinforcedContinuumFos.toFixed(2)}
+                      </span>
+                    </div>
+                    <svg viewBox="0 0 260 220" className="w-full h-48">
+                      {isShaft ? (
+                        dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE' ? (
+                          <path
+                            d="M 55 140 A 75 75 0 0 1 205 140 Z"
+                            fill="rgba(244, 63, 94, 0.22)"
+                            stroke="#f43f5e"
+                            strokeDasharray="4,3"
+                            strokeWidth={1.5}
+                          />
+                        ) : (
+                          <circle
+                            cx={130}
+                            cy={110}
+                            r={Math.min(95, 52 + activeFemSlice.unreinforcedPlasticRadiusM * 8)}
+                            fill="rgba(244, 63, 94, 0.22)"
+                            stroke="#f43f5e"
+                            strokeDasharray="4,3"
+                            strokeWidth={1.5}
+                          />
+                        )
+                      ) : (
+                        <path
+                          d="M 48 175 L 48 105 A 82 82 0 0 1 212 105 L 212 175 Z"
+                          fill="rgba(244, 63, 94, 0.22)"
+                          stroke="#f43f5e"
+                          strokeDasharray="4,3"
+                          strokeWidth={1.5}
+                        />
+                      )}
 
-                      {/* Spring Line Division Guides across 410px height */}
-                      {(() => {
-                        const stripH = 410;
-                        const spg1Y = 24 + (leftWallHeight / totalPerimeterM) * stripH;
-                        const spg2Y = 24 + ((leftWallHeight + crownWidth) / totalPerimeterM) * stripH;
-
-                        return (
+                      {isShaft ? (
+                        dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE' ? (
                           <>
-                            <line x1={0} y1={spg1Y} x2={1140} y2={spg1Y} stroke="#78716c" strokeDasharray="5 4" strokeWidth="1.2" />
-                            <line x1={0} y1={spg2Y} x2={1140} y2={spg2Y} stroke="#78716c" strokeDasharray="5 4" strokeWidth="1.2" />
-                            <text x={10} y={24 + (spg1Y - 24) / 2 + 4} fill="#57534e" fontSize="9.5" fontWeight="bold" fontFamily="sans-serif">
-                              LEFT WALL ({leftWallHeight.toFixed(1)}m)
-                            </text>
-                            <text x={10} y={spg1Y + (spg2Y - spg1Y) / 2 + 4} fill="#57534e" fontSize="9.5" fontWeight="bold" fontFamily="sans-serif">
-                              CROWN ARCH ({crownWidth.toFixed(1)}m)
-                            </text>
-                            <text x={10} y={spg2Y + (434 - spg2Y) / 2 + 4} fill="#57534e" fontSize="9.5" fontWeight="bold" fontFamily="sans-serif">
-                              RIGHT WALL ({rightWallHeight.toFixed(1)}m)
-                            </text>
+                            <path
+                              d="M 78 135 A 52 52 0 0 1 182 135 Z"
+                              fill="#020617"
+                              stroke="#fb7185"
+                              strokeWidth={2.2}
+                            />
+                            <line
+                              x1={78}
+                              y1={135}
+                              x2={182}
+                              y2={135}
+                              stroke="#fbbf24"
+                              strokeWidth={3}
+                              strokeDasharray={
+                                dataset.shaftCenterMedianStatus === 'open' ? '6,4' : undefined
+                              }
+                            />
                           </>
-                        );
-                      })()}
+                        ) : (
+                          <circle
+                            cx={130}
+                            cy={110}
+                            r={52}
+                            fill="#020617"
+                            stroke="#fb7185"
+                            strokeWidth={2.2}
+                          />
+                        )
+                      ) : (
+                        <path
+                          d="M 75 162 L 75 105 A 55 55 0 0 1 185 105 L 185 162 Z"
+                          fill="#020617"
+                          stroke="#fb7185"
+                          strokeWidth={2.2}
+                        />
+                      )}
 
-                      {/* Chainage Grid Lines & Labels */}
-                      {(() => {
-                        const lines = [];
-                        const stepM = 1;
+                      <polygon
+                        points={isShaft ? '112,60 148,60 130,32' : '110,52 150,52 130,22'}
+                        fill="rgba(244, 63, 94, 0.55)"
+                        stroke="#fda4af"
+                        strokeWidth={1.5}
+                      />
+                      <text
+                        x={130}
+                        y={204}
+                        fontSize={9}
+                        fill="#fda4af"
+                        textAnchor="middle"
+                        fontWeight={700}
+                      >
+                        u_max = {activeFemSlice.unreinforcedDispMm.toFixed(2)} mm | R_p ={' '}
+                        {activeFemSlice.unreinforcedPlasticRadiusM.toFixed(2)} m
+                      </text>
+                    </svg>
+                  </div>
 
-                        for (let ch = Math.ceil(fromRd); ch <= toRd; ch += stepM) {
-                          const posX = ((ch - fromRd) / totalLengthM) * 1140;
-                          const isMajor = ch % 5 === 0;
+                  {/* AFTER SUPPORT SLICE */}
+                  <div className="bg-slate-950 border border-emerald-500/30 rounded-xl p-3 flex flex-col items-center">
+                    <div className="w-full flex items-center justify-between text-xs font-black text-emerald-400 mb-1">
+                      <span>B. AFTER SUPPORT (REINFORCED)</span>
+                      <span className="font-mono">
+                        FoS = {activeFemSlice.reinforcedContinuumFos.toFixed(2)}
+                      </span>
+                    </div>
+                    <svg viewBox="0 0 260 220" className="w-full h-48">
+                      {isShaft ? (
+                        dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE' ? (
+                          <path
+                            d="M 68 138 A 62 62 0 0 1 192 138 Z"
+                            fill="rgba(16, 185, 129, 0.16)"
+                            stroke="#10b981"
+                            strokeDasharray="4,3"
+                            strokeWidth={1.5}
+                          />
+                        ) : (
+                          <circle
+                            cx={130}
+                            cy={110}
+                            r={Math.min(85, 52 + activeFemSlice.reinforcedPlasticRadiusM * 8)}
+                            fill="rgba(16, 185, 129, 0.16)"
+                            stroke="#10b981"
+                            strokeDasharray="4,3"
+                            strokeWidth={1.5}
+                          />
+                        )
+                      ) : (
+                        <path
+                          d="M 64 168 L 64 105 A 66 66 0 0 1 196 105 L 196 168 Z"
+                          fill="rgba(16, 185, 129, 0.16)"
+                          stroke="#10b981"
+                          strokeDasharray="4,3"
+                          strokeWidth={1.5}
+                        />
+                      )}
 
-                          lines.push(
-                            <g key={`ch-grid-${ch}`}>
-                              <line
-                                x1={posX}
-                                y1={24}
-                                x2={posX}
-                                y2={434}
-                                stroke={isMajor ? '#a8a29e' : '#e7e5e4'}
-                                strokeWidth={isMajor ? 1.4 : 0.6}
-                              />
-                              {isMajor && (
-                                <>
-                                  <line x1={posX} y1={16} x2={posX} y2={24} stroke="#1c1917" strokeWidth="1.5" />
-                                  <line x1={posX} y1={434} x2={posX} y2={442} stroke="#1c1917" strokeWidth="1.5" />
-                                  <text x={posX} y={14} fill="#1c1917" fontSize="9" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                                    {ch}m
-                                  </text>
-                                  <text x={posX} y={456} fill="#1c1917" fontSize="9" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                                    {ch}m
-                                  </text>
-                                </>
-                              )}
-                            </g>
-                          );
-                        }
-                        return lines;
-                      })()}
-
-                      {/* Lithology Zones */}
-                      {(dataset.lithologyZones || []).map((zone) => {
-                        if (!zone.polygon || zone.polygon.length < 3) return null;
-                        const ptsStr = zone.polygon
-                          .map((p) => {
-                            const x = ((p.x - fromRd) / totalLengthM) * 1140;
-                            const y = 24 + (p.y / totalPerimeterM) * 410;
-                            return `${x},${y}`;
-                          })
-                          .join(' ');
-
+                      {/* Radial Rock Bolts */}
+                      {(isShaft
+                        ? dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE'
+                          ? [-150, -120, -90, -60, -30]
+                          : [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
+                        : [-165, -135, -105, -90, -75, -45, -15]
+                      ).map((deg, idx) => {
+                        const rad = (deg * Math.PI) / 180;
+                        const cy =
+                          isShaft && dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE'
+                            ? 135
+                            : 110;
+                        const r1 = 52;
+                        const r2 = 82;
                         return (
-                          <polygon
-                            key={zone.id}
-                            points={ptsStr}
-                            fill={
-                              zone.rockType === 'Quartz veins' || zone.codeSymbol === '+ + +'
-                                ? 'url(#veinPattern)'
-                                : zone.rockType === 'Phyllite' || zone.codeSymbol === 'Ph'
-                                ? 'url(#phPattern)'
-                                : 'url(#qtzPattern)'
-                            }
-                            stroke="#b45309"
-                            strokeWidth="1.2"
-                            opacity="0.85"
+                          <line
+                            key={idx}
+                            x1={130 + r1 * Math.cos(rad)}
+                            y1={cy + r1 * Math.sin(rad)}
+                            x2={130 + r2 * Math.cos(rad)}
+                            y2={cy + r2 * Math.sin(rad)}
+                            stroke="#22d3ee"
+                            strokeWidth={2}
                           />
                         );
                       })}
 
-                      {/* Joint Discontinuities & Traces */}
-                      {(dataset.traces || []).map((trace) => {
-                        const pts = trace.points || [];
-                        if (pts.length < 2) return null;
-
-                        const dStr = pts
-                          .map((p, i) => {
-                            const x = ((p.x - fromRd) / totalLengthM) * 1140;
-                            const y = 24 + (p.y / totalPerimeterM) * 410;
-                            return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                          })
-                          .join(' ');
-
-                        const color = resolveStripTraceColor(trace);
-                        const midPt = pts[Math.floor(pts.length / 2)];
-                        const tagX = ((midPt.x - fromRd) / totalLengthM) * 1140;
-                        const tagY = 24 + (midPt.y / totalPerimeterM) * 410;
-
-                        return (
-                          <g key={trace.id}>
+                      {isShaft ? (
+                        dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE' ? (
+                          <>
                             <path
-                              d={dStr}
-                              stroke={color}
-                              strokeWidth={trace.structureType === 'Shear Zone' ? 3.5 : 2.5}
-                              strokeDasharray={trace.structureType === 'Shear Zone' ? '8 4' : 'none'}
-                              fill="none"
+                              d="M 78 135 A 52 52 0 0 1 182 135 Z"
+                              fill="#020617"
+                              stroke="#10b981"
+                              strokeWidth={4}
                             />
-                            {/* Joint Vertex dots */}
-                            {pts.map((pt, pIdx) => {
-                              const px = ((pt.x - fromRd) / totalLengthM) * 1140;
-                              const py = 24 + (pt.y / totalPerimeterM) * 410;
-                              return (
-                                <circle key={pIdx} cx={px} cy={py} r={2} fill={color} />
-                              );
-                            })}
-                            {trace.orientationLabel && (
-                              <g transform={`translate(${tagX}, ${tagY - 5})`}>
-                                <rect x={-16} y={-9} width={32} height={12} fill="#ffffff" stroke={color} strokeWidth="1" rx={2} />
-                                <text
-                                  x={0}
-                                  y={-0.5}
-                                  fill="#1c1917"
-                                  fontSize="8"
-                                  fontWeight="bold"
-                                  fontFamily="monospace"
-                                  textAnchor="middle"
-                                >
-                                  {trace.orientationLabel}
-                                </text>
-                              </g>
-                            )}
-                          </g>
-                        );
-                      })}
+                            <line
+                              x1={78}
+                              y1={135}
+                              x2={182}
+                              y2={135}
+                              stroke="#10b981"
+                              strokeWidth={3.5}
+                              strokeDasharray={
+                                dataset.shaftCenterMedianStatus === 'open' ? '6,4' : undefined
+                              }
+                            />
+                          </>
+                        ) : (
+                          <circle
+                            cx={130}
+                            cy={110}
+                            r={52}
+                            fill="#020617"
+                            stroke="#10b981"
+                            strokeWidth={4}
+                          />
+                        )
+                      ) : (
+                        <path
+                          d="M 75 162 L 75 105 A 55 55 0 0 1 185 105 L 185 162 Z"
+                          fill="#020617"
+                          stroke="#10b981"
+                          strokeWidth={4}
+                        />
+                      )}
 
-                      {/* Groundwater Seepage Symbols */}
-                      {(dataset.waterSymbols || []).map((sym) => {
-                        const x = ((sym.position.x - fromRd) / totalLengthM) * 1140;
-                        const y = 24 + (sym.position.y / totalPerimeterM) * 410;
-
-                        return (
-                          <g key={sym.id}>
-                            <circle cx={x} cy={y} r={5.5} fill="#0284c7" stroke="#ffffff" strokeWidth="1" />
-                            <text x={x} y={y + 3} fill="#ffffff" fontSize="7.5" fontWeight="bold" textAnchor="middle">
-                              W
-                            </text>
-                            {sym.label && (
-                              <text x={x + 8} y={y + 3} fill="#0369a1" fontSize="8" fontWeight="bold">
-                                {sym.label}
-                              </text>
-                            )}
-                          </g>
-                        );
-                      })}
+                      <polygon
+                        points={isShaft ? '112,60 148,60 130,32' : '110,52 150,52 130,22'}
+                        fill="rgba(16, 185, 129, 0.35)"
+                        stroke="#6ee7b7"
+                        strokeWidth={1.5}
+                      />
+                      <text
+                        x={130}
+                        y={204}
+                        fontSize={9}
+                        fill="#6ee7b7"
+                        textAnchor="middle"
+                        fontWeight={800}
+                      >
+                        u_sup = {activeFemSlice.reinforcedDispMm.toFixed(2)} mm (-
+                        {activeFemSlice.dispReductionPct}%) | R_p ={' '}
+                        {activeFemSlice.reinforcedPlasticRadiusM.toFixed(2)} m
+                      </text>
                     </svg>
                   </div>
                 </div>
               </div>
 
-              {/* SECTION 3: Tabular Parameter Bands Aligned Horizontally per Pull (Matching PDF Template) */}
-              <div className="border-2 border-stone-950 mb-2 overflow-hidden">
-                <table className="w-full border-collapse table-fixed text-[7.5px] leading-tight">
-                  <thead>
-                    <tr className="bg-stone-900 text-white font-bold divide-x divide-stone-700">
-                      <th className="w-[220px] p-1 text-left uppercase tracking-wider text-[8px]">
-                        ENGINEERING PARAMETERS
-                      </th>
-                      {displayPulls.map((pull, idx) => (
-                        <th
-                          key={pull.id || idx}
-                          style={{
-                            width: `${((pull.toRd - pull.fromRd) / totalLengthM) * 100}%`,
-                          }}
-                          className="p-1 text-center font-mono text-[7.5px]"
-                        >
-                          CH {pull.fromRd} – {pull.toRd}m
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y-2 divide-stone-950 text-stone-900">
-                    {/* Row 1: Excavation Date */}
-                    {visibleColumns.date && (
-                      <tr className="divide-x divide-stone-400 bg-stone-50">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          DATE OF EXCAVATION
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center font-mono font-semibold">
-                            {pull.excavationDate || pull.dateMapped || '18/3/03'}
-                          </td>
-                        ))}
+              {/* Right 5 Cols: Full-Length FEM/DEM Ledger Table */}
+              <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col">
+                <h4 className="text-xs font-black uppercase tracking-wider text-white mb-2">
+                  Continuous Round-by-Round FEM / DEM Verification Ledger
+                </h4>
+                <div className="flex-1 overflow-y-auto">
+                  <table className="w-full text-left border-collapse text-[11px]">
+                    <thead>
+                      <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 text-[9px] uppercase">
+                        <th className="py-2 px-2">Span ({isShaft ? 'Depth' : 'RD'})</th>
+                        <th className="py-2 px-2">H (m) / σ₀</th>
+                        <th className="py-2 px-2">Disp (Bef → Aft)</th>
+                        <th className="py-2 px-2">Continuum FoS</th>
+                        <th className="py-2 px-2">Wedge DEM FoS</th>
                       </tr>
-                    )}
-
-                    {/* Row 2: Excavation Defining No. */}
-                    {visibleColumns.round && (
-                      <tr className="divide-x divide-stone-400 bg-white">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          EXCAVATION DEFINING NO.
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center font-mono font-bold">
-                            {pull.excavationDefiningNo || '2'}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 3: Lithology / Rock Type */}
-                    {visibleColumns.lithology && (
-                      <tr className="divide-x divide-stone-400 bg-stone-50">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          LITHOLOGY / ROCK TYPE
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-[7.5px] leading-tight">
-                            <span className="font-bold text-stone-950 block">{pull.rockType || 'Quartzite'}</span>
-                            <span className="text-stone-600 line-clamp-2">{pull.rockDescription || 'Medium grained quartzite.'}</span>
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 4: Weathering */}
-                    {visibleColumns.weathering && (
-                      <tr className="divide-x divide-stone-400 bg-white">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          DEGREE OF WEATHERING
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center font-mono font-bold">
-                            {pull.weatheringCondition || 'W2'}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 5: Compressive Strength UCS */}
-                    {visibleColumns.ucs && (
-                      <tr className="divide-x divide-stone-400 bg-stone-50">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          COMPRESSIVE STRENGTH (UCS)
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center text-[7.5px] font-semibold">
-                            {pull.ucsRangeMpa || '156.20 MPa'}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 6: Discontinuities & Structural Features */}
-                    {visibleColumns.joints && (
-                      <tr className="divide-x divide-stone-400 bg-white">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          DISCONTINUITIES / JOINTS
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-[7.5px] leading-tight text-stone-800">
-                            {pull.structureDescription || 'Fractured, blocky.'}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 7: Groundwater / Seepage */}
-                    {visibleColumns.water && (
-                      <tr className="divide-x divide-stone-400 bg-stone-50">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          GROUNDWATER / SEEPAGE
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center font-mono font-bold text-stone-800">
-                            {pull.seepageCondition || 'DRY'}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 8: RMR & Class */}
-                    {visibleColumns.rmrQ && (
-                      <tr className="divide-x divide-stone-400 bg-white">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          ROCK MASS RATING (RMR)
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center font-mono">
-                            <span className="font-black text-stone-950 block">{pull.rmrValue ?? 61}</span>
-                            <span className="text-[7px] font-sans font-bold text-emerald-800">Class {pull.rockClass || 'II'}</span>
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 9: RQD % */}
-                    {visibleColumns.rqd && (
-                      <tr className="divide-x divide-stone-400 bg-stone-50">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          ROCK QUALITY DESIGNATION (RQD)
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center font-mono font-bold">
-                            {pull.rqdValue ?? 74}%
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 10: Installed Support */}
-                    {visibleColumns.support && (
-                      <tr className="divide-x divide-stone-400 bg-white">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          INSTALLED SUPPORT
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-[7.5px] leading-tight text-stone-800 space-y-0.5">
-                            <div><strong className="text-stone-950">Shot:</strong> {pull.shotcreteInstalled || '10cm'}</div>
-                            <div><strong className="text-stone-950">Mesh:</strong> {pull.wireMeshInstalled || '3kg/m²'}</div>
-                            <div><strong className="text-stone-950">Bolt:</strong> {pull.rockBoltsInstalled || '60/3m'}</div>
-                            <div><strong className="text-stone-950">Rib:</strong> {pull.steelRibsInstalled || '-'}</div>
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 11: Overbreak Volume */}
-                    {visibleColumns.overbreak && (
-                      <tr className="divide-x divide-stone-400 bg-stone-50">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          OVERBREAK (m³)
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center font-mono font-bold">
-                            {pull.overbreakVolumeM3 ? `${pull.overbreakVolumeM3} m³` : '0'}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 12: Convergence */}
-                    {visibleColumns.convergence && (
-                      <tr className="divide-x divide-stone-400 bg-white">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          CONVERGENCE (mm)
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center font-mono font-bold">
-                            {pull.convergenceMm || '0 mm'}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 13: Photographic Record */}
-                    {visibleColumns.photo && (
-                      <tr className="divide-x divide-stone-400 bg-stone-50">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          PHOTOGRAPHIC RECORD
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-center font-mono text-[7px]">
-                            {pull.photoRollNo ? `R:${pull.photoRollNo} N:${pull.photoNegativeNo || '-'}` : '-'}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-
-                    {/* Row 14: Remarks */}
-                    {visibleColumns.remarks && (
-                      <tr className="divide-x divide-stone-400 bg-white">
-                        <td className="p-1 font-bold text-stone-900 uppercase bg-stone-100 text-[8px]">
-                          GEOLOGIST REMARKS
-                        </td>
-                        {displayPulls.map((pull, idx) => (
-                          <td key={idx} className="p-1 text-[7.5px] leading-tight text-stone-700">
-                            {pull.remarks || 'Crown arch stable. No water seepage.'}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* SECTION 4: Engineering Legends & Title Sign-off Block (Bottom Row - Compact Typography) */}
-              <div className="grid grid-cols-12 border-2 border-stone-950 divide-x-2 divide-stone-950 text-[8px] leading-tight">
-                {/* Left (Col Span 4): Symbols & Legend */}
-                <div className="col-span-4 p-2 bg-stone-50 space-y-1">
-                  <span className="font-black text-stone-900 uppercase block tracking-wider text-[8.5px] border-b border-stone-300 pb-0.5">
-                    SYMBOLS &amp; GEOLOGICAL LEGEND
-                  </span>
-                  <div className="space-y-0.5 text-[7.5px] text-stone-800">
-                    <div>
-                      <strong className="text-stone-950">LITHOLOGY:</strong> Qtz: Quartzite • Ph: Phyllite • PQ: Phyllitic Quartzite • +++: Quartz Veins
-                    </div>
-                    <div>
-                      <strong className="text-stone-950">DISCONTINUITIES:</strong> JS1: Foliation • JS2: Main Joint • JS3: Joint Set 3 • SJ: Shear Joint
-                    </div>
-                    <div>
-                      <strong className="text-stone-950">SEEPAGE:</strong> Dry • Damp • Wet • Dripping • Flowing
-                    </div>
-                    <div>
-                      <strong className="text-stone-950">SUPPORT:</strong> SFRCS: Steel Fibre Shotcrete • RB: Rock Bolts • HEB: Steel Ribs
-                    </div>
-                  </div>
+                    </thead>
+                    <tbody>
+                      {femDemProfile.map((r, idx) => {
+                        if (r.status === 'MISSING_GAP') {
+                          return (
+                            <tr
+                              key={`gap-row-${r.fromRd}-${idx}`}
+                              className="border-b border-slate-800/70 bg-slate-950/60 text-slate-500 italic"
+                            >
+                              <td className="py-2 px-2 font-mono">{r.fromRd}–{r.toRd}m</td>
+                              <td colSpan={4} className="py-2 px-2">
+                                UNLOGGED CHAINAGE / DEPTH GAP — No Synthetic Interpolation
+                              </td>
+                            </tr>
+                          );
+                        }
+                        const isSel = r.pullId === activeFemSlice.pullId;
+                        return (
+                          <tr
+                            key={r.pullId}
+                            onClick={() => setSelectedFemPullId(r.pullId)}
+                            className={`border-b border-slate-800/70 cursor-pointer ${
+                              isSel
+                                ? 'bg-amber-500/15 text-white'
+                                : 'hover:bg-slate-800/50 text-slate-300'
+                            }`}
+                          >
+                            <td className="py-2 px-2 font-mono font-bold">
+                              {r.fromRd}–{r.toRd}m
+                            </td>
+                            <td className="py-2 px-2 font-mono">
+                              {r.overburdenDepthM.toFixed(0)}m / {r.inSituStressMpa.toFixed(1)}MPa
+                            </td>
+                            <td className="py-2 px-2 font-mono">
+                              <span className="text-rose-400">
+                                {r.unreinforcedDispMm.toFixed(1)}
+                              </span>{' '}
+                              →{' '}
+                              <span className="text-emerald-400 font-bold">
+                                {r.reinforcedDispMm.toFixed(1)}mm
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 font-mono">
+                              <span className="text-rose-400">
+                                {r.unreinforcedContinuumFos.toFixed(2)}
+                              </span>{' '}
+                              →{' '}
+                              <span className="text-emerald-400 font-black">
+                                {r.reinforcedContinuumFos.toFixed(2)}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 font-mono">
+                              <span className="text-rose-400">
+                                {r.unreinforcedDiscreteWedgeFos.toFixed(2)}
+                              </span>{' '}
+                              →{' '}
+                              <span className="text-cyan-300 font-black">
+                                {r.reinforcedDiscreteWedgeFos.toFixed(2)}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-
-                {/* Center (Col Span 4): Engineering Notes */}
-                <div className="col-span-4 p-2 bg-white space-y-0.5">
-                  <span className="font-black text-stone-900 uppercase block tracking-wider text-[8.5px] border-b border-stone-300 pb-0.5">
-                    GENERAL NOTES &amp; CONVENTIONS
-                  </span>
-                  <ol className="list-decimal list-inside text-[7.5px] text-stone-700 space-y-0.5">
-                    <li>Representative joints are shown in map, numbers limited by scale (1:100).</li>
-                    <li>Information from daily tunnel mapping/face maps used as basis.</li>
-                    <li>Projection done as viewed from inside tunnel looking towards heading.</li>
-                    <li>&quot;-&quot; represents convergence and &quot;+&quot; represents divergence.</li>
-                    <li>Steel ribs used in Power Tunnel is HEB-120.</li>
-                  </ol>
-                </div>
-
-                {/* Right (Col Span 4): Official As-Built Title Block */}
-                <div className="col-span-4 p-2 bg-stone-100 flex flex-col justify-between">
-                  <div className="space-y-0.5 border-b border-stone-300 pb-1">
-                    <span className="text-[7px] font-bold text-stone-500 uppercase block">CONTRACTOR &amp; CONSULTANT</span>
-                    <p className="text-[8.5px] font-bold text-stone-950 uppercase leading-snug">
-                      {dataset.contractorName || 'DYWIDAG — DRAGADOS — CWE JOINT VENTURE'}
-                    </p>
-                    <p className="text-[7.5px] text-stone-600">
-                      CONSULTING ENGINEER: FICHTNER JOINT VENTURE (FJV)
-                    </p>
-                  </div>
-
-                  <div className="pt-1 grid grid-cols-3 gap-1 text-center text-[7.5px]">
-                    <div className="border border-stone-300 p-0.5 bg-white">
-                      <span className="text-[6.5px] text-stone-500 block uppercase">MAPPED</span>
-                      <strong className="text-stone-900 block truncate">{dataset.geologistContractor || 'B. R. Mahtee'}</strong>
-                    </div>
-                    <div className="border border-stone-300 p-0.5 bg-white">
-                      <span className="text-[6.5px] text-stone-500 block uppercase">CHECKED</span>
-                      <strong className="text-stone-900 block truncate">{dataset.geologistClient || 'Dr. Gunasekara'}</strong>
-                    </div>
-                    <div className="border border-stone-300 p-0.5 bg-white">
-                      <span className="text-[6.5px] text-stone-500 block uppercase">APPROVED</span>
-                      <strong className="text-stone-900 block truncate">Resident Eng.</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-          {/* STEP-BY-STEP REPORT CUSTOMIZER DRAWER */}
-          {isCustomizerOpen && (
-            <div className="w-96 bg-stone-900 border-l border-stone-800 flex flex-col z-20 shadow-2xl animate-in slide-in-from-right duration-200">
-              {/* Customizer Header */}
-              <div className="p-4 bg-stone-950 border-b border-stone-800 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-orange-400" />
-                  <h3 className="font-bold text-white text-sm">
-                    Step-by-Step Report Customizer
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsCustomizerOpen(false)}
-                  className="p-1 rounded-lg text-stone-400 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Step Navigation Tabs */}
-              <div className="grid grid-cols-5 bg-stone-950/80 border-b border-stone-800 text-[10px] font-bold text-stone-400">
-                <button
-                  type="button"
-                  onClick={() => setCustomizerStep('titleBlock')}
-                  className={`py-2 text-center border-b-2 transition ${
-                    customizerStep === 'titleBlock'
-                      ? 'border-orange-500 text-orange-400 bg-orange-950/20'
-                      : 'border-transparent hover:text-stone-200'
-                  }`}
-                >
-                  1. Header
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCustomizerStep('geometry')}
-                  className={`py-2 text-center border-b-2 transition ${
-                    customizerStep === 'geometry'
-                      ? 'border-orange-500 text-orange-400 bg-orange-950/20'
-                      : 'border-transparent hover:text-stone-200'
-                  }`}
-                >
-                  2. Geometry
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCustomizerStep('columns')}
-                  className={`py-2 text-center border-b-2 transition ${
-                    customizerStep === 'columns'
-                      ? 'border-orange-500 text-orange-400 bg-orange-950/20'
-                      : 'border-transparent hover:text-stone-200'
-                  }`}
-                >
-                  3. Bands
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCustomizerStep('pulls')}
-                  className={`py-2 text-center border-b-2 transition ${
-                    customizerStep === 'pulls'
-                      ? 'border-orange-500 text-orange-400 bg-orange-950/20'
-                      : 'border-transparent hover:text-stone-200'
-                  }`}
-                >
-                  4. Pulls
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCustomizerStep('theme')}
-                  className={`py-2 text-center border-b-2 transition ${
-                    customizerStep === 'theme'
-                      ? 'border-orange-500 text-orange-400 bg-orange-950/20'
-                      : 'border-transparent hover:text-stone-200'
-                  }`}
-                >
-                  5. Style
-                </button>
-              </div>
-
-              {/* Step Content */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-                {/* STEP 1: TITLE BLOCK & HEADER */}
-                {customizerStep === 'titleBlock' && (
-                  <div className="space-y-3">
-                    <p className="text-[11px] text-stone-400">
-                      Edit Title Block details to match your project's engineering contract standard.
-                    </p>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-stone-300">Project Name:</label>
-                      <input
-                        type="text"
-                        value={dataset.projectName || ''}
-                        onChange={(e) => updateDatasetProp('projectName', e.target.value)}
-                        className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2 text-white font-medium focus:border-orange-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-stone-300">Location / Tunnel Heading:</label>
-                      <input
-                        type="text"
-                        value={dataset.tunnelLocationName || ''}
-                        onChange={(e) => updateDatasetProp('tunnelLocationName', e.target.value)}
-                        className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2 text-white font-medium focus:border-orange-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-stone-300">Client / Employer:</label>
-                      <input
-                        type="text"
-                        value={dataset.clientName || 'NHPC LIMITED'}
-                        onChange={(e) => updateDatasetProp('clientName', e.target.value)}
-                        className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2 text-white font-medium focus:border-orange-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-stone-300">Contractor Name:</label>
-                      <input
-                        type="text"
-                        value={dataset.contractorName || 'M/s Patel - Gammon JV'}
-                        onChange={(e) => updateDatasetProp('contractorName', e.target.value)}
-                        className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2 text-white font-medium focus:border-orange-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-stone-300">Logged By:</label>
-                        <input
-                          type="text"
-                          value={dataset.geologistContractor || ''}
-                          onChange={(e) => updateDatasetProp('geologistContractor', e.target.value)}
-                          className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2 text-white font-medium focus:border-orange-500 focus:outline-none"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-stone-300">Checked By:</label>
-                        <input
-                          type="text"
-                          value={dataset.geologistClient || ''}
-                          onChange={(e) => updateDatasetProp('geologistClient', e.target.value)}
-                          className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2 text-white font-medium focus:border-orange-500 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* STEP 2: TUNNEL GEOMETRY */}
-                {customizerStep === 'geometry' && (
-                  <div className="space-y-3">
-                    <p className="text-[11px] text-stone-400">
-                      Configure tunnel dimensions for the unrolled perimeter strip.
-                    </p>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-stone-300">Left Wall Height (m):</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={leftWallHeight}
-                        onChange={(e) => updateDatasetProp('leftWallHeightM', parseFloat(e.target.value) || 3.75)}
-                        className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2 text-white font-mono focus:border-orange-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-stone-300">Crown Arch Width (m):</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={crownWidth}
-                        onChange={(e) => updateDatasetProp('crownWidthM', parseFloat(e.target.value) || 7.5)}
-                        className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2 text-white font-mono focus:border-orange-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-stone-300">Right Wall Height (m):</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={rightWallHeight}
-                        onChange={(e) => updateDatasetProp('rightWallHeightM', parseFloat(e.target.value) || 3.75)}
-                        className="w-full bg-stone-950 border border-stone-800 rounded-lg p-2 text-white font-mono focus:border-orange-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="p-3 bg-stone-950 border border-stone-800 rounded-xl space-y-1">
-                      <span className="text-[11px] font-bold text-orange-400">Total Unrolled Perimeter:</span>
-                      <p className="font-mono text-sm font-bold text-white">{totalPerimeterM.toFixed(2)} meters</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* STEP 3: TABULAR COLUMNS / BANDS */}
-                {customizerStep === 'columns' && (
-                  <div className="space-y-3">
-                    <p className="text-[11px] text-stone-400">
-                      Toggle columns to match your site's standard table layout.
-                    </p>
-
-                    <div className="space-y-2">
-                      {Object.entries({
-                        date: 'Excavation Date',
-                        round: 'Excavation Defining No. / Round',
-                        lithology: 'Lithology & Rock Type',
-                        weathering: 'Degree of Weathering',
-                        ucs: 'Compressive Strength (UCS)',
-                        joints: 'Discontinuities / Joint Sets',
-                        water: 'Groundwater / Seepage',
-                        rmrQ: 'RMR & Rock Class',
-                        rqd: 'Rock Quality Designation (RQD %)',
-                        support: 'Installed Ground Support',
-                        overbreak: 'Overbreak Volume (m³)',
-                        convergence: 'Convergence (mm)',
-                        photo: 'Photographic Record',
-                        remarks: 'Geologist Remarks',
-                      }).map(([key, label]) => (
-                        <label
-                          key={key}
-                          className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-800 hover:border-stone-700 cursor-pointer"
-                        >
-                          <span className="text-xs text-stone-300 font-medium">{label}</span>
-                          <input
-                            type="checkbox"
-                            checked={visibleColumns[key as keyof typeof visibleColumns]}
-                            onChange={(e) =>
-                              setVisibleColumns({
-                                ...visibleColumns,
-                                [key]: e.target.checked,
-                              })
-                            }
-                            className="rounded accent-orange-500 w-4 h-4 cursor-pointer"
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* STEP 4: PULL RECORDS QUICK EDIT */}
-                {customizerStep === 'pulls' && (
-                  <div className="space-y-3">
-                    <p className="text-[11px] text-stone-400">
-                      Quickly edit the geological parameters for each advance pull.
-                    </p>
-
-                    <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-                      {(dataset.pulls || []).map((pull, idx) => (
-                        <div
-                          key={pull.id || idx}
-                          className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 space-y-2"
-                        >
-                          <div className="flex items-center justify-between">
-                            <strong className="text-orange-400 font-bold">
-                              Pull #{idx + 1} (CH {pull.fromRd}m – {pull.toRd}m)
-                            </strong>
-                            <span className="font-mono text-[10px] text-stone-500">
-                              {(pull.toRd - pull.fromRd).toFixed(1)}m advance
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <div>
-                              <span className="text-[10px] text-stone-400 block">Rock Type:</span>
-                              <input
-                                type="text"
-                                value={pull.rockType || ''}
-                                onChange={(e) => updatePullProp(idx, 'rockType', e.target.value)}
-                                className="w-full bg-stone-900 border border-stone-700 rounded px-1.5 py-1 text-white text-xs"
-                              />
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-stone-400 block">Class:</span>
-                              <input
-                                type="text"
-                                value={pull.rockClass || ''}
-                                onChange={(e) => updatePullProp(idx, 'rockClass', e.target.value)}
-                                className="w-full bg-stone-900 border border-stone-700 rounded px-1.5 py-1 text-white text-xs"
-                              />
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-stone-400 block">Q-Value:</span>
-                              <input
-                                type="number"
-                                step="0.1"
-                                value={pull.qValue ?? 7.5}
-                                onChange={(e) => updatePullProp(idx, 'qValue', parseFloat(e.target.value) || 0)}
-                                className="w-full bg-stone-900 border border-stone-700 rounded px-1.5 py-1 text-white text-xs font-mono"
-                              />
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-stone-400 block">RMR:</span>
-                              <input
-                                type="number"
-                                value={pull.rmrValue ?? 60}
-                                onChange={(e) => updatePullProp(idx, 'rmrValue', parseInt(e.target.value) || 0)}
-                                className="w-full bg-stone-900 border border-stone-700 rounded px-1.5 py-1 text-white text-xs font-mono"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <span className="text-[10px] text-stone-400 block">Support Installed:</span>
-                            <input
-                              type="text"
-                              value={pull.supportDescription || pull.shotcreteInstalled || ''}
-                              onChange={(e) => updatePullProp(idx, 'supportDescription', e.target.value)}
-                              className="w-full bg-stone-900 border border-stone-700 rounded px-1.5 py-1 text-white text-xs"
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* STEP 5: STYLE & THEME */}
-                {customizerStep === 'theme' && (
-                  <div className="space-y-3">
-                    <p className="text-[11px] text-stone-400">
-                      Choose professional presentation styling template.
-                    </p>
-
-                    <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => setPresentationTheme('nhpc_standard')}
-                        className={`w-full p-3 rounded-xl border text-left transition cursor-pointer ${
-                          presentationTheme === 'nhpc_standard'
-                            ? 'bg-orange-950/40 border-orange-500 text-white'
-                            : 'bg-stone-950 border-stone-800 text-stone-300 hover:border-stone-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <strong className="text-xs font-bold">Official NHPC As-Built Standard</strong>
-                          {presentationTheme === 'nhpc_standard' && <Check className="w-4 h-4 text-orange-400" />}
-                        </div>
-                        <p className="text-[11px] text-stone-400">
-                          Hydroelectric technical drawing standard with clean double-line borders and high-contrast tables.
-                        </p>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setPresentationTheme('cad_monochrome')}
-                        className={`w-full p-3 rounded-xl border text-left transition cursor-pointer ${
-                          presentationTheme === 'cad_monochrome'
-                            ? 'bg-orange-950/40 border-orange-500 text-white'
-                            : 'bg-stone-950 border-stone-800 text-stone-300 hover:border-stone-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <strong className="text-xs font-bold">AutoCAD Monochrome Blueprint</strong>
-                          {presentationTheme === 'cad_monochrome' && <Check className="w-4 h-4 text-orange-400" />}
-                        </div>
-                        <p className="text-[11px] text-stone-400">
-                          Crisp black &amp; white engineering plotter presentation ready for construction tender submissions.
-                        </p>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setPresentationTheme('eswa_color')}
-                        className={`w-full p-3 rounded-xl border text-left transition cursor-pointer ${
-                          presentationTheme === 'eswa_color'
-                            ? 'bg-orange-950/40 border-orange-500 text-white'
-                            : 'bg-stone-950 border-stone-800 text-stone-300 hover:border-stone-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <strong className="text-xs font-bold">ESWA Modern Geological Color</strong>
-                          {presentationTheme === 'eswa_color' && <Check className="w-4 h-4 text-orange-400" />}
-                        </div>
-                        <p className="text-[11px] text-stone-400">
-                          Full-color lithological patterns, rock class badges, and highlighted geological discontinuity traces.
-                        </p>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Customizer Footer */}
-              <div className="p-3 bg-stone-950 border-t border-stone-800 flex items-center justify-between">
-                <span className="text-[10px] text-stone-500">Live preview active</span>
-                <button
-                  type="button"
-                  onClick={() => setIsCustomizerOpen(false)}
-                  className="px-4 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-md transition cursor-pointer"
-                >
-                  Done Editing
-                </button>
               </div>
             </div>
           )}
         </div>
-      </div>
-
-      {/* ESWA CAD Modal */}
-      {isCadModalOpen && (
-        <EswaCadContinuousStripModal
-          isOpen={isCadModalOpen}
-          onClose={() => setIsCadModalOpen(false)}
-          dataset={dataset}
-          onSaveDataset={handleCadSave}
-        />
       )}
 
-      {/* Send for Review Modal */}
-      {isReviewModalOpen && (
-        <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-stone-900 border border-stone-800 rounded-2xl w-full max-w-lg shadow-2xl p-5 text-stone-100">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-800 mb-4">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
-                  <Send className="w-4 h-4" />
-                </div>
-                <h3 className="font-bold text-white text-sm">
-                  Send Continuous Tunnel Log for Review
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsReviewModalOpen(false)}
-                className="p-1 rounded-lg text-stone-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* ============================================================================
+          STAGE 5: CONTINUOUS ADVANCED GEOTECHNICAL & FUTURE PREDICTIVE ANALYSIS
+         ============================================================================ */}
+      {activeWizardStage === 5 && (() => {
+        const mappedAdv = advancedGeotechProfile.perPullAnalytics.filter((a) => a.status === 'MAPPED');
+        const repPull = mappedAdv[mappedAdv.length - 1] || mappedAdv[0];
+        const p0 = repPull?.inSituStressP0Mpa || 3.2;
+        const pCr = repPull?.grcCriticalPressureMpa || 0.85;
+        const pEq = repPull?.grcEquilibriumPressureMpa || 0.32;
+        const uEq = repPull?.grcEquilibriumDispMm || 4.2;
+        const uMax = Math.max(uEq * 2.4, advancedGeotechProfile.maxDispBeforeMm || 11.5);
+        const stereo = advancedGeotechProfile.kinematicStereonetSummary;
 
-            {reviewSubmittedSuccess ? (
-              <div className="p-6 text-center space-y-2">
-                <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
-                <h4 className="font-bold text-white">Submitted Successfully!</h4>
-                <p className="text-xs text-stone-400">
-                  Continuous log has been submitted for review. Reviewer has been notified.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4 text-xs">
-                <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 text-[11px] text-stone-400">
-                  <p className="font-semibold text-stone-200 mb-1">Tunnel Log Summary:</p>
-                  <p>Project: <strong>{dataset.projectName}</strong></p>
-                  <p>Heading: <strong>{dataset.tunnelLocationName}</strong></p>
-                  <p>Chainage Scope: <strong>CH {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m</strong></p>
-                  <p>Sender Device ID: <strong className="font-mono text-orange-400">{userDeviceId}</strong></p>
-                </div>
+        // Build Ground Reaction Curve (GRC) points (pi from p0 down to 0)
+        const grcPoints: Array<{ u: number; p: number }> = [];
+        for (let i = 0; i <= 24; i++) {
+          const frac = i / 24;
+          const pVal = p0 * (1 - frac);
+          let uVal = 0;
+          if (pVal >= pCr) {
+            uVal = uEq * 0.45 * ((p0 - pVal) / Math.max(0.1, p0 - pCr));
+          } else {
+            const plastRatio = (pCr - pVal) / Math.max(0.05, pCr);
+            uVal = uEq * 0.45 + (uMax - uEq * 0.45) * Math.pow(plastRatio, 1.85);
+          }
+          grcPoints.push({ u: uVal, p: pVal });
+        }
 
-                <div className="space-y-1">
-                  <label className="font-semibold text-stone-300">Reviewer Device ID or Email:</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. ESWA-REVIEW-841 or lead.geologist@nhpc.gov.in"
-                    value={reviewerDeviceIdInput}
-                    onChange={(e) => setReviewerDeviceIdInput(e.target.value)}
-                    className="w-full bg-stone-950 border border-stone-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-semibold text-stone-300">Reviewer Title / Name:</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Lead Geotechnical Engineer"
-                    value={reviewerNameInput}
-                    onChange={(e) => setReviewerNameInput(e.target.value)}
-                    className="w-full bg-stone-950 border border-stone-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-semibold text-stone-300">Submission Remarks / Notes:</label>
-                  <textarea
-                    rows={3}
-                    placeholder="e.g. Verified shear zone JS1 cross-cutting pull #2. Ground support class II approved."
-                    value={submissionNotesInput}
-                    onChange={(e) => setSubmissionNotesInput(e.target.value)}
-                    className="w-full bg-stone-950 border border-stone-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div className="pt-2 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsReviewModalOpen(false)}
-                    className="px-3 py-2 rounded-lg text-stone-400 hover:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSubmitForReview}
-                    className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Submit for Review</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Dedicated Full-Screen 3D Continuous Tunnel Canvas Modal */}
-      {is3DCanvasOpen && (
-        <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950 text-slate-100 overflow-hidden animate-in fade-in duration-200">
-          <div className="h-12 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between shrink-0 shadow-lg">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400">
-                <Box className="w-4 h-4" />
-              </div>
+        return (
+          <div className="flex-1 overflow-y-auto p-5 bg-slate-950 text-slate-100 space-y-5">
+            {/* Stage 5 Header */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
               <div>
-                <h2 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                  3D Continuous Tunnel Canvas &amp; Joint Inspector
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">
-                    CH {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m
-                  </span>
-                </h2>
-                <p className="text-[10.5px] text-slate-400">
-                  Interactive 3D tunnel cylinder • Click any joint to inspect orientation &amp; text • Rotate, pan &amp; zoom
+                <span className="text-[10px] font-black uppercase tracking-widest text-cyan-400">
+                  Stage 5 of 6 • Comprehensive Source-Driven Geotechnical Mechanics &amp; +50m Future Predictive Suite
+                </span>
+                <h3 className="text-base font-black text-white">
+                  Hoek-Brown / Mohr-Coulomb Mechanics • GRC-SCC Convergence • Kinematic Stereonet • Rockburst/Squeezing • Drill &amp; Blast • +50m Future Trajectory
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Synthesized from all logged field inputs ({isShaft ? 'Vertical Shaft Mode' : 'NATM Tunnel Mode'},{' '}
+                  Ø{dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 8}m, Overburden H ={' '}
+                  {dataset.overburdenDepthM || 110}m, {dataset.traces.length} 3D Discontinuities,{' '}
+                  {advancedGeotechProfile.mappedPullCount} Mapped Pulls).
                 </p>
+              </div>
+              <button
+                onClick={() => setActiveWizardStage(6)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black cursor-pointer shadow-lg shadow-emerald-950/50"
+              >
+                Next: Final A3 Landscape Report
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* 6-Card Source-Driven Executive KPI Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                <div className="text-[10px] font-bold uppercase text-slate-400">
+                  Mean Q / RMR / GSI / RQD
+                </div>
+                <div className="text-sm font-black text-cyan-300 font-mono mt-1">
+                  Q={advancedGeotechProfile.meanQ.toFixed(2)} | RMR={advancedGeotechProfile.meanRmr}
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                  GSI={advancedGeotechProfile.meanGsi} | RQD={advancedGeotechProfile.meanRqd}%
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                <div className="text-[10px] font-bold uppercase text-slate-400">
+                  Hoek-Brown Rock Mass
+                </div>
+                <div className="text-sm font-black text-amber-300 font-mono mt-1">
+                  σcm = {advancedGeotechProfile.meanSigmaCmMpa} MPa
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                  Erm = {advancedGeotechProfile.meanErmGpa} GPa | σci = {advancedGeotechProfile.meanUcsMpa} MPa
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                <div className="text-[10px] font-bold uppercase text-slate-400">
+                  Mohr-Coulomb Equivalent
+                </div>
+                <div className="text-sm font-black text-purple-300 font-mono mt-1">
+                  c&apos; = {advancedGeotechProfile.meanCohesionMpa} MPa | φ&apos; = {advancedGeotechProfile.meanFrictionDeg}°
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                  Barton Joint φr = {stereo.meanFrictionAngleDeg}°
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                <div className="text-[10px] font-bold uppercase text-slate-400">
+                  Min FoS (Before → After)
+                </div>
+                <div className="text-sm font-black font-mono mt-1">
+                  <span className="text-rose-400">
+                    {advancedGeotechProfile.minFosBeforeSupport.toFixed(2)}
+                  </span>{' '}
+                  →{' '}
+                  <span className="text-emerald-400">
+                    {advancedGeotechProfile.minFosAfterSupport.toFixed(2)}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                  Disp: {advancedGeotechProfile.maxDispBeforeMm} → {advancedGeotechProfile.maxDispAfterMm}mm
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                <div className="text-[10px] font-bold uppercase text-slate-400">
+                  3D Kinematic Risk Index
+                </div>
+                <div className="text-sm font-black text-orange-300 font-mono mt-1">
+                  Wedge {stereo.wedgeSlidingRiskPct}% | Planar {stereo.planarSlidingRiskPct}%
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                  Toppling {stereo.topplingBucklingRiskPct}% • Dom: {stereo.dominantSetId}
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                <div className="text-[10px] font-bold uppercase text-slate-400">
+                  +50m Future Horizon Alert
+                </div>
+                <div className="text-xs font-black text-emerald-300 mt-1">
+                  {advancedGeotechProfile.lookAheadZones.some((z) => z.probeDrillingRequired)
+                    ? 'Probe Drilling & Pre-Support Active'
+                    : 'Controlled Advance Trajectory'}
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                  4 Horizons (+0m to +50m ahead)
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIs3DCanvasOpen(false);
-                  setIsCadModalOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer border border-slate-700"
-              >
-                <Sliders className="w-3.5 h-3.5 text-blue-400" />
-                <span>Open in 2D ESWA CAD</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIs3DCanvasOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+            {/* Interactive Analytical Visual Row: GRC-SCC + LDP Chart & Lower-Hemisphere Kinematic Stereonet */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Left: Ground Reaction Curve (GRC) & Support Characteristic Curve (SCC) */}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-wider text-cyan-400">
+                      Convergence-Confinement Method (CCM) &amp; Vlachopoulos-Diederichs LDP
+                    </div>
+                    <h4 className="text-xs font-black text-white">
+                      Ground Reaction Curve (GRC) vs. Installed Support Characteristic Curve (SCC)
+                    </h4>
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-mono font-bold text-emerald-300">
+                    Equilibrium peq = {pEq.toFixed(2)} MPa @ ueq = {uEq.toFixed(1)} mm
+                  </span>
+                </div>
+
+                <svg viewBox="0 0 520 220" className="w-full h-48 bg-slate-950 rounded-lg border border-slate-800">
+                  {/* Grid lines */}
+                  {[0.25, 0.5, 0.75].map((g, idx) => (
+                    <g key={`grc-grid-${idx}`}>
+                      <line
+                        x1={55}
+                        y1={20 + g * 165}
+                        x2={495}
+                        y2={20 + g * 165}
+                        stroke="#1e293b"
+                        strokeDasharray="3,3"
+                      />
+                      <line
+                        x1={55 + g * 440}
+                        y1={20}
+                        x2={55 + g * 440}
+                        y2={185}
+                        stroke="#1e293b"
+                        strokeDasharray="3,3"
+                      />
+                    </g>
+                  ))}
+                  {/* Axes */}
+                  <line x1={55} y1={20} x2={55} y2={185} stroke="#64748b" strokeWidth={1.5} />
+                  <line x1={55} y1={185} x2={495} y2={185} stroke="#64748b" strokeWidth={1.5} />
+
+                  {/* Critical Plastic Pressure Horizontal Line */}
+                  {(() => {
+                    const yPcr = 185 - Math.min(1, pCr / Math.max(0.5, p0)) * 160;
+                    return (
+                      <g>
+                        <line
+                          x1={55}
+                          y1={yPcr}
+                          x2={495}
+                          y2={yPcr}
+                          stroke="#f59e0b"
+                          strokeWidth={1}
+                          strokeDasharray="4,4"
+                        />
+                        <text x={490} y={yPcr - 4} fontSize={8.5} fill="#fbbf24" textAnchor="end" fontWeight={700}>
+                          Plastic Yield Threshold pcr = {pCr.toFixed(2)} MPa
+                        </text>
+                      </g>
+                    );
+                  })()}
+
+                  {/* GRC Curve Path */}
+                  <path
+                    d={grcPoints
+                      .map((pt, i) => {
+                        const x = 55 + Math.min(1, pt.u / Math.max(1, uMax * 1.15)) * 430;
+                        const y = 185 - Math.min(1, pt.p / Math.max(0.5, p0)) * 160;
+                        return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+                      })
+                      .join(' ')}
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth={2.5}
+                  />
+
+                  {/* Support Characteristic Curve (SCC) from u0 to Equilibrium */}
+                  {(() => {
+                    const u0 = uEq * ((repPull?.facePreRelaxationPct || 28) / 100);
+                    const x0 = 55 + Math.min(1, u0 / Math.max(1, uMax * 1.15)) * 430;
+                    const xEq = 55 + Math.min(1, uEq / Math.max(1, uMax * 1.15)) * 430;
+                    const yEq = 185 - Math.min(1, pEq / Math.max(0.5, p0)) * 160;
+                    const pMaxCap = Math.min(p0 * 0.9, pEq * 1.65);
+                    const yCap = 185 - Math.min(1, pMaxCap / Math.max(0.5, p0)) * 160;
+                    const xCap = Math.min(490, xEq + 38);
+                    return (
+                      <g>
+                        <path
+                          d={`M ${x0.toFixed(1)} 185 L ${xEq.toFixed(1)} ${yEq.toFixed(1)} L ${xCap.toFixed(1)} ${yCap.toFixed(1)}`}
+                          fill="none"
+                          stroke="#10b981"
+                          strokeWidth={2.5}
+                        />
+                        <circle cx={xEq} cy={yEq} r={5} fill="#10b981" stroke="#ffffff" strokeWidth={1.5} />
+                        <text x={xEq + 8} y={yEq - 6} fontSize={9} fontWeight={800} fill="#34d399">
+                          Equilibrium ({uEq.toFixed(1)}mm, {pEq.toFixed(2)}MPa)
+                        </text>
+                        <circle cx={x0} cy={185} r={3.5} fill="#a855f7" />
+                        <text x={x0 + 4} y={176} fontSize={8} fontWeight={700} fill="#c084fc">
+                          u0 ({u0.toFixed(1)}mm @ Face)
+                        </text>
+                      </g>
+                    );
+                  })()}
+
+                  {/* Axis Labels */}
+                  <text x={275} y={210} fontSize={9.5} fontWeight={700} fill="#94a3b8" textAnchor="middle">
+                    Radial Wall / Shaft Convergence Displacement u (mm) [Max Unreinforced = {uMax.toFixed(1)} mm]
+                  </text>
+                  <text
+                    x={16}
+                    y={105}
+                    fontSize={9.5}
+                    fontWeight={700}
+                    fill="#94a3b8"
+                    textAnchor="middle"
+                    transform="rotate(-90 16 105)"
+                  >
+                    Support Pressure pi (MPa)
+                  </text>
+                </svg>
+
+                <div className="grid grid-cols-4 gap-2 mt-2 text-[11px] font-mono">
+                  <div className="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800">
+                    <span className="text-slate-400 block text-[9px]">IN-SITU STRESS P0</span>
+                    <span className="text-white font-bold">{p0.toFixed(2)} MPa</span>
+                  </div>
+                  <div className="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800">
+                    <span className="text-slate-400 block text-[9px]">CRITICAL PRESSURE Pcr</span>
+                    <span className="text-amber-300 font-bold">{pCr.toFixed(2)} MPa</span>
+                  </div>
+                  <div className="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800">
+                    <span className="text-slate-400 block text-[9px]">FACE PRE-RELAXATION</span>
+                    <span className="text-purple-300 font-bold">{repPull?.facePreRelaxationPct || 28}% u/umax</span>
+                  </div>
+                  <div className="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800">
+                    <span className="text-slate-400 block text-[9px]">EQUILIBRIUM DISP ueq</span>
+                    <span className="text-emerald-400 font-bold">{uEq.toFixed(2)} mm</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Lower-Hemisphere Equal-Angle Kinematic Stereonet & Discontinuity Instability Matrix */}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-wider text-purple-400">
+                      Lower-Hemisphere Equal-Angle Stereographic Projection
+                    </div>
+                    <h4 className="text-xs font-black text-white">
+                      3D Discontinuity Poles, Great Circles &amp; Kinematic Instability Susceptibility
+                    </h4>
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-purple-500/15 border border-purple-500/40 text-[10px] font-mono font-bold text-purple-300">
+                    {stereo.totalDiscontinuities} Mapped Planes • Dom: {stereo.dominantSetId}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center bg-slate-950 rounded-lg border border-slate-800 p-2.5">
+                  <div className="sm:col-span-6 flex justify-center">
+                    <svg viewBox="0 0 210 210" className="w-44 h-44">
+                      {/* Outer Primitive Circle */}
+                      <circle cx={105} cy={105} r={82} fill="#090d16" stroke="#475569" strokeWidth={1.8} />
+                      {/* Dip Pitch Circles (30 deg, 60 deg) */}
+                      <circle cx={105} cy={105} r={54} fill="none" stroke="#1e293b" strokeDasharray="3,3" />
+                      <circle cx={105} cy={105} r={27} fill="none" stroke="#1e293b" strokeDasharray="3,3" />
+                      {/* Friction Cone Circle */}
+                      <circle
+                        cx={105}
+                        cy={105}
+                        r={Math.max(18, Math.min(75, (stereo.meanFrictionAngleDeg / 90) * 82))}
+                        fill="rgba(245, 158, 11, 0.07)"
+                        stroke="#f59e0b"
+                        strokeWidth={1.1}
+                        strokeDasharray="4,2"
+                      />
+                      {/* Cardinal Crosshairs */}
+                      <line x1={105} y1={18} x2={105} y2={192} stroke="#334155" strokeWidth={1} />
+                      <line x1={18} y1={105} x2={192} y2={105} stroke="#334155" strokeWidth={1} />
+                      <text x={105} y={13} fontSize={9} fontWeight={800} fill="#94a3b8" textAnchor="middle">
+                        N (000°)
+                      </text>
+                      <text x={199} y={108} fontSize={8.5} fontWeight={700} fill="#64748b" textAnchor="middle">
+                        E
+                      </text>
+                      <text x={105} y={203} fontSize={8.5} fontWeight={700} fill="#64748b" textAnchor="middle">
+                        S
+                      </text>
+                      <text x={10} y={108} fontSize={8.5} fontWeight={700} fill="#64748b" textAnchor="middle">
+                        W
+                      </text>
+
+                      {/* Plot Great Circle Arcs & Poles for each mapped discontinuity */}
+                      {stereo.poles.map((pole) => {
+                        // Pole azimuth = dipDirection + 180 deg, radial distance proportional to dip
+                        const poleAzRad = (((pole.dipDirectionDeg + 180) % 360) * Math.PI) / 180;
+                        const rPole = (Math.min(89, Math.max(2, pole.dipDeg)) / 90) * 82;
+                        const px = 105 + rPole * Math.sin(poleAzRad);
+                        const py = 105 - rPole * Math.cos(poleAzRad);
+
+                        // Great circle strike endpoints + dip apex
+                        const strike1Rad = (((pole.dipDirectionDeg - 90 + 360) % 360) * Math.PI) / 180;
+                        const strike2Rad = (((pole.dipDirectionDeg + 90) % 360) * Math.PI) / 180;
+                        const dipAzRad = (pole.dipDirectionDeg * Math.PI) / 180;
+                        const rApex = ((90 - pole.dipDeg) / 90) * 82;
+                        const x1 = 105 + 82 * Math.sin(strike1Rad);
+                        const y1 = 105 - 82 * Math.cos(strike1Rad);
+                        const x2 = 105 + 82 * Math.sin(strike2Rad);
+                        const y2 = 105 - 82 * Math.cos(strike2Rad);
+                        const xm = 105 + rApex * Math.sin(dipAzRad);
+                        const ym = 105 - rApex * Math.cos(dipAzRad);
+
+                        return (
+                          <g key={pole.id}>
+                            <path
+                              d={`M ${x1.toFixed(1)} ${y1.toFixed(1)} Q ${xm.toFixed(1)} ${ym.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`}
+                              fill="none"
+                              stroke={pole.colorHex}
+                              strokeWidth={1.1}
+                              strokeOpacity={0.55}
+                            />
+                            <circle
+                              cx={px}
+                              cy={py}
+                              r={pole.isCritical ? 4.2 : 3.2}
+                              fill={pole.isCritical ? '#f43f5e' : pole.colorHex}
+                              stroke="#ffffff"
+                              strokeWidth={1}
+                            />
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+
+                  <div className="sm:col-span-6 space-y-2.5 pr-1">
+                    <div>
+                      <div className="flex justify-between text-[11px] font-bold mb-1">
+                        <span className="text-slate-300">Wedge Sliding / Fallout Susceptibility</span>
+                        <span className="font-mono text-amber-300">{stereo.wedgeSlidingRiskPct}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-400 rounded-full"
+                          style={{ width: `${Math.max(6, stereo.wedgeSlidingRiskPct)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[11px] font-bold mb-1">
+                        <span className="text-slate-300">Planar Daylight Sliding Susceptibility</span>
+                        <span className="font-mono text-cyan-300">{stereo.planarSlidingRiskPct}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-cyan-400 rounded-full"
+                          style={{ width: `${Math.max(6, stereo.planarSlidingRiskPct)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[11px] font-bold mb-1">
+                        <span className="text-slate-300">Flexural Toppling / Slab Buckling</span>
+                        <span className="font-mono text-purple-300">{stereo.topplingBucklingRiskPct}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-purple-400 rounded-full"
+                          style={{ width: `${Math.max(6, stereo.topplingBucklingRiskPct)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1 text-[10px] font-mono">
+                      <div className="bg-slate-900 p-2 rounded border border-slate-800">
+                        <span className="text-slate-400 block">MEAN ORIENTATION</span>
+                        <span className="text-white font-bold">
+                          {stereo.meanDipDeg}° / {String(stereo.meanDipDirectionDeg).padStart(3, '0')}°
+                        </span>
+                      </div>
+                      <div className="bg-slate-900 p-2 rounded border border-slate-800">
+                        <span className="text-slate-400 block">FRICTION CONE φr</span>
+                        <span className="text-amber-300 font-bold">{stereo.meanFrictionAngleDeg}° (Dashed)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* MODULE 1: Generalized Hoek-Brown, Equivalent Mohr-Coulomb, Rockburst/Spalling & Squeezing Schedule */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-white">
+                  Module 1 — Generalized Hoek-Brown (mb, s, a, σcm, Erm), Mohr-Coulomb (c&apos;, φ&apos;), Brittle Rockburst &amp; Squeezing Strain Schedule
+                </span>
+                <span className="text-[11px] text-cyan-300 font-mono">
+                  Hoek et al. (2002) • Hoek-Diederichs (2006) • Martin-Kaiser Spalling (σθ,max / σci)
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-950/70 text-slate-400 border-b border-slate-800 text-[10px] uppercase">
+                      <th className="py-2.5 px-3">Interval</th>
+                      <th className="py-2.5 px-3">Lithology &amp; σci</th>
+                      <th className="py-2.5 px-3">Hoek-Brown (mb / s / a)</th>
+                      <th className="py-2.5 px-3">Rock Mass σcm &amp; Erm</th>
+                      <th className="py-2.5 px-3">Mohr-Coulomb (c&apos; / φ&apos;)</th>
+                      <th className="py-2.5 px-3">Hoop Stress σθ,max &amp; Spalling Ratio</th>
+                      <th className="py-2.5 px-3">Rockburst / Brittle Class</th>
+                      <th className="py-2.5 px-3">Squeezing Strain εt (%)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {advancedGeotechProfile.perPullAnalytics.map((r, idx) => {
+                      if (r.status === 'MISSING_GAP') {
+                        return (
+                          <tr
+                            key={`hb-gap-${r.fromRd}-${idx}`}
+                            className="border-b border-slate-800/70 bg-slate-950/50 text-slate-500 italic"
+                          >
+                            <td className="py-2 px-3 font-mono">
+                              {r.fromRd.toFixed(1)}–{r.toRd.toFixed(1)}m
+                            </td>
+                            <td colSpan={7} className="py-2 px-3">
+                              UNLOGGED GAP — Blank interval bounded by dashed {isShaft ? 'depth' : 'RD'} lines
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return (
+                        <tr key={`hb-${r.pullId}`} className="border-b border-slate-800/70 text-slate-200 hover:bg-slate-800/30">
+                          <td className="py-2.5 px-3 font-mono font-bold text-amber-300">
+                            {r.fromRd.toFixed(1)}–{r.toRd.toFixed(1)}m
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className="font-bold text-white">{r.rockType}</div>
+                            <div className="text-[10px] font-mono text-slate-400">
+                              σci = {r.intactUcsMpa} MPa | mi = {r.miConstant}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[11px] text-cyan-300">
+                            mb={r.mbParam} | s={r.sParam} | a={r.aParam}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <span className="font-bold text-amber-300">σcm = {r.sigmaCmMpa} MPa</span>
+                            <span className="block text-[10px] text-slate-400">Erm = {r.ermGpa} GPa</span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-purple-300">
+                            c&apos; = {r.cohesionMpa} MPa | φ&apos; = {r.frictionAngleDeg}°
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <span className="text-white font-bold">σθ = {r.tangentialStressMaxMpa} MPa</span>
+                            <span className="block text-[10px] text-slate-400">
+                              σθ/σci = {r.spallingRatio.toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                r.rockburstClass === 'SEVERE_STRAINBURST' || r.rockburstClass === 'MODERATE_SLABBING'
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                  : r.rockburstClass === 'MINOR_SPALLING'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : 'bg-emerald-500/20 text-emerald-300'
+                              }`}
+                            >
+                              {r.rockburstClass}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <span className="font-bold text-white">{r.squeezingStrainPct.toFixed(2)}%</span>{' '}
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                r.squeezePotential !== 'NONE'
+                                  ? 'bg-amber-500/20 text-amber-300'
+                                  : 'bg-emerald-500/20 text-emerald-300'
+                              }`}
+                            >
+                              {r.squeezePotential}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* MODULE 2: Empirical Verification & Drill-and-Blast / Excavation Advance Optimization Schedule */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-white">
+                  Module 2 — Support Margin, Stand-Up Time, Hydro-Seepage &amp; Drill-and-Blast / Advance Optimization
+                </span>
+                <span className="text-[11px] text-emerald-300 font-mono">
+                  Optimal Pull Length • Powder Factor (kg/m³) • Perimeter Spacing • Overbreak &amp; Shotcrete Rebound Predictor
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-950/70 text-slate-400 border-b border-slate-800 text-[10px] uppercase">
+                      <th className="py-2.5 px-3">Interval</th>
+                      <th className="py-2.5 px-3">Q / RMR / GSI / RQD</th>
+                      <th className="py-2.5 px-3">Support Margin</th>
+                      <th className="py-2.5 px-3">Stand-Up Time &amp; Max Span</th>
+                      <th className="py-2.5 px-3">Water Inflow</th>
+                      <th className="py-2.5 px-3">Optimal Advance Pull</th>
+                      <th className="py-2.5 px-3">Powder Factor &amp; Perim. Spacing</th>
+                      <th className="py-2.5 px-3">Predicted Overbreak &amp; SFRS Rebound</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {advancedGeotechProfile.perPullAnalytics.map((r, idx) => {
+                      if (r.status === 'MISSING_GAP') {
+                        return null;
+                      }
+                      return (
+                        <tr key={`db-${r.pullId}-${idx}`} className="border-b border-slate-800/70 text-slate-200 hover:bg-slate-800/30">
+                          <td className="py-2.5 px-3 font-mono font-bold text-amber-300">
+                            {r.fromRd.toFixed(1)}–{r.toRd.toFixed(1)}m
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            Q={r.qValue.toFixed(2)} | RMR={r.rmrValue} | GSI={r.gsiValue} | RQD={r.rqdValue}%
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <span
+                              className={
+                                r.supportMarginRatio >= 1.2
+                                  ? 'text-emerald-400 font-bold'
+                                  : 'text-amber-300 font-bold'
+                              }
+                            >
+                              {r.supportMarginRatio.toFixed(2)}x Capacity
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-cyan-300">
+                            {r.standUpTimeHours >= 24
+                              ? `${(r.standUpTimeHours / 24).toFixed(1)} days`
+                              : `${r.standUpTimeHours.toFixed(1)} hrs`}{' '}
+                            • Span {r.maxUnsupportedSpanM.toFixed(1)}m
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-blue-300">
+                            {r.waterInflowLMinPer10m.toFixed(1)} L/min/10m
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-emerald-300">
+                            {r.optimalAdvanceM.toFixed(2)} m / round
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-purple-300">
+                            {r.powderFactorKgM3.toFixed(2)} kg/m³ • S={r.perimeterHoleSpacingM.toFixed(2)}m
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <span className="text-amber-300 font-bold">OB {r.predictedOverbreakPct}%</span> •{' '}
+                            <span className="text-slate-300">Rebound {r.shotcreteReboundPct}%</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* MODULE 3: Multi-Horizon +50m Future Look-Ahead / Sink-Ahead Trajectory & Predictive Trigger Suite */}
+            <div className="bg-slate-900 border border-purple-500/40 rounded-xl p-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-purple-300">
+                    Module 3 — Multi-Horizon +50m Future {isShaft ? 'Sink-Ahead' : 'Look-Ahead'} Predictive Trajectory
+                  </span>
+                  <h4 className="text-sm font-black text-white">
+                    Extrapolated Q / RMR / Water Inflow Trajectory, Structural Intersection Probability &amp; Probe-Drilling / Pre-Grouting Triggers
+                  </h4>
+                </div>
+                <span className="px-2.5 py-1 rounded bg-purple-500/20 border border-purple-500/40 text-[11px] font-mono font-bold text-purple-200">
+                  Forecast Horizon: {isShaft ? 'Depth' : 'RD'} {dataset.viewToRd.toFixed(1)}m →{' '}
+                  {(dataset.viewToRd + 50).toFixed(1)}m (+50m)
+                </span>
+              </div>
+
+              {/* Longitudinal Mapped + Future Trajectory SVG Chart */}
+              {(() => {
+                const chartNodes = [
+                  ...mappedAdv.map((m) => ({
+                    rd: Number(((m.fromRd + m.toRd) / 2).toFixed(1)),
+                    label: `${m.fromRd}–${m.toRd}m`,
+                    rmr: m.rmrValue,
+                    q: m.qValue,
+                    water: m.waterInflowLMinPer10m,
+                    isFuture: false,
+                  })),
+                  ...advancedGeotechProfile.lookAheadZones.map((lz) => ({
+                    rd: Number(((lz.fromRd + lz.toRd) / 2).toFixed(1)),
+                    label: `+${Math.round(lz.fromRd - dataset.viewToRd)}–${Math.round(lz.toRd - dataset.viewToRd)}m`,
+                    rmr: lz.predictedRmr,
+                    q: lz.predictedQ,
+                    water: lz.predictedWaterLMin,
+                    isFuture: true,
+                  })),
+                ];
+                if (chartNodes.length < 2) return null;
+                const cW = 920;
+                const cH = 155;
+                const padX = 55;
+                const plotCW = cW - padX * 2;
+                const xForIdx = (i: number) =>
+                  padX + (i / Math.max(1, chartNodes.length - 1)) * plotCW;
+                const yForRmr = (rmr: number) => 128 - (Math.min(100, Math.max(0, rmr)) / 100) * 100;
+                const yForWater = (w: number) => 128 - (Math.min(40, Math.max(0, w)) / 40) * 100;
+                const futureStartIdx = mappedAdv.length;
+                const splitX =
+                  futureStartIdx > 0 && futureStartIdx < chartNodes.length
+                    ? (xForIdx(futureStartIdx - 1) + xForIdx(futureStartIdx)) / 2
+                    : padX;
+
+                return (
+                  <svg
+                    viewBox={`0 0 ${cW} ${cH}`}
+                    className="w-full h-40 bg-slate-950 rounded-lg border border-slate-800"
+                  >
+                    {/* Shaded Future Region */}
+                    <rect
+                      x={splitX}
+                      y={16}
+                      width={Math.max(10, cW - padX - splitX)}
+                      height={114}
+                      fill="rgba(168, 85, 247, 0.08)"
+                    />
+                    <line
+                      x1={splitX}
+                      y1={16}
+                      x2={splitX}
+                      y2={130}
+                      stroke="#a855f7"
+                      strokeWidth={1.5}
+                      strokeDasharray="5,3"
+                    />
+                    <text x={splitX + 8} y={28} fontSize={9} fontWeight={800} fill="#d8b4fe">
+                      CURRENT FACE ({dataset.viewToRd.toFixed(1)}m) → +50m FUTURE PREDICTIVE ZONE
+                    </text>
+
+                    {/* RMR Trajectory Polyline */}
+                    <path
+                      d={chartNodes
+                        .map((n, i) => `${i === 0 ? 'M' : 'L'} ${xForIdx(i).toFixed(1)} ${yForRmr(n.rmr).toFixed(1)}`)
+                        .join(' ')}
+                      fill="none"
+                      stroke="#22d3ee"
+                      strokeWidth={2.4}
+                    />
+                    {/* Water Inflow Trajectory Polyline */}
+                    <path
+                      d={chartNodes
+                        .map((n, i) => `${i === 0 ? 'M' : 'L'} ${xForIdx(i).toFixed(1)} ${yForWater(n.water).toFixed(1)}`)
+                        .join(' ')}
+                      fill="none"
+                      stroke="#60a5fa"
+                      strokeWidth={1.8}
+                      strokeDasharray="4,3"
+                    />
+
+                    {chartNodes.map((n, i) => {
+                      const cx = xForIdx(i);
+                      const cy = yForRmr(n.rmr);
+                      return (
+                        <g key={`traj-node-${i}`}>
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={4}
+                            fill={n.isFuture ? '#a855f7' : '#22d3ee'}
+                            stroke="#ffffff"
+                            strokeWidth={1}
+                          />
+                          <text
+                            x={cx}
+                            y={cy - 7}
+                            fontSize={8.5}
+                            fontWeight={800}
+                            fill={n.isFuture ? '#e9d5ff' : '#67e8f9'}
+                            textAnchor="middle"
+                          >
+                            RMR {n.rmr} (Q={n.q})
+                          </text>
+                          <text
+                            x={cx}
+                            y={145}
+                            fontSize={8.5}
+                            fontWeight={700}
+                            fill={n.isFuture ? '#c084fc' : '#94a3b8'}
+                            textAnchor="middle"
+                          >
+                            {n.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                );
+              })()}
+
+              {/* 4 Multi-Horizon Future Forecast Cards (+0–5m, +5–15m, +15–30m, +30–50m) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                {advancedGeotechProfile.lookAheadZones.map((lz) => (
+                  <div
+                    key={lz.zoneLabel}
+                    className="bg-slate-950 border border-purple-500/30 rounded-xl p-3.5 flex flex-col justify-between space-y-2"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase text-purple-300">
+                          {lz.horizonTag}
+                        </span>
+                        <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                      </div>
+                      <div className="text-xs font-mono font-bold text-slate-300 mt-0.5">
+                        {isShaft ? 'Depth' : 'RD'} {lz.fromRd.toFixed(1)}–{lz.toRd.toFixed(1)}m
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono bg-slate-900 p-2 rounded border border-slate-800">
+                      <div>
+                        <span className="text-slate-400 block text-[9px]">PREDICTED Q / RMR</span>
+                        <span className="text-cyan-300 font-bold">
+                          Q={lz.predictedQ.toFixed(2)} | RMR={lz.predictedRmr}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[9px]">WATER / FAULT PROB</span>
+                        <span className="text-blue-300 font-bold">
+                          {lz.predictedWaterLMin} L/m • {lz.faultShearProbabilityPct}%
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
+                          lz.probeDrillingRequired
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                            : 'bg-emerald-500/15 text-emerald-300'
+                        }`}
+                      >
+                        {lz.probeDrillingRequired ? 'Probe Drill: REQUIRED (20m)' : 'Probe Drill: Routine'}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
+                          lz.preGroutingRequired
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        {lz.preGroutingRequired ? 'Pre-Grouting: ACTIVE' : `Pull: ${lz.recommendedAdvanceM}m`}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-amber-300 font-bold leading-snug">
+                      {lz.recommendedSupportClass}
+                    </div>
+                    <div className="text-[10px] text-slate-400 leading-relaxed">
+                      {lz.hazardAdvisory}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
+        );
+      })()}
 
-          <div className="flex-1 w-full h-full relative overflow-hidden bg-white">
-            <ContinuousTunnel3DCanvas
-              dataset={dataset}
-              selectedTraceId={selected3DTraceId}
-              onSelectTrace={(id) => setSelected3DTraceId(id)}
-              onUpdateTrace={(updatedTrace) => {
-                const updated: ContinuousTunnelStripDataset = {
-                  ...dataset,
-                  traces: (dataset.traces || []).map((t) => (t.id === updatedTrace.id ? updatedTrace : t)),
-                  updatedAt: new Date().toISOString(),
-                };
-                setDataset(updated);
-                onUpdateDataset(updated);
-              }}
-              onDeleteTrace={(traceId) => {
-                const updated: ContinuousTunnelStripDataset = {
-                  ...dataset,
-                  traces: (dataset.traces || []).filter((t) => t.id !== traceId),
-                  updatedAt: new Date().toISOString(),
-                };
-                setDataset(updated);
-                onUpdateDataset(updated);
-                setSelected3DTraceId(null);
-              }}
-            />
+      {/* ============================================================================
+          STAGE 6: FINAL A3 LANDSCAPE CONTINUOUS ENGINEERING REPORT
+         ============================================================================ */}
+      {activeWizardStage === 6 && (
+        <div className="flex-1 overflow-auto p-4 md:p-6 flex justify-center items-start bg-slate-950 print:p-0 print:bg-white">
+          <div
+            id="a3-continuous-tunnel-sheet"
+            className="w-[1480px] min-w-[1480px] bg-white text-slate-900 shadow-2xl border-2 border-slate-900 p-4 print:shadow-none print:border-slate-900"
+          >
+            <div className="border-2 border-slate-900 flex flex-col">
+              {/* 1. TOP HEADER BAR */}
+              <div className="grid grid-cols-12 border-b-2 border-slate-900 bg-slate-100 text-xs">
+                <div className="col-span-5 p-2.5 border-r border-slate-900 flex flex-col justify-between">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    ISO / ISRM Standard Underground Engineering Geological Log (A3 Landscape)
+                  </div>
+                  <div className="text-base font-black uppercase tracking-tight text-slate-900">
+                    {isShaft
+                      ? `CONTINUOUS 3D VERTICAL SHAFT GEOLOGICAL LOG & FEM/DEM LEDGER (${
+                          dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE'
+                            ? `HALF-CIRCLE • MEDIAN ${(dataset.shaftCenterMedianStatus || 'closed').toUpperCase()}`
+                            : 'FULL 360° CIRCLE'
+                        })`
+                      : 'CONTINUOUS 3D EXCAVATION GEOLOGICAL STRIP LOG & FEM/DEM LEDGER'}
+                  </div>
+                  <div className="text-[11px] font-semibold text-slate-700">
+                    Project: <span className="font-bold text-slate-950">{dataset.projectName}</span>
+                  </div>
+                </div>
+
+                <div className="col-span-4 p-2.5 border-r border-slate-900 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                  <div>
+                    <span className="text-slate-500 font-semibold">
+                      {isShaft ? 'Shaft Location:' : 'Heading / Adit:'}
+                    </span>{' '}
+                    <span className="font-bold text-slate-900">{dataset.tunnelLocationName}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 font-semibold">Client / Contractor:</span>{' '}
+                    <span className="font-bold text-slate-900">
+                      {dataset.clientName} / {dataset.contractorName}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 font-semibold">Span / Diameter:</span>{' '}
+                    <span className="font-bold text-slate-900">
+                      Ø{dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 8.0}m
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 font-semibold">
+                      {isShaft ? 'Depth Interval:' : 'Chainage Interval:'}
+                    </span>{' '}
+                    <span className="font-mono font-bold text-slate-900">
+                      {isShaft ? 'Depth' : 'RD'} {startRd.toFixed(1)}m – {endRd.toFixed(1)}m
+                    </span>
+                  </div>
+                </div>
+
+                <div className="col-span-3 p-2.5 flex flex-col justify-between text-[11px] bg-slate-50">
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-slate-500">Drawing No:</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      NATM-3D-{dataset.id.slice(0, 12).toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-slate-500">Projection Method:</span>
+                    <span className="font-bold text-slate-900">
+                      {isShaft
+                        ? 'Unfolded 4-Quadrant (NE | ES | SW | WN)'
+                        : 'Unfolded Arch (LW | Crown | RW)'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-slate-500">Mapped / Gaps:</span>
+                    <span className="font-bold text-emerald-700">
+                      {dataset.pulls.filter((p) => p.status === 'MAPPED').length} Pulls /{' '}
+                      {dataset.pulls.filter((p) => p.status === 'MISSING_GAP').length} Blank Gaps
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. CONTINUOUS DEVELOPED GEOLOGICAL MAP (UNROLLED 2D STRIP VIEW WITH LITHOLOGY, DIP SURFACE & FEATURES) */}
+              <div className="border-b-2 border-slate-900 relative bg-white">
+                <div className="bg-slate-900 text-white px-3 py-1 text-[10px] font-bold uppercase tracking-widest flex items-center justify-between">
+                  <span>
+                    Section 1 — Developed Geological Map: Lithology Zones, 3D Dip Surfaces, Strike/Dip Ticks, Seepage &amp; Support (
+                    {isShaft
+                      ? 'Unfolded 4-Quadrant Shaft Wall: 1. NE 0°–90° | 2. ES 90°–180° | 3. SW 180°–270° | 4. WN 270°–360°'
+                      : 'Unfolded Tunnel Perimeter: Left Wall | Crown | Right Wall'}
+                    )
+                  </span>
+                  <span className="font-mono text-amber-300">
+                    Total Developed Perimeter = {totalUnrolledWidthM.toFixed(1)}m • Lithology + Dip Surface Ribbons + Hydro/Support Features
+                  </span>
+                </div>
+
+                {(() => {
+                  const getRockVisualStyle = (rockLabel: string, codeSym?: string) => {
+                    const rl = (rockLabel || '').toLowerCase();
+                    const cs = (codeSym || '').toLowerCase();
+                    if (rl.includes('granite') || cs === 'gr') {
+                      return { fill: '#fef2f2', pat: 'url(#pat-granite)', stroke: '#fca5a5', badge: 'Gr • Granite' };
+                    }
+                    if (rl.includes('gneiss') || cs === 'gn') {
+                      return { fill: '#f5f3ff', pat: 'url(#pat-gneiss)', stroke: '#c4b5fd', badge: 'Gn • Gneiss' };
+                    }
+                    if (rl.includes('phyllite') && rl.includes('quartz')) {
+                      return { fill: '#f0fdf4', pat: 'url(#pat-qp)', stroke: '#86efac', badge: 'QP • Quartzitic Phyllite' };
+                    }
+                    if (rl.includes('phyllite') || rl.includes('schist') || cs === 'ph' || cs === 'sch') {
+                      return { fill: '#ecfdf5', pat: 'url(#pat-phyllite)', stroke: '#6ee7b7', badge: 'Ph • Phyllite/Schist' };
+                    }
+                    if (rl.includes('limestone') || rl.includes('dolomite') || cs === 'ls' || cs === 'mm') {
+                      return { fill: '#eff6ff', pat: 'url(#pat-limestone)', stroke: '#93c5fd', badge: 'Ls • Limestone/Marble' };
+                    }
+                    if (rl.includes('basalt') || rl.includes('dolerite') || cs === 'bas') {
+                      return { fill: '#f1f5f9', pat: 'url(#pat-basalt)', stroke: '#94a3b8', badge: 'Bas • Basalt/Dolerite' };
+                    }
+                    if (rl.includes('shale') || rl.includes('siltstone') || rl.includes('slate') || cs === 'sl') {
+                      return { fill: '#f8fafc', pat: 'url(#pat-shale)', stroke: '#cbd5e1', badge: 'Sl • Slate/Siltstone' };
+                    }
+                    if (rl.includes('fault') || rl.includes('gouge') || rl.includes('shear')) {
+                      return { fill: '#fff1f2', pat: 'url(#pat-fault)', stroke: '#fda4af', badge: 'FG • Fault Gouge/Shear' };
+                    }
+                    return { fill: '#fefce8', pat: 'url(#pat-quartzite)', stroke: '#fde047', badge: 'Qtz • Quartzite/Sandstone' };
+                  };
+
+                  return (
+                    <svg
+                      ref={stripSvgRef}
+                      viewBox={`0 0 ${svgW} ${svgH}`}
+                      className="w-full h-[290px] select-none"
+                    >
+                      <defs>
+                        {/* Quartzite / Sandstone stipple dots + grain */}
+                        <pattern id="pat-quartzite" width="12" height="12" patternUnits="userSpaceOnUse">
+                          <circle cx="3" cy="3" r="0.9" fill="#a16207" fillOpacity="0.45" />
+                          <circle cx="9" cy="7" r="1.0" fill="#a16207" fillOpacity="0.4" />
+                          <circle cx="5" cy="10" r="0.8" fill="#ca8a04" fillOpacity="0.45" />
+                        </pattern>
+                        {/* Phyllite / Schist wavy foliation lines */}
+                        <pattern id="pat-phyllite" width="16" height="10" patternTransform="rotate(25 0 0)" patternUnits="userSpaceOnUse">
+                          <path d="M 0 3 Q 4 1 8 3 T 16 3" fill="none" stroke="#047857" strokeWidth="0.7" strokeOpacity="0.45" />
+                          <path d="M 0 8 Q 4 6 8 8 T 16 8" fill="none" stroke="#047857" strokeWidth="0.6" strokeOpacity="0.35" />
+                        </pattern>
+                        {/* Quartzitic Phyllite combined hatch + dots */}
+                        <pattern id="pat-qp" width="12" height="12" patternTransform="rotate(30 0 0)" patternUnits="userSpaceOnUse">
+                          <line x1="0" y1="0" x2="0" y2="12" stroke="#15803d" strokeWidth="0.7" strokeDasharray="3,2" strokeOpacity="0.45" />
+                          <circle cx="6" cy="6" r="0.9" fill="#166534" fillOpacity="0.4" />
+                        </pattern>
+                        {/* Granite / Igneous plus crosses */}
+                        <pattern id="pat-granite" width="14" height="14" patternUnits="userSpaceOnUse">
+                          <path d="M 3 4 L 7 4 M 5 2 L 5 6" stroke="#b91c1c" strokeWidth="0.75" strokeOpacity="0.45" />
+                          <path d="M 9 10 L 13 10 M 11 8 L 11 12" stroke="#b91c1c" strokeWidth="0.75" strokeOpacity="0.45" />
+                        </pattern>
+                        {/* Gneiss banded foliation */}
+                        <pattern id="pat-gneiss" width="16" height="12" patternTransform="rotate(20 0 0)" patternUnits="userSpaceOnUse">
+                          <path d="M 0 3 Q 4 0 8 3 T 16 3" fill="none" stroke="#6d28d9" strokeWidth="0.8" strokeOpacity="0.45" />
+                          <line x1="2" y1="8" x2="14" y2="8" stroke="#7c3aed" strokeWidth="0.7" strokeDasharray="3,2" strokeOpacity="0.4" />
+                        </pattern>
+                        {/* Limestone / Marble brick pattern */}
+                        <pattern id="pat-limestone" width="16" height="10" patternUnits="userSpaceOnUse">
+                          <line x1="0" y1="0" x2="16" y2="0" stroke="#1d4ed8" strokeWidth="0.65" strokeOpacity="0.4" />
+                          <line x1="0" y1="5" x2="16" y2="5" stroke="#1d4ed8" strokeWidth="0.65" strokeOpacity="0.4" />
+                          <line x1="8" y1="0" x2="8" y2="5" stroke="#1d4ed8" strokeWidth="0.65" strokeOpacity="0.4" />
+                          <line x1="0" y1="5" x2="0" y2="10" stroke="#1d4ed8" strokeWidth="0.65" strokeOpacity="0.4" />
+                        </pattern>
+                        {/* Basalt / Dolerite V-ticks */}
+                        <pattern id="pat-basalt" width="12" height="12" patternUnits="userSpaceOnUse">
+                          <path d="M 2 3 L 4 6 L 6 3" fill="none" stroke="#334155" strokeWidth="0.8" strokeOpacity="0.5" />
+                          <path d="M 7 8 L 9 11 L 11 8" fill="none" stroke="#334155" strokeWidth="0.8" strokeOpacity="0.5" />
+                        </pattern>
+                        {/* Shale / Siltstone dashes */}
+                        <pattern id="pat-shale" width="12" height="8" patternUnits="userSpaceOnUse">
+                          <line x1="1" y1="2" x2="6" y2="2" stroke="#475569" strokeWidth="0.75" strokeOpacity="0.45" />
+                          <line x1="6" y1="6" x2="11" y2="6" stroke="#475569" strokeWidth="0.75" strokeOpacity="0.45" />
+                        </pattern>
+                        {/* Fault Gouge / Shear Zone breccia */}
+                        <pattern id="pat-fault" width="12" height="12" patternUnits="userSpaceOnUse">
+                          <polygon points="3,2 6,7 1,7" fill="none" stroke="#e11d48" strokeWidth="0.7" strokeOpacity="0.55" />
+                          <line x1="7" y1="3" x2="11" y2="10" stroke="#e11d48" strokeWidth="0.7" strokeDasharray="2,1" strokeOpacity="0.55" />
+                        </pattern>
+                      </defs>
+
+                      {/* 2A. Pull-by-Pull Lithology Background Bands, Geological Patterns & Installed Support Indicators */}
+                      {dataset.pulls.map((p, idx) => {
+                        const x1 = rdToX(p.fromRd);
+                        const x2 = rdToX(p.toRd);
+                        const w = Math.max(2, x2 - x1);
+                        const isGap = p.status === 'MISSING_GAP';
+
+                        if (isGap) {
+                          return (
+                            <g key={`a3-gap-${p.fromRd}-${p.toRd}-${idx}`}>
+                              <rect x={x1} y={padT} width={w} height={plotH} fill="#ffffff" />
+                              <line
+                                x1={x1}
+                                y1={padT}
+                                x2={x1}
+                                y2={padT + plotH}
+                                stroke="#dc2626"
+                                strokeWidth={1.5}
+                                strokeDasharray="6,4"
+                              />
+                              <line
+                                x1={x2}
+                                y1={padT}
+                                x2={x2}
+                                y2={padT + plotH}
+                                stroke="#dc2626"
+                                strokeWidth={1.5}
+                                strokeDasharray="6,4"
+                              />
+                              <text
+                                x={(x1 + x2) / 2}
+                                y={padT + plotH / 2 - 4}
+                                fontSize={9}
+                                fontWeight={800}
+                                fill="#64748b"
+                                textAnchor="middle"
+                              >
+                                UNLOGGED GAP
+                              </text>
+                              <text
+                                x={(x1 + x2) / 2}
+                                y={padT + plotH / 2 + 8}
+                                fontSize={8}
+                                fontWeight={700}
+                                fill="#94a3b8"
+                                textAnchor="middle"
+                              >
+                                ({isShaft ? 'Depth' : 'RD'} {p.fromRd.toFixed(1)}–{p.toRd.toFixed(1)}m)
+                              </text>
+                            </g>
+                          );
+                        }
+
+                        const rockStyle = getRockVisualStyle(p.rockType);
+                        const boltRows = [0.18, 0.38, 0.62, 0.82];
+                        const boltCols = [0.28, 0.72];
+
+                        return (
+                          <g key={`pull-bg-${p.id}-${idx}`}>
+                            {/* Base Lithology Color Tint */}
+                            <rect x={x1} y={padT} width={w} height={plotH} fill={rockStyle.fill} />
+                            {/* Geological Standard Rock Pattern Fill */}
+                            <rect x={x1} y={padT} width={w} height={plotH} fill={rockStyle.pat} />
+
+                            {/* Subtle Installed Support Features: Systematic Rockbolt Anchors & Steel Rib Line */}
+                            {boltCols.map((cf, ci) =>
+                              boltRows.map((rf, ri) => {
+                                const bx = x1 + w * cf;
+                                const by = padT + plotH * rf;
+                                return (
+                                  <g key={`bolt-${p.id}-${ci}-${ri}`} opacity={0.55}>
+                                    <circle cx={bx} cy={by} r={2.1} fill="#0f766e" />
+                                    <line x1={bx - 3.2} y1={by} x2={bx + 3.2} y2={by} stroke="#0f766e" strokeWidth={0.8} />
+                                    <line x1={bx} y1={by - 3.2} x2={bx} y2={by + 3.2} stroke="#0f766e" strokeWidth={0.8} />
+                                  </g>
+                                );
+                              })
+                            )}
+                            {p.steelRibsInstalled && !p.steelRibsInstalled.toLowerCase().includes('none') && (
+                              <line
+                                x1={(x1 + x2) / 2}
+                                y1={padT + 2}
+                                x2={(x1 + x2) / 2}
+                                y2={padT + plotH - 2}
+                                stroke="#b45309"
+                                strokeWidth={1.1}
+                                strokeDasharray="3,2"
+                                opacity={0.55}
+                              />
+                            )}
+
+                            {/* Pull RD Boundary Line */}
+                            <line
+                              x1={x2}
+                              y1={padT}
+                              x2={x2}
+                              y2={padT + plotH}
+                              stroke="#334155"
+                              strokeWidth={1}
+                              strokeDasharray="2,2"
+                            />
+                            {/* Top Chainage/Depth Label */}
+                            <text
+                              x={(x1 + x2) / 2}
+                              y={padT - 6}
+                              fontSize={8.5}
+                              fontWeight={800}
+                              fill="#0f172a"
+                              textAnchor="middle"
+                            >
+                              {isShaft ? 'D' : 'RD'} {p.fromRd}–{p.toRd}m
+                            </text>
+                            {/* Bottom Lithology & Rock Class Label */}
+                            <text
+                              x={(x1 + x2) / 2}
+                              y={padT + plotH + 14}
+                              fontSize={8}
+                              fontWeight={800}
+                              fill="#1e293b"
+                              textAnchor="middle"
+                            >
+                              {p.rockType} ({p.rockClass})
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* 2B. Mapped Custom / Polygon Lithology Zones (`dataset.lithologyZones`) */}
+                      {(dataset.lithologyZones || []).map((lz) => {
+                        if (!lz.polygon || lz.polygon.length < 3) return null;
+                        const isAutoPullPoly = lz.id.startsWith('lith-pull-');
+                        const rockStyle = getRockVisualStyle(lz.rockType || lz.label, lz.codeSymbol);
+                        const polyPts = lz.polygon
+                          .map((pt) => `${rdToX(pt.x).toFixed(1)},${yToSvgY(pt.y).toFixed(1)}`)
+                          .join(' ');
+                        const cx =
+                          lz.polygon.reduce((s, pt) => s + rdToX(pt.x), 0) / lz.polygon.length;
+                        const cy =
+                          lz.polygon.reduce((s, pt) => s + yToSvgY(pt.y), 0) / lz.polygon.length;
+
+                        return (
+                          <g key={lz.id}>
+                            {!isAutoPullPoly && (
+                              <>
+                                <polygon
+                                  points={polyPts}
+                                  fill={rockStyle.fill}
+                                  fillOpacity={0.78}
+                                  stroke={rockStyle.stroke}
+                                  strokeWidth={1.3}
+                                  strokeDasharray="4,2"
+                                />
+                                <polygon points={polyPts} fill={rockStyle.pat} />
+                              </>
+                            )}
+                            {/* Lithology Code Watermark Tag inside the zone */}
+                            <text
+                              x={cx}
+                              y={isAutoPullPoly ? padT + 13 : cy}
+                              fontSize={8}
+                              fontWeight={800}
+                              fill="#475569"
+                              textAnchor="middle"
+                              stroke="#ffffff"
+                              strokeWidth={2}
+                              paintOrder="stroke"
+                            >
+                              {lz.codeSymbol || rockStyle.badge.split('•')[0].trim()} • {lz.rockType}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* 2C. Horizontal Zone Divider Lines: Shaft 4-Quadrant vs Tunnel 3-Zone */}
+                      {isShaft ? (
+                        <>
+                          <line
+                            x1={padL}
+                            y1={yShaftQ1}
+                            x2={svgW - padR}
+                            y2={yShaftQ1}
+                            stroke="#0f172a"
+                            strokeWidth={1.2}
+                            strokeDasharray="6,3"
+                          />
+                          <line
+                            x1={padL}
+                            y1={yShaftQ2}
+                            x2={svgW - padR}
+                            y2={yShaftQ2}
+                            stroke="#0f172a"
+                            strokeWidth={1.2}
+                            strokeDasharray="6,3"
+                          />
+                          <line
+                            x1={padL}
+                            y1={yShaftQ3}
+                            x2={svgW - padR}
+                            y2={yShaftQ3}
+                            stroke="#0f172a"
+                            strokeWidth={1.2}
+                            strokeDasharray="6,3"
+                          />
+                          <g fontSize={8.5} fontWeight={800} fill="#0f172a">
+                            <text x={padL - 8} y={(padT + yShaftQ1) / 2} textAnchor="end">
+                              1. NE (0–90°)
+                            </text>
+                            <text x={padL - 8} y={(yShaftQ1 + yShaftQ2) / 2} textAnchor="end">
+                              2. ES (90–180°)
+                            </text>
+                            <text x={padL - 8} y={(yShaftQ2 + yShaftQ3) / 2} textAnchor="end">
+                              3. SW (180–270°)
+                            </text>
+                            <text x={padL - 8} y={(yShaftQ3 + padT + plotH) / 2} textAnchor="end">
+                              4. WN (270–360°)
+                            </text>
+                          </g>
+                        </>
+                      ) : (
+                        <>
+                          <line
+                            x1={padL}
+                            y1={yTunnelCrownTop}
+                            x2={svgW - padR}
+                            y2={yTunnelCrownTop}
+                            stroke="#0f172a"
+                            strokeWidth={1.3}
+                            strokeDasharray="6,3"
+                          />
+                          <line
+                            x1={padL}
+                            y1={yTunnelRightWallTop}
+                            x2={svgW - padR}
+                            y2={yTunnelRightWallTop}
+                            stroke="#0f172a"
+                            strokeWidth={1.3}
+                            strokeDasharray="6,3"
+                          />
+                          <g fontSize={9} fontWeight={800} fill="#0f172a">
+                            <text x={padL - 8} y={(padT + yTunnelCrownTop) / 2} textAnchor="end">
+                              LEFT WALL
+                            </text>
+                            <text
+                              x={padL - 8}
+                              y={(yTunnelCrownTop + yTunnelRightWallTop) / 2}
+                              textAnchor="end"
+                            >
+                              CROWN / ARCH
+                            </text>
+                            <text
+                              x={padL - 8}
+                              y={(yTunnelRightWallTop + padT + plotH) / 2}
+                              textAnchor="end"
+                            >
+                              RIGHT WALL
+                            </text>
+                          </g>
+                        </>
+                      )}
+
+                      {/* 2D. Groundwater Seepage Symbols (`dataset.waterSymbols`) */}
+                      {(dataset.waterSymbols || []).map((ws) => {
+                        const wx = rdToX(ws.position.x);
+                        const wy = yToSvgY(ws.position.y);
+                        const cond = ws.condition || 'Dry';
+                        const isDry = cond === 'Dry';
+                        const wColor =
+                          cond === 'Flowing'
+                            ? '#1d4ed8'
+                            : cond === 'Dripping'
+                            ? '#0284c7'
+                            : cond === 'Wet'
+                            ? '#0ea5e9'
+                            : cond === 'Moist/Damp'
+                            ? '#38bdf8'
+                            : '#64748b';
+
+                        return (
+                          <g key={ws.id} transform={`translate(${wx.toFixed(1)}, ${wy.toFixed(1)})`}>
+                            {/* Hydro Droplet / Seepage Symbol */}
+                            <path
+                              d="M 0 -7 C 2.5 -3.5 4.5 -1 4.5 1.8 A 4.5 4.5 0 1 1 -4.5 1.8 C -4.5 -1 -2.5 -3.5 0 -7 Z"
+                              fill={isDry ? '#f1f5f9' : wColor}
+                              fillOpacity={isDry ? 0.7 : 0.88}
+                              stroke="#0f172a"
+                              strokeWidth={0.8}
+                            />
+                            {cond === 'Flowing' && (
+                              <path
+                                d="M -7 4 Q -3.5 1.5 0 4 T 7 4"
+                                fill="none"
+                                stroke="#1d4ed8"
+                                strokeWidth={1.2}
+                              />
+                            )}
+                            <text
+                              x={7}
+                              y={3}
+                              fontSize={7.5}
+                              fontWeight={800}
+                              fill={wColor}
+                              stroke="#ffffff"
+                              strokeWidth={2}
+                              paintOrder="stroke"
+                            >
+                              {cond}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* 2E. Continuous Structural Discontinuity Traces + 3D Dip Surface Ribbons + Strike/Dip Ticks */}
+                      {(dataset.traces || []).map((trace) => {
+                        if (!trace.points || trace.points.length < 2) return null;
+                        const isSelected = trace.id === selectedTraceId;
+                        const strokeColor = trace.colorHex || '#dc2626';
+                        const stLower = (trace.structureType || '').toLowerCase();
+                        const isFaultOrShear =
+                          stLower.includes('fault') || stLower.includes('shear') || stLower.includes('gouge');
+                        const isFoliationOrBedding =
+                          stLower.includes('foliation') || stLower.includes('bedding');
+
+                        const svgPts = trace.points.map((pt) => ({
+                          x: rdToX(pt.x),
+                          y: yToSvgY(pt.y),
+                        }));
+                        const dPath = svgPts
+                          .map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`)
+                          .join(' ');
+
+                        // Build 3D Dip Surface Inclination Band (shaded ribbon showing the dipping surface plane)
+                        const sign = trace.dipTickSide === 'left' ? -1 : 1;
+                        const ribbonWidthPx = Math.max(
+                          6,
+                          Math.min(14, 5 + Math.sin((trace.dipDeg * Math.PI) / 180) * 8)
+                        );
+                        const offsetPts = svgPts.map((pt, idx) => {
+                          const pPrev = svgPts[Math.max(0, idx - 1)];
+                          const pNext = svgPts[Math.min(svgPts.length - 1, idx + 1)];
+                          const dx = pNext.x - pPrev.x;
+                          const dy = pNext.y - pPrev.y;
+                          const len = Math.max(0.001, Math.hypot(dx, dy));
+                          const nx = (-dy / len) * sign;
+                          const ny = (dx / len) * sign;
+                          return {
+                            x: pt.x + nx * ribbonWidthPx,
+                            y: pt.y + ny * ribbonWidthPx,
+                          };
+                        });
+                        const dipSurfacePolygonPts = [
+                          ...svgPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`),
+                          ...[...offsetPts].reverse().map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`),
+                        ].join(' ');
+
+                        // Midpoint & normal vector for Strike/Dip tick + arrowhead + HW/FW markers
+                        const midIdx = Math.floor(svgPts.length / 2);
+                        const midPt = svgPts[midIdx];
+                        const pA = svgPts[Math.max(0, midIdx - 1)];
+                        const pB = svgPts[Math.min(svgPts.length - 1, midIdx + 1)];
+                        const tdx = pB.x - pA.x;
+                        const tdy = pB.y - pA.y;
+                        const tLen = Math.max(0.001, Math.hypot(tdx, tdy));
+                        const nx = (-tdy / tLen) * sign;
+                        const ny = (tdx / tLen) * sign;
+                        const tickTipX = midPt.x + nx * (ribbonWidthPx + 4);
+                        const tickTipY = midPt.y + ny * (ribbonWidthPx + 4);
+
+                        return (
+                          <g
+                            key={trace.id}
+                            onClick={() => setSelectedTraceId(trace.id)}
+                            className="cursor-pointer"
+                          >
+                            {/* 3D Dip Surface Ribbon Shading Polygon */}
+                            <polygon
+                              points={dipSurfacePolygonPts}
+                              fill={isFaultOrShear ? '#f43f5e' : strokeColor}
+                              fillOpacity={isFaultOrShear ? 0.24 : 0.16}
+                              stroke="none"
+                            />
+                            {/* Dip-surface inclination hatch struts along the ribbon */}
+                            {svgPts.map((sp, sIdx) => {
+                              const op = offsetPts[sIdx];
+                              if (!op) return null;
+                              return (
+                                <line
+                                  key={`dip-strut-${trace.id}-${sIdx}`}
+                                  x1={sp.x}
+                                  y1={sp.y}
+                                  x2={op.x}
+                                  y2={op.y}
+                                  stroke={strokeColor}
+                                  strokeWidth={0.75}
+                                  strokeOpacity={0.55}
+                                />
+                              );
+                            })}
+                            {/* Outer edge of the 3D Dip Surface Ribbon */}
+                            <polyline
+                              points={offsetPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+                              fill="none"
+                              stroke={strokeColor}
+                              strokeWidth={0.65}
+                              strokeDasharray="2,2"
+                              strokeOpacity={0.6}
+                            />
+
+                            {/* Primary Discontinuity Trace Path */}
+                            <path
+                              d={dPath}
+                              fill="none"
+                              stroke={isSelected ? '#f59e0b' : strokeColor}
+                              strokeWidth={isSelected ? 2.0 : isFaultOrShear ? 1.7 : 1.25}
+                              strokeDasharray={
+                                isFaultOrShear ? '5,2' : isFoliationOrBedding ? '6,2,1.5,2' : undefined
+                              }
+                            />
+
+                            {/* Midpoint Strike/Dip Perpendicular Tick + Dip Direction Arrowhead */}
+                            <line
+                              x1={midPt.x}
+                              y1={midPt.y}
+                              x2={tickTipX}
+                              y2={tickTipY}
+                              stroke={strokeColor}
+                              strokeWidth={1.35}
+                            />
+                            <circle cx={tickTipX} cy={tickTipY} r={1.8} fill={strokeColor} />
+
+                            {/* HW / FW (Hanging Wall / Footwall) Indicators for Faults/Shears or enabled traces */}
+                            {(trace.showHwFw || isFaultOrShear) && (
+                              <>
+                                <text
+                                  x={midPt.x + nx * (ribbonWidthPx + 11)}
+                                  y={midPt.y + ny * (ribbonWidthPx + 11)}
+                                  fontSize={7}
+                                  fontWeight={900}
+                                  fill={strokeColor}
+                                  textAnchor="middle"
+                                >
+                                  {trace.flipHwFw ? 'FW' : 'HW'}
+                                </text>
+                                <text
+                                  x={midPt.x - nx * 8}
+                                  y={midPt.y - ny * 8}
+                                  fontSize={7}
+                                  fontWeight={900}
+                                  fill="#475569"
+                                  textAnchor="middle"
+                                >
+                                  {trace.flipHwFw ? 'HW' : 'FW'}
+                                </text>
+                              </>
+                            )}
+
+                            {/* Clean Text-Only Joint Reference & Dip/Dip-Direction Annotation (No Box) */}
+                            {!trace.hideLabel && (
+                              <text
+                                x={midPt.x + (trace.labelOffset?.dx || 0)}
+                                y={midPt.y - 5 + (trace.labelOffset?.dy || 0)}
+                                fontSize={8.5}
+                                fontWeight={800}
+                                fill="#0f172a"
+                                textAnchor="middle"
+                                stroke="#ffffff"
+                                strokeWidth={2.5}
+                                paintOrder="stroke"
+                              >
+                                {trace.customLabel || trace.setId}: {trace.dipDeg}°/
+                                {String(trace.dipDirectionDeg).padStart(3, '0')}°
+                              </text>
+                            )}
+                          </g>
+                        );
+                      })}
+
+                      {/* 2F. Custom Text Annotations (`dataset.customAnnotations`) */}
+                      {(dataset.customAnnotations || []).map((ann) => (
+                        <text
+                          key={ann.id}
+                          x={rdToX(ann.x)}
+                          y={yToSvgY(ann.y)}
+                          fontSize={8.5}
+                          fontWeight={800}
+                          fill={ann.color || '#0f172a'}
+                          textAnchor="middle"
+                          stroke="#ffffff"
+                          strokeWidth={2.2}
+                          paintOrder="stroke"
+                        >
+                          {ann.text}
+                        </text>
+                      ))}
+
+                      {/* Outer Plot Frame */}
+                      <rect
+                        x={padL}
+                        y={padT}
+                        width={plotW}
+                        height={plotH}
+                        fill="none"
+                        stroke="#0f172a"
+                        strokeWidth={1.8}
+                      />
+                    </svg>
+                  );
+                })()}
+
+                {/* Graphical Geological Lithology, Dip Surface, Seepage & Support Legend Bar */}
+                <div className="border-t border-slate-900 bg-slate-50 px-3 py-1.5 flex flex-wrap items-center justify-between gap-3 text-[9.5px] font-bold text-slate-800">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="font-black uppercase text-slate-950">LEGEND:</span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-3.5 h-2.5 bg-yellow-100 border border-yellow-500 inline-block" />
+                      Qtz (Quartzite/Sandstone)
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-3.5 h-2.5 bg-emerald-100 border border-emerald-600 inline-block" />
+                      Ph/QP (Phyllite/Schist)
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-3.5 h-2.5 bg-red-100 border border-red-400 inline-block" />
+                      Gr/Gn (Granite/Gneiss)
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-3.5 h-2.5 bg-blue-100 border border-blue-400 inline-block" />
+                      Ls (Limestone)
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-4 h-2 bg-blue-500/25 border-t-2 border-blue-600 inline-block" />
+                      3D Dip Surface Band + Strike/Dip Tick (60°/120°)
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-4 h-2 bg-rose-500/25 border-t-2 border-dashed border-rose-600 inline-block" />
+                      Shear Zone / Fault (HW/FW)
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-sky-700">
+                      ● Seepage (Dry / Damp / Wet / Dripping / Flowing)
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-teal-800">
+                      ⊕ Rockbolt Anchor &amp; Steel Rib
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. CONTINUOUS PARAMETER & FEM/DEM LEDGER TABLE */}
+              <div className="border-b-2 border-slate-900">
+                <div className="bg-slate-900 text-white px-3 py-1 text-[10px] font-bold uppercase tracking-widest flex justify-between">
+                  <span>
+                    Section 2 — Continuous Geotechnical, Rock Mass Classification &amp; Before/After FEM/DEM Verification Ledger
+                  </span>
+                  <span>
+                    ISRM / Barton Q / Bieniawski RMR89 / Hoek-Brown Continuum &amp; Discrete Wedge DEM
+                  </span>
+                </div>
+
+                <table className="w-full border-collapse text-[10px]">
+                  <thead>
+                    <tr className="bg-slate-200 border-b border-slate-900 font-black text-slate-900">
+                      <th className="p-1.5 border-r border-slate-900 text-left w-[170px]">
+                        Parameter / {isShaft ? 'Depth Interval' : 'Chainage RD'}
+                      </th>
+                      {dataset.pulls.map((p, i) => (
+                        <th
+                          key={`th-${i}-${p.fromRd}`}
+                          className={`p-1.5 border-r border-slate-900 text-center font-mono ${
+                            p.status === 'MISSING_GAP' ? 'bg-slate-100 text-slate-500' : ''
+                          }`}
+                        >
+                          {p.status === 'MISSING_GAP' ? (
+                            <>
+                              <div>UNLOGGED GAP</div>
+                              <div className="text-[9px] font-bold">
+                                {p.fromRd}–{p.toRd}m
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div>{p.excavationDefiningNo || `Pull #${i + 1}`}</div>
+                              <div className="text-[9px] text-slate-700">
+                                {isShaft ? 'D' : 'RD'} {p.fromRd}–{p.toRd}m
+                              </div>
+                            </>
+                          )}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-slate-400">
+                      <td className="p-1.5 border-r border-slate-900 font-bold bg-slate-50">
+                        Lithology &amp; Weathering
+                      </td>
+                      {dataset.pulls.map((p, i) => (
+                        <td key={i} className="p-1.5 border-r border-slate-300 text-center">
+                          {p.status === 'MISSING_GAP' ? (
+                            <span className="text-slate-400 italic">— Blank Gap —</span>
+                          ) : (
+                            <>
+                              <div className="font-bold text-slate-900">{p.rockType}</div>
+                              <div className="text-[9px] text-slate-600">
+                                {p.weatheringCondition}
+                              </div>
+                            </>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+
+                    <tr className="border-b border-slate-400">
+                      <td className="p-1.5 border-r border-slate-900 font-bold bg-slate-50">
+                        RQD (%) / GSI / RMR₈₉ / Q
+                      </td>
+                      {dataset.pulls.map((p, i) => (
+                        <td
+                          key={i}
+                          className="p-1.5 border-r border-slate-300 text-center font-mono"
+                        >
+                          {p.status === 'MISSING_GAP' ? (
+                            '—'
+                          ) : (
+                            <span>
+                              {p.rqdValue ?? 65}% | GSI {p.gsiValue ?? 55} | RMR {p.rmrValue ?? 58}{' '}
+                              | <b>Q={(p.qValue ?? 4.0).toFixed(2)}</b>
+                            </span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+
+                    <tr className="border-b border-slate-400">
+                      <td className="p-1.5 border-r border-slate-900 font-bold bg-slate-50">
+                        Rock Class &amp; Installed Support
+                      </td>
+                      {dataset.pulls.map((p, i) => (
+                        <td key={i} className="p-1.5 border-r border-slate-300 text-center">
+                          {p.status === 'MISSING_GAP' ? (
+                            '—'
+                          ) : (
+                            <div>
+                              <span className="font-black">{p.rockClass}</span>
+                              <div className="text-[9px] text-slate-700">
+                                {p.supportDescription}
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+
+                    <tr className="border-b border-slate-400 bg-rose-50/40">
+                      <td className="p-1.5 border-r border-slate-900 font-bold bg-slate-50">
+                        FEM Disp: Before → After Support
+                      </td>
+                      {femDemProfile.map((f, i) => (
+                        <td
+                          key={i}
+                          className="p-1.5 border-r border-slate-300 text-center font-mono"
+                        >
+                          {f.status === 'MISSING_GAP' ? (
+                            '—'
+                          ) : (
+                            <span>
+                              <span className="text-rose-700 font-bold">
+                                {f.unreinforcedDispMm.toFixed(1)}mm
+                              </span>{' '}
+                              →{' '}
+                              <span className="text-emerald-700 font-black">
+                                {f.reinforcedDispMm.toFixed(1)}mm
+                              </span>
+                            </span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+
+                    <tr className="border-b border-slate-900 bg-emerald-50/40">
+                      <td className="p-1.5 border-r border-slate-900 font-bold bg-slate-50">
+                        FEM / DEM FoS (Bef → Aft Support)
+                      </td>
+                      {femDemProfile.map((f, i) => (
+                        <td
+                          key={i}
+                          className="p-1.5 border-r border-slate-300 text-center font-mono"
+                        >
+                          {f.status === 'MISSING_GAP' ? (
+                            '—'
+                          ) : (
+                            <div>
+                              <div>
+                                Cont:{' '}
+                                <span className="text-rose-700">
+                                  {f.unreinforcedContinuumFos.toFixed(2)}
+                                </span>{' '}
+                                →{' '}
+                                <b className="text-emerald-800">
+                                  {f.reinforcedContinuumFos.toFixed(2)}
+                                </b>
+                              </div>
+                              <div className="text-[9px]">
+                                Wedge: {f.unreinforcedDiscreteWedgeFos.toFixed(2)} →{' '}
+                                <b>{f.reinforcedDiscreteWedgeFos.toFixed(2)}</b>
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 4. BOTTOM SIGN-OFF & 3D JOINT INSPECTION SUMMARY */}
+              <div className="grid grid-cols-12 text-[10px]">
+                <div className="col-span-8 p-2.5 border-r border-slate-900">
+                  <div className="font-black uppercase text-slate-800 mb-1">
+                    Section 3 — High-Precision 3D Discontinuity &amp; Tetrahedral Wedge Summary
+                  </div>
+                  <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+                    {jointInspectionSchedule.slice(0, 6).map((j) => (
+                      <div key={j.traceId} className="leading-snug">
+                        <span className="font-mono font-bold text-slate-900">
+                          {j.label} ({j.setId}): {j.dipDeg}°/
+                          {String(j.dipDirectionDeg).padStart(3, '0')}° ({j.persistenceLengthM}m)
+                        </span>{' '}
+                        <span className="font-mono text-[9px] text-slate-600">
+                          — Vol {j.wedgeBlockVolumeM3.toFixed(2)}m³ | FoS {j.fosUnreinforced}→
+                          <b>{j.fosReinforced}</b>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="col-span-4 p-2.5 flex flex-col justify-between bg-slate-50">
+                  <div className="font-black uppercase text-slate-800">
+                    Engineering Sign-Off &amp; Quality Assurance
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 pt-3 text-[10px]">
+                    <div className="border-t border-slate-400 pt-1">
+                      <div className="font-bold text-slate-800">Contractor Geologist:</div>
+                      <div className="text-slate-600">
+                        {dataset.geologistContractor || 'Engineering Geologist'}
+                      </div>
+                    </div>
+                    <div className="border-t border-slate-400 pt-1">
+                      <div className="font-bold text-slate-800">Client / Chief Geologist:</div>
+                      <div className="text-slate-600">
+                        {dataset.geologistClient || 'Approved for NATM / Shaft Construction'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };

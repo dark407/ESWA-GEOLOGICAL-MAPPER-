@@ -46,6 +46,7 @@ import {
   Point2D,
   resolveStripTraceColor,
   runAiTrendAlignmentOnDataset,
+  extendStripTraceAcrossPull,
   StripGroundwaterId,
   StripRockTypeId,
   StripStructureTypeId,
@@ -57,6 +58,8 @@ export interface EswaCadContinuousStripModalProps {
   onClose: () => void;
   dataset: ContinuousTunnelStripDataset;
   onSaveDataset: (updatedDataset: ContinuousTunnelStripDataset) => void;
+  embeddedMode?: boolean;
+  onNextStage?: (updatedDataset: ContinuousTunnelStripDataset) => void;
 }
 
 export type CadToolType =
@@ -65,6 +68,7 @@ export type CadToolType =
   | 'draw_joint'
   | 'move_joint'
   | 'edit_joint'
+  | 'expand_joint'
   | 'edit_text'
   | 'merge_joint'
   | 'delete_joint'
@@ -345,6 +349,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
   onClose,
   dataset,
   onSaveDataset,
+  embeddedMode = false,
+  onNextStage,
 }) => {
   // Working copy of dataset for CAD editing
   const [currentDataset, setCurrentDataset] = useState<ContinuousTunnelStripDataset>(() => ({
@@ -355,16 +361,38 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     pulls: [...(dataset.pulls || [])],
   }));
 
-  // Re-sync if dataset prop changes
+  const onSaveDatasetRef = useRef(onSaveDataset);
   useEffect(() => {
-    setCurrentDataset({
-      ...dataset,
-      traces: [...(dataset.traces || [])],
-      lithologyZones: [...(dataset.lithologyZones || [])],
-      waterSymbols: [...(dataset.waterSymbols || [])],
-      pulls: [...(dataset.pulls || [])],
+    onSaveDatasetRef.current = onSaveDataset;
+  }, [onSaveDataset]);
+
+  // Re-sync if dataset prop changes from outside
+  useEffect(() => {
+    setCurrentDataset((prev) => {
+      if (prev.id === dataset.id && prev.updatedAt === dataset.updatedAt) {
+        return prev;
+      }
+      return {
+        ...dataset,
+        traces: [...(dataset.traces || [])],
+        lithologyZones: [...(dataset.lithologyZones || [])],
+        waterSymbols: [...(dataset.waterSymbols || [])],
+        pulls: [...(dataset.pulls || [])],
+      };
     });
   }, [dataset]);
+
+  // In embeddedMode, sync local CAD edits back to parent after render (never inside a setState updater)
+  useEffect(() => {
+    if (!embeddedMode) return;
+    if (
+      currentDataset.id === dataset.id &&
+      currentDataset.updatedAt === dataset.updatedAt
+    ) {
+      return;
+    }
+    onSaveDatasetRef.current(currentDataset);
+  }, [currentDataset, embeddedMode, dataset.id, dataset.updatedAt]);
 
   // Undo / Redo history
   const [history, setHistory] = useState<ContinuousTunnelStripDataset[]>([]);
@@ -473,16 +501,21 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
   const [cursorCoords, setCursorCoords] = useState<{ ch: number; yPerim: number; screenX: number; screenY: number } | null>(null);
   const [hoverOsnap, setHoverOsnap] = useState<{ x: number; y: number; type: 'ENDPOINT' | 'MIDPOINT'; label: string } | null>(null);
 
-  // Tunnel Geometry Bounds
+  // Tunnel / Vertical Shaft Geometry Bounds
+  const isShaft = currentDataset.excavationMode === 'SHAFT';
   const fromRd = currentDataset.viewFromRd ?? 0;
   const toRd = currentDataset.viewToRd ?? 30;
   const totalLengthM = Math.max(1, toRd - fromRd);
 
-  // Total unwrapped perimeter (m) = Left Wall + Crown Arch + Right Wall
-  const leftWallHeight = currentDataset.leftWallHeightM || currentDataset.leftWallArcLengthM || 3.75;
-  const crownWidth = currentDataset.crownWidthM || currentDataset.crownArcLengthM || 7.5;
-  const rightWallHeight = currentDataset.rightWallHeightM || currentDataset.rightWallArcLengthM || 3.75;
-  const totalPerimeterM = leftWallHeight + crownWidth + rightWallHeight;
+  // Total unwrapped perimeter (m)
+  const leftWallHeight = currentDataset.leftWallArcLengthM || currentDataset.leftWallHeightM || 3.75;
+  const crownWidth = currentDataset.crownArcLengthM || currentDataset.crownWidthM || 7.5;
+  const rightWallHeight = currentDataset.rightWallArcLengthM || currentDataset.rightWallHeightM || 3.75;
+  const shaftQuadArc = currentDataset.shaftQuadrantArcLengthM || leftWallHeight;
+  const totalPerimeterM = isShaft
+    ? shaftQuadArc * 4
+    : (currentDataset.upperZoneWidthM || 0) + (currentDataset.lowerZoneWidthM || 0) ||
+      leftWallHeight + crownWidth + rightWallHeight;
 
   // Scale Factors for Screen
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -515,12 +548,18 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     return Math.max(0, Math.min(totalPerimeterM, Math.round(rawY / gridStepM) * gridStepM));
   }, [panOffset.y, zoom, snapToGrid, gridStepM, totalPerimeterM]);
 
-  // Determine which tunnel surface segment a Y perimeter coordinate belongs to
+  // Determine which tunnel/shaft surface segment a Y perimeter coordinate belongs to
   const getZoneLabelForY = useCallback((yM: number): string => {
+    if (isShaft) {
+      if (yM < shaftQuadArc) return '1. NE (0°–90°)';
+      if (yM < shaftQuadArc * 2) return '2. ES (90°–180°)';
+      if (yM < shaftQuadArc * 3) return '3. SW (180°–270°)';
+      return '4. WN (270°–360°)';
+    }
     if (yM < leftWallHeight) return 'Left Wall';
     if (yM < leftWallHeight + crownWidth) return 'Crown Arch';
     return 'Right Wall';
-  }, [leftWallHeight, crownWidth]);
+  }, [isShaft, shaftQuadArc, leftWallHeight, crownWidth]);
 
   // Reset View to Fit Entire Strip
   const handleFitToScreen = useCallback(() => {
@@ -540,18 +579,23 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     });
   }, [totalLengthM, totalPerimeterM]);
 
+  const zoomRef = useRef<number>(zoom);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
   // Focal Point Zoom Helper (keeps focalX, focalY stationary in world space)
   const handleZoomAtPoint = useCallback((factor: number, focalX: number, focalY: number) => {
-    setZoom((prevZoom) => {
-      const newZoom = Math.max(0.15, Math.min(10.0, prevZoom * factor));
-      if (Math.abs(newZoom - prevZoom) < 0.0001) return prevZoom;
-      const ratio = newZoom / prevZoom;
-      setPanOffset((prevPan) => ({
-        x: focalX - (focalX - prevPan.x) * ratio,
-        y: focalY - (focalY - prevPan.y) * ratio,
-      }));
-      return newZoom;
-    });
+    const prevZoom = zoomRef.current;
+    const newZoom = Math.max(0.15, Math.min(10.0, prevZoom * factor));
+    if (Math.abs(newZoom - prevZoom) < 0.0001) return;
+    const ratio = newZoom / prevZoom;
+    zoomRef.current = newZoom;
+    setZoom(newZoom);
+    setPanOffset((prevPan) => ({
+      x: focalX - (focalX - prevPan.x) * ratio,
+      y: focalY - (focalY - prevPan.y) * ratio,
+    }));
   }, []);
 
   // Spacebar pan listener
@@ -838,40 +882,73 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     ctx.lineWidth = 1.5;
     ctx.strokeRect(startX, topY, endX - startX, botY - topY);
 
-    // Horizontal Springlines (Left Wall Springline, Right Wall Springline)
-    // Rendered as light, unobtrusive reference lines so they never disturb inside canvas content
-    const spg1Y = worldToScreenY(leftWallHeight);
-    const spg2Y = worldToScreenY(leftWallHeight + crownWidth);
-
-    ctx.strokeStyle = isDarkMode ? 'rgba(14, 165, 233, 0.4)' : 'rgba(2, 132, 199, 0.28)';
-    ctx.lineWidth = 1.0;
-    ctx.setLineDash([6, 6]);
-    ctx.beginPath();
-    ctx.moveTo(startX, spg1Y);
-    ctx.lineTo(endX, spg1Y);
-    ctx.moveTo(startX, spg2Y);
-    ctx.lineTo(endX, spg2Y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Wall Label Annotations placed cleanly with safe clamping so text is never cut off
-    const leftTextX = Math.max(76, startX - 10);
+    // Horizontal Zone Divider Lines (3-Zone Tunnel OR 4-Quadrant Vertical Shaft)
+    const leftTextX = Math.max(82, startX - 10);
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'right';
     ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.95)';
     ctx.lineWidth = 3.5;
     ctx.fillStyle = isDarkMode ? '#38bdf8' : '#334155';
-    
-    ctx.strokeText('LEFT WALL', leftTextX, topY + (spg1Y - topY) / 2);
-    ctx.fillText('LEFT WALL', leftTextX, topY + (spg1Y - topY) / 2);
 
-    ctx.strokeText('CROWN ARCH', leftTextX, spg1Y + (spg2Y - spg1Y) / 2);
-    ctx.fillText('CROWN ARCH', leftTextX, spg1Y + (spg2Y - spg1Y) / 2);
+    if (isShaft) {
+      const q1Y = worldToScreenY(shaftQuadArc);
+      const q2Y = worldToScreenY(shaftQuadArc * 2);
+      const q3Y = worldToScreenY(shaftQuadArc * 3);
 
-    ctx.strokeText('RIGHT WALL', leftTextX, spg2Y + (botY - spg2Y) / 2);
-    ctx.fillText('RIGHT WALL', leftTextX, spg2Y + (botY - spg2Y) / 2);
+      ctx.strokeStyle = isDarkMode ? 'rgba(14, 165, 233, 0.4)' : 'rgba(2, 132, 199, 0.28)';
+      ctx.lineWidth = 1.0;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(startX, q1Y);
+      ctx.lineTo(endX, q1Y);
+      ctx.moveTo(startX, q2Y);
+      ctx.lineTo(endX, q2Y);
+      ctx.moveTo(startX, q3Y);
+      ctx.lineTo(endX, q3Y);
+      ctx.stroke();
+      ctx.setLineDash([]);
 
-    // Vertical Chainage Grid Lines
+      ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = 3.5;
+      ctx.strokeText('1. NE (0°–90°)', leftTextX, topY + (q1Y - topY) / 2);
+      ctx.fillText('1. NE (0°–90°)', leftTextX, topY + (q1Y - topY) / 2);
+
+      ctx.strokeText('2. ES (90°–180°)', leftTextX, q1Y + (q2Y - q1Y) / 2);
+      ctx.fillText('2. ES (90°–180°)', leftTextX, q1Y + (q2Y - q1Y) / 2);
+
+      ctx.strokeText('3. SW (180°–270°)', leftTextX, q2Y + (q3Y - q2Y) / 2);
+      ctx.fillText('3. SW (180°–270°)', leftTextX, q2Y + (q3Y - q2Y) / 2);
+
+      ctx.strokeText('4. WN (270°–360°)', leftTextX, q3Y + (botY - q3Y) / 2);
+      ctx.fillText('4. WN (270°–360°)', leftTextX, q3Y + (botY - q3Y) / 2);
+    } else {
+      const spg1Y = worldToScreenY(leftWallHeight);
+      const spg2Y = worldToScreenY(leftWallHeight + crownWidth);
+
+      ctx.strokeStyle = isDarkMode ? 'rgba(14, 165, 233, 0.4)' : 'rgba(2, 132, 199, 0.28)';
+      ctx.lineWidth = 1.0;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(startX, spg1Y);
+      ctx.lineTo(endX, spg1Y);
+      ctx.moveTo(startX, spg2Y);
+      ctx.lineTo(endX, spg2Y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = 3.5;
+      ctx.strokeText('LEFT WALL', leftTextX, topY + (spg1Y - topY) / 2);
+      ctx.fillText('LEFT WALL', leftTextX, topY + (spg1Y - topY) / 2);
+
+      ctx.strokeText('CROWN ARCH', leftTextX, spg1Y + (spg2Y - spg1Y) / 2);
+      ctx.fillText('CROWN ARCH', leftTextX, spg1Y + (spg2Y - spg1Y) / 2);
+
+      ctx.strokeText('RIGHT WALL', leftTextX, spg2Y + (botY - spg2Y) / 2);
+      ctx.fillText('RIGHT WALL', leftTextX, spg2Y + (botY - spg2Y) / 2);
+    }
+
+    // Vertical Chainage / Depth Grid Lines
     for (let ch = Math.ceil(fromRd); ch <= toRd; ch += gridMinorSpacingX) {
       const scrX = worldToScreenX(ch);
       const isMajor = ch % gridMajorSpacingX === 0;
@@ -886,7 +963,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       ctx.lineTo(scrX, botY);
       ctx.stroke();
 
-      // Chainage Tick Marks & Numbers on top & bottom with safe boundary clamping
+      // Chainage / Depth Tick Marks & Numbers on top & bottom
       if (isMajor) {
         const topChY = Math.max(16, topY - 10);
         const botChY = Math.min(canvas.height - 10, botY + 18);
@@ -895,10 +972,11 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         ctx.lineWidth = 3;
         ctx.textAlign = 'center';
         ctx.font = 'bold 9.5px monospace';
-        ctx.strokeText(`CH ${ch.toFixed(1)}m`, scrX, topChY);
-        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, topChY);
-        ctx.strokeText(`CH ${ch.toFixed(1)}m`, scrX, botChY);
-        ctx.fillText(`CH ${ch.toFixed(1)}m`, scrX, botChY);
+        const prefix = isShaft ? 'DEPTH' : 'RD';
+        ctx.strokeText(`${prefix} ${ch.toFixed(1)}m`, scrX, topChY);
+        ctx.fillText(`${prefix} ${ch.toFixed(1)}m`, scrX, topChY);
+        ctx.strokeText(`${prefix} ${ch.toFixed(1)}m`, scrX, botChY);
+        ctx.fillText(`${prefix} ${ch.toFixed(1)}m`, scrX, botChY);
       }
     }
 
@@ -1022,31 +1100,62 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       }
     }
 
-    // 3. Render Excavation Pull Rounds Layer - Clean text only (NO boxy design)
+    // 3. Render Excavation Pull Rounds Layer & True-Scale Blank Unlogged Gaps (`MISSING_GAP`)
     if (showPullsLayer) {
       for (const pull of currentDataset.pulls || []) {
         const pullStartX = worldToScreenX(pull.fromRd);
         const pullEndX = worldToScreenX(pull.toRd);
         const isSelected = selectedObjectType === 'pull' && selectedObjectId === pull.id;
+        const isGap = pull.status === 'MISSING_GAP';
 
-        ctx.strokeStyle = isSelected ? '#fbbf24' : '#eab308';
-        ctx.lineWidth = isSelected ? 2 : 1;
-        ctx.setLineDash([4, 2]);
-        ctx.beginPath();
-        ctx.moveTo(pullEndX, topY);
-        ctx.lineTo(pullEndX, botY);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        if (isGap) {
+          // Blank white/dark unlogged gap with dashed RD/depth boundary lines
+          ctx.fillStyle = isDarkMode ? '#090d16' : '#ffffff';
+          ctx.fillRect(pullStartX, topY, Math.max(1, pullEndX - pullStartX), botY - topY);
 
-        const midX = (pullStartX + pullEndX) / 2;
-        ctx.font = 'bold 10px monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
-        ctx.lineWidth = 2.5;
-        ctx.strokeText(`PULL #${pull.id.replace('round-', '')}`, midX, topY + 12);
-        ctx.fillStyle = isDarkMode ? '#fef08a' : '#b45309';
-        ctx.fillText(`PULL #${pull.id.replace('round-', '')}`, midX, topY + 12);
+          ctx.strokeStyle = isDarkMode ? '#94a3b8' : '#64748b';
+          ctx.lineWidth = 1.6;
+          ctx.setLineDash([6, 4]);
+          ctx.beginPath();
+          ctx.moveTo(pullStartX, topY);
+          ctx.lineTo(pullStartX, botY);
+          ctx.moveTo(pullEndX, topY);
+          ctx.lineTo(pullEndX, botY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          const midX = (pullStartX + pullEndX) / 2;
+          const midY = (topY + botY) / 2;
+          ctx.font = 'bold 10px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = isDarkMode ? '#94a3b8' : '#64748b';
+          ctx.fillText(
+            `UNLOGGED GAP (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)`,
+            midX,
+            midY
+          );
+        } else {
+          ctx.strokeStyle = isSelected ? '#fbbf24' : '#eab308';
+          ctx.lineWidth = isSelected ? 2 : 1;
+          ctx.setLineDash([4, 2]);
+          ctx.beginPath();
+          ctx.moveTo(pullEndX, topY);
+          ctx.lineTo(pullEndX, botY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          const midX = (pullStartX + pullEndX) / 2;
+          ctx.font = 'bold 10px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
+          ctx.lineWidth = 2.5;
+          const pullLabel = `${pull.excavationDefiningNo || 'PULL'} (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)`;
+          ctx.strokeText(pullLabel, midX, topY + 12);
+          ctx.fillStyle = isDarkMode ? '#fef08a' : '#b45309';
+          ctx.fillText(pullLabel, midX, topY + 12);
+        }
       }
     }
 
@@ -1072,13 +1181,13 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             else ctx.lineTo(scrX, scrY);
           });
           ctx.strokeStyle = isMergeMaster
-            ? 'rgba(245, 158, 11, 0.65)'
+            ? 'rgba(245, 158, 11, 0.45)'
             : isMergeTarget
-            ? 'rgba(6, 182, 212, 0.65)'
+            ? 'rgba(6, 182, 212, 0.45)'
             : isSelected
-            ? 'rgba(251, 191, 36, 0.45)'
-            : 'rgba(56, 189, 248, 0.35)';
-          ctx.lineWidth = isSelected || isMergeMaster || isMergeTarget ? 11 : 7;
+            ? 'rgba(251, 191, 36, 0.35)'
+            : 'rgba(56, 189, 248, 0.28)';
+          ctx.lineWidth = isSelected || isMergeMaster || isMergeTarget ? 5 : 3.5;
           ctx.stroke();
         }
 
@@ -1099,10 +1208,10 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           : isHovered
           ? '#38bdf8'
           : color;
-        ctx.lineWidth = isSelected || isMergeMaster ? 3.5 : (trace.fillingThickness === 'Thin' ? 1.8 : 2.8);
+        ctx.lineWidth = isSelected || isMergeMaster ? 2.0 : (trace.fillingThickness === 'Thin' ? 1.1 : 1.5);
 
         if (trace.structureType === 'Shear Zone') {
-          ctx.setLineDash([8, 3]);
+          ctx.setLineDash([7, 3]);
         } else if (trace.structureType === 'Bedding/Foliation') {
           ctx.setLineDash([3, 3]);
         } else {
@@ -1121,14 +1230,14 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
             ctx.fillStyle = isVertexActive ? '#fbbf24' : '#06b6d4';
             ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1.4;
             ctx.beginPath();
-            ctx.arc(vx, vy, isVertexActive ? 9 : 7, 0, Math.PI * 2);
+            ctx.arc(vx, vy, isVertexActive ? 6.5 : 5, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
 
             ctx.fillStyle = '#09090b';
-            ctx.font = 'bold 10px monospace';
+            ctx.font = 'bold 8.5px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(`${i + 1}`, vx, vy);
@@ -1141,14 +1250,14 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
           ctx.fillStyle = '#1c1917';
           ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 1.2;
           ctx.beginPath();
-          ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+          ctx.arc(cx, cy, 7.5, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
 
           ctx.fillStyle = '#fbbf24';
-          ctx.font = 'bold 11px sans-serif';
+          ctx.font = 'bold 9.5px sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText('✥', cx, cy);
@@ -1156,7 +1265,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           points.forEach((pt) => {
             ctx.fillStyle = isHovered ? '#38bdf8' : color;
             ctx.beginPath();
-            ctx.arc(worldToScreenX(pt.x), worldToScreenY(pt.y), 3, 0, Math.PI * 2);
+            ctx.arc(worldToScreenX(pt.x), worldToScreenY(pt.y), 1.8, 0, Math.PI * 2);
             ctx.fill();
           });
         }
@@ -1177,7 +1286,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
           const segAngle = Math.atan2(p2y - p1y, p2x - p1x);
           const tickSide = trace.dipTickSide === 'left' ? -1 : 1;
-          const tickLen = 15;
+          const tickLen = 10;
           const tickAngle = segAngle + (Math.PI / 2) * tickSide;
 
           const tx = mx + Math.cos(tickAngle) * tickLen;
@@ -1185,7 +1294,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
           // Draw perpendicular tick
           ctx.strokeStyle = isSelected ? '#fbbf24' : color;
-          ctx.lineWidth = 2.4;
+          ctx.lineWidth = 1.4;
           ctx.beginPath();
           ctx.moveTo(mx, my);
           ctx.lineTo(tx, ty);
@@ -1576,6 +1685,41 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             } else {
               setMergeTargetTraceId(trace.id);
             }
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    // EXPAND / EXTEND JOINT TOOL: Click on any trace to extend it across pull boundaries
+    if (activeTool === 'expand_joint') {
+      for (const trace of currentDataset.traces || []) {
+        const pts = trace.points || [];
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p1 = { x: worldToScreenX(pts[i].x), y: worldToScreenY(pts[i].y) };
+          const p2 = { x: worldToScreenX(pts[i + 1].x), y: worldToScreenY(pts[i + 1].y) };
+          if (distToSegment({ x: mouseX, y: mouseY }, p1, p2) < 14) {
+            pushHistory(currentDataset);
+            setSelectedObjectId(trace.id);
+            setSelectedObjectType('trace');
+            const firstX = pts[0].x;
+            const lastX = pts[pts.length - 1].x;
+            const dir = Math.abs(ch - firstX) < Math.abs(ch - lastX) ? 'start' : 'end';
+            const extended = extendStripTraceAcrossPull(
+              trace,
+              dir,
+              1.2,
+              totalPerimeterM,
+              fromRd,
+              toRd
+            );
+            setCurrentDataset((prev) => ({
+              ...prev,
+              traces: (prev.traces || []).map((t) => (t.id === trace.id ? extended : t)),
+              updatedAt: new Date().toISOString(),
+            }));
+            setCadStatusMessage(`Extended joint ${trace.id} (${dir} +1.2m).`);
             return;
           }
         }
@@ -2362,7 +2506,11 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950 text-slate-100 select-none overflow-hidden font-sans">
+    <div
+      className={`${
+        embeddedMode ? 'w-full h-full flex-1' : 'fixed inset-0 z-[9999]'
+      } flex flex-col bg-slate-950 text-slate-100 select-none overflow-hidden font-sans`}
+    >
       {/* 1. TOP AUTOCAD 2026 HEADER BAR - Harmonized, Perfectly Arranged & Aligned */}
       <div className="h-13 bg-slate-950 border-b border-slate-800 px-3 sm:px-4 flex items-center justify-between shrink-0 shadow-md gap-3 z-30">
         {/* Left Side: Brand, Identity, Project Metadata */}
@@ -2513,23 +2661,32 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           {/* Cluster 4: Primary Save & Commit Action */}
           <button
             type="button"
-            onClick={handleSaveAndCommit}
+            onClick={() => {
+              onSaveDataset(currentDataset);
+              if (onNextStage) {
+                onNextStage(currentDataset);
+              } else {
+                handleSaveAndCommit();
+              }
+            }}
             className="h-8 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer font-mono shrink-0"
-            title="Save CAD edits and update the A3 Continuous Tunnel Log Report window"
+            title="Save CAD edits and proceed to Stage 3 (3D Joint Inspection)"
           >
             <Check className="w-3.5 h-3.5" />
-            <span>Save to A3</span>
+            <span>{onNextStage ? 'Save & Next: 3D Analysis →' : 'Save to A3'}</span>
           </button>
 
           {/* Cluster 5: Modal Dismiss */}
-          <button
-            type="button"
-            onClick={onClose}
-            className="h-8 w-8 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer flex items-center justify-center shrink-0"
-            title="Close CAD Workspace"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {!embeddedMode && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-8 w-8 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer flex items-center justify-center shrink-0"
+              title="Close CAD Workspace"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -2595,11 +2752,17 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           <div className="mt-1 pt-1 border-t border-slate-800 flex items-center justify-between gap-2 overflow-x-auto text-[11px] font-mono text-slate-300">
             {cadRibbonTab === 'HOME' && (
               <div className="flex items-center gap-3">
-                <span className="text-slate-400">Span: RD {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m</span>
+                <span className="text-slate-400">
+                  {isShaft ? 'Depth Span' : 'Chainage Span'}: {fromRd.toFixed(1)}m – {toRd.toFixed(1)}m
+                </span>
                 <span>•</span>
                 <span className="text-sky-300">Total Unwrapped Perimeter: {totalPerimeterM.toFixed(2)}m</span>
                 <span>•</span>
-                <span className="text-amber-300">Left Wall: 0–{leftWallHeight.toFixed(1)}m | Crown: {leftWallHeight.toFixed(1)}–{(leftWallHeight + crownWidth).toFixed(1)}m | Right Wall: {(leftWallHeight + crownWidth).toFixed(1)}–{totalPerimeterM.toFixed(1)}m</span>
+                <span className="text-amber-300">
+                  {isShaft
+                    ? `1. NE (0–${shaftQuadArc.toFixed(1)}m) | 2. ES (${shaftQuadArc.toFixed(1)}–${(shaftQuadArc * 2).toFixed(1)}m) | 3. SW (${(shaftQuadArc * 2).toFixed(1)}–${(shaftQuadArc * 3).toFixed(1)}m) | 4. WN (${(shaftQuadArc * 3).toFixed(1)}–${totalPerimeterM.toFixed(1)}m)`
+                    : `Left Wall: 0–${leftWallHeight.toFixed(1)}m | Crown: ${leftWallHeight.toFixed(1)}–${(leftWallHeight + crownWidth).toFixed(1)}m | Right Wall: ${(leftWallHeight + crownWidth).toFixed(1)}–${totalPerimeterM.toFixed(1)}m`}
+                </span>
               </div>
             )}
             {cadRibbonTab === 'DISCONTINUITIES' && (
@@ -2822,6 +2985,21 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           >
             <GitMerge className="w-4 h-4" />
             <span className="text-[9px] font-mono">Merge</span>
+          </button>
+
+          {/* Expand / Extend Joint Tool */}
+          <button
+            type="button"
+            onClick={() => setActiveTool('expand_joint')}
+            className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
+              activeTool === 'expand_joint'
+                ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/40'
+                : 'text-slate-400 hover:text-emerald-400 hover:bg-slate-800'
+            }`}
+            title="Expand / Extend Joint Across Pulls — Click near joint start or end to extrapolate"
+          >
+            <Maximize2 className="w-4 h-4" />
+            <span className="text-[9px] font-mono">Expand</span>
           </button>
 
           {/* Delete Joint Tool */}
@@ -3103,6 +3281,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                               traces: prev.traces.map((t) =>
                                 t.id === selectedTrace.id ? { ...t, customLabel: val, hideLabel: val.trim() === '' } : t
                               ),
+                              updatedAt: new Date().toISOString(),
                             }));
                           }}
                           placeholder="e.g. J1, JS1 Main Joint, Splay A..."
@@ -3123,6 +3302,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                               traces: prev.traces.map((t) =>
                                 t.id === selectedTrace.id ? { ...t, orientationLabel: val } : t
                               ),
+                              updatedAt: new Date().toISOString(),
                             }));
                           }}
                           placeholder="e.g. 140°/65°"
@@ -3140,6 +3320,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                               traces: prev.traces.map((t) =>
                                 t.id === selectedTrace.id ? { ...t, customLabel: '', hideLabel: true } : t
                               ),
+                              updatedAt: new Date().toISOString(),
                             }));
                           }}
                           className="flex-1 py-1 px-2 rounded-lg bg-red-950/70 hover:bg-red-900 border border-red-800 text-red-300 text-[10.5px] font-semibold flex items-center justify-center gap-1 transition cursor-pointer"
@@ -3157,6 +3338,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                               traces: prev.traces.map((t) =>
                                 t.id === selectedTrace.id ? { ...t, customLabel: selectedTrace.setId, hideLabel: false } : t
                               ),
+                              updatedAt: new Date().toISOString(),
                             }));
                           }}
                           className="py-1 px-2.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[10.5px] font-semibold transition cursor-pointer"
@@ -3187,6 +3369,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                                   }
                                 : t
                             ),
+                            updatedAt: new Date().toISOString(),
                           }));
                         }}
                         className="w-full bg-stone-950 border border-stone-700 rounded-lg p-2 text-xs text-white"
@@ -3436,6 +3619,82 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                         >
                           <Minus className="w-3.5 h-3.5 text-amber-400" />
                           <span>Delete Point</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Expand / Extend Joint Across Pulls */}
+                    <div className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 space-y-2">
+                      <span className="text-[11px] font-bold text-stone-300 flex items-center gap-1.5">
+                        <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Expand / Extend Joint Across Pulls:</span>
+                      </span>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            pushHistory(currentDataset);
+                            const ext = extendStripTraceAcrossPull(
+                              selectedTrace,
+                              'start',
+                              1.0,
+                              totalPerimeterM,
+                              fromRd,
+                              toRd
+                            );
+                            setCurrentDataset((prev) => ({
+                              ...prev,
+                              traces: prev.traces.map((t) => (t.id === selectedTrace.id ? ext : t)),
+                              updatedAt: new Date().toISOString(),
+                            }));
+                          }}
+                          className="py-1.5 px-2 rounded bg-stone-800 hover:bg-stone-700 text-emerald-300 font-mono font-bold text-[10px] cursor-pointer"
+                        >
+                          -1.0m Start
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            pushHistory(currentDataset);
+                            const ext = extendStripTraceAcrossPull(
+                              selectedTrace,
+                              'end',
+                              1.0,
+                              totalPerimeterM,
+                              fromRd,
+                              toRd
+                            );
+                            setCurrentDataset((prev) => ({
+                              ...prev,
+                              traces: prev.traces.map((t) => (t.id === selectedTrace.id ? ext : t)),
+                              updatedAt: new Date().toISOString(),
+                            }));
+                          }}
+                          className="py-1.5 px-2 rounded bg-stone-800 hover:bg-stone-700 text-emerald-300 font-mono font-bold text-[10px] cursor-pointer"
+                        >
+                          +1.0m End
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            pushHistory(currentDataset);
+                            const ext = extendStripTraceAcrossPull(
+                              selectedTrace,
+                              'full_span',
+                              0,
+                              totalPerimeterM,
+                              fromRd,
+                              toRd
+                            );
+                            setCurrentDataset((prev) => ({
+                              ...prev,
+                              traces: prev.traces.map((t) => (t.id === selectedTrace.id ? ext : t)),
+                              updatedAt: new Date().toISOString(),
+                            }));
+                          }}
+                          className="py-1.5 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold text-[10px] cursor-pointer"
+                        >
+                          Full Span
                         </button>
                       </div>
                     </div>
@@ -4425,6 +4684,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                             traces: prev.traces.map((t) =>
                               t.id === editingTextTraceId ? { ...t, customLabel: '', hideLabel: true } : t
                             ),
+                            updatedAt: new Date().toISOString(),
                           }));
                         }
                         setEditingTextTraceId(null);
@@ -4463,6 +4723,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                                 }
                               : t
                           ),
+                          updatedAt: new Date().toISOString(),
                         }));
                       }
                       setEditingTextTraceId(null);

@@ -688,15 +688,23 @@ export function runCompleteFemDemAnalysis(
 
   // 1. Geometry & Dimensions
   const isVertShaft =
-    mappingDomain === 'TUNNEL' && isVerticalShaftLocation(location);
+    mappingDomain === 'TUNNEL' &&
+    (isVerticalShaftLocation(location) || round.undergroundSubMode === 'vertical_shaft');
   const shaftBreakdown = isVertShaft
     ? computeVerticalShaftCircumferenceBreakdown(location, round)
     : null;
   const isShaftHalfFace =
-    isVertShaft && round.excavationApproach === 'Half Face';
-  const shaftHalfSide = normalizeVerticalShaftHalfSide(round.shaftHalfSide);
+    isVertShaft &&
+    (round.excavationApproach === 'Half Face' ||
+      (round.excavationApproach || '').startsWith('Half Face'));
+  const shaftHalfSide =
+    round.excavationApproach === 'Half Face — 3rd & 4th Quad (SW–WN)'
+      ? 'left_half'
+      : round.excavationApproach === 'Half Face — 1st & 2nd Quad (NE–ES)'
+      ? 'right_half'
+      : normalizeVerticalShaftHalfSide(round.shaftHalfSide);
   const shaftMedianStatus = normalizeVerticalShaftCenterMedianStatus(
-    round.shaftCenterMedianStatus
+    round.shaftCenterMedianStatus || (round as { shaftMedianDivisionCondition?: string }).shaftMedianDivisionCondition
   );
 
   const spanWidthM = Math.max(2.0, Number(location.widthM || 8.5));
@@ -1024,10 +1032,18 @@ export function runCompleteFemDemAnalysis(
     'E_rm = E_i · [0.02 + (1 - D/2) / (1 + exp((60 + 15D - GSI)/11))]'
   );
 
-  // Equivalent Mohr-Coulomb (Hoek et al. 2002) for tunnel confining stress sigma3_max
+  // Equivalent Mohr-Coulomb (Hoek et al. 2002) for tunnel/shaft confining stress sigma3_max
+  // For Vertical Shafts, the 2D cross-section is a horizontal plan plane at depth H:
+  // Both in-plane principal stresses are horizontal (σ_H,max = K0·σv and σ_h,min ≈ 0.82·K0·σv)
   const sigmaV_Mpa = (pUnitWeight.value * pOverburden.value) / 1000;
   const sigmaH_Mpa = sigmaV_Mpa * pK0.value;
-  const p0_Mpa = Number(((sigmaV_Mpa + sigmaH_Mpa) / 2).toFixed(3));
+  const sigmaHMinShaftMpa = sigmaH_Mpa * (pK0.value >= 1.0 ? 0.85 : 0.92);
+  const p0_Mpa = Number(
+    (isVertShaft
+      ? (sigmaH_Mpa + sigmaHMinShaftMpa) / 2
+      : (sigmaV_Mpa + sigmaH_Mpa) / 2
+    ).toFixed(3)
+  );
 
   const sigmaCmGlobalMpa =
     pIntactUcs.value *
@@ -1282,11 +1298,17 @@ export function runCompleteFemDemAnalysis(
       const cap = sb.tensileCapacityKn || (Math.PI * Math.pow(d / 1000, 2) / 4) * (fy * 1000);
       return acc + cap;
     }, 0);
-    const tunnelPerimM = spanWidthM * 2 + totalHeightM;
+    const tunnelPerimM = isVertShaft
+      ? Math.PI * spanWidthM
+      : spanWidthM * 2 + totalHeightM;
     const pullLenM = Math.max(1.0, round.pullLengthMeters || 3.0);
     const addedPressureMpa = totalSpotTensileKn / Math.max(1, tunnelPerimM * pullLenM * 1000);
     spotBoltsPressureMpa = Number(Math.min(0.12, Math.max(0.015 * spotBoltsCount, addedPressureMpa)).toFixed(3));
-    activeSystemsSummary.push(`${spotBoltsCount} Targeted Spot Bolt(s) (${Math.round(totalSpotTensileKn)} kN cap)`);
+    activeSystemsSummary.push(
+      isVertShaft
+        ? `${spotBoltsCount} Radial Shaft Spot Bolt(s) (${Math.round(totalSpotTensileKn)} kN cap)`
+        : `${spotBoltsCount} Targeted Spot Bolt(s) (${Math.round(totalSpotTensileKn)} kN cap)`
+    );
   }
 
   let shotcretePressureMpa = 0;
@@ -1300,13 +1322,18 @@ export function runCompleteFemDemAnalysis(
     const ecShotcreteMpa = 26000;
     const nuC = 0.2;
     const r2_tc2 = Math.pow(equivalentRadiusM, 2) - Math.pow(Math.max(0.5, equivalentRadiusM - tcM), 2);
+    // Closed 360° circular shaft ring develops full hoop arch compression (+18% ring efficiency vs open-invert arch)
+    const closedRingFactor = isVertShaft && (!isShaftHalfFace || shaftMedianStatus === 'closed') ? 1.18 : 1.0;
     shotcretePressureMpa =
-      0.5 * fckShotcreteMpa * (1 - Math.pow(Math.max(0.5, equivalentRadiusM - tcM), 2) / Math.pow(equivalentRadiusM, 2));
+      0.5 * fckShotcreteMpa * (1 - Math.pow(Math.max(0.5, equivalentRadiusM - tcM), 2) / Math.pow(equivalentRadiusM, 2)) * closedRingFactor;
     shotcreteStiffnessMpaPerM =
-      (ecShotcreteMpa * r2_tc2) /
-      ((1 + nuC) * ((1 - 2 * nuC) * Math.pow(equivalentRadiusM, 2) + Math.pow(equivalentRadiusM - tcM, 2)) * equivalentRadiusM);
+      ((ecShotcreteMpa * r2_tc2) /
+        ((1 + nuC) * ((1 - 2 * nuC) * Math.pow(equivalentRadiusM, 2) + Math.pow(equivalentRadiusM - tcM, 2)) * equivalentRadiusM)) *
+      closedRingFactor;
     activeSystemsSummary.push(
-      `${sup.shotcreteType || 'SFRS'} Shotcrete ${shotcreteThickMm}mm (${sup.shotcreteScope === 'crown_only' ? 'Crown' : 'Crown+Wall'})`
+      isVertShaft
+        ? `${sup.shotcreteType || 'SFRS'} Circular Shaft Ring ${shotcreteThickMm}mm`
+        : `${sup.shotcreteType || 'SFRS'} Shotcrete ${shotcreteThickMm}mm (${sup.shotcreteScope === 'crown_only' ? 'Crown' : 'Crown+Wall'})`
     );
   }
 
@@ -1314,21 +1341,33 @@ export function runCompleteFemDemAnalysis(
   let steelSetOrLatticeStiffnessMpaPerM = 0;
   if (sup.latticeGirderEnabled) {
     const lgSpM = Math.max(0.4, Number(sup.latticeGirderSpacingM || 1.2));
-    steelSetOrLatticePressureMpa += 0.22 / lgSpM;
-    steelSetOrLatticeStiffnessMpaPerM += 95 / lgSpM;
-    activeSystemsSummary.push(`Lattice Girder (${sup.latticeGirderSpec || '3-Bar LG'}) @ ${lgSpM}m c/c`);
+    steelSetOrLatticePressureMpa += (isVertShaft ? 0.25 : 0.22) / lgSpM;
+    steelSetOrLatticeStiffnessMpaPerM += (isVertShaft ? 110 : 95) / lgSpM;
+    activeSystemsSummary.push(
+      isVertShaft
+        ? `Circular Lattice Girder Ring (${sup.latticeGirderSpec || '3-Bar LG'}) @ ${lgSpM}m c/c`
+        : `Lattice Girder (${sup.latticeGirderSpec || '3-Bar LG'}) @ ${lgSpM}m c/c`
+    );
   }
   if (sup.ismbEnabled) {
     const ismbSpM = Math.max(0.4, Number(sup.ismbSpacingM || 1.0));
-    steelSetOrLatticePressureMpa += 0.38 / ismbSpM;
-    steelSetOrLatticeStiffnessMpaPerM += 165 / ismbSpM;
-    activeSystemsSummary.push(`Steel Rib (${sup.ismbSpec || 'ISMB 150'}) @ ${ismbSpM}m c/c`);
+    steelSetOrLatticePressureMpa += (isVertShaft ? 0.44 : 0.38) / ismbSpM;
+    steelSetOrLatticeStiffnessMpaPerM += (isVertShaft ? 190 : 165) / ismbSpM;
+    activeSystemsSummary.push(
+      isVertShaft
+        ? `Circular Steel Curb Ring (${sup.ismbSpec || 'ISMB 150'}) @ ${ismbSpM}m c/c`
+        : `Steel Rib (${sup.ismbSpec || 'ISMB 150'}) @ ${ismbSpM}m c/c`
+    );
   }
 
   let wireMeshRetentionKpa = 0;
   if (sup.wireMeshEnabled) {
     wireMeshRetentionKpa = 35;
-    activeSystemsSummary.push(`Wire Mesh (${sup.wireMeshType || 'Welded 100×100×6mm'})`);
+    activeSystemsSummary.push(
+      isVertShaft
+        ? `360° Shaft Wall Wire Mesh (${sup.wireMeshType || 'Welded 100×100×6mm'})`
+        : `Wire Mesh (${sup.wireMeshType || 'Welded 100×100×6mm'})`
+    );
   }
 
   let forepolingOrCanopyPressureMpa = 0;
@@ -1381,8 +1420,26 @@ export function runCompleteFemDemAnalysis(
     const nu = pPoisson.value;
     let rpM = equivalentRadiusM;
 
+    // Half-Face Vertical Shaft confinement / relaxation modifiers:
+    // - Median CLOSED: unexcavated rock half provides lateral buttressing across 0°N–180°S (dispFactor = 0.84, stressCornerFactor = 1.06)
+    // - Median OPEN: opposite half already excavated without rock wall (dispFactor = 1.14, stressCornerFactor = 1.16)
+    const shaftHalfDispMod =
+      isVertShaft && isShaftHalfFace
+        ? shaftMedianStatus === 'closed'
+          ? 0.84
+          : 1.14
+        : 1.0;
+    const shaftHalfStressMod =
+      isVertShaft && isShaftHalfFace
+        ? shaftMedianStatus === 'closed'
+          ? 1.06
+          : 1.16
+        : 1.0;
+
+    const effectiveP0ForYield = effectiveP0Mpa * (isVertShaft && isShaftHalfFace && shaftMedianStatus === 'open' ? 1.08 : 1.0);
+
     if (piMpa < pCrMpa && kCoeff > 1.01) {
-      const num = 2 * (effectiveP0Mpa * (kCoeff - 1) + sigmaCmEffective);
+      const num = 2 * (effectiveP0ForYield * (kCoeff - 1) + sigmaCmEffective);
       const den = (kCoeff + 1) * ((kCoeff - 1) * Math.max(0.005, piMpa) + sigmaCmEffective);
       const ratio = Math.pow(Math.max(1.0, num / Math.max(0.01, den)), 1 / (kCoeff - 1));
       rpM = Math.min(equivalentRadiusM * 3.8, equivalentRadiusM * ratio);
@@ -1391,19 +1448,24 @@ export function runCompleteFemDemAnalysis(
     const plasticDepthM = Math.max(0, rpM - equivalentRadiusM);
     // Radial displacement at boundary (Duncan Fama 1993 elastoplastic radial convergence)
     const elasticDispM =
-      ((1 + nu) / ermMpa) * (effectiveP0Mpa - piMpa) * equivalentRadiusM;
+      ((1 + nu) / ermMpa) * (effectiveP0ForYield - piMpa) * equivalentRadiusM * shaftHalfDispMod;
     const radialDispM =
       rpM > equivalentRadiusM * 1.005
         ? ((1 + nu) / ermMpa) *
-          (sigmaCmEffective / 2 + ((kCoeff - 1) / (kCoeff + 1)) * (effectiveP0Mpa - pCrMpa)) *
+          (sigmaCmEffective / 2 + ((kCoeff - 1) / (kCoeff + 1)) * (effectiveP0ForYield - pCrMpa)) *
           equivalentRadiusM *
-          Math.pow(rpM / equivalentRadiusM, 2)
+          Math.pow(rpM / equivalentRadiusM, 2) *
+          shaftHalfDispMod
         : Math.max(0.0002, elasticDispM);
 
-    // Anisotropy adjustment for crown vs sidewall using K0
+    // Anisotropy adjustment for crown (N-S in shaft) vs sidewall (E-W in shaft) using K0
     const k0 = pK0.value;
-    const crownFactor = Math.max(0.75, Math.min(1.45, 0.65 + 0.35 * k0));
-    const wallFactor = Math.max(0.75, Math.min(1.45, 1.35 - 0.35 * k0));
+    const crownFactor = isVertShaft
+      ? Math.max(0.85, Math.min(1.3, 0.92 + 0.12 * Math.abs(1 - k0)))
+      : Math.max(0.75, Math.min(1.45, 0.65 + 0.35 * k0));
+    const wallFactor = isVertShaft
+      ? Math.max(0.85, Math.min(1.35, (1.06 + 0.14 * Math.abs(1 - k0)) * (isShaftHalfFace ? 1.05 : 1.0)))
+      : Math.max(0.75, Math.min(1.45, 1.35 - 0.35 * k0));
 
     const crownDispMm = Number((radialDispM * 1000 * crownFactor).toFixed(2));
     const wallDispMm = Number((radialDispM * 1000 * wallFactor).toFixed(2));
@@ -1412,9 +1474,10 @@ export function runCompleteFemDemAnalysis(
 
     // Max tangential stress at elastic-plastic interface or boundary
     const maxSigmaThetaMpa = Number(
-      (rpM > equivalentRadiusM
-        ? 2 * effectiveP0Mpa - pCrMpa
-        : effectiveP0Mpa * (1 + k0) + 2 * effectiveP0Mpa * Math.abs(1 - k0) - piMpa
+      ((rpM > equivalentRadiusM
+        ? 2 * effectiveP0ForYield - pCrMpa
+        : effectiveP0ForYield * (1 + k0) + 2 * effectiveP0ForYield * Math.abs(1 - k0) - piMpa) *
+        shaftHalfStressMod
       ).toFixed(2)
     );
 
@@ -1506,29 +1569,33 @@ export function runCompleteFemDemAnalysis(
     shotcreteThicknessMm: shotcreteThickMm,
   };
 
-  // 7. Generate 2D Boundary-Fitted TRIANGULAR Finite Element Mesh around the Exact Fed ESWA Tunnel Profile
+  // 7. Generate 2D Boundary-Fitted TRIANGULAR Finite Element Mesh around the Exact Fed ESWA Tunnel / Circular Vertical Shaft Profile
   const svgW = 560;
   const svgH = 440;
   const cx = svgW / 2;
   const cy = svgH * 0.54;
   const boxW = 184;
-  const boxH = Math.round(boxW * Math.min(1.25, Math.max(0.72, totalHeightM / spanWidthM)));
+  const boxH = isVertShaft
+    ? boxW
+    : Math.round(boxW * Math.min(1.25, Math.max(0.72, totalHeightM / spanWidthM)));
   const boxX = cx - boxW / 2;
   const boxY = cy - boxH / 2;
 
-  // Obtain exact fed tunnel outline from ESWA fieldMappingEngine
+  // Obtain exact fed tunnel outline from ESWA fieldMappingEngine (or Circular Vertical Shaft Plan Ring)
   const faceOutlineDetails = computeFaceTunnelOutlineDetails(
-    location,
+    isVertShaft ? { ...location, shape: 'circular', heightM: spanWidthM } : location,
     boxX,
     boxY,
     boxW,
     boxH
   );
-  const tunnelClosedPathD = faceOutlineDetails.closedFillPathD;
-  const tunnelSplY = faceOutlineDetails.springY;
+  const rShaftSvg = boxW / 2;
+  const tunnelClosedPathD = isVertShaft
+    ? `M ${(cx - rShaftSvg).toFixed(1)} ${cy.toFixed(1)} A ${rShaftSvg} ${rShaftSvg} 0 1 1 ${(cx + rShaftSvg).toFixed(1)} ${cy.toFixed(1)} A ${rShaftSvg} ${rShaftSvg} 0 1 1 ${(cx - rShaftSvg).toFixed(1)} ${cy.toFixed(1)} Z`
+    : faceOutlineDetails.closedFillPathD;
+  const tunnelSplY = isVertShaft ? cy : faceOutlineDetails.springY;
 
-  // Build dense closed perimeter polyline following the exact fed tunnel shape:
-  // Left Wall (bottom->SPL) -> Crown Arch (left SPL->right SPL) -> Right Wall (SPL->bottom) -> Invert (right->left)
+  // Build dense closed perimeter polyline following the exact fed tunnel shape or 360° Circular Vertical Shaft:
   const rawPerimeterLoop: { x: number; y: number }[] = [];
   const pushDenseSegment = (pts: { x: number; y: number }[]) => {
     for (let i = 0; i < pts.length - 1; i++) {
@@ -1546,7 +1613,16 @@ export function runCompleteFemDemAnalysis(
     }
   };
 
-  if (
+  if (isVertShaft) {
+    // True 360° circular shaft perimeter starting from 0° North (-π/2 in SVG) clockwise
+    for (let s = 0; s < 144; s++) {
+      const theta = -Math.PI / 2 + (s / 144) * 2 * Math.PI;
+      rawPerimeterLoop.push({
+        x: cx + rShaftSvg * Math.cos(theta),
+        y: cy + rShaftSvg * Math.sin(theta),
+      });
+    }
+  } else if (
     faceOutlineDetails.leftWallPoly.length > 0 ||
     faceOutlineDetails.crownPoly.length > 0
   ) {
@@ -1719,7 +1795,7 @@ export function runCompleteFemDemAnalysis(
     return { x: p.xSvg, y: p.ySvg };
   });
 
-  // Compute boundary-fitted Rock Bolt vectors along the fed tunnel Left Wall, Crown Arch, and Right Wall
+  // Compute boundary-fitted Rock Bolt vectors along the fed tunnel or 360° radial around Circular Vertical Shaft
   const boltScalePx = boxW / Math.max(1, spanWidthM);
   const boltLenPx = Math.min(92, Math.max(24, boltLenM * boltScalePx));
   const supportBoltVectorsSvg: {
@@ -1730,36 +1806,60 @@ export function runCompleteFemDemAnalysis(
     zone: 'crown' | 'wall';
   }[] = [];
 
-  for (let sIdx = 0; sIdx < nSectors; sIdx += 3) {
-    const bPt = boundarySamplePts[sIdx];
-    // Skip flat bottom invert bolts unless circular
-    if (location?.shape !== 'circular' && bPt.y > cy + boxH * 0.42) {
-      continue;
-    }
-    const isCrownBolt = bPt.y <= tunnelSplY + 4;
-    if (sup.rockBoltScope === 'crown_only' && !isCrownBolt) {
-      continue;
-    }
-    const dx = bPt.x - cx;
-    const dy = bPt.y - cy;
-    // Outward normal into rock mass: horizontal on vertical walls, radial on crown arch
-    let nx = 0;
-    let ny = -1;
-    if (isCrownBolt) {
+  if (isVertShaft) {
+    const stepS = Math.max(2, Math.round(nSectors / Math.max(8, Math.min(20, Math.round((Math.PI * spanWidthM) / boltSpInM)))));
+    for (let sIdx = 0; sIdx < nSectors; sIdx += stepS) {
+      const bPt = boundarySamplePts[sIdx];
+      const dx = bPt.x - cx;
+      const dy = bPt.y - cy;
+      // In Half-Face Shaft mode with active scope only, skip unexcavated half
+      if (isShaftHalfFace && sup.rockBoltScope === 'crown_only') {
+        if (shaftHalfSide === 'right_half' && dx < -2) continue;
+        if (shaftHalfSide === 'left_half' && dx > 2) continue;
+      }
       const d = Math.max(1, Math.hypot(dx, dy));
-      nx = dx / d;
-      ny = dy / d;
-    } else {
-      nx = dx < 0 ? -1 : 1;
-      ny = 0;
+      const nx = dx / d;
+      const ny = dy / d;
+      supportBoltVectorsSvg.push({
+        x1: Number(bPt.x.toFixed(1)),
+        y1: Number(bPt.y.toFixed(1)),
+        x2: Number((bPt.x + nx * boltLenPx).toFixed(1)),
+        y2: Number((bPt.y + ny * boltLenPx).toFixed(1)),
+        zone: dy <= 0 ? 'crown' : 'wall',
+      });
     }
-    supportBoltVectorsSvg.push({
-      x1: Number(bPt.x.toFixed(1)),
-      y1: Number(bPt.y.toFixed(1)),
-      x2: Number((bPt.x + nx * boltLenPx).toFixed(1)),
-      y2: Number((bPt.y + ny * boltLenPx).toFixed(1)),
-      zone: isCrownBolt ? 'crown' : 'wall',
-    });
+  } else {
+    for (let sIdx = 0; sIdx < nSectors; sIdx += 3) {
+      const bPt = boundarySamplePts[sIdx];
+      // Skip flat bottom invert bolts unless circular
+      if (location?.shape !== 'circular' && bPt.y > cy + boxH * 0.42) {
+        continue;
+      }
+      const isCrownBolt = bPt.y <= tunnelSplY + 4;
+      if (sup.rockBoltScope === 'crown_only' && !isCrownBolt) {
+        continue;
+      }
+      const dx = bPt.x - cx;
+      const dy = bPt.y - cy;
+      // Outward normal into rock mass: horizontal on vertical walls, radial on crown arch
+      let nx = 0;
+      let ny = -1;
+      if (isCrownBolt) {
+        const d = Math.max(1, Math.hypot(dx, dy));
+        nx = dx / d;
+        ny = dy / d;
+      } else {
+        nx = dx < 0 ? -1 : 1;
+        ny = 0;
+      }
+      supportBoltVectorsSvg.push({
+        x1: Number(bPt.x.toFixed(1)),
+        y1: Number(bPt.y.toFixed(1)),
+        x2: Number((bPt.x + nx * boltLenPx).toFixed(1)),
+        y2: Number((bPt.y + ny * boltLenPx).toFixed(1)),
+        zone: isCrownBolt ? 'crown' : 'wall',
+      });
+    }
   }
 
   const buildTriangularElement = (
@@ -1789,8 +1889,23 @@ export function runCompleteFemDemAnalysis(
     const elemLitho = allLithoNames[Math.max(0, lithoIdx)] || lithoInfo.dominant;
     const elemLithoRef = matchLithologyReference(elemLitho);
 
+    const inActiveShaftHalf =
+      !isVertShaft ||
+      !isShaftHalfFace ||
+      (shaftHalfSide === 'right_half' ? centroidSvg.x >= cx - 2 : centroidSvg.x <= cx + 2);
+    const shaftHalfLocalFactor =
+      isVertShaft && isShaftHalfFace
+        ? inActiveShaftHalf
+          ? shaftMedianStatus === 'open'
+            ? 1.12
+            : 1.02
+          : shaftMedianStatus === 'closed'
+          ? 0.58
+          : 0.95
+        : 1.0;
+
     const directionalFactor =
-      1 + 0.25 * (1 - pK0.value) * Math.cos(2 * angleRad);
+      (1 + 0.25 * (1 - pK0.value) * Math.cos(2 * angleRad)) * shaftHalfLocalFactor;
 
     const isYieldedBefore =
       elemRNorm <= rpBeforeNorm * (0.96 + 0.08 * directionalFactor);
@@ -2147,12 +2262,17 @@ export function runCompleteFemDemAnalysis(
     let spotBoltBlockResistKn = 0;
     if (sup.spotBoltsEnabled && spotBoltsCount > 0) {
       for (const sb of spotBoltsList) {
-        const pinsThisBlock =
-          (zone === 'Crown Arch' && (sb.panel === 'crown' || (sb.yMeters ?? 0) > totalHeightM * 0.75)) ||
-          (zone === 'Left Sidewall' && (sb.panel === 'left_wall' || (sb.xMeters ?? 0) < -spanWidthM * 0.25)) ||
-          (zone === 'Right Sidewall' && (sb.panel === 'right_wall' || (sb.xMeters ?? 0) > spanWidthM * 0.25)) ||
-          (zone === 'Shoulder Wedge' && (sb.panel === 'crown' || sb.panel === 'left_wall' || sb.panel === 'right_wall')) ||
-          (zone === 'Slope Batter');
+        const pinsThisBlock = isVertShaft
+          ? (id === 'KB-NE' && (sb.panel === 'left_wall' || (sb.azimuthDeg !== undefined && sb.azimuthDeg >= 0 && sb.azimuthDeg < 90))) ||
+            (id === 'KB-ES' && (sb.panel === 'crown' || (sb.azimuthDeg !== undefined && sb.azimuthDeg >= 90 && sb.azimuthDeg < 180))) ||
+            (id === 'KB-SW' && (sb.panel === 'right_wall' || (sb.azimuthDeg !== undefined && sb.azimuthDeg >= 180 && sb.azimuthDeg < 270))) ||
+            (id === 'KB-WN' && (sb.panel === 'shaft_sn' || (sb.azimuthDeg !== undefined && sb.azimuthDeg >= 270 && sb.azimuthDeg <= 360))) ||
+            (id === 'KB-MEDIAN' && String(sb.panel) === 'center_median')
+          : (zone === 'Crown Arch' && (sb.panel === 'crown' || (sb.yMeters ?? 0) > totalHeightM * 0.75)) ||
+            (zone === 'Left Sidewall' && (sb.panel === 'left_wall' || (sb.xMeters ?? 0) < -spanWidthM * 0.25)) ||
+            (zone === 'Right Sidewall' && (sb.panel === 'right_wall' || (sb.xMeters ?? 0) > spanWidthM * 0.25)) ||
+            (zone === 'Shoulder Wedge' && (sb.panel === 'crown' || sb.panel === 'left_wall' || sb.panel === 'right_wall')) ||
+            (zone === 'Slope Batter');
 
         if (pinsThisBlock) {
           const d = sb.diameterMm || 25;
@@ -2164,7 +2284,7 @@ export function runCompleteFemDemAnalysis(
           spotBoltBlockResistKn += nominalCapKn * sbAnchorage;
         }
       }
-      if (spotBoltBlockResistKn === 0 && spotBoltsCount > 0) {
+      if (spotBoltBlockResistKn === 0 && spotBoltsCount > 0 && !isVertShaft) {
         spotBoltBlockResistKn = 45 * Math.min(2, spotBoltsCount);
       }
     }
@@ -2637,7 +2757,13 @@ export function runCompleteFemDemAnalysis(
     locationName: location?.name || 'Heading 1',
     chainageLabel: `RD ${round?.chainageFrom || '0.00'}m – ${round?.chainageTo || '3.00'}m`,
     mappingDomain,
-    excavationShapeLabel: (location?.shape || 'd_shaped').replace(/_/g, ' ').toUpperCase(),
+    excavationShapeLabel: isVertShaft
+      ? isShaftHalfFace
+        ? `CIRCULAR VERTICAL SHAFT Ø${spanWidthM}m (HALF-FACE ${
+            shaftHalfSide === 'left_half' ? 'SW–WN 180°–360°' : 'NE–ES 0°–180°'
+          } • MEDIAN ${shaftMedianStatus.toUpperCase()})`
+        : `CIRCULAR VERTICAL SHAFT Ø${spanWidthM}m (FULL-FACE 360° RING)`
+      : (location?.shape || 'd_shaped').replace(/_/g, ' ').toUpperCase(),
     spanWidthM,
     totalHeightM,
     equivalentRadiusM,

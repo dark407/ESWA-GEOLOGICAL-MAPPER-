@@ -33,6 +33,11 @@ import {
   ResolvedGeotechParameter,
   runCompleteFemDemAnalysis,
 } from '../engine/femDemAnalysisEngine';
+import {
+  isVerticalShaftLocation,
+  normalizeVerticalShaftCenterMedianStatus,
+  normalizeVerticalShaftHalfSide,
+} from '../engine/verticalShaftEngine';
 import { FieldTunnelBenchHatchAndLineSvg } from './FieldMappingCompassAndPatterns';
 
 export interface FieldFemDemAnalysisStageProps {
@@ -180,8 +185,29 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
   const [showKeyBlocks, setShowKeyBlocks] = useState<boolean>(true);
   const [showDeformationVectors, setShowDeformationVectors] = useState<boolean>(true);
 
+  const isVertShaft =
+    mappingDomain === 'TUNNEL' &&
+    (isVerticalShaftLocation(activeLocation) ||
+      activeRound.undergroundSubMode === 'vertical_shaft');
+  const isShaftHalfFace =
+    isVertShaft &&
+    (activeRound.excavationApproach === 'Half Face' ||
+      (activeRound.excavationApproach || '').startsWith('Half Face'));
+  const shaftHalfSide =
+    activeRound.excavationApproach === 'Half Face — 3rd & 4th Quad (SW–WN)'
+      ? 'left_half'
+      : activeRound.excavationApproach === 'Half Face — 1st & 2nd Quad (NE–ES)'
+      ? 'right_half'
+      : normalizeVerticalShaftHalfSide(activeRound.shaftHalfSide);
+  const shaftMedianStatus = normalizeVerticalShaftCenterMedianStatus(
+    activeRound.shaftCenterMedianStatus ||
+      (activeRound as { shaftMedianDivisionCondition?: string }).shaftMedianDivisionCondition
+  );
+
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
-  const [selectedBlockId, setSelectedBlockId] = useState<string | null>('KB-CROWN');
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(
+    isVertShaft ? 'KB-NE' : 'KB-CROWN'
+  );
   const [isParametersSectionExpanded, setIsParametersSectionExpanded] = useState<boolean>(true);
   const [isParametersModalOpen, setIsParametersModalOpen] = useState<boolean>(false);
   const [selectedParamCategory, setSelectedParamCategory] = useState<
@@ -297,7 +323,60 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
     (p) => p.key === 'intactUcsMpa'
   );
 
-  // Render High-Visibility 2D Triangular FEM & DEM Cross-Section Canvas with Exact Fed Tunnel Shape
+  // Buffered draft states for Overburden H(m) and Intact UCS so typing "110" does not commit "1" on first keystroke
+  const [overburdenDraft, setOverburdenDraft] = useState<string>(() => {
+    const initVal =
+      femDemCfg.overburdenDepthM ??
+      femDemCfg.parameterOverrides?.overburdenDepthM ??
+      (analysisResult.prerequisites.hasOverburden ? overburdenParam?.value : '');
+    return initVal !== undefined && initVal !== '' ? String(initVal) : '';
+  });
+  const [ucsDraft, setUcsDraft] = useState<string>(() => {
+    const initUcs =
+      femDemCfg.parameterOverrides?.intactUcsMpa ??
+      (analysisResult.prerequisites.hasRockStrengthOrLithology ? ucsParam?.value : '');
+    return initUcs !== undefined && initUcs !== '' ? String(initUcs) : '';
+  });
+
+  React.useEffect(() => {
+    const committedH =
+      femDemCfg.overburdenDepthM ??
+      femDemCfg.parameterOverrides?.overburdenDepthM ??
+      (analysisResult.prerequisites.hasOverburden ? overburdenParam?.value : undefined);
+    setOverburdenDraft(committedH !== undefined ? String(committedH) : '');
+  }, [
+    activeRound.id,
+    femDemCfg.overburdenDepthM,
+    femDemCfg.parameterOverrides?.overburdenDepthM,
+    analysisResult.prerequisites.hasOverburden,
+    overburdenParam?.value,
+  ]);
+
+  React.useEffect(() => {
+    const committedUcs =
+      femDemCfg.parameterOverrides?.intactUcsMpa ??
+      (analysisResult.prerequisites.hasRockStrengthOrLithology ? ucsParam?.value : undefined);
+    setUcsDraft(committedUcs !== undefined ? String(committedUcs) : '');
+  }, [
+    activeRound.id,
+    femDemCfg.parameterOverrides?.intactUcsMpa,
+    analysisResult.prerequisites.hasRockStrengthOrLithology,
+    ucsParam?.value,
+  ]);
+
+  const handleCommitOverburden = () => {
+    const trimmed = overburdenDraft.trim();
+    if (!trimmed) return;
+    handleOverrideParameter('overburdenDepthM', trimmed);
+  };
+
+  const handleCommitUcs = () => {
+    const trimmed = ucsDraft.trim();
+    if (!trimmed) return;
+    handleOverrideParameter('intactUcsMpa', trimmed);
+  };
+
+  // Render High-Visibility 2D Triangular FEM & DEM Cross-Section Canvas with Exact Fed Tunnel / Circular Vertical Shaft Shape
   const renderCrossSectionSvg = (stageType: 'before' | 'after') => {
     const isAfter = stageType === 'after';
     const femState = isAfter ? analysisResult.femAfter : analysisResult.femBefore;
@@ -309,13 +388,15 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
     const cx = svgW / 2;
     const cy = svgH * 0.54;
     const boxW = 184;
-    const boxH = Math.round(
-      boxW *
-        Math.min(
-          1.25,
-          Math.max(0.72, analysisResult.totalHeightM / Math.max(1, analysisResult.spanWidthM))
-        )
-    );
+    const boxH = isVertShaft
+      ? boxW
+      : Math.round(
+          boxW *
+            Math.min(
+              1.25,
+              Math.max(0.72, analysisResult.totalHeightM / Math.max(1, analysisResult.spanWidthM))
+            )
+        );
     const scalePxPerM = boxW / Math.max(1, analysisResult.spanWidthM);
 
     const showFemLayers = activeMode === 'fem' || activeMode === 'combined';
@@ -334,8 +415,14 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
         const dx = pt.x - cx;
         const dy = pt.y - cy;
         const dist = Math.max(1, Math.hypot(dx, dy));
-        // Crown arch sags inward; vertical walls converge inward; flat invert has minimal heave
-        const dirScale = dy < 0 ? 1.15 : dy > boxH * 0.35 ? 0.3 : 0.92;
+        // In Circular Vertical Shaft mode, radial convergence acts around full 360° perimeter modulated by K0
+        const dirScale = isVertShaft
+          ? 0.96
+          : dy < 0
+          ? 1.15
+          : dy > boxH * 0.35
+          ? 0.3
+          : 0.92;
         const inwardShift = dispExaggerationPx * dirScale;
         const nx = pt.x - (dx / dist) * inwardShift;
         const ny = pt.y - (dy / dist) * inwardShift;
@@ -482,7 +569,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
             );
           })}
 
-          {/* Far-Field In-Situ Stress Boundary Arrows (σv Top & σh Left/Right) */}
+          {/* Far-Field In-Situ Stress Boundary Arrows (σv Top & σh Left/Right for Tunnels; Horizontal Plan Stress σH/σh for Vertical Shafts) */}
           <g pointerEvents="none" opacity="0.92">
             {[-90, -45, 0, 45, 90].map((dx, i) => (
               <line
@@ -505,8 +592,24 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               fontWeight="bold"
               fill="#0f172a"
             >
-              σv = {analysisResult.inSituVerticalStressMpa} MPa (H={overburdenParam?.value ?? 85}m)
+              {isVertShaft
+                ? `▲ 0° NORTH • σH = ${analysisResult.inSituHorizontalStressMpa} MPa (Depth H=${overburdenParam?.value ?? 85}m, σv=${analysisResult.inSituVerticalStressMpa} MPa)`
+                : `σv = ${analysisResult.inSituVerticalStressMpa} MPa (H=${overburdenParam?.value ?? 85}m)`}
             </text>
+
+            {isVertShaft && (
+              <text
+                x={cx}
+                y={svgH - 6}
+                textAnchor="middle"
+                fontSize="8.2"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#0f172a"
+              >
+                ▼ 180° SOUTH • Circular Vertical Shaft Plan Section (Ø{analysisResult.spanWidthM}m)
+              </text>
+            )}
 
             {[-70, -25, 20, 65].map((dy, i) => (
               <React.Fragment key={`sh-${i}`}>
@@ -752,8 +855,8 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
             strokeLinejoin="round"
           />
 
-          {/* 5B. Dotted Bench Line & Hatched Bench / Top Heading Portion inside FEM/DEM Tunnel Cavity */}
-          {mappingDomain === 'TUNNEL' && (
+          {/* 5B. Dotted Bench Line & Hatched Bench / Top Heading Portion inside FEM/DEM Tunnel Cavity (or Vertical Shaft Cardinal Axes & Half-Face Hatch) */}
+          {mappingDomain === 'TUNNEL' && !isVertShaft && (
             <FieldTunnelBenchHatchAndLineSvg
               location={activeLocation}
               round={activeRound}
@@ -767,8 +870,160 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
             />
           )}
 
+          {/* 5C. Circular Vertical Shaft 4-Quadrant Crosshairs & Half-Face Center Median inside Shaft Cavity */}
+          {isVertShaft && (
+            <g pointerEvents="none">
+              <defs>
+                <pattern
+                  id={`fem-shaft-half-hatch-${stageType}-${activeRound.id}`}
+                  width="8"
+                  height="8"
+                  patternTransform="rotate(45 0 0)"
+                  patternUnits="userSpaceOnUse"
+                >
+                  <line
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="8"
+                    stroke="#64748b"
+                    strokeWidth="1.6"
+                    strokeOpacity="0.4"
+                  />
+                </pattern>
+              </defs>
+              {isShaftHalfFace && (
+                <>
+                  <path
+                    d={
+                      shaftHalfSide === 'right_half'
+                        ? `M ${cx} ${cy - boxW / 2} A ${boxW / 2} ${boxW / 2} 0 0 0 ${cx} ${cy + boxW / 2} Z`
+                        : `M ${cx} ${cy - boxW / 2} A ${boxW / 2} ${boxW / 2} 0 0 1 ${cx} ${cy + boxW / 2} Z`
+                    }
+                    fill={`url(#fem-shaft-half-hatch-${stageType}-${activeRound.id})`}
+                  />
+                  <line
+                    x1={cx}
+                    y1={cy - boxW / 2}
+                    x2={cx}
+                    y2={cy + boxW / 2}
+                    stroke={shaftMedianStatus === 'closed' ? '#dc2626' : '#0284c7'}
+                    strokeWidth="2.2"
+                    strokeDasharray={shaftMedianStatus === 'closed' ? undefined : '5 3'}
+                  />
+                </>
+              )}
+              <line
+                x1={cx}
+                y1={cy - boxW / 2 + 4}
+                x2={cx}
+                y2={cy + boxW / 2 - 4}
+                stroke="#94a3b8"
+                strokeWidth="0.9"
+                strokeDasharray="4 3"
+              />
+              <line
+                x1={cx - boxW / 2 + 4}
+                y1={cy}
+                x2={cx + boxW / 2 - 4}
+                y2={cy}
+                stroke="#94a3b8"
+                strokeWidth="0.9"
+                strokeDasharray="4 3"
+              />
+              <text
+                x={cx}
+                y={cy - boxW / 2 + 13}
+                textAnchor="middle"
+                fontSize="7.5"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#dc2626"
+              >
+                0° N
+              </text>
+              <text
+                x={cx + boxW / 2 - 16}
+                y={cy - 3}
+                textAnchor="middle"
+                fontSize="7.5"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#0284c7"
+              >
+                90° E
+              </text>
+              <text
+                x={cx}
+                y={cy + boxW / 2 - 6}
+                textAnchor="middle"
+                fontSize="7.5"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#334155"
+              >
+                180° S
+              </text>
+              <text
+                x={cx - boxW / 2 + 18}
+                y={cy - 3}
+                textAnchor="middle"
+                fontSize="7.5"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#7c3aed"
+              >
+                270° W
+              </text>
+              <text
+                x={cx + 42}
+                y={cy - 42}
+                textAnchor="middle"
+                fontSize="7.2"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#0369a1"
+              >
+                Q1 NE
+              </text>
+              <text
+                x={cx + 42}
+                y={cy + 48}
+                textAnchor="middle"
+                fontSize="7.2"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#0f766e"
+              >
+                Q2 ES
+              </text>
+              <text
+                x={cx - 42}
+                y={cy + 48}
+                textAnchor="middle"
+                fontSize="7.2"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#b45309"
+              >
+                Q3 SW
+              </text>
+              <text
+                x={cx - 42}
+                y={cy - 42}
+                textAnchor="middle"
+                fontSize="7.2"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#6d28d9"
+              >
+                Q4 WN
+              </text>
+            </g>
+          )}
+
           {/* Springing Line (SPL) Reference inside Fed Tunnel Cavity */}
-          {mappingDomain === 'TUNNEL' && activeLocation.shape !== 'circular' && (
+          {mappingDomain === 'TUNNEL' && !isVertShaft && activeLocation.shape !== 'circular' && (
             <g pointerEvents="none" opacity="0.8">
               <line
                 x1={cx - boxW / 2 + 3}
@@ -884,39 +1139,61 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
             </g>
           )}
 
-          {/* 7. Radial Convergence Vectors at Crown & Vertical Sidewalls */}
+          {/* 7. Radial Convergence Vectors at Crown & Sidewalls (or 4 Shaft Quadrants in Vertical Shaft Mode) */}
           {showDeformationVectors && (
             <g pointerEvents="none">
-              {/* Crown top vertical sag vector */}
-              <line
-                x1={cx}
-                y1={cy - boxH / 2 + 3}
-                x2={cx}
-                y2={cy - boxH / 2 + (isAfter ? 18 : 30)}
-                stroke={isAfter ? '#059669' : '#dc2626'}
-                strokeWidth="2.1"
-                markerEnd={`url(#vec-arrow-${stageType})`}
-              />
-              {/* Left vertical wall inward vector */}
-              <line
-                x1={cx - boxW / 2 + 3}
-                y1={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                x2={cx - boxW / 2 + (isAfter ? 18 : 28)}
-                y2={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                stroke={isAfter ? '#059669' : '#dc2626'}
-                strokeWidth="2.1"
-                markerEnd={`url(#vec-arrow-${stageType})`}
-              />
-              {/* Right vertical wall inward vector */}
-              <line
-                x1={cx + boxW / 2 - 3}
-                y1={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                x2={cx + boxW / 2 - (isAfter ? 18 : 28)}
-                y2={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                stroke={isAfter ? '#059669' : '#dc2626'}
-                strokeWidth="2.1"
-                markerEnd={`url(#vec-arrow-${stageType})`}
-              />
+              {isVertShaft ? (
+                [45, 135, 225, 315].map((azDeg) => {
+                  const rad = ((azDeg - 90) * Math.PI) / 180;
+                  const rOuter = boxW / 2 - 3;
+                  const rInner = boxW / 2 - (isAfter ? 18 : 28);
+                  return (
+                    <line
+                      key={`shaft-conv-${azDeg}`}
+                      x1={cx + rOuter * Math.cos(rad)}
+                      y1={cy + rOuter * Math.sin(rad)}
+                      x2={cx + rInner * Math.cos(rad)}
+                      y2={cy + rInner * Math.sin(rad)}
+                      stroke={isAfter ? '#059669' : '#dc2626'}
+                      strokeWidth="2.1"
+                      markerEnd={`url(#vec-arrow-${stageType})`}
+                    />
+                  );
+                })
+              ) : (
+                <>
+                  {/* Crown top vertical sag vector */}
+                  <line
+                    x1={cx}
+                    y1={cy - boxH / 2 + 3}
+                    x2={cx}
+                    y2={cy - boxH / 2 + (isAfter ? 18 : 30)}
+                    stroke={isAfter ? '#059669' : '#dc2626'}
+                    strokeWidth="2.1"
+                    markerEnd={`url(#vec-arrow-${stageType})`}
+                  />
+                  {/* Left vertical wall inward vector */}
+                  <line
+                    x1={cx - boxW / 2 + 3}
+                    y1={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
+                    x2={cx - boxW / 2 + (isAfter ? 18 : 28)}
+                    y2={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
+                    stroke={isAfter ? '#059669' : '#dc2626'}
+                    strokeWidth="2.1"
+                    markerEnd={`url(#vec-arrow-${stageType})`}
+                  />
+                  {/* Right vertical wall inward vector */}
+                  <line
+                    x1={cx + boxW / 2 - 3}
+                    y1={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
+                    x2={cx + boxW / 2 - (isAfter ? 18 : 28)}
+                    y2={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
+                    stroke={isAfter ? '#059669' : '#dc2626'}
+                    strokeWidth="2.1"
+                    markerEnd={`url(#vec-arrow-${stageType})`}
+                  />
+                </>
+              )}
             </g>
           )}
 
@@ -1259,16 +1536,31 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
         {/* Right: High-Contrast Parameter Inputs & Layer Checkboxes on Bright Background */}
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="flex flex-wrap items-center gap-2 bg-slate-100 border border-slate-300 rounded-xl px-3 py-1 text-[11px] font-mono">
-            <label className="flex items-center gap-1 font-bold text-slate-800">
+            <div className="flex items-center gap-1 font-bold text-slate-800">
               <span>Cover H(m):</span>
               <input
                 type="number"
                 step="5"
-                value={overburdenParam?.value ?? 85}
-                onChange={(e) => handleOverrideParameter('overburdenDepthM', e.target.value)}
+                value={overburdenDraft}
+                onChange={(e) => setOverburdenDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleCommitOverburden();
+                  }
+                }}
+                placeholder="e.g. 110"
                 className="w-16 px-1.5 py-0.5 rounded-md bg-white border-2 border-slate-400 text-slate-950 font-black text-right focus:border-sky-600 focus:outline-none"
               />
-            </label>
+              <button
+                type="button"
+                onClick={handleCommitOverburden}
+                className="px-2 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase cursor-pointer shadow-xs"
+                title="Confirm Overburden Depth H (m)"
+              >
+                OK
+              </button>
+            </div>
             <span className="text-slate-300">|</span>
             <label className="flex items-center gap-1 font-bold text-slate-800">
               <span>K0:</span>
@@ -1283,16 +1575,30 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               />
             </label>
             <span className="text-slate-300">|</span>
-            <label className="flex items-center gap-1 font-bold text-slate-800">
+            <div className="flex items-center gap-1 font-bold text-slate-800">
               <span>UCS(MPa):</span>
               <input
                 type="number"
                 step="5"
-                value={ucsParam?.value ?? 75}
-                onChange={(e) => handleOverrideParameter('intactUcsMpa', e.target.value)}
+                value={ucsDraft}
+                onChange={(e) => setUcsDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleCommitUcs();
+                  }
+                }}
                 className="w-16 px-1.5 py-0.5 rounded-md bg-white border-2 border-slate-400 text-slate-950 font-black text-right focus:border-sky-600 focus:outline-none"
               />
-            </label>
+              <button
+                type="button"
+                onClick={handleCommitUcs}
+                className="px-2 py-0.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white font-black text-[10px] uppercase cursor-pointer shadow-xs"
+                title="Confirm Intact UCS (MPa)"
+              >
+                OK
+              </button>
+            </div>
             <span className="text-slate-300">|</span>
             <label className="flex items-center gap-1 font-bold text-slate-800">
               <span>Erm(GPa):</span>
@@ -1522,39 +1828,65 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               <div className="text-xs font-black uppercase text-amber-300">
                 Quick Field Entry for Stress &amp; Intact Rock Parameters:
               </div>
-              <div className="grid grid-cols-2 gap-2.5 text-xs">
-                <label className="block space-y-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                <div className="block space-y-1">
                   <span className="text-[10.5px] font-bold text-slate-300">
                     Overburden Depth H (m):
                   </span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="5"
-                    placeholder="e.g. 120"
-                    value={
-                      femDemCfg.overburdenDepthM ??
-                      femDemCfg.parameterOverrides?.overburdenDepthM ??
-                      ''
-                    }
-                    onChange={(e) => handleOverrideParameter('overburdenDepthM', e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-amber-500/60 text-white font-mono font-bold focus:outline-none focus:border-amber-400"
-                  />
-                </label>
-                <label className="block space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="1"
+                      step="5"
+                      placeholder="e.g. 110"
+                      value={overburdenDraft}
+                      onChange={(e) => setOverburdenDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCommitOverburden();
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-amber-500/60 text-white font-mono font-bold focus:outline-none focus:border-amber-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCommitOverburden}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase cursor-pointer shrink-0 shadow-md"
+                    >
+                      OK
+                    </button>
+                  </div>
+                </div>
+                <div className="block space-y-1">
                   <span className="text-[10.5px] font-bold text-slate-300">
                     Intact UCS σci (MPa):
                   </span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="5"
-                    placeholder="e.g. 75"
-                    value={femDemCfg.parameterOverrides?.intactUcsMpa ?? ''}
-                    onChange={(e) => handleOverrideParameter('intactUcsMpa', e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-amber-500/60 text-white font-mono font-bold focus:outline-none focus:border-amber-400"
-                  />
-                </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="1"
+                      step="5"
+                      placeholder="e.g. 75"
+                      value={ucsDraft}
+                      onChange={(e) => setUcsDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCommitUcs();
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-amber-500/60 text-white font-mono font-bold focus:outline-none focus:border-amber-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCommitUcs}
+                      className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase cursor-pointer shrink-0 shadow-md"
+                    >
+                      OK
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2288,7 +2620,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                   </h2>
                   <p className="text-xs text-slate-600 font-mono">
                     Project: {analysisResult.projectName} | Location: {analysisResult.locationName}{' '}
-                    | Section: {analysisResult.chainageLabel}
+                    | Section: {analysisResult.chainageLabel} | Profile: {analysisResult.excavationShapeLabel}
                   </p>
                 </div>
                 <div className="text-right font-mono text-[11px] text-slate-700">
@@ -2390,7 +2722,7 @@ export const FieldFemDemReportEmbedSection: React.FC<{
             colSpan={4}
             className="border border-slate-900 bg-white py-1 px-2 text-left font-black uppercase"
           >
-            7. INTEGRATED FEM &amp; DEM NUMERICAL STABILITY SUMMARY (BEFORE VS. AFTER SUPPORT)
+            7. INTEGRATED FEM &amp; DEM NUMERICAL STABILITY SUMMARY — {result.excavationShapeLabel} (R_eq = {result.equivalentRadiusM.toFixed(2)}m)
           </th>
         </tr>
       </thead>
@@ -2426,7 +2758,7 @@ export const FieldFemDemReportEmbedSection: React.FC<{
             Installed ESWA Support &amp; Reference Basis
           </th>
           <td colSpan={3} className="border border-slate-900 px-2 py-1">
-            <strong>Support:</strong>{' '}
+            <strong>Profile:</strong> {result.excavationShapeLabel} | <strong>Support:</strong>{' '}
             {result.supportBreakdown.activeSystemsSummary.join(' + ') || 'Unreinforced'} |{' '}
             <strong>Status:</strong> {result.combinedInteraction.combinedStabilityStatusAfter} (
             {result.estimatedParametersCount} parameters badged as ESTIMATED / COMMON REFERENCE

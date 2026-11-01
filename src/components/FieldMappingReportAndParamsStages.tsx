@@ -40,7 +40,11 @@ import {
   FIELD_JOINT_SET_IDS,
   FIELD_LITHOLOGY_CATALOG,
   FieldJointGroupingId,
+  isVerticalShaftLocation,
   mapMetricPointToStripSvg,
+  normalizeVerticalShaftCenterMedianStatus,
+  normalizeVerticalShaftExcavationApproach,
+  normalizeVerticalShaftHalfSide,
 } from '../engine/fieldMappingEngine';
 import {
   calculatePlaneSurfaceIntersections,
@@ -5190,7 +5194,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                   </td>
                   <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                     <div className="text-[11px] font-black tracking-wide uppercase text-slate-950 leading-tight">
-                      ENGINEERING GEOLOGICAL FACE LOG — {activeProject.projectName} ({activeLocation.name})
+                      {isVerticalShaftLocation(activeLocation)
+                        ? `ENGINEERING GEOLOGICAL VERTICAL SHAFT SINKING LOG — ${activeProject.projectName} (${activeLocation.name})`
+                        : `ENGINEERING GEOLOGICAL FACE LOG — ${activeProject.projectName} (${activeLocation.name})`}
                       <span className="text-[9px] font-semibold text-slate-700 ml-1.5">[Page 1/2]</span>
                     </div>
                   </td>
@@ -5213,13 +5219,20 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                     <span className="font-bold">Client/Cons:</span> {activeProject.clientName} / {activeProject.consultantName}
                   </td>
                   <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                    <span className="font-bold">Chainage:</span> CH {activeRound.chainageFrom}–{activeRound.chainageTo}m (Pull {activeRound.pullLengthMeters}m)
+                    <span className="font-bold">{isVerticalShaftLocation(activeLocation) ? 'Depth:' : 'Chainage:'}</span> {isVerticalShaftLocation(activeLocation) ? 'Depth' : 'CH'} {activeRound.chainageFrom}–{activeRound.chainageTo}m ({isVerticalShaftLocation(activeLocation) ? 'Sink' : 'Pull'} {activeRound.pullLengthMeters}m)
                   </td>
                   <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                    <span className="font-bold">Shape/Size:</span> {activeLocation.shape.replace(/_/g, ' ').toUpperCase()} ({activeLocation.widthM}m×{activeLocation.heightM}m)
+                    <span className="font-bold">Shape/Size:</span>{' '}
+                    {isVerticalShaftLocation(activeLocation)
+                      ? `CIRCULAR SHAFT Ø${activeLocation.widthM}m (${
+                          normalizeVerticalShaftExcavationApproach(activeRound.excavationApproach) === 'Half Face'
+                            ? `HALF ${normalizeVerticalShaftHalfSide(activeRound.shaftHalfSide) === 'left_half' ? 'SW–WN' : 'NE–ES'} • MEDIAN ${normalizeVerticalShaftCenterMedianStatus(activeRound.shaftCenterMedianStatus).toUpperCase()}`
+                            : 'FULL FACE 360°'
+                        })`
+                      : `${activeLocation.shape.replace(/_/g, ' ').toUpperCase()} (${activeLocation.widthM}m×${activeLocation.heightM}m)`}
                   </td>
                   <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                    <span className="font-bold">Date/Drive:</span> {activeRound.dateAndTimeOfExcavation} | N{String(activeRound.tunnelDriveDirection).padStart(3, '0')}°
+                    <span className="font-bold">{isVerticalShaftLocation(activeLocation) ? 'Date/Sinking:' : 'Date/Drive:'}</span> {activeRound.dateAndTimeOfExcavation} | {isVerticalShaftLocation(activeLocation) ? 'Vertical 90° (0°N Ref)' : `N${String(activeRound.tunnelDriveDirection).padStart(3, '0')}°`}
                   </td>
                 </tr>
               </tbody>
@@ -5417,7 +5430,9 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                   </td>
                   <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                     <div className="text-[11px] font-black uppercase leading-tight">
-                      ENGINEERING GEOLOGICAL FACE LOG — {activeProject.projectName} ({activeLocation.name})
+                      {isVerticalShaftLocation(activeLocation)
+                        ? `ENGINEERING GEOLOGICAL VERTICAL SHAFT SINKING LOG — ${activeProject.projectName} (${activeLocation.name})`
+                        : `ENGINEERING GEOLOGICAL FACE LOG — ${activeProject.projectName} (${activeLocation.name})`}
                       <span className="text-[9px] font-semibold text-slate-700 ml-1.5">[Page 2/2]</span>
                     </div>
                   </td>
@@ -5440,10 +5455,17 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                     <span className="font-bold">Location:</span> {activeLocation.name}
                   </td>
                   <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                    <span className="font-bold">Chainage:</span> CH {activeRound.chainageFrom}–{activeRound.chainageTo}m (Pull {activeRound.pullLengthMeters}m)
+                    <span className="font-bold">{isVerticalShaftLocation(activeLocation) ? 'Depth:' : 'Chainage:'}</span> {isVerticalShaftLocation(activeLocation) ? 'Depth' : 'CH'} {activeRound.chainageFrom}–{activeRound.chainageTo}m ({isVerticalShaftLocation(activeLocation) ? 'Sink' : 'Pull'} {activeRound.pullLengthMeters}m)
                   </td>
                   <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-                    <span className="font-bold">Shape/Size:</span> {activeLocation.shape.replace(/_/g, ' ').toUpperCase()} ({activeLocation.widthM}m×{activeLocation.heightM}m)
+                    <span className="font-bold">Shape/Size:</span>{' '}
+                    {isVerticalShaftLocation(activeLocation)
+                      ? `CIRCULAR SHAFT Ø${activeLocation.widthM}m (${
+                          normalizeVerticalShaftExcavationApproach(activeRound.excavationApproach) === 'Half Face'
+                            ? `HALF ${normalizeVerticalShaftHalfSide(activeRound.shaftHalfSide) === 'left_half' ? 'SW–WN' : 'NE–ES'} • MEDIAN ${normalizeVerticalShaftCenterMedianStatus(activeRound.shaftCenterMedianStatus).toUpperCase()}`
+                            : 'FULL FACE 360°'
+                        })`
+                      : `${activeLocation.shape.replace(/_/g, ' ').toUpperCase()} (${activeLocation.widthM}m×${activeLocation.heightM}m)`}
                   </td>
                   <td className="border border-slate-900 bg-white px-1.5 py-0.5">
                     <span className="font-bold">Excavation:</span> {activeRound.modeOfExcavation} | {activeRound.dateAndTimeOfExcavation}

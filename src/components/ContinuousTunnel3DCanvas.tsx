@@ -25,18 +25,26 @@ import {
   ContinuousTunnelStripDataset,
   Point2D,
   resolveStripTraceColor,
+  computeContinuous3DJointInspectionSchedule,
+  extendStripTraceAcrossPull,
 } from '../engine/continuous3DStripEngine';
 
 export interface ContinuousTunnel3DCanvasProps {
   dataset: ContinuousTunnelStripDataset;
   selectedTraceId: string | null;
   onSelectTrace: (traceId: string | null) => void;
-  onUpdateTrace: (updatedTrace: ContinuousStripTrace) => void;
+  onUpdateTrace?: (updatedTrace: ContinuousStripTrace) => void;
   onDeleteTrace?: (traceId: string) => void;
+  showWedgeBlocks?: boolean;
+  onExtendTrace?: (
+    traceId: string,
+    direction: 'start' | 'end' | 'both' | 'full_span',
+    distanceM: number
+  ) => void;
   className?: string;
 }
 
-/** Convert 2D unwrapped strip point (x = chainage, y = perimeter) to 3D Cartesian coordinates */
+/** Convert 2D unwrapped strip point (x = chainage/depth, y = perimeter) to 3D Cartesian coordinates for both Tunnel and Vertical Shaft */
 export function unrolledToTunnel3D(
   ch: number,
   yPerimeter: number,
@@ -45,13 +53,26 @@ export function unrolledToTunnel3D(
   leftWallHeight: number,
   crownWidth: number,
   rightWallHeight: number,
-  tunnelWidth: number
+  tunnelWidth: number,
+  excavationMode: 'TUNNEL' | 'SHAFT' = 'TUNNEL',
+  totalPerimOverride?: number
 ): THREE.Vector3 {
-  // Z axis along tunnel drive direction
-  const z = ch - fromRd;
   const radius = tunnelWidth / 2;
-  const totalPerimeter = leftWallHeight + crownWidth + rightWallHeight;
+  const totalPerimeter =
+    totalPerimOverride || leftWallHeight + crownWidth + rightWallHeight;
 
+  if (excavationMode === 'SHAFT') {
+    // Vertical Shaft: Y axis is vertical depth downward from collar, X-Z plane is circular shaft cross-section
+    const totalDepth = Math.max(1, toRd - fromRd);
+    const yHeight = Math.max(0, totalDepth - (ch - fromRd));
+    const angle = (yPerimeter / Math.max(0.001, totalPerimeter)) * Math.PI * 2; // 0 (N) -> PI/2 (E) -> PI (S) -> 3PI/2 (W)
+    const x = radius * Math.sin(angle);
+    const z = -radius * Math.cos(angle);
+    return new THREE.Vector3(x, yHeight, z);
+  }
+
+  // Horizontal/Inclined Tunnel: Z axis along tunnel drive direction
+  const z = ch - fromRd;
   let x = 0;
   let y = 0;
 
@@ -101,6 +122,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
 
   // Display Settings
   const [showJointPlanes, setShowJointPlanes] = useState<boolean>(true);
+  const [showWedgeBlocks, setShowWedgeBlocks] = useState<boolean>(true);
   const [showLithologyBands, setShowLithologyBands] = useState<boolean>(true);
   const [showChainageRings, setShowChainageRings] = useState<boolean>(true);
   const [show3DLabels, setShow3DLabels] = useState<boolean>(true);
@@ -111,6 +133,9 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
   const [isEditingLabel, setIsEditingLabel] = useState<boolean>(false);
   const [labelTextDraft, setLabelTextDraft] = useState<string>('');
 
+  const excavationMode: 'TUNNEL' | 'SHAFT' = dataset.excavationMode || 'TUNNEL';
+  const isShaft = excavationMode === 'SHAFT';
+
   // Dimensions
   const fromRd = dataset.viewFromRd ?? 250;
   const toRd = dataset.viewToRd ?? 300;
@@ -119,12 +144,26 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
   const leftWallHeight = dataset.leftWallHeightM || dataset.leftWallArcLengthM || 4.5;
   const crownWidth = dataset.crownWidthM || dataset.crownArcLengthM || 9.0;
   const rightWallHeight = dataset.rightWallHeightM || dataset.rightWallArcLengthM || 4.5;
-  const tunnelWidth = dataset.tunnelDiameterWidthM || 10.0;
+  const tunnelWidth = dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 10.0;
+  const totalPerimeterM =
+    (dataset.upperZoneWidthM || 0) + (dataset.lowerZoneWidthM || 0) ||
+    leftWallHeight + crownWidth + rightWallHeight;
 
-  // Selected trace object
+  // High-precision 3D joint inspection schedule
+  const jointInspectionList = useMemo(
+    () => computeContinuous3DJointInspectionSchedule(dataset),
+    [dataset]
+  );
+
+  // Selected trace object & its 3D inspection record
   const activeTrace = useMemo(() => {
     return (dataset.traces || []).find((t) => t.id === selectedTraceId) || null;
   }, [dataset.traces, selectedTraceId]);
+
+  const activeInspection = useMemo(() => {
+    if (!activeTrace) return null;
+    return jointInspectionList.find((j) => j.traceId === activeTrace.id) || null;
+  }, [activeTrace, jointInspectionList]);
 
   // Sync draft label when active trace changes
   useEffect(() => {
@@ -257,7 +296,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     const uvs: number[] = [];
     const indices: number[] = [];
 
-    const totalPerimeter = leftWallHeight + crownWidth + rightWallHeight;
+    const totalPerimeter = totalPerimeterM;
 
     for (let j = 0; j <= vSegments; j++) {
       const v = j / vSegments;
@@ -273,13 +312,16 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           leftWallHeight,
           crownWidth,
           rightWallHeight,
-          tunnelWidth
+          tunnelWidth,
+          excavationMode,
+          totalPerimeter
         );
         positions.push(pt.x, pt.y, pt.z);
 
-        // Approximate normal pointing inwards / outwards
-        const nx = yPerim > leftWallHeight && yPerim < leftWallHeight + crownWidth ? -pt.x : (pt.x > 0 ? -1 : 1);
-        normals.push(nx, 0.5, 0);
+        // Normal pointing inwards / outwards
+        const nx = isShaft ? -pt.x : yPerim > leftWallHeight && yPerim < leftWallHeight + crownWidth ? -pt.x : (pt.x > 0 ? -1 : 1);
+        const nz = isShaft ? -pt.z : 0;
+        normals.push(nx, 0.5, nz);
         uvs.push(u, v);
       }
     }
@@ -324,37 +366,44 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     wireMesh.userData.isTunnelEntity = true;
     scene.add(wireMesh);
 
-    // 2. Chainage Steel Rib Rings & Tick Annotations every 5m
+    // 2. Chainage / Shaft Depth Rings & Tick Annotations
     if (showChainageRings) {
-      for (let ch = Math.ceil(fromRd); ch <= toRd; ch += 5) {
+      const ringStep = Math.max(2, Math.min(5, Math.round(totalLengthM / 6)));
+      for (let ch = Math.ceil(fromRd); ch <= toRd; ch += ringStep) {
         const ringPoints: THREE.Vector3[] = [];
         for (let i = 0; i <= 36; i++) {
           const yP = (i / 36) * totalPerimeter;
           ringPoints.push(
-            unrolledToTunnel3D(ch, yP, fromRd, toRd, leftWallHeight, crownWidth, rightWallHeight, tunnelWidth)
+            unrolledToTunnel3D(ch, yP, fromRd, toRd, leftWallHeight, crownWidth, rightWallHeight, tunnelWidth, excavationMode, totalPerimeter)
           );
         }
         const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPoints);
         const ringMat = new THREE.LineBasicMaterial({
-          color: 0xe2e8f0,
+          color: 0x94a3b8,
           linewidth: 1.5,
         });
         const ringLine = new THREE.Line(ringGeo, ringMat);
         ringLine.userData.isTunnelEntity = true;
         scene.add(ringLine);
 
-        // Chainage Billboard Text Sprite at Crown
+        // Chainage / Depth Billboard Text Sprite
         const crownTop = unrolledToTunnel3D(
           ch,
-          leftWallHeight + crownWidth / 2,
+          isShaft ? 0 : leftWallHeight + crownWidth / 2,
           fromRd,
           toRd,
           leftWallHeight,
           crownWidth,
           rightWallHeight,
-          tunnelWidth
+          tunnelWidth,
+          excavationMode,
+          totalPerimeter
         );
-        crownTop.y += 0.8;
+        if (isShaft) {
+          crownTop.z -= 1.2;
+        } else {
+          crownTop.y += 0.8;
+        }
 
         const canvas = document.createElement('canvas');
         canvas.width = 256;
@@ -365,7 +414,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           ctx.font = 'bold 26px monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(`CH ${ch.toFixed(1)}m`, 128, 32);
+          ctx.fillText(`${isShaft ? 'DEPTH' : 'RD'} ${ch.toFixed(1)}m`, 128, 32);
 
           const tex = new THREE.CanvasTexture(canvas);
           const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
@@ -378,26 +427,169 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
       }
     }
 
-    // 3. Lithology Strata Zones in 3D
+    // 2B. Highlight Unlogged Gap Intervals (`MISSING_GAP`) in 3D with Dashed Amber Wireframe Rings
+    (dataset.pulls || [])
+      .filter((p) => p.status === 'MISSING_GAP')
+      .forEach((gapPull) => {
+        for (const boundaryRd of [gapPull.fromRd, gapPull.toRd]) {
+          const pts: THREE.Vector3[] = [];
+          for (let i = 0; i <= 36; i++) {
+            const yP = (i / 36) * totalPerimeter;
+            pts.push(
+              unrolledToTunnel3D(
+                boundaryRd,
+                yP,
+                fromRd,
+                toRd,
+                leftWallHeight,
+                crownWidth,
+                rightWallHeight,
+                tunnelWidth,
+                excavationMode,
+                totalPerimeter
+              )
+            );
+          }
+          const gGeo = new THREE.BufferGeometry().setFromPoints(pts);
+          const gMat = new THREE.LineDashedMaterial({
+            color: 0xd97706,
+            dashSize: 0.5,
+            gapSize: 0.3,
+          });
+          const gLine = new THREE.Line(gGeo, gMat);
+          gLine.computeLineDistances();
+          gLine.userData.isTunnelEntity = true;
+          scene.add(gLine);
+        }
+      });
+
+    // 2C. If Vertical Shaft Half-Circle Mode, render the Center Median Dividing Wall
+    if (isShaft && dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE') {
+      const medianGeo = new THREE.PlaneGeometry(tunnelWidth, totalLengthM);
+      const medianMat = new THREE.MeshStandardMaterial({
+        color: dataset.shaftCenterMedianStatus === 'open' ? 0xf59e0b : 0x64748b,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: dataset.shaftCenterMedianStatus === 'open' ? 0.25 : 0.55,
+      });
+      const medianMesh = new THREE.Mesh(medianGeo, medianMat);
+      medianMesh.rotation.y = Math.PI / 2;
+      medianMesh.position.set(0, totalLengthM / 2, 0);
+      medianMesh.userData.isTunnelEntity = true;
+      scene.add(medianMesh);
+    }
+
+    // 3. Lithology Strata Zones & 3D Groundwater Seepage Markers in 3D
     if (showLithologyBands && dataset.lithologyZones) {
       dataset.lithologyZones.forEach((zone) => {
         if (!zone.polygon || zone.polygon.length < 3) return;
-        const pts3D = zone.polygon.map((p) =>
-          unrolledToTunnel3D(p.x, p.y, fromRd, toRd, leftWallHeight, crownWidth, rightWallHeight, tunnelWidth)
+        const rl = (zone.rockType || zone.label || '').toLowerCase();
+        const lithColor = rl.includes('granite')
+          ? 0xef4444
+          : rl.includes('gneiss')
+          ? 0x8b5cf6
+          : rl.includes('phyllite') || rl.includes('schist')
+          ? 0x10b981
+          : rl.includes('limestone')
+          ? 0x3b82f6
+          : rl.includes('basalt')
+          ? 0x64748b
+          : 0xeab308;
+
+        // Subdivide polygon edges so it conforms smoothly to the 3D tunnel/shaft arch
+        const dense2D: { x: number; y: number }[] = [];
+        for (let i = 0; i < zone.polygon.length; i++) {
+          const a = zone.polygon[i];
+          const b = zone.polygon[(i + 1) % zone.polygon.length];
+          const steps = 6;
+          for (let s = 0; s < steps; s++) {
+            const t = s / steps;
+            dense2D.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+          }
+        }
+        const pts3D = dense2D.map((p) =>
+          unrolledToTunnel3D(p.x, p.y, fromRd, toRd, leftWallHeight, crownWidth, rightWallHeight, tunnelWidth, excavationMode, totalPerimeter)
         );
+
         // Draw outline of lithology boundary
         const polyGeo = new THREE.BufferGeometry().setFromPoints([...pts3D, pts3D[0]]);
         const polyMat = new THREE.LineBasicMaterial({
-          color: 0xd97706,
+          color: lithColor,
           linewidth: 2,
+          transparent: true,
+          opacity: 0.75,
         });
         const polyLine = new THREE.Line(polyGeo, polyMat);
         polyLine.userData.isTunnelEntity = true;
         scene.add(polyLine);
+
+        // Shaded fan mesh for custom lithology zones
+        if (!zone.id.startsWith('lith-pull-') && pts3D.length >= 3) {
+          const center3D = new THREE.Vector3();
+          pts3D.forEach((pt) => center3D.add(pt));
+          center3D.divideScalar(pts3D.length);
+          const fanVerts: number[] = [];
+          for (let i = 0; i < pts3D.length; i++) {
+            const pA = pts3D[i];
+            const pB = pts3D[(i + 1) % pts3D.length];
+            fanVerts.push(center3D.x, center3D.y, center3D.z, pA.x, pA.y, pA.z, pB.x, pB.y, pB.z);
+          }
+          const fanGeo = new THREE.BufferGeometry();
+          fanGeo.setAttribute('position', new THREE.Float32BufferAttribute(fanVerts, 3));
+          fanGeo.computeVertexNormals();
+          const fanMat = new THREE.MeshBasicMaterial({
+            color: lithColor,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.22,
+            depthWrite: false,
+          });
+          const fanMesh = new THREE.Mesh(fanGeo, fanMat);
+          fanMesh.userData.isTunnelEntity = true;
+          scene.add(fanMesh);
+        }
       });
     }
 
-    // 4. Render Discontinuity Joint Traces in 3D (Thick Tubes + Oriented Plane Discs)
+    // 3B. 3D Groundwater Seepage Markers (`dataset.waterSymbols`)
+    (dataset.waterSymbols || []).forEach((ws) => {
+      const pos3D = unrolledToTunnel3D(
+        ws.position.x,
+        ws.position.y,
+        fromRd,
+        toRd,
+        leftWallHeight,
+        crownWidth,
+        rightWallHeight,
+        tunnelWidth,
+        excavationMode,
+        totalPerimeter
+      );
+      const cond = ws.condition || 'Dry';
+      const wColor =
+        cond === 'Flowing'
+          ? 0x1d4ed8
+          : cond === 'Dripping'
+          ? 0x0284c7
+          : cond === 'Wet'
+          ? 0x0ea5e9
+          : cond === 'Moist/Damp'
+          ? 0x38bdf8
+          : 0x64748b;
+      const dropGeo = new THREE.SphereGeometry(cond === 'Dry' ? 0.08 : 0.14, 12, 12);
+      const dropMat = new THREE.MeshStandardMaterial({
+        color: wColor,
+        emissive: wColor,
+        emissiveIntensity: cond === 'Dry' ? 0.15 : 0.55,
+        roughness: 0.2,
+      });
+      const dropMesh = new THREE.Mesh(dropGeo, dropMat);
+      dropMesh.position.copy(pos3D);
+      dropMesh.userData.isTunnelEntity = true;
+      scene.add(dropMesh);
+    });
+
+    // 4. Render Discontinuity Joint Traces in 3D (Crisp Tubes + 3D Dip Surface Ribbons + Oriented Plane Discs + 3D Tetrahedral Wedge Blocks)
     (dataset.traces || []).forEach((trace) => {
       const points = trace.points || [];
       if (points.length < 2) return;
@@ -409,12 +601,12 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
 
       // Convert 2D points to 3D curve
       const pts3D = points.map((p) =>
-        unrolledToTunnel3D(p.x, p.y, fromRd, toRd, leftWallHeight, crownWidth, rightWallHeight, tunnelWidth)
+        unrolledToTunnel3D(p.x, p.y, fromRd, toRd, leftWallHeight, crownWidth, rightWallHeight, tunnelWidth, excavationMode, totalPerimeter)
       );
 
-      // Create a smooth 3D CatmullRom curve
+      // Create a smooth 3D CatmullRom curve with crisp, fine geological trace thickness
       const curve = new THREE.CatmullRomCurve3(pts3D, false, 'chordal');
-      const tubeRadius = isSelected ? 0.22 : isHovered ? 0.18 : 0.12;
+      const tubeRadius = isSelected ? 0.055 : isHovered ? 0.042 : 0.026;
       const tubeGeo = new THREE.TubeGeometry(curve, Math.max(12, points.length * 4), tubeRadius, 8, false);
 
       const tubeMat = new THREE.MeshStandardMaterial({
@@ -428,14 +620,25 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
       const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
       tubeMesh.userData = { isTunnelEntity: true, traceId: trace.id };
       scene.add(tubeMesh);
-      traceMeshesRef.current.push({ id: trace.id, mesh: tubeMesh });
+
+      // Invisible wider raycast hit proxy so crisp thin traces remain effortless to click/hover
+      const hitProxyGeo = new THREE.TubeGeometry(curve, Math.max(10, points.length * 3), 0.16, 6, false);
+      const hitProxyMat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      const hitProxyMesh = new THREE.Mesh(hitProxyGeo, hitProxyMat);
+      hitProxyMesh.userData = { isTunnelEntity: true, traceId: trace.id };
+      scene.add(hitProxyMesh);
+      traceMeshesRef.current.push({ id: trace.id, mesh: hitProxyMesh });
 
       // Calculate centroid of trace in 3D
       const centroid3D = new THREE.Vector3();
       pts3D.forEach((p) => centroid3D.add(p));
       centroid3D.divideScalar(pts3D.length);
 
-      // 5. Oriented Geological Plane Disc
+      // 5. Continuous 3D Dip Surface Ribbon & Oriented Geological Plane Disc
       if (showJointPlanes) {
         const dipDirRad = (trace.dipDirectionDeg * Math.PI) / 180;
         const dipRad = (trace.dipDeg * Math.PI) / 180;
@@ -446,7 +649,53 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         const nz = Math.sin(dipRad) * Math.cos(dipDirRad);
         const normal = new THREE.Vector3(nx, ny, nz).normalize();
 
-        const discRadius = Math.max(2.8, Math.hypot(pts3D[pts3D.length - 1].x - pts3D[0].x, pts3D[pts3D.length - 1].z - pts3D[0].z) * 0.7);
+        // Down-dip vector along the dipping plane surface
+        const dipVec = new THREE.Vector3(
+          Math.cos(dipRad) * Math.sin(dipDirRad),
+          -Math.sin(dipRad),
+          Math.cos(dipRad) * Math.cos(dipDirRad)
+        ).normalize();
+
+        // Extrude a 3D Dip Surface Ribbon along the full trace curve
+        const sampledPts = curve.getPoints(Math.max(12, points.length * 3));
+        const ribbonDepthM = isSelected ? 1.15 : 0.78;
+        const ribVerts: number[] = [];
+        for (let i = 0; i < sampledPts.length - 1; i++) {
+          const p1 = sampledPts[i];
+          const p2 = sampledPts[i + 1];
+          const p1Out = p1.clone().addScaledVector(dipVec, ribbonDepthM);
+          const p2Out = p2.clone().addScaledVector(dipVec, ribbonDepthM);
+
+          ribVerts.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p1Out.x, p1Out.y, p1Out.z);
+          ribVerts.push(p2.x, p2.y, p2.z, p2Out.x, p2Out.y, p2Out.z, p1Out.x, p1Out.y, p1Out.z);
+        }
+        if (ribVerts.length > 0) {
+          const ribGeo = new THREE.BufferGeometry();
+          ribGeo.setAttribute('position', new THREE.Float32BufferAttribute(ribVerts, 3));
+          ribGeo.computeVertexNormals();
+          const ribMat = new THREE.MeshStandardMaterial({
+            color: isSelected ? 0xf59e0b : colorNum,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: isSelected ? 0.42 : 0.24,
+            roughness: 0.45,
+            depthWrite: false,
+          });
+          const ribMesh = new THREE.Mesh(ribGeo, ribMat);
+          ribMesh.userData = { isTunnelEntity: true, traceId: trace.id };
+          scene.add(ribMesh);
+        }
+
+        const discRadius = Math.max(
+          1.4,
+          Math.min(
+            2.8,
+            Math.hypot(
+              pts3D[pts3D.length - 1].x - pts3D[0].x,
+              pts3D[pts3D.length - 1].z - pts3D[0].z
+            ) * 0.45
+          )
+        );
         const discGeo = new THREE.CircleGeometry(discRadius, 32);
 
         // Align circle normal (default +Z) to joint plane normal
@@ -457,7 +706,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           color: isSelected ? 0xf59e0b : colorNum,
           side: THREE.DoubleSide,
           transparent: true,
-          opacity: isSelected ? 0.55 : 0.28,
+          opacity: isSelected ? 0.45 : 0.18,
           roughness: 0.5,
         });
 
@@ -483,6 +732,57 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         scene.add(ringEdges);
       }
 
+      // 5B. 3D Tetrahedral Kinematic Wedge Block on Selected or Critical Traces
+      if (showWedgeBlocks && (isSelected || pts3D.length >= 2)) {
+        const insp = jointInspectionList.find((j) => j.traceId === trace.id);
+        const apexH = insp ? insp.wedgeApexHeightM : 1.4;
+        const dipDirRad = (trace.dipDirectionDeg * Math.PI) / 180;
+        const dipRad = (trace.dipDeg * Math.PI) / 180;
+        const normal = new THREE.Vector3(
+          Math.sin(dipRad) * Math.sin(dipDirRad),
+          Math.cos(dipRad),
+          Math.sin(dipRad) * Math.cos(dipDirRad)
+        ).normalize();
+
+        const pStart = pts3D[0];
+        const pEnd = pts3D[pts3D.length - 1];
+        const pMid = centroid3D.clone().add(new THREE.Vector3(0, isShaft ? 0.6 : 0.4, isShaft ? 0.4 : 0.8));
+        const pApex = centroid3D.clone().addScaledVector(normal, apexH);
+
+        const wedgeGeo = new THREE.BufferGeometry();
+        const wVerts = new Float32Array([
+          pStart.x, pStart.y, pStart.z,
+          pEnd.x, pEnd.y, pEnd.z,
+          pMid.x, pMid.y, pMid.z,
+
+          pStart.x, pStart.y, pStart.z,
+          pMid.x, pMid.y, pMid.z,
+          pApex.x, pApex.y, pApex.z,
+
+          pMid.x, pMid.y, pMid.z,
+          pEnd.x, pEnd.y, pEnd.z,
+          pApex.x, pApex.y, pApex.z,
+
+          pEnd.x, pEnd.y, pEnd.z,
+          pStart.x, pStart.y, pStart.z,
+          pApex.x, pApex.y, pApex.z,
+        ]);
+        wedgeGeo.setAttribute('position', new THREE.BufferAttribute(wVerts, 3));
+        wedgeGeo.computeVertexNormals();
+
+        const isCrit = insp && insp.fosUnreinforced < 1.15;
+        const wedgeMat = new THREE.MeshStandardMaterial({
+          color: isSelected ? 0xf59e0b : isCrit ? 0xef4444 : 0x0ea5e9,
+          transparent: true,
+          opacity: isSelected ? 0.48 : 0.22,
+          side: THREE.DoubleSide,
+          roughness: 0.4,
+        });
+        const wedgeMesh = new THREE.Mesh(wedgeGeo, wedgeMat);
+        wedgeMesh.userData = { isTunnelEntity: true, traceId: trace.id };
+        scene.add(wedgeMesh);
+      }
+
       // 6. 3D Billboard Text Label (Clean text, NO boxy cards)
       if (show3DLabels && !trace.hideLabel) {
         const labelText = trace.customLabel || trace.setId || 'J';
@@ -493,11 +793,9 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         canvas.height = 100;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          // Anti-alias shadow
           ctx.shadowColor = 'rgba(255, 255, 255, 0.9)';
           ctx.shadowBlur = 4;
 
-          // Pure text, crisp styling without any box
           ctx.fillStyle = colorHex;
           ctx.font = 'bold 34px sans-serif';
           ctx.textAlign = 'center';
@@ -523,6 +821,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     selectedTraceId,
     hoveredTraceId,
     showJointPlanes,
+    showWedgeBlocks,
     showLithologyBands,
     showChainageRings,
     show3DLabels,
@@ -534,6 +833,10 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     crownWidth,
     rightWallHeight,
     tunnelWidth,
+    excavationMode,
+    isShaft,
+    totalPerimeterM,
+    jointInspectionList,
   ]);
 
   // Handle Mouse Events for Orbit / Pan / Raycast selection
@@ -788,6 +1091,15 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
               className="rounded text-blue-600 focus:ring-0"
             />
             <span>3D Joint Planes</span>
+          </label>
+          <label className="flex items-center gap-1 text-[11px] text-slate-700 font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showWedgeBlocks}
+              onChange={(e) => setShowWedgeBlocks(e.target.checked)}
+              className="rounded text-blue-600 focus:ring-0"
+            />
+            <span>3D Wedge Blocks</span>
           </label>
           <label className="flex items-center gap-1 text-[11px] text-slate-700 font-medium cursor-pointer">
             <input
@@ -1059,7 +1371,115 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
               </div>
             </div>
 
-            {/* 3. Geological Properties & Infill */}
+            {/* 3. High-Precision 3D Plane & Tetrahedral Wedge Kinematics */}
+            {activeInspection && (
+              <div className="p-2.5 rounded-xl bg-slate-900 text-slate-100 border border-slate-700 space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                  <span className="text-[10.5px] font-bold uppercase tracking-wider text-sky-400">
+                    High-Precision 3D Wedge &amp; Plane
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold ${
+                      activeInspection.riskRating === 'CRITICAL'
+                        ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                        : activeInspection.riskRating === 'MODERATE'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    }`}
+                  >
+                    {activeInspection.kinematicMode.replace(/_/g, ' ')}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5 text-[10.5px] font-mono">
+                  <div className="bg-slate-950/80 p-1.5 rounded border border-slate-800">
+                    <span className="text-slate-400 block text-[9.5px]">FoS Before Support</span>
+                    <strong
+                      className={`text-xs ${
+                        activeInspection.fosUnreinforced < 1.15 ? 'text-red-400' : 'text-amber-300'
+                      }`}
+                    >
+                      {activeInspection.fosUnreinforced.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div className="bg-slate-950/80 p-1.5 rounded border border-slate-800">
+                    <span className="text-slate-400 block text-[9.5px]">FoS After Support</span>
+                    <strong className="text-xs text-emerald-400">
+                      {activeInspection.fosReinforced.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div className="bg-slate-950/80 p-1.5 rounded border border-slate-800">
+                    <span className="text-slate-400 block text-[9.5px]">Wedge Volume</span>
+                    <strong className="text-white">{activeInspection.wedgeBlockVolumeM3} m³</strong>
+                  </div>
+                  <div className="bg-slate-950/80 p-1.5 rounded border border-slate-800">
+                    <span className="text-slate-400 block text-[9.5px]">Persistence Span</span>
+                    <strong className="text-white">{activeInspection.persistenceLengthM} m</strong>
+                  </div>
+                </div>
+
+                <div className="text-[10px] font-mono text-slate-300 space-y-0.5 pt-0.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">3D Plane Eq:</span>
+                    <span className="text-sky-300">{activeInspection.planeEquationStr}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Barton Friction φ_r:</span>
+                    <span>
+                      {activeInspection.bartonFrictionAngleDeg}° (JRC {activeInspection.jrc} / JCS {activeInspection.jcsMpa} MPa)
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Zones Intersected:</span>
+                    <span className="text-amber-300">{activeInspection.surfaceZones.join(', ')}</span>
+                  </div>
+                </div>
+
+                {/* 1-Click Expand / Extend Joint Across Pulls */}
+                <div className="pt-1.5 border-t border-slate-800 space-y-1">
+                  <span className="text-[10px] text-slate-400 block font-semibold">
+                    Expand / Extend Joint Plane in 3D:
+                  </span>
+                  <div className="grid grid-cols-3 gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateTrace(
+                          extendStripTraceAcrossPull(activeTrace, 'start', 1.0, totalPerimeterM, fromRd, toRd)
+                        )
+                      }
+                      className="py-1 px-1.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono font-bold text-sky-300 cursor-pointer"
+                    >
+                      -1.0m Start
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateTrace(
+                          extendStripTraceAcrossPull(activeTrace, 'end', 1.0, totalPerimeterM, fromRd, toRd)
+                        )
+                      }
+                      className="py-1 px-1.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono font-bold text-sky-300 cursor-pointer"
+                    >
+                      +1.0m End
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateTrace(
+                          extendStripTraceAcrossPull(activeTrace, 'full_span', 0, totalPerimeterM, fromRd, toRd)
+                        )
+                      }
+                      className="py-1 px-1.5 rounded bg-sky-600 hover:bg-sky-500 text-[10px] font-mono font-bold text-white cursor-pointer"
+                    >
+                      Full Span
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 4. Geological Properties & Infill */}
             <div className="space-y-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-slate-500">Joint Category:</span>
@@ -1075,7 +1495,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
               </div>
             </div>
 
-            {/* 4. Action Buttons */}
+            {/* 5. Action Buttons */}
             <div className="flex items-center gap-2 pt-1">
               {onDeleteTrace && (
                 <button

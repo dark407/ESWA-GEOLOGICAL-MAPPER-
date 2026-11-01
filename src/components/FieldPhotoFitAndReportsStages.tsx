@@ -56,6 +56,10 @@ import {
   getFieldPhotoFitConfig,
   getLocationSurfaceConfig,
   getPanelActiveExcavationBounds,
+  isVerticalShaftLocation,
+  normalizeVerticalShaftCenterMedianStatus,
+  normalizeVerticalShaftExcavationApproach,
+  normalizeVerticalShaftHalfSide,
   processCleanFieldCameraFrame,
   pruneFullyErasedLithologyStrokes,
   renderSvgElementToHighResPngDataUrl,
@@ -1869,6 +1873,13 @@ export const FieldFourPhotoUploadStage: React.FC<{
     ? Math.max(1.0, activeLocation.heightM)
     : Math.max(1.5, surfCfg.splHeightM || activeLocation.heightM * 0.55);
 
+  const isVertShaft = !isSurface && isVerticalShaftLocation(activeLocation);
+  const shaftExcApproach = normalizeVerticalShaftExcavationApproach(activeRound.excavationApproach);
+  const isShaftHalfFace = isVertShaft && shaftExcApproach === 'Half Face';
+  const shaftHalfSide = normalizeVerticalShaftHalfSide(activeRound.shaftHalfSide);
+  const shaftMedianStatus = normalizeVerticalShaftCenterMedianStatus(activeRound.shaftCenterMedianStatus);
+  const qLenM = Number(((Math.PI * activeLocation.widthM) / 4).toFixed(1));
+
   const allSurfaceMetaList: {
     id: FieldPanelId;
     stepNum: number;
@@ -1877,50 +1888,102 @@ export const FieldFourPhotoUploadStage: React.FC<{
     dimLabel: string;
     badgeColor: string;
     available: boolean;
-  }[] = [
-    {
-      id: 'face',
-      stepNum: 1,
-      title: isSurface ? `1. ${surfMap.face.fullLabel} Photo` : '1. Tunnel Face Photo',
-      subtitle: isSurface
-        ? surfMap.face.subtitle
-        : `Heading Face (${activeLocation.shape.toUpperCase()})`,
-      dimLabel: `${activeLocation.widthM.toFixed(1)}m W × ${activeLocation.heightM.toFixed(1)}m H`,
-      badgeColor: 'bg-amber-500 text-slate-950',
-      available: true,
-    },
-    {
-      id: 'crown',
-      stepNum: 2,
-      title: isSurface ? `2. ${surfMap.crown.fullLabel} Photo` : '2. Crown Photo',
-      subtitle: isSurface ? surfMap.crown.subtitle : 'Top Excavation Arch (L-SPL to R-SPL)',
-      dimLabel: `${ activeLocation.widthM.toFixed(1)}m W × ${pullM.toFixed(1)}m ${isSurface ? 'Span' : 'Pull'}`,
-      badgeColor: 'bg-sky-500 text-slate-950',
-      available: surfCfg.hasCrown,
-    },
-    {
-      id: 'left_wall',
-      stepNum: 3,
-      title: isSurface ? `3. ${surfMap.leftWall.fullLabel} Photo` : '3. Left Wall Photo',
-      subtitle: isSurface
-        ? surfMap.leftWall.subtitle
-        : 'Left Side Excavation Wall (0m Invert → L-SPL)',
-      dimLabel: `${pullM.toFixed(1)}m ${isSurface ? 'Span' : 'Pull'} × ${splH.toFixed(1)}m H`,
-      badgeColor: 'bg-emerald-500 text-slate-950',
-      available: surfCfg.hasLeftWall,
-    },
-    {
-      id: 'right_wall',
-      stepNum: 4,
-      title: isSurface ? `4. ${surfMap.rightWall.fullLabel} Photo` : '4. Right Wall Photo',
-      subtitle: isSurface
-        ? surfMap.rightWall.subtitle
-        : 'Right Side Excavation Wall (R-SPL → 0m Invert)',
-      dimLabel: `${pullM.toFixed(1)}m ${isSurface ? 'Span' : 'Pull'} × ${splH.toFixed(1)}m H`,
-      badgeColor: 'bg-indigo-500 text-white',
-      available: surfCfg.hasRightWall,
-    },
-  ];
+  }[] = isVertShaft
+    ? [
+        {
+          id: 'face',
+          stepNum: 1,
+          title: isShaftHalfFace
+            ? `1. Shaft Half-Face Photo (${shaftHalfSide === 'left_half' ? 'SW–WN 180°–360°' : 'NE–ES 0°–180°'})`
+            : '1. Circular Shaft Sump Face Photo',
+          subtitle: isShaftHalfFace
+            ? `Semicircular Sump Face • Center Median ${shaftMedianStatus.toUpperCase()} (0°N Ref)`
+            : 'Circular Shaft Sump Bottom (0°N Top • 90°E • 180°S • 270°W)',
+          dimLabel: `Ø${activeLocation.widthM.toFixed(1)}m (${isShaftHalfFace ? '180° Semicircle' : '360° Full Circle'})`,
+          badgeColor: 'bg-amber-500 text-slate-950',
+          available: true,
+        },
+        {
+          id: 'left_wall',
+          stepNum: 2,
+          title: '2. Q1: NE Wall Photo (0°–90°)',
+          subtitle: 'Vertical Shaft Wall Quadrant 1 (0° North → 90° East)',
+          dimLabel: `${qLenM}m Arc × ${pullM.toFixed(1)}m Sink`,
+          badgeColor: 'bg-emerald-500 text-slate-950',
+          available: !isShaftHalfFace || shaftHalfSide === 'right_half',
+        },
+        {
+          id: 'crown',
+          stepNum: 3,
+          title: '3. Q2: ES Wall Photo (90°–180°)',
+          subtitle: 'Vertical Shaft Wall Quadrant 2 (90° East → 180° South)',
+          dimLabel: `${qLenM}m Arc × ${pullM.toFixed(1)}m Sink`,
+          badgeColor: 'bg-sky-500 text-slate-950',
+          available: !isShaftHalfFace || shaftHalfSide === 'right_half',
+        },
+        {
+          id: 'right_wall',
+          stepNum: 4,
+          title: '4. Q3: SW Wall Photo (180°–270°)',
+          subtitle: 'Vertical Shaft Wall Quadrant 3 (180° South → 270° West)',
+          dimLabel: `${qLenM}m Arc × ${pullM.toFixed(1)}m Sink`,
+          badgeColor: 'bg-indigo-500 text-white',
+          available: !isShaftHalfFace || shaftHalfSide === 'left_half',
+        },
+        {
+          id: 'shaft_sn',
+          stepNum: 5,
+          title: '5. Q4: WN Wall Photo (270°–360°)',
+          subtitle: 'Vertical Shaft Wall Quadrant 4 (270° West → 360° North)',
+          dimLabel: `${qLenM}m Arc × ${pullM.toFixed(1)}m Sink`,
+          badgeColor: 'bg-purple-500 text-white',
+          available: !isShaftHalfFace || shaftHalfSide === 'left_half',
+        },
+      ]
+    : [
+        {
+          id: 'face',
+          stepNum: 1,
+          title: isSurface ? `1. ${surfMap.face.fullLabel} Photo` : '1. Tunnel Face Photo',
+          subtitle: isSurface
+            ? surfMap.face.subtitle
+            : `Heading Face (${activeLocation.shape.toUpperCase()})`,
+          dimLabel: `${activeLocation.widthM.toFixed(1)}m W × ${activeLocation.heightM.toFixed(1)}m H`,
+          badgeColor: 'bg-amber-500 text-slate-950',
+          available: true,
+        },
+        {
+          id: 'crown',
+          stepNum: 2,
+          title: isSurface ? `2. ${surfMap.crown.fullLabel} Photo` : '2. Crown Photo',
+          subtitle: isSurface ? surfMap.crown.subtitle : 'Top Excavation Arch (L-SPL to R-SPL)',
+          dimLabel: `${activeLocation.widthM.toFixed(1)}m W × ${pullM.toFixed(1)}m ${isSurface ? 'Span' : 'Pull'}`,
+          badgeColor: 'bg-sky-500 text-slate-950',
+          available: surfCfg.hasCrown,
+        },
+        {
+          id: 'left_wall',
+          stepNum: 3,
+          title: isSurface ? `3. ${surfMap.leftWall.fullLabel} Photo` : '3. Left Wall Photo',
+          subtitle: isSurface
+            ? surfMap.leftWall.subtitle
+            : 'Left Side Excavation Wall (0m Invert → L-SPL)',
+          dimLabel: `${pullM.toFixed(1)}m ${isSurface ? 'Span' : 'Pull'} × ${splH.toFixed(1)}m H`,
+          badgeColor: 'bg-emerald-500 text-slate-950',
+          available: surfCfg.hasLeftWall,
+        },
+        {
+          id: 'right_wall',
+          stepNum: 4,
+          title: isSurface ? `4. ${surfMap.rightWall.fullLabel} Photo` : '4. Right Wall Photo',
+          subtitle: isSurface
+            ? surfMap.rightWall.subtitle
+            : 'Right Side Excavation Wall (R-SPL → 0m Invert)',
+          dimLabel: `${pullM.toFixed(1)}m ${isSurface ? 'Span' : 'Pull'} × ${splH.toFixed(1)}m H`,
+          badgeColor: 'bg-indigo-500 text-white',
+          available: surfCfg.hasRightWall,
+        },
+      ];
 
   const surfaceMetaList = allSurfaceMetaList
     .filter((s) => s.available)
@@ -2365,12 +2428,51 @@ export const FieldPhotoFitStage: React.FC<{
     ? { ...activeLocation, shape: 'rectangular', wallHeightM: activeLocation.heightM }
     : activeLocation;
 
+  const isVertShaft = !isSurface && isVerticalShaftLocation(activeLocation);
+  const shaftExcApproach = normalizeVerticalShaftExcavationApproach(activeRound.excavationApproach);
+  const isShaftHalfFace = isVertShaft && shaftExcApproach === 'Half Face';
+  const shaftHalfSide = normalizeVerticalShaftHalfSide(activeRound.shaftHalfSide);
+  const shaftMedianStatus = normalizeVerticalShaftCenterMedianStatus(activeRound.shaftCenterMedianStatus);
+
   const rawPanelTabs: { id: FieldPanelId; label: string; shortLabel: string; available: boolean }[] = isSurface
     ? [
         { id: 'face', label: surfMap.face.fullLabel, shortLabel: surfMap.face.shortLabel, available: true },
         { id: 'crown', label: surfMap.crown.fullLabel, shortLabel: surfMap.crown.shortLabel, available: surfCfg.hasCrown },
         { id: 'left_wall', label: 'LEFT WALL', shortLabel: 'LEFT WALL', available: surfCfg.hasLeftWall },
         { id: 'right_wall', label: 'RIGHT WALL', shortLabel: 'RIGHT WALL', available: surfCfg.hasRightWall },
+      ]
+    : isVertShaft
+    ? [
+        {
+          id: 'face',
+          label: isShaftHalfFace ? `Shaft Half-Face (${shaftHalfSide === 'left_half' ? 'SW–WN' : 'NE–ES'})` : 'Shaft Sump Face (Ø)',
+          shortLabel: isShaftHalfFace ? `Sump (${shaftHalfSide === 'left_half' ? 'SW–WN' : 'NE–ES'})` : 'Sump Face (Ø)',
+          available: true,
+        },
+        {
+          id: 'left_wall',
+          label: '1. NE Wall (0°–90°)',
+          shortLabel: '1. NE (0°–90°)',
+          available: !isShaftHalfFace || shaftHalfSide === 'right_half',
+        },
+        {
+          id: 'crown',
+          label: '2. ES Wall (90°–180°)',
+          shortLabel: '2. ES (90°–180°)',
+          available: !isShaftHalfFace || shaftHalfSide === 'right_half',
+        },
+        {
+          id: 'right_wall',
+          label: '3. SW Wall (180°–270°)',
+          shortLabel: '3. SW (180°–270°)',
+          available: !isShaftHalfFace || shaftHalfSide === 'left_half',
+        },
+        {
+          id: 'shaft_sn',
+          label: '4. WN Wall (270°–360°)',
+          shortLabel: '4. WN (270°–360°)',
+          available: !isShaftHalfFace || shaftHalfSide === 'left_half',
+        },
       ]
     : [
         { id: 'face', label: 'Tunnel Face', shortLabel: 'Face', available: true },
@@ -2788,7 +2890,13 @@ export const FieldPhotoFitStage: React.FC<{
                 />
                 <defs>
                   <clipPath id={`photofit-clip-${selectedPanel}`}>
-                    {selectedPanel === 'face' && faceDetails ? (
+                    {selectedPanel === 'face' && isVertShaft ? (
+                      <circle
+                        cx={pGeom.boxX + pGeom.boxW / 2}
+                        cy={pGeom.boxY + pGeom.boxH / 2}
+                        r={Math.min(pGeom.boxW, pGeom.boxH) / 2}
+                      />
+                    ) : selectedPanel === 'face' && faceDetails ? (
                       <path d={faceDetails.closedFillPathD} />
                     ) : (
                       <rect
@@ -2799,12 +2907,28 @@ export const FieldPhotoFitStage: React.FC<{
                       />
                     )}
                   </clipPath>
+                  {isVertShaft && isShaftHalfFace && selectedPanel === 'face' && (
+                    <pattern
+                      id={`photofit-shaft-hatch-${activeRound.id}`}
+                      width="14"
+                      height="14"
+                      patternUnits="userSpaceOnUse"
+                      patternTransform="rotate(45)"
+                    >
+                      <line x1="0" y1="0" x2="0" y2="14" stroke="#f59e0b" strokeWidth="2.2" strokeOpacity="0.65" />
+                    </pattern>
+                  )}
                 </defs>
 
-                {/* Dark outer surround black box removed per user preference */}
-
                 {/* Inside Excavation Profile Area (Bright White Background - Not Dark) */}
-                {selectedPanel === 'face' && faceDetails ? (
+                {selectedPanel === 'face' && isVertShaft ? (
+                  <circle
+                    cx={pGeom.boxX + pGeom.boxW / 2}
+                    cy={pGeom.boxY + pGeom.boxH / 2}
+                    r={Math.min(pGeom.boxW, pGeom.boxH) / 2}
+                    fill="#FFFFFF"
+                  />
+                ) : selectedPanel === 'face' && faceDetails ? (
                   <path d={faceDetails.closedFillPathD} fill="#FFFFFF" />
                 ) : (
                   <rect
@@ -2888,7 +3012,7 @@ export const FieldPhotoFitStage: React.FC<{
                       strokeDasharray="10 5"
                     />
 
-                    {!isSurface && selectedPanel === 'face' && faceDetails && faceDetails.showSplLine && (
+                    {!isSurface && !isVertShaft && selectedPanel === 'face' && faceDetails && faceDetails.showSplLine && (
                       <line
                         x1={pGeom.boxX}
                         y1={faceDetails.splY}
@@ -2899,7 +3023,7 @@ export const FieldPhotoFitStage: React.FC<{
                         strokeDasharray="10 6"
                       />
                     )}
-                    {!isSurface && selectedPanel === 'face' && (
+                    {!isSurface && !isVertShaft && selectedPanel === 'face' && (
                       <FieldTunnelBenchHatchAndLineSvg
                         location={activeLocation}
                         round={activeRound}
@@ -2911,7 +3035,7 @@ export const FieldPhotoFitStage: React.FC<{
                         idSuffix={`photofit-face-${activeRound.id}`}
                       />
                     )}
-                    {!isSurface && selectedPanel !== 'face' && (
+                    {!isSurface && !isVertShaft && selectedPanel !== 'face' && (
                       <FieldTunnelWallOrCrownBenchOverlaySvg
                         activePanel={selectedPanel}
                         location={activeLocation}
@@ -2926,8 +3050,94 @@ export const FieldPhotoFitStage: React.FC<{
                   </g>
                 )}
 
-                {/* Tunnel Profile Outline */}
-                {selectedPanel === 'face' && faceDetails ? (
+                {/* Vertical Shaft Half-Face Hatched Unexcavated Half & Center Median Line */}
+                {isVertShaft && selectedPanel === 'face' && (
+                  <g pointerEvents="none">
+                    {isShaftHalfFace && (
+                      <g clipPath={`url(#photofit-clip-${selectedPanel})`}>
+                        <rect
+                          x={shaftHalfSide === 'left_half' ? pGeom.boxX + pGeom.boxW / 2 : pGeom.boxX}
+                          y={pGeom.boxY}
+                          width={pGeom.boxW / 2}
+                          height={pGeom.boxH}
+                          fill="rgba(15, 23, 42, 0.72)"
+                        />
+                        <rect
+                          x={shaftHalfSide === 'left_half' ? pGeom.boxX + pGeom.boxW / 2 : pGeom.boxX}
+                          y={pGeom.boxY}
+                          width={pGeom.boxW / 2}
+                          height={pGeom.boxH}
+                          fill={`url(#photofit-shaft-hatch-${activeRound.id})`}
+                        />
+                        <line
+                          x1={pGeom.boxX + pGeom.boxW / 2}
+                          y1={pGeom.boxY}
+                          x2={pGeom.boxX + pGeom.boxW / 2}
+                          y2={pGeom.boxY + pGeom.boxH}
+                          stroke={shaftMedianStatus === 'closed' ? '#f59e0b' : '#38bdf8'}
+                          strokeWidth="4"
+                          strokeDasharray={shaftMedianStatus === 'closed' ? undefined : '10 6'}
+                        />
+                      </g>
+                    )}
+                    <text
+                      x={pGeom.boxX + pGeom.boxW / 2}
+                      y={pGeom.boxY - 12}
+                      textAnchor="middle"
+                      fill="#fbbf24"
+                      fontSize="15"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                    >
+                      0° N {isShaftHalfFace ? `• MEDIAN ${shaftMedianStatus.toUpperCase()}` : ''}
+                    </text>
+                    <text
+                      x={pGeom.boxX + pGeom.boxW + 14}
+                      y={pGeom.boxY + pGeom.boxH / 2 + 5}
+                      textAnchor="start"
+                      fill="#38bdf8"
+                      fontSize="14"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                    >
+                      90° E
+                    </text>
+                    <text
+                      x={pGeom.boxX + pGeom.boxW / 2}
+                      y={pGeom.boxY + pGeom.boxH + 22}
+                      textAnchor="middle"
+                      fill="#38bdf8"
+                      fontSize="14"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                    >
+                      180° S
+                    </text>
+                    <text
+                      x={pGeom.boxX - 14}
+                      y={pGeom.boxY + pGeom.boxH / 2 + 5}
+                      textAnchor="end"
+                      fill="#38bdf8"
+                      fontSize="14"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                    >
+                      270° W
+                    </text>
+                  </g>
+                )}
+
+                {/* Tunnel / Shaft Profile Outline */}
+                {selectedPanel === 'face' && isVertShaft ? (
+                  <circle
+                    cx={pGeom.boxX + pGeom.boxW / 2}
+                    cy={pGeom.boxY + pGeom.boxH / 2}
+                    r={Math.min(pGeom.boxW, pGeom.boxH) / 2}
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth="4"
+                  />
+                ) : selectedPanel === 'face' && faceDetails ? (
                   <>
                     <path
                       d={faceDetails.wallStrokePathD}
@@ -4291,6 +4501,17 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
   const offsetX = targetX - pGeom.boxX * scaleX;
   const offsetY = targetY - pGeom.boxY * scaleY;
 
+  const isVertShaft = isVerticalShaftLocation(location);
+  const shaftExcApproach = normalizeVerticalShaftExcavationApproach(round.excavationApproach);
+  const isShaftHalfFace = isVertShaft && shaftExcApproach === 'Half Face';
+  const shaftHalfSide = normalizeVerticalShaftHalfSide(round.shaftHalfSide);
+  const shaftMedianStatus = normalizeVerticalShaftCenterMedianStatus(round.shaftCenterMedianStatus);
+  const isShaftPanelLocked =
+    isVertShaft &&
+    isShaftHalfFace &&
+    ((shaftHalfSide === 'left_half' && (panel === 'left_wall' || panel === 'crown')) ||
+      (shaftHalfSide === 'right_half' && (panel === 'right_wall' || panel === 'shaft_sn')));
+
   const faceDetails =
     panel === 'face'
       ? computeFaceTunnelOutlineDetails(location, targetX, targetY, targetW, targetH)
@@ -4335,6 +4556,9 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
 
   const excBounds = getPanelActiveExcavationBounds(panel, location, round);
   const activeGeoClipId = `${clipId}-active-exc`;
+  const shaftCircleCx = targetX + targetW / 2;
+  const shaftCircleCy = targetY + targetH / 2;
+  const shaftCircleR = Math.min(targetW, targetH) / 2;
 
   return (
     <g
@@ -4346,7 +4570,9 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
     >
       <defs>
         <clipPath id={clipId}>
-          {panel === 'face' && faceDetails ? (
+          {panel === 'face' && isVertShaft ? (
+            <circle cx={shaftCircleCx} cy={shaftCircleCy} r={shaftCircleR} />
+          ) : panel === 'face' && faceDetails ? (
             <path d={faceDetails.closedFillPathD} />
           ) : (
             <rect x={targetX} y={targetY} width={targetW} height={targetH} />
@@ -4364,10 +4590,23 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
             }
           />
         </clipPath>
+        {isVertShaft && (
+          <pattern
+            id={`${clipId}-shaft-hatch`}
+            width="12"
+            height="12"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <line x1="0" y1="0" x2="0" y2="12" stroke="#334155" strokeWidth="1.8" strokeOpacity="0.65" />
+          </pattern>
+        )}
       </defs>
 
       {/* Base surface background */}
-      {panel === 'face' && faceDetails ? (
+      {panel === 'face' && isVertShaft ? (
+        <circle cx={shaftCircleCx} cy={shaftCircleCy} r={shaftCircleR} fill="#ffffff" />
+      ) : panel === 'face' && faceDetails ? (
         <path d={faceDetails.closedFillPathD} fill="#ffffff" />
       ) : (
         <rect x={targetX} y={targetY} width={targetW} height={targetH} fill="#ffffff" />
@@ -4578,7 +4817,7 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
           strokeDasharray="6 4"
           opacity="0.6"
         />
-        {panel === 'face' && faceDetails && faceDetails.showSplLine && (
+        {panel === 'face' && !isVertShaft && faceDetails && faceDetails.showSplLine && (
           <line
             x1={targetX}
             y1={faceDetails.splY}
@@ -4590,7 +4829,107 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
             opacity="0.65"
           />
         )}
-        {panel === 'face' && faceDetails ? (
+        {isVertShaft && panel === 'face' && (
+          <>
+            <line
+              x1={targetX}
+              y1={shaftCircleCy}
+              x2={targetX + targetW}
+              y2={shaftCircleCy}
+              stroke="#0f172a"
+              strokeWidth="1.1"
+              strokeDasharray="6 4"
+              opacity="0.6"
+            />
+            {isShaftHalfFace && (
+              <>
+                <rect
+                  x={shaftHalfSide === 'left_half' ? shaftCircleCx : targetX}
+                  y={targetY}
+                  width={targetW / 2}
+                  height={targetH}
+                  fill="rgba(226, 232, 240, 0.78)"
+                />
+                <rect
+                  x={shaftHalfSide === 'left_half' ? shaftCircleCx : targetX}
+                  y={targetY}
+                  width={targetW / 2}
+                  height={targetH}
+                  fill={`url(#${clipId}-shaft-hatch)`}
+                />
+                <line
+                  x1={shaftCircleCx}
+                  y1={targetY}
+                  x2={shaftCircleCx}
+                  y2={targetY + targetH}
+                  stroke={shaftMedianStatus === 'closed' ? '#0f172a' : '#0284c7'}
+                  strokeWidth="2.8"
+                  strokeDasharray={shaftMedianStatus === 'closed' ? undefined : '8 5'}
+                />
+                <text
+                  x={
+                    shaftHalfSide === 'left_half'
+                      ? shaftCircleCx + shaftCircleR * 0.48
+                      : shaftCircleCx - shaftCircleR * 0.48
+                  }
+                  y={shaftCircleCy - 6}
+                  textAnchor="middle"
+                  fontSize="11"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                  fill="#0f172a"
+                >
+                  {shaftMedianStatus === 'closed' ? 'UNEXCAVATED HALF' : 'ALREADY EXCAVATED'}
+                </text>
+                <text
+                  x={
+                    shaftHalfSide === 'left_half'
+                      ? shaftCircleCx + shaftCircleR * 0.48
+                      : shaftCircleCx - shaftCircleR * 0.48
+                  }
+                  y={shaftCircleCy + 10}
+                  textAnchor="middle"
+                  fontSize="9.5"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                  fill="#334155"
+                >
+                  (MEDIAN {shaftMedianStatus.toUpperCase()})
+                </text>
+              </>
+            )}
+          </>
+        )}
+        {isVertShaft && panel !== 'face' && isShaftPanelLocked && (
+          <>
+            <rect
+              x={targetX}
+              y={targetY}
+              width={targetW}
+              height={targetH}
+              fill="rgba(226, 232, 240, 0.82)"
+            />
+            <rect
+              x={targetX}
+              y={targetY}
+              width={targetW}
+              height={targetH}
+              fill={`url(#${clipId}-shaft-hatch)`}
+            />
+            <text
+              x={targetX + targetW / 2}
+              y={targetY + targetH / 2}
+              textAnchor="middle"
+              fontSize="12"
+              fontWeight="bold"
+              fontFamily="monospace"
+              fill="#0f172a"
+            >
+              {shaftMedianStatus === 'closed' ? 'UNEXCAVATED QUADRANT' : 'ALREADY EXCAVATED QUADRANT'}
+            </text>
+          </>
+        )}
+        {!isVertShaft && panel === 'face' && faceDetails ? (
           <FieldTunnelBenchHatchAndLineSvg
             location={location}
             round={round}
@@ -4602,7 +4941,7 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
             colorMode={colorMode}
             idSuffix={`photo-rpt-face-${round.id}`}
           />
-        ) : (
+        ) : !isVertShaft ? (
           <FieldTunnelWallOrCrownBenchOverlaySvg
             activePanel={panel}
             location={location}
@@ -4614,11 +4953,66 @@ const ReportSingleSurfacePhotoAndGeologySvg: React.FC<{
             colorMode={colorMode}
             idSuffix={`photo-rpt-${panel}-${round.id}`}
           />
-        )}
+        ) : null}
       </g>
 
-      {/* Crisp Outer Tunnel Boundary Outline */}
-      {panel === 'face' && faceDetails ? (
+      {/* Crisp Outer Tunnel / Shaft Boundary Outline */}
+      {panel === 'face' && isVertShaft ? (
+        <>
+          <circle
+            cx={shaftCircleCx}
+            cy={shaftCircleCy}
+            r={shaftCircleR}
+            fill="none"
+            stroke="#0f172a"
+            strokeWidth="2.8"
+          />
+          <text
+            x={shaftCircleCx}
+            y={shaftCircleCy - shaftCircleR - 8}
+            textAnchor="middle"
+            fontSize="11.5"
+            fontWeight="bold"
+            fontFamily="monospace"
+            fill="#0f172a"
+          >
+            0° N
+          </text>
+          <text
+            x={shaftCircleCx + shaftCircleR + 10}
+            y={shaftCircleCy + 4}
+            textAnchor="start"
+            fontSize="11"
+            fontWeight="bold"
+            fontFamily="monospace"
+            fill="#0f172a"
+          >
+            90° E
+          </text>
+          <text
+            x={shaftCircleCx}
+            y={shaftCircleCy + shaftCircleR + 15}
+            textAnchor="middle"
+            fontSize="11"
+            fontWeight="bold"
+            fontFamily="monospace"
+            fill="#0f172a"
+          >
+            180° S
+          </text>
+          <text
+            x={shaftCircleCx - shaftCircleR - 10}
+            y={shaftCircleCy + 4}
+            textAnchor="end"
+            fontSize="11"
+            fontWeight="bold"
+            fontFamily="monospace"
+            fill="#0f172a"
+          >
+            270° W
+          </text>
+        </>
+      ) : panel === 'face' && faceDetails ? (
         <>
           <path
             d={faceDetails.wallStrokePathD}
@@ -5437,10 +5831,17 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
   const domainMap = useMemo(() => getSurfacePanelLabelMap(mappingDomain), [mappingDomain]);
   const colorMode: 'color' | 'bw' = activeRound.reportColorMode ?? 'color';
 
+  const isVertShaft = !isSurface && isVerticalShaftLocation(activeLocation);
+  const shaftExcApproach = normalizeVerticalShaftExcavationApproach(activeRound.excavationApproach);
+  const isShaftHalfFace = isVertShaft && shaftExcApproach === 'Half Face';
+  const shaftHalfSide = normalizeVerticalShaftHalfSide(activeRound.shaftHalfSide);
+  const shaftMedianStatus = normalizeVerticalShaftCenterMedianStatus(activeRound.shaftCenterMedianStatus);
+  const shaftQuadrantArcM = Number(((Math.PI * Math.max(2, activeLocation.widthM)) / 4).toFixed(1));
+
   // Compute adaptable aspect ratios for Page 1 (Face) and Page 2 (Crown on Top, Left & Right Wall on Bottom)
   const faceGeom = computePanelCanvasGeometry('face', activeLocation, activeRound);
   const spanW = Math.max(2, activeLocation.widthM);
-  const heightH = Math.max(2, activeLocation.heightM);
+  const heightH = isVertShaft ? spanW : Math.max(2, activeLocation.heightM);
   const pullM = Math.max(1, activeRound.pullLengthMeters || 3);
   const hasCrown = faceGeom.hasCrown !== false;
   const hasWalls = faceGeom.hasLeftWall && faceGeom.hasRightWall;
@@ -5451,13 +5852,13 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
   // Page 1 Face Box: Utilizes the full A4 vertical middle body (880x960 viewBox) while adapting to W:H aspect ratio
   const p1SvgW = 880;
   const p1SvgH = 960;
-  const p1MaxW = 810;
-  const p1MaxH = 860;
+  const p1MaxW = isVertShaft ? 740 : 810;
+  const p1MaxH = isVertShaft ? 740 : 860;
   const p1Scale = Math.min(p1MaxW / spanW, p1MaxH / heightH);
   const p1FaceW = Math.max(380, Number((spanW * p1Scale).toFixed(1)));
-  const p1FaceH = Math.max(380, Number((heightH * p1Scale).toFixed(1)));
+  const p1FaceH = isVertShaft ? p1FaceW : Math.max(380, Number((heightH * p1Scale).toFixed(1)));
   const p1FaceX = Number(((p1SvgW - p1FaceW) / 2).toFixed(1));
-  const p1FaceY = Number((38 + (p1MaxH - p1FaceH) / 2).toFixed(1));
+  const p1FaceY = Number((46 + (p1MaxH - p1FaceH) / 2).toFixed(1));
 
   // Page 2 Layout: Crown on TOP, Left Wall & Right Wall in BOTTOM side-by-side (adapted to tunnel shape & size, 880x960 viewBox)
   const p2SvgW = 880;
@@ -5751,9 +6152,16 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
           </td>
           <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
             <div className="text-[11px] font-black tracking-wide uppercase text-slate-950 leading-tight">
-              2D {domainMap.domainTitle.toUpperCase()} REPORT — {activeProject.projectName} ({activeLocation.name})
+              2D {isVertShaft ? 'VERTICAL SHAFT PHOTO' : domainMap.domainTitle.toUpperCase()} REPORT — {activeProject.projectName} ({activeLocation.name})
               <span className="text-[9px] font-semibold text-slate-700 ml-1.5">
-                [Page {pageNum}/2 • {pageNum === 1 ? `${domainMap.face.shortLabel} Photo` : `${domainMap.crown.shortLabel} & Flank Photos`}]
+                [Page {pageNum}/2 •{' '}
+                {isVertShaft
+                  ? pageNum === 1
+                    ? `Circular Shaft Sump Face (${isShaftHalfFace ? `Half-Face ${shaftHalfSide === 'left_half' ? 'SW–WN' : 'NE–ES'} • Median ${shaftMedianStatus.toUpperCase()}` : 'Full Face 360°'})`
+                    : '4 Vertical Shaft Wall Quadrants (Q1 NE • Q2 ES • Q3 SW • Q4 WN)'
+                  : pageNum === 1
+                  ? `${domainMap.face.shortLabel} Photo`
+                  : `${domainMap.crown.shortLabel} & Flank Photos`}]
               </span>
             </div>
           </td>
@@ -5776,13 +6184,16 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
             <span className="font-bold">Client/Cons:</span> {activeProject.clientName} / {activeProject.consultantName}
           </td>
           <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-            <span className="font-bold">{domainMap.stationPrefix}:</span> {stationFrom}–{stationTo}m (Pull {pullM.toFixed(1)}m)
+            <span className="font-bold">{isVertShaft ? 'Depth:' : `${domainMap.stationPrefix}:`}</span> {stationFrom}–{stationTo}m ({isVertShaft ? 'Sink' : 'Pull'} {pullM.toFixed(1)}m)
           </td>
           <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-            <span className="font-bold">Shape/Size:</span> {activeLocation.shape.replace(/_/g, ' ').toUpperCase()} ({spanW.toFixed(1)}m×{heightH.toFixed(1)}m)
+            <span className="font-bold">Shape/Size:</span>{' '}
+            {isVertShaft
+              ? `CIRCULAR SHAFT Ø${spanW.toFixed(1)}m (${isShaftHalfFace ? `HALF ${shaftHalfSide === 'left_half' ? 'SW–WN' : 'NE–ES'} • MEDIAN ${shaftMedianStatus.toUpperCase()}` : 'FULL 360°'})`
+              : `${activeLocation.shape.replace(/_/g, ' ').toUpperCase()} (${spanW.toFixed(1)}m×${heightH.toFixed(1)}m)`}
           </td>
           <td className="border border-slate-900 bg-white px-1.5 py-0.5">
-            <span className="font-bold">Date/Drive:</span> {activeRound.dateAndTimeOfExcavation} | N{String(activeRound.tunnelDriveDirection).padStart(3, '0')}°
+            <span className="font-bold">{isVertShaft ? 'Date/Sinking:' : 'Date/Drive:'}</span> {activeRound.dateAndTimeOfExcavation} | {isVertShaft ? 'Vertical 90° (0°N Ref)' : `N${String(activeRound.tunnelDriveDirection).padStart(3, '0')}°`}
           </td>
         </tr>
       </tbody>
@@ -6804,6 +7215,160 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
                   </svg>
                 )}
               </>
+            ) : isVertShaft ? (
+              /* Vertical Shaft 4-Quadrant Wall Photographs (Q1 NE 0-90, Q2 ES 90-180, Q3 SW 180-270, Q4 WN 270-360) */
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-slate-200 pb-1 print:hidden">
+                  {renderSurfaceQuickControlPill('left_wall', '1. NE (0°–90°)')}
+                  {renderSurfaceQuickControlPill('crown', '2. ES (90°–180°)')}
+                  {renderSurfaceQuickControlPill('right_wall', '3. SW (180°–270°)')}
+                  {renderSurfaceQuickControlPill('shaft_sn', '4. WN (270°–360°)')}
+                </div>
+
+                <svg
+                  viewBox={`0 0 ${p2SvgW} ${p2SvgH}`}
+                  className="w-full flex-1 h-auto border border-slate-900 bg-white"
+                >
+                  <FieldMonochromeGeologicalPatterns
+                    prefix="photorep-pat"
+                    colorMode={colorMode}
+                    symbolDensity={activeRound.lithologySymbolDensity ?? 85}
+                    symbolDensityByPattern={activeRound.lithologyDensityByRock}
+                    symbolAngleByPattern={activeRound.lithologyAngleByRock}
+                    lithologyPatternAngle={activeRound.lithologyPatternAngle}
+                    alternatingStrokes={activeRound.lithologyStrokes.filter(
+                      (s) =>
+                        (s.alternatingRockIds && s.alternatingRockIds.length >= 2) ||
+                        (s.alternateRockTypes && s.alternateRockTypes.length >= 2)
+                    )}
+                    customColorsByRock={activeRound.lithologyColorByRock}
+                  />
+
+                  <text
+                    x={p2SvgW / 2}
+                    y="22"
+                    textAnchor="middle"
+                    fontSize="12"
+                    fontWeight="bold"
+                    fontFamily="monospace"
+                    fill="#0f172a"
+                  >
+                    VERTICAL SHAFT WALL QUADRANTS (Ø{spanW.toFixed(1)}m • {isShaftHalfFace ? `HALF-FACE ${shaftHalfSide === 'left_half' ? 'SW–WN (180°–360°)' : 'NE–ES (0°–180°)'} • MEDIAN ${shaftMedianStatus.toUpperCase()}` : 'FULL-FACE 360° RING'})
+                  </text>
+
+                  {/* Q1: NE (0°-90°) Top-Left */}
+                  <text
+                    x={225}
+                    y={46}
+                    textAnchor="middle"
+                    fontSize="11.5"
+                    fontWeight="bold"
+                    fontFamily="monospace"
+                    fill="#0f172a"
+                  >
+                    1. NE WALL QUADRANT (0° N → 90° E • Arc {shaftQuadrantArcM}m × Sink {pullM.toFixed(1)}m)
+                  </text>
+                  <ReportSingleSurfacePhotoAndGeologySvg
+                    panel="left_wall"
+                    location={activeLocation}
+                    round={activeRound}
+                    rememberedRocks={rememberedRocks}
+                    colorMode={colorMode}
+                    showGeologicalOverlay={showGeologicalOverlay}
+                    targetX={35}
+                    targetY={54}
+                    targetW={380}
+                    targetH={395}
+                    clipId="photorep-p2-shaft-q1"
+                    onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                    onPanPhotoOffset={handlePanPhotoOffset}
+                  />
+
+                  {/* Q2: ES (90°-180°) Top-Right */}
+                  <text
+                    x={655}
+                    y={46}
+                    textAnchor="middle"
+                    fontSize="11.5"
+                    fontWeight="bold"
+                    fontFamily="monospace"
+                    fill="#0f172a"
+                  >
+                    2. ES WALL QUADRANT (90° E → 180° S • Arc {shaftQuadrantArcM}m × Sink {pullM.toFixed(1)}m)
+                  </text>
+                  <ReportSingleSurfacePhotoAndGeologySvg
+                    panel="crown"
+                    location={activeLocation}
+                    round={activeRound}
+                    rememberedRocks={rememberedRocks}
+                    colorMode={colorMode}
+                    showGeologicalOverlay={showGeologicalOverlay}
+                    targetX={465}
+                    targetY={54}
+                    targetW={380}
+                    targetH={395}
+                    clipId="photorep-p2-shaft-q2"
+                    onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                    onPanPhotoOffset={handlePanPhotoOffset}
+                  />
+
+                  {/* Q3: SW (180°-270°) Bottom-Left */}
+                  <text
+                    x={225}
+                    y={494}
+                    textAnchor="middle"
+                    fontSize="11.5"
+                    fontWeight="bold"
+                    fontFamily="monospace"
+                    fill="#0f172a"
+                  >
+                    3. SW WALL QUADRANT (180° S → 270° W • Arc {shaftQuadrantArcM}m × Sink {pullM.toFixed(1)}m)
+                  </text>
+                  <ReportSingleSurfacePhotoAndGeologySvg
+                    panel="right_wall"
+                    location={activeLocation}
+                    round={activeRound}
+                    rememberedRocks={rememberedRocks}
+                    colorMode={colorMode}
+                    showGeologicalOverlay={showGeologicalOverlay}
+                    targetX={35}
+                    targetY={502}
+                    targetW={380}
+                    targetH={395}
+                    clipId="photorep-p2-shaft-q3"
+                    onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                    onPanPhotoOffset={handlePanPhotoOffset}
+                  />
+
+                  {/* Q4: WN (270°-360°) Bottom-Right */}
+                  <text
+                    x={655}
+                    y={494}
+                    textAnchor="middle"
+                    fontSize="11.5"
+                    fontWeight="bold"
+                    fontFamily="monospace"
+                    fill="#0f172a"
+                  >
+                    4. WN WALL QUADRANT (270° W → 360° N • Arc {shaftQuadrantArcM}m × Sink {pullM.toFixed(1)}m)
+                  </text>
+                  <ReportSingleSurfacePhotoAndGeologySvg
+                    panel="shaft_sn"
+                    location={activeLocation}
+                    round={activeRound}
+                    rememberedRocks={rememberedRocks}
+                    colorMode={colorMode}
+                    showGeologicalOverlay={showGeologicalOverlay}
+                    targetX={465}
+                    targetY={502}
+                    targetW={380}
+                    targetH={395}
+                    clipId="photorep-p2-shaft-q4"
+                    onRequestCropOrImport={(p) => setCropModalPanel(p)}
+                    onPanPhotoOffset={handlePanPhotoOffset}
+                  />
+                </svg>
+              </>
             ) : (
               /* Tunnel Crown on Top + Left & Right Walls on Bottom */
               <>
@@ -6981,7 +7546,17 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
         <PhotoReportCropAndPlaceModal
           panel={cropModalPanel}
           panelTitle={
-            cropModalPanel === 'face'
+            isVertShaft
+              ? cropModalPanel === 'face'
+                ? 'Circular Shaft Sump Face'
+                : cropModalPanel === 'left_wall'
+                ? '1. NE Wall Quadrant (0°–90°)'
+                : cropModalPanel === 'crown'
+                ? '2. ES Wall Quadrant (90°–180°)'
+                : cropModalPanel === 'right_wall'
+                ? '3. SW Wall Quadrant (180°–270°)'
+                : '4. WN Wall Quadrant (270°–360°)'
+              : cropModalPanel === 'face'
               ? 'Tunnel Face'
               : cropModalPanel === 'crown'
               ? 'Crown / Roof Arch'
@@ -6990,7 +7565,11 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
               : 'Right Wall'
           }
           targetWidthM={
-            cropModalPanel === 'face'
+            isVertShaft
+              ? cropModalPanel === 'face'
+                ? spanW
+                : shaftQuadrantArcM
+              : cropModalPanel === 'face'
               ? spanW
               : cropModalPanel === 'crown'
               ? crownArcM

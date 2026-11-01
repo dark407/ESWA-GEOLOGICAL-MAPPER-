@@ -79,6 +79,9 @@ export interface AdvancedGeologicalAnalysisModalProps {
   overbreakAnalysis?: any;
   junctionFactorData?: any;
   activeExcavationApproach?: string;
+  isVerticalShaft?: boolean;
+  shaftHalfSide?: 'left_half' | 'right_half';
+  shaftCenterMedianStatus?: 'open' | 'closed';
   onOpenJunctionCalculator?: () => void;
   onClearJunctionFactor?: () => void;
 }
@@ -240,13 +243,27 @@ function buildSvgTunnelProfilePath(
   wallH: number,
   cx: number,
   baseY: number,
-  scale: number
+  scale: number,
+  isVerticalShaft = false
 ): {
   pathD: string;
   rawPts: { x: number; y: number }[];
   pointsSvg: { x: number; y: number; rawX: number; rawY: number }[];
 } {
-  const rawPts = generateExactTunnelProfilePoints(geometry, spanW, heightH, wallH);
+  const rawPts: { x: number; y: number }[] = [];
+  if (isVerticalShaft) {
+    const R = spanW / 2;
+    const segs = 64;
+    for (let i = 0; i < segs; i++) {
+      const a = (i / segs) * Math.PI * 2;
+      rawPts.push({
+        x: R * Math.sin(a),
+        y: R + R * Math.cos(a),
+      });
+    }
+  } else {
+    rawPts.push(...generateExactTunnelProfilePoints(geometry, spanW, heightH, wallH));
+  }
 
   const pointsSvg = rawPts.map((pt) => ({
     x: cx + pt.x * scale,
@@ -278,6 +295,9 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   surfaceSmrAnalysis,
   savedProjects = [],
   activeExcavationApproach,
+  isVerticalShaft = false,
+  shaftHalfSide = 'right_half',
+  shaftCenterMedianStatus = 'closed',
 }) => {
   const [activeTab, setActiveTab] = useState<AdvancedAnalysisTab>('EXCAVATION_3D_LOG');
 
@@ -320,8 +340,14 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
 
   const currentModuleReadiness = readinessByTab[activeTab];
 
-  const mapApproachToStage = (app?: string): ExcavationStageType => {
+  const mapApproachToStage = (app?: string, vertShaft = false, halfSide: 'left_half' | 'right_half' = 'right_half'): ExcavationStageType => {
     const norm = (app || '').toLowerCase();
+    if (vertShaft) {
+      if (norm.includes('half')) {
+        return halfSide === 'left_half' ? 'BENCH' : 'TOP_HEADING';
+      }
+      return 'FULL_FACE';
+    }
     if (norm.includes('top') || norm.includes('heading')) return 'TOP_HEADING';
     if (norm.includes('bench')) return 'BENCH';
     if (norm.includes('invert')) return 'INVERT';
@@ -330,7 +356,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
 
   // Interactive Solver Controls (initialized from live fedData)
   const [activeExcavationStage, setActiveExcavationStage] = useState<ExcavationStageType>(() =>
-    mapApproachToStage(activeExcavationApproach)
+    mapApproachToStage(activeExcavationApproach, isVerticalShaft, shaftHalfSide)
   );
   const [customDriveAzimuth, setCustomDriveAzimuth] = useState<number>(fedData.driveAzimuth);
   const [customStrike, setCustomStrike] = useState<number>(fedData.governingJoint?.strike ?? 125);
@@ -338,10 +364,8 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   const [customDipDirection, setCustomDipDirection] = useState<number>(fedData.governingJoint?.dipDirection ?? 215);
 
   useEffect(() => {
-    if (activeExcavationApproach) {
-      setActiveExcavationStage(mapApproachToStage(activeExcavationApproach));
-    }
-  }, [activeExcavationApproach]);
+    setActiveExcavationStage(mapApproachToStage(activeExcavationApproach, isVerticalShaft, shaftHalfSide));
+  }, [activeExcavationApproach, isVerticalShaft, shaftHalfSide]);
 
   // Wedge & Bolt Solver Controls
   const [frictionAngleDeg, setFrictionAngleDeg] = useState<number>(32);
@@ -386,11 +410,26 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   ]);
 
   const spanW = fedData.spanW;
-  const heightH = fedData.heightH;
-  const wallH = geometry.wallHeight || fedData.benchHeight || heightH * 0.55;
+  const heightH = isVerticalShaft ? spanW : fedData.heightH;
+  const wallH = isVerticalShaft ? spanW / 2 : geometry.wallHeight || fedData.benchHeight || heightH * 0.55;
   const pullLength = fedData.pullLengthM;
   const currentFaceChainageNum = fedData.currentFaceChainageNum;
-  const shapeLabel = (geometry.crownGeometry || 'd_shaped').replace(/_/g, ' ').toUpperCase();
+  const isShaftHalfFaceMode =
+    isVerticalShaft &&
+    ((activeExcavationApproach || '').toLowerCase().includes('half') ||
+      activeExcavationStage === 'TOP_HEADING' ||
+      activeExcavationStage === 'BENCH');
+  const effectiveShaftHalfSide: 'left_half' | 'right_half' =
+    activeExcavationStage === 'BENCH'
+      ? 'left_half'
+      : activeExcavationStage === 'TOP_HEADING'
+      ? 'right_half'
+      : shaftHalfSide;
+  const shapeLabel = isVerticalShaft
+    ? isShaftHalfFaceMode
+      ? `SHAFT HALF-FACE (${effectiveShaftHalfSide === 'left_half' ? 'SW–WN 180°–360°' : 'NE–ES 0°–180°'} • MEDIAN ${shaftCenterMedianStatus.toUpperCase()})`
+      : 'CIRCULAR VERTICAL SHAFT (360° FULL FACE)'
+    : (geometry.crownGeometry || 'd_shaped').replace(/_/g, ' ').toUpperCase();
 
   // Derived Validated Ratings
   const rmrVal = fedData.rmrTotal;
@@ -423,15 +462,15 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     const forecastTable = forecastDistances.map((distAhead) => {
       const targetChainage = currentFaceChainageNum + distAhead;
       const elevationShift = distAhead * tanAppWall;
-      const currentElevation = Math.max(0, heightH - ( elevationShift % (heightH * 1.4) ));
+      const currentElevation = Math.max(0, heightH - (elevationShift % (heightH * 1.4)));
 
-      let zoneLocation = 'Mid-Face / Springline';
+      let zoneLocation = isVerticalShaft ? 'Q2 ES / Q4 WN Shaft Wall' : 'Mid-Face / Springline';
       let riskLevel: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' = 'MODERATE';
       if (currentElevation > heightH * 0.72) {
-        zoneLocation = 'Crown / Arch Roof';
+        zoneLocation = isVerticalShaft ? 'Q1 NE (0°–90°) Shaft Wall' : 'Crown / Arch Roof';
         riskLevel = customDip < 45 ? 'CRITICAL' : 'HIGH';
       } else if (currentElevation < heightH * 0.25) {
-        zoneLocation = 'Invert / Footwall';
+        zoneLocation = isVerticalShaft ? 'Q3 SW (180°–270°) / Sump' : 'Invert / Footwall';
         riskLevel = 'LOW';
       }
 
@@ -452,7 +491,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
       distanceCrownToInvert,
       forecastTable,
     };
-  }, [customStrike, customDriveAzimuth, customDip, heightH, currentFaceChainageNum]);
+  }, [customStrike, customDriveAzimuth, customDip, heightH, currentFaceChainageNum, isVerticalShaft]);
 
   // --------------------------------------------------------------------------
   // 2. 3D TETRAHEDRAL WEDGE & ROCKBOLT FOS CALCULATIONS
@@ -461,7 +500,15 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     const j1Dip = customDip;
     const j2Dip = jointSets[1]?.meanDip ?? Math.max(35, Math.min(82, 115 - j1Dip));
     const avgDipRad = (((j1Dip + j2Dip) / 2) * Math.PI) / 180;
-    const effectiveSpan = spanW * 0.65;
+    // In Vertical Shaft Half-Face mode: Median Closed provides rock wall confinement (0.58x span), Median Open has free span (0.76x span)
+    const shaftSpanFactor = isVerticalShaft
+      ? isShaftHalfFaceMode
+        ? shaftCenterMedianStatus === 'closed'
+          ? 0.54
+          : 0.72
+        : 0.65
+      : 0.65;
+    const effectiveSpan = spanW * shaftSpanFactor;
     const apexHeightM = Math.min(heightH * 0.75, (effectiveSpan / 2) * Math.tan(avgDipRad) * 0.55);
 
     const baseAreaM2 = effectiveSpan * Math.min(pullLength * 1.35, effectiveSpan * 0.85);
@@ -472,6 +519,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     const phiRad = (frictionAngleDeg * Math.PI) / 180;
     const contactAreaM2 = Math.max(1.2, baseAreaM2 * 0.75);
 
+    // For Vertical Shafts, sliding along steep shaft walls is governed by cos(slipAngle) normal confinement
     const drivingForceKn = Math.max(1, wedgeWeightKn * Math.sin(slipAngleRad));
     const normalForceKn = wedgeWeightKn * Math.cos(slipAngleRad);
 
@@ -497,7 +545,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     const installedSupportPressureKpa = totalBoltForceKn / Math.max(1, baseAreaM2);
 
     const failureMode: 'ROOF_FALL' | 'SLIDING_J1' | 'SLIDING_J2' | 'STABLE' =
-      fosBolted >= 1.5 ? 'STABLE' : j1Dip > 65 && j2Dip > 65 ? 'ROOF_FALL' : 'SLIDING_J1';
+      fosBolted >= 1.5 ? 'STABLE' : !isVerticalShaft && j1Dip > 65 && j2Dip > 65 ? 'ROOF_FALL' : 'SLIDING_J1';
 
     return {
       apexHeightM,
@@ -529,6 +577,9 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     boltCapacityKn,
     boltSpacingM,
     boltLengthM,
+    isVerticalShaft,
+    isShaftHalfFaceMode,
+    shaftCenterMedianStatus,
   ]);
 
   // --------------------------------------------------------------------------
@@ -594,7 +645,14 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   // 4. BIENIAWSKI STAND-UP TIME & PALMSTROM BLOCK VOLUMES
   // --------------------------------------------------------------------------
   const standupAndBlockAnalysis = useMemo(() => {
-    const activeSpanM = Math.min(spanW, pullLength * 1.8);
+    const effectiveDiameter = isVerticalShaft
+      ? isShaftHalfFaceMode
+        ? shaftCenterMedianStatus === 'closed'
+          ? spanW * 0.62
+          : spanW * 0.85
+        : spanW
+      : spanW;
+    const activeSpanM = Math.min(effectiveDiameter, pullLength * 1.8);
     const logHours = 0.115 * safeRmrForCalc - 1.35 * Math.log10(Math.max(1, activeSpanM)) - 1.1;
     const standupHours = Math.max(0.1, Math.pow(10, logHours));
     const maxUnsupportedSpanM = Math.max(0.8, 0.18 * Math.pow(safeRmrForCalc, 1.15));
@@ -636,7 +694,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
       equivalentBlockDiaM,
       blockClass,
     };
-  }, [spanW, pullLength, safeRmrForCalc, jointSets, fedData.governingJoint?.spacingM]);
+  }, [spanW, pullLength, safeRmrForCalc, jointSets, fedData.governingJoint?.spacingM, isVerticalShaft, isShaftHalfFaceMode, shaftCenterMedianStatus]);
 
   // --------------------------------------------------------------------------
   // 5. HYDROGEOLOGICAL INFLOW (GOODMAN / HEUER)
@@ -998,6 +1056,18 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                     pullLength,
                     geometry
                   );
+                  const shaftR = spanW / 2;
+                  const shaftFullArea = Math.PI * shaftR * shaftR;
+                  const shaftHalfArea = shaftFullArea / 2;
+                  const effectiveStageArea = isVerticalShaft
+                    ? activeExcavationStage === 'TOP_HEADING' || activeExcavationStage === 'BENCH'
+                      ? shaftHalfArea
+                      : shaftFullArea
+                    : stageBounds.crossSectionArea;
+                  const effectiveStageVol = isVerticalShaft
+                    ? effectiveStageArea * pullLength
+                    : stageBounds.volume;
+
                   return (
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
                       {/* Left 8 Cols: 3D CAD Shell */}
@@ -1015,6 +1085,9 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                           governingStrike={customStrike}
                           governingDip={customDip}
                           governingSet={fedData.governingJoint?.set || 'J1'}
+                          isVerticalShaft={isVerticalShaft}
+                          shaftHalfSide={effectiveShaftHalfSide}
+                          shaftCenterMedianStatus={shaftCenterMedianStatus}
                           mappedTraces={mapped3DTraces}
                           onStageSelect={setActiveExcavationStage}
                         />
@@ -1025,10 +1098,12 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                         <div className="space-y-3">
                           <div className="border-b border-slate-800 pb-2">
                             <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
-                              EXCAVATION SUB-PROFILE SELECTOR
+                              {isVerticalShaft ? 'VERTICAL SHAFT EXCAVATION SECTOR SELECTOR' : 'EXCAVATION SUB-PROFILE SELECTOR'}
                             </div>
                             <div className="text-xs font-mono text-slate-400 mt-0.5">
-                              Filter 3D shell and 2D cross-section by active excavation horizon
+                              {isVerticalShaft
+                                ? `Filter 3D cylindrical shaft & 2D plan view (Center Median: ${shaftCenterMedianStatus.toUpperCase()})`
+                                : 'Filter 3D shell and 2D cross-section by active excavation horizon'}
                             </div>
                           </div>
 
@@ -1036,6 +1111,24 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                             {(['FULL_FACE', 'TOP_HEADING', 'BENCH', 'INVERT'] as ExcavationStageType[]).map((st) => {
                               const b = computeStageElevationBounds(st, spanW, heightH, fedData.benchHeight, 0, pullLength, geometry);
                               const active = activeExcavationStage === st;
+                              const btnTitle = isVerticalShaft
+                                ? st === 'FULL_FACE'
+                                  ? 'FULL CIRCLE (360°)'
+                                  : st === 'TOP_HEADING'
+                                  ? 'HALF: NE–ES (0°–180°)'
+                                  : st === 'BENCH'
+                                  ? 'HALF: SW–WN (180°–360°)'
+                                  : 'SUMP RING'
+                                : st.replace('_', ' ');
+                              const btnSub = isVerticalShaft
+                                ? st === 'FULL_FACE'
+                                  ? `0°–360° (${shaftFullArea.toFixed(1)}m²)`
+                                  : st === 'TOP_HEADING'
+                                  ? `Q1+Q2 (${shaftHalfArea.toFixed(1)}m² • Med ${shaftCenterMedianStatus})`
+                                  : st === 'BENCH'
+                                  ? `Q3+Q4 (${shaftHalfArea.toFixed(1)}m² • Med ${shaftCenterMedianStatus})`
+                                  : `Invert Sump (${shaftFullArea.toFixed(1)}m²)`
+                                : `Y: ${b.yMin.toFixed(1)}m → ${b.yMax.toFixed(1)}m (${b.crossSectionArea.toFixed(1)}m²)`;
                               return (
                                 <button
                                   key={st}
@@ -1047,21 +1140,23 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                                   }`}
                                 >
                                   <div className="text-[11px] font-mono font-bold text-sky-300">
-                                    {st.replace('_', ' ')}
+                                    {btnTitle}
                                   </div>
                                   <div className="text-[10px] font-mono text-slate-400 tabular-nums mt-0.5">
-                                    Y: {b.yMin.toFixed(1)}m → {b.yMax.toFixed(1)}m ({b.crossSectionArea.toFixed(1)}m²)
+                                    {btnSub}
                                   </div>
                                 </button>
                               );
                             })}
                           </div>
 
-                          {/* Exact 2D CAD Tunnel Profile Cross-Section on White Background */}
+                          {/* Exact 2D CAD Tunnel / Shaft Profile Cross-Section on White Background */}
                           <div className="bg-white border border-slate-300 rounded-lg p-2.5 shadow-2xs">
                             <div className="flex items-center justify-between text-[10px] font-mono text-slate-700 font-bold mb-1">
-                              <span>2D CAD CROSS-SECTION ({shapeLabel})</span>
-                              <span className="text-sky-700 tabular-nums">{spanW.toFixed(2)}m × {heightH.toFixed(2)}m</span>
+                              <span>{isVerticalShaft ? '2D SHAFT PLAN CROSS-SECTION' : `2D CAD CROSS-SECTION (${shapeLabel})`}</span>
+                              <span className="text-sky-700 tabular-nums">
+                                {isVerticalShaft ? `Ø${spanW.toFixed(2)}m` : `${spanW.toFixed(2)}m × ${heightH.toFixed(2)}m`}
+                              </span>
                             </div>
                             <svg viewBox="0 0 320 240" className="w-full h-44 bg-white">
                               <rect width="320" height="240" fill="#ffffff" />
@@ -1069,6 +1164,55 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                                 const scale = Math.min(200 / Math.max(1, spanW), 145 / Math.max(1, heightH));
                                 const cx = 160;
                                 const baseY = 195;
+                                if (isVerticalShaft) {
+                                  const rPx = (spanW / 2) * scale;
+                                  const cy = 120;
+                                  const isRightHalf = activeExcavationStage === 'TOP_HEADING';
+                                  const isLeftHalf = activeExcavationStage === 'BENCH';
+                                  const semiPathD = isRightHalf
+                                    ? `M ${cx} ${cy - rPx} A ${rPx} ${rPx} 0 0 1 ${cx} ${cy + rPx} Z`
+                                    : isLeftHalf
+                                    ? `M ${cx} ${cy + rPx} A ${rPx} ${rPx} 0 0 1 ${cx} ${cy - rPx} Z`
+                                    : '';
+                                  const unexcPathD = isRightHalf
+                                    ? `M ${cx} ${cy + rPx} A ${rPx} ${rPx} 0 0 1 ${cx} ${cy - rPx} Z`
+                                    : isLeftHalf
+                                    ? `M ${cx} ${cy - rPx} A ${rPx} ${rPx} 0 0 1 ${cx} ${cy + rPx} Z`
+                                    : '';
+                                  return (
+                                    <>
+                                      <defs>
+                                        <pattern id="adv-shaft-hatch-p1" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                                          <line x1="0" y1="0" x2="0" y2="8" stroke="#64748b" strokeWidth="1.5" strokeOpacity="0.6" />
+                                        </pattern>
+                                      </defs>
+                                      <line x1="25" y1={cy} x2="295" y2={cy} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="3,3" />
+                                      <line x1={cx} y1="18" x2={cx} y2="222" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="3,3" />
+                                      <circle cx={cx} cy={cy} r={rPx} fill="#f8fafc" stroke="#475569" strokeWidth="1.5" strokeDasharray="4,3" />
+                                      {isRightHalf || isLeftHalf ? (
+                                        <>
+                                          <path d={unexcPathD} fill="url(#adv-shaft-hatch-p1)" />
+                                          <path d={semiPathD} fill="rgba(2, 132, 199, 0.22)" stroke="#0284c7" strokeWidth="2.5" />
+                                          <line
+                                            x1={cx}
+                                            y1={cy - rPx}
+                                            x2={cx}
+                                            y2={cy + rPx}
+                                            stroke={shaftCenterMedianStatus === 'closed' ? '#d97706' : '#0284c7'}
+                                            strokeWidth="2.5"
+                                            strokeDasharray={shaftCenterMedianStatus === 'closed' ? undefined : '5,3'}
+                                          />
+                                        </>
+                                      ) : (
+                                        <circle cx={cx} cy={cy} r={rPx} fill="rgba(2, 132, 199, 0.22)" stroke="#0284c7" strokeWidth="2.5" />
+                                      )}
+                                      <text x={cx} y={cy - rPx - 6} textAnchor="middle" fill="#0f172a" fontSize="9.5" fontFamily="monospace" fontWeight="bold">0° N</text>
+                                      <text x={cx + rPx + 8} y={cy + 3} textAnchor="start" fill="#0f172a" fontSize="9" fontFamily="monospace" fontWeight="bold">90° E</text>
+                                      <text x={cx} y={cy + rPx + 12} textAnchor="middle" fill="#0f172a" fontSize="9" fontFamily="monospace" fontWeight="bold">180° S</text>
+                                      <text x={cx - rPx - 8} y={cy + 3} textAnchor="end" fill="#0f172a" fontSize="9" fontFamily="monospace" fontWeight="bold">270° W</text>
+                                    </>
+                                  );
+                                }
                                 const { pathD, rawPts } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
                                 const clippedRawPts = clipProfilePolygonToYBand(rawPts, stageBounds.yMin, stageBounds.yMax);
                                 const clippedPathD =
@@ -1113,14 +1257,18 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                         <div className="bg-slate-950/90 border border-slate-800 rounded p-2.5 space-y-1 text-[11px] font-mono tabular-nums">
                           <div className="flex justify-between">
                             <span className="text-slate-400">Active Stage Area / Volume:</span>
-                            <span className="text-emerald-400 font-bold">{stageBounds.crossSectionArea.toFixed(2)} m² / {stageBounds.volume.toFixed(1)} m³</span>
+                            <span className="text-emerald-400 font-bold">{effectiveStageArea.toFixed(2)} m² / {effectiveStageVol.toFixed(1)} m³</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-400">Active Stage Height:</span>
-                            <span className="text-white font-bold">{(stageBounds.yMax - stageBounds.yMin).toFixed(2)} m</span>
+                            <span className="text-slate-400">{isVerticalShaft ? 'Sinking Advance / Median:' : 'Active Stage Height:'}</span>
+                            <span className="text-white font-bold">
+                              {isVerticalShaft
+                                ? `${pullLength.toFixed(2)} m (${isShaftHalfFaceMode ? `Median ${shaftCenterMedianStatus.toUpperCase()}` : 'Full 360°'})`
+                                : `${(stageBounds.yMax - stageBounds.yMin).toFixed(2)} m`}
+                            </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-400">Springline / Wall H:</span>
+                            <span className="text-slate-400">{isVerticalShaft ? 'Shaft Radius R:' : 'Springline / Wall H:'}</span>
                             <span className="text-sky-300 font-bold">{wallH.toFixed(2)} m</span>
                           </div>
                           <div className="flex justify-between">
@@ -1308,21 +1456,34 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                           <svg viewBox="0 0 320 220" className="w-full h-40 bg-white">
                             <rect width="320" height="220" fill="#ffffff" />
                             {(() => {
-                              const scale = Math.min(180 / Math.max(1, spanW), 105 / Math.max(1, heightH));
+                                const scale = Math.min(180 / Math.max(1, spanW), 105 / Math.max(1, heightH));
                               const cx = 160;
                               const baseY = 195;
-                              const { pathD, pointsSvg } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
+                              const { pathD, pointsSvg } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale, isVerticalShaft);
                               const crownY = baseY - heightH * scale;
                               const apexY = Math.max(14, crownY - wedgeAnalysis.apexHeightM * scale);
                               const halfWedgeM = Math.min(spanW * 0.34, 65 / Math.max(1, scale));
                               const halfWedgePx = halfWedgeM * scale;
-                              const archYAtWedgeBase = getCrownArchYAtX(geometry, halfWedgeM, spanW, heightH, wallH);
+                              const archYAtWedgeBase = isVerticalShaft
+                                ? spanW / 2 + Math.sqrt(Math.max(0, (spanW / 2) * (spanW / 2) - halfWedgeM * halfWedgeM))
+                                : getCrownArchYAtX(geometry, halfWedgeM, spanW, heightH, wallH);
                               const crownEdgeY = baseY - archYAtWedgeBase * scale;
 
                               return (
                                 <>
                                   <line x1="25" y1={baseY} x2="295" y2={baseY} stroke="#94a3b8" strokeWidth="1.2" />
                                   <path d={pathD} fill="#f8fafc" stroke="#0f172a" strokeWidth="2" />
+                                  {isVerticalShaft && isShaftHalfFaceMode && (
+                                    <line
+                                      x1={cx}
+                                      y1={crownY}
+                                      x2={cx}
+                                      y2={baseY}
+                                      stroke={shaftCenterMedianStatus === 'closed' ? '#d97706' : '#0284c7'}
+                                      strokeWidth="2.2"
+                                      strokeDasharray={shaftCenterMedianStatus === 'closed' ? undefined : '5,3'}
+                                    />
+                                  )}
                                   {/* Tetrahedral Wedge Polygon */}
                                   <polygon
                                     points={`${cx - halfWedgePx},${crownEdgeY} ${cx},${apexY} ${cx + halfWedgePx},${crownEdgeY}`}
@@ -1330,13 +1491,13 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                                     stroke={wedgeAnalysis.fosBolted < 1.5 ? '#dc2626' : '#059669'}
                                     strokeWidth="2"
                                   />
-                                  {/* Radial Pattern Bolts Normal to Crown */}
+                                  {/* Radial Pattern Bolts Normal to Crown / Shaft Perimeter */}
                                   {pointsSvg
-                                    .filter((p) => p.rawY >= wallH * 0.8)
-                                    .filter((_, i, arr) => i % Math.max(1, Math.floor(arr.length / 5)) === 0)
+                                    .filter((p) => (isVerticalShaft ? true : p.rawY >= wallH * 0.8))
+                                    .filter((_, i, arr) => i % Math.max(1, Math.floor(arr.length / 8)) === 0)
                                     .map((pt, idx) => {
                                       const dx = pt.rawX;
-                                      const dy = Math.max(0.3, pt.rawY - wallH * 0.65);
+                                      const dy = isVerticalShaft ? pt.rawY - spanW / 2 : Math.max(0.3, pt.rawY - wallH * 0.65);
                                       const len = Math.hypot(dx, dy) || 1;
                                       const ux = dx / len;
                                       const uy = dy / len;
@@ -1529,7 +1690,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                             </text>
                             {(() => {
                               const scale = Math.min(110 / Math.max(1, spanW), 72 / Math.max(1, heightH));
-                              const { pathD } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, 130, 232, scale);
+                              const { pathD } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, 130, 232, scale, isVerticalShaft);
                               const rad = (apparentCalculations.apparentDipFaceDeg * Math.PI) / 180;
                               const halfSpanPx = Math.min(48, spanW * 0.44 * scale);
                               const dx = halfSpanPx * Math.cos(rad);
@@ -1538,6 +1699,17 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                               return (
                                 <>
                                   <path d={pathD} fill="#ffffff" stroke="#0f172a" strokeWidth="1.5" />
+                                  {isVerticalShaft && isShaftHalfFaceMode && (
+                                    <line
+                                      x1={130}
+                                      y1={232 - heightH * scale}
+                                      x2={130}
+                                      y2={232}
+                                      stroke={shaftCenterMedianStatus === 'closed' ? '#d97706' : '#0284c7'}
+                                      strokeWidth="1.8"
+                                      strokeDasharray={shaftCenterMedianStatus === 'closed' ? undefined : '4,3'}
+                                    />
+                                  )}
                                   <line
                                     x1={130 - dx}
                                     y1={cyFace - dy}
@@ -2075,7 +2247,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                             const scale = Math.min(160 / Math.max(1, spanW), 110 / Math.max(1, heightH));
                             const cx = 260;
                             const baseY = 195;
-                            const { pathD } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale);
+                            const { pathD } = buildSvgTunnelProfilePath(geometry, spanW, heightH, wallH, cx, baseY, scale, isVerticalShaft);
                             const groutScale = scale * 1.42;
                             const groutRing = buildSvgTunnelProfilePath(
                               geometry,
@@ -2084,7 +2256,8 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                               wallH,
                               cx,
                               baseY + (groutScale - scale) * (heightH * 0.45),
-                              groutScale
+                              groutScale,
+                              isVerticalShaft
                             );
                             return (
                               <>
@@ -2101,8 +2274,19 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                                   strokeWidth="1.8"
                                   strokeDasharray="4,3"
                                 />
-                                {/* Exact Tunnel Profile */}
+                                {/* Exact Tunnel / Shaft Profile */}
                                 <path d={pathD} fill="#ffffff" stroke="#0f172a" strokeWidth="2.5" />
+                                {isVerticalShaft && isShaftHalfFaceMode && (
+                                  <line
+                                    x1={cx}
+                                    y1={baseY - heightH * scale}
+                                    x2={cx}
+                                    y2={baseY}
+                                    stroke={shaftCenterMedianStatus === 'closed' ? '#d97706' : '#0284c7'}
+                                    strokeWidth="2.2"
+                                    strokeDasharray={shaftCenterMedianStatus === 'closed' ? undefined : '5,3'}
+                                  />
+                                )}
                                 <text x={cx - 85} y="226" fill="#0f172a" fontSize="10" fontFamily="monospace" fontWeight="bold">
                                   Grouted Inflow: {hydroAnalysis.groutedLitersPerMinPer100m.toFixed(1)} L/min/100m
                                 </text>

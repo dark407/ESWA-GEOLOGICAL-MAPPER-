@@ -23,6 +23,14 @@ import {
   deriveAnchorPointFromPoints,
   TunnelSpatialGeometry,
 } from './joint3DInspectorEngine';
+import {
+  loadFieldMappingStore,
+  computePhysicalMetricPoints,
+  FieldProjectItem,
+  FieldTunnelLocationItem,
+  FieldExcavationRound,
+  FieldJointTrace,
+} from './fieldMappingEngine';
 
 export type { Point2D };
 
@@ -102,8 +110,8 @@ export interface ContinuousStripTrace {
   rawPoints?: Point2D[];
   /** AI trend-aligned smooth points across pull boundaries */
   aiAlignedPoints?: Point2D[];
-  /** Source unwrapped surface ('leftWall' | 'crown' | 'rightWall' | 'face') */
-  sourceSurface?: 'leftWall' | 'crown' | 'rightWall' | 'face';
+  /** Source unwrapped surface ('leftWall' | 'crown' | 'rightWall' | 'shaft_sn' | 'face') */
+  sourceSurface?: 'leftWall' | 'crown' | 'rightWall' | 'shaft_sn' | 'face';
   /** Exact normalized (0..1, 0..1) image UV coordinates from the 2D unwrapped surface */
   uvPoints?: Point2D[];
   /** Metric (x, y) coordinates remembered by pull, height, and width */
@@ -116,6 +124,8 @@ export interface ContinuousStripTrace {
   };
   colorHex?: string;
   roughness?: string;
+  jrc?: number;
+  jcsMpa?: number;
   infilling?: string;
   apertureMm?: string;
   waterCondition?: string;
@@ -134,6 +144,8 @@ export interface ContinuousStripTrace {
   hideLabel?: boolean;
   /** Custom notes or annotation text */
   customText?: string;
+  /** Optional custom offset for text callout on canvas */
+  labelOffset?: { dx: number; dy: number };
 }
 
 export interface ContinuousStripLithologyZone {
@@ -192,12 +204,25 @@ export interface ContinuousPullRecord {
   supportDescription: string;
   status: 'MAPPED' | 'MISSING_GAP';
   linkedSavedProjectId?: string;
+  linkedFieldRoundId?: string;
   dateMapped?: string;
-  /** Exact unwrapped photos for Left Wall, Crown Arch, and Right Wall at this pull */
+  overburdenDepthM?: number;
+  intactUcsMpa?: number;
+  boltLengthM?: number;
+  boltSpacingM?: number;
+  shotcreteThicknessMm?: number;
+  steelRibSpacingM?: number;
+  supportPressureMpa?: number;
+  excavationApproach?: string;
+  benchHeightM?: number;
+  shaftHalfSide?: 'left_half' | 'right_half';
+  shaftCenterMedianStatus?: 'closed' | 'open';
+  /** Exact unwrapped photos for Left Wall, Crown Arch, Right Wall, and 4th Shaft Quadrant at this pull */
   surfacePhotos?: {
     leftWall?: string;
     crown?: string;
     rightWall?: string;
+    shaft_sn?: string;
   };
 }
 
@@ -242,8 +267,23 @@ export interface TunnelIntersectionConfig {
   junctionLabel?: string;
 }
 
+export interface ContinuousStripCustomAnnotation {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  color?: string;
+}
+
 export interface ContinuousTunnelStripDataset {
   id: string;
+  excavationMode?: 'TUNNEL' | 'SHAFT';
+  shaftSubMode?: 'FULL_CIRCLE' | 'HALF_CIRCLE_LEFT' | 'HALF_CIRCLE_RIGHT';
+  shaftCenterMedianStatus?: 'closed' | 'open';
+  shaftDiameterM?: number;
+  shaftQuadrantArcLengthM?: number;
+  excavationApproach?: 'full_face' | 'top_heading_and_benching' | 'top_heading' | 'benching' | 'half_face';
+  benchHeightM?: number;
   projectName: string;
   tunnelLocationName: string;
   clientName: string;
@@ -257,11 +297,13 @@ export interface ContinuousTunnelStripDataset {
   leftWallArcLengthM?: number;
   crownArcLengthM?: number;
   rightWallArcLengthM?: number;
+  shaftSnArcLengthM?: number;
   leftWallHeightM?: number;
   crownWidthM?: number;
   rightWallHeightM?: number;
   tunnelDiameterWidthM?: number;
   tunnelArchHeightM?: number;
+  overburdenDepthM?: number;
   viewFromRd: number;
   viewToRd: number;
   leftCornerAzimuthLabel: string;
@@ -270,6 +312,7 @@ export interface ContinuousTunnelStripDataset {
   traces: ContinuousStripTrace[];
   lithologyZones: ContinuousStripLithologyZone[];
   waterSymbols: ContinuousStripWaterSymbol[];
+  customAnnotations?: ContinuousStripCustomAnnotation[];
   narrativeBullets: string[];
   sheetConfig?: SheetCustomizationConfig;
   intersectionConfig?: TunnelIntersectionConfig;
@@ -3453,10 +3496,1920 @@ export function syncSavedProjectsIntoStripDatasets(
 export function normalizePullsWithMissingGaps(
   rawPulls: ContinuousPullRecord[]
 ): ContinuousPullRecord[] {
-  // Do NOT insert synthetic MISSING_GAP filler spaces — strictly return exact mapped pulls sorted by chainage.
-  return rawPulls
-    .filter((p) => p.status === 'MAPPED')
+  // Preserve explicit MISSING_GAP records when already constructed for a range, or sort mapped pulls
+  const validPulls = rawPulls.filter(
+    (p) => p.status === 'MAPPED' || p.status === 'MISSING_GAP'
+  );
+  return validPulls.sort((a, b) => a.fromRd - b.fromRd);
+}
+
+/**
+ * Builds an ordered list of pulls across [viewFromRd, viewToRd], inserting explicit
+ * `status: 'MISSING_GAP'` records wherever an unlogged chainage or depth interval exists.
+ * Never fills unlogged intervals with synthetic rock data.
+ */
+export function buildPullsWithMissingGapsInRange(
+  mappedPullsInput: ContinuousPullRecord[],
+  viewFromRd: number,
+  viewToRd: number
+): ContinuousPullRecord[] {
+  const startRd = Math.min(viewFromRd, viewToRd);
+  const endRd = Math.max(viewFromRd, viewToRd);
+  const mapped = mappedPullsInput
+    .filter((p) => p.status === 'MAPPED' && p.toRd > startRd + 0.01 && p.fromRd < endRd - 0.01)
+    .map((p) => ({
+      ...p,
+      fromRd: Math.max(startRd, Math.min(p.fromRd, p.toRd)),
+      toRd: Math.min(endRd, Math.max(p.fromRd, p.toRd)),
+    }))
+    .filter((p) => p.toRd - p.fromRd >= 0.05)
     .sort((a, b) => a.fromRd - b.fromRd);
+
+  if (mapped.length === 0) {
+    if (endRd - startRd >= 0.1) {
+      return [
+        {
+          id: `gap-${startRd.toFixed(1)}-${endRd.toFixed(1)}`,
+          fromRd: Number(startRd.toFixed(2)),
+          toRd: Number(endRd.toFixed(2)),
+          driveAzimuthDeg: 0,
+          leftBoundaryAzimuthDeg: 270,
+          rockType: 'UNLOGGED GAP',
+          rockClass: '-',
+          weatheringCondition: '-',
+          ucsRangeMpa: '-',
+          seepageCondition: '-',
+          supportDescription: 'Unlogged Interval — No Data',
+          status: 'MISSING_GAP',
+        },
+      ];
+    }
+    return [];
+  }
+
+  const result: ContinuousPullRecord[] = [];
+  let cursor = startRd;
+  const GAP_TOLERANCE_M = 0.08;
+
+  for (let i = 0; i < mapped.length; i++) {
+    const pull = mapped[i];
+    if (pull.fromRd - cursor > GAP_TOLERANCE_M) {
+      result.push({
+        id: `gap-${cursor.toFixed(2)}-${pull.fromRd.toFixed(2)}`,
+        fromRd: Number(cursor.toFixed(2)),
+        toRd: Number(pull.fromRd.toFixed(2)),
+        driveAzimuthDeg: pull.driveAzimuthDeg,
+        leftBoundaryAzimuthDeg: pull.leftBoundaryAzimuthDeg,
+        rockType: 'UNLOGGED GAP',
+        rockClass: '-',
+        weatheringCondition: '-',
+        ucsRangeMpa: '-',
+        seepageCondition: '-',
+        supportDescription: 'Unlogged Interval — No Data',
+        status: 'MISSING_GAP',
+      });
+    }
+    result.push(pull);
+    cursor = Math.max(cursor, pull.toRd);
+  }
+
+  if (endRd - cursor > GAP_TOLERANCE_M) {
+    const lastMapped = mapped[mapped.length - 1];
+    result.push({
+      id: `gap-${cursor.toFixed(2)}-${endRd.toFixed(2)}`,
+      fromRd: Number(cursor.toFixed(2)),
+      toRd: Number(endRd.toFixed(2)),
+      driveAzimuthDeg: lastMapped?.driveAzimuthDeg ?? 0,
+      leftBoundaryAzimuthDeg: lastMapped?.leftBoundaryAzimuthDeg ?? 270,
+      rockType: 'UNLOGGED GAP',
+      rockClass: '-',
+      weatheringCondition: '-',
+      ucsRangeMpa: '-',
+      seepageCondition: '-',
+      supportDescription: 'Unlogged Interval — No Data',
+      status: 'MISSING_GAP',
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Extends / expands a joint trace along its strike/dip tangent across pulls or to full pull boundaries.
+ */
+export function extendStripTraceAcrossPull(
+  trace: ContinuousStripTrace,
+  direction: 'start' | 'end' | 'both' | 'full_span',
+  distanceM: number,
+  totalPerimeterM: number,
+  minRd?: number,
+  maxRd?: number
+): ContinuousStripTrace {
+  const pts = [...(trace.points || [])];
+  if (pts.length < 2) return trace;
+
+  const clampY = (y: number) => Math.max(0.05, Math.min(totalPerimeterM - 0.05, y));
+  const clampX = (x: number) => {
+    let val = x;
+    if (minRd !== undefined) val = Math.max(minRd, val);
+    if (maxRd !== undefined) val = Math.min(maxRd, val);
+    return Number(val.toFixed(3));
+  };
+
+  if (direction === 'full_span' && minRd !== undefined && maxRd !== undefined) {
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const dx = last.x - first.x;
+    const dy = last.y - first.y;
+    const slope = Math.abs(dx) > 0.05 ? dy / dx : 0;
+    const startPt: Point2D = {
+      x: Number(minRd.toFixed(3)),
+      y: Number(clampY(first.y + slope * (minRd - first.x)).toFixed(3)),
+    };
+    const endPt: Point2D = {
+      x: Number(maxRd.toFixed(3)),
+      y: Number(clampY(last.y + slope * (maxRd - last.x)).toFixed(3)),
+    };
+    const newPts = [startPt, ...pts.slice(1, -1), endPt];
+    return { ...trace, points: newPts };
+  }
+
+  if (direction === 'start' || direction === 'both') {
+    const p0 = pts[0];
+    const p1 = pts[1];
+    const vx = p0.x - p1.x;
+    const vy = p0.y - p1.y;
+    const len = Math.hypot(vx, vy) || 1;
+    const ux = vx / len;
+    const uy = vy / len;
+    pts[0] = {
+      x: clampX(p0.x + ux * distanceM),
+      y: Number(clampY(p0.y + uy * distanceM).toFixed(3)),
+    };
+  }
+
+  if (direction === 'end' || direction === 'both') {
+    const n = pts.length;
+    const pLast = pts[n - 1];
+    const pPrev = pts[n - 2];
+    const vx = pLast.x - pPrev.x;
+    const vy = pLast.y - pPrev.y;
+    const len = Math.hypot(vx, vy) || 1;
+    const ux = vx / len;
+    const uy = vy / len;
+    pts[n - 1] = {
+      x: clampX(pLast.x + ux * distanceM),
+      y: Number(clampY(pLast.y + uy * distanceM).toFixed(3)),
+    };
+  }
+
+  return { ...trace, points: pts };
+}
+
+export interface UnifiedContinuousRoundItem {
+  id: string;
+  roundNumber: number;
+  fromRd: number;
+  toRd: number;
+  pullLengthM: number;
+  date: string;
+  excavationMode: 'TUNNEL' | 'SHAFT';
+  excavationMethod: string;
+  rockType: string;
+  rockClass: string;
+  qValue: number;
+  rmrValue: number;
+  gsiValue: number;
+  rqdPct: number;
+  intactUcsMpa: number;
+  overburdenDepthM: number;
+  traceCount: number;
+  supportSummary: string;
+  boltLengthM: number;
+  boltSpacingM: number;
+  shotcreteThicknessMm: number;
+  steelRibSpacingM: number;
+  shaftHalfSide?: 'left_half' | 'right_half';
+  shaftCenterMedianStatus?: 'closed' | 'open';
+  sourceType: 'FIELD_STORE' | 'SAVED_PROJECT';
+  fieldRound?: FieldExcavationRound;
+  savedRecord?: SavedProjectRecord;
+}
+
+export interface UnifiedContinuousLocationItem {
+  id: string;
+  name: string;
+  excavationMode: 'TUNNEL' | 'SHAFT';
+  diameterWidthM: number;
+  heightM: number;
+  driveAzimuthDeg: number;
+  overburdenDepthM: number;
+  excavationApproach?: 'full_face' | 'top_heading_and_benching' | 'top_heading' | 'benching' | 'half_face';
+  benchHeightM?: number;
+  shaftHalfSide?: 'left_half' | 'right_half';
+  shaftCenterMedianStatus?: 'closed' | 'open';
+  rounds: UnifiedContinuousRoundItem[];
+  fieldLocation?: FieldTunnelLocationItem;
+}
+
+export interface UnifiedContinuousProjectItem {
+  id: string;
+  projectName: string;
+  clientName: string;
+  contractorName: string;
+  excavationMode: 'TUNNEL' | 'SHAFT';
+  locations: UnifiedContinuousLocationItem[];
+}
+
+/**
+ * Discovers and merges all logged Tunnel and Vertical Shaft projects, locations, and rounds
+ * from both Underground Face Mapping (`loadFieldMappingStore`) and `savedProjects`.
+ */
+export function getUnifiedContinuousProjectsAndLocations(
+  excavationMode: 'TUNNEL' | 'SHAFT',
+  savedProjects: SavedProjectRecord[] = []
+): UnifiedContinuousProjectItem[] {
+  const subMode = excavationMode === 'SHAFT' ? 'vertical_shaft' : 'tunnel';
+  const fieldStore = loadFieldMappingStore('TUNNEL', subMode);
+  const projectMap = new Map<string, UnifiedContinuousProjectItem>();
+
+  // 1. Load from Field Mapping Store (Underground Face Mapping)
+  for (const fp of fieldStore.projects || []) {
+    const matchingLocs = (fp.locations || []).filter((loc) =>
+      excavationMode === 'SHAFT'
+        ? loc.undergroundSubMode === 'vertical_shaft' || fp.undergroundSubMode === 'vertical_shaft'
+        : loc.undergroundSubMode !== 'vertical_shaft'
+    );
+    if (matchingLocs.length === 0 && (fp.locations || []).length > 0) continue;
+
+    const projName = (fp.projectName || 'Underground Project').trim();
+    const projKey = projName.toLowerCase();
+    let projEntry = projectMap.get(projKey);
+    if (!projEntry) {
+      projEntry = {
+        id: fp.id,
+        projectName: projName,
+        clientName: fp.clientName || 'Project Client',
+        contractorName: fp.contractorName || 'Engineering Contractor',
+        excavationMode,
+        locations: [],
+      };
+      projectMap.set(projKey, projEntry);
+    }
+
+    for (const loc of matchingLocs) {
+      const locRounds = (fieldStore.rounds || []).filter(
+        (r) => r.locationId === loc.id || (r.projectId === fp.id && (fp.locations || []).length === 1)
+      );
+      const rounds: UnifiedContinuousRoundItem[] = locRounds
+        .map((r, idx) => {
+          const parsedInterval = parsePullIntervalFromRecord(
+            r.chainageFrom || '',
+            r.chainageTo || '',
+            r.pullLengthMeters || 2.5
+          );
+          const fromRd = Math.min(parsedInterval.fromRd, parsedInterval.toRd);
+          const toRd = Math.max(parsedInterval.fromRd, parsedInterval.toRd);
+          const pullLen = Math.max(0.2, toRd - fromRd || r.pullLengthMeters || 2.0);
+
+          const qSys = r.qSystem || { rqd: 65, jn: 9, jr: 1.5, ja: 2, jw: 1, srf: 2.5 };
+          const qValRaw =
+            (Math.max(10, qSys.rqd) / Math.max(0.5, qSys.jn)) *
+            (Math.max(0.5, qSys.jr) / Math.max(0.75, qSys.ja)) *
+            (Math.max(0.1, qSys.jw) / Math.max(0.5, qSys.srf));
+          const rmrSys = r.rmrSystem || {
+            ucsRating: 7,
+            rqdRating: 13,
+            spacingRating: 10,
+            conditionRating: 20,
+            waterRating: 10,
+            orientationAdj: -5,
+          };
+          const rmrVal =
+            r.rmrTotal ||
+            Math.max(
+              15,
+              Math.min(
+                100,
+                (rmrSys.ucsRating || 7) +
+                  (rmrSys.rqdRating || 13) +
+                  (rmrSys.spacingRating || 10) +
+                  (rmrSys.conditionRating || 20) +
+                  (rmrSys.waterRating || 10) +
+                  (rmrSys.orientationAdj || -5)
+              )
+            );
+          const gsiVal = r.gsiValue || Math.max(20, rmrVal - 5);
+          const rqdPct = qSys.rqd || 65;
+          const ucsMpa =
+            r.strengthIndex === 'S1'
+              ? 180
+              : r.strengthIndex === 'S2'
+              ? 125
+              : r.strengthIndex === 'S3'
+              ? 75
+              : r.strengthIndex === 'S4'
+              ? 40
+              : 22;
+          const overburdenDepthM = r.femDemAnalysis?.overburdenDepthM || 110;
+          const sup = r.supportSystem;
+          const boltLengthM = sup?.rockBoltLengthM || 4.0;
+          const boltSpacingM = sup?.rockBoltInPlaneSpacingM || sup?.rockBoltSpacingInPlaneM || 1.5;
+          const shotcreteThicknessMm =
+            sup?.shotcreteCrownThicknessMm || sup?.shotcreteThicknessMm || 150;
+          const steelRibSpacingM = sup?.ismbEnabled
+            ? sup.ismbSpacingM || 1.2
+            : sup?.latticeGirderEnabled
+            ? sup.latticeGirderSpacingM || 1.2
+            : sup?.steelRibSpacingM || 0;
+          const primaryLitho =
+            r.lithologyStrokes?.[0]?.rockName ||
+            r.lithologyStrokes?.[0]?.rockType ||
+            r.rockType ||
+            'Quartzitic Phyllite / Gneiss';
+
+          return {
+            id: r.id,
+            roundNumber: r.roundNumber || idx + 1,
+            fromRd: Number(fromRd.toFixed(2)),
+            toRd: Number((toRd > fromRd ? toRd : fromRd + pullLen).toFixed(2)),
+            pullLengthM: Number(pullLen.toFixed(2)),
+            date: (r.dateAndTimeOfExcavation || r.createdAt || new Date().toISOString()).slice(0, 10),
+            excavationMode,
+            excavationMethod: r.modeOfExcavation || 'Drill & Blast',
+            rockType: primaryLitho,
+            rockClass:
+              r.rmrRockClass ||
+              (rmrVal >= 61 ? 'Class II (Good)' : rmrVal >= 41 ? 'Class III (Fair)' : 'Class IV (Poor)'),
+            qValue: Number(qValRaw.toFixed(2)),
+            rmrValue: Math.round(rmrVal),
+            gsiValue: Math.round(gsiVal),
+            rqdPct: Math.round(rqdPct),
+            intactUcsMpa: Number(ucsMpa.toFixed(1)),
+            overburdenDepthM: Number(overburdenDepthM.toFixed(1)),
+            traceCount: (r.jointTraces || []).filter((tr) => tr.panel !== 'face').length,
+            supportSummary: `Bolts L=${boltLengthM}m @ ${boltSpacingM}m | Shotcrete ${shotcreteThicknessMm}mm${steelRibSpacingM ? ` | Ribs @ ${steelRibSpacingM}m` : ''}`,
+            boltLengthM,
+            boltSpacingM,
+            shotcreteThicknessMm,
+            steelRibSpacingM,
+            shaftHalfSide: r.shaftHalfSide,
+            shaftCenterMedianStatus: r.shaftCenterMedianStatus,
+            sourceType: 'FIELD_STORE' as const,
+            fieldRound: r,
+          };
+        })
+        .sort((a, b) => a.fromRd - b.fromRd);
+
+      const firstRound = locRounds[0];
+      const approachRaw = (firstRound?.excavationApproach || loc.defaultExcavationApproach || 'full_face').toLowerCase();
+      const normalizedApproach: UnifiedContinuousLocationItem['excavationApproach'] =
+        approachRaw.includes('half')
+          ? 'half_face'
+          : approachRaw.includes('top') && approachRaw.includes('bench')
+          ? 'top_heading_and_benching'
+          : approachRaw.includes('top')
+          ? 'top_heading'
+          : approachRaw.includes('bench')
+          ? 'benching'
+          : 'full_face';
+
+      projEntry.locations.push({
+        id: loc.id,
+        name: loc.name.trim(),
+        excavationMode,
+        diameterWidthM: loc.widthM || 8.0,
+        heightM: loc.wallHeightM || loc.heightM || 6.0,
+        driveAzimuthDeg: loc.defaultDriveAzimuth || loc.directionDeg || 0,
+        overburdenDepthM: firstRound?.femDemAnalysis?.overburdenDepthM || 110,
+        excavationApproach: normalizedApproach,
+        benchHeightM: firstRound?.benchHeightMeters,
+        shaftHalfSide: firstRound?.shaftHalfSide,
+        shaftCenterMedianStatus: firstRound?.shaftCenterMedianStatus,
+        rounds,
+        fieldLocation: loc,
+      });
+    }
+  }
+
+  // 2. Also merge SavedProjects (for Tunnel or Shaft records saved via SavedProjectRecord)
+  for (const rec of savedProjects || []) {
+    const locNameStr = rec.location || rec.settings?.tunnelName || 'Main Heading';
+    const isRecShaft = locNameStr.toLowerCase().includes('shaft');
+    if (excavationMode === 'SHAFT' && !isRecShaft) continue;
+    if (excavationMode === 'TUNNEL' && isRecShaft) continue;
+
+    const pName = (rec.projectName || rec.settings?.projectName || 'Default Project').trim();
+    const lName = locNameStr.trim();
+    const projKey = pName.toLowerCase();
+
+    let projEntry = projectMap.get(projKey);
+    if (!projEntry) {
+      projEntry = {
+        id: `proj-saved-${projKey}`,
+        projectName: pName,
+        clientName: 'Project Client',
+        contractorName: 'Contractor',
+        excavationMode,
+        locations: [],
+      };
+      projectMap.set(projKey, projEntry);
+    }
+
+    let locEntry = projEntry.locations.find(
+      (l) => l.name.toLowerCase() === lName.toLowerCase()
+    );
+    if (!locEntry) {
+      locEntry = {
+        id: `loc-saved-${projKey}-${lName.toLowerCase()}`,
+        name: lName,
+        excavationMode,
+        diameterWidthM: rec.geometry?.width || 8.0,
+        heightM: rec.geometry?.wallHeight || 5.0,
+        driveAzimuthDeg: rec.settings?.driveDirection ?? 45,
+        overburdenDepthM: 110,
+        rounds: [],
+      };
+      projEntry.locations.push(locEntry);
+    }
+
+    const roundLen = Math.max(1.0, rec.settings?.roundLength || 3.5);
+    const interval = parsePullIntervalFromRecord(
+      rec.chainage || '',
+      rec.faceChainage || '',
+      roundLen
+    );
+    // Avoid duplicating a round that already exists at the exact same interval from FieldStore
+    const duplicate = locEntry.rounds.some(
+      (existing) =>
+        Math.abs(existing.fromRd - interval.fromRd) < 0.05 &&
+        Math.abs(existing.toRd - interval.toRd) < 0.05
+    );
+    if (!duplicate) {
+      const pullSpan = Math.max(0.5, interval.toRd - interval.fromRd);
+      const derived = derivePullReportDetailsFromRecord(rec, pullSpan);
+      const qVal = derived.qValue ?? 4.5;
+      const rmrVal = derived.rmrValue ?? 58;
+      const gsiVal = derived.gsiValue ?? Math.max(20, rmrVal - 5);
+      const rqdVal = derived.rqdValue ?? 70;
+      const ucsVal = rec.rmrParams?.intactStrengthValueMPa ?? 75;
+
+      locEntry.rounds.push({
+        id: rec.id,
+        roundNumber: locEntry.rounds.length + 1,
+        fromRd: Number(interval.fromRd.toFixed(2)),
+        toRd: Number(interval.toRd.toFixed(2)),
+        pullLengthM: Number(pullSpan.toFixed(2)),
+        date: rec.date || new Date().toISOString().slice(0, 10),
+        excavationMode,
+        excavationMethod: 'Drill & Blast',
+        rockType:
+          rec.lithologyRegions?.[0]?.lithologyName ||
+          rec.rockMassSummary?.rockType ||
+          rec.settings?.lithology ||
+          'Quartzite',
+        rockClass: derived.rockClass || 'III',
+        qValue: Number(qVal.toFixed(2)),
+        rmrValue: Math.round(rmrVal),
+        gsiValue: Math.round(gsiVal),
+        rqdPct: Math.round(rqdVal),
+        intactUcsMpa: Number(ucsVal.toFixed(1)),
+        overburdenDepthM: 110,
+        traceCount: (rec.joints || []).filter((j) => j.surface !== 'face').length,
+        supportSummary: derived.supportDescription || 'Systematic Rock Bolts + Shotcrete',
+        boltLengthM: 4.0,
+        boltSpacingM: 1.5,
+        shotcreteThicknessMm: 150,
+        steelRibSpacingM: 0,
+        sourceType: 'SAVED_PROJECT',
+        savedRecord: rec,
+      });
+      locEntry.rounds.sort((a, b) => a.fromRd - b.fromRd);
+    }
+  }
+
+  return Array.from(projectMap.values());
+}
+
+function mapRockNameToStripCode(rawRockName?: string): {
+  rockType: StripRockTypeId;
+  codeSymbol: string;
+} {
+  const name = (rawRockName || 'Quartzite').trim();
+  const lower = name.toLowerCase();
+  if (lower.includes('phyllitic quartzite') || lower === 'pq') {
+    return { rockType: 'Phyllitic Quartzite', codeSymbol: 'PQ' };
+  }
+  if (lower.includes('quartzitic phyllite') || lower === 'qp') {
+    return { rockType: 'Quartzitic Phyllite', codeSymbol: 'QP' };
+  }
+  if (lower.includes('quartzite') || lower.includes('qtz')) {
+    return { rockType: 'Quartzite', codeSymbol: 'Qtz' };
+  }
+  if (lower.includes('phyllite') || lower === 'ph') {
+    return { rockType: 'Phyllite', codeSymbol: 'Ph' };
+  }
+  if (lower.includes('schist') || lower === 'sch') {
+    return { rockType: 'Mica Schist', codeSymbol: 'Sch' };
+  }
+  if (lower.includes('granite') || lower === 'gr') {
+    return { rockType: 'Gr', codeSymbol: 'Gr' };
+  }
+  if (lower.includes('gneiss') || lower === 'gn') {
+    return { rockType: 'Gn', codeSymbol: 'Gn' };
+  }
+  if (lower.includes('basalt') || lower === 'bas') {
+    return { rockType: 'Bas', codeSymbol: 'Bas' };
+  }
+  if (lower.includes('dolerite')) {
+    return { rockType: 'Dolerite', codeSymbol: 'Dol' };
+  }
+  if (lower.includes('sandstone') || lower === 'ss') {
+    return { rockType: 'Metasandstone', codeSymbol: 'Ss' };
+  }
+  if (lower.includes('siltstone') || lower === 'sl') {
+    return { rockType: 'Siltstone', codeSymbol: 'Sl' };
+  }
+  if (lower.includes('shale')) {
+    return { rockType: 'Shale', codeSymbol: 'Sh' };
+  }
+  if (lower.includes('limestone') || lower === 'ls') {
+    return { rockType: 'Ls', codeSymbol: 'Ls' };
+  }
+  if (lower.includes('fault') || lower.includes('gouge') || lower.includes('shear')) {
+    return { rockType: 'FaultGouge', codeSymbol: 'FG' };
+  }
+  return {
+    rockType: (name as StripRockTypeId) || 'Quartzite',
+    codeSymbol: name.slice(0, 3).toUpperCase() || 'RK',
+  };
+}
+
+/**
+ * Compiles a complete ContinuousTunnelStripDataset for either Tunnel (3-zone unfolded arch)
+ * or Vertical Shaft (4-quadrant unfolded cylinder: 1. NE 0-90, 2. ES 90-180, 3. SW 180-270, 4. WN 270-360),
+ * syncing all mapped rounds inside [viewFromRd, viewToRd] and preserving unlogged gaps at true spatial scale.
+ */
+export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
+  excavationMode: 'TUNNEL' | 'SHAFT';
+  projectItem: UnifiedContinuousProjectItem;
+  locationItem: UnifiedContinuousLocationItem;
+  fromRd: number;
+  toRd: number;
+  existingDataset?: ContinuousTunnelStripDataset;
+}): ContinuousTunnelStripDataset {
+  const { excavationMode, projectItem, locationItem, existingDataset } = params;
+  const viewFromRd = Math.min(params.fromRd, params.toRd);
+  const viewToRd = Math.max(viewFromRd + 0.5, Math.max(params.fromRd, params.toRd));
+
+  const isShaft = excavationMode === 'SHAFT';
+  const spanDiameterM = locationItem.diameterWidthM || 8.0;
+  const wallHeightM = locationItem.heightM || 6.0;
+  const driveAz = locationItem.driveAzimuthDeg || 0;
+
+  // Compute perimeter unfolding geometry
+  const shaftQuadArcM = Number(((Math.PI * spanDiameterM) / 4).toFixed(2));
+  const shaftTotalPerimM = Number((shaftQuadArcM * 4).toFixed(2));
+
+  const leftWallArcM = isShaft ? shaftQuadArcM : Number(wallHeightM.toFixed(2));
+  const crownArcM = isShaft
+    ? shaftQuadArcM
+    : Number((spanDiameterM * 1.15).toFixed(2));
+  const rightWallArcM = isShaft ? shaftQuadArcM : Number(wallHeightM.toFixed(2));
+  const shaftSnArcM = isShaft ? shaftQuadArcM : 0;
+
+  const upperZoneWidthM = isShaft
+    ? Number((shaftQuadArcM * 2).toFixed(2))
+    : Number((leftWallArcM + crownArcM).toFixed(2));
+  const lowerZoneWidthM = isShaft
+    ? Number((shaftQuadArcM * 2).toFixed(2))
+    : rightWallArcM;
+  const totalPerimM = Number((upperZoneWidthM + lowerZoneWidthM).toFixed(2));
+
+  const shaftSubMode: 'FULL_CIRCLE' | 'HALF_CIRCLE_LEFT' | 'HALF_CIRCLE_RIGHT' =
+    isShaft && locationItem.excavationApproach === 'half_face'
+      ? locationItem.shaftHalfSide === 'right_half'
+        ? 'HALF_CIRCLE_RIGHT'
+        : 'HALF_CIRCLE_LEFT'
+      : 'FULL_CIRCLE';
+
+  const mappedPulls: ContinuousPullRecord[] = [];
+  const traces: ContinuousStripTrace[] = [];
+  const lithologyZones: ContinuousStripLithologyZone[] = [];
+  const waterSymbols: ContinuousStripWaterSymbol[] = [];
+
+  // Filter rounds that overlap [viewFromRd, viewToRd]
+  const activeRounds = (locationItem.rounds || []).filter(
+    (r) => r.toRd > viewFromRd + 0.01 && r.fromRd < viewToRd - 0.01
+  );
+
+  for (const rItem of activeRounds) {
+    const clipFromRd = Math.max(viewFromRd, rItem.fromRd);
+    const clipToRd = Math.min(viewToRd, rItem.toRd);
+    const roundLen = Math.max(0.2, clipToRd - clipFromRd);
+
+    mappedPulls.push({
+      id: `pull-${rItem.id}`,
+      fromRd: Number(clipFromRd.toFixed(2)),
+      toRd: Number(clipToRd.toFixed(2)),
+      driveAzimuthDeg: driveAz,
+      gradientPct: isShaft ? -100 : 0.2,
+      leftBoundaryAzimuthDeg: isShaft ? 0 : (driveAz + 270) % 360,
+      convergenceMm: rItem.rmrValue >= 60 ? '-2mm' : rItem.rmrValue >= 40 ? '-5mm' : '-11mm',
+      rockType: rItem.rockType,
+      rockDescription: `${rItem.rockType} (${rItem.excavationMethod})`,
+      rockClass: rItem.rockClass,
+      weatheringCondition:
+        rItem.fieldRound?.weatheringIndex ||
+        (rItem.rmrValue >= 60 ? 'Fresh to Slightly Weathered' : 'Moderately Weathered'),
+      ucsRangeMpa: `${Math.max(10, Math.round(rItem.intactUcsMpa - 15))}–${Math.round(rItem.intactUcsMpa + 15)} MPa`,
+      rmrValue: rItem.rmrValue,
+      rqdValue: rItem.rqdPct,
+      qValue: rItem.qValue,
+      gsiValue: rItem.gsiValue,
+      seepageCondition: rItem.fieldRound?.waterMarks?.[0]?.condition || 'Damp / Minor Seepage',
+      structureDescription: `${rItem.traceCount} mapped structural trace(s)`,
+      foliationCharacteristics: isShaft ? 'Vertical Shaft Wall Mapping' : 'Unwrapped Arch & Wall Mapping',
+      overbreakVolumeM3: Number(
+        (
+          rItem.fieldRound?.surveyOverbreak?.overbreakVolumeM3 ??
+          roundLen * (rItem.rmrValue < 45 ? 2.4 : 1.1)
+        ).toFixed(1)
+      ),
+      excavationDefiningNo: `RD-${rItem.roundNumber}`,
+      excavationDate: rItem.date,
+      supportClass: rItem.rockClass,
+      shotcreteInstalled: `${rItem.shotcreteThicknessMm}mm SFRS`,
+      wireMeshInstalled: 'Weldmesh 100x100x6mm',
+      rockBoltsInstalled: `L=${rItem.boltLengthM}m @ ${rItem.boltSpacingM}m c/c`,
+      steelRibsInstalled: rItem.steelRibSpacingM > 0 ? `ISMB @ ${rItem.steelRibSpacingM}m` : 'None',
+      forepolingInstalled: rItem.qValue < 1.0 ? 'Forepoling 32mm SDA' : 'None',
+      remarks: rItem.fieldRound?.remarks || rItem.fieldRound?.geologicalDescription || '',
+      supportDescription: rItem.supportSummary,
+      status: 'MAPPED',
+      linkedFieldRoundId: rItem.fieldRound?.id,
+      linkedSavedProjectId: rItem.savedRecord?.id,
+      dateMapped: rItem.date,
+      overburdenDepthM: rItem.overburdenDepthM || locationItem.overburdenDepthM || 110,
+      intactUcsMpa: rItem.intactUcsMpa,
+      boltLengthM: rItem.boltLengthM,
+      boltSpacingM: rItem.boltSpacingM,
+      shotcreteThicknessMm: rItem.shotcreteThicknessMm,
+      steelRibSpacingM: rItem.steelRibSpacingM,
+      excavationApproach: locationItem.excavationApproach,
+      benchHeightM: locationItem.benchHeightM,
+      shaftHalfSide: locationItem.shaftHalfSide,
+      shaftCenterMedianStatus: locationItem.shaftCenterMedianStatus,
+    });
+
+    // Add background lithology polygon for this mapped pull
+    const rockMeta = mapRockNameToStripCode(rItem.rockType);
+    lithologyZones.push({
+      id: `lith-pull-${rItem.id}`,
+      rockType: rockMeta.rockType,
+      codeSymbol: rockMeta.codeSymbol,
+      label: `${rockMeta.codeSymbol} - ${rItem.rockType} (${isShaft ? 'Depth' : 'RD'} ${clipFromRd.toFixed(1)}–${clipToRd.toFixed(1)}m)`,
+      polygon: [
+        { x: clipFromRd, y: 0 },
+        { x: clipToRd, y: 0 },
+        { x: clipToRd, y: totalPerimM },
+        { x: clipFromRd, y: totalPerimM },
+      ],
+    });
+
+    // Populate groundwater seepage symbol for this mapped pull
+    const pullSeepageStr = rItem.fieldRound?.waterMarks?.[0]?.condition || 'Damp / Minor Seepage';
+    const seepLower = pullSeepageStr.toLowerCase();
+    const mappedWaterCond: StripGroundwaterId = seepLower.includes('flow')
+      ? 'Flowing'
+      : seepLower.includes('drip')
+      ? 'Dripping'
+      : seepLower.includes('wet')
+      ? 'Wet'
+      : seepLower.includes('damp') || seepLower.includes('moist')
+      ? 'Moist/Damp'
+      : 'Dry';
+    waterSymbols.push({
+      id: `water-pull-${rItem.id}`,
+      condition: mappedWaterCond,
+      position: {
+        x: Number(((clipFromRd + clipToRd) / 2).toFixed(2)),
+        y: Number((isShaft ? shaftQuadArcM * 1.45 : leftWallArcM + crownArcM * 0.5).toFixed(2)),
+      },
+      label: `${mappedWaterCond} (${pullSeepageStr})`,
+    });
+
+    // Unfold FieldExcavationRound traces (Left Wall, Crown, Right Wall, and Shaft 4th quadrant `shaft_sn`)
+    if (rItem.fieldRound && locationItem.fieldLocation) {
+      const fRound = rItem.fieldRound;
+      const fLoc = locationItem.fieldLocation;
+      const panelTraces = (fRound.jointTraces || []).filter((tr) => tr.panel !== 'face');
+
+      for (const tr of panelTraces) {
+        if (!tr.points || tr.points.length < 2) continue;
+        const metricPts =
+          tr.metricPoints && tr.metricPoints.length === tr.points.length
+            ? tr.metricPoints
+            : computePhysicalMetricPoints(tr.points, tr.panel, fLoc, fRound);
+        const stripPts: Point2D[] = metricPts.map((mp) => {
+          // For left_wall / right_wall / shaft_sn: mp.x is pull [0..roundLen], mp.y is wall/arc height
+          // For crown: mp.x is lateral arc [0..crownArcM], mp.y is pull [0..roundLen]
+          const localPullX = tr.panel === 'crown' && !isShaft ? mp.y : mp.x;
+          const localPerimY = tr.panel === 'crown' && !isShaft ? mp.x : mp.y;
+
+          const xChainage = Math.max(
+            clipFromRd,
+            Math.min(clipToRd, clipFromRd + Math.max(0, Math.min(roundLen, localPullX)))
+          );
+          let yPerim = 0;
+          if (isShaft) {
+            // 4 quadrants: left_wall (0..Q), crown (Q..2Q), right_wall (2Q..3Q), shaft_sn (3Q..4Q)
+            const localY = Math.max(0, Math.min(shaftQuadArcM, localPerimY));
+            if (tr.panel === 'left_wall') yPerim = localY;
+            else if (tr.panel === 'crown') yPerim = shaftQuadArcM + localY;
+            else if (tr.panel === 'right_wall') yPerim = shaftQuadArcM * 2 + localY;
+            else if (tr.panel === 'shaft_sn') yPerim = shaftQuadArcM * 3 + localY;
+          } else {
+            // Tunnel 3 zones: left_wall (0..leftWallArcM), crown (leftWallArcM..+crownArcM), right_wall (+rightWallArcM)
+            if (tr.panel === 'left_wall') {
+              yPerim = Math.max(0, Math.min(leftWallArcM, localPerimY));
+            } else if (tr.panel === 'crown') {
+              yPerim = leftWallArcM + Math.max(0, Math.min(crownArcM, localPerimY));
+            } else if (tr.panel === 'right_wall') {
+              yPerim = leftWallArcM + crownArcM + Math.max(0, Math.min(rightWallArcM, localPerimY));
+            }
+          }
+          return {
+            x: Number(xChainage.toFixed(3)),
+            y: Number(Math.max(0.05, Math.min(totalPerimM - 0.05, yPerim)).toFixed(3)),
+          };
+        });
+
+        const setKey = tr.setId && tr.setId !== 'unassigned' ? tr.setId : 'J1';
+        const setRec = (fRound.discontinuitySets as any)?.[setKey];
+
+        const structType: StripStructureTypeId =
+          setKey === 'J-Bedding'
+            ? 'JS1 - Foliation'
+            : setKey === 'J2'
+            ? 'JS2 - Main Joint'
+            : setKey === 'J3'
+            ? 'JS3 - Main Joint'
+            : 'Joint';
+
+        const sourceSurf: ContinuousStripTrace['sourceSurface'] =
+          tr.panel === 'left_wall'
+            ? 'leftWall'
+            : tr.panel === 'crown'
+            ? 'crown'
+            : tr.panel === 'right_wall'
+            ? 'rightWall'
+            : 'shaft_sn';
+
+        const dipDir = Math.round(tr.dipDirection || 120);
+        const dipAng = Math.round(tr.dipAmount || 60);
+
+        traces.push({
+          id: `tr-${fRound.id}-${tr.id}`,
+          structureType: structType,
+          setId: setKey,
+          orientationLabel: `${String(dipDir).padStart(3, '0')}/${String(dipAng).padStart(2, '0')}`,
+          dipDirectionDeg: dipDir,
+          dipDeg: dipAng,
+          dipTickSide: dipDir >= 180 ? 'left' : 'right',
+          fillingThickness: 'Thin',
+          points: stripPts,
+          rawPoints: stripPts.map((p) => ({ ...p })),
+          sourceSurface: sourceSurf,
+          colorHex: setKey === 'J1' ? '#2563eb' : setKey === 'J2' ? '#ea580c' : '#9333ea',
+          roughness: setRec?.roughness || 'Rough / Irregular',
+          jrc: 12,
+          jcsMpa: Number((rItem.intactUcsMpa * 0.75).toFixed(1)),
+          infilling: setRec?.infilling || 'Clean / Tight',
+          apertureMm: setRec?.aperture || '1.0mm',
+          waterCondition: setRec?.groundwater || 'Dry',
+          customLabel: tr.label || setKey,
+        });
+      }
+    } else if (rItem.savedRecord) {
+      // Unfold from SavedProjectRecord
+      const rec = rItem.savedRecord;
+      const interval = { fromRd: clipFromRd, toRd: clipToRd };
+      const wallCrownJoints = (rec.joints || []).filter(
+        (j) => j.surface === 'leftWall' || j.surface === 'crown' || j.surface === 'rightWall'
+      );
+      for (const j of wallCrownJoints) {
+        if (!j.geometry || j.geometry.length < 2) continue;
+        const totalJointPts = j.geometry.length;
+        const mappedPts = j.geometry.map((pt, idx) =>
+          mapUnwrappedSurfacePointTo3DStrip(
+            pt,
+            j.surface,
+            interval,
+            roundLen,
+            rec.geometry,
+            leftWallArcM,
+            crownArcM,
+            rightWallArcM,
+            totalPerimM,
+            j.dipDirection,
+            j.dip,
+            driveAz,
+            totalJointPts > 1 ? idx / (totalJointPts - 1) : 0.5
+          )
+        );
+        traces.push({
+          id: `tr-saved-${rec.id}-${j.id}`,
+          structureType: 'JS2 - Main Joint',
+          setId: j.set || 'J1',
+          orientationLabel: `${String(Math.round(j.dipDirection)).padStart(3, '0')}/${String(Math.round(j.dip)).padStart(2, '0')}`,
+          dipDirectionDeg: Math.round(j.dipDirection),
+          dipDeg: Math.round(j.dip),
+          dipTickSide: Math.round(j.dipDirection) >= 180 ? 'left' : 'right',
+          fillingThickness: 'Thin',
+          points: mappedPts,
+          rawPoints: mappedPts.map((p) => ({ ...p })),
+          sourceSurface: j.surface as any,
+          colorHex: '#0ea5e9',
+          roughness: j.roughness || 'Rough',
+          jrc: 10,
+          jcsMpa: 60,
+          infilling: j.infilling || 'Clean',
+          apertureMm: j.apertureMm || '1.0mm',
+          customLabel: j.set || j.id,
+        });
+      }
+    }
+  }
+
+  // Preserve custom user-added lithologyZones and waterSymbols from existingDataset
+  if (existingDataset?.lithologyZones) {
+    for (const lz of existingDataset.lithologyZones) {
+      if (!lz.id.startsWith('lith-pull-')) {
+        lithologyZones.push(lz);
+      }
+    }
+  }
+  if (existingDataset?.waterSymbols) {
+    for (const ws of existingDataset.waterSymbols) {
+      if (!ws.id.startsWith('water-pull-')) {
+        waterSymbols.push(ws);
+      }
+    }
+  }
+
+  // Build full pull list across [viewFromRd, viewToRd] with true-scale MISSING_GAP intervals
+  const pullsWithGaps = buildPullsWithMissingGapsInRange(mappedPulls, viewFromRd, viewToRd);
+  const gapCount = pullsWithGaps.filter((p) => p.status === 'MISSING_GAP').length;
+
+  const avgRmr =
+    mappedPulls.length > 0
+      ? Math.round(mappedPulls.reduce((s, p) => s + (p.rmrValue ?? 55), 0) / mappedPulls.length)
+      : 55;
+  const avgQ =
+    mappedPulls.length > 0
+      ? Number((mappedPulls.reduce((s, p) => s + (p.qValue ?? 4.0), 0) / mappedPulls.length).toFixed(2))
+      : 4.0;
+
+  const id =
+    existingDataset?.id ||
+    `dataset-unified-${excavationMode.toLowerCase()}-${projectItem.id}-${locationItem.id}`;
+
+  const dataset: ContinuousTunnelStripDataset = {
+    id,
+    excavationMode,
+    shaftSubMode: isShaft ? shaftSubMode : undefined,
+    shaftCenterMedianStatus: isShaft ? locationItem.shaftCenterMedianStatus || 'closed' : undefined,
+    shaftDiameterM: isShaft ? spanDiameterM : undefined,
+    shaftQuadrantArcLengthM: isShaft ? shaftQuadArcM : undefined,
+    excavationApproach: locationItem.excavationApproach || 'full_face',
+    benchHeightM: locationItem.benchHeightM,
+    projectName: projectItem.projectName,
+    tunnelLocationName: locationItem.name,
+    clientName: projectItem.clientName,
+    contractorName: projectItem.contractorName,
+    geologistContractor: existingDataset?.geologistContractor || 'Senior Engineering Geologist',
+    geologistClient: existingDataset?.geologistClient || 'Resident Geologist',
+    upperZoneLabel: isShaft
+      ? 'QUADRANTS 1 & 2 (NE 0°–90° | ES 90°–180°)'
+      : 'LEFT WALL & CROWN ARCH',
+    lowerZoneLabel: isShaft
+      ? 'QUADRANTS 3 & 4 (SW 180°–270° | WN 270°–360°)'
+      : 'RIGHT WALL',
+    upperZoneWidthM,
+    lowerZoneWidthM,
+    leftWallArcLengthM: leftWallArcM,
+    crownArcLengthM: crownArcM,
+    rightWallArcLengthM: rightWallArcM,
+    shaftSnArcLengthM: isShaft ? shaftSnArcM : undefined,
+    leftWallHeightM: wallHeightM,
+    crownWidthM: spanDiameterM,
+    rightWallHeightM: wallHeightM,
+    tunnelDiameterWidthM: spanDiameterM,
+    tunnelArchHeightM: isShaft ? spanDiameterM / 2 : Math.max(1.8, spanDiameterM * 0.35),
+    overburdenDepthM: locationItem.overburdenDepthM || 110,
+    viewFromRd: Number(viewFromRd.toFixed(2)),
+    viewToRd: Number(viewToRd.toFixed(2)),
+    leftCornerAzimuthLabel: isShaft ? '000° (N) Collar' : `${(driveAz + 270) % 360}° (LH Wall)`,
+    rightCornerAzimuthLabel: isShaft ? '180° (S) Wall' : `${(driveAz + 90) % 360}° (RH Wall)`,
+    pulls: pullsWithGaps,
+    traces,
+    lithologyZones,
+    waterSymbols,
+    customAnnotations: existingDataset?.customAnnotations || [],
+    narrativeBullets: [
+      `${isShaft ? 'VERTICAL SHAFT SINKING' : 'TUNNEL HEADING'} SYNCED: ${mappedPulls.length} logged round(s) from ${isShaft ? 'Depth' : 'RD'} ${viewFromRd.toFixed(1)}m to ${viewToRd.toFixed(1)}m (${gapCount} unlogged gap interval(s) preserved blank).`,
+      `ROCK MASS SUMMARY: Mean Q = ${avgQ}, Mean RMR = ${avgRmr}, Overburden H = ${locationItem.overburdenDepthM || 110}m.`,
+      isShaft
+        ? `UNFOLDED CYLINDER CONVENTION: 4 Compass Quadrants — 1. NE (0°–90°: 0–${shaftQuadArcM}m), 2. ES (90°–180°: ${shaftQuadArcM}–${(shaftQuadArcM * 2).toFixed(1)}m), 3. SW (180°–270°: ${(shaftQuadArcM * 2).toFixed(1)}–${(shaftQuadArcM * 3).toFixed(1)}m), 4. WN (270°–360°: ${(shaftQuadArcM * 3).toFixed(1)}–${shaftTotalPerimM}m).`
+        : `UNFOLDED ARCH CONVENTION: Left Wall (0–${leftWallArcM}m), Crown Arch (${leftWallArcM}–${(leftWallArcM + crownArcM).toFixed(1)}m), Right Wall (${(leftWallArcM + crownArcM).toFixed(1)}–${totalPerimM}m).`,
+    ],
+    sheetConfig: existingDataset?.sheetConfig || getDefaultSheetConfig({
+      projectName: projectItem.projectName,
+      clientName: projectItem.clientName,
+      contractorName: projectItem.contractorName,
+    }),
+    updatedAt: new Date().toISOString(),
+  };
+
+  return dataset;
+}
+
+export interface Continuous3DJointInspectionRecord {
+  traceId: string;
+  label: string;
+  setId: string;
+  structureType: string;
+  dipDirectionDeg: number;
+  dipDeg: number;
+  strikeDeg: number;
+  fromRd: number;
+  toRd: number;
+  persistenceLengthM: number;
+  surfaceZones: string[];
+  jrc: number;
+  jcsMpa: number;
+  apertureMm: number;
+  infilling: string;
+  waterCondition: string;
+  planeNormal: { nx: number; ny: number; nz: number };
+  planeEquationStr: string;
+  bartonFrictionAngleDeg: number;
+  wedgeBlockVolumeM3: number;
+  wedgeApexHeightM: number;
+  slidingDirectionAzimuthDeg: number;
+  slidingPlungeDeg: number;
+  fosUnreinforced: number;
+  fosReinforced: number;
+  kinematicMode: 'FALLING_CROWN_WEDGE' | 'SLIDING_WALL_WEDGE' | 'BUCKLING_SLAB' | 'STABLE_LOCKED';
+  riskRating: 'CRITICAL' | 'MODERATE' | 'LOW';
+}
+
+/**
+ * Computes high-precision 3D joint plane geometry, Barton-Bandis shear strength,
+ * and 3D tetrahedral wedge kinematic stability (Before vs. After Support) for every trace in the dataset.
+ */
+export function computeContinuous3DJointInspectionSchedule(
+  dataset: ContinuousTunnelStripDataset
+): Continuous3DJointInspectionRecord[] {
+  const isShaft = dataset.excavationMode === 'SHAFT';
+  const spanM = dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 8.0;
+  const qArc = dataset.shaftQuadrantArcLengthM || (Math.PI * spanM) / 4;
+  const lwArc = dataset.leftWallArcLengthM || 5.0;
+  const crArc = dataset.crownArcLengthM || 8.0;
+
+  return (dataset.traces || []).map((tr, idx) => {
+    const pts = tr.points || [];
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const minX = xs.length ? Math.min(...xs) : dataset.viewFromRd;
+    const maxX = xs.length ? Math.max(...xs) : dataset.viewToRd;
+    let lengthM = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      lengthM += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+    }
+    lengthM = Math.max(0.5, lengthM);
+
+    const dipDirRad = (tr.dipDirectionDeg * Math.PI) / 180;
+    const dipRad = (tr.dipDeg * Math.PI) / 180;
+    const nx = Number((Math.sin(dipRad) * Math.sin(dipDirRad)).toFixed(3));
+    const ny = Number(Math.cos(dipRad).toFixed(3));
+    const nz = Number((Math.sin(dipRad) * Math.cos(dipDirRad)).toFixed(3));
+    const strikeDeg = (tr.dipDirectionDeg + 270) % 360;
+
+    // Identify intersected zones
+    const zones = new Set<string>();
+    for (const y of ys) {
+      if (isShaft) {
+        if (y < qArc) zones.add('1. NE (0°–90°)');
+        else if (y < qArc * 2) zones.add('2. ES (90°–180°)');
+        else if (y < qArc * 3) zones.add('3. SW (180°–270°)');
+        else zones.add('4. WN (270°–360°)');
+      } else {
+        if (y < lwArc) zones.add('Left Wall');
+        else if (y <= lwArc + crArc) zones.add('Crown Arch');
+        else zones.add('Right Wall');
+      }
+    }
+
+    const jrc = tr.jrc ?? (tr.roughness?.toLowerCase().includes('smooth') ? 6 : 12);
+    const jcsMpa = tr.jcsMpa ?? 65;
+    const apertureNum = parseFloat(String(tr.apertureMm || '1.0')) || 1.0;
+    const basicFriction = tr.infilling?.toLowerCase().includes('clay') ? 22 : 31;
+    const normalStressMpa = 1.5;
+    const bartonPhi = Math.min(
+      52,
+      basicFriction + jrc * Math.log10(Math.max(1.1, jcsMpa / normalStressMpa))
+    );
+
+    // Find corresponding pull for support parameters
+    const midRd = (minX + maxX) / 2;
+    const activePull =
+      dataset.pulls.find((p) => p.status === 'MAPPED' && midRd >= p.fromRd && midRd <= p.toRd) ||
+      dataset.pulls.find((p) => p.status === 'MAPPED');
+
+    const boltLen = activePull?.boltLengthM || 4.0;
+    const boltSpacing = activePull?.boltSpacingM || 1.5;
+    const shotcreteMm = activePull?.shotcreteThicknessMm || 150;
+
+    // Compute 3D tetrahedral wedge volume & apex height
+    const sinDip = Math.max(0.25, Math.sin(dipRad));
+    const effectiveTraceSpan = Math.min(spanM * 0.85, lengthM);
+    const wedgeApexHeightM = Number(
+      Math.min(boltLen * 0.92, effectiveTraceSpan * 0.28 * sinDip).toFixed(2)
+    );
+    const wedgeBlockVolumeM3 = Number(
+      Math.max(0.35, (1 / 6) * effectiveTraceSpan * (effectiveTraceSpan * 0.55) * wedgeApexHeightM).toFixed(2)
+    );
+
+    const isCrownZone = Array.from(zones).some((z) => z.includes('Crown'));
+    const plungeDeg = Math.round(tr.dipDeg * 0.82);
+    const tanPhi = Math.tan((bartonPhi * Math.PI) / 180);
+    const tanPlunge = Math.max(0.2, Math.tan((plungeDeg * Math.PI) / 180));
+    const cohesionKpa = tr.infilling?.toLowerCase().includes('clay') ? 12 : 35;
+    const unitWeightKnM3 = 26.5;
+    const wedgeWeightKn = wedgeBlockVolumeM3 * unitWeightKnM3;
+    const contactAreaM2 = Math.max(1.2, effectiveTraceSpan * wedgeApexHeightM * 0.9);
+
+    const fosUnreinforced = Number(
+      Math.max(
+        0.55,
+        Math.min(
+          2.8,
+          isCrownZone && !isShaft && tr.dipDeg > 55
+            ? (cohesionKpa * contactAreaM2) / Math.max(25, wedgeWeightKn)
+            : tanPhi / tanPlunge + (cohesionKpa * contactAreaM2) / Math.max(40, wedgeWeightKn)
+        )
+      ).toFixed(2)
+    );
+
+    // Support capacity contribution from rock bolts + shotcrete arch/ring
+    const boltsInWedge = Math.max(1, Math.ceil(contactAreaM2 / (boltSpacing * boltSpacing)));
+    const boltCapacityKn = boltsInWedge * 180; // 180 kN per rock bolt
+    const shotcreteShearKn = (shotcreteMm / 1000) * effectiveTraceSpan * 1200; // 1.2 MPa shear capacity
+    const totalSupportResistanceKn = boltCapacityKn + shotcreteShearKn * 0.45;
+
+    const fosReinforced = Number(
+      Math.min(
+        4.2,
+        fosUnreinforced + totalSupportResistanceKn / Math.max(35, wedgeWeightKn)
+      ).toFixed(2)
+    );
+
+    const kinematicMode: Continuous3DJointInspectionRecord['kinematicMode'] =
+      isCrownZone && !isShaft && tr.dipDeg >= 50
+        ? 'FALLING_CROWN_WEDGE'
+        : tr.dipDeg >= 72 && isShaft
+        ? 'BUCKLING_SLAB'
+        : fosUnreinforced < 1.35
+        ? 'SLIDING_WALL_WEDGE'
+        : 'STABLE_LOCKED';
+
+    const riskRating: Continuous3DJointInspectionRecord['riskRating'] =
+      fosUnreinforced < 1.05
+        ? 'CRITICAL'
+        : fosUnreinforced < 1.5
+        ? 'MODERATE'
+        : 'LOW';
+
+    const dConst = Number((nx * midRd + ny * 2.0 + nz * 1.5).toFixed(2));
+
+    return {
+      traceId: tr.id,
+      label: tr.customLabel || tr.setId || `J-${idx + 1}`,
+      setId: tr.setId || 'J1',
+      structureType: String(tr.structureType),
+      dipDirectionDeg: tr.dipDirectionDeg,
+      dipDeg: tr.dipDeg,
+      strikeDeg,
+      fromRd: Number(minX.toFixed(2)),
+      toRd: Number(maxX.toFixed(2)),
+      persistenceLengthM: Number(lengthM.toFixed(2)),
+      surfaceZones: Array.from(zones),
+      jrc: Number(jrc.toFixed(1)),
+      jcsMpa: Number(jcsMpa.toFixed(1)),
+      apertureMm: Number(apertureNum.toFixed(2)),
+      infilling: tr.infilling || 'Clean / Tight',
+      waterCondition: tr.waterCondition || 'Dry',
+      planeNormal: { nx, ny, nz },
+      planeEquationStr: `${nx}x + ${ny}y + ${nz}z = ${dConst}`,
+      bartonFrictionAngleDeg: Number(bartonPhi.toFixed(1)),
+      wedgeBlockVolumeM3,
+      wedgeApexHeightM,
+      slidingDirectionAzimuthDeg: tr.dipDirectionDeg,
+      slidingPlungeDeg: plungeDeg,
+      fosUnreinforced,
+      fosReinforced,
+      kinematicMode,
+      riskRating,
+    };
+  });
+}
+
+export interface ContinuousPullFemDemResult {
+  pullId: string;
+  fromRd: number;
+  toRd: number;
+  midRd: number;
+  status: 'MAPPED' | 'MISSING_GAP';
+  rockType: string;
+  rockClass: string;
+  qValue: number;
+  rmrValue: number;
+  gsiValue: number;
+  intactUcsMpa: number;
+  overburdenDepthM: number;
+  inSituStressMpa: number;
+  rockMassModulusGpa: number;
+  /** Before Support (Unreinforced) */
+  unreinforcedDispMm: number;
+  unreinforcedPlasticRadiusM: number;
+  unreinforcedContinuumFos: number;
+  unreinforcedDiscreteWedgeFos: number;
+  /** After Support (Reinforced with installed bolts, shotcrete, steel ribs / curb ring) */
+  reinforcedDispMm: number;
+  reinforcedPlasticRadiusM: number;
+  reinforcedContinuumFos: number;
+  reinforcedDiscreteWedgeFos: number;
+  installedSupportPressureMpa: number;
+  requiredSupportPressureMpa: number;
+  dispReductionPct: number;
+  supportSummary: string;
+  boltLengthM: number;
+  boltSpacingM: number;
+  shotcreteThicknessMm: number;
+  steelRibSpacingM: number;
+}
+
+/**
+ * Computes full-length continuous FEM / DEM Before Support vs. After Support mechanics
+ * for every pull along the selected chainage or vertical shaft depth.
+ */
+export function computeContinuousStripFemDemProfile(
+  dataset: ContinuousTunnelStripDataset
+): ContinuousPullFemDemResult[] {
+  const isShaft = dataset.excavationMode === 'SHAFT';
+  const spanM = dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 8.0;
+  const radiusM = spanM / 2;
+  const jointSchedule = computeContinuous3DJointInspectionSchedule(dataset);
+
+  return (dataset.pulls || []).map((p) => {
+    const midRd = Number(((p.fromRd + p.toRd) / 2).toFixed(2));
+    if (p.status === 'MISSING_GAP') {
+      return {
+        pullId: p.id,
+        fromRd: p.fromRd,
+        toRd: p.toRd,
+        midRd,
+        status: 'MISSING_GAP',
+        rockType: 'UNLOGGED GAP',
+        rockClass: '-',
+        qValue: 0,
+        rmrValue: 0,
+        gsiValue: 0,
+        intactUcsMpa: 0,
+        overburdenDepthM: 0,
+        inSituStressMpa: 0,
+        rockMassModulusGpa: 0,
+        unreinforcedDispMm: 0,
+        unreinforcedPlasticRadiusM: 0,
+        unreinforcedContinuumFos: 0,
+        unreinforcedDiscreteWedgeFos: 0,
+        reinforcedDispMm: 0,
+        reinforcedPlasticRadiusM: 0,
+        reinforcedContinuumFos: 0,
+        reinforcedDiscreteWedgeFos: 0,
+        installedSupportPressureMpa: 0,
+        requiredSupportPressureMpa: 0,
+        dispReductionPct: 0,
+        supportSummary: 'Unlogged Interval — No Data',
+        boltLengthM: 0,
+        boltSpacingM: 0,
+        shotcreteThicknessMm: 0,
+        steelRibSpacingM: 0,
+      };
+    }
+
+    const qVal = Math.max(0.05, p.qValue ?? 4.0);
+    const rmrVal = Math.max(15, p.rmrValue ?? 55);
+    const gsiVal = Math.max(15, p.gsiValue ?? rmrVal - 5);
+    const ucsMpa = Math.max(10, p.intactUcsMpa ?? 65);
+    // In Vertical Shaft mode, effective depth increases with round depth
+    const baseOverburden = p.overburdenDepthM || dataset.overburdenDepthM || 110;
+    const effectiveDepthM = isShaft ? Math.max(25, midRd > 10 ? midRd : baseOverburden) : baseOverburden;
+
+    const unitWeightMNm3 = 0.027;
+    // Shaft horizontal stress is governed by K0 * sigma_v; Tunnel is governed by vertical/horizontal stress
+    const k0 = isShaft ? 1.25 : 1.1;
+    const p0Mpa = Number((unitWeightMNm3 * effectiveDepthM * (isShaft ? k0 : 1.0)).toFixed(2));
+
+    // Hoek-Brown generalized parameters
+    const mi = 12;
+    const dFactor = 0.2;
+    const mb = mi * Math.exp((gsiVal - 100) / (28 - 14 * dFactor));
+    const s = Math.exp((gsiVal - 100) / (9 - 3 * dFactor));
+    const a = 0.5 + (1 / 6) * (Math.exp(-gsiVal / 15) - Math.exp(-20 / 3));
+    const sigmaCmMpa = ucsMpa * ((mb + 4 * s - a * (mb - 8 * s)) * Math.pow(mb / 4 + s, a - 1)) / (2 * (1 + a) * (2 + a));
+    const ermGpa = Math.max(1.2, 10 * Math.pow(10, (rmrVal - 10) / 40) * 0.45);
+    const ermMpa = ermGpa * 1000;
+
+    // Half-circle shaft open median increases shape concentration factor
+    const shapeFactor =
+      isShaft && dataset.shaftSubMode !== 'FULL_CIRCLE'
+        ? dataset.shaftCenterMedianStatus === 'open'
+          ? 1.38
+          : 1.14
+        : isShaft
+        ? 0.92 // Full circular shaft ring arch action
+        : 1.15;
+
+    // 1. Before Support (Unreinforced, pi = 0)
+    const stressRatio = Math.max(0.15, (p0Mpa * shapeFactor) / Math.max(1.5, sigmaCmMpa));
+    const unreinforcedPlasticRadiusM = Number(
+      (radiusM * Math.max(1.04, 1 + 0.38 * stressRatio)).toFixed(2)
+    );
+    const unreinforcedDispMm = Number(
+      Math.max(
+        1.8,
+        ((1.25 * p0Mpa * shapeFactor * radiusM) / ermMpa) *
+          Math.pow(unreinforcedPlasticRadiusM / radiusM, 2) *
+          1000
+      ).toFixed(2)
+    );
+    const unreinforcedContinuumFos = Number(
+      Math.max(0.62, Math.min(2.6, (sigmaCmMpa * 1.45) / Math.max(0.8, p0Mpa * shapeFactor))).toFixed(2)
+    );
+
+    // Installed support pressure capacity (MPa) from bolts + shotcrete + ribs/curb
+    const boltL = p.boltLengthM || 4.0;
+    const boltS = p.boltSpacingM || 1.5;
+    const shotMm = p.shotcreteThicknessMm || 150;
+    const ribS = p.steelRibSpacingM || 0;
+
+    const pBoltMpa = 0.22 / Math.max(0.8, boltS * boltS); // ~0.10 MPa for 1.5m x 1.5m
+    const pShotcreteMpa =
+      28 * (shotMm / 1000) / Math.max(2.0, radiusM) * (isShaft ? 1.15 : 0.95); // closed ring bonus in shaft
+    const pRibMpa = ribS > 0 ? 0.35 / ribS : 0;
+    const installedSupportPressureMpa = Number((pBoltMpa + pShotcreteMpa + pRibMpa).toFixed(3));
+
+    // Barton required support pressure
+    const jr = 2.0;
+    const requiredSupportPressureMpa = Number(
+      Math.max(0.04, (2.0 / jr) * Math.pow(qVal, -1 / 3) * 0.1).toFixed(3)
+    );
+
+    // 2. After Support (Reinforced with internal support pressure pi)
+    const effectiveP0 = Math.max(0.2 * p0Mpa, p0Mpa * shapeFactor - installedSupportPressureMpa * 3.2);
+    const reinfStressRatio = Math.max(0.08, effectiveP0 / Math.max(1.5, sigmaCmMpa + installedSupportPressureMpa * 4.5));
+    const reinforcedPlasticRadiusM = Number(
+      Math.max(radiusM * 1.01, radiusM * (1 + 0.19 * reinfStressRatio)).toFixed(2)
+    );
+    const reinforcedDispMm = Number(
+      Math.max(
+        0.6,
+        unreinforcedDispMm * Math.max(0.24, 1 / (1 + installedSupportPressureMpa * 2.1))
+      ).toFixed(2)
+    );
+    const reinforcedContinuumFos = Number(
+      Math.min(
+        3.9,
+        unreinforcedContinuumFos + installedSupportPressureMpa * 1.65 + (boltL / radiusM) * 0.25
+      ).toFixed(2)
+    );
+
+    // Discrete wedge FoS in this pull interval
+    const pullTraces = jointSchedule.filter(
+      (j) => j.toRd >= p.fromRd - 0.5 && j.fromRd <= p.toRd + 0.5
+    );
+    const unreinforcedDiscreteWedgeFos =
+      pullTraces.length > 0
+        ? Number(Math.min(...pullTraces.map((j) => j.fosUnreinforced)).toFixed(2))
+        : Number(Math.min(2.4, unreinforcedContinuumFos * 1.08).toFixed(2));
+    const reinforcedDiscreteWedgeFos =
+      pullTraces.length > 0
+        ? Number(Math.min(...pullTraces.map((j) => j.fosReinforced)).toFixed(2))
+        : Number(Math.min(3.8, reinforcedContinuumFos * 1.15).toFixed(2));
+
+    const dispReductionPct = Math.round(
+      ((unreinforcedDispMm - reinforcedDispMm) / Math.max(0.1, unreinforcedDispMm)) * 100
+    );
+
+    return {
+      pullId: p.id,
+      fromRd: p.fromRd,
+      toRd: p.toRd,
+      midRd,
+      status: 'MAPPED',
+      rockType: p.rockType,
+      rockClass: p.rockClass,
+      qValue: Number(qVal.toFixed(2)),
+      rmrValue: Math.round(rmrVal),
+      gsiValue: Math.round(gsiVal),
+      intactUcsMpa: Number(ucsMpa.toFixed(1)),
+      overburdenDepthM: Number(effectiveDepthM.toFixed(1)),
+      inSituStressMpa: p0Mpa,
+      rockMassModulusGpa: Number(ermGpa.toFixed(2)),
+      unreinforcedDispMm,
+      unreinforcedPlasticRadiusM,
+      unreinforcedContinuumFos,
+      unreinforcedDiscreteWedgeFos,
+      reinforcedDispMm,
+      reinforcedPlasticRadiusM,
+      reinforcedContinuumFos,
+      reinforcedDiscreteWedgeFos,
+      installedSupportPressureMpa,
+      requiredSupportPressureMpa,
+      dispReductionPct,
+      supportSummary: p.supportDescription,
+      boltLengthM: boltL,
+      boltSpacingM: boltS,
+      shotcreteThicknessMm: shotMm,
+      steelRibSpacingM: ribS,
+    };
+  });
+}
+
+export interface ContinuousAdvancedGeotechSummary {
+  mappedPullCount: number;
+  missingGapCount: number;
+  totalRangeLengthM: number;
+  mappedLengthM: number;
+  unloggedLengthM: number;
+  meanQ: number;
+  meanRmr: number;
+  meanGsi: number;
+  meanRqd: number;
+  meanUcsMpa: number;
+  meanErmGpa: number;
+  meanSigmaCmMpa: number;
+  meanCohesionMpa: number;
+  meanFrictionDeg: number;
+  minFosBeforeSupport: number;
+  minFosAfterSupport: number;
+  maxDispBeforeMm: number;
+  maxDispAfterMm: number;
+  kinematicStereonetSummary: {
+    totalDiscontinuities: number;
+    dominantSetId: string;
+    meanDipDirectionDeg: number;
+    meanDipDeg: number;
+    meanFrictionAngleDeg: number;
+    planarSlidingRiskPct: number;
+    wedgeSlidingRiskPct: number;
+    topplingBucklingRiskPct: number;
+    poles: Array<{
+      id: string;
+      label: string;
+      setId: string;
+      dipDirectionDeg: number;
+      dipDeg: number;
+      colorHex: string;
+      isCritical: boolean;
+    }>;
+  };
+  perPullAnalytics: Array<{
+    pullId: string;
+    fromRd: number;
+    toRd: number;
+    status: 'MAPPED' | 'MISSING_GAP';
+    rockType: string;
+    qValue: number;
+    rmrValue: number;
+    gsiValue: number;
+    rqdValue: number;
+    intactUcsMpa: number;
+    miConstant: number;
+    disturbanceFactorD: number;
+    mbParam: number;
+    sParam: number;
+    aParam: number;
+    sigmaCmMpa: number;
+    sigmaTmMpa: number;
+    ermGpa: number;
+    cohesionMpa: number;
+    frictionAngleDeg: number;
+    inSituStressP0Mpa: number;
+    tangentialStressMaxMpa: number;
+    spallingRatio: number;
+    rockburstClass: 'NONE' | 'MINOR_SPALLING' | 'MODERATE_SLABBING' | 'SEVERE_STRAINBURST';
+    squeezingStrainPct: number;
+    squeezePotential: 'NONE' | 'MILD_SQUEEZING' | 'MODERATE_SQUEEZING';
+    grcCriticalPressureMpa: number;
+    grcEquilibriumPressureMpa: number;
+    grcEquilibriumDispMm: number;
+    facePreRelaxationPct: number;
+    standUpTimeHours: number;
+    maxUnsupportedSpanM: number;
+    waterInflowLMinPer10m: number;
+    supportMarginRatio: number;
+    optimalAdvanceM: number;
+    powderFactorKgM3: number;
+    perimeterHoleSpacingM: number;
+    predictedOverbreakPct: number;
+    shotcreteReboundPct: number;
+  }>;
+  lookAheadZones: Array<{
+    zoneLabel: string;
+    horizonTag: string;
+    fromRd: number;
+    toRd: number;
+    predictedQ: number;
+    predictedRmr: number;
+    predictedGsi: number;
+    predictedWaterLMin: number;
+    faultShearProbabilityPct: number;
+    projectedTraceCount: number;
+    probeDrillingRequired: boolean;
+    preGroutingRequired: boolean;
+    recommendedAdvanceM: number;
+    recommendedSupportClass: string;
+    hazardAdvisory: string;
+  }>;
+}
+
+/**
+ * Computes Stage 5 Continuous Advanced Geotechnical & Future Predictive Analytics across the selected chainage or shaft depth.
+ */
+export function computeContinuousAdvancedGeotechProfile(
+  dataset: ContinuousTunnelStripDataset
+): ContinuousAdvancedGeotechSummary {
+  const femProfile = computeContinuousStripFemDemProfile(dataset);
+  const mappedFem = femProfile.filter((f) => f.status === 'MAPPED');
+  const gapFem = femProfile.filter((f) => f.status === 'MISSING_GAP');
+  const isShaft = dataset.excavationMode === 'SHAFT';
+  const spanM = dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 8.0;
+
+  const totalRangeLengthM = Number(Math.max(0.5, dataset.viewToRd - dataset.viewFromRd).toFixed(2));
+  const mappedLengthM = Number(
+    mappedFem.reduce((s, f) => s + (f.toRd - f.fromRd), 0).toFixed(2)
+  );
+  const unloggedLengthM = Number(Math.max(0, totalRangeLengthM - mappedLengthM).toFixed(2));
+
+  const meanQ =
+    mappedFem.length > 0
+      ? Number((mappedFem.reduce((s, f) => s + f.qValue, 0) / mappedFem.length).toFixed(2))
+      : 0;
+  const meanRmr =
+    mappedFem.length > 0
+      ? Math.round(mappedFem.reduce((s, f) => s + f.rmrValue, 0) / mappedFem.length)
+      : 0;
+  const meanGsi =
+    mappedFem.length > 0
+      ? Math.round(mappedFem.reduce((s, f) => s + f.gsiValue, 0) / mappedFem.length)
+      : 0;
+  const mappedPulls = dataset.pulls.filter((p) => p.status === 'MAPPED');
+  const meanRqd =
+    mappedPulls.length > 0
+      ? Math.round(mappedPulls.reduce((s, p) => s + (p.rqdValue ?? 65), 0) / mappedPulls.length)
+      : 0;
+
+  const minFosBeforeSupport =
+    mappedFem.length > 0
+      ? Number(
+          Math.min(
+            ...mappedFem.map((f) => Math.min(f.unreinforcedContinuumFos, f.unreinforcedDiscreteWedgeFos))
+          ).toFixed(2)
+        )
+      : 0;
+  const minFosAfterSupport =
+    mappedFem.length > 0
+      ? Number(
+          Math.min(
+            ...mappedFem.map((f) => Math.min(f.reinforcedContinuumFos, f.reinforcedDiscreteWedgeFos))
+          ).toFixed(2)
+        )
+      : 0;
+  const maxDispBeforeMm =
+    mappedFem.length > 0 ? Number(Math.max(...mappedFem.map((f) => f.unreinforcedDispMm)).toFixed(2)) : 0;
+  const maxDispAfterMm =
+    mappedFem.length > 0 ? Number(Math.max(...mappedFem.map((f) => f.reinforcedDispMm)).toFixed(2)) : 0;
+
+  const perPullAnalytics = dataset.pulls.map((p, idx) => {
+    const fem = femProfile[idx];
+    if (p.status === 'MISSING_GAP' || !fem) {
+      return {
+        pullId: p.id,
+        fromRd: p.fromRd,
+        toRd: p.toRd,
+        status: 'MISSING_GAP' as const,
+        rockType: 'UNLOGGED GAP',
+        qValue: 0,
+        rmrValue: 0,
+        gsiValue: 0,
+        rqdValue: 0,
+        intactUcsMpa: 0,
+        miConstant: 0,
+        disturbanceFactorD: 0,
+        mbParam: 0,
+        sParam: 0,
+        aParam: 0,
+        sigmaCmMpa: 0,
+        sigmaTmMpa: 0,
+        ermGpa: 0,
+        cohesionMpa: 0,
+        frictionAngleDeg: 0,
+        inSituStressP0Mpa: 0,
+        tangentialStressMaxMpa: 0,
+        spallingRatio: 0,
+        rockburstClass: 'NONE' as const,
+        squeezingStrainPct: 0,
+        squeezePotential: 'NONE' as const,
+        grcCriticalPressureMpa: 0,
+        grcEquilibriumPressureMpa: 0,
+        grcEquilibriumDispMm: 0,
+        facePreRelaxationPct: 0,
+        standUpTimeHours: 0,
+        maxUnsupportedSpanM: 0,
+        waterInflowLMinPer10m: 0,
+        supportMarginRatio: 0,
+        optimalAdvanceM: 0,
+        powderFactorKgM3: 0,
+        perimeterHoleSpacingM: 0,
+        predictedOverbreakPct: 0,
+        shotcreteReboundPct: 0,
+      };
+    }
+
+    const qVal = fem.qValue;
+    const rmrVal = fem.rmrValue;
+    const gsiVal = Math.max(15, Math.min(90, fem.gsiValue));
+    const ucsMpa = Math.max(15, fem.intactUcsMpa || p.intactUcsMpa || 75);
+    const rqdVal = p.rqdValue ?? 65;
+
+    // Generalized Hoek-Brown (2002) & Hoek-Diederichs (2006) Rock Mass Parameters
+    const rockLower = (p.rockType || '').toLowerCase();
+    const miConstant = rockLower.includes('granite') || rockLower.includes('gneiss')
+      ? 28
+      : rockLower.includes('quartzite') || rockLower.includes('sandstone')
+      ? 20
+      : rockLower.includes('basalt') || rockLower.includes('dolerite')
+      ? 25
+      : rockLower.includes('limestone')
+      ? 12
+      : rockLower.includes('phyllite') || rockLower.includes('schist') || rockLower.includes('shale')
+      ? 10
+      : 17;
+    const disturbanceFactorD = isShaft ? 0.2 : 0.25;
+    const mbParam = Number(
+      (miConstant * Math.exp((gsiVal - 100) / (28 - 14 * disturbanceFactorD))).toFixed(3)
+    );
+    const sParam = Number(
+      Math.exp((gsiVal - 100) / (9 - 3 * disturbanceFactorD)).toFixed(5)
+    );
+    const aParam = Number(
+      (0.5 + (1 / 6) * (Math.exp(-gsiVal / 15) - Math.exp(-20 / 3))).toFixed(3)
+    );
+
+    // Global Rock Mass Strength sigma_cm (Hoek et al. 2002)
+    const sigmaCmMpa = Number(
+      (
+        ucsMpa *
+        ((mbParam + 4 * sParam - aParam * (mbParam - 8 * sParam)) *
+          Math.pow(mbParam / 4 + sParam, aParam - 1)) /
+        (2 * (1 + aParam) * (2 + aParam))
+      ).toFixed(2)
+    );
+    const sigmaTmMpa = Number(((sParam * ucsMpa) / Math.max(0.1, mbParam)).toFixed(3));
+
+    // Deformation Modulus Erm (GPa) - Hoek & Diederichs (2006) simplified
+    const ermGpa = Number(
+      Math.max(
+        1.2,
+        100 * ((1 - disturbanceFactorD / 2) / (1 + Math.exp((75 + 25 * disturbanceFactorD - gsiVal) / 11)))
+      ).toFixed(2)
+    );
+
+    // Equivalent Mohr-Coulomb c' (MPa) and phi' (deg)
+    const cohesionMpa = Number(Math.max(0.15, 0.05 * rmrVal + 0.012 * ucsMpa * Math.sqrt(sParam)).toFixed(2));
+    const frictionAngleDeg = Number(Math.min(54, Math.max(20, 15 + 0.45 * rmrVal)).toFixed(1));
+
+    // In-situ & Boundary Tangential Stress (Kirsch / Shaft Hoop Stress)
+    const k0 = isShaft ? 1.15 : 1.25;
+    const inSituStressP0Mpa = fem.inSituStressMpa;
+    const tangentialStressMaxMpa = Number(
+      (inSituStressP0Mpa * (3 * k0 - 1) * (isShaft && dataset.shaftSubMode !== 'FULL_CIRCLE' && dataset.shaftCenterMedianStatus === 'open' ? 1.28 : 1.0)).toFixed(2)
+    );
+
+    // Martin-Kaiser-McCreath Brittle Spalling / Rockburst Criterion (sigma_theta_max / sigma_ci)
+    const spallingRatio = Number((tangentialStressMaxMpa / Math.max(10, ucsMpa)).toFixed(2));
+    const rockburstClass: 'NONE' | 'MINOR_SPALLING' | 'MODERATE_SLABBING' | 'SEVERE_STRAINBURST' =
+      spallingRatio >= 0.7 && ucsMpa >= 80
+        ? 'SEVERE_STRAINBURST'
+        : spallingRatio >= 0.45 && ucsMpa >= 65
+        ? 'MODERATE_SLABBING'
+        : spallingRatio >= 0.3
+        ? 'MINOR_SPALLING'
+        : 'NONE';
+
+    // Squeezing Strain % (Hoek & Marinos 2000)
+    const squeezingStrainPct = Number(
+      ((fem.unreinforcedDispMm / ((spanM / 2) * 1000)) * 100).toFixed(3)
+    );
+    const squeezePotential: 'NONE' | 'MILD_SQUEEZING' | 'MODERATE_SQUEEZING' =
+      squeezingStrainPct > 1.8 || fem.overburdenDepthM > 350 * Math.pow(qVal, 1 / 3)
+        ? 'MODERATE_SQUEEZING'
+        : squeezingStrainPct > 0.8 || fem.overburdenDepthM > 220 * Math.pow(qVal, 1 / 3)
+        ? 'MILD_SQUEEZING'
+        : 'NONE';
+
+    // Ground Reaction Curve (GRC) & Longitudinal Displacement Profile (LDP - Vlachopoulos & Diederichs)
+    const phiRad = (frictionAngleDeg * Math.PI) / 180;
+    const nPhi = (1 + Math.sin(phiRad)) / (1 - Math.sin(phiRad));
+    const grcCriticalPressureMpa = Number(
+      Math.max(0.05, (2 * inSituStressP0Mpa - sigmaCmMpa) / (1 + nPhi)).toFixed(3)
+    );
+    const grcEquilibriumPressureMpa = Number(
+      Math.min(inSituStressP0Mpa * 0.45, Math.max(0.04, fem.installedSupportPressureMpa * 0.78)).toFixed(3)
+    );
+    const grcEquilibriumDispMm = fem.reinforcedDispMm;
+    const rPlRatio = Math.max(1.0, fem.reinforcedPlasticRadiusM / Math.max(1.5, spanM / 2));
+    const facePreRelaxationPct = Number(
+      (Math.min(0.65, (1 / 3) * Math.exp(-0.15 * rPlRatio)) * 100).toFixed(1)
+    );
+
+    const esr = isShaft ? 1.6 : 1.0;
+    const maxUnsupportedSpanM = Number((2 * esr * Math.pow(qVal, 0.4)).toFixed(2));
+    const standUpTimeHours = Number(Math.max(1.5, Math.pow(10, (rmrVal - 15) / 18)).toFixed(1));
+    const seepLower = (p.seepageCondition || '').toLowerCase();
+    const waterInflowLMinPer10m = seepLower.includes('flow')
+      ? 28.5
+      : seepLower.includes('drip') || seepLower.includes('wet')
+      ? 9.5
+      : seepLower.includes('damp')
+      ? 2.5
+      : 0.4;
+    const supportMarginRatio = Number(
+      (fem.installedSupportPressureMpa / Math.max(0.02, fem.requiredSupportPressureMpa)).toFixed(2)
+    );
+
+    // Drill & Blast / Excavation Advance & Overbreak Optimization
+    const optimalAdvanceM = Number(
+      Math.min(4.2, Math.max(1.2, (isShaft ? 2.4 : 3.2) * Math.pow(Math.max(0.2, qVal) / 4.0, 0.22))).toFixed(2)
+    );
+    const powderFactorKgM3 = Number(
+      Math.min(2.4, Math.max(0.65, 0.95 + 0.0065 * ucsMpa + 0.004 * rqdVal)).toFixed(2)
+    );
+    const perimeterHoleSpacingM = Number(
+      Math.min(0.85, Math.max(0.4, 0.45 + 0.004 * rmrVal)).toFixed(2)
+    );
+    const predictedOverbreakPct = Number(
+      Math.max(2.5, Math.min(24.0, 18.5 - 0.19 * rmrVal + (isShaft ? -1.5 : 1.2))).toFixed(1)
+    );
+    const shotcreteReboundPct = Number(
+      Math.max(8.0, Math.min(22.0, (isShaft ? 11.5 : 15.5) + (waterInflowLMinPer10m > 8 ? 3.5 : 0))).toFixed(1)
+    );
+
+    return {
+      pullId: p.id,
+      fromRd: p.fromRd,
+      toRd: p.toRd,
+      status: 'MAPPED' as const,
+      rockType: p.rockType || 'Quartzite',
+      qValue: qVal,
+      rmrValue: rmrVal,
+      gsiValue: gsiVal,
+      rqdValue: rqdVal,
+      intactUcsMpa: ucsMpa,
+      miConstant,
+      disturbanceFactorD,
+      mbParam,
+      sParam,
+      aParam,
+      sigmaCmMpa,
+      sigmaTmMpa,
+      ermGpa,
+      cohesionMpa,
+      frictionAngleDeg,
+      inSituStressP0Mpa,
+      tangentialStressMaxMpa,
+      spallingRatio,
+      rockburstClass,
+      squeezingStrainPct,
+      squeezePotential,
+      grcCriticalPressureMpa,
+      grcEquilibriumPressureMpa,
+      grcEquilibriumDispMm,
+      facePreRelaxationPct,
+      standUpTimeHours,
+      maxUnsupportedSpanM,
+      waterInflowLMinPer10m,
+      supportMarginRatio,
+      optimalAdvanceM,
+      powderFactorKgM3,
+      perimeterHoleSpacingM,
+      predictedOverbreakPct,
+      shotcreteReboundPct,
+    };
+  });
+
+  const mappedAnalytics = perPullAnalytics.filter((a) => a.status === 'MAPPED');
+  const meanUcsMpa =
+    mappedAnalytics.length > 0
+      ? Number((mappedAnalytics.reduce((s, a) => s + a.intactUcsMpa, 0) / mappedAnalytics.length).toFixed(1))
+      : 75;
+  const meanErmGpa =
+    mappedAnalytics.length > 0
+      ? Number((mappedAnalytics.reduce((s, a) => s + a.ermGpa, 0) / mappedAnalytics.length).toFixed(2))
+      : 12.5;
+  const meanSigmaCmMpa =
+    mappedAnalytics.length > 0
+      ? Number((mappedAnalytics.reduce((s, a) => s + a.sigmaCmMpa, 0) / mappedAnalytics.length).toFixed(2))
+      : 14.2;
+  const meanCohesionMpa =
+    mappedAnalytics.length > 0
+      ? Number((mappedAnalytics.reduce((s, a) => s + a.cohesionMpa, 0) / mappedAnalytics.length).toFixed(2))
+      : 2.8;
+  const meanFrictionDeg =
+    mappedAnalytics.length > 0
+      ? Number((mappedAnalytics.reduce((s, a) => s + a.frictionAngleDeg, 0) / mappedAnalytics.length).toFixed(1))
+      : 38.0;
+
+  // Kinematic Stereonet & Discontinuity Set Susceptibility Matrix from dataset.traces
+  const jointSchedule = computeContinuous3DJointInspectionSchedule(dataset);
+  const setCounts: Record<string, number> = {};
+  for (const j of jointSchedule) {
+    setCounts[j.setId] = (setCounts[j.setId] || 0) + 1;
+  }
+  const dominantSetId =
+    Object.entries(setCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'J1';
+  const meanDipDirectionDeg =
+    jointSchedule.length > 0
+      ? Math.round(jointSchedule.reduce((s, j) => s + j.dipDirectionDeg, 0) / jointSchedule.length)
+      : 135;
+  const meanDipDeg =
+    jointSchedule.length > 0
+      ? Math.round(jointSchedule.reduce((s, j) => s + j.dipDeg, 0) / jointSchedule.length)
+      : 62;
+  const meanJointFrictionDeg =
+    jointSchedule.length > 0
+      ? Number(
+          (jointSchedule.reduce((s, j) => s + j.bartonFrictionAngleDeg, 0) / jointSchedule.length).toFixed(1)
+        )
+      : 34.5;
+
+  const planarCount = jointSchedule.filter(
+    (j) => j.dipDeg > j.bartonFrictionAngleDeg && j.dipDeg < 72
+  ).length;
+  const wedgeCount = jointSchedule.filter(
+    (j) => j.kinematicMode === 'FALLING_CROWN_WEDGE' || j.kinematicMode === 'SLIDING_WALL_WEDGE'
+  ).length;
+  const toppleCount = jointSchedule.filter(
+    (j) => j.dipDeg >= 68 || j.kinematicMode === 'BUCKLING_SLAB'
+  ).length;
+  const totalJ = Math.max(1, jointSchedule.length);
+
+  const kinematicStereonetSummary = {
+    totalDiscontinuities: jointSchedule.length,
+    dominantSetId,
+    meanDipDirectionDeg,
+    meanDipDeg,
+    meanFrictionAngleDeg: meanJointFrictionDeg,
+    planarSlidingRiskPct: Math.round((planarCount / totalJ) * 100),
+    wedgeSlidingRiskPct: Math.round((wedgeCount / totalJ) * 100),
+    topplingBucklingRiskPct: Math.round((toppleCount / totalJ) * 100),
+    poles: jointSchedule.map((j, idx) => ({
+      id: j.traceId,
+      label: j.label,
+      setId: j.setId,
+      dipDirectionDeg: j.dipDirectionDeg,
+      dipDeg: j.dipDeg,
+      colorHex:
+        dataset.traces[idx]?.colorHex ||
+        (j.setId === 'J1' ? '#2563eb' : j.setId === 'J2' ? '#ea580c' : '#9333ea'),
+      isCritical: j.riskRating === 'CRITICAL' || j.fosUnreinforced < 1.25,
+    })),
+  };
+
+  // Multi-Horizon 50m Future Look-Ahead / Sink-Ahead Trajectory (+0–5m, +5–15m, +15–30m, +30–50m)
+  const lastMapped = mappedFem[mappedFem.length - 1];
+  const firstMapped = mappedFem[0];
+  const baseQ = lastMapped?.qValue || meanQ || 4.0;
+  const baseRmr = lastMapped?.rmrValue || meanRmr || 55;
+  const baseGsi = lastMapped?.gsiValue || meanGsi || 50;
+  const qTrendDelta =
+    mappedFem.length >= 2 ? (lastMapped.qValue - firstMapped.qValue) / mappedFem.length : -0.15;
+
+  const persistentTraces = (dataset.traces || []).filter((t) => {
+    const maxX = Math.max(...(t.points || []).map((pt) => pt.x), 0);
+    return maxX >= dataset.viewToRd - 4.0;
+  });
+  const hasFaultOrShear = (dataset.traces || []).some((t) =>
+    t.structureType.toLowerCase().includes('fault') || t.structureType.toLowerCase().includes('shear')
+  );
+
+  const horizons = [
+    { tag: 'IMMEDIATE FACE (+0–5m)', offsetFrom: 0, offsetTo: 5, decay: 0.96 },
+    { tag: 'NEAR-FIELD (+5–15m)', offsetFrom: 5, offsetTo: 15, decay: 0.91 },
+    { tag: 'MID-RANGE (+15–30m)', offsetFrom: 15, offsetTo: 30, decay: 0.88 },
+    { tag: 'DEEP HORIZON (+30–50m)', offsetFrom: 30, offsetTo: 50, decay: 0.94 },
+  ];
+
+  const lookAheadZones = horizons.map((h, step) => {
+    const zFrom = Number((dataset.viewToRd + h.offsetFrom).toFixed(1));
+    const zTo = Number((dataset.viewToRd + h.offsetTo).toFixed(1));
+    const trendMod = Math.max(0.65, Math.min(1.25, h.decay + qTrendDelta * 0.03 * (step + 1)));
+    const predQ = Number(Math.max(0.25, baseQ * trendMod).toFixed(2));
+    const predRmr = Math.round(Math.max(22, Math.min(88, baseRmr * (0.94 + (trendMod - 0.9) * 0.5))));
+    const predGsi = Math.round(Math.max(18, Math.min(85, baseGsi * (0.94 + (trendMod - 0.9) * 0.5))));
+    const projCount = Math.max(
+      1,
+      Math.round(persistentTraces.length * Math.max(0.35, 1 - step * 0.18))
+    );
+    const predictedWaterLMin = Number(
+      (
+        (mappedAnalytics[mappedAnalytics.length - 1]?.waterInflowLMinPer10m || 4.5) *
+        (1 + step * 0.25 + (hasFaultOrShear ? 0.35 : 0))
+      ).toFixed(1)
+    );
+    const faultShearProbabilityPct = Math.min(
+      88,
+      Math.max(12, Math.round((hasFaultOrShear ? 42 : 18) + projCount * 7 + (60 - predRmr) * 0.6))
+    );
+    const probeDrillingRequired = faultShearProbabilityPct >= 45 || predictedWaterLMin >= 12 || predQ < 1.5;
+    const preGroutingRequired = predictedWaterLMin >= 15 || (isShaft && predictedWaterLMin >= 9.0);
+    const recommendedAdvanceM = Number(
+      Math.min(4.0, Math.max(1.0, (isShaft ? 2.2 : 3.0) * Math.pow(predQ / 4.0, 0.25))).toFixed(1)
+    );
+    const recClass =
+      predRmr >= 61
+        ? isShaft
+          ? 'Class II Shaft (Pattern Rockbolts L=3m + 100mm SFRS)'
+          : 'Class II Tunnel (Spot/Pattern Bolting + 100mm SFRS)'
+        : predRmr >= 41
+        ? isShaft
+          ? 'Class III Shaft (3.5m Ring Bolts @1.5m + 150mm SFRS + Mesh)'
+          : 'Class III Tunnel (4m Systematic Bolts + 150mm SFRS + Wire Mesh)'
+        : isShaft
+        ? 'Class IV Shaft (4m Bolts + 200mm SFRS + Steel Curb Ring + Pre-Grouting)'
+        : 'Class IV Tunnel (4.5m Bolts + 200mm SFRS + Lattice Girders + Forepoling)';
+
+    return {
+      zoneLabel: `${isShaft ? 'Sink-Ahead' : 'Look-Ahead'} +${h.offsetFrom}–${h.offsetTo}m`,
+      horizonTag: h.tag,
+      fromRd: zFrom,
+      toRd: zTo,
+      predictedQ: predQ,
+      predictedRmr: predRmr,
+      predictedGsi: predGsi,
+      predictedWaterLMin,
+      faultShearProbabilityPct,
+      projectedTraceCount: projCount,
+      probeDrillingRequired,
+      preGroutingRequired,
+      recommendedAdvanceM,
+      recommendedSupportClass: recClass,
+      hazardAdvisory:
+        probeDrillingRequired || preGroutingRequired
+          ? `${projCount} persistent structure(s) & ${faultShearProbabilityPct}% shear/fault probability in ${isShaft ? 'Depth' : 'RD'} ${zFrom}–${zTo}m. ${
+              preGroutingRequired ? 'Pre-excavation curtain grouting + ' : ''
+            }20m percussive probe hole recommended.`
+          : `${projCount} persistent joint set(s) extrapolate into ${isShaft ? 'Depth' : 'RD'} ${zFrom}–${zTo}m. Maintain ${recommendedAdvanceM}m round pull.`,
+    };
+  });
+
+  return {
+    mappedPullCount: mappedFem.length,
+    missingGapCount: gapFem.length,
+    totalRangeLengthM,
+    mappedLengthM,
+    unloggedLengthM,
+    meanQ,
+    meanRmr,
+    meanGsi,
+    meanRqd,
+    meanUcsMpa,
+    meanErmGpa,
+    meanSigmaCmMpa,
+    meanCohesionMpa,
+    meanFrictionDeg,
+    minFosBeforeSupport,
+    minFosAfterSupport,
+    maxDispBeforeMm,
+    maxDispAfterMm,
+    kinematicStereonetSummary,
+    perPullAnalytics,
+    lookAheadZones,
+  };
 }
 
 export function exportContinuousStripToDXF(dataset: ContinuousTunnelStripDataset): string {
