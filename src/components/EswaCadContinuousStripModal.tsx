@@ -2245,7 +2245,6 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
   // Delete all traces in this section
   const handleDeleteAllTraces = () => {
-    if (!window.confirm('Delete all joint traces in this continuous section?')) return;
     pushHistory(currentDataset);
     setCurrentDataset((prev) => ({
       ...prev,

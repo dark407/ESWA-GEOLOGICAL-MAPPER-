@@ -258,9 +258,7 @@ export const PhotogrammetryTracedFeaturesDrawer: React.FC<PhotogrammetryTracedFe
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (window.confirm(`Delete traced feature ${label}?`)) {
-                              onDeleteJoint(joint.id);
-                            }
+                            onDeleteJoint(joint.id);
                           }}
                           className="p-1 rounded bg-rose-950/80 hover:bg-rose-900 text-rose-300 hover:text-rose-100"
                           title="Delete Feature"

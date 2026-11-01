@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileText,
   Download,
@@ -16,6 +16,8 @@ import {
   SlidersHorizontal,
   X,
   FileSpreadsheet,
+  FileCode,
+  RotateCcw,
 } from 'lucide-react';
 import {
   TbmExcavationRecord,
@@ -47,23 +49,243 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
   const [selectedReportType, setSelectedReportType] = useState<TbmReportType>(initialReportType);
   const [isFullscreenModalOpen, setIsFullscreenModalOpen] = useState<boolean>(false);
 
-  // Filters
-  const [startRingFilter, setStartRingFilter] = useState<number>(
-    records[0]?.chainageRecord?.ringNumber || 841
-  );
-  const [endRingFilter, setEndRingFilter] = useState<number>(
-    records[records.length - 1]?.chainageRecord?.ringNumber || 848
-  );
+  // Persisted Left/Right Logos & PNG Signatures for TBM Official Reports
+  const [tbmLogos, setTbmLogos] = useState<{ left?: string; right?: string }>(() => {
+    try {
+      const raw = localStorage.getItem('eswa_tbm_report_logos_v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [tbmSigns, setTbmSigns] = useState<{ geologist?: string; manager?: string }>(() => {
+    try {
+      const raw = localStorage.getItem('eswa_tbm_report_signs_v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const updateTbmLogo = (side: 'left' | 'right', dataUrl?: string) => {
+    setTbmLogos((prev) => {
+      const next = { ...prev, [side]: dataUrl };
+      try {
+        localStorage.setItem('eswa_tbm_report_logos_v1', JSON.stringify(next));
+      } catch {
+        // ignore quota
+      }
+      return next;
+    });
+  };
+
+  const updateTbmSign = (role: 'geologist' | 'manager', dataUrl?: string) => {
+    setTbmSigns((prev) => {
+      const next = { ...prev, [role]: dataUrl };
+      try {
+        localStorage.setItem('eswa_tbm_report_signs_v1', JSON.stringify(next));
+      } catch {
+        // ignore quota
+      }
+      return next;
+    });
+  };
+
+  // Filters — dynamic defaults based on actual records
+  const [startRingFilter, setStartRingFilter] = useState<number>(() => {
+    return records[0]?.chainageRecord?.ringNumber ?? 1;
+  });
+  const [endRingFilter, setEndRingFilter] = useState<number>(() => {
+    return records[records.length - 1]?.chainageRecord?.ringNumber ?? 1;
+  });
+
+  // Dynamically update filter bounds when records change
+  useEffect(() => {
+    if (records.length > 0) {
+      const rings = records.map((r) => r.chainageRecord?.ringNumber ?? 1);
+      const minR = Math.min(...rings);
+      const maxR = Math.max(...rings);
+      setStartRingFilter(minR);
+      setEndRingFilter(maxR);
+    } else {
+      setStartRingFilter(1);
+      setEndRingFilter(1);
+    }
+  }, [records]);
+
+  const handleResetFilterToAll = () => {
+    if (records.length > 0) {
+      const rings = records.map((r) => r.chainageRecord?.ringNumber ?? 1);
+      setStartRingFilter(Math.min(...rings));
+      setEndRingFilter(Math.max(...rings));
+    } else {
+      setStartRingFilter(1);
+      setEndRingFilter(1);
+    }
+  };
 
   const filteredRecords = useMemo(() => {
+    if (records.length === 0) return [];
     return records.filter((r) => {
       const ring = r.chainageRecord?.ringNumber;
-      if (!ring) return true;
+      if (ring === undefined || ring === null) return true;
       return ring >= startRingFilter && ring <= endRingFilter;
     });
   }, [records, startRingFilter, endRingFilter]);
 
-  const targetRecord = filteredRecords[0] || activeRecord || records[0];
+  // Robust safe fallback so targetRecord is NEVER null/undefined
+  const emptyRecordFallback: TbmExcavationRecord = useMemo(() => ({
+    id: 'NO_RECORD',
+    projectId: activeProject?.id || '',
+    locationId: activeLocation?.id || '',
+    chainageRecord: {
+      recordId: 'NO_RECORD',
+      locationId: activeLocation?.id || '',
+      projectId: activeProject?.id || '',
+      timestamp: new Date().toISOString(),
+      startChainage: activeLocation?.startChainageRd || 0.0,
+      endChainage: (activeLocation?.startChainageRd || 0.0) + 1.5,
+      advanceLengthMeters: 1.5,
+      ringNumber: 1,
+      shift: 'DAY',
+      shiftStartTime: '08:00',
+      shiftEndTime: '16:00',
+      stoppageDurationMinutes: 0,
+      stoppageReason: '',
+      geologistOrOperator: activeLocation?.responsibleGeologist || 'Lead TBM Geologist',
+      generalObservations: 'No records logged yet. Enter ring data in Step 4 Data Collection.',
+    },
+    geology: {
+      mainLithology: 'Unclassified / Pending Logging',
+      color: '—',
+      grainSize: 'FINE',
+      textureFabric: '—',
+      weatheringGrade: 'W1_FRESH',
+      intactStrengthEstimatedMpa: 0,
+      geologicalBoundariesDescription: '',
+      unitThicknessMeters: 0,
+      degreeOfFracturing: 'MODERATELY_FRACTURED',
+      blockSizeBytes: 0,
+      rockMassIntegrity: 'SOLID',
+      instabilitiesNoted: 'None',
+      isSqueezingLikely: false,
+      isSwellingLikely: false,
+      discontinuities: [],
+    },
+    muck: {
+      sampleId: 'MUCK-0',
+      sampleChainageRd: 0,
+      timestamp: new Date().toISOString(),
+      materialType: 'ROCK_CHIPS',
+      dominantLithology: '',
+      muckColor: '',
+      gradingDescription: 'WELL_GRADED_CHIPS',
+      finesPercentEstimated: 0,
+      coarsePercentEstimated: 0,
+      fragmentShapeAngularity: 'ANGULAR',
+      averageFragmentSizeMm: 0,
+      maxFragmentSizeMm: 0,
+      visibleFracturesInChips: false,
+      faultGougeObserved: false,
+      waterContentVisual: 'DRY',
+      samplingMethod: 'BELT_CONVEYOR',
+      geologistInterpretation: '',
+      confidence: 'HIGH',
+      photoUrls: [],
+    },
+    telemetry: {
+      timestamp: new Date().toISOString(),
+      chainageRd: 0,
+      thrustForceKn: 0,
+      cutterheadTorqueKnm: 0,
+      cutterheadRpm: 0,
+      penetrationPerRevMm: 0,
+      penetrationRateMmMin: 0,
+      excavationDurationMin: 0,
+      cutterWearMm: 0,
+      cuttersReplacedCount: 0,
+      machineDowntimeHours: 0,
+      alarmsTriggered: [],
+      epbChamberPressureCenterBar: 0,
+      foamExpansionRatio: 0,
+      foamInjectionRateLMin: 0,
+    },
+    groundwater: {
+      inflowRateLitersPerMin: 0,
+      waterPressureBar: 0,
+      ingressLocation: 'FACE_CUTTERHEAD',
+      turbidity: 'CLEAR',
+      phEstimated: 7.0,
+      dewateringPumpsActive: 0,
+      preGroutingActionTaken: '',
+      waterInrushRiskLevel: 'SAFE_DRY',
+    },
+    probeDrilling: {
+      probeHoleId: '',
+      drilledLengthMeters: 0,
+      azimuthDeg: 0,
+      inclinationDeg: 0,
+      drillingSpeedMMin: 0,
+      drillingFeedPressureBar: 0,
+      flushingWaterReturn: 'FULL_RETURN',
+      geologyLoggedAhead: '',
+      cavityOrVoidDetected: false,
+      waterOrGasEncountered: false,
+      advanceRecommendation: 'PROCEED_NORMAL',
+    },
+    classification: {
+      rqdPercent: 0,
+      jn: 1,
+      jr: 1.0,
+      ja: 1.0,
+      jw: 1.0,
+      srf: 1.0,
+      calculatedQ: 0,
+      qClassLabel: 'Pending Input',
+      rmrStrengthScore: 0,
+      rmrRqdScore: 0,
+      rmrSpacingScore: 0,
+      rmrConditionScore: 0,
+      rmrWaterScore: 0,
+      rmrOrientationAdjustment: 0,
+      calculatedRmr: 0,
+      rmrClassLabel: 'Pending Input',
+      gsiScore: 0,
+      fieldPenetrationIndexKnCutterMm: 0,
+      specificEnergyMJM3: 0,
+    },
+    supportLining: {
+      ringNumber: 1,
+      liningType: 'PRECAST_SEGMENT',
+      ringTypeUniversal: 'UNIVERSAL_LEFT',
+      keySegmentPositionClock: '12:00',
+      annularGroutVolumeActualM3: 0,
+      annularGroutVolumeTheoreticalM3: 0,
+      groutRatioActualVsTheo: 1.0,
+      groutInjectionPressureBar: 0,
+      tailSealGreaseConsumptionKg: 0,
+      ringRollMm: 0,
+      ringPitchMm: 0,
+      ringLeadMm: 0,
+      liningDefectsObserved: '',
+    },
+    instrumentation: {
+      timestamp: new Date().toISOString(),
+      chainageRd: 0,
+      surfaceSettlementMonitoringPointId: 'SP-01',
+      distanceFromTunnelCenterlineM: 0,
+      surfaceSettlementMeasuredMm: 0,
+      theoreticalPeckSettlementMm: 0,
+      tunnelDiameterConvergenceMm: 0,
+      settlementThresholdExceeded: false,
+    },
+    hazards: [],
+    photos: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }), [activeProject?.id, activeLocation?.id, activeLocation?.startChainageRd, activeLocation?.responsibleGeologist]);
+
+  const targetRecord = filteredRecords[0] || activeRecord || records[0] || emptyRecordFallback;
 
   // 16 Report Definitions with Title, Subtitle, and Icon
   const reportDefinitions: {
@@ -190,9 +412,294 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
   const currentDef =
     reportDefinitions.find((r) => r.id === selectedReportType) || reportDefinitions[0];
 
-  // Helper to trigger print
+  // Helper to trigger print via safe window or standard print
   const handlePrint = () => {
-    window.print();
+    try {
+      window.print();
+    } catch (e) {
+      console.warn('Direct print failed, invoking download fallback', e);
+      handleDownloadReportPdfHtml();
+    }
+  };
+
+  // Helper to download standalone official PDF / HTML report
+  const handleDownloadReportPdfHtml = () => {
+    const reportHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>${currentDef.title} - ${activeProject?.projectName || 'TBM Tunnel'}</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 12mm 10mm;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, monospace;
+      color: #0f172a;
+      background: #ffffff;
+      padding: 24px;
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .header {
+      border-bottom: 2px solid #0284c7;
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .title-box h1 {
+      margin: 0;
+      font-size: 18px;
+      color: #0369a1;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .title-box p {
+      margin: 3px 0 0 0;
+      font-size: 11px;
+      color: #64748b;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      background: #f0f9ff;
+      border: 1px solid #0284c7;
+      color: #0369a1;
+      font-weight: 700;
+      font-size: 10px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 16px;
+    }
+    .meta-item span {
+      display: block;
+      font-size: 9px;
+      color: #64748b;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .meta-item strong {
+      font-size: 11px;
+      color: #0f172a;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+      font-size: 10px;
+    }
+    th {
+      background: #0f172a;
+      color: #ffffff;
+      text-align: left;
+      padding: 7px 8px;
+      font-size: 9px;
+      text-transform: uppercase;
+      border: 1px solid #0f172a;
+    }
+    td {
+      padding: 6px 8px;
+      border: 1px solid #cbd5e1;
+      vertical-align: middle;
+    }
+    tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+    .sign-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 24px;
+      padding-top: 14px;
+      border-top: 1px dashed #94a3b8;
+    }
+    .sign-box {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px 12px;
+      background: #fafafa;
+    }
+    .sign-box span {
+      font-size: 9px;
+      color: #64748b;
+      text-transform: uppercase;
+      font-weight: 700;
+      display: block;
+    }
+    .sign-box strong {
+      font-size: 11px;
+      color: #0f172a;
+    }
+    .sign-line {
+      margin-top: 25px;
+      border-bottom: 1px solid #475569;
+      padding-bottom: 2px;
+      font-size: 9px;
+      color: #64748b;
+    }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header" style="align-items: center; gap: 16px;">
+    <div style="width: 120px; height: 48px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px; display: flex; align-items: center; justify-content: center; background: #ffffff; overflow: hidden; flex-shrink: 0;">
+      ${
+        tbmLogos.left
+          ? `<img src="${tbmLogos.left}" alt="Client Logo" style="max-height: 40px; max-width: 110px; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto;" />`
+          : `<strong style="font-size: 9px; color: #475569; text-align: center;">${activeProject?.client || 'CLIENT LOGO'}</strong>`
+      }
+    </div>
+    <div class="title-box" style="flex: 1; text-align: center;">
+      <h1>${currentDef.title}</h1>
+      <p>ESWA TBM Mechanized Tunneling System · Official Publication Report</p>
+      <div style="font-size: 9px; color: #64748b; margin-top: 3px;">Export Date: ${new Date().toLocaleString()}</div>
+    </div>
+    <div style="width: 120px; height: 48px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px; display: flex; align-items: center; justify-content: center; background: #ffffff; overflow: hidden; flex-shrink: 0;">
+      ${
+        tbmLogos.right
+          ? `<img src="${tbmLogos.right}" alt="Contractor Logo" style="max-height: 40px; max-width: 110px; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto;" />`
+          : `<strong style="font-size: 9px; color: #475569; text-align: center;">${activeProject?.contractor || 'CONTRACTOR LOGO'}</strong>`
+      }
+    </div>
+  </div>
+
+  <div class="meta-grid">
+    <div class="meta-item">
+      <span>Project</span>
+      <strong>${activeProject?.projectName || 'TBM Tunnel Project'}</strong>
+    </div>
+    <div class="meta-item">
+      <span>Tunnel Heading</span>
+      <strong>${activeLocation?.locationName || 'Main Drive'}</strong>
+    </div>
+    <div class="meta-item">
+      <span>TBM Specification</span>
+      <strong>${activeLocation?.tbmType || 'EPB'} (Ø ${activeLocation?.cutterheadDiameterM || 6.4}m)</strong>
+    </div>
+    <div class="meta-item">
+      <span>Responsible Geologist</span>
+      <strong>${activeLocation?.responsibleGeologist || 'Lead TBM Geologist'}</strong>
+    </div>
+    <div class="meta-item">
+      <span>Ring Records Range</span>
+      <strong>Ring #${startRingFilter} to #${endRingFilter} (${filteredRecords.length} rings)</strong>
+    </div>
+    <div class="meta-item">
+      <span>Contractor</span>
+      <strong>${activeProject?.contractor || 'Tunnel Construction Authority'}</strong>
+    </div>
+    <div class="meta-item">
+      <span>Client / Owner</span>
+      <strong>${activeProject?.client || 'Project Owner'}</strong>
+    </div>
+    <div class="meta-item">
+      <span>Alignment Reference</span>
+      <strong>${activeLocation?.alignmentReference || 'Alignment Centerline'}</strong>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Ring #</th>
+        <th>RD Interval (m)</th>
+        <th>Main Lithology</th>
+        <th>Barton Q</th>
+        <th>RMR89</th>
+        <th>Thrust (kN)</th>
+        <th>Torque (kNm)</th>
+        <th>FPI (kN/c/mm)</th>
+        <th>Annular Grout (m³)</th>
+        <th>Key Pos</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${filteredRecords.length > 0 ? filteredRecords.map((r) => `
+        <tr>
+          <td><strong>#${r.chainageRecord.ringNumber}</strong></td>
+          <td>RD ${r.chainageRecord.startChainage.toFixed(2)}m – ${r.chainageRecord.endChainage.toFixed(2)}m</td>
+          <td><strong>${r.geology.mainLithology || 'Logged Ground'}</strong> (${r.geology.weatheringGrade || 'W1'})</td>
+          <td>${r.classification.calculatedQ.toFixed(2)} (${r.classification.qClassLabel})</td>
+          <td>${r.classification.calculatedRmr} (${r.classification.rmrClassLabel})</td>
+          <td>${r.telemetry.thrustForceKn || 0}</td>
+          <td>${r.telemetry.cutterheadTorqueKnm || 0}</td>
+          <td>${(r.classification.fieldPenetrationIndexKnCutterMm || 0).toFixed(2)}</td>
+          <td>${(r.supportLining.annularGroutVolumeActualM3 || 0).toFixed(2)}</td>
+          <td>${r.supportLining.keySegmentPositionClock || '12:00'}</td>
+          <td><span style="color: #059669; font-weight: bold;">VERIFIED</span></td>
+        </tr>
+      `).join('') : `
+        <tr>
+          <td colspan="11" style="text-align: center; padding: 24px; color: #64748b;">
+            No excavation records entered yet for this interval. Please log rings in Step 4 Data Collection.
+          </td>
+        </tr>
+      `}
+    </tbody>
+  </table>
+
+  <div class="sign-grid">
+    <div class="sign-box">
+      <span>Lead TBM Engineering Geologist</span>
+      <strong>${activeLocation?.responsibleGeologist || 'Lead TBM Geologist'}</strong>
+      <div style="height: 42px; margin-top: 8px; border: 1px solid #cbd5e1; border-radius: 4px; background: #ffffff; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 3px;">
+        ${
+          tbmSigns.geologist
+            ? `<img src="${tbmSigns.geologist}" alt="Geologist Signature" style="max-height: 36px; max-width: 140px; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto;" />`
+            : `<span style="font-size: 9px; color: #94a3b8; font-style: italic;">Digital Signature: ESWA-GEO-${new Date().toISOString().slice(0, 10)}</span>`
+        }
+      </div>
+      <div class="sign-line" style="margin-top: 6px;">Certified Verified at TBM Control Cabin / Cutterhead Window</div>
+    </div>
+    <div class="sign-box">
+      <span>Tunnel Project Construction Manager</span>
+      <strong>${activeProject?.contractor || 'Contractor Authority'}</strong>
+      <div style="height: 42px; margin-top: 8px; border: 1px solid #cbd5e1; border-radius: 4px; background: #ffffff; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 3px;">
+        ${
+          tbmSigns.manager
+            ? `<img src="${tbmSigns.manager}" alt="Manager Signature" style="max-height: 36px; max-width: 140px; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto;" />`
+            : `<span style="font-size: 9px; color: #94a3b8; font-style: italic;">Countersigned by Shift Superintendent</span>`
+        }
+      </div>
+      <div class="sign-line" style="margin-top: 6px;">Handover Certified & Archived to Alignment As-Built Database</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 18px; text-align: center; font-size: 9px; color: #94a3b8;">
+    ESWA GEOLOGICAL MAPPER — TBM MECHANIZED TUNNELING REPORT GENERATOR · PRODUCED ${new Date().toISOString()}
+  </div>
+</body>
+</html>`;
+
+    const blob = new Blob([reportHtml], { type: 'text/html;charset=utf-8' });
+    const fileName = `${selectedReportType}_Ring_${startRingFilter}_to_${endRingFilter}_${new Date().toISOString().slice(0, 10)}.html`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   };
 
   // Helper to export CSV
@@ -204,24 +711,30 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
       ['Date Exported', new Date().toISOString()],
       ['Ring Interval', `Ring #${startRingFilter} to #${endRingFilter}`],
       [],
-      ['Ring #', 'Start RD (m)', 'End RD (m)', 'Main Lithology', 'Barton Q', 'RMR89', 'Thrust (kN)', 'Torque (kNm)', 'FPI (kN/cutter/mm)', 'Key Position', 'Grout Vol (m3)'],
+      ['Ring #', 'Start RD (m)', 'End RD (m)', 'Advance (m)', 'Main Lithology', 'Weathering', 'Barton Q', 'RMR89', 'Thrust (kN)', 'Torque (kNm)', 'FPI (kN/cutter/mm)', 'Key Position', 'Grout Vol (m3)'],
     ];
 
-    filteredRecords.forEach((r) => {
-      rows.push([
-        String(r.chainageRecord.ringNumber),
-        r.chainageRecord.startChainage.toFixed(2),
-        r.chainageRecord.endChainage.toFixed(2),
-        r.geology.mainLithology,
-        r.classification.calculatedQ.toFixed(2),
-        String(r.classification.calculatedRmr),
-        String(r.telemetry.thrustForceKn),
-        String(r.telemetry.cutterheadTorqueKnm),
-        (r.classification.fieldPenetrationIndexKnCutterMm || 25).toFixed(2),
-        r.supportLining.keySegmentPositionClock,
-        r.supportLining.annularGroutVolumeActualM3.toFixed(2),
-      ]);
-    });
+    if (filteredRecords.length > 0) {
+      filteredRecords.forEach((r) => {
+        rows.push([
+          String(r.chainageRecord.ringNumber),
+          r.chainageRecord.startChainage.toFixed(2),
+          r.chainageRecord.endChainage.toFixed(2),
+          r.chainageRecord.advanceLengthMeters.toFixed(2),
+          r.geology.mainLithology || 'Logged Ground',
+          r.geology.weatheringGrade || 'W1',
+          r.classification.calculatedQ.toFixed(2),
+          String(r.classification.calculatedRmr),
+          String(r.telemetry.thrustForceKn || 0),
+          String(r.telemetry.cutterheadTorqueKnm || 0),
+          (r.classification.fieldPenetrationIndexKnCutterMm || 0).toFixed(2),
+          r.supportLining.keySegmentPositionClock || '12:00',
+          r.supportLining.annularGroutVolumeActualM3.toFixed(2),
+        ]);
+      });
+    } else {
+      rows.push(['No records entered yet for this interval']);
+    }
 
     const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.join(',')).join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -251,7 +764,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">TBM Operator:</span>
-                <strong className="text-slate-200">M. Rajesh / Shift Team 1</strong>
+                <strong className="text-slate-200">{activeProject?.contractor || 'Shift Team 1'}</strong>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Rings Excavated:</span>
@@ -275,40 +788,134 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {filteredRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-800/40">
-                      <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
-                      <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(2)}m – {r.chainageRecord.endChainage.toFixed(2)}m</td>
-                      <td className="p-2.5 text-amber-300 font-medium">{r.geology.mainLithology} ({r.geology.weatheringGrade})</td>
-                      <td className="p-2.5 text-slate-300">{r.geology.discontinuities?.length || 3} sets (J1, J2, J3)</td>
-                      <td className="p-2.5">{r.groundwater?.inflowRateLitersPerMin ?? 15} L/min ({r.groundwater?.waterInrushRiskLevel || 'MANAGEABLE_SEEPAGE'})</td>
-                      <td className="p-2.5 text-emerald-400">0.0% / 0 ppm (Safe)</td>
-                      <td className="p-2.5">{r.supportLining.annularGroutVolumeActualM3.toFixed(2)} m³</td>
-                      <td className="p-2.5">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          APPROVED
-                        </span>
+                  {filteredRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-slate-500 font-mono text-xs">
+                        No excavation rings logged for this interval yet. Enter rings in Step 4 (Data Collection) to generate shift records.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredRecords.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-800/40">
+                        <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
+                        <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(2)}m – {r.chainageRecord.endChainage.toFixed(2)}m</td>
+                        <td className="p-2.5 text-amber-300 font-medium">{r.geology.mainLithology || 'Logged Strata'} ({r.geology.weatheringGrade || 'W1'})</td>
+                        <td className="p-2.5 text-slate-300">{r.geology.discontinuities?.length || 3} sets</td>
+                        <td className="p-2.5">{r.groundwater?.inflowRateLitersPerMin ?? 0} L/min ({r.groundwater?.waterInrushRiskLevel || 'DRY_TO_DAMP'})</td>
+                        <td className="p-2.5 text-emerald-400">0.0% / 0 ppm (Safe)</td>
+                        <td className="p-2.5">{r.supportLining.annularGroutVolumeActualM3.toFixed(2)} m³</td>
+                        <td className="p-2.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                            APPROVED
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
 
-            {/* Shift Sign-off Block */}
-            <div className="grid grid-cols-2 gap-4 bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono">
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase">Site Geologist Sign-Off:</span>
+            {/* Shift Sign-off Block with PNG Signature Fit Boxes */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold">Site Geologist Sign-Off:</span>
+                  <div className="flex items-center gap-1 print:hidden">
+                    <label className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-bold text-cyan-300 cursor-pointer">
+                      Upload PNG
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            if (typeof reader.result === 'string') {
+                              updateTbmSign('geologist', reader.result);
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    {tbmSigns.geologist && (
+                      <button
+                        type="button"
+                        onClick={() => updateTbmSign('geologist', undefined)}
+                        className="px-1.5 py-0.5 rounded bg-rose-950 hover:bg-rose-900 border border-rose-800 text-[10px] font-bold text-rose-300 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <p className="text-slate-300 font-bold">Verified &amp; Inspected at Cutterhead Inspection Window</p>
-                <div className="h-10 border-b border-dashed border-slate-700 flex items-end pb-1 text-[10px] text-slate-500">
-                  Digital Signature: ESWA-GEO-{new Date().toISOString().slice(0, 10)}
+                <div className="eswa-signature-fit-box h-11 w-full bg-white rounded border border-slate-700 p-1 flex items-center justify-center overflow-hidden">
+                  {tbmSigns.geologist ? (
+                    <img
+                      src={tbmSigns.geologist}
+                      alt="Site Geologist Signature"
+                      className="max-h-full max-w-full w-auto h-auto object-contain block"
+                    />
+                  ) : (
+                    <span className="text-[10px] text-slate-500">
+                      Digital Signature: ESWA-GEO-{new Date().toISOString().slice(0, 10)}
+                    </span>
+                  )}
                 </div>
               </div>
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase">Tunnel Construction Manager:</span>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold">Tunnel Construction Manager:</span>
+                  <div className="flex items-center gap-1 print:hidden">
+                    <label className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-bold text-cyan-300 cursor-pointer">
+                      Upload PNG
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            if (typeof reader.result === 'string') {
+                              updateTbmSign('manager', reader.result);
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    {tbmSigns.manager && (
+                      <button
+                        type="button"
+                        onClick={() => updateTbmSign('manager', undefined)}
+                        className="px-1.5 py-0.5 rounded bg-rose-950 hover:bg-rose-900 border border-rose-800 text-[10px] font-bold text-rose-300 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <p className="text-slate-300 font-bold">Shift Handover Certified</p>
-                <div className="h-10 border-b border-dashed border-slate-700 flex items-end pb-1 text-[10px] text-slate-500">
-                  Countersigned by Shift Superintendent
+                <div className="eswa-signature-fit-box h-11 w-full bg-white rounded border border-slate-700 p-1 flex items-center justify-center overflow-hidden">
+                  {tbmSigns.manager ? (
+                    <img
+                      src={tbmSigns.manager}
+                      alt="Construction Manager Signature"
+                      className="max-h-full max-w-full w-auto h-auto object-contain block"
+                    />
+                  ) : (
+                    <span className="text-[10px] text-slate-500">
+                      Countersigned by Shift Superintendent
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -335,7 +942,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Ground Type: <strong className="text-amber-300">{targetRecord.geology.mainLithology}</strong> · Intact Strength (UCS): <strong className="text-cyan-400">{targetRecord.geology.intactStrengthEstimatedMpa} MPa</strong> · Structure: <strong className="text-slate-200">{targetRecord.geology.rockMassIntegrity}</strong>
+                Ground Type: <strong className="text-amber-300">{targetRecord.geology.mainLithology || 'Bedrock'}</strong> · Intact Strength (UCS): <strong className="text-cyan-400">{targetRecord.geology.intactStrengthEstimatedMpa} MPa</strong> · Structure: <strong className="text-slate-200">{targetRecord.geology.rockMassIntegrity}</strong>
               </p>
             </div>
 
@@ -356,9 +963,9 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                   <div>SRF: <strong>{targetRecord.classification.srf}</strong></div>
                 </div>
                 <div className="p-2 rounded bg-slate-900 border border-slate-800 text-[10px] space-y-1">
-                  <div>Relative Block Size (RQD/Jn): <strong>{(targetRecord.classification.rqdPercent / targetRecord.classification.jn).toFixed(1)}</strong></div>
-                  <div>Inter-block Shear (Jr/Ja): <strong>{(targetRecord.classification.jr / targetRecord.classification.ja).toFixed(2)}</strong></div>
-                  <div>Active Stress Ratio (Jw/SRF): <strong>{(targetRecord.classification.jw / targetRecord.classification.srf).toFixed(2)}</strong></div>
+                  <div>Relative Block Size (RQD/Jn): <strong>{(targetRecord.classification.rqdPercent / (targetRecord.classification.jn || 1)).toFixed(1)}</strong></div>
+                  <div>Inter-block Shear (Jr/Ja): <strong>{(targetRecord.classification.jr / (targetRecord.classification.ja || 1)).toFixed(2)}</strong></div>
+                  <div>Active Stress Ratio (Jw/SRF): <strong>{(targetRecord.classification.jw / (targetRecord.classification.srf || 1)).toFixed(2)}</strong></div>
                 </div>
                 <div className="p-2.5 rounded bg-cyan-950/60 border border-cyan-800 text-xs">
                   <span className="text-slate-400 block text-[10px]">Grimstad &amp; Barton Support Class:</span>
@@ -441,8 +1048,10 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
               </div>
               <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                 <span className="text-slate-400 text-[10px]">Current Operating Earth/Slurry Pressure:</span>
-                <p className="text-xl font-bold text-emerald-400">2.10 bar</p>
-                <p className="text-[10px] text-emerald-500">Margin: +0.25 bar positive safety buffer</p>
+                <p className="text-xl font-bold text-emerald-400">
+                  {(targetRecord?.telemetry?.epbChamberPressureCenterBar || targetRecord?.telemetry?.slurryFacePressureBar || 2.10).toFixed(2)} bar
+                </p>
+                <p className="text-[10px] text-emerald-500">Margin: Safe operational buffer maintained</p>
               </div>
               <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                 <span className="text-slate-400 text-[10px]">Chimney Collapse Factor of Safety:</span>
@@ -464,37 +1073,52 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {filteredRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-800/40">
-                      <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
-                      <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(1)}m – {r.chainageRecord.endChainage.toFixed(1)}m</td>
-                      <td className="p-2.5">24.5 m (Overburden)</td>
-                      <td className="p-2.5 font-bold text-slate-100">{r.telemetry?.epbChamberPressureCenterBar || r.telemetry?.slurryFacePressureBar || 2.05} bar</td>
-                      <td className="p-2.5 text-amber-300">{r.geology.instabilitiesNoted || 'Minor chipping'}</td>
-                      <td className="p-2.5">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          STABLE
-                        </span>
+                  {filteredRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-slate-500 font-mono text-xs">
+                        No face stability records for this interval. Enter data in Step 4 (Data Collection).
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredRecords.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-800/40">
+                        <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
+                        <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(1)}m – {r.chainageRecord.endChainage.toFixed(1)}m</td>
+                        <td className="p-2.5">24.5 m (Overburden)</td>
+                        <td className="p-2.5 font-bold text-slate-100">{r.telemetry?.epbChamberPressureCenterBar || r.telemetry?.slurryFacePressureBar || 2.05} bar</td>
+                        <td className="p-2.5 text-amber-300">{r.geology.instabilitiesNoted || 'Minor chipping'}</td>
+                        <td className="p-2.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                            STABLE
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         );
 
-      case 'GROUNDWATER_INFLOW_REGISTER':
+      case 'GROUNDWATER_INFLOW_REGISTER': {
+        const peakRecord = filteredRecords.length > 0
+          ? filteredRecords.reduce((max, r) => ((r.groundwater?.inflowRateLitersPerMin ?? 0) > (max.groundwater?.inflowRateLitersPerMin ?? 0) ? r : max), filteredRecords[0])
+          : targetRecord;
+        const peakFlow = peakRecord?.groundwater?.inflowRateLitersPerMin ?? 0;
+        const peakRing = peakRecord?.chainageRecord?.ringNumber ?? targetRecord.chainageRecord.ringNumber;
+        const peakChainage = peakRecord?.chainageRecord?.startChainage?.toFixed(2) ?? targetRecord.chainageRecord.startChainage.toFixed(2);
+
         return (
           <div className="space-y-4 font-mono text-xs">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
               <div>
                 <span className="text-slate-500 block text-[10px]">Peak Inflow Point:</span>
-                <strong className="text-rose-400">Ring #847 (RD 1429.50m)</strong>
+                <strong className="text-rose-400">Ring #{peakRing} (RD {peakChainage}m)</strong>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Maximum Flow Rate:</span>
-                <strong className="text-amber-300">45.0 L/min</strong>
+                <strong className="text-amber-300">{peakFlow.toFixed(1)} L/min</strong>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Water Salinity / pH:</span>
@@ -502,7 +1126,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Discharge Pump Load:</span>
-                <strong className="text-emerald-400">18% capacity (Normal)</strong>
+                <strong className="text-emerald-400">Normal Range</strong>
               </div>
             </div>
 
@@ -520,29 +1144,41 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {filteredRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-800/40">
-                      <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
-                      <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(1)}m</td>
-                      <td className="p-2.5 text-slate-300">{r.groundwater?.waterInrushRiskLevel || 'MANAGEABLE_SEEPAGE'}</td>
-                      <td className="p-2.5 font-bold text-amber-300">{r.groundwater?.inflowRateLitersPerMin ?? 15} L/min</td>
-                      <td className="p-2.5">{r.groundwater?.waterPressureBar ?? 1.2} bar</td>
-                      <td className="p-2.5 text-cyan-300">{r.groundwater?.ingressLocation || 'FACE_CUTTERHEAD'}</td>
-                      <td className="p-2.5 text-slate-400">{r.groundwater?.preGroutingActionTaken || 'Standard Sump Pump'}</td>
+                  {filteredRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-slate-500 font-mono text-xs">
+                        No groundwater inflow logged in this interval yet. Enter excavation data in Step 4.
+                      </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredRecords.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-800/40">
+                        <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
+                        <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(1)}m</td>
+                        <td className="p-2.5 text-slate-300">{r.groundwater?.waterInrushRiskLevel || 'MANAGEABLE_SEEPAGE'}</td>
+                        <td className="p-2.5 font-bold text-amber-300">{r.groundwater?.inflowRateLitersPerMin ?? 0} L/min</td>
+                        <td className="p-2.5">{r.groundwater?.waterPressureBar ?? 0} bar</td>
+                        <td className="p-2.5 text-cyan-300">{r.groundwater?.ingressLocation || 'FACE_CUTTERHEAD'}</td>
+                        <td className="p-2.5 text-slate-400">{r.groundwater?.preGroutingActionTaken || 'Standard Sump Pump'}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         );
+      }
 
-      case 'LONGITUDINAL_GEOTECHNICAL_PROFILE':
+      case 'LONGITUDINAL_GEOTECHNICAL_PROFILE': {
+        const startRd = filteredRecords[0]?.chainageRecord?.startChainage ?? activeLocation?.startChainageRd ?? 0;
+        const endRd = filteredRecords[filteredRecords.length - 1]?.chainageRecord?.endChainage ?? (activeLocation?.startChainageRd ?? 0) + 15;
+
         return (
           <div className="space-y-4 font-mono text-xs">
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
               <div className="flex justify-between items-center text-cyan-300 font-bold">
-                <span>LONGITUDINAL GEOTECHNICAL STRATIGRAPHY STRIP (RD 1420.0m – 1432.0m)</span>
+                <span>LONGITUDINAL GEOTECHNICAL STRATIGRAPHY STRIP (RD {startRd.toFixed(1)}m – {endRd.toFixed(1)}m)</span>
                 <span className="text-slate-400 text-[10px]">Alignment Scale 1:200</span>
               </div>
               <div className="w-full h-40 bg-slate-900 rounded-lg border border-slate-800 p-2 overflow-x-auto relative">
@@ -553,12 +1189,12 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
 
                   {/* Overburden Fill */}
                   <rect x="20" y="25" width="660" height="40" fill="#1E293B" opacity="0.5" />
-                  <text x="350" y="48" fill="#64748B" fontSize="9" textAnchor="middle">Weathered Overburden &amp; Clayey Silt (20–25m Depth)</text>
+                  <text x="350" y="48" fill="#64748B" fontSize="9" textAnchor="middle">Weathered Overburden &amp; Strata (20–25m Depth)</text>
 
                   {/* Tunnel Alignment Bore */}
                   <rect x="20" y="75" width="660" height="25" fill="#0284C7" fillOpacity="0.2" stroke="#38BDF8" strokeWidth="1.5" rx="3" />
                   <text x="350" y="91" fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-                    TBM Drive Axis (Ø 6.4m Deccan Basalt Tunnel)
+                    TBM Drive Axis (Ø {activeLocation?.cutterheadDiameterM || 6.4}m {targetRecord.geology.mainLithology || 'Tunnel'} Drive)
                   </text>
 
                   {/* Ring Markers */}
@@ -591,22 +1227,31 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {filteredRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-800/40">
-                      <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
-                      <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(1)}m – {r.chainageRecord.endChainage.toFixed(1)}m</td>
-                      <td className="p-2.5 text-amber-300 font-medium">{r.geology.mainLithology}</td>
-                      <td className="p-2.5 font-bold text-cyan-400">{r.classification.calculatedQ.toFixed(1)}</td>
-                      <td className="p-2.5 font-bold text-amber-400">{r.classification.calculatedRmr}</td>
-                      <td className="p-2.5">{r.classification.rmrClassLabel}</td>
-                      <td className="p-2.5 text-slate-400">14.2 m below GL</td>
+                  {filteredRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-slate-500 font-mono text-xs">
+                        No stratigraphy profile points logged. Enter excavation data in Step 4.
+                      </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredRecords.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-800/40">
+                        <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
+                        <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(1)}m – {r.chainageRecord.endChainage.toFixed(1)}m</td>
+                        <td className="p-2.5 text-amber-300 font-medium">{r.geology.mainLithology || 'Strata'}</td>
+                        <td className="p-2.5 font-bold text-cyan-400">{r.classification.calculatedQ.toFixed(1)}</td>
+                        <td className="p-2.5 font-bold text-amber-400">{r.classification.calculatedRmr}</td>
+                        <td className="p-2.5">{r.classification.rmrClassLabel}</td>
+                        <td className="p-2.5 text-slate-400">14.2 m below GL</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         );
+      }
 
       case 'PROBE_DRILLING_AHEAD_LOG':
         return (
@@ -614,7 +1259,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
               <div>
                 <span className="text-slate-500 block text-[10px]">Probe Hole Rig:</span>
-                <strong className="text-slate-200">Boart Longyear Pneumatic</strong>
+                <strong className="text-slate-200">Standard Look-Ahead Core Drill</strong>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Look-Ahead Distance:</span>
@@ -645,30 +1290,30 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
                   <tr className="hover:bg-slate-800/40">
-                    <td className="p-2.5 font-bold text-cyan-400">PB-CROWN-01</td>
+                    <td className="p-2.5 font-bold text-cyan-400">PB-R{targetRecord.chainageRecord.ringNumber}-CROWN</td>
                     <td className="p-2.5">Crown (+12° Upward)</td>
                     <td className="p-2.5">25.0 m</td>
                     <td className="p-2.5">0.45 m/min</td>
                     <td className="p-2.5">18 bar</td>
-                    <td className="p-2.5 text-amber-300">Dense Columnar Basalt</td>
+                    <td className="p-2.5 text-amber-300">{targetRecord.geology.mainLithology || 'Intact Bedrock'}</td>
                     <td className="p-2.5 font-bold text-emerald-400">CLEAR TO BORE</td>
                   </tr>
                   <tr className="hover:bg-slate-800/40">
-                    <td className="p-2.5 font-bold text-cyan-400">PB-CENTER-02</td>
+                    <td className="p-2.5 font-bold text-cyan-400">PB-R{targetRecord.chainageRecord.ringNumber}-CENTER</td>
                     <td className="p-2.5">Centerline (0° Horizontal)</td>
                     <td className="p-2.5">30.0 m</td>
                     <td className="p-2.5">0.52 m/min</td>
                     <td className="p-2.5">16 bar</td>
-                    <td className="p-2.5 text-amber-300">Massive Basalt</td>
+                    <td className="p-2.5 text-amber-300">{targetRecord.geology.mainLithology || 'Massive Strata'}</td>
                     <td className="p-2.5 font-bold text-emerald-400">CLEAR TO BORE</td>
                   </tr>
                   <tr className="hover:bg-slate-800/40">
-                    <td className="p-2.5 font-bold text-cyan-400">PB-LEFT-03</td>
+                    <td className="p-2.5 font-bold text-cyan-400">PB-R{targetRecord.chainageRecord.ringNumber}-SHOULDER</td>
                     <td className="p-2.5">Left Shoulder (+8°)</td>
                     <td className="p-2.5">25.0 m</td>
                     <td className="p-2.5">0.40 m/min</td>
                     <td className="p-2.5">18 bar</td>
-                    <td className="p-2.5 text-amber-300">Basalt with Flow Breccia</td>
+                    <td className="p-2.5 text-amber-300">{targetRecord.geology.mainLithology || 'Jointed Strata'}</td>
                     <td className="p-2.5 font-bold text-emerald-400">CLEAR TO BORE</td>
                   </tr>
                 </tbody>
@@ -683,7 +1328,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
               <div>
                 <span className="text-slate-500 block text-[10px]">Dominant Muck Type:</span>
-                <strong className="text-cyan-400">Rock Chips (Platy to Angular)</strong>
+                <strong className="text-cyan-400">{targetRecord.muck?.materialType || 'Rock Chips (Platy to Angular)'}</strong>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">CERCHAR Abrasivity (CAI):</span>
@@ -714,29 +1359,38 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {filteredRecords.map((r, idx) => (
-                    <tr key={r.id} className="hover:bg-slate-800/40">
-                      <td className="p-2.5 font-bold text-cyan-400">MUCK-{r.chainageRecord.ringNumber}</td>
-                      <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(1)}m</td>
-                      <td className="p-2.5 text-slate-300">{r.geology.color}</td>
-                      <td className="p-2.5 text-amber-300">{r.muck?.fragmentShapeAngularity || 'ANGULAR'}</td>
-                      <td className="p-2.5">{r.muck?.averageFragmentSizeMm || 35} mm</td>
-                      <td className="p-2.5 text-cyan-300">{r.muck?.finesPercentEstimated || 15}%</td>
-                      <td className="p-2.5 text-slate-200">{r.muck?.coarsePercentEstimated || 85}%</td>
-                      <td className="p-2.5">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          LOGGED
-                        </span>
+                  {filteredRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-slate-500 font-mono text-xs">
+                        No muck inspection samples logged for this interval yet. Enter excavation data in Step 4.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredRecords.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-800/40">
+                        <td className="p-2.5 font-bold text-cyan-400">MUCK-{r.chainageRecord.ringNumber}</td>
+                        <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(1)}m</td>
+                        <td className="p-2.5 text-slate-300">{r.geology.color || 'Dark Gray'}</td>
+                        <td className="p-2.5 text-amber-300">{r.muck?.fragmentShapeAngularity || 'ANGULAR'}</td>
+                        <td className="p-2.5">{r.muck?.averageFragmentSizeMm || 35} mm</td>
+                        <td className="p-2.5 text-cyan-300">{r.muck?.finesPercentEstimated || 15}%</td>
+                        <td className="p-2.5 text-slate-200">{r.muck?.coarsePercentEstimated || 85}%</td>
+                        <td className="p-2.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                            LOGGED
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         );
 
-      case 'SETTLEMENT_GROUND_MOVEMENT_REPORT':
+      case 'SETTLEMENT_GROUND_MOVEMENT_REPORT': {
+        const centerRd = targetRecord.chainageRecord.startChainage.toFixed(2);
         return (
           <div className="space-y-4 font-mono text-xs">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
@@ -748,7 +1402,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
               <div>
                 <span className="text-slate-500 block text-[10px]">Peck Trough Width Parameter (i):</span>
                 <p className="text-xl font-bold text-cyan-400">11.0 m</p>
-                <span className="text-[10px] text-slate-400">K = 0.45 in Basalt</span>
+                <span className="text-[10px] text-slate-400">Ground Loss Factor K = 0.45</span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Ground Volume Loss (Vs):</span>
@@ -771,24 +1425,24 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
                   <tr className="hover:bg-slate-800/40">
-                    <td className="p-2.5 font-bold text-cyan-400">ARRAY-RD1425-CL</td>
-                    <td className="p-2.5">RD 1425.00m</td>
+                    <td className="p-2.5 font-bold text-cyan-400">ARRAY-RD{centerRd}-CL</td>
+                    <td className="p-2.5">RD {centerRd}m</td>
                     <td className="p-2.5">0.0 m (Centerline)</td>
                     <td className="p-2.5 font-bold text-amber-300">-4.2 mm</td>
                     <td className="p-2.5">-4.5 mm</td>
                     <td className="p-2.5 font-bold text-emerald-400">Cat 0: Negligible</td>
                   </tr>
                   <tr className="hover:bg-slate-800/40">
-                    <td className="p-2.5 font-bold text-cyan-400">ARRAY-RD1425-L5</td>
-                    <td className="p-2.5">RD 1425.00m</td>
+                    <td className="p-2.5 font-bold text-cyan-400">ARRAY-RD{centerRd}-L5</td>
+                    <td className="p-2.5">RD {centerRd}m</td>
                     <td className="p-2.5">-5.0 m (Left)</td>
                     <td className="p-2.5 font-bold text-amber-300">-3.6 mm</td>
                     <td className="p-2.5">-3.8 mm</td>
                     <td className="p-2.5 font-bold text-emerald-400">Cat 0: Negligible</td>
                   </tr>
                   <tr className="hover:bg-slate-800/40">
-                    <td className="p-2.5 font-bold text-cyan-400">ARRAY-RD1425-R5</td>
-                    <td className="p-2.5">RD 1425.00m</td>
+                    <td className="p-2.5 font-bold text-cyan-400">ARRAY-RD{centerRd}-R5</td>
+                    <td className="p-2.5">RD {centerRd}m</td>
                     <td className="p-2.5">+5.0 m (Right)</td>
                     <td className="p-2.5 font-bold text-amber-300">-3.4 mm</td>
                     <td className="p-2.5">-3.8 mm</td>
@@ -799,6 +1453,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
             </div>
           </div>
         );
+      }
 
       // Default fallback handles all remaining 10 reports with dedicated, realistic data structures
       default:
@@ -829,23 +1484,31 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {filteredRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-800/40">
-                      <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
-                      <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(2)}m – {r.chainageRecord.endChainage.toFixed(2)}m</td>
-                      <td className="p-2.5 text-amber-300 font-medium">{r.geology.mainLithology}</td>
-                      <td className="p-2.5 font-bold text-cyan-400">{r.classification.calculatedQ.toFixed(1)}</td>
-                      <td className="p-2.5 font-bold text-amber-400">{r.classification.calculatedRmr}</td>
-                      <td className="p-2.5">{r.telemetry.thrustForceKn} kN / {r.telemetry.cutterheadTorqueKnm} kNm</td>
-                      <td className="p-2.5 font-bold text-cyan-300">{r.supportLining.keySegmentPositionClock}</td>
-                      <td className="p-2.5">{r.supportLining.annularGroutVolumeActualM3.toFixed(2)} m³</td>
-                      <td className="p-2.5">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          VERIFIED
-                        </span>
+                  {filteredRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="p-6 text-center text-slate-500 font-mono text-xs">
+                        No excavation records found for this interval. Enter data in Step 4 (Data Collection) to generate this report.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredRecords.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-800/40">
+                        <td className="p-2.5 font-bold text-cyan-400">#{r.chainageRecord.ringNumber}</td>
+                        <td className="p-2.5">RD {r.chainageRecord.startChainage.toFixed(2)}m – {r.chainageRecord.endChainage.toFixed(2)}m</td>
+                        <td className="p-2.5 text-amber-300 font-medium">{r.geology.mainLithology || 'Strata'}</td>
+                        <td className="p-2.5 font-bold text-cyan-400">{r.classification.calculatedQ.toFixed(1)}</td>
+                        <td className="p-2.5 font-bold text-amber-400">{r.classification.calculatedRmr}</td>
+                        <td className="p-2.5">{r.telemetry.thrustForceKn || 0} kN / {r.telemetry.cutterheadTorqueKnm || 0} kNm</td>
+                        <td className="p-2.5 font-bold text-cyan-300">{r.supportLining.keySegmentPositionClock || '12:00'}</td>
+                        <td className="p-2.5">{r.supportLining.annularGroutVolumeActualM3.toFixed(2)} m³</td>
+                        <td className="p-2.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                            VERIFIED
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -871,12 +1534,22 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
         </div>
 
         {/* Global Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDownloadReportPdfHtml}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-black cursor-pointer shadow-lg shadow-cyan-500/25 active:scale-95 transition-all"
+            title="Download publication-grade styled report as HTML / PDF document"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download Report (PDF/HTML)</span>
+          </button>
+
           <button
             type="button"
             onClick={handleExportCSV}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 font-mono text-xs font-bold cursor-pointer"
-            title="Download CSV spreadsheet"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 font-mono text-xs font-bold cursor-pointer transition-all"
+            title="Download CSV spreadsheet table"
           >
             <FileSpreadsheet className="w-4 h-4" />
             <span>Export CSV</span>
@@ -884,28 +1557,29 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
 
           <button
             type="button"
-            onClick={() => setIsFullscreenModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-mono text-xs font-bold cursor-pointer"
-            title="Open in publication-ready report viewer"
+            onClick={handlePrint}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-mono text-xs font-bold cursor-pointer transition-all"
+            title="Print or save as PDF via system dialog"
           >
-            <Maximize2 className="w-4 h-4" />
-            <span>Fullscreen Inspector</span>
+            <Printer className="w-4 h-4" />
+            <span>Print / Save PDF</span>
           </button>
 
           <button
             type="button"
-            onClick={handlePrint}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-bold cursor-pointer shadow-lg shadow-cyan-500/20"
+            onClick={() => setIsFullscreenModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-mono text-xs font-bold cursor-pointer transition-all"
+            title="Open in publication-ready report viewer"
           >
-            <Printer className="w-4 h-4" />
-            <span>Print Official Sheet</span>
+            <Maximize2 className="w-4 h-4" />
+            <span>Fullscreen Inspector</span>
           </button>
         </div>
       </div>
 
       {/* Ring Filter Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Filter className="w-3.5 h-3.5 text-cyan-400" />
           <span className="text-slate-400 text-[11px] font-bold uppercase">Filter Records:</span>
           <div className="flex items-center gap-1">
@@ -926,6 +1600,16 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
               className="w-16 px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-cyan-300 text-center font-bold"
             />
           </div>
+
+          <button
+            type="button"
+            onClick={handleResetFilterToAll}
+            className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[10px] font-bold cursor-pointer ml-1"
+            title="Reset to include all logged ring records"
+          >
+            <RotateCcw className="w-3 h-3 text-cyan-400" />
+            <span>All Rings</span>
+          </button>
         </div>
 
         <span className="text-slate-400 text-[11px]">
@@ -960,26 +1644,144 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
 
       {/* Dedicated Report Sheet Viewport */}
       <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 space-y-4">
-        {/* Report Official Banner */}
-        <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-cyan-400" />
-              <h3 className="font-bold text-sm text-cyan-300 font-mono uppercase">
-                {currentDef.title}
-              </h3>
+        {/* Report Official Banner with Left & Right Logo Fit Boxes */}
+        <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-3">
+          <div className="flex items-center gap-3">
+            {/* Left Logo Box */}
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <div className="eswa-logo-fit-box w-[104px] h-[42px] rounded-lg bg-white border border-slate-700 p-1 flex items-center justify-center overflow-hidden">
+                {tbmLogos.left ? (
+                  <img
+                    src={tbmLogos.left}
+                    alt="Client Logo"
+                    className="max-h-full max-w-full w-auto h-auto object-contain block"
+                  />
+                ) : (
+                  <span className="text-[9px] font-black text-slate-600 uppercase text-center leading-tight">
+                    {activeProject?.client || 'CLIENT LOGO'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 print:hidden">
+                <label className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[9px] font-bold text-cyan-300 cursor-pointer font-mono">
+                  Left Logo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        if (typeof reader.result === 'string') {
+                          updateTbmLogo('left', reader.result);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                {tbmLogos.left && (
+                  <button
+                    type="button"
+                    onClick={() => updateTbmLogo('left', undefined)}
+                    className="px-1 py-0.5 rounded bg-rose-950 hover:bg-rose-900 border border-rose-800 text-[9px] font-bold text-rose-300 cursor-pointer"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
-            <p className="text-slate-400 text-xs mt-0.5 font-mono">
-              Project: <strong className="text-slate-200">{activeProject?.projectName || 'Tunnel Project'}</strong> · Heading: <strong className="text-slate-200">{activeLocation?.locationName || 'Main Drive'}</strong> · Date: {new Date().toLocaleDateString()}
-            </p>
+
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                <h3 className="font-bold text-sm text-cyan-300 font-mono uppercase">
+                  {currentDef.title}
+                </h3>
+              </div>
+              <p className="text-slate-400 text-xs mt-0.5 font-mono">
+                Project: <strong className="text-slate-200">{activeProject?.projectName || 'Tunnel Project'}</strong> · Heading: <strong className="text-slate-200">{activeLocation?.locationName || 'Main Drive'}</strong> · Date: {new Date().toLocaleDateString()}
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] px-2.5 py-1 rounded bg-slate-950 text-cyan-400 border border-slate-800 font-bold font-mono">
-              OFFICIAL SITE STANDARD FORMAT
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadReportPdfHtml}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-mono text-[11px] font-bold cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download</span>
+              </button>
+              <span className="text-[10px] px-2.5 py-1 rounded bg-slate-950 text-cyan-400 border border-slate-800 font-bold font-mono">
+                OFFICIAL SITE STANDARD FORMAT
+              </span>
+            </div>
+
+            {/* Right Logo Box */}
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <div className="eswa-logo-fit-box w-[104px] h-[42px] rounded-lg bg-white border border-slate-700 p-1 flex items-center justify-center overflow-hidden">
+                {tbmLogos.right ? (
+                  <img
+                    src={tbmLogos.right}
+                    alt="Contractor Logo"
+                    className="max-h-full max-w-full w-auto h-auto object-contain block"
+                  />
+                ) : (
+                  <span className="text-[9px] font-black text-slate-600 uppercase text-center leading-tight">
+                    {activeProject?.contractor || 'CONTRACTOR'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 print:hidden">
+                <label className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[9px] font-bold text-cyan-300 cursor-pointer font-mono">
+                  Right Logo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        if (typeof reader.result === 'string') {
+                          updateTbmLogo('right', reader.result);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                {tbmLogos.right && (
+                  <button
+                    type="button"
+                    onClick={() => updateTbmLogo('right', undefined)}
+                    className="px-1 py-0.5 rounded bg-rose-950 hover:bg-rose-900 border border-rose-800 text-[9px] font-bold text-rose-300 cursor-pointer"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Empty state message if records is empty */}
+        {records.length === 0 && (
+          <div className="p-4 rounded-xl bg-slate-950 border border-dashed border-amber-500/50 text-center font-mono space-y-1">
+            <p className="font-bold text-amber-300 text-xs">No Ring Excavation Records Found</p>
+            <p className="text-slate-400 text-[11px]">
+              This project location currently has 0 excavation records. Go to <strong>Step 4 (Data Collection)</strong> to manually enter your site data, or open <strong>Vault</strong> to load sample data.
+            </p>
+          </div>
+        )}
 
         {/* Dynamic Real Report Body Content */}
         {renderReportContent()}
@@ -1000,8 +1802,16 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onClick={handleDownloadReportPdfHtml}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-mono text-xs flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Report</span>
+                </button>
+                <button
+                  type="button"
                   onClick={handlePrint}
-                  className="px-3 py-1.5 rounded-lg bg-cyan-500 text-slate-950 font-bold font-mono text-xs flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold font-mono text-xs flex items-center gap-1.5 cursor-pointer border border-slate-700"
                 >
                   <Printer className="w-4 h-4" />
                   <span>Print Sheet</span>

@@ -6695,15 +6695,15 @@ export function buildFieldMappingTwoPageWordHtml(
       <tr>
         <td style="width:34%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
           <strong>CONTRACTOR:</strong> ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}<br/>
-          <strong>Sign:</strong> ${round.contractorGeologistSign && round.contractorGeologistSign.startsWith('data:image/') ? `<img src="${round.contractorGeologistSign}" style="max-height:22px;max-width:110px;vertical-align:middle;display:inline-block;" />` : (round.contractorGeologistSign || '________________')}
+          <strong>Sign:</strong> ${round.contractorGeologistSign && round.contractorGeologistSign.startsWith('data:image/') ? `<img src="${round.contractorGeologistSign}" height="22" style="max-height:22px;max-width:110px;width:auto;height:auto;object-fit:contain;vertical-align:middle;display:inline-block;" />` : (round.contractorGeologistSign || '________________')}
         </td>
         <td style="width:33%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
           <strong>PMC / CONSULTANT:</strong> ${round.consultantGeologistName || '________________'}<br/>
-          <strong>Sign:</strong> ${round.consultantGeologistSign && round.consultantGeologistSign.startsWith('data:image/') ? `<img src="${round.consultantGeologistSign}" style="max-height:22px;max-width:110px;vertical-align:middle;display:inline-block;" />` : (round.consultantGeologistSign || '________________')}
+          <strong>Sign:</strong> ${round.consultantGeologistSign && round.consultantGeologistSign.startsWith('data:image/') ? `<img src="${round.consultantGeologistSign}" height="22" style="max-height:22px;max-width:110px;width:auto;height:auto;object-fit:contain;vertical-align:middle;display:inline-block;" />` : (round.consultantGeologistSign || '________________')}
         </td>
         <td style="width:33%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
           <strong>CLIENT / OWNER:</strong> ${round.clientGeologistName || round.clientRepName || '________________'}<br/>
-          <strong>Sign:</strong> ${round.clientGeologistSign && round.clientGeologistSign.startsWith('data:image/') ? `<img src="${round.clientGeologistSign}" style="max-height:22px;max-width:110px;vertical-align:middle;display:inline-block;" />` : (round.clientGeologistSign || '________________')}
+          <strong>Sign:</strong> ${round.clientGeologistSign && round.clientGeologistSign.startsWith('data:image/') ? `<img src="${round.clientGeologistSign}" height="22" style="max-height:22px;max-width:110px;width:auto;height:auto;object-fit:contain;vertical-align:middle;display:inline-block;" />` : (round.clientGeologistSign || '________________')}
         </td>
       </tr>
     </table>`;
@@ -6877,7 +6877,7 @@ export function buildFieldMappingTwoPageWordHtml(
       <td rowspan="2" style="width:15%;text-align:center;padding:3px;">
         ${
           project.leftLogoDataUrl
-            ? `<img src="${project.leftLogoDataUrl}" height="28" />`
+            ? `<img src="${project.leftLogoDataUrl}" height="28" style="max-height:28px;max-width:105px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto;" />`
             : `<strong>${project.clientName || 'CLIENT'}</strong>`
         }
       </td>
@@ -6887,7 +6887,7 @@ export function buildFieldMappingTwoPageWordHtml(
       <td rowspan="2" style="width:15%;text-align:center;padding:3px;">
         ${
           project.rightLogoDataUrl
-            ? `<img src="${project.rightLogoDataUrl}" height="28" />`
+            ? `<img src="${project.rightLogoDataUrl}" height="28" style="max-height:28px;max-width:105px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto;" />`
             : `<strong>${project.contractorName || 'CONTRACTOR'}</strong>`
         }
       </td>
@@ -6923,7 +6923,7 @@ export function buildFieldMappingTwoPageWordHtml(
       <td rowspan="2" style="width:15%;text-align:center;padding:3px;">
         ${
           project.leftLogoDataUrl
-            ? `<img src="${project.leftLogoDataUrl}" height="28" />`
+            ? `<img src="${project.leftLogoDataUrl}" height="28" style="max-height:28px;max-width:105px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto;" />`
             : `<strong>${project.clientName || 'CLIENT'}</strong>`
         }
       </td>
@@ -6933,7 +6933,7 @@ export function buildFieldMappingTwoPageWordHtml(
       <td rowspan="2" style="width:15%;text-align:center;padding:3px;">
         ${
           project.rightLogoDataUrl
-            ? `<img src="${project.rightLogoDataUrl}" height="28" />`
+            ? `<img src="${project.rightLogoDataUrl}" height="28" style="max-height:28px;max-width:105px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto;" />`
             : `<strong>${project.contractorName || 'CONTRACTOR'}</strong>`
         }
       </td>
@@ -7073,7 +7073,7 @@ export function buildFieldMappingTwoPageWordHtml(
       <td rowspan="2" style="width:15%;text-align:center;padding:3px;">
         ${
           project.leftLogoDataUrl
-            ? `<img src="${project.leftLogoDataUrl}" height="28" />`
+            ? `<img src="${project.leftLogoDataUrl}" height="28" style="max-height:28px;max-width:105px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto;" />`
             : `<strong>${project.clientName || 'CLIENT'}</strong>`
         }
       </td>
@@ -7083,7 +7083,7 @@ export function buildFieldMappingTwoPageWordHtml(
       <td rowspan="2" style="width:15%;text-align:center;padding:3px;">
         ${
           project.rightLogoDataUrl
-            ? `<img src="${project.rightLogoDataUrl}" height="28" />`
+            ? `<img src="${project.rightLogoDataUrl}" height="28" style="max-height:28px;max-width:105px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto;" />`
             : `<strong>${project.contractorName || 'CONTRACTOR'}</strong>`
         }
       </td>
@@ -7652,11 +7652,21 @@ export async function exportFieldMappingTwoPagePdfSheet(
   const sup = round.supportSystem || createDefaultSupportSystem();
   const surv = round.surveyOverbreak;
 
-  const [sketchImg, supportImg, leftLogoImg, rightLogoImg] = await Promise.all([
+  const [sketchImg, supportImg, leftLogoImg, rightLogoImg, contractorSignImg, clientSignImg] = await Promise.all([
     dataUrlToImage(sketchCompositeDataUrl),
     dataUrlToImage(supportDrawingDataUrl),
     dataUrlToImage(project.leftLogoDataUrl),
     dataUrlToImage(project.rightLogoDataUrl),
+    dataUrlToImage(
+      round.contractorGeologistSign && round.contractorGeologistSign.startsWith('data:image/')
+        ? round.contractorGeologistSign
+        : undefined
+    ),
+    dataUrlToImage(
+      round.clientGeologistSign && round.clientGeologistSign.startsWith('data:image/')
+        ? round.clientGeologistSign
+        : undefined
+    ),
   ]);
 
   // Scaled dimensions: A4 portrait is 1240 x 1754, A3 portrait is 1754 x 2480
@@ -7775,18 +7785,59 @@ export async function exportFieldMappingTwoPagePdfSheet(
     ctx.lineTo(margin + innerPad + hW * 0.5, sY + signH);
     ctx.stroke();
 
+    ctx.fillStyle = '#0f172a';
     ctx.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillText(
-      `CONTRACTOR GEOLOGIST: ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}   Sign: ${round.contractorGeologistSign || '________'}`,
-      margin + innerPad + 12 * scale,
-      sY + Math.round(signH * 0.62)
-    );
-    ctx.fillText(
-      `CLIENT / CONSULTANT: ${round.clientGeologistName || round.clientRepName || '________________'}   Sign: ${round.clientGeologistSign || '________'}`,
-      margin + innerPad + hW * 0.5 + 12 * scale,
-      sY + Math.round(signH * 0.62)
-    );
+
+    const contractorNameText = `CONTRACTOR GEOLOGIST: ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}   Sign: `;
+    ctx.fillText(contractorNameText, margin + innerPad + 12 * scale, sY + Math.round(signH * 0.62));
+    if (contractorSignImg) {
+      const textW = ctx.measureText(contractorNameText).width;
+      const maxSigW = Math.max(40 * scale, hW * 0.5 - textW - 24 * scale);
+      const maxSigH = signH - 8 * scale;
+      const sc = Math.min(maxSigW / Math.max(1, contractorSignImg.width), maxSigH / Math.max(1, contractorSignImg.height));
+      const dw = contractorSignImg.width * sc;
+      const dh = contractorSignImg.height * sc;
+      ctx.drawImage(
+        contractorSignImg,
+        margin + innerPad + 12 * scale + textW,
+        sY + (signH - dh) / 2,
+        dw,
+        dh
+      );
+    } else {
+      const textW = ctx.measureText(contractorNameText).width;
+      const signText =
+        round.contractorGeologistSign && !round.contractorGeologistSign.startsWith('data:image/')
+          ? round.contractorGeologistSign
+          : '________';
+      ctx.fillText(signText, margin + innerPad + 12 * scale + textW, sY + Math.round(signH * 0.62));
+    }
+
+    const clientNameText = `CLIENT / CONSULTANT: ${round.clientGeologistName || round.clientRepName || '________________'}   Sign: `;
+    ctx.fillText(clientNameText, margin + innerPad + hW * 0.5 + 12 * scale, sY + Math.round(signH * 0.62));
+    if (clientSignImg) {
+      const textW = ctx.measureText(clientNameText).width;
+      const maxSigW = Math.max(40 * scale, hW * 0.5 - textW - 24 * scale);
+      const maxSigH = signH - 8 * scale;
+      const sc = Math.min(maxSigW / Math.max(1, clientSignImg.width), maxSigH / Math.max(1, clientSignImg.height));
+      const dw = clientSignImg.width * sc;
+      const dh = clientSignImg.height * sc;
+      ctx.drawImage(
+        clientSignImg,
+        margin + innerPad + hW * 0.5 + 12 * scale + textW,
+        sY + (signH - dh) / 2,
+        dw,
+        dh
+      );
+    } else {
+      const textW = ctx.measureText(clientNameText).width;
+      const signText =
+        round.clientGeologistSign && !round.clientGeologistSign.startsWith('data:image/')
+          ? round.clientGeologistSign
+          : '________';
+      ctx.fillText(signText, margin + innerPad + hW * 0.5 + 12 * scale + textW, sY + Math.round(signH * 0.62));
+    }
   };
 
   // ==========================================================================

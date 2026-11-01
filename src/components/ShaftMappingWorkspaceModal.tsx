@@ -226,10 +226,10 @@ export const ShaftMappingWorkspaceModal: React.FC<ShaftMappingWorkspaceModalProp
   };
 
   const handleResetSample = () => {
-    if (confirm('Load fresh authentic NATM Shaft Face Mapping dataset?')) {
-      const fresh = createDefaultShaftRecord();
-      saveToStorage(fresh);
-    }
+    const fresh = createDefaultShaftRecord();
+    saveToStorage(fresh);
+    setSaveSuccessNotice(true);
+    setTimeout(() => setSaveSuccessNotice(false), 2500);
   };
 
   if (!isOpen) return null;

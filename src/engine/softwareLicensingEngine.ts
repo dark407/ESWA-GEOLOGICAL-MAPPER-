@@ -89,17 +89,32 @@ function unmarkIdsDeletedTombstone(ids: string[]): void {
   }
 }
 
-function isIdDeletedTombstone(id: string | undefined, createdAtIso?: string): boolean {
+function isIdDeletedTombstone(id: string | undefined, _createdAtIso?: string): boolean {
   if (!id) return false;
   const clean = id.trim().toLowerCase();
   if (!clean) return false;
   const tombstones = readDeletedTombstones();
-  const deletedAt = tombstones[clean];
-  if (!deletedAt) return false;
-  if (createdAtIso && createdAtIso > deletedAt) {
-    return false;
-  }
-  return true;
+  return Boolean(tombstones[clean]);
+}
+
+function isRequestTombstoned(r: AccessRequestRecord | null | undefined): boolean {
+  if (!r) return false;
+  return (
+    isIdDeletedTombstone(r.requestId) ||
+    isIdDeletedTombstone(r.assignedUserId) ||
+    isIdDeletedTombstone(r.pcHardwareId) ||
+    isIdDeletedTombstone(r.email)
+  );
+}
+
+function isLicenseTombstoned(l: SoftwareLicenseRecord | null | undefined): boolean {
+  if (!l) return false;
+  return (
+    isIdDeletedTombstone(l.userId) ||
+    isIdDeletedTombstone(`req_${l.userId}`) ||
+    isIdDeletedTombstone(l.boundPcHardwareId) ||
+    isIdDeletedTombstone(l.email)
+  );
 }
 
 function readLocalMirror<T>(key: string): T[] {
@@ -246,7 +261,8 @@ function getServerRelayUrls(subpath: string): string[] {
 async function serverRelayUpsert(
   collectionName: string,
   docId: string,
-  record: Record<string, unknown>
+  record: Record<string, unknown>,
+  clearTombstone = false
 ): Promise<boolean> {
   const urls = getServerRelayUrls('/api/licensing/upsert');
   const results = await Promise.all(
@@ -255,7 +271,12 @@ async function serverRelayUpsert(
         const resp = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ collection: collectionName, id: docId, record }),
+          body: JSON.stringify({
+            collection: collectionName,
+            id: docId,
+            record,
+            clearTombstone,
+          }),
         });
         return resp.ok;
       } catch {
@@ -268,7 +289,8 @@ async function serverRelayUpsert(
 
 async function serverRelayDelete(
   collectionName: string,
-  docId: string
+  docId: string,
+  relatedIds: string[] = []
 ): Promise<void> {
   const urls = getServerRelayUrls('/api/licensing/delete');
   await Promise.all(
@@ -277,7 +299,7 @@ async function serverRelayDelete(
         await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ collection: collectionName, id: docId }),
+          body: JSON.stringify({ collection: collectionName, id: docId, relatedIds }),
         });
       } catch {
         // Ignore
@@ -300,6 +322,14 @@ async function serverRelayFetchCollection<T>(
         const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
         if (!resp.ok) return [] as T[];
         const data = (await resp.json()) as Record<string, unknown>;
+        if (data?.deleted_tombstones && typeof data.deleted_tombstones === 'object') {
+          const srvTombstones = Object.keys(
+            data.deleted_tombstones as Record<string, string>
+          );
+          if (srvTombstones.length > 0) {
+            markIdsDeletedTombstone(srvTombstones);
+          }
+        }
         const arr = data?.[collectionName];
         return Array.isArray(arr) ? (arr as T[]) : ([] as T[]);
       } catch {
@@ -424,10 +454,11 @@ async function firestoreRestGetDoc<T>(
 
 async function firestoreRestDeleteDoc(
   collectionName: string,
-  docId: string
+  docId: string,
+  relatedIds: string[] = []
 ): Promise<void> {
   await Promise.all([
-    serverRelayDelete(collectionName, docId),
+    serverRelayDelete(collectionName, docId, relatedIds),
     ...FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
       try {
         const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/${collectionName}/${encodeURIComponent(
@@ -1494,6 +1525,12 @@ export async function registerInstantUserAndLogin(input: {
 
   // Sync to all 3 cloud channels (Server Relay + Primary & Secondary Firestore REST + Firebase SDK)
   await Promise.all([
+    serverRelayUpsert(
+      'software_licenses',
+      userId,
+      licenseRecord as unknown as Record<string, unknown>,
+      true
+    ),
     firestoreRestSetDoc(
       'software_licenses',
       userId,
@@ -1502,7 +1539,8 @@ export async function registerInstantUserAndLogin(input: {
     serverRelayUpsert(
       'access_requests',
       reqId,
-      requestRecord as unknown as Record<string, unknown>
+      requestRecord as unknown as Record<string, unknown>,
+      true
     ),
     withFirestoreTimeout(
       setDoc(doc(db, 'software_licenses', userId), licenseRecord),
@@ -1554,17 +1592,10 @@ export async function registerInstantUserAndLogin(input: {
  */
 export async function syncPendingLocalRequestsToCloud(): Promise<void> {
   const localRequests = readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY).filter(
-    (r) =>
-      r.status !== 'REJECTED' &&
-      !isIdDeletedTombstone(r.requestId, r.createdAtIso) &&
-      !isIdDeletedTombstone(r.assignedUserId, r.createdAtIso) &&
-      !isIdDeletedTombstone(r.pcHardwareId, r.createdAtIso)
+    (r) => r.status !== 'REJECTED' && !isRequestTombstoned(r)
   );
   const localLicenses = readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY).filter(
-    (l) =>
-      l.status !== 'REVOKED' &&
-      !isIdDeletedTombstone(l.userId, l.createdAtIso) &&
-      !isIdDeletedTombstone(l.boundPcHardwareId, l.createdAtIso)
+    (l) => l.status !== 'REVOKED' && !isLicenseTombstoned(l)
   );
 
   await Promise.all([
@@ -2250,65 +2281,125 @@ export async function updateSoftwareLicenseAdmin(
   ]);
 }
 
-export async function deleteSoftwareLicenseAdmin(userId: string): Promise<void> {
-  const cleanUserId = sanitizeIdentifier(userId);
+export async function deleteSoftwareLicenseAdmin(userIdOrReqId: string): Promise<void> {
+  const rawId = (userIdOrReqId || '').trim();
+  const cleanId = sanitizeIdentifier(rawId);
+  const strippedUserId = cleanId.startsWith('req_') ? cleanId.slice(4) : cleanId;
+  const candidateReqId = cleanId.startsWith('req_') ? cleanId : `req_${cleanId}`;
+
   const allLicenses = readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY);
-  const targetLic = allLicenses.find((l) => l.userId === cleanUserId) || null;
-
   const allRequests = readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY);
-  const matchingRequests = allRequests.filter(
+
+  // Find all matching licenses and requests by ID, requestId, assignedUserId, hardwareId, or email
+  const directMatchingLics = allLicenses.filter(
+    (l) =>
+      l.userId === cleanId ||
+      l.userId === strippedUserId ||
+      sanitizeIdentifier(l.userId) === cleanId ||
+      sanitizeIdentifier(l.userId) === strippedUserId
+  );
+  const directMatchingReqs = allRequests.filter(
     (r) =>
-      r.requestId === `req_${cleanUserId}` ||
-      r.assignedUserId === cleanUserId ||
-      (targetLic?.boundPcHardwareId &&
-        r.pcHardwareId &&
-        r.pcHardwareId.toLowerCase() === targetLic.boundPcHardwareId.toLowerCase()) ||
-      (targetLic?.email &&
-        r.email &&
-        r.email.toLowerCase() === targetLic.email.toLowerCase())
+      r.requestId === rawId ||
+      r.requestId === cleanId ||
+      r.requestId === candidateReqId ||
+      r.assignedUserId === cleanId ||
+      r.assignedUserId === strippedUserId
   );
 
-  const matchingReqIds = Array.from(
-    new Set([`req_${cleanUserId}`, ...matchingRequests.map((r) => r.requestId)])
+  const targetHwIds = new Set<string>(
+    [
+      ...directMatchingLics.map((l) => (l.boundPcHardwareId || '').trim().toLowerCase()),
+      ...directMatchingReqs.map((r) => (r.pcHardwareId || '').trim().toLowerCase()),
+    ].filter(Boolean)
+  );
+  const targetEmails = new Set<string>(
+    [
+      ...directMatchingLics.map((l) => (l.email || '').trim().toLowerCase()),
+      ...directMatchingReqs.map((r) => (r.email || '').trim().toLowerCase()),
+    ].filter(Boolean)
   );
 
-  // Record tombstones so background cloud sync never recreates this deleted user
-  markIdsDeletedTombstone([
-    cleanUserId,
-    ...matchingReqIds,
-    targetLic?.boundPcHardwareId || '',
+  const matchingLicenses = allLicenses.filter(
+    (l) =>
+      directMatchingLics.includes(l) ||
+      (l.boundPcHardwareId && targetHwIds.has(l.boundPcHardwareId.trim().toLowerCase())) ||
+      (l.email && targetEmails.has(l.email.trim().toLowerCase()))
+  );
+
+  const matchingLicenseUserIds = new Set<string>([
+    cleanId,
+    strippedUserId,
+    ...matchingLicenses.map((l) => l.userId),
   ]);
 
-  // Immediately remove from local mirrors so UI updates in 0ms
-  removeMirrorItem<SoftwareLicenseRecord>(
-    LOCAL_MIRROR_LICENSES_KEY,
-    cleanUserId,
-    (x) => x.userId
+  const matchingRequests = allRequests.filter(
+    (r) =>
+      directMatchingReqs.includes(r) ||
+      (r.assignedUserId && matchingLicenseUserIds.has(r.assignedUserId)) ||
+      (r.pcHardwareId && targetHwIds.has(r.pcHardwareId.trim().toLowerCase())) ||
+      (r.email && targetEmails.has(r.email.trim().toLowerCase()))
   );
-  const remainingReqs = allRequests.filter((r) => !matchingReqIds.includes(r.requestId));
+
+  const allUserIdsToPurge = Array.from(
+    new Set(
+      [
+        strippedUserId,
+        ...matchingLicenses.map((l) => l.userId),
+        ...matchingRequests.map((r) => r.assignedUserId),
+      ].filter((id) => Boolean(id) && !id.startsWith('req_'))
+    )
+  );
+
+  const allReqIdsToPurge = Array.from(
+    new Set(
+      [
+        candidateReqId,
+        ...(rawId.startsWith('req_') ? [rawId] : []),
+        ...allUserIdsToPurge.map((u) => `req_${u}`),
+        ...matchingRequests.map((r) => r.requestId),
+      ].filter(Boolean)
+    )
+  );
+
+  const allTombstoneIds = Array.from(
+    new Set(
+      [
+        rawId,
+        cleanId,
+        strippedUserId,
+        candidateReqId,
+        ...allUserIdsToPurge,
+        ...allReqIdsToPurge,
+        ...Array.from(targetHwIds),
+        ...Array.from(targetEmails),
+      ].filter(Boolean)
+    )
+  );
+
+  // 1. Record permanent tombstones so background sync never resurrects this person
+  markIdsDeletedTombstone(allTombstoneIds);
+
+  // 2. Immediately purge from local mirrors so UI updates in 0ms
+  const remainingLics = allLicenses.filter(
+    (l) => !allUserIdsToPurge.includes(l.userId) && !isLicenseTombstoned(l)
+  );
+  const remainingReqs = allRequests.filter(
+    (r) => !allReqIdsToPurge.includes(r.requestId) && !isRequestTombstoned(r)
+  );
+  writeLocalMirror(LOCAL_MIRROR_LICENSES_KEY, remainingLics);
   writeLocalMirror(LOCAL_MIRROR_REQUESTS_KEY, remainingReqs);
 
-  const nowIso = new Date().toISOString();
-
+  // 3. Delete across Server Relay, Firestore REST API, and Firebase SDK (NO parallel PATCH that could recreate docs!)
   await Promise.all([
-    // Mark REVOKED first in case any endpoint blocks raw DELETE, then DELETE across all endpoints
-    firestoreRestUpdateDoc('software_licenses', cleanUserId, {
-      status: 'REVOKED',
-      lastSeenAtIso: nowIso,
-      adminAuthSig: ADMIN_AUTH_SIG,
-    }).catch(() => false),
-    firestoreRestDeleteDoc('software_licenses', cleanUserId),
-    withFirestoreTimeout(deleteDoc(doc(db, 'software_licenses', cleanUserId)), 3500).catch(
-      () => {}
-    ),
-    ...matchingReqIds.flatMap((reqId) => [
-      firestoreRestUpdateDoc('access_requests', reqId, {
-        status: 'REJECTED',
-        assignedUserId: '',
-        assignedLicenseKey: '',
-        adminAuthSig: ADMIN_AUTH_SIG,
-      }).catch(() => false),
-      firestoreRestDeleteDoc('access_requests', reqId),
+    ...allUserIdsToPurge.flatMap((uid) => [
+      firestoreRestDeleteDoc('software_licenses', uid, allTombstoneIds),
+      withFirestoreTimeout(deleteDoc(doc(db, 'software_licenses', uid)), 3500).catch(
+        () => {}
+      ),
+    ]),
+    ...allReqIdsToPurge.flatMap((reqId) => [
+      firestoreRestDeleteDoc('access_requests', reqId, allTombstoneIds),
       withFirestoreTimeout(deleteDoc(doc(db, 'access_requests', reqId)), 3500).catch(
         () => {}
       ),
@@ -2317,34 +2408,7 @@ export async function deleteSoftwareLicenseAdmin(userId: string): Promise<void> 
 }
 
 export async function rejectAccessRequestAdmin(requestId: string): Promise<void> {
-  const existing = readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY).find(
-    (r) => r.requestId === requestId
-  );
-  if (existing) {
-    upsertMirrorItem(
-      LOCAL_MIRROR_REQUESTS_KEY,
-      {
-        ...existing,
-        status: 'REJECTED',
-        assignedUserId: '',
-        assignedLicenseKey: '',
-      },
-      (x) => x.requestId
-    );
-  }
-  const rejectUpdates = {
-    status: 'REJECTED',
-    assignedUserId: '',
-    assignedLicenseKey: '',
-    adminAuthSig: ADMIN_AUTH_SIG,
-  };
-  await Promise.all([
-    firestoreRestUpdateDoc('access_requests', requestId, rejectUpdates),
-    withFirestoreTimeout(
-      updateDoc(doc(db, 'access_requests', requestId), rejectUpdates),
-      3500
-    ).catch(() => {}),
-  ]);
+  await deleteSoftwareLicenseAdmin(requestId);
 }
 
 /**
@@ -2851,42 +2915,53 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
     ),
   ]);
 
-  const currentReqs = mergeById(
+  // Actively purge any tombstoned zombie records that were still returned by remote Firestore
+  for (const r of cloudReqs) {
+    if (isRequestTombstoned(r)) {
+      void firestoreRestDeleteDoc('access_requests', r.requestId);
+      void withFirestoreTimeout(
+        deleteDoc(doc(db, 'access_requests', r.requestId)),
+        2500
+      ).catch(() => {});
+    }
+  }
+  for (const l of cloudLics) {
+    if (isLicenseTombstoned(l)) {
+      void firestoreRestDeleteDoc('software_licenses', l.userId);
+      void withFirestoreTimeout(
+        deleteDoc(doc(db, 'software_licenses', l.userId)),
+        2500
+      ).catch(() => {});
+    }
+  }
+
+  const allMergedReqs = mergeById(
     cloudReqs,
     readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY),
     (x) => x.requestId
-  )
-    .filter(
-      (r) =>
-        r.status !== 'REJECTED' &&
-        !isIdDeletedTombstone(r.requestId, r.createdAtIso) &&
-        !isIdDeletedTombstone(r.assignedUserId, r.createdAtIso) &&
-        !isIdDeletedTombstone(r.pcHardwareId, r.createdAtIso)
-    )
+  );
+  const currentReqs = allMergedReqs
+    .filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r))
     .sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || ''));
 
-  const currentLics = mergeById(
+  const allMergedLics = mergeById(
     cloudLics,
     readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY),
     (x) => x.userId
-  ).filter(
-    (l) =>
-      l.status !== 'REVOKED' &&
-      !isIdDeletedTombstone(l.userId, l.createdAtIso) &&
-      !isIdDeletedTombstone(l.boundPcHardwareId, l.createdAtIso)
+  );
+  const currentLics = allMergedLics.filter(
+    (l) => !isLicenseTombstoned(l)
   );
 
   // Automatically unify any registered user from access_requests into software_licenses
   // so both Master Android App and Master PC Software always show ALL Android + PC users together
-  let licsChanged = cloudLics.length > 0;
-  let reqsChanged = cloudReqs.length > 0;
   for (const req of currentReqs) {
-    if (req.status === 'REJECTED') continue;
-    const matchLic = currentLics.find(
+    if (req.status === 'REJECTED' || isRequestTombstoned(req)) continue;
+    const matchLic = allMergedLics.find(
       (l) =>
         (req.assignedUserId && l.userId === req.assignedUserId) ||
         (req.pcHardwareId && l.boundPcHardwareId === req.pcHardwareId) ||
-        (req.email && l.email.toLowerCase() === req.email.toLowerCase())
+        (req.email && l.email && l.email.toLowerCase() === req.email.toLowerCase())
     );
     if (!matchLic) {
       const isAndroid =
@@ -2904,6 +2979,7 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
       const autoUserId = sanitizeIdentifier(
         req.assignedUserId || `usr_${slug}_${hwSuf}`
       );
+      if (isIdDeletedTombstone(autoUserId)) continue;
       const newLic: SoftwareLicenseRecord = {
         userId: autoUserId,
         portalScope: PORTAL_SCOPE,
@@ -2922,7 +2998,6 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
         adminAuthSig: ADMIN_AUTH_SIG,
       };
       currentLics.push(newLic);
-      licsChanged = true;
       void firestoreRestSetDoc(
         'software_licenses',
         autoUserId,
@@ -2932,7 +3007,6 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
         req.status = 'APPROVED';
         req.assignedUserId = autoUserId;
         req.assignedLicenseKey = newLic.licenseKey;
-        reqsChanged = true;
         void firestoreRestUpdateDoc('access_requests', req.requestId, {
           status: 'APPROVED',
           assignedUserId: autoUserId,
@@ -2943,16 +3017,11 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
     }
   }
 
-  if (reqsChanged) {
-    writeLocalMirror(LOCAL_MIRROR_REQUESTS_KEY, currentReqs);
-  }
-
-  if (licsChanged) {
-    currentLics.sort((a, b) =>
-      (b.createdAtIso || '').localeCompare(a.createdAtIso || '')
-    );
-    writeLocalMirror(LOCAL_MIRROR_LICENSES_KEY, currentLics);
-  }
+  writeLocalMirror(LOCAL_MIRROR_REQUESTS_KEY, currentReqs);
+  currentLics.sort((a, b) =>
+    (b.createdAtIso || '').localeCompare(a.createdAtIso || '')
+  );
+  writeLocalMirror(LOCAL_MIRROR_LICENSES_KEY, currentLics);
 
   if (cloudRels.length > 0) {
     const mergedRels = mergeById(
@@ -2994,23 +3063,12 @@ export function subscribeAdminLicensingData(callbacks: {
   const pushFromMirror = () => {
     callbacks.onRequests(
       readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY)
-        .filter(
-          (r) =>
-            r.status !== 'REJECTED' &&
-            !isIdDeletedTombstone(r.requestId, r.createdAtIso) &&
-            !isIdDeletedTombstone(r.assignedUserId, r.createdAtIso) &&
-            !isIdDeletedTombstone(r.pcHardwareId, r.createdAtIso)
-        )
+        .filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r))
         .sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || ''))
     );
     callbacks.onLicenses(
       readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY)
-        .filter(
-          (l) =>
-            l.status !== 'REVOKED' &&
-            !isIdDeletedTombstone(l.userId, l.createdAtIso) &&
-            !isIdDeletedTombstone(l.boundPcHardwareId, l.createdAtIso)
-        )
+        .filter((l) => !isLicenseTombstoned(l))
         .sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || ''))
     );
     const allMirrorReleases = readLocalMirror<SoftwareReleaseRecord>(

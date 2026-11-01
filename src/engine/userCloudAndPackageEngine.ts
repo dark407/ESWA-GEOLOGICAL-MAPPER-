@@ -19,7 +19,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { auth, db, googleSignIn } from '../firebase';
+import { auth, db, googleSignIn, handleFirestoreError, OperationType } from '../firebase';
 import {
   buildFieldMappingTwoPageWordHtml,
   computeFieldQValue,
@@ -54,6 +54,11 @@ import {
   SurfaceType,
 } from '../types/tunnel';
 import { getLocalMasterPcBypass, getOrGeneratePcHardwareId } from './softwareLicensingEngine';
+import {
+  detectPayloadApplicationMode,
+  routeToIsolatedMiningVault,
+  routeToIsolatedTbmVault,
+} from './universalDataRouterEngine';
 
 const FIELD_RESUME_STORAGE_KEY = 'eswa_field_mapping_resume_state_v1';
 const PHOTOGRAMMETRY_RESUME_STORAGE_KEY = 'eswa_photogrammetry_resume_state_v1';
@@ -773,6 +778,29 @@ export function applyImportedEswaPayload(
   parsed: any,
   mode: 'merge' | 'replace' = 'merge'
 ): EswaPackageImportSummary {
+  // Cross-Application Smart Router: If file is for MINING or TBM, route strictly to its isolated vault
+  const detectedMode = detectPayloadApplicationMode(parsed);
+  if (detectedMode === 'MINING') {
+    const res = routeToIsolatedMiningVault(parsed, mode);
+    return {
+      fieldRoundsImported: 0,
+      fieldProjectsImported: 0,
+      photogrammetryFacesImported: 0,
+      photosImportedCount: 0,
+      message: `${res.message} (Reflected in Isolated MINING Data & Storage)`,
+    };
+  }
+  if (detectedMode === 'TBM') {
+    const res = routeToIsolatedTbmVault(parsed, mode);
+    return {
+      fieldRoundsImported: 0,
+      fieldProjectsImported: 0,
+      photogrammetryFacesImported: 0,
+      photosImportedCount: 0,
+      message: `${res.message} (Reflected in Isolated TBM Data & Storage)`,
+    };
+  }
+
   let fieldRoundsImported = 0;
   let fieldProjectsImported = 0;
   let photogrammetryFacesImported = 0;
@@ -3402,14 +3430,19 @@ export async function fetchAiTrainingTelemetryRecords(
     );
   }
 
-  const q = query(
-    collection(db, 'ai_training_telemetry'),
-    orderBy('timestamp', 'desc'),
-    limit(300)
-  );
+  try {
+    const q = query(
+      collection(db, 'ai_training_telemetry'),
+      orderBy('timestamp', 'desc'),
+      limit(300)
+    );
 
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => d.data() as AiTrainingTelemetryRecord);
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => d.data() as AiTrainingTelemetryRecord);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'ai_training_telemetry');
+    return [];
+  }
 }
 
 /**
@@ -3427,8 +3460,13 @@ export async function deleteAiTrainingTelemetryRecord(
     );
   }
 
-  await deleteDoc(doc(db, 'ai_training_telemetry', recordId));
-  return true;
+  try {
+    await deleteDoc(doc(db, 'ai_training_telemetry', recordId));
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `ai_training_telemetry/${recordId}`);
+    return false;
+  }
 }
 
 /**
@@ -3436,7 +3474,7 @@ export async function deleteAiTrainingTelemetryRecord(
  */
 export function exportGeminiFineTuningJsonl(records: AiTrainingTelemetryRecord[]): void {
   if (!records || !records.length) {
-    alert('No telemetry records available to export.');
+    console.warn('No telemetry records available to export.');
     return;
   }
 
@@ -3525,7 +3563,7 @@ Task: Predict all geological joint traces in normalized [u, v] coordinates acros
  */
 export function exportGeotechDatasetBundle(records: AiTrainingTelemetryRecord[]): void {
   if (!records || !records.length) {
-    alert('No telemetry records available to export.');
+    console.warn('No telemetry records available to export.');
     return;
   }
 

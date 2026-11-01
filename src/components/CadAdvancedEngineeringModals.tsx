@@ -1028,7 +1028,7 @@ export const CadSheetSetManagerModal: React.FC<CadSheetSetManagerModalProps> = (
                       </td>
                       <td className="p-2 text-slate-200">{rec.tunnelName}</td>
                       <td className="p-2 text-emerald-300">
-                        {rec.geometry?.width?.toFixed(2)}m × {rec.geometry?.height?.toFixed(2)}m
+                        {(rec.geometry?.width ?? 0).toFixed(2)}m × {(rec.geometry?.height ?? 0).toFixed(2)}m
                       </td>
                       <td className="p-2 text-cyan-300 font-bold">
                         {(rec.joints || []).length} traces

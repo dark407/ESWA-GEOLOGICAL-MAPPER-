@@ -229,32 +229,49 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
   };
 
   // User Actions: Revoke License
-  const handleRevokeUser = async (lic: SoftwareLicenseRecord) => {
-    setActionBusyId(lic.userId);
+  const handleRevokeUser = async (lic?: SoftwareLicenseRecord, req?: AccessRequestRecord) => {
+    const busyKey = lic?.userId || req?.requestId || '';
+    if (!busyKey) return;
+    setActionBusyId(busyKey);
     try {
-      await updateSoftwareLicenseAdmin(lic.userId, {
-        status: 'REVOKED',
-      });
-    } finally {
-      setActionBusyId(null);
-    }
-  };
-
-  // User Actions: Delete User / License
-  const handleDeleteUser = async (id: string, isReq: boolean) => {
-    setActionBusyId(id);
-    try {
-      if (isReq) {
-        await rejectAccessRequestAdmin(id);
-      } else {
-        await deleteSoftwareLicenseAdmin(id);
+      const targetUserId = lic?.userId || req?.assignedUserId;
+      if (targetUserId) {
+        await updateSoftwareLicenseAdmin(targetUserId, {
+          status: 'REVOKED',
+        });
       }
     } finally {
       setActionBusyId(null);
     }
   };
 
-  // Filtered Users List
+  // User Actions: Permanently Delete User (removes both Access Request & License across Local, Server & Firestore)
+  const handleDeleteUser = async (u: {
+    id: string;
+    rawReq?: AccessRequestRecord;
+    rawLic?: SoftwareLicenseRecord;
+  }) => {
+    setActionBusyId(u.id);
+    try {
+      const idsToPurge = Array.from(
+        new Set(
+          [
+            u.rawLic?.userId,
+            u.rawReq?.assignedUserId,
+            u.rawReq?.requestId,
+            u.id,
+          ].filter((x): x is string => Boolean(x))
+        )
+      );
+      for (const targetId of idsToPurge) {
+        await deleteSoftwareLicenseAdmin(targetId);
+      }
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  // Filtered Users List (merges matching AccessRequestRecord + SoftwareLicenseRecord into a single card)
   const filteredUsers = useMemo(() => {
     type UnifiedUser = {
       id: string;
@@ -271,25 +288,53 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
 
     const list: UnifiedUser[] = [];
 
-    // Pending requests
+    // 1. Add requests and link any matching license
     requests.forEach((r) => {
+      const matchedLic = licenses.find(
+        (l) =>
+          (r.assignedUserId && l.userId === r.assignedUserId) ||
+          l.userId === r.requestId.replace(/^req_/, '') ||
+          (r.pcHardwareId &&
+            l.boundPcHardwareId &&
+            r.pcHardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase()) ||
+          (r.email && l.email && r.email.toLowerCase() === l.email.toLowerCase())
+      );
+
+      const resolvedStatus: 'pending' | 'approved' | 'revoked' = matchedLic
+        ? matchedLic.status === 'ACTIVE'
+          ? 'approved'
+          : 'revoked'
+        : r.status === 'APPROVED'
+        ? 'approved'
+        : r.status === 'REJECTED'
+        ? 'revoked'
+        : 'pending';
+
       list.push({
-        id: r.requestId,
-        isRequest: true,
-        name: r.fullName || 'Unnamed User',
-        email: r.email || '',
-        organization: r.organization || 'Mine Site',
-        hardwareId: r.pcHardwareId || 'N/A',
-        status: r.status === 'APPROVED' ? 'approved' : r.status === 'REJECTED' ? 'revoked' : 'pending',
-        date: r.createdAtIso,
+        id: matchedLic?.userId || r.requestId,
+        isRequest: !matchedLic,
+        name: matchedLic?.fullName || r.fullName || 'Unnamed User',
+        email: matchedLic?.email || r.email || '',
+        organization: matchedLic?.organization || r.organization || 'Mine Site',
+        hardwareId: matchedLic?.boundPcHardwareId || r.pcHardwareId || 'N/A',
+        status: resolvedStatus,
+        date: matchedLic?.createdAtIso || r.createdAtIso,
         rawReq: r,
+        rawLic: matchedLic,
       });
     });
 
-    // Approved or Revoked licenses
+    // 2. Add licenses that did not have a matching request entry
     licenses.forEach((l) => {
-      // Avoid duplicate if request ID matches or hardware matches
-      if (!list.some((item) => (l.boundPcHardwareId && item.hardwareId === l.boundPcHardwareId) || item.id === l.userId)) {
+      const alreadyIncluded = list.some(
+        (item) =>
+          item.rawLic?.userId === l.userId ||
+          item.id === l.userId ||
+          (l.boundPcHardwareId &&
+            item.hardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase()) ||
+          (l.email && item.email && item.email.toLowerCase() === l.email.toLowerCase())
+      );
+      if (!alreadyIncluded) {
         list.push({
           id: l.userId,
           isRequest: false,
@@ -728,9 +773,10 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                             type="button"
                             disabled={isBusy}
                             onClick={() => {
-                              if (u.rawReq) handleApproveUser(u.rawReq);
-                              else if (u.rawLic) {
-                                updateSoftwareLicenseAdmin(u.rawLic.userId, { status: 'ACTIVE' });
+                              if (u.rawLic) {
+                                void updateSoftwareLicenseAdmin(u.rawLic.userId, { status: 'ACTIVE' });
+                              } else if (u.rawReq) {
+                                void handleApproveUser(u.rawReq);
                               }
                             }}
                             className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
@@ -745,7 +791,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                             type="button"
                             disabled={isBusy}
                             onClick={() => {
-                              if (u.rawLic) handleRevokeUser(u.rawLic);
+                              void handleRevokeUser(u.rawLic, u.rawReq);
                             }}
                             className="px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                           >
@@ -757,7 +803,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => handleDeleteUser(u.id, u.isRequest)}
+                          onClick={() => void handleDeleteUser(u)}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors cursor-pointer"
                           title="Delete user record"
                         >
@@ -872,9 +918,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                         <button
                           type="button"
                           onClick={() => {
-                            if (confirm('Delete this feedback item?')) {
-                              deleteFeedbackItem(fb.id);
-                            }
+                            deleteFeedbackItem(fb.id);
                           }}
                           className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
                           title="Delete feedback"

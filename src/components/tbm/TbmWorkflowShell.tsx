@@ -328,10 +328,16 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
   const [collectionBuffer, setCollectionBuffer] = useState<TbmExcavationRecord | null>(null);
 
   useEffect(() => {
-    if (activeRecord) {
+    if (activeRecord && currentLocationRecords.some((r) => r.id === activeRecord.id)) {
       setCollectionBuffer(JSON.parse(JSON.stringify(activeRecord)));
+    } else if (currentLocationRecords.length > 0) {
+      setCollectionBuffer(JSON.parse(JSON.stringify(currentLocationRecords[0])));
+      setActiveRecordIdState(currentLocationRecords[0].id);
+      setActiveTbmRecordId(currentLocationRecords[0].id);
+    } else {
+      setCollectionBuffer(null);
     }
-  }, [activeRecord?.id]);
+  }, [activeRecord?.id, currentLocationRecords]);
 
   const handleSaveCurrentExcavationRecord = () => {
     if (!collectionBuffer) return;
@@ -392,21 +398,24 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
   };
 
   const handleAddNewExcavationInterval = () => {
-    if (!activeLocation) return;
+    if (!activeLocation) {
+      showNotification('Please select or create a location first.', 'error');
+      return;
+    }
     const lastRec = currentLocationRecords[currentLocationRecords.length - 1];
-    const prevEnd = lastRec?.chainageRecord.endChainage ?? activeLocation.startChainageRd;
-    const isInc = activeLocation.excavationDirection === 'INCREASING';
+    const prevEnd = lastRec?.chainageRecord?.endChainage ?? (activeLocation.startChainageRd || 0.0);
+    const isInc = activeLocation.excavationDirection !== 'DECREASING';
     const nextStart = prevEnd;
-    const nextEnd = isInc ? prevEnd + 1.5 : prevEnd - 1.5;
-    const nextRing = (lastRec?.chainageRecord.ringNumber ?? 840) + 1;
+    const nextEnd = isInc ? prevEnd + 1.5 : Math.max(0, prevEnd - 1.5);
+    const nextRing = (lastRec?.chainageRecord?.ringNumber ?? 0) + 1;
 
     const created = createTbmExcavationRecord({
       locationId: activeLocation.id,
-      projectId: activeProject.id,
+      projectId: activeProject?.id || '',
       chainageRecord: {
         recordId: '',
         locationId: activeLocation.id,
-        projectId: activeProject.id,
+        projectId: activeProject?.id || '',
         timestamp: new Date().toISOString(),
         startChainage: nextStart,
         endChainage: nextEnd,
@@ -415,10 +424,10 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
         shift: 'DAY',
         shiftStartTime: '08:00',
         shiftEndTime: '16:00',
-        stoppageDurationMinutes: 15,
-        stoppageReason: 'Ring build & shift handover',
-        geologistOrOperator: activeLocation.responsibleGeologist || 'Lead Geologist',
-        generalObservations: `Excavation of Ring #${nextRing} underway.`,
+        stoppageDurationMinutes: 0,
+        stoppageReason: '',
+        geologistOrOperator: activeLocation.responsibleGeologist || '',
+        generalObservations: '',
       },
     });
 
@@ -427,7 +436,7 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
     setActiveRecordIdState(created.id);
     setActiveTbmRecordId(created.id);
     setCollectionBuffer(created);
-    showNotification(`New excavation interval Ring #${nextRing} (RD ${nextStart.toFixed(2)}m) created!`);
+    showNotification(`Ring #${nextRing} (RD ${nextStart.toFixed(2)}m) initialized for manual data entry!`);
   };
 
   return (
@@ -1005,6 +1014,30 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
             Excavation chainage, geology, muck, telemetry, hydrogeology, probe drilling,
             rock-mass classification, support lining, instrumentation, hazards, photos
             ------------------------------------------------------------------- */}
+        {currentStage === 'collection' && !collectionBuffer && (
+          <div className="max-w-2xl mx-auto p-8 rounded-2xl bg-slate-900 border border-dashed border-cyan-500/40 text-center space-y-4 my-12 font-mono">
+            <div className="w-12 h-12 rounded-full bg-cyan-500/20 text-cyan-400 mx-auto flex items-center justify-center border border-cyan-500/40">
+              <PenTool className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-bold text-base text-cyan-300">
+                No Excavation Records for &quot;{activeLocation?.locationName || 'Current Heading'}&quot;
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                No mock data is auto-fed. You can manually enter your real tunnel excavation, geology, and TBM telemetry data ring by ring.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddNewExcavationInterval}
+              className="px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/20 transition-transform active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Ring #1 (Begin Manual Data Entry)</span>
+            </button>
+          </div>
+        )}
+
         {currentStage === 'collection' && collectionBuffer && (
           <div className="space-y-4">
             {/* Top Workspace Header & Chainage Navigator */}
@@ -2306,7 +2339,7 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-xs text-rose-300">{h.hazardId}</span>
                             <span className="text-[10px] px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700">
-                              RD {h.chainageRd?.toFixed(2)}m
+                              RD {(h.chainageRd ?? 0).toFixed(2)}m
                             </span>
                           </div>
                           <div className="flex items-center gap-2">

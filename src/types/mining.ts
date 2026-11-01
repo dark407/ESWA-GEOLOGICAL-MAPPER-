@@ -192,7 +192,7 @@ export interface MiningStopeItem {
   mrmr?: LaubscherMrmrParameters;
   mathews?: MathewsStabilityParameters;
   facePhotoUrl?: string;
-  muckDestinationVerdict?: 'MILL' | 'LOW_GRADE_STOCKPILE' | 'WASTE_DUMP';
+  muckDestinationVerdict?: 'MILL' | 'LOW_GRADE_STOCKPILE' | 'WASTE_DUMP' | 'AWAITING_INPUT';
   dilutedGradeCalculated?: number;
   dilutionPercentCalculated?: number;
   responsibleGeologist: string;
@@ -204,7 +204,38 @@ export interface MiningStopeItem {
 // EXPLORATION & PRODUCTION CORE LOGGING SCHEMAS
 // ----------------------------------------------------------------------------
 
+export interface MiningCoreBoxPhoto {
+  id: string;
+  boxNumber: number;
+  fromDepth: number;
+  toDepth: number;
+  condition: 'Wet' | 'Dry' | 'Natural';
+  imageUrl: string;
+  caption?: string;
+  dateTaken: string;
+}
+
+export interface MiningCoreLogSignOff {
+  contractorRepName: string;
+  contractorDesignation: string;
+  contractorCompany: string;
+  contractorDate: string;
+  contractorSignatureUrl?: string;
+  consultantRepName: string;
+  consultantDesignation: string;
+  consultantCompany: string;
+  consultantDate: string;
+  consultantSignatureUrl?: string;
+  clientRepName: string;
+  clientDesignation: string;
+  clientCompany: string;
+  clientDate: string;
+  clientSignatureUrl?: string;
+  remarks?: string;
+}
+
 export interface MiningCoreRun {
+  id?: string;
   runNumber: number;
   fromDepthM: number;
   toDepthM: number;
@@ -216,12 +247,28 @@ export interface MiningCoreRun {
   fracturesPerMeter: number;
   pointLoadIs50Mpa: number; // Point Load Index
   lithology: string; // e.g. "Basalt / Quartz Vein / Sulfides"
+  lithologyColor?: string;
+  rockStrength?: string; // ISRM R0-R6
   alteration: string; // e.g. "Moderate Silicification + Chlorite"
+  alterationIntensity?: number; // 1 to 5
   mineralization: string; // e.g. "Disseminated Pyrite (3-5%) + Galena"
+  sulfidePercent?: number;
+  oreZoneCategory?: 'WASTE' | 'LOW_GRADE' | 'MEDIUM_GRADE' | 'HIGH_GRADE';
   veinDensityPerM: number;
   structureType: 'BEDDING' | 'JOINT' | 'FAULT' | 'SHEAR' | 'VEIN' | 'FOLIATION';
-  structureDipToCoreAxisDeg: number; // Alpha angle
-  weatheringGrade: 'FRESH' | 'SLIGHT' | 'MODERATE' | 'HIGH';
+  structureDipToCoreAxisDeg: number; // Alpha angle (0-90°)
+  betaAngleDeg?: number; // Beta angle (0-360° from BOH line)
+  jointRoughness?: string;
+  jointAlteration?: string;
+  infilling?: string;
+  waterCondition?: string;
+  weatheringGrade: 'FRESH' | 'SLIGHT' | 'MODERATE' | 'HIGH' | 'COMPLETE';
+  boxNumber?: number;
+  sampleId?: string;
+  qaqcType?: 'REGULAR' | 'CRM_STANDARD' | 'COARSE_BLANK' | 'DUPLICATE';
+  assayGradeAu?: number;
+  assayGradeCu?: number;
+  specificGravity?: number;
   coreBoxPhotoUrl?: string;
   geologistNotes?: string;
 }
@@ -289,16 +336,23 @@ export interface MiningDrillHoleRecord {
   collarDipDeg: number; // e.g. -60°
   collarAzimuthDeg: number; // e.g. 090°
   totalDrilledDepthM: number; // e.g. 150.0m
-  coreDiameter: 'PQ' | 'HQ' | 'NQ' | 'BQ' | 'RC_CHIPS';
+  coreDiameter: 'PQ' | 'HQ' | 'HQ3' | 'NQ' | 'NQ2' | 'BQ' | 'RC_CHIPS';
+  drillingMethod?: string;
   drillingContractor: string;
+  explorationConsultant?: string;
+  miningCompany?: string;
   drillingRigModel: string;
   startDate: string;
   completionDate?: string;
   loggedBy: string;
   purpose: 'EXPLORATION' | 'RESOURCE_INFILL' | 'GRADE_CONTROL' | 'GEOTECHNICAL_STABILITY';
   targetOreZone: string;
+  cutOffGrade?: number;
+  primaryGradeUnit?: string;
   runs: MiningCoreRun[];
   assayIntervals: MiningAssayInterval[];
+  coreBoxPhotos?: MiningCoreBoxPhoto[];
+  signOff?: MiningCoreLogSignOff;
   surveyStations?: DrillHoleSurveyStation[];
   structuralObservations?: CoreStructureObservation[];
   rcChipIntervals?: RcChipInterval[];
@@ -308,3 +362,4 @@ export interface MiningDrillHoleRecord {
   createdAt: string;
   updatedAt: string;
 }
+

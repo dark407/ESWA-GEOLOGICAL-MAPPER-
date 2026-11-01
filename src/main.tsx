@@ -120,9 +120,33 @@ class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErrorBound
   }
 }
 
-// Application Version Synchronization & Cache Purge Guard
+// Application Version Synchronization, Factory Zeroing & Cache Purge Guard
 if (typeof window !== 'undefined') {
   try {
+    // One-time Factory Zeroing Reset so the software opens like a brand-new installation with zero pre-fed data
+    if (localStorage.getItem('eswa_fresh_install_zeroed_v1') !== 'true') {
+      const preservedKeys = [
+        'eswa_pc_hardware_fingerprint_v1',
+        'eswa_master_pc_bypass_v1',
+        'eswa_1pc_activated_session_v1',
+        'eswa_installed_software_version_v1',
+        'eswa_master_admin_credentials_v1',
+        'eswa_deleted_user_tombstones_v1',
+      ];
+      const preservedEntries: Array<[string, string]> = [];
+      for (const k of preservedKeys) {
+        const val = localStorage.getItem(k);
+        if (val !== null) {
+          preservedEntries.push([k, val]);
+        }
+      }
+      localStorage.clear();
+      for (const [k, val] of preservedEntries) {
+        localStorage.setItem(k, val);
+      }
+      // Note: fastAsyncStorageEngine.preloadAllPhotosIntoMemoryAsync() will also clear IndexedDB stores
+    }
+
     // Purge deprecated geological modelling storage and stale mode references
     if (localStorage.getItem('eswa_active_industry_mode') === 'GEOLOGICAL_MODELLING') {
       localStorage.setItem('eswa_active_industry_mode', 'NATM');
@@ -130,6 +154,7 @@ if (typeof window !== 'undefined') {
     if (localStorage.getItem('eswa_default_industry_mode') === 'GEOLOGICAL_MODELLING') {
       localStorage.setItem('eswa_default_industry_mode', 'NATM');
     }
+    localStorage.removeItem('eswa_geological_modelling_suite_db_db_v1');
     localStorage.removeItem('eswa_geological_modelling_suite_db_v1');
     localStorage.removeItem('eswa_isolated_db_GEOLOGICAL_MODELLING');
 

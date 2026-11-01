@@ -275,10 +275,10 @@ export const ProbeHoleDrillingModal: React.FC<ProbeHoleDrillingModalProps> = ({
   };
 
   const handleResetSample = () => {
-    if (confirm('Load fresh realistic forward probe drilling dataset?')) {
-      const fresh = createDefaultProbeHole();
-      saveToStorage(fresh);
-    }
+    const fresh = createDefaultProbeHole();
+    saveToStorage(fresh);
+    setSaveSuccessNotice(true);
+    setTimeout(() => setSaveSuccessNotice(false), 2500);
   };
 
   // Add new interval run

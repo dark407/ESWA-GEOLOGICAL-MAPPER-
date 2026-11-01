@@ -1094,17 +1094,12 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => {
-                          const code = prompt(
-                            'Share this 6-Character Project Join Code with Contractor, PMC, or Client engineers:\n\n' +
-                              activeProject.joinCode +
-                              '\n\nThey can enter this code in Settings -> Projects -> Join Project to sync.'
-                          );
-                        }}
+                        onClick={handleCopyJoinCode}
                         className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Copy Join Code to share with Contractor, PMC, or Client engineers"
                       >
                         <Share2 className="w-3.5 h-3.5" />
-                        <span>Share</span>
+                        <span>{copiedJoinCode ? 'Code Copied!' : 'Share'}</span>
                       </button>
                     </div>
                   </div>

@@ -26,11 +26,12 @@ import {
   computeContinuous3DJointInspectionSchedule,
   computeContinuousStripFemDemProfile,
   computeContinuousAdvancedGeotechProfile,
+  resolveStripTraceColor,
   UnifiedContinuousProjectItem,
   UnifiedContinuousLocationItem,
 } from '../engine/continuous3DStripEngine';
 import { ContinuousTunnel3DCanvas } from './ContinuousTunnel3DCanvas';
-import { EswaCadContinuousStripModal } from './EswaCadContinuousStripModal';
+import { EswaCadContinuousStripModal, ROCK_TYPES } from './EswaCadContinuousStripModal';
 import { ContinuousFemDem3DViewport } from './ContinuousFemDem3DViewport';
 
 export interface A3ContinuousTunnelLogModalProps {
@@ -188,16 +189,19 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
   if (!isOpen || !dataset) return null;
 
   const isShaft = dataset.excavationMode === 'SHAFT';
-  const startRd = dataset.viewFromRd;
-  const endRd = dataset.viewToRd;
-  const totalRdLength = Math.max(2, endRd - startRd);
-  const totalUnrolledWidthM = Math.max(
-    6,
-    (dataset.upperZoneWidthM || 10) + (dataset.lowerZoneWidthM || 8)
-  );
+  const startRd = dataset.viewFromRd ?? 0;
+  const endRd = dataset.viewToRd ?? 30;
+  const totalRdLength = Math.max(1, endRd - startRd);
 
-  const leftWallArcM = dataset.leftWallArcLengthM || totalUnrolledWidthM * 0.28;
-  const crownArcM = dataset.crownArcLengthM || totalUnrolledWidthM * 0.44;
+  // Match exact ESWA CAD canvas perimeter & zone dimensions
+  const leftWallArcM = dataset.leftWallArcLengthM || dataset.leftWallHeightM || 3.75;
+  const crownArcM = dataset.crownArcLengthM || dataset.crownWidthM || 7.5;
+  const rightWallArcM = dataset.rightWallArcLengthM || dataset.rightWallHeightM || 3.75;
+  const shaftQuadArcM = dataset.shaftQuadrantArcLengthM || leftWallArcM;
+  const totalUnrolledWidthM = isShaft
+    ? shaftQuadArcM * 4
+    : (dataset.upperZoneWidthM || 0) + (dataset.lowerZoneWidthM || 0) ||
+      leftWallArcM + crownArcM + rightWallArcM;
 
   // SVG coordinate system for the 2D unrolled strip chart in Stage 6 (A3 Report)
   const svgW = 1100;
@@ -217,9 +221,9 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
   const yTunnelRightWallTop = yToSvgY(leftWallArcM + crownArcM);
 
   // Shaft 4-quadrant divider Y positions (1. NE 0-90, 2. ES 90-180, 3. SW 180-270, 4. WN 270-360)
-  const yShaftQ1 = yToSvgY(totalUnrolledWidthM * 0.25);
-  const yShaftQ2 = yToSvgY(totalUnrolledWidthM * 0.5);
-  const yShaftQ3 = yToSvgY(totalUnrolledWidthM * 0.75);
+  const yShaftQ1 = yToSvgY(shaftQuadArcM);
+  const yShaftQ2 = yToSvgY(shaftQuadArcM * 2);
+  const yShaftQ3 = yToSvgY(shaftQuadArcM * 3);
 
   const handleSaveCadEdits = (updated: ContinuousTunnelStripDataset) => {
     setLocalDataset(updated);
@@ -2479,602 +2483,590 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                 </div>
               </div>
 
-              {/* 2. CONTINUOUS DEVELOPED GEOLOGICAL MAP (UNROLLED 2D STRIP VIEW WITH LITHOLOGY, DIP SURFACE & FEATURES) */}
+              {/* 2. CONTINUOUS DEVELOPED GEOLOGICAL MAP (EXACT ESWA CAD 2D STRIP CANVAS VIEW) */}
               <div className="border-b-2 border-slate-900 relative bg-white">
                 <div className="bg-slate-900 text-white px-3 py-1 text-[10px] font-bold uppercase tracking-widest flex items-center justify-between">
                   <span>
-                    Section 1 — Developed Geological Map: Lithology Zones, 3D Dip Surfaces, Strike/Dip Ticks, Seepage &amp; Support (
+                    Section 1 — ESWA CAD Developed Geological Map: Lithology Zones, Discontinuity Joint Traces, Strike/Dip Ticks &amp; Seepage (
                     {isShaft
                       ? 'Unfolded 4-Quadrant Shaft Wall: 1. NE 0°–90° | 2. ES 90°–180° | 3. SW 180°–270° | 4. WN 270°–360°'
-                      : 'Unfolded Tunnel Perimeter: Left Wall | Crown | Right Wall'}
+                      : 'Unfolded Tunnel Perimeter: Left Wall | Crown Arch | Right Wall'}
                     )
                   </span>
                   <span className="font-mono text-amber-300">
-                    Total Developed Perimeter = {totalUnrolledWidthM.toFixed(1)}m • Lithology + Dip Surface Ribbons + Hydro/Support Features
+                    Total Developed Perimeter = {totalUnrolledWidthM.toFixed(1)}m • Synchronized 1:1 with ESWA 3D CAD Canvas
                   </span>
                 </div>
 
                 {(() => {
-                  const getRockVisualStyle = (rockLabel: string, codeSym?: string) => {
-                    const rl = (rockLabel || '').toLowerCase();
-                    const cs = (codeSym || '').toLowerCase();
-                    if (rl.includes('granite') || cs === 'gr') {
-                      return { fill: '#fef2f2', pat: 'url(#pat-granite)', stroke: '#fca5a5', badge: 'Gr • Granite' };
-                    }
-                    if (rl.includes('gneiss') || cs === 'gn') {
-                      return { fill: '#f5f3ff', pat: 'url(#pat-gneiss)', stroke: '#c4b5fd', badge: 'Gn • Gneiss' };
-                    }
-                    if (rl.includes('phyllite') && rl.includes('quartz')) {
-                      return { fill: '#f0fdf4', pat: 'url(#pat-qp)', stroke: '#86efac', badge: 'QP • Quartzitic Phyllite' };
-                    }
-                    if (rl.includes('phyllite') || rl.includes('schist') || cs === 'ph' || cs === 'sch') {
-                      return { fill: '#ecfdf5', pat: 'url(#pat-phyllite)', stroke: '#6ee7b7', badge: 'Ph • Phyllite/Schist' };
-                    }
-                    if (rl.includes('limestone') || rl.includes('dolomite') || cs === 'ls' || cs === 'mm') {
-                      return { fill: '#eff6ff', pat: 'url(#pat-limestone)', stroke: '#93c5fd', badge: 'Ls • Limestone/Marble' };
-                    }
-                    if (rl.includes('basalt') || rl.includes('dolerite') || cs === 'bas') {
-                      return { fill: '#f1f5f9', pat: 'url(#pat-basalt)', stroke: '#94a3b8', badge: 'Bas • Basalt/Dolerite' };
-                    }
-                    if (rl.includes('shale') || rl.includes('siltstone') || rl.includes('slate') || cs === 'sl') {
-                      return { fill: '#f8fafc', pat: 'url(#pat-shale)', stroke: '#cbd5e1', badge: 'Sl • Slate/Siltstone' };
-                    }
-                    if (rl.includes('fault') || rl.includes('gouge') || rl.includes('shear')) {
-                      return { fill: '#fff1f2', pat: 'url(#pat-fault)', stroke: '#fda4af', badge: 'FG • Fault Gouge/Shear' };
-                    }
-                    return { fill: '#fefce8', pat: 'url(#pat-quartzite)', stroke: '#fde047', badge: 'Qtz • Quartzite/Sandstone' };
+                  const getCadRockDef = (rockType?: string, codeSym?: string) => {
+                    const exact =
+                      ROCK_TYPES.find((r) => r.id === rockType) ||
+                      ROCK_TYPES.find((r) => r.id === codeSym);
+                    if (exact) return exact;
+                    const rl = (rockType || codeSym || '').toLowerCase();
+                    if (rl.includes('granite') || rl === 'gr') return ROCK_TYPES.find((r) => r.id === 'Gr')!;
+                    if (rl.includes('gneiss') || rl === 'gn') return ROCK_TYPES.find((r) => r.id === 'Gn')!;
+                    if (rl.includes('phyllite') && rl.includes('quartz')) return ROCK_TYPES.find((r) => r.id === 'QP')!;
+                    if (rl.includes('schist') || rl === 'sch') return ROCK_TYPES.find((r) => r.id === 'Sch')!;
+                    if (rl.includes('phyllite') || rl === 'ph') return ROCK_TYPES.find((r) => r.id === 'Ph')!;
+                    if (rl.includes('limestone') || rl.includes('dolomite') || rl === 'ls') return ROCK_TYPES.find((r) => r.id === 'Ls')!;
+                    if (rl.includes('basalt') || rl.includes('dolerite') || rl === 'bas') return ROCK_TYPES.find((r) => r.id === 'Bas')!;
+                    if (rl.includes('shale') || rl.includes('siltstone') || rl === 'sl') return ROCK_TYPES.find((r) => r.id === 'Sl')!;
+                    if (rl.includes('sandstone') || rl === 'ss') return ROCK_TYPES.find((r) => r.id === 'Ss')!;
+                    if (rl.includes('fault') || rl.includes('gouge')) return ROCK_TYPES.find((r) => r.id === 'FaultGouge')!;
+                    return ROCK_TYPES[0];
                   };
+
+                  const getPatternUrlForRockDef = (rockDef: { id: string; pattern: string }) => {
+                    if (rockDef.pattern === 'dots' || rockDef.id === 'Qtz' || rockDef.id === 'Ss') return 'url(#cad-pat-dots)';
+                    if (rockDef.pattern === 'cross' || rockDef.id === 'Gr') return 'url(#cad-pat-cross)';
+                    if (rockDef.pattern === 'brick' || rockDef.id === 'Ls') return 'url(#cad-pat-brick)';
+                    if (rockDef.pattern === 'lines' || rockDef.id === 'Ph' || rockDef.id === 'Sch') return 'url(#cad-pat-lines)';
+                    if (rockDef.pattern === 'wavy' || rockDef.id === 'Gn') return 'url(#cad-pat-wavy)';
+                    if (rockDef.pattern === 'hatch' || rockDef.id === 'QP') return 'url(#cad-pat-hatch)';
+                    if (rockDef.pattern === 'dashes' || rockDef.id === 'Sl') return 'url(#cad-pat-dashes)';
+                    if (rockDef.pattern === 'zigzag' || rockDef.id === 'FaultGouge') return 'url(#cad-pat-zigzag)';
+                    return 'none';
+                  };
+
+                  // Build 1m minor and 5m major vertical grid lines matching ESWA CAD Canvas
+                  const gridChList: number[] = [];
+                  for (let ch = Math.ceil(startRd); ch <= endRd; ch += 1) {
+                    gridChList.push(ch);
+                  }
 
                   return (
                     <svg
                       ref={stripSvgRef}
                       viewBox={`0 0 ${svgW} ${svgH}`}
-                      className="w-full h-[290px] select-none"
+                      className="w-full h-[290px] select-none bg-white"
                     >
                       <defs>
-                        {/* Quartzite / Sandstone stipple dots + grain */}
-                        <pattern id="pat-quartzite" width="12" height="12" patternUnits="userSpaceOnUse">
-                          <circle cx="3" cy="3" r="0.9" fill="#a16207" fillOpacity="0.45" />
-                          <circle cx="9" cy="7" r="1.0" fill="#a16207" fillOpacity="0.4" />
-                          <circle cx="5" cy="10" r="0.8" fill="#ca8a04" fillOpacity="0.45" />
+                        <clipPath id="eswa-cad-strip-clip">
+                          <rect x={padL} y={padT} width={plotW} height={plotH} />
+                        </clipPath>
+                        {/* Exact ESWA CAD Canvas Procedural Geological Patterns */}
+                        <pattern id="cad-pat-dots" width="14" height="14" patternUnits="userSpaceOnUse">
+                          <circle cx="3" cy="3" r="1.2" fill="rgba(0,0,0,0.20)" />
+                          <circle cx="10" cy="10" r="1.2" fill="rgba(0,0,0,0.20)" />
                         </pattern>
-                        {/* Phyllite / Schist wavy foliation lines */}
-                        <pattern id="pat-phyllite" width="16" height="10" patternTransform="rotate(25 0 0)" patternUnits="userSpaceOnUse">
-                          <path d="M 0 3 Q 4 1 8 3 T 16 3" fill="none" stroke="#047857" strokeWidth="0.7" strokeOpacity="0.45" />
-                          <path d="M 0 8 Q 4 6 8 8 T 16 8" fill="none" stroke="#047857" strokeWidth="0.6" strokeOpacity="0.35" />
+                        <pattern id="cad-pat-cross" width="20" height="20" patternUnits="userSpaceOnUse">
+                          <path d="M 7 10 L 13 10 M 10 7 L 10 13" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
                         </pattern>
-                        {/* Quartzitic Phyllite combined hatch + dots */}
-                        <pattern id="pat-qp" width="12" height="12" patternTransform="rotate(30 0 0)" patternUnits="userSpaceOnUse">
-                          <line x1="0" y1="0" x2="0" y2="12" stroke="#15803d" strokeWidth="0.7" strokeDasharray="3,2" strokeOpacity="0.45" />
-                          <circle cx="6" cy="6" r="0.9" fill="#166534" fillOpacity="0.4" />
+                        <pattern id="cad-pat-brick" width="22" height="20" patternUnits="userSpaceOnUse">
+                          <line x1="0" y1="0" x2="22" y2="0" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
+                          <line x1="0" y1="10" x2="22" y2="10" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
+                          <line x1="0" y1="0" x2="0" y2="10" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
+                          <line x1="11" y1="10" x2="11" y2="20" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
                         </pattern>
-                        {/* Granite / Igneous plus crosses */}
-                        <pattern id="pat-granite" width="14" height="14" patternUnits="userSpaceOnUse">
-                          <path d="M 3 4 L 7 4 M 5 2 L 5 6" stroke="#b91c1c" strokeWidth="0.75" strokeOpacity="0.45" />
-                          <path d="M 9 10 L 13 10 M 11 8 L 11 12" stroke="#b91c1c" strokeWidth="0.75" strokeOpacity="0.45" />
+                        <pattern id="cad-pat-lines" width="14" height="20" patternUnits="userSpaceOnUse">
+                          <line x1="0" y1="0" x2="14" y2="20" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
                         </pattern>
-                        {/* Gneiss banded foliation */}
-                        <pattern id="pat-gneiss" width="16" height="12" patternTransform="rotate(20 0 0)" patternUnits="userSpaceOnUse">
-                          <path d="M 0 3 Q 4 0 8 3 T 16 3" fill="none" stroke="#6d28d9" strokeWidth="0.8" strokeOpacity="0.45" />
-                          <line x1="2" y1="8" x2="14" y2="8" stroke="#7c3aed" strokeWidth="0.7" strokeDasharray="3,2" strokeOpacity="0.4" />
+                        <pattern id="cad-pat-wavy" width="20" height="14" patternUnits="userSpaceOnUse">
+                          <path d="M 0 7 Q 5 4 10 7 T 20 7" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
                         </pattern>
-                        {/* Limestone / Marble brick pattern */}
-                        <pattern id="pat-limestone" width="16" height="10" patternUnits="userSpaceOnUse">
-                          <line x1="0" y1="0" x2="16" y2="0" stroke="#1d4ed8" strokeWidth="0.65" strokeOpacity="0.4" />
-                          <line x1="0" y1="5" x2="16" y2="5" stroke="#1d4ed8" strokeWidth="0.65" strokeOpacity="0.4" />
-                          <line x1="8" y1="0" x2="8" y2="5" stroke="#1d4ed8" strokeWidth="0.65" strokeOpacity="0.4" />
-                          <line x1="0" y1="5" x2="0" y2="10" stroke="#1d4ed8" strokeWidth="0.65" strokeOpacity="0.4" />
+                        <pattern id="cad-pat-hatch" width="18" height="18" patternUnits="userSpaceOnUse">
+                          <line x1="0" y1="0" x2="18" y2="18" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
+                          <line x1="18" y1="0" x2="0" y2="18" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
                         </pattern>
-                        {/* Basalt / Dolerite V-ticks */}
-                        <pattern id="pat-basalt" width="12" height="12" patternUnits="userSpaceOnUse">
-                          <path d="M 2 3 L 4 6 L 6 3" fill="none" stroke="#334155" strokeWidth="0.8" strokeOpacity="0.5" />
-                          <path d="M 7 8 L 9 11 L 11 8" fill="none" stroke="#334155" strokeWidth="0.8" strokeOpacity="0.5" />
+                        <pattern id="cad-pat-dashes" width="14" height="10" patternUnits="userSpaceOnUse">
+                          <line x1="2" y1="3" x2="8" y2="3" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
+                          <line x1="7" y1="8" x2="13" y2="8" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />
                         </pattern>
-                        {/* Shale / Siltstone dashes */}
-                        <pattern id="pat-shale" width="12" height="8" patternUnits="userSpaceOnUse">
-                          <line x1="1" y1="2" x2="6" y2="2" stroke="#475569" strokeWidth="0.75" strokeOpacity="0.45" />
-                          <line x1="6" y1="6" x2="11" y2="6" stroke="#475569" strokeWidth="0.75" strokeOpacity="0.45" />
-                        </pattern>
-                        {/* Fault Gouge / Shear Zone breccia */}
-                        <pattern id="pat-fault" width="12" height="12" patternUnits="userSpaceOnUse">
-                          <polygon points="3,2 6,7 1,7" fill="none" stroke="#e11d48" strokeWidth="0.7" strokeOpacity="0.55" />
-                          <line x1="7" y1="3" x2="11" y2="10" stroke="#e11d48" strokeWidth="0.7" strokeDasharray="2,1" strokeOpacity="0.55" />
+                        <pattern id="cad-pat-zigzag" width="14" height="14" patternUnits="userSpaceOnUse">
+                          <polyline points="0,7 4,3 9,11 14,7" fill="none" stroke="rgba(0,0,0,0.22)" strokeWidth="0.8" />
                         </pattern>
                       </defs>
 
-                      {/* 2A. Pull-by-Pull Lithology Background Bands, Geological Patterns & Installed Support Indicators */}
-                      {dataset.pulls.map((p, idx) => {
-                        const x1 = rdToX(p.fromRd);
-                        const x2 = rdToX(p.toRd);
-                        const w = Math.max(2, x2 - x1);
-                        const isGap = p.status === 'MISSING_GAP';
+                      {/* 1. Pure White Strip Background */}
+                      <rect x={padL} y={padT} width={plotW} height={plotH} fill="#ffffff" />
 
-                        if (isGap) {
+                      {/* 2. CAD Engineering Grid (1m Minor & 5m Major Vertical Chainage/Depth Lines + Top/Bottom Labels) */}
+                      {gridChList.map((ch) => {
+                        const scrX = rdToX(ch);
+                        const isMajor = ch % 5 === 0;
+                        const prefix = isShaft ? 'DEPTH' : 'RD';
+                        return (
+                          <g key={`cad-grid-${ch}`}>
+                            <line
+                              x1={scrX}
+                              y1={padT}
+                              x2={scrX}
+                              y2={padT + plotH}
+                              stroke={isMajor ? '#e2e8f0' : '#f1f5f9'}
+                              strokeWidth={isMajor ? 1 : 0.5}
+                            />
+                            {isMajor && (
+                              <>
+                                <text
+                                  x={scrX}
+                                  y={padT - 6}
+                                  fontSize={8.5}
+                                  fontFamily="monospace"
+                                  fontWeight={700}
+                                  fill="#ea580c"
+                                  textAnchor="middle"
+                                >
+                                  {prefix} {ch.toFixed(1)}m
+                                </text>
+                                <text
+                                  x={scrX}
+                                  y={padT + plotH + 14}
+                                  fontSize={8.5}
+                                  fontFamily="monospace"
+                                  fontWeight={700}
+                                  fill="#ea580c"
+                                  textAnchor="middle"
+                                >
+                                  {prefix} {ch.toFixed(1)}m
+                                </text>
+                              </>
+                            )}
+                          </g>
+                        );
+                      })}
+
+                      {/* Clipped Interior Layers (Lithology Zones, Pull Boundaries, Joint Traces, Water Symbols, Custom Text) */}
+                      <g clipPath="url(#eswa-cad-strip-clip)">
+                        {/* 3. Lithology Zones Layer (`dataset.lithologyZones` directly from ESWA CAD) */}
+                        {(dataset.lithologyZones || []).map((zone) => {
+                          if (!zone.polygon || zone.polygon.length < 3) return null;
+                          const rockDef = getCadRockDef(zone.rockType, zone.codeSymbol);
+                          const patUrl = getPatternUrlForRockDef(rockDef);
+                          const polyPts = zone.polygon
+                            .map((pt) => `${rdToX(pt.x).toFixed(1)},${yToSvgY(pt.y).toFixed(1)}`)
+                            .join(' ');
+                          const avgX =
+                            zone.polygon.reduce((sum, p) => sum + p.x, 0) / zone.polygon.length;
+                          const avgY =
+                            zone.polygon.reduce((sum, p) => sum + p.y, 0) / zone.polygon.length;
+                          const lx = rdToX(avgX);
+                          const ly = yToSvgY(avgY);
+                          const lbl = zone.label || rockDef.label;
+
                           return (
-                            <g key={`a3-gap-${p.fromRd}-${p.toRd}-${idx}`}>
-                              <rect x={x1} y={padT} width={w} height={plotH} fill="#ffffff" />
-                              <line
-                                x1={x1}
-                                y1={padT}
-                                x2={x1}
-                                y2={padT + plotH}
-                                stroke="#dc2626"
-                                strokeWidth={1.5}
-                                strokeDasharray="6,4"
+                            <g key={zone.id}>
+                              <polygon
+                                points={polyPts}
+                                fill={`${rockDef.color}38`}
+                                stroke={rockDef.color}
+                                strokeWidth={1.2}
                               />
-                              <line
-                                x1={x2}
-                                y1={padT}
-                                x2={x2}
-                                y2={padT + plotH}
-                                stroke="#dc2626"
-                                strokeWidth={1.5}
-                                strokeDasharray="6,4"
-                              />
+                              {patUrl !== 'none' && <polygon points={polyPts} fill={patUrl} />}
                               <text
-                                x={(x1 + x2) / 2}
-                                y={padT + plotH / 2 - 4}
-                                fontSize={9}
-                                fontWeight={800}
-                                fill="#64748b"
-                                textAnchor="middle"
-                              >
-                                UNLOGGED GAP
-                              </text>
-                              <text
-                                x={(x1 + x2) / 2}
-                                y={padT + plotH / 2 + 8}
-                                fontSize={8}
+                                x={lx}
+                                y={ly}
+                                fontSize={10}
                                 fontWeight={700}
-                                fill="#94a3b8"
+                                fill="#1e293b"
                                 textAnchor="middle"
+                                dominantBaseline="middle"
+                                stroke="rgba(255,255,255,0.95)"
+                                strokeWidth={3}
+                                paintOrder="stroke"
                               >
-                                ({isShaft ? 'Depth' : 'RD'} {p.fromRd.toFixed(1)}–{p.toRd.toFixed(1)}m)
+                                {lbl}
                               </text>
                             </g>
                           );
-                        }
+                        })}
 
-                        const rockStyle = getRockVisualStyle(p.rockType);
-                        const boltRows = [0.18, 0.38, 0.62, 0.82];
-                        const boltCols = [0.28, 0.72];
-
-                        return (
-                          <g key={`pull-bg-${p.id}-${idx}`}>
-                            {/* Base Lithology Color Tint */}
-                            <rect x={x1} y={padT} width={w} height={plotH} fill={rockStyle.fill} />
-                            {/* Geological Standard Rock Pattern Fill */}
-                            <rect x={x1} y={padT} width={w} height={plotH} fill={rockStyle.pat} />
-
-                            {/* Subtle Installed Support Features: Systematic Rockbolt Anchors & Steel Rib Line */}
-                            {boltCols.map((cf, ci) =>
-                              boltRows.map((rf, ri) => {
-                                const bx = x1 + w * cf;
-                                const by = padT + plotH * rf;
-                                return (
-                                  <g key={`bolt-${p.id}-${ci}-${ri}`} opacity={0.55}>
-                                    <circle cx={bx} cy={by} r={2.1} fill="#0f766e" />
-                                    <line x1={bx - 3.2} y1={by} x2={bx + 3.2} y2={by} stroke="#0f766e" strokeWidth={0.8} />
-                                    <line x1={bx} y1={by - 3.2} x2={bx} y2={by + 3.2} stroke="#0f766e" strokeWidth={0.8} />
-                                  </g>
-                                );
-                              })
-                            )}
-                            {p.steelRibsInstalled && !p.steelRibsInstalled.toLowerCase().includes('none') && (
-                              <line
-                                x1={(x1 + x2) / 2}
-                                y1={padT + 2}
-                                x2={(x1 + x2) / 2}
-                                y2={padT + plotH - 2}
-                                stroke="#b45309"
-                                strokeWidth={1.1}
-                                strokeDasharray="3,2"
-                                opacity={0.55}
-                              />
-                            )}
-
-                            {/* Pull RD Boundary Line */}
+                        {/* 4. Horizontal Zone Divider Lines (3-Zone Tunnel OR 4-Quadrant Vertical Shaft) */}
+                        {isShaft ? (
+                          <>
                             <line
-                              x1={x2}
-                              y1={padT}
-                              x2={x2}
-                              y2={padT + plotH}
-                              stroke="#334155"
-                              strokeWidth={1}
-                              strokeDasharray="2,2"
+                              x1={padL}
+                              y1={yShaftQ1}
+                              x2={svgW - padR}
+                              y2={yShaftQ1}
+                              stroke="rgba(2, 132, 199, 0.28)"
+                              strokeWidth={1.0}
+                              strokeDasharray="6,6"
                             />
-                            {/* Top Chainage/Depth Label */}
-                            <text
-                              x={(x1 + x2) / 2}
-                              y={padT - 6}
-                              fontSize={8.5}
-                              fontWeight={800}
-                              fill="#0f172a"
-                              textAnchor="middle"
-                            >
-                              {isShaft ? 'D' : 'RD'} {p.fromRd}–{p.toRd}m
-                            </text>
-                            {/* Bottom Lithology & Rock Class Label */}
-                            <text
-                              x={(x1 + x2) / 2}
-                              y={padT + plotH + 14}
-                              fontSize={8}
-                              fontWeight={800}
-                              fill="#1e293b"
-                              textAnchor="middle"
-                            >
-                              {p.rockType} ({p.rockClass})
-                            </text>
-                          </g>
-                        );
-                      })}
+                            <line
+                              x1={padL}
+                              y1={yShaftQ2}
+                              x2={svgW - padR}
+                              y2={yShaftQ2}
+                              stroke="rgba(2, 132, 199, 0.28)"
+                              strokeWidth={1.0}
+                              strokeDasharray="6,6"
+                            />
+                            <line
+                              x1={padL}
+                              y1={yShaftQ3}
+                              x2={svgW - padR}
+                              y2={yShaftQ3}
+                              stroke="rgba(2, 132, 199, 0.28)"
+                              strokeWidth={1.0}
+                              strokeDasharray="6,6"
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <line
+                              x1={padL}
+                              y1={yTunnelCrownTop}
+                              x2={svgW - padR}
+                              y2={yTunnelCrownTop}
+                              stroke="rgba(2, 132, 199, 0.28)"
+                              strokeWidth={1.0}
+                              strokeDasharray="6,6"
+                            />
+                            <line
+                              x1={padL}
+                              y1={yTunnelRightWallTop}
+                              x2={svgW - padR}
+                              y2={yTunnelRightWallTop}
+                              stroke="rgba(2, 132, 199, 0.28)"
+                              strokeWidth={1.0}
+                              strokeDasharray="6,6"
+                            />
+                          </>
+                        )}
 
-                      {/* 2B. Mapped Custom / Polygon Lithology Zones (`dataset.lithologyZones`) */}
-                      {(dataset.lithologyZones || []).map((lz) => {
-                        if (!lz.polygon || lz.polygon.length < 3) return null;
-                        const isAutoPullPoly = lz.id.startsWith('lith-pull-');
-                        const rockStyle = getRockVisualStyle(lz.rockType || lz.label, lz.codeSymbol);
-                        const polyPts = lz.polygon
-                          .map((pt) => `${rdToX(pt.x).toFixed(1)},${yToSvgY(pt.y).toFixed(1)}`)
-                          .join(' ');
-                        const cx =
-                          lz.polygon.reduce((s, pt) => s + rdToX(pt.x), 0) / lz.polygon.length;
-                        const cy =
-                          lz.polygon.reduce((s, pt) => s + yToSvgY(pt.y), 0) / lz.polygon.length;
+                        {/* 5. Excavation Pull Rounds Layer & True-Scale Blank Unlogged Gaps (`MISSING_GAP`) */}
+                        {(dataset.pulls || []).map((pull, idx) => {
+                          const pullStartX = rdToX(pull.fromRd);
+                          const pullEndX = rdToX(pull.toRd);
+                          const isGap = pull.status === 'MISSING_GAP';
 
-                        return (
-                          <g key={lz.id}>
-                            {!isAutoPullPoly && (
-                              <>
-                                <polygon
-                                  points={polyPts}
-                                  fill={rockStyle.fill}
-                                  fillOpacity={0.78}
-                                  stroke={rockStyle.stroke}
-                                  strokeWidth={1.3}
-                                  strokeDasharray="4,2"
+                          if (isGap) {
+                            return (
+                              <g key={`cad-gap-${pull.fromRd}-${pull.toRd}-${idx}`}>
+                                <rect
+                                  x={pullStartX}
+                                  y={padT}
+                                  width={Math.max(1, pullEndX - pullStartX)}
+                                  height={plotH}
+                                  fill="#ffffff"
                                 />
-                                <polygon points={polyPts} fill={rockStyle.pat} />
-                              </>
-                            )}
-                            {/* Lithology Code Watermark Tag inside the zone */}
-                            <text
-                              x={cx}
-                              y={isAutoPullPoly ? padT + 13 : cy}
-                              fontSize={8}
-                              fontWeight={800}
-                              fill="#475569"
-                              textAnchor="middle"
-                              stroke="#ffffff"
-                              strokeWidth={2}
-                              paintOrder="stroke"
-                            >
-                              {lz.codeSymbol || rockStyle.badge.split('•')[0].trim()} • {lz.rockType}
-                            </text>
-                          </g>
-                        );
-                      })}
-
-                      {/* 2C. Horizontal Zone Divider Lines: Shaft 4-Quadrant vs Tunnel 3-Zone */}
-                      {isShaft ? (
-                        <>
-                          <line
-                            x1={padL}
-                            y1={yShaftQ1}
-                            x2={svgW - padR}
-                            y2={yShaftQ1}
-                            stroke="#0f172a"
-                            strokeWidth={1.2}
-                            strokeDasharray="6,3"
-                          />
-                          <line
-                            x1={padL}
-                            y1={yShaftQ2}
-                            x2={svgW - padR}
-                            y2={yShaftQ2}
-                            stroke="#0f172a"
-                            strokeWidth={1.2}
-                            strokeDasharray="6,3"
-                          />
-                          <line
-                            x1={padL}
-                            y1={yShaftQ3}
-                            x2={svgW - padR}
-                            y2={yShaftQ3}
-                            stroke="#0f172a"
-                            strokeWidth={1.2}
-                            strokeDasharray="6,3"
-                          />
-                          <g fontSize={8.5} fontWeight={800} fill="#0f172a">
-                            <text x={padL - 8} y={(padT + yShaftQ1) / 2} textAnchor="end">
-                              1. NE (0–90°)
-                            </text>
-                            <text x={padL - 8} y={(yShaftQ1 + yShaftQ2) / 2} textAnchor="end">
-                              2. ES (90–180°)
-                            </text>
-                            <text x={padL - 8} y={(yShaftQ2 + yShaftQ3) / 2} textAnchor="end">
-                              3. SW (180–270°)
-                            </text>
-                            <text x={padL - 8} y={(yShaftQ3 + padT + plotH) / 2} textAnchor="end">
-                              4. WN (270–360°)
-                            </text>
-                          </g>
-                        </>
-                      ) : (
-                        <>
-                          <line
-                            x1={padL}
-                            y1={yTunnelCrownTop}
-                            x2={svgW - padR}
-                            y2={yTunnelCrownTop}
-                            stroke="#0f172a"
-                            strokeWidth={1.3}
-                            strokeDasharray="6,3"
-                          />
-                          <line
-                            x1={padL}
-                            y1={yTunnelRightWallTop}
-                            x2={svgW - padR}
-                            y2={yTunnelRightWallTop}
-                            stroke="#0f172a"
-                            strokeWidth={1.3}
-                            strokeDasharray="6,3"
-                          />
-                          <g fontSize={9} fontWeight={800} fill="#0f172a">
-                            <text x={padL - 8} y={(padT + yTunnelCrownTop) / 2} textAnchor="end">
-                              LEFT WALL
-                            </text>
-                            <text
-                              x={padL - 8}
-                              y={(yTunnelCrownTop + yTunnelRightWallTop) / 2}
-                              textAnchor="end"
-                            >
-                              CROWN / ARCH
-                            </text>
-                            <text
-                              x={padL - 8}
-                              y={(yTunnelRightWallTop + padT + plotH) / 2}
-                              textAnchor="end"
-                            >
-                              RIGHT WALL
-                            </text>
-                          </g>
-                        </>
-                      )}
-
-                      {/* 2D. Groundwater Seepage Symbols (`dataset.waterSymbols`) */}
-                      {(dataset.waterSymbols || []).map((ws) => {
-                        const wx = rdToX(ws.position.x);
-                        const wy = yToSvgY(ws.position.y);
-                        const cond = ws.condition || 'Dry';
-                        const isDry = cond === 'Dry';
-                        const wColor =
-                          cond === 'Flowing'
-                            ? '#1d4ed8'
-                            : cond === 'Dripping'
-                            ? '#0284c7'
-                            : cond === 'Wet'
-                            ? '#0ea5e9'
-                            : cond === 'Moist/Damp'
-                            ? '#38bdf8'
-                            : '#64748b';
-
-                        return (
-                          <g key={ws.id} transform={`translate(${wx.toFixed(1)}, ${wy.toFixed(1)})`}>
-                            {/* Hydro Droplet / Seepage Symbol */}
-                            <path
-                              d="M 0 -7 C 2.5 -3.5 4.5 -1 4.5 1.8 A 4.5 4.5 0 1 1 -4.5 1.8 C -4.5 -1 -2.5 -3.5 0 -7 Z"
-                              fill={isDry ? '#f1f5f9' : wColor}
-                              fillOpacity={isDry ? 0.7 : 0.88}
-                              stroke="#0f172a"
-                              strokeWidth={0.8}
-                            />
-                            {cond === 'Flowing' && (
-                              <path
-                                d="M -7 4 Q -3.5 1.5 0 4 T 7 4"
-                                fill="none"
-                                stroke="#1d4ed8"
-                                strokeWidth={1.2}
-                              />
-                            )}
-                            <text
-                              x={7}
-                              y={3}
-                              fontSize={7.5}
-                              fontWeight={800}
-                              fill={wColor}
-                              stroke="#ffffff"
-                              strokeWidth={2}
-                              paintOrder="stroke"
-                            >
-                              {cond}
-                            </text>
-                          </g>
-                        );
-                      })}
-
-                      {/* 2E. Continuous Structural Discontinuity Traces + 3D Dip Surface Ribbons + Strike/Dip Ticks */}
-                      {(dataset.traces || []).map((trace) => {
-                        if (!trace.points || trace.points.length < 2) return null;
-                        const isSelected = trace.id === selectedTraceId;
-                        const strokeColor = trace.colorHex || '#dc2626';
-                        const stLower = (trace.structureType || '').toLowerCase();
-                        const isFaultOrShear =
-                          stLower.includes('fault') || stLower.includes('shear') || stLower.includes('gouge');
-                        const isFoliationOrBedding =
-                          stLower.includes('foliation') || stLower.includes('bedding');
-
-                        const svgPts = trace.points.map((pt) => ({
-                          x: rdToX(pt.x),
-                          y: yToSvgY(pt.y),
-                        }));
-                        const dPath = svgPts
-                          .map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`)
-                          .join(' ');
-
-                        // Build 3D Dip Surface Inclination Band (shaded ribbon showing the dipping surface plane)
-                        const sign = trace.dipTickSide === 'left' ? -1 : 1;
-                        const ribbonWidthPx = Math.max(
-                          6,
-                          Math.min(14, 5 + Math.sin((trace.dipDeg * Math.PI) / 180) * 8)
-                        );
-                        const offsetPts = svgPts.map((pt, idx) => {
-                          const pPrev = svgPts[Math.max(0, idx - 1)];
-                          const pNext = svgPts[Math.min(svgPts.length - 1, idx + 1)];
-                          const dx = pNext.x - pPrev.x;
-                          const dy = pNext.y - pPrev.y;
-                          const len = Math.max(0.001, Math.hypot(dx, dy));
-                          const nx = (-dy / len) * sign;
-                          const ny = (dx / len) * sign;
-                          return {
-                            x: pt.x + nx * ribbonWidthPx,
-                            y: pt.y + ny * ribbonWidthPx,
-                          };
-                        });
-                        const dipSurfacePolygonPts = [
-                          ...svgPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`),
-                          ...[...offsetPts].reverse().map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`),
-                        ].join(' ');
-
-                        // Midpoint & normal vector for Strike/Dip tick + arrowhead + HW/FW markers
-                        const midIdx = Math.floor(svgPts.length / 2);
-                        const midPt = svgPts[midIdx];
-                        const pA = svgPts[Math.max(0, midIdx - 1)];
-                        const pB = svgPts[Math.min(svgPts.length - 1, midIdx + 1)];
-                        const tdx = pB.x - pA.x;
-                        const tdy = pB.y - pA.y;
-                        const tLen = Math.max(0.001, Math.hypot(tdx, tdy));
-                        const nx = (-tdy / tLen) * sign;
-                        const ny = (tdx / tLen) * sign;
-                        const tickTipX = midPt.x + nx * (ribbonWidthPx + 4);
-                        const tickTipY = midPt.y + ny * (ribbonWidthPx + 4);
-
-                        return (
-                          <g
-                            key={trace.id}
-                            onClick={() => setSelectedTraceId(trace.id)}
-                            className="cursor-pointer"
-                          >
-                            {/* 3D Dip Surface Ribbon Shading Polygon */}
-                            <polygon
-                              points={dipSurfacePolygonPts}
-                              fill={isFaultOrShear ? '#f43f5e' : strokeColor}
-                              fillOpacity={isFaultOrShear ? 0.24 : 0.16}
-                              stroke="none"
-                            />
-                            {/* Dip-surface inclination hatch struts along the ribbon */}
-                            {svgPts.map((sp, sIdx) => {
-                              const op = offsetPts[sIdx];
-                              if (!op) return null;
-                              return (
                                 <line
-                                  key={`dip-strut-${trace.id}-${sIdx}`}
-                                  x1={sp.x}
-                                  y1={sp.y}
-                                  x2={op.x}
-                                  y2={op.y}
-                                  stroke={strokeColor}
-                                  strokeWidth={0.75}
-                                  strokeOpacity={0.55}
+                                  x1={pullStartX}
+                                  y1={padT}
+                                  x2={pullStartX}
+                                  y2={padT + plotH}
+                                  stroke="#64748b"
+                                  strokeWidth={1.6}
+                                  strokeDasharray="6,4"
                                 />
-                              );
-                            })}
-                            {/* Outer edge of the 3D Dip Surface Ribbon */}
-                            <polyline
-                              points={offsetPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
-                              fill="none"
-                              stroke={strokeColor}
-                              strokeWidth={0.65}
-                              strokeDasharray="2,2"
-                              strokeOpacity={0.6}
-                            />
-
-                            {/* Primary Discontinuity Trace Path */}
-                            <path
-                              d={dPath}
-                              fill="none"
-                              stroke={isSelected ? '#f59e0b' : strokeColor}
-                              strokeWidth={isSelected ? 2.0 : isFaultOrShear ? 1.7 : 1.25}
-                              strokeDasharray={
-                                isFaultOrShear ? '5,2' : isFoliationOrBedding ? '6,2,1.5,2' : undefined
-                              }
-                            />
-
-                            {/* Midpoint Strike/Dip Perpendicular Tick + Dip Direction Arrowhead */}
-                            <line
-                              x1={midPt.x}
-                              y1={midPt.y}
-                              x2={tickTipX}
-                              y2={tickTipY}
-                              stroke={strokeColor}
-                              strokeWidth={1.35}
-                            />
-                            <circle cx={tickTipX} cy={tickTipY} r={1.8} fill={strokeColor} />
-
-                            {/* HW / FW (Hanging Wall / Footwall) Indicators for Faults/Shears or enabled traces */}
-                            {(trace.showHwFw || isFaultOrShear) && (
-                              <>
+                                <line
+                                  x1={pullEndX}
+                                  y1={padT}
+                                  x2={pullEndX}
+                                  y2={padT + plotH}
+                                  stroke="#64748b"
+                                  strokeWidth={1.6}
+                                  strokeDasharray="6,4"
+                                />
                                 <text
-                                  x={midPt.x + nx * (ribbonWidthPx + 11)}
-                                  y={midPt.y + ny * (ribbonWidthPx + 11)}
-                                  fontSize={7}
-                                  fontWeight={900}
-                                  fill={strokeColor}
+                                  x={(pullStartX + pullEndX) / 2}
+                                  y={padT + plotH / 2}
+                                  fontSize={9.5}
+                                  fontFamily="monospace"
+                                  fontWeight={700}
+                                  fill="#64748b"
                                   textAnchor="middle"
+                                  dominantBaseline="middle"
                                 >
-                                  {trace.flipHwFw ? 'FW' : 'HW'}
+                                  UNLOGGED GAP ({pull.fromRd.toFixed(1)}–{pull.toRd.toFixed(1)}m)
                                 </text>
-                                <text
-                                  x={midPt.x - nx * 8}
-                                  y={midPt.y - ny * 8}
-                                  fontSize={7}
-                                  fontWeight={900}
-                                  fill="#475569"
-                                  textAnchor="middle"
-                                >
-                                  {trace.flipHwFw ? 'HW' : 'FW'}
-                                </text>
-                              </>
-                            )}
+                              </g>
+                            );
+                          }
 
-                            {/* Clean Text-Only Joint Reference & Dip/Dip-Direction Annotation (No Box) */}
-                            {!trace.hideLabel && (
+                          const midX = (pullStartX + pullEndX) / 2;
+                          const pullLabel = `${pull.excavationDefiningNo || 'PULL'} (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)`;
+                          return (
+                            <g key={`cad-pull-${pull.id}-${idx}`}>
+                              <line
+                                x1={pullEndX}
+                                y1={padT}
+                                x2={pullEndX}
+                                y2={padT + plotH}
+                                stroke="#eab308"
+                                strokeWidth={1}
+                                strokeDasharray="4,2"
+                              />
                               <text
-                                x={midPt.x + (trace.labelOffset?.dx || 0)}
-                                y={midPt.y - 5 + (trace.labelOffset?.dy || 0)}
-                                fontSize={8.5}
-                                fontWeight={800}
-                                fill="#0f172a"
+                                x={midX}
+                                y={padT + 12}
+                                fontSize={9.5}
+                                fontFamily="monospace"
+                                fontWeight={700}
+                                fill="#b45309"
                                 textAnchor="middle"
-                                stroke="#ffffff"
+                                dominantBaseline="middle"
+                                stroke="rgba(255,255,255,0.9)"
                                 strokeWidth={2.5}
                                 paintOrder="stroke"
                               >
-                                {trace.customLabel || trace.setId}: {trace.dipDeg}°/
-                                {String(trace.dipDirectionDeg).padStart(3, '0')}°
+                                {pullLabel}
                               </text>
-                            )}
-                          </g>
-                        );
-                      })}
+                            </g>
+                          );
+                        })}
 
-                      {/* 2F. Custom Text Annotations (`dataset.customAnnotations`) */}
-                      {(dataset.customAnnotations || []).map((ann) => (
-                        <text
-                          key={ann.id}
-                          x={rdToX(ann.x)}
-                          y={yToSvgY(ann.y)}
-                          fontSize={8.5}
-                          fontWeight={800}
-                          fill={ann.color || '#0f172a'}
-                          textAnchor="middle"
-                          stroke="#ffffff"
-                          strokeWidth={2.2}
-                          paintOrder="stroke"
-                        >
-                          {ann.text}
-                        </text>
-                      ))}
+                        {/* 6. Discontinuity Joint Traces Layer (`dataset.traces` — Exact ESWA CAD Rendering, No Dip Surface Ribbons) */}
+                        {(dataset.traces || []).map((trace) => {
+                          const points = trace.points || [];
+                          if (points.length < 2) return null;
+                          const isSelected = trace.id === selectedTraceId;
+                          const color = resolveStripTraceColor(trace);
+
+                          const svgPts = points.map((pt) => ({
+                            x: rdToX(pt.x),
+                            y: yToSvgY(pt.y),
+                          }));
+                          const dPath = svgPts
+                            .map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`)
+                            .join(' ');
+
+                          const dashArray =
+                            trace.structureType === 'Shear Zone'
+                              ? '7,3'
+                              : trace.structureType === 'Bedding/Foliation'
+                              ? '3,3'
+                              : undefined;
+
+                          // Structural Geology Dip Tick & Dip Angle Label matching ESWA CAD
+                          const midIdx = Math.floor(svgPts.length / 2);
+                          const p1 = svgPts[Math.max(0, midIdx - 1)];
+                          const p2 = svgPts[Math.min(svgPts.length - 1, midIdx + 1)];
+                          const midPt = svgPts[midIdx];
+
+                          const segAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+                          const tickSide = trace.dipTickSide === 'left' ? -1 : 1;
+                          const tickLen = 10;
+                          const tickAngle = segAngle + (Math.PI / 2) * tickSide;
+
+                          const tx = midPt.x + Math.cos(tickAngle) * tickLen;
+                          const ty = midPt.y + Math.sin(tickAngle) * tickLen;
+
+                          const lblX = tx + Math.cos(tickAngle) * 12;
+                          const lblY = ty + Math.sin(tickAngle) * 12;
+
+                          const displayLabel =
+                            trace.customLabel !== undefined ? trace.customLabel : trace.setId;
+                          const setBadgeX =
+                            midPt.x - Math.cos(tickAngle) * 15 + (trace.labelOffset?.dx || 0);
+                          const setBadgeY =
+                            midPt.y - Math.sin(tickAngle) * 15 + (trace.labelOffset?.dy || 0);
+
+                          return (
+                            <g
+                              key={trace.id}
+                              onClick={() => setSelectedTraceId(trace.id)}
+                              className="cursor-pointer"
+                            >
+                              {isSelected && (
+                                <path
+                                  d={dPath}
+                                  fill="none"
+                                  stroke="rgba(251, 191, 36, 0.35)"
+                                  strokeWidth={5}
+                                />
+                              )}
+
+                              {/* Joint Trace Polyline */}
+                              <path
+                                d={dPath}
+                                fill="none"
+                                stroke={isSelected ? '#fbbf24' : color}
+                                strokeWidth={
+                                  isSelected
+                                    ? 2.0
+                                    : trace.fillingThickness === 'Thin'
+                                    ? 1.1
+                                    : 1.5
+                                }
+                                strokeDasharray={dashArray}
+                              />
+
+                              {/* Trace Vertex Points */}
+                              {svgPts.map((pt, vIdx) => (
+                                <circle
+                                  key={`v-${trace.id}-${vIdx}`}
+                                  cx={pt.x}
+                                  cy={pt.y}
+                                  r={1.8}
+                                  fill={color}
+                                />
+                              ))}
+
+                              {/* Perpendicular Dip Tick */}
+                              <line
+                                x1={midPt.x}
+                                y1={midPt.y}
+                                x2={tx}
+                                y2={ty}
+                                stroke={isSelected ? '#fbbf24' : color}
+                                strokeWidth={1.4}
+                              />
+
+                              {/* Dip Angle Text Label */}
+                              <text
+                                x={lblX}
+                                y={lblY}
+                                fontSize={9.5}
+                                fontFamily="monospace"
+                                fontWeight={700}
+                                fill={isSelected ? '#ea580c' : '#0f172a'}
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                                stroke="rgba(255,255,255,0.95)"
+                                strokeWidth={2.5}
+                                paintOrder="stroke"
+                              >
+                                {trace.dipDeg}°
+                              </text>
+
+                              {/* Joint Set / Custom Text Label */}
+                              {!trace.hideLabel && displayLabel && displayLabel.trim() !== '' && (
+                                <text
+                                  x={setBadgeX}
+                                  y={setBadgeY}
+                                  fontSize={10.5}
+                                  fontWeight={700}
+                                  fill={isSelected ? '#ea580c' : color}
+                                  textAnchor="middle"
+                                  dominantBaseline="middle"
+                                  stroke="rgba(255,255,255,0.95)"
+                                  strokeWidth={3}
+                                  paintOrder="stroke"
+                                >
+                                  {displayLabel}
+                                </text>
+                              )}
+
+                              {/* HW / FW Markers when enabled in ESWA CAD */}
+                              {trace.showHwFw && (
+                                <>
+                                  <text
+                                    x={midPt.x + Math.cos(tickAngle) * 24}
+                                    y={midPt.y + Math.sin(tickAngle) * 24}
+                                    fontSize={10}
+                                    fontWeight={700}
+                                    fill="#ef4444"
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                  >
+                                    {trace.flipHwFw ? 'FW' : 'HW'}
+                                  </text>
+                                  <text
+                                    x={midPt.x - Math.cos(tickAngle) * 24}
+                                    y={midPt.y - Math.sin(tickAngle) * 24}
+                                    fontSize={10}
+                                    fontWeight={700}
+                                    fill="#3b82f6"
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                  >
+                                    {trace.flipHwFw ? 'HW' : 'FW'}
+                                  </text>
+                                </>
+                              )}
+                            </g>
+                          );
+                        })}
+
+                        {/* 7. Groundwater Inflow Symbols (`dataset.waterSymbols` matching ESWA CAD) */}
+                        {(dataset.waterSymbols || []).map((sym) => {
+                          const scrX = rdToX(sym.position.x);
+                          const scrY = yToSvgY(sym.position.y);
+                          return (
+                            <g key={sym.id}>
+                              <circle cx={scrX} cy={scrY} r={6} fill="#0284c7" />
+                              <text
+                                x={scrX}
+                                y={scrY + 0.5}
+                                fontSize={8.5}
+                                fontWeight={700}
+                                fill="#ffffff"
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                              >
+                                W
+                              </text>
+                              {sym.label && (
+                                <text
+                                  x={scrX + 10}
+                                  y={scrY + 1}
+                                  fontSize={10}
+                                  fontFamily="monospace"
+                                  fill="#0284c7"
+                                  textAnchor="start"
+                                  dominantBaseline="middle"
+                                  stroke="rgba(255,255,255,0.9)"
+                                  strokeWidth={2}
+                                  paintOrder="stroke"
+                                >
+                                  {sym.label}
+                                </text>
+                              )}
+                            </g>
+                          );
+                        })}
+
+                        {/* 8. Custom Text Annotations (`dataset.customAnnotations`) */}
+                        {(dataset.customAnnotations || []).map((ann) => (
+                          <text
+                            key={ann.id}
+                            x={rdToX(ann.x)}
+                            y={yToSvgY(ann.y)}
+                            fontSize={9}
+                            fontWeight={800}
+                            fill={ann.color || '#0f172a'}
+                            textAnchor="middle"
+                            stroke="#ffffff"
+                            strokeWidth={2.2}
+                            paintOrder="stroke"
+                          >
+                            {ann.text}
+                          </text>
+                        ))}
+                      </g>
+
+                      {/* Left Zone Labels (matching ESWA CAD Canvas) */}
+                      {isShaft ? (
+                        <g fontSize={8.5} fontFamily="monospace" fontWeight={700} fill="#334155">
+                          <text x={padL - 8} y={(padT + yShaftQ1) / 2} textAnchor="end" dominantBaseline="middle">
+                            1. NE (0°–90°)
+                          </text>
+                          <text x={padL - 8} y={(yShaftQ1 + yShaftQ2) / 2} textAnchor="end" dominantBaseline="middle">
+                            2. ES (90°–180°)
+                          </text>
+                          <text x={padL - 8} y={(yShaftQ2 + yShaftQ3) / 2} textAnchor="end" dominantBaseline="middle">
+                            3. SW (180°–270°)
+                          </text>
+                          <text x={padL - 8} y={(yShaftQ3 + padT + plotH) / 2} textAnchor="end" dominantBaseline="middle">
+                            4. WN (270°–360°)
+                          </text>
+                        </g>
+                      ) : (
+                        <g fontSize={9} fontFamily="monospace" fontWeight={700} fill="#334155">
+                          <text x={padL - 8} y={(padT + yTunnelCrownTop) / 2} textAnchor="end" dominantBaseline="middle">
+                            LEFT WALL
+                          </text>
+                          <text
+                            x={padL - 8}
+                            y={(yTunnelCrownTop + yTunnelRightWallTop) / 2}
+                            textAnchor="end"
+                            dominantBaseline="middle"
+                          >
+                            CROWN ARCH
+                          </text>
+                          <text
+                            x={padL - 8}
+                            y={(yTunnelRightWallTop + padT + plotH) / 2}
+                            textAnchor="end"
+                            dominantBaseline="middle"
+                          >
+                            RIGHT WALL
+                          </text>
+                        </g>
+                      )}
 
                       {/* Outer Plot Frame */}
                       <rect
@@ -3083,49 +3075,49 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                         width={plotW}
                         height={plotH}
                         fill="none"
-                        stroke="#0f172a"
-                        strokeWidth={1.8}
+                        stroke="#cbd5e1"
+                        strokeWidth={1.5}
                       />
                     </svg>
                   );
                 })()}
 
-                {/* Graphical Geological Lithology, Dip Surface, Seepage & Support Legend Bar */}
+                {/* Graphical ESWA CAD Legend Bar */}
                 <div className="border-t border-slate-900 bg-slate-50 px-3 py-1.5 flex flex-wrap items-center justify-between gap-3 text-[9.5px] font-bold text-slate-800">
                   <div className="flex flex-wrap items-center gap-3">
-                    <span className="font-black uppercase text-slate-950">LEGEND:</span>
+                    <span className="font-black uppercase text-slate-950">ESWA CAD LEGEND:</span>
                     <span className="inline-flex items-center gap-1">
-                      <span className="w-3.5 h-2.5 bg-yellow-100 border border-yellow-500 inline-block" />
-                      Qtz (Quartzite/Sandstone)
+                      <span className="w-3.5 h-2.5 bg-amber-500/25 border border-amber-600 inline-block" />
+                      Qtz / Ss (Quartzite / Sandstone)
                     </span>
                     <span className="inline-flex items-center gap-1">
-                      <span className="w-3.5 h-2.5 bg-emerald-100 border border-emerald-600 inline-block" />
-                      Ph/QP (Phyllite/Schist)
+                      <span className="w-3.5 h-2.5 bg-sky-500/25 border border-sky-600 inline-block" />
+                      Ph / Sch (Phyllite / Schist)
                     </span>
                     <span className="inline-flex items-center gap-1">
-                      <span className="w-3.5 h-2.5 bg-red-100 border border-red-400 inline-block" />
-                      Gr/Gn (Granite/Gneiss)
+                      <span className="w-3.5 h-2.5 bg-red-500/25 border border-red-600 inline-block" />
+                      Gr / Gn (Granite / Gneiss)
                     </span>
                     <span className="inline-flex items-center gap-1">
-                      <span className="w-3.5 h-2.5 bg-blue-100 border border-blue-400 inline-block" />
+                      <span className="w-3.5 h-2.5 bg-emerald-500/25 border border-emerald-600 inline-block" />
                       Ls (Limestone)
                     </span>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="inline-flex items-center gap-1">
-                      <span className="w-4 h-2 bg-blue-500/25 border-t-2 border-blue-600 inline-block" />
-                      3D Dip Surface Band + Strike/Dip Tick (60°/120°)
+                      <span className="w-4 h-0.5 bg-blue-600 inline-block" />
+                      Joint Trace + Strike/Dip Tick (J1 / J2 / J3)
                     </span>
                     <span className="inline-flex items-center gap-1">
-                      <span className="w-4 h-2 bg-rose-500/25 border-t-2 border-dashed border-rose-600 inline-block" />
-                      Shear Zone / Fault (HW/FW)
+                      <span className="w-4 h-0 border-t-2 border-dashed border-rose-600 inline-block" />
+                      Shear Zone / Fault Trace
                     </span>
                     <span className="inline-flex items-center gap-1 text-sky-700">
-                      ● Seepage (Dry / Damp / Wet / Dripping / Flowing)
+                      ● W — Groundwater Seepage Marker
                     </span>
-                    <span className="inline-flex items-center gap-1 text-teal-800">
-                      ⊕ Rockbolt Anchor &amp; Steel Rib
+                    <span className="inline-flex items-center gap-1 text-amber-700">
+                      ┆ Pull Boundary (RD / Depth)
                     </span>
                   </div>
                 </div>

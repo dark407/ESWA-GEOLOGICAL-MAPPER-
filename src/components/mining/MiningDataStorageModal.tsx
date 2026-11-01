@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Database,
   X,
@@ -6,34 +6,25 @@ import {
   Download,
   Upload,
   Trash2,
-  Edit3,
   CheckCircle2,
-  AlertTriangle,
   FolderOpen,
   Pickaxe,
   Layers,
-  FileSpreadsheet,
-  RefreshCw,
   HardDrive,
-  Sparkles,
+  Search,
+  Send,
+  ShieldCheck,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
-  MiningProjectItem,
-  MiningStopeItem,
-  MiningDrillHoleRecord,
-} from '../../types/mining';
-import {
   loadMiningProjects,
-  saveMiningProjects,
   createMiningProject,
-  updateMiningProject,
   deleteMiningProject,
   loadMiningStopes,
-  saveMiningStopes,
   createMiningStope,
   deleteMiningStope,
   loadMiningDrillHoles,
-  saveMiningDrillHoles,
   createMiningDrillHole,
   deleteMiningDrillHole,
   getActiveMiningProjectId,
@@ -43,15 +34,24 @@ import {
   getActiveMiningDrillHoleId,
   setActiveMiningDrillHoleId,
   exportMiningVaultToJson,
-  importMiningVaultFromJson,
   seedInitialMiningData,
 } from '../../engine/miningStorageEngine';
+import {
+  detectPayloadApplicationMode,
+  routeToIsolatedMiningVault,
+  routeToIsolatedTbmVault,
+  transferRecordToApplicationMode,
+  getIsolatedVaultTelemetry,
+} from '../../engine/universalDataRouterEngine';
+import { applyImportedEswaPayload } from '../../engine/userCloudAndPackageEngine';
 
 export interface MiningDataStorageModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDataChanged?: () => void;
 }
+
+const PAGE_SIZE = 50;
 
 export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
   isOpen,
@@ -60,6 +60,11 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'PROJECTS' | 'STOPES' | 'DRILLHOLES' | 'VAULT'>('PROJECTS');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [stopePage, setStopePage] = useState(1);
+  const [holePage, setHolePage] = useState(1);
+  const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<string | null>(null);
+  const [confirmResetVault, setConfirmResetVault] = useState(false);
 
   // New Project Form Modal
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -78,39 +83,80 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
 
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
     setNotification({ text, type });
-    setTimeout(() => setNotification(null), 3500);
+    setTimeout(() => setNotification(null), 4500);
   };
+
+  useEffect(() => {
+    const onHydrated = () => setRefreshKey((k) => k + 1);
+    window.addEventListener('eswa-idb-hydrated', onHydrated);
+    return () => window.removeEventListener('eswa-idb-hydrated', onHydrated);
+  }, []);
 
   const projects = useMemo(() => loadMiningProjects(), [refreshKey, isOpen]);
   const stopes = useMemo(() => loadMiningStopes(), [refreshKey, isOpen]);
   const drillHoles = useMemo(() => loadMiningDrillHoles(), [refreshKey, isOpen]);
+  const telemetry = useMemo(() => getIsolatedVaultTelemetry('MINING'), [refreshKey, isOpen]);
 
   const activeProjId = getActiveMiningProjectId() || projects[0]?.id;
   const activeStopeId = getActiveMiningStopeId() || stopes[0]?.id;
   const activeDrillHoleId = getActiveMiningDrillHoleId() || drillHoles[0]?.id;
 
+  const filteredStopes = useMemo(() => {
+    if (!searchQuery.trim()) return stopes;
+    const q = searchQuery.toLowerCase();
+    return stopes.filter(
+      (s) =>
+        s.stopeOrDriftId.toLowerCase().includes(q) ||
+        s.mineLevel.toLowerCase().includes(q) ||
+        (s.currentHeadingRdChainage || '').toLowerCase().includes(q) ||
+        (s.oreBodyName || '').toLowerCase().includes(q)
+    );
+  }, [stopes, searchQuery]);
+
+  const filteredHoles = useMemo(() => {
+    if (!searchQuery.trim()) return drillHoles;
+    const q = searchQuery.toLowerCase();
+    return drillHoles.filter(
+      (h) =>
+        h.holeId.toLowerCase().includes(q) ||
+        (h.targetOreZone || '').toLowerCase().includes(q) ||
+        (h.significantInterceptsSummary || '').toLowerCase().includes(q)
+    );
+  }, [drillHoles, searchQuery]);
+
+  const totalStopePages = Math.max(1, Math.ceil(filteredStopes.length / PAGE_SIZE));
+  const pagedStopes = useMemo(
+    () => filteredStopes.slice((stopePage - 1) * PAGE_SIZE, stopePage * PAGE_SIZE),
+    [filteredStopes, stopePage]
+  );
+
+  const totalHolePages = Math.max(1, Math.ceil(filteredHoles.length / PAGE_SIZE));
+  const pagedHoles = useMemo(
+    () => filteredHoles.slice((holePage - 1) * PAGE_SIZE, holePage * PAGE_SIZE),
+    [filteredHoles, holePage]
+  );
+
   if (!isOpen) return null;
 
-  // Handlers
   const handleSelectProject = (id: string) => {
     setActiveMiningProjectId(id);
     setRefreshKey((k) => k + 1);
     if (onDataChanged) onDataChanged();
-    showNotification(`Active mining project changed`);
+    showNotification('Active mining project changed');
   };
 
   const handleSelectStope = (id: string) => {
     setActiveMiningStopeId(id);
     setRefreshKey((k) => k + 1);
     if (onDataChanged) onDataChanged();
-    showNotification(`Active stope heading selected`);
+    showNotification('Active stope heading selected');
   };
 
   const handleSelectDrillHole = (id: string) => {
     setActiveMiningDrillHoleId(id);
     setRefreshKey((k) => k + 1);
     if (onDataChanged) onDataChanged();
-    showNotification(`Active exploration core hole selected`);
+    showNotification('Active exploration core hole selected');
   };
 
   const handleCreateProject = (e: React.FormEvent) => {
@@ -150,12 +196,11 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
       showNotification('Cannot delete the only project in the vault.', 'error');
       return;
     }
-    if (window.confirm('Delete this mining project and associated stopes?')) {
-      deleteMiningProject(id);
-      setRefreshKey((k) => k + 1);
-      if (onDataChanged) onDataChanged();
-      showNotification('Project deleted');
-    }
+    deleteMiningProject(id);
+    setConfirmDeleteProjectId(null);
+    setRefreshKey((k) => k + 1);
+    if (onDataChanged) onDataChanged();
+    showNotification('Mining project deleted');
   };
 
   const handleDeleteStope = (id: string) => {
@@ -197,31 +242,42 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
-      const content = event.target?.result as string;
-      const res = importMiningVaultFromJson(content);
-      if (res.success) {
-        setRefreshKey((k) => k + 1);
-        if (onDataChanged) onDataChanged();
-        showNotification(res.message);
-      } else {
-        showNotification(res.message, 'error');
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+        const targetApp = detectPayloadApplicationMode(parsed);
+
+        if (targetApp === 'TBM') {
+          const res = routeToIsolatedTbmVault(parsed, 'merge');
+          showNotification(`${res.message} (Automatically routed to TBM Mode Storage)`);
+        } else if (targetApp === 'NATM') {
+          const res = applyImportedEswaPayload(parsed, 'merge');
+          showNotification(`${res.message} (Automatically routed to NATM Mode Storage)`);
+        } else {
+          const res = routeToIsolatedMiningVault(parsed, 'merge');
+          setRefreshKey((k) => k + 1);
+          if (onDataChanged) onDataChanged();
+          showNotification(res.message);
+        }
+      } catch (err: any) {
+        showNotification(err?.message || 'Error parsing JSON file', 'error');
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleResetToDefault = () => {
-    if (window.confirm('Reset Mining vault to default Kolar Deep Gold-Copper demo dataset? Current data will be replaced.')) {
-      seedInitialMiningData();
-      setRefreshKey((k) => k + 1);
-      if (onDataChanged) onDataChanged();
-      showNotification('Mining vault reset to default benchmark data');
-    }
+    seedInitialMiningData();
+    setConfirmResetVault(false);
+    setRefreshKey((k) => k + 1);
+    if (onDataChanged) onDataChanged();
+    showNotification('Mining vault reset to clean slate');
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 select-none font-sans text-slate-100">
-      <div className="bg-slate-900 border border-amber-500/50 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-slate-900 border border-amber-500/50 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Modal Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-950">
           <div className="flex items-center gap-2.5">
@@ -232,11 +288,15 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
               <h2 className="text-base font-bold text-amber-300 font-mono flex items-center gap-2">
                 <span>MINING DATA &amp; STORAGE VAULT</span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-700">
-                  ISOLATED VAULT
+                  ISOLATED MINING ONLY
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-700 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  MULTI-KM SAFE
                 </span>
               </h2>
               <p className="text-xs text-slate-400">
-                Independent storage isolated from NATM and TBM · {stopes.length} Stopes/Drives · {drillHoles.length} Core Holes · {projects.length} Projects
+                Strictly isolated from NATM &amp; TBM · Linear Advance: <strong className="text-amber-300">{telemetry.totalLinearMeters.toFixed(1)}m ({telemetry.totalLinearKilometers.toFixed(3)} km)</strong> · {stopes.length} Stopes/Drives · {drillHoles.length} Core Holes
               </p>
             </div>
           </div>
@@ -252,42 +312,63 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
 
         {/* Floating Notification */}
         {notification && (
-          <div className={`px-4 py-2 text-xs font-mono font-bold flex items-center gap-2 border-b animate-fade-in ${
-            notification.type === 'success'
-              ? 'bg-emerald-950 border-emerald-500 text-emerald-300'
-              : 'bg-rose-950 border-rose-500 text-rose-300'
-          }`}>
+          <div
+            className={`px-4 py-2 text-xs font-mono font-bold flex items-center gap-2 border-b ${
+              notification.type === 'success'
+                ? 'bg-emerald-950 border-emerald-500 text-emerald-300'
+                : 'bg-rose-950 border-rose-500 text-rose-300'
+            }`}
+          >
             <CheckCircle2 className="w-4 h-4" />
             <span>{notification.text}</span>
           </div>
         )}
 
-        {/* 4 Tabs Selector */}
-        <div className="flex items-center gap-2 px-5 py-2.5 bg-slate-950/70 border-b border-slate-800 text-xs font-mono font-bold">
-          {[
-            { id: 'PROJECTS' as const, label: `Projects (${projects.length})`, icon: FolderOpen },
-            { id: 'STOPES' as const, label: `Stopes & Headings (${stopes.length})`, icon: Pickaxe },
-            { id: 'DRILLHOLES' as const, label: `Core Holes (${drillHoles.length})`, icon: Layers },
-            { id: 'VAULT' as const, label: 'Vault & Backups', icon: HardDrive },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isAct = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                  isAct
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+        {/* 4 Tabs Selector + Search Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-2.5 bg-slate-950/70 border-b border-slate-800 text-xs font-mono font-bold">
+          <div className="flex items-center gap-2 flex-wrap">
+            {[
+              { id: 'PROJECTS' as const, label: `Projects (${projects.length})`, icon: FolderOpen },
+              { id: 'STOPES' as const, label: `Stopes & Headings (${stopes.length})`, icon: Pickaxe },
+              { id: 'DRILLHOLES' as const, label: `Core Holes (${drillHoles.length})`, icon: Layers },
+              { id: 'VAULT' as const, label: 'Vault & Cross-App Router', icon: HardDrive },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isAct = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    isAct
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {(activeTab === 'STOPES' || activeTab === 'DRILLHOLES') && (
+            <div className="relative w-64">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search ID, level, chainage..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setStopePage(1);
+                  setHolePage(1);
+                }}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-2.5 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
+              />
+            </div>
+          )}
         </div>
 
         {/* Tab Body */}
@@ -332,26 +413,55 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                               </span>
                             )}
                           </div>
-                          <p className="text-slate-400 text-xs mt-0.5">{p.mineName} · {p.mineSiteLocation}</p>
+                          <p className="text-slate-400 text-xs mt-0.5">
+                            {p.mineName} · {p.mineSiteLocation}
+                          </p>
                         </div>
 
                         <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteProject(p.id)}
-                            className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800"
-                            title="Delete project"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {confirmDeleteProjectId === p.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteProject(p.id)}
+                                className="px-2 py-0.5 rounded bg-rose-600 text-white text-[10px] font-bold cursor-pointer"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteProjectId(null)}
+                                className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteProjectId(p.id)}
+                              className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800 cursor-pointer"
+                              title="Delete project"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-800/80 text-[11px] text-slate-300">
-                        <div>Commodity: <strong className="text-cyan-300">{p.primaryCommodity}</strong></div>
-                        <div>Method: <strong>{p.activeMiningMethod.replace(/_/g, ' ')}</strong></div>
-                        <div>Geologist: <strong>{p.responsibleGeologist}</strong></div>
-                        <div>Datum: <strong>{p.mineDatumLevelMrl} mRL</strong></div>
+                        <div>
+                          Commodity: <strong className="text-cyan-300">{p.primaryCommodity}</strong>
+                        </div>
+                        <div>
+                          Method: <strong>{p.activeMiningMethod.replace(/_/g, ' ')}</strong>
+                        </div>
+                        <div>
+                          Geologist: <strong>{p.responsibleGeologist}</strong>
+                        </div>
+                        <div>
+                          Datum: <strong>{p.mineDatumLevelMrl} mRL</strong>
+                        </div>
                       </div>
 
                       {!isAct && (
@@ -375,8 +485,12 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-sm text-slate-200">Underground Stopes &amp; Drift Headings</h3>
-                  <p className="text-slate-400 text-xs">Drive faces, veins, and channel sample lines</p>
+                  <h3 className="font-bold text-sm text-slate-200">
+                    Underground Stopes &amp; Drift Headings ({filteredStopes.length})
+                  </h3>
+                  <p className="text-slate-400 text-xs">
+                    Multi-kilometer indexed heading records, veins, and channel sample lines
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -395,15 +509,15 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                       <th className="p-2.5">Stope / Drive ID</th>
                       <th className="p-2.5">Mine Level</th>
                       <th className="p-2.5">Current Heading RD</th>
-                      <th className="p-2.5">Veins</th>
+                      <th className="p-2.5">Features / Veins</th>
                       <th className="p-2.5">Cut-off Grade</th>
                       <th className="p-2.5">Diluted Grade</th>
                       <th className="p-2.5">Dispatch</th>
-                      <th className="p-2.5 text-right">Actions</th>
+                      <th className="p-2.5 text-right">Actions &amp; Cross-App Send</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-300">
-                    {stopes.map((s) => {
+                    {pagedStopes.map((s) => {
                       const isAct = s.id === activeStopeId;
                       return (
                         <tr key={s.id} className={isAct ? 'bg-amber-950/20' : 'hover:bg-slate-800/40'}>
@@ -413,28 +527,70 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                           </td>
                           <td className="p-2.5">{s.mineLevel}</td>
                           <td className="p-2.5">{s.currentHeadingRdChainage}</td>
-                          <td className="p-2.5 text-cyan-300 font-bold">{s.veins?.length || 0} veins</td>
+                          <td className="p-2.5 text-cyan-300 font-bold">
+                            {(s.features?.length || 0) + (s.veins?.length || 0)} mapped
+                          </td>
                           <td className="p-2.5">{s.targetCutoffGrade.toFixed(2)} g/t</td>
-                          <td className="p-2.5 font-bold text-emerald-400">{s.dilutedGradeCalculated?.toFixed(2) || '4.85'} g/t</td>
+                          <td className="p-2.5 font-bold text-emerald-400">
+                            {s.dilutedGradeCalculated ? `${s.dilutedGradeCalculated.toFixed(2)} g/t` : '—'}
+                          </td>
                           <td className="p-2.5">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                              {s.muckDestinationVerdict || 'MILL'}
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-slate-700">
+                              {s.muckDestinationVerdict || 'AWAITING_INPUT'}
                             </span>
                           </td>
-                          <td className="p-2.5 text-right space-x-1">
+                          <td className="p-2.5 text-right space-x-1 whitespace-nowrap">
                             {!isAct && (
                               <button
                                 type="button"
                                 onClick={() => handleSelectStope(s.id)}
-                                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-bold"
+                                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-bold cursor-pointer"
                               >
                                 Select
                               </button>
                             )}
                             <button
                               type="button"
+                              onClick={() => {
+                                const res = transferRecordToApplicationMode('NATM', {
+                                  title: s.stopeOrDriftId,
+                                  chainageFromM: s.chainageFromM ?? 0,
+                                  chainageToM: s.chainageToM ?? (s.blastPullMeters || 3.2),
+                                  widthM: s.stopeWidthM,
+                                  heightM: s.stopeHeightM,
+                                  lithology: s.oreBodyName,
+                                  geologist: s.responsibleGeologist,
+                                });
+                                showNotification(res.message);
+                              }}
+                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[10px] font-bold cursor-pointer"
+                              title="Send a copy of this heading to Isolated NATM Storage"
+                            >
+                              → NATM
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const res = transferRecordToApplicationMode('TBM', {
+                                  title: s.stopeOrDriftId,
+                                  chainageFromM: s.chainageFromM ?? 0,
+                                  chainageToM: s.chainageToM ?? (s.blastPullMeters || 3.2),
+                                  widthM: s.stopeWidthM,
+                                  heightM: s.stopeHeightM,
+                                  lithology: s.oreBodyName,
+                                  geologist: s.responsibleGeologist,
+                                });
+                                showNotification(res.message);
+                              }}
+                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold cursor-pointer"
+                              title="Send a copy of this heading to Isolated TBM Storage"
+                            >
+                              → TBM
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleDeleteStope(s.id)}
-                              className="p-1 rounded text-slate-500 hover:text-rose-400"
+                              className="p-1 rounded text-slate-500 hover:text-rose-400 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -445,6 +601,30 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                   </tbody>
                 </table>
               </div>
+
+              {totalStopePages > 1 && (
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-[11px] text-slate-400">
+                    Showing page {stopePage} of {totalStopePages} ({filteredStopes.length} total headings)
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      disabled={stopePage <= 1}
+                      onClick={() => setStopePage((p) => Math.max(1, p - 1))}
+                      className="px-2.5 py-1 rounded bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      disabled={stopePage >= totalStopePages}
+                      onClick={() => setStopePage((p) => Math.min(totalStopePages, p + 1))}
+                      className="px-2.5 py-1 rounded bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -453,14 +633,18 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-sm text-slate-200">Exploration &amp; Production Core Drill Holes</h3>
-                  <p className="text-slate-400 text-xs">Diamond core runs, assays, RQD, and significant intercepts</p>
+                  <h3 className="font-bold text-sm text-slate-200">
+                    Exploration &amp; Production Core Drill Holes ({filteredHoles.length})
+                  </h3>
+                  <p className="text-slate-400 text-xs">
+                    Diamond core runs, assays, RQD, and significant intercepts
+                  </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
                     createMiningDrillHole({
-                      holeId: `DDH-KD-${String(drillHoles.length + 43).padStart(3, '0')}`,
+                      holeId: `DDH-KD-${String(drillHoles.length + 1).padStart(3, '0')}`,
                     });
                     setRefreshKey((k) => k + 1);
                     if (onDataChanged) onDataChanged();
@@ -480,7 +664,7 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                       <th className="p-2.5">Hole ID</th>
                       <th className="p-2.5">Type &amp; Size</th>
                       <th className="p-2.5">Dip / Azimuth</th>
-                      <th className="p-2.5">Total Depth</th>
+                      <th className="p-2.5">Runs Logged</th>
                       <th className="p-2.5">Recovery %</th>
                       <th className="p-2.5">RQD %</th>
                       <th className="p-2.5">Significant Ore Intercept</th>
@@ -488,7 +672,7 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-300">
-                    {drillHoles.map((h) => {
+                    {pagedHoles.map((h) => {
                       const isAct = h.id === activeDrillHoleId;
                       return (
                         <tr key={h.id} className={isAct ? 'bg-amber-950/20' : 'hover:bg-slate-800/40'}>
@@ -496,9 +680,13 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                             {h.holeId}
                             {isAct && <span className="ml-1 text-[10px] text-amber-400 font-bold">[ACTIVE]</span>}
                           </td>
-                          <td className="p-2.5">{h.holeType === 'DIAMOND_CORE_DDH' ? 'Diamond Core' : 'RC'} ({h.coreDiameter})</td>
-                          <td className="p-2.5">{h.collarDipDeg}° / {h.collarAzimuthDeg}°</td>
-                          <td className="p-2.5 font-bold text-slate-100">{h.totalDrilledDepthM.toFixed(1)} m</td>
+                          <td className="p-2.5">
+                            {h.holeType === 'DIAMOND_CORE_DDH' ? 'Diamond Core' : 'RC'} ({h.coreDiameter})
+                          </td>
+                          <td className="p-2.5">
+                            {h.collarDipDeg}° / {h.collarAzimuthDeg}°
+                          </td>
+                          <td className="p-2.5 font-bold text-slate-100">{h.runs?.length || 0} runs</td>
                           <td className="p-2.5 text-emerald-400">{h.overallRecoveryPercent.toFixed(1)}%</td>
                           <td className="p-2.5 text-cyan-300">{h.overallRqdPercent.toFixed(1)}%</td>
                           <td className="p-2.5 text-amber-300 font-bold">{h.significantInterceptsSummary}</td>
@@ -507,7 +695,7 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleSelectDrillHole(h.id)}
-                                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold"
+                                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold cursor-pointer"
                               >
                                 Select
                               </button>
@@ -515,7 +703,7 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handleDeleteDrillHole(h.id)}
-                              className="p-1 rounded text-slate-500 hover:text-rose-400"
+                              className="p-1 rounded text-slate-500 hover:text-rose-400 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -526,19 +714,43 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                   </tbody>
                 </table>
               </div>
+
+              {totalHolePages > 1 && (
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-[11px] text-slate-400">
+                    Showing page {holePage} of {totalHolePages} ({filteredHoles.length} total drillholes)
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      disabled={holePage <= 1}
+                      onClick={() => setHolePage((p) => Math.max(1, p - 1))}
+                      className="px-2.5 py-1 rounded bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      disabled={holePage >= totalHolePages}
+                      onClick={() => setHolePage((p) => Math.min(totalHolePages, p + 1))}
+                      className="px-2.5 py-1 rounded bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* TAB 4: VAULT & BACKUPS */}
+          {/* TAB 4: VAULT & CROSS-APPLICATION ROUTER */}
           {activeTab === 'VAULT' && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
                 <h3 className="font-bold text-sm text-amber-300 flex items-center gap-2">
                   <HardDrive className="w-4 h-4 text-amber-400" />
-                  <span>Isolated Mining Vault Operations</span>
+                  <span>Isolated Mining Vault &amp; Smart Cross-Application Router</span>
                 </h3>
-                <p className="text-slate-400 text-xs">
-                  This vault (<code>eswa_strict_vault_MINING</code>) is 100% strictly isolated from NATM civil tunneling and TBM shield vaults. All stope surveys, channel assay lines, and drill hole runs remain private to the mining package.
+                <p className="text-slate-400 text-xs leading-relaxed">
+                  This vault is strictly isolated from NATM and TBM so only Mining &amp; Exploration records appear here. If you import a JSON file exported from NATM or TBM, the Smart Router automatically detects its application type and routes it directly into that application&apos;s isolated vault without mixing data.
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3 pt-2">
@@ -548,15 +760,42 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
                     className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold cursor-pointer shadow"
                   >
                     <Download className="w-4 h-4" />
-                    <span>Download Vault Backup (JSON)</span>
+                    <span>Download Mining Vault Backup (JSON)</span>
                   </button>
 
                   <label className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold cursor-pointer">
                     <Upload className="w-4 h-4 text-cyan-400" />
-                    <span>Restore from Backup (JSON)</span>
+                    <span>Smart Import Any JSON (Mining / TBM / NATM)</span>
                     <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
                   </label>
 
+                  {!confirmResetVault ? (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmResetVault(true)}
+                      className="px-3 py-2 rounded-xl bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 font-bold cursor-pointer"
+                    >
+                      Reset Mining Vault (Clean Slate)
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 bg-rose-950/80 border border-rose-700 rounded-xl px-3 py-1.5">
+                      <span className="text-rose-200 font-bold">Reset Mining Vault?</span>
+                      <button
+                        type="button"
+                        onClick={handleResetToDefault}
+                        className="px-2.5 py-1 rounded bg-rose-600 text-white font-bold cursor-pointer"
+                      >
+                        Yes, Reset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmResetVault(false)}
+                        className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -565,7 +804,9 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-5 py-3 border-t border-slate-800 bg-slate-950 flex items-center justify-between text-xs font-mono text-slate-400">
-          <span>Active Project: <strong className="text-amber-300">{projects.find((p) => p.id === activeProjId)?.projectName}</strong></span>
+          <span>
+            Active Project: <strong className="text-amber-300">{projects.find((p) => p.id === activeProjId)?.projectName}</strong>
+          </span>
           <button
             type="button"
             onClick={onClose}
@@ -621,13 +862,13 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowNewProjectModal(false)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300"
+                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold"
+                className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold cursor-pointer"
               >
                 Create Project
               </button>
@@ -678,13 +919,13 @@ export const MiningDataStorageModal: React.FC<MiningDataStorageModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowNewStopeModal(false)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300"
+                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold"
+                className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold cursor-pointer"
               >
                 Create Stope
               </button>

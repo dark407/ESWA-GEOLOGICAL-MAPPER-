@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Activity,
   ArrowRight,
   Cloud,
   Compass,
@@ -99,8 +100,10 @@ export interface WelcomeScreenProps {
   isBootLoading: boolean;
   setIsBootLoading: (v: boolean) => void;
   onEnterApp?: () => void;
+  onOpenTunnelMonitoring?: () => void;
   projectMemoryModalNode?: React.ReactNode;
   natmRockMechanicsModalNode?: React.ReactNode;
+  tunnelMonitoringModalNode?: React.ReactNode;
   continuousLoggingModalsNode?: React.ReactNode;
   globalSettingsModalNode?: React.ReactNode;
   modeSwitchConfirmationModalNode?: React.ReactNode;
@@ -141,8 +144,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   handleOpenProjectMemoryModal,
   isBootLoading,
   setIsBootLoading,
+  onOpenTunnelMonitoring,
   projectMemoryModalNode,
   natmRockMechanicsModalNode,
+  tunnelMonitoringModalNode,
   continuousLoggingModalsNode,
   globalSettingsModalNode,
   modeSwitchConfirmationModalNode,
@@ -355,7 +360,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             </div>
           </div>
 
-          {/* 2. Geological & Geotechnical Core Logging */}
+          {/* 2. Continuous 3D Tunnel Mapping & Strip CAD Log */}
           <div
             className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 transition-colors"
             style={{
@@ -367,14 +372,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 <span
                   className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
                   style={{
-                    backgroundColor: palette.primaryHex + '25',
+                    backgroundColor: palette.primaryHex + '20',
                     color: palette.accentIconColor,
                   }}
                 >
-                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  <Layers className="w-4 h-4 shrink-0" />
                 </span>
-                <span className="text-black font-extrabold text-sm sm:text-base tracking-tight">
-                  Geological &amp; Geotechnical Core Logging
+                <span className="text-black font-extrabold text-sm sm:text-base">
+                  Continuous 3D Tunnel Log
                 </span>
               </span>
 
@@ -383,10 +388,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   type="button"
                   onClick={() => {
                     setIsFirstOpening(false);
-                    setIsCoreLoggingOpen(true);
+                    setIsContinuousLogSetupOpen(true);
                   }}
                   className="px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-all cursor-pointer active:scale-95"
-                  title="Open Core Logging Workspace"
+                  title="Open Continuous 3D Tunnel Log Setup"
                 >
                   <span>Open</span>
                 </button>
@@ -395,7 +400,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   type="button"
                   onClick={() => {
                     setIsFirstOpening(false);
-                    setIsCoreLoggingOpen(true);
+                    setIsContinuousLogSetupOpen(true);
                   }}
                   className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
                   style={{
@@ -403,7 +408,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     borderColor: palette.accentHex,
                     color: palette.isLightBg ? '#FFFFFF' : '#000000',
                   }}
-                  title="Resume Active Core Logging Borehole"
+                  title="Resume Continuous 3D Tunnel Log"
                 >
                   <Play
                     className="w-3.5 h-3.5 shrink-0"
@@ -418,7 +423,70 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             </div>
           </div>
 
-          {/* 3. Surface Mapping (Bench, Trench, Slope, Outcrop) */}
+          {/* 3. Tunnel Monitoring & Geotechnical Instrumentation */}
+          <div
+            className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 transition-colors"
+            style={{
+              borderColor: palette.primaryHex,
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2.5 text-left">
+                <span
+                  className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                  style={{
+                    backgroundColor: palette.primaryHex + '20',
+                    color: palette.accentIconColor,
+                  }}
+                >
+                  <Activity className="w-4 h-4 shrink-0" />
+                </span>
+                <span className="text-black font-extrabold text-sm sm:text-base">
+                  Tunnel Monitoring &amp; Instrumentation
+                </span>
+              </span>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    onOpenTunnelMonitoring?.();
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-all cursor-pointer active:scale-95"
+                  title="Open Tunnel Monitoring & Geotechnical Instrumentation"
+                >
+                  <span>Open</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    onOpenTunnelMonitoring?.();
+                  }}
+                  className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                  style={{
+                    backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
+                    borderColor: palette.accentHex,
+                    color: palette.isLightBg ? '#FFFFFF' : '#000000',
+                  }}
+                  title="Resume Active Geotechnical Monitoring Section"
+                >
+                  <Play
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                      fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    }}
+                  />
+                  <span>Resume</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Surface Mapping (Bench, Trench, Slope, Outcrop) */}
           <div
             className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 space-y-2 transition-colors"
             style={{
@@ -489,7 +557,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             </div>
           </div>
 
-          {/* 4. Continuous 3D Tunnel Mapping & Strip CAD Log */}
+          {/* 5. Geological & Geotechnical Core Logging */}
           <div
             className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 transition-colors"
             style={{
@@ -501,14 +569,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 <span
                   className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
                   style={{
-                    backgroundColor: palette.primaryHex + '20',
+                    backgroundColor: palette.primaryHex + '25',
                     color: palette.accentIconColor,
                   }}
                 >
-                  <Layers className="w-4 h-4 shrink-0" />
+                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
                 </span>
-                <span className="text-black font-extrabold text-sm sm:text-base">
-                  Continuous 3D Tunnel Log
+                <span className="text-black font-extrabold text-sm sm:text-base tracking-tight">
+                  Geological &amp; Geotechnical Core Logging
                 </span>
               </span>
 
@@ -517,10 +585,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   type="button"
                   onClick={() => {
                     setIsFirstOpening(false);
-                    setIsContinuousLogSetupOpen(true);
+                    setIsCoreLoggingOpen(true);
                   }}
                   className="px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-all cursor-pointer active:scale-95"
-                  title="Open Continuous 3D Tunnel Log Setup"
+                  title="Open Core Logging Workspace"
                 >
                   <span>Open</span>
                 </button>
@@ -529,7 +597,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   type="button"
                   onClick={() => {
                     setIsFirstOpening(false);
-                    setIsContinuousLogSetupOpen(true);
+                    setIsCoreLoggingOpen(true);
                   }}
                   className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
                   style={{
@@ -537,7 +605,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     borderColor: palette.accentHex,
                     color: palette.isLightBg ? '#FFFFFF' : '#000000',
                   }}
-                  title="Resume Continuous 3D Tunnel Log"
+                  title="Resume Active Core Logging Borehole"
                 >
                   <Play
                     className="w-3.5 h-3.5 shrink-0"
@@ -552,7 +620,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             </div>
           </div>
 
-          {/* 5. Data Storage, Import & Export */}
+          {/* 6. Data Storage, Import & Export */}
           <div className="grid grid-cols-1 gap-2.5 w-full">
             <button
               type="button"
@@ -596,6 +664,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       )}
       {projectMemoryModalNode}
       {natmRockMechanicsModalNode}
+      {tunnelMonitoringModalNode}
       {continuousLoggingModalsNode}
       {globalSettingsModalNode}
       {modeSwitchConfirmationModalNode}

@@ -1,145 +1,104 @@
-# Multi-Band Alternate Lithology Engine & Canvas Band Plotting
+# ESWA Geological Mapper — Standalone Software Download Website & Master Release Portal
 
-Transform the alternate lithology workflow into a multi-layered geological banding system: establish a configurable **Main Base Lithology** that covers the excavation face background, and empower geologists to add and plot **unlimited secondary, tertiary, and quaternary lithology bands** with independent rock types, angles (-90° to +90°), and thicknesses (5px to 100px / 0.1m to 2.5m), placed directly on the face canvas via tap/click positioning.
+This plan outlines the architecture and user experience for a dedicated **Product Showcase & Software Distribution Website** that operates as an independent link (`/website` and standalone Netlify deployment) with **zero navigation or UI connection** into the live geological mapping software, while featuring a **Top Master Login** so the owner can upload and publish updated Windows `.exe` and Android `.apk` releases directly from the website.
 
 ---
 
 ## User Review & Critical Decisions
 
-> [!IMPORTANT]
-> The following product behaviors were confirmed during the Turn 1 interactive clarification:
-> - **Main Base Structure**: The main lithology acts as the base background, with separate, distinct overlay bands plotted over it.
-> - **Band Placement UX**: The geologist configures the rock type, angle, and thickness in the panel controls, then taps/clicks on the face canvas to place the band precisely where desired.
-> - **Band Capacity**: Unlimited bands with dynamic "+ Add Band" and delete controls, allowing secondary, tertiary, 4th, 5th, or any number of distinct lithology bands per round.
+- **Strict Decoupling from the Mapper Application**: Visiting the website link (`/website`, `?site=website`, or a standalone Netlify deployment) renders **only** the public software showcase and download portal. There are no "Launch Web App" buttons, workspace sidebars, or back-links into the NATM/TBM/Mining mapping workspace.
+- **Top Bar Master Login & Live Binary/Release Upload**: A **Master Login** button in the top navigation bar authenticates the Master Owner (`akashdhanusheswar@gmail.com`) via Google Sign-In or Master Passcode. Once logged in on the website, the owner can upload new Windows Desktop (`.exe`) and Android (`.apk`) release packages (or attach direct release URLs), automatically compute SHA-256 checksums and file sizes in-browser, edit version numbers and release notes, and publish updates immediately to all website visitors.
+- **Free Netlify Ready + One-Click Standalone Bundle**: Includes a root `netlify.toml` configuration for free Netlify hosting, plus a built-in **"Export Standalone Netlify Website ZIP"** tool inside the Website Master Console so the website can also be dragged-and-dropped onto Netlify Drop as a 100% separate project at any time.
 
 ---
 
 ## 1. Overview & Core Concept
 
-### 1.1 What It Delivers
-In real-world tunneling and mining faces (e.g. interbedded flysch, turbidite sequences, quartz/pegmatite vein swarms, schist with quartzite intercalations), rock faces rarely consist of a single uniform rock or a single rigid alternating pair. 
+The **ESWA Geological Mapper Distribution Website** serves as the official public portal where engineering geologists, tunneling contractors, and mining teams can inspect software capabilities, verify package integrity, request software access licenses, and download the latest Windows Desktop (`.exe`) and Android Field Tablet (`.apk`) builds.
 
-This feature introduces a **Base & Layered Band Architecture**:
-1. **Main Lithology Base**: The dominant rock mass (e.g. Quartzite, Granite, Sandstone) acts as the continuous backdrop.
-2. **Dynamic Band Stack**: Users configure individual secondary/tertiary bands (e.g., Band 1: 15cm Mica Schist at -45°, Band 2: 40cm Quartz Vein at +30°, Band 3: 8cm Phyllite at 0°).
-3. **Direct Canvas Plotting**: A dedicated "Plot Band on Canvas" mode allows tapping or dragging anywhere across the face canvas to anchor the band centerline, instantly rendering the band at its defined angle, thickness, and geological hatch pattern.
-4. **Per-Band Customization**: Each band maintains its own rock code, angle (-90° to +90°), thickness slider, color, and hatch pattern.
+For the software owner, the website acts as a self-contained **Release Management & Distribution Hub**: logging in via the top-right **Master Login** button unlocks an inline release publisher to upload updated `.exe` and `.apk` installers, post version changelogs, and manage incoming software license requests without ever leaving the website.
 
 ---
 
 ## 2. User Experience & Visual Design
 
-### 2.1 Workspace Control Panel (`FieldMappingModeWorkspace.tsx`)
+The interface follows a high-craft **Industrial Geotechnical & Precision Engineering** aesthetic designed for clarity, engineering trust, and fast binary downloads:
 
-Following the **Scientific Console & Telemetry Design Constitution** (dense technical layout, 60-30-10 palette with dark obsidian `#0F172A`, slate `#1E293B`, and laser cyan `#06B6D4` accents, with tabular numerals):
-
-1. **Main Base Lithology Header**:
-   - Prominently displays the active base rock (e.g., `BASE: Quartzite [Qtz]`) with rock color badge and pattern thumbnail.
-   - Quick "Change Base Rock" dropdown/palette selector.
-2. **Layered Lithology Bands Stack**:
-   - Header with active band count (e.g., `3 Layered Bands`) and an "+ Add Lithology Band" button (`bg-cyan-500 text-slate-950 font-bold`).
-   - Band card list with clear index badges (`#1`, `#2`, `#3`, ...).
-   - Each band card provides:
-     - **Rock Selector**: Compact chip grid or dropdown with quick search from the rock catalog.
-     - **Angle Control**: Slider (-90° to +90°) with real-time rotating strata icon and quick presets (`-60°`, `-45°`, `-22° Nat`, `0° Flat`, `+30°`, `+45°`, `+60°`, `90° Vert`).
-     - **Thickness Control**: Slider (5px to 100px) with numeric readout and presets (`Thin 10px`, `Med 25px`, `Wide 50px`, `Broad 80px`).
-     - **Placement Action Button**: A high-visibility `"Tap on Canvas to Place"` toggle button (`cursor-crosshair`). When active, clicking on the face canvas places/anchors this band.
-     - **Delete Band Button**: Compact trash button to remove a band.
-
-### 2.2 Face Canvas Interaction & SVG Rendering
-
-```
-┌────────────────────────────────────────────────────────┐
-│                   TUNNEL FACE CANVAS                   │
-│                                                        │
-│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │ <- Main Base Lithology
-│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │    (e.g., Quartzite)
-│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
-│  ───────/─────────────────────────────────────────────  │ <- Band #1 (Schist, 15px, -35°)
-│  ░░░░░░/░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│  ─────/───────────────────────────────────────────────  │
-│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
-│  ───────────────────────────────\───────────────────  │ <- Band #2 (Quartz Vein, 35px, +25°)
-│  ████████████████████████████████\██████████████████  │
-│  ─────────────────────────────────\─────────────────  │
-│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
-└────────────────────────────────────────────────────────┘
-```
-
-- When `"Plot Band on Canvas"` is active, moving the cursor over the SVG canvas renders a translucent, real-time angled preview stripe following the cursor.
-- Clicking commits the band anchor point `(x, y)` to the active excavation round's stroke data.
-- The band renders with:
-  - High-precision SVG polygon/path clipping constrained to the tunnel excavation perimeter.
-  - Distinct hatched geological pattern (`fill="url(#pattern-rock)"`).
-  - Boundary delimitation lines with customizable contrast.
-  - Non-destructive placement: clicking an existing band highlights it in the panel for live adjustment.
+- **Color & Atmospheric Polarity (60-30-10 Rule)**:
+  - **60% Primary Canvas**: Deep obsidian slate (`#0A0E17`) providing high-contrast legibility for technical specifications and release data.
+  - **30% Secondary Surfaces**: Structured dark basalt cards (`#111827`) with subtle `1px solid` hairline borders (`rgba(148, 163, 184, 0.14)`) and zero heavy drop shadows.
+  - **10% Focused Accent**: Survey safety amber (`#F59E0B`) for primary download actions and active version highlights, paired with emerald (`#10B981`) for verified SHA-256 integrity indicators.
+- **Typography & Scannable Hierarchy**:
+  - **Display & Headings**: `Plus Jakarta Sans` (`clamp(2.25rem, 4vw, 3.75rem)`, `tracking-tight`) for clear engineering propositions.
+  - **Body Copy**: `Plus Jakarta Sans` (`16px`, `leading-relaxed`) constrained to `65ch` max width for effortless reading.
+  - **Technical Metadata & Checksums**: `JetBrains Mono` with `tabular-nums` for version numbers (`v2.4.0`), file sizes (`84.6 MB`), release timestamps, and full 64-character SHA-256 hashes.
+- **Top Navigation Bar (3-Zone Contract)**:
+  - **Left**: Clean `ESWA GEOTECH` brand wordmark (no subtitle clutter or floating stat pills).
+  - **Center**: 4 concise text navigation links (`Downloads`, `Capabilities`, `Release Notes`, `Installation & Access`).
+  - **Right**: Single primary administrative action (`Master Login` button, which switches to `Master Release Console • Online` when the owner is authenticated).
+- **Section Flow & Visual Storytelling**:
+  1. **Hero & Direct Download Deck**: High-impact proposition paired with two side-by-side primary download cards:
+     - **Windows Desktop Workstation (`.exe` — 64-bit Windows 10/11)** with one-click download, active version number, release date, file size, and copyable SHA-256 checksum.
+     - **Android Field Tablet & Mobile Edition (`.apk` — Android 10+)** with one-click download, active version number, release date, file size, and copyable SHA-256 checksum.
+  2. **Core Engineering Capabilities (Asymmetric Bento Grid)**: Numbered editorial breakdown (`01. NATM Underground Face Mapping`, `02. TBM Segmental & Cutterhead Logging`, `03. Exploration Core Logging & RQD Analytics`, `04. 3D Geotechnical Rib & Stereonet Engine`) with concrete technical specifications and zero generic buzzwords.
+  3. **Release Notes & Version Checksum Ledger**: Structured tabular changelog showing current and historical releases, what changed in each build, and verifiable SHA-256 checksums.
+  4. **Installation Guide & System Requirements**: Step-by-step instructions for Windows SmartScreen verification, Android APK sideload permissions, and offline field synchronization.
+  5. **License & Software Access Request Form**: Validated lead capture form (Full Name, Organization/Project, Official Email, Target Platform, and Deployment Scope) that submits directly to the Master Portal's access request queue with instant confirmation feedback.
 
 ---
 
-## 3. Key Product Decisions & Technical Strategy
+## 3. Key Product Decisions & Trade-Offs
 
-### 3.1 Data Model Expansion (`fieldMappingEngine.ts`)
-
-Introduce a dedicated `FieldLithologyBandItem` structure while maintaining backwards compatibility with legacy `alternateLithologyConfig` and `FieldLithologyStroke`:
-
-```typescript
-export interface FieldLithologyBandItem {
-  id: string;
-  name?: string;
-  rockType: string;
-  rockCode?: string;
-  rockName?: string;
-  angleDeg: number;          // -90 to +90 degrees
-  thicknessPx: number;       // Visual band thickness in SVG canvas px
-  thicknessMeters?: number;  // True scaled thickness in meters
-  anchorPoint?: { x: number; y: number }; // Centerline anchor on face
-  color?: string;
-  patternId?: string;
-  enabled?: boolean;
-}
-
-export interface MultiBandAlternateLithologyConfig {
-  enabled: boolean;
-  baseRockType: string;
-  bands: FieldLithologyBandItem[];
-}
-```
-
-### 3.2 Canvas Rendering Pipeline
-
-1. **Base Layer Pass**: Renders the complete perimeter filled with `baseRockType` (defaulting to the round's primary rock).
-2. **Layered Bands Pass**: Loops through `bands`, calculating the geometric bounding polygon across the tunnel boundary using rotation angle $\theta$ and thickness $W$ around `anchorPoint`.
-3. **Perimeter Clipping**: Clips each band polygon against the excavation crown, invert, and sidewalls via SVG `<clipPath id="panel-tunnel-boundary">` so bands never bleed outside the excavation profile.
-4. **Export & Report Sync**: The 2-page Word/PDF sheet and photo reports will display the composite lithology description (e.g., *"Quartzite with intercalated Mica Schist (-35°, 15cm) and Quartz Vein (+25°, 35cm)"*).
+- **Complete Isolation Between Website and Software**:
+  - *Decision*: Route resolution checks `/website` (or `?site=website` or `VITE_WEBSITE_ONLY=true`) at the root router level and mounts only the standalone Website component tree.
+  - *Rationale*: Ensures customers visiting the download link only experience the public marketing and download portal with no accidental entry into the mapping software UI.
+- **Hybrid Binary Hosting (Direct Cloud/Local Upload + External High-Speed Release URL)**:
+  - *Decision*: The Master Release Upload modal supports both **Direct File Upload** (selecting a `.exe` or `.apk` file from the owner's computer, automatically calculating its exact byte size and SHA-256 hash via Web Crypto API, and storing the package for immediate download) and **Direct Release Binary URL** (for large multi-hundred-megabyte installers hosted on GitHub Releases, Google Drive direct links, or CDN buckets while still auto-computing or recording the SHA-256 checksum).
+  - *Rationale*: Gives the owner instant drag-and-drop file upload convenience for standard packages while supporting unlimited file sizes for heavy desktop installers on free Netlify hosting.
+- **Persistent Real-Time Synchronization**:
+  - *Decision*: All release publications, uploaded binary metadata, changelogs, and license requests are persisted in Firestore (`website_config/current_release`, `website_releases`, and `access_requests`) with local IndexedDB caching fallback.
+  - *Rationale*: Whenever the Master Owner logs into the website and uploads a new `.exe` or `.apk` version, every visitor loading the website link immediately sees the updated version number, release notes, and download file in real time.
 
 ---
 
-## 4. Step-by-Step Implementation Sequence
+## 4. Technical Architecture & Data Strategy
 
-### Phase 1: Engine & Types Update (`fieldMappingEngine.ts`)
-- Define `FieldLithologyBandItem` and update `alternateLithologyConfig` on `FieldExcavationRound` to support both legacy format and the new `MultiBandAlternateLithologyConfig` with unlimited `bands`.
-- Provide calculation helper `computeBandPolygonPoints(anchor, angleDeg, thicknessPx, bounds)` to generate exact oriented band boundary polygons.
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     PUBLIC VISITORS (/website Link)                     │
+│  ┌───────────────────┐  ┌────────────────────┐  ┌────────────────────┐  │
+│  │ Windows .EXE Card │  │ Android .APK Card  │  │ License Request UI │  │
+│  │ (Direct Download) │  │ (Direct Download)  │  │ (Validated Form)   │  │
+│  └─────────┬─────────┘  └─────────┬──────────┘  └─────────┬──────────┘  │
+└────────────┼──────────────────────┼───────────────────────┼─────────────┘
+             │                      │                       │
+             ▼                      ▼                       ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                REAL-TIME RELEASE & DISTRIBUTION ENGINE                  │
+│  • Firestore `website_releases` & Chunked Binary / URL Storage          │
+│  • Web Crypto API (`crypto.subtle.digest('SHA-256')`) Checksum Verifier │
+│  • Firestore `access_requests` Queue (Synced with Master Access Portal) │
+└───────────────────────────────────▲─────────────────────────────────────┘
+                                    │
+┌───────────────────────────────────┴─────────────────────────────────────┐
+│              TOP BAR MASTER LOGIN & RELEASE UPLOAD CONSOLE              │
+│  • Authenticated Master Owner (`akashdhanusheswar@gmail.com`)           │
+│  • Drag & Drop .EXE / .APK Uploader + Auto SHA-256 & Size Calculator    │
+│  • Version Publisher, Changelog Editor & Standalone Netlify ZIP Export  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
-### Phase 2: UI Panel Controls (`FieldMappingModeWorkspace.tsx`)
-- Update the Alternate Lithology sidebar section:
-  - Add Base Rock display & selector.
-  - Implement the dynamic bands stack with "+ Add Lithology Band" button.
-  - Provide Angle and Thickness sliders for each band with live numerical displays.
-  - Add "Tap on Canvas to Place" toggle with active indicator.
-  - Add individual Delete and Reorder buttons.
-
-### Phase 3: Canvas Interaction & Hover HUD
-- Wire `handleCanvasPointerDown` and `handleCanvasPointerMove` to track when band plotting is active.
-- Display a dynamic preview guide stripe showing the exact angle and thickness before clicking.
-- Upon click, commit the band's anchor point to the round state with auto-save.
-
-### Phase 4: Full Multi-Band SVG Rendering
-- Render layered SVG paths for each configured band inside the face canvas, clipped to the excavation boundary.
-- Apply rock pattern fills, colors, and boundary lines.
-- Enable direct selection of placed bands on the canvas to highlight and edit them in the side panel.
-
-### Phase 5: Verification & Quality Pass
-- Test compilation with `npx tsc --noEmit` and `compile_applet`.
-- Verify adding 1, 2, 3, 4+ bands with varying angles and thicknesses.
-- Verify that changing angles and thicknesses updates the canvas instantly.
-- Verify canvas click-to-place functionality and boundary clipping.
+1. **Isolated Website Router & Netlify Configuration**:
+   - Configure `RootApplicationRouter` so `/website` (and `?site=website`) renders the standalone `ProductDownloadWebsite` module with its own document title, SEO meta tags, and zero imports from the mapping workspace.
+   - Add `netlify.toml` with SPA rewrite rules and cache headers so deploying to free Netlify serves the application cleanly.
+2. **Master Authentication & Release Upload Console**:
+   - Clicking **Master Login** in the website top bar opens a dedicated authentication modal supporting Master Google Sign-In (`akashdhanusheswar@gmail.com`) and Master Passcode verification.
+   - Once authenticated, the owner accesses the **Master Release Publisher Drawer** right on the website to:
+     - Upload a new `.exe` Windows installer or `.apk` Android package from disk (computing exact file size and SHA-256 hash automatically via `crypto.subtle.digest`) or bind a high-speed direct binary URL.
+     - Set version tags (e.g., `v2.5.0`), release date, minimum OS requirements, and structured release notes.
+     - View and approve/manage incoming License & Access Requests submitted through the website form.
+     - Export a ready-to-deploy standalone Netlify website folder/ZIP for independent hosting.
+3. **Firestore Schema & Security Rules**:
+   - Public read access on `website_releases` so any visitor on the website link can view the latest version info and download the published `.exe` and `.apk` builds without logging in.
+   - Master-only write permissions (`isAdmin()`) on `website_releases` so only the Master Owner can upload new software builds or modify download links.
+   - Validated public create access on `website_license_requests` so prospective users can submit access requests from the website.

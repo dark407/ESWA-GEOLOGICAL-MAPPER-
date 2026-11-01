@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Activity,
   AlertTriangle,
   ArrowLeft,
   BookmarkCheck,
@@ -43,6 +44,7 @@ import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisMod
 import { MiningStopeFaceInspectorModal } from './MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
 import { NatmJoint3DInspectorModal } from './NatmJoint3DInspectorModal';
+import { TunnelMonitoringModal } from './TunnelMonitoringModal';
 import {
   getCrownStrikePair,
 } from '../engine/joint3DInspectorEngine';
@@ -365,6 +367,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   const [isMiningInspectorOpen, setIsMiningInspectorOpen] = useState<boolean>(false);
   const [isTbmInspectorOpen, setIsTbmInspectorOpen] = useState<boolean>(false);
+  const [isFieldMonitoringModalOpen, setIsFieldMonitoringModalOpen] = useState<boolean>(false);
 
   const handleModeSwitch = (m: IndustryMode) => {
     setCurrentIndustryMode(m);
@@ -525,7 +528,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
     // 4. Update surface geometry parameters
     if (nextDomain !== 'TUNNEL') {
-      if (stage === 'strip_align' || stage === 'survey_overbreak') {
+      if (
+        stage === 'strip_align' ||
+        stage === 'survey_overbreak' ||
+        stage === 'fem_dem_analysis' ||
+        stage === 'advance_analysis'
+      ) {
         setStage('field_canvas');
       }
       const loaded = loadSavedSurfaceGeometryParameters(nextDomain as SurfaceMappingSubType);
@@ -662,6 +670,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       setStage('field_canvas');
     }
   }, [workflowMode, stage]);
+
+  // In surface mapping no need for FEM, DEM, or Advance Analysis
+  useEffect(() => {
+    if (
+      mappingDomain !== 'TUNNEL' &&
+      (stage === 'fem_dem_analysis' || stage === 'advance_analysis')
+    ) {
+      setStage('field_canvas');
+    }
+  }, [mappingDomain, stage]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       saveFieldMappingStore(
@@ -5350,10 +5368,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 'support_system',
                 `${stepNum++}. Surface Stabilization`,
               ]);
-              rawStages.push([
-                'fem_dem_analysis',
-                `${stepNum++}. FEM & DEM Analysis`,
-              ]);
             } else if (!isSurface) {
               rawStages.push([
                 'support_system',
@@ -5383,13 +5397,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               `${stepNum++}. 2D Photo Report`,
             ]);
 
-            // Advance Analysis: only for Slope and Bench (or Tunnel)
-            if (isSlopeOrBench) {
-              rawStages.push([
-                'advance_analysis',
-                `${stepNum++}. Advance Analysis`,
-              ]);
-            } else if (!isSurface) {
+            // Advance Analysis: strictly for underground tunnel face mapping (TUNNEL)
+            if (!isSurface) {
               rawStages.push([
                 'advance_analysis',
                 `${stepNum++}. Advance Analysis`,
@@ -15160,7 +15169,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           surfaceParams={surfaceParams}
           onUpdateRound={updateActiveRound}
           onBackToClassifications={() => setStage('q_rmr_gsi')}
-          onContinueToSurvey={() => setStage('fem_dem_analysis')}
+          onContinueToSurvey={() =>
+            setStage(mappingDomain === 'TUNNEL' ? 'fem_dem_analysis' : 'word_template_export')
+          }
         />
       )}
 
@@ -15212,7 +15223,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 if (mappingDomain === 'TUNNEL') {
                   setStage('survey_overbreak');
                 } else if (mappingDomain === 'SLOPE' || mappingDomain === 'BENCH') {
-                  setStage('fem_dem_analysis');
+                  setStage('support_system');
                 } else {
                   setStage('q_rmr_gsi');
                 }
@@ -15255,7 +15266,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               onUpdateRound={updateActiveRound}
               onBackToCleanReport={() => setStage('word_template_export')}
               onProceedTo3DReport={() => {
-                if (mappingDomain === 'SLOPE' || mappingDomain === 'BENCH' || mappingDomain === 'TUNNEL') {
+                if (mappingDomain === 'TUNNEL') {
                   setStage('advance_analysis');
                 } else {
                   setStage('word_template_export');
@@ -16166,6 +16177,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           </div>
         </div>
       )}
+
+      {/* Geotechnical Tunnel & Shaft Instrumentation Monitoring Modal */}
+      <TunnelMonitoringModal
+        isOpen={isFieldMonitoringModalOpen}
+        onClose={() => setIsFieldMonitoringModalOpen(false)}
+        defaultProject={activeProject?.projectName || 'Himalayan Hydro Tunnel Lot-1'}
+        defaultLocation={activeLocation?.name || 'Headrace Tunnel - Adit 2 Heading'}
+        defaultStructureType={undergroundSubMode === 'vertical_shaft' ? 'vertical_shaft' : 'tunnel'}
+        availableProjects={store.projects.map((p) => p.projectName)}
+        availableLocations={activeProject ? activeProject.locations.map((l) => l.name) : []}
+        clientName={activeProject?.clientName}
+        contractorName={activeProject?.contractorName}
+        consultantName={activeProject?.consultantName}
+      />
 
       </div>
     </div>

@@ -6,6 +6,10 @@ import {
   SectionToSectionVolumeRow,
   TunnelGeometry,
 } from '../types/tunnel';
+import {
+  loadHighCapacityCollection,
+  saveHighCapacityCollection,
+} from './fastAsyncStorageEngine';
 
 const SAVED_GEOMETRIES_STORAGE_KEY = 'eswa_tunnel_saved_geometries_v20_fresh';
 const PROJECT_MEMORY_STORAGE_KEY = 'eswa_tunnel_project_memory_v20_fresh';
@@ -145,22 +149,15 @@ export function loadSavedDesignGeometries(): SavedDesignGeometryRecord[] {
         return diskGeoms;
       }
     } catch {
-      // Fallback to localStorage
+      // Fallback to high-capacity storage
     }
   }
 
-  try {
-    const raw = localStorage.getItem(SAVED_GEOMETRIES_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(
-          (g) => g && typeof g.id === 'string' && !g.id.startsWith('geom-sample-')
-        );
-      }
-    }
-  } catch {
-    // Ignore storage read errors
+  const loaded = loadHighCapacityCollection<SavedDesignGeometryRecord>(SAVED_GEOMETRIES_STORAGE_KEY);
+  if (Array.isArray(loaded)) {
+    return loaded.filter(
+      (g) => g && typeof g.id === 'string' && !g.id.startsWith('geom-sample-')
+    );
   }
 
   return [];
@@ -180,15 +177,11 @@ export function saveDesignGeometryToLibrary(
     domain: record.domain,
     geometry: record.geometry,
   };
-  const next = [newItem, ...existing.filter((g) => g.id !== newItem.id)].slice(0, 30);
+  const next = [newItem, ...existing.filter((g) => g.id !== newItem.id)];
   if (typeof window !== 'undefined' && window.akashDesktop?.isElectron) {
     window.akashDesktop.saveGeometriesToDisk(next).catch(() => {});
   }
-  try {
-    localStorage.setItem(SAVED_GEOMETRIES_STORAGE_KEY, JSON.stringify(next));
-  } catch {
-    // Ignore quota errors
-  }
+  saveHighCapacityCollection(SAVED_GEOMETRIES_STORAGE_KEY, next);
   return next;
 }
 
@@ -197,11 +190,7 @@ export function deleteSavedDesignGeometry(id: string): SavedDesignGeometryRecord
   if (typeof window !== 'undefined' && window.akashDesktop?.isElectron) {
     window.akashDesktop.saveGeometriesToDisk(next).catch(() => {});
   }
-  try {
-    localStorage.setItem(SAVED_GEOMETRIES_STORAGE_KEY, JSON.stringify(next));
-  } catch {
-    // Ignore errors
-  }
+  saveHighCapacityCollection(SAVED_GEOMETRIES_STORAGE_KEY, next);
   return next;
 }
 
@@ -213,22 +202,15 @@ export function loadSavedProjectsFromMemory(): SavedProjectRecord[] {
         return diskProjects;
       }
     } catch {
-      // Fallback to localStorage
+      // Fallback to high-capacity storage
     }
   }
 
-  try {
-    const raw = localStorage.getItem(PROJECT_MEMORY_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(
-          (p) => p && typeof p.id === 'string' && !p.id.startsWith('proj-sample-')
-        );
-      }
-    }
-  } catch {
-    // Ignore storage read errors
+  const loaded = loadHighCapacityCollection<SavedProjectRecord>(PROJECT_MEMORY_STORAGE_KEY);
+  if (Array.isArray(loaded)) {
+    return loaded.filter(
+      (p) => p && typeof p.id === 'string' && !p.id.startsWith('proj-sample-')
+    );
   }
   return [];
 }
@@ -236,6 +218,7 @@ export function loadSavedProjectsFromMemory(): SavedProjectRecord[] {
 /**
  * Saves or updates a complete Project Record in Project File Memory.
  * Indexed by (Project + Location + Tunnel + Face Chainage).
+ * Supports unlimited multi-kilometer tunnel rounds via IndexedDB offloading.
  */
 export function saveProjectRecordToMemory(
   record: SavedProjectRecord,
@@ -270,7 +253,8 @@ export function saveProjectRecordToMemory(
     return true;
   });
 
-  const next = [record, ...filtered].slice(0, 80);
+  // Unlimited multi-kilometer history (no artificial 80-round cap)
+  const next = [record, ...filtered];
 
   if (typeof window !== 'undefined' && window.akashDesktop?.isElectron) {
     for (const oldId of replacedIds) {
@@ -279,39 +263,8 @@ export function saveProjectRecordToMemory(
     window.akashDesktop.saveProjectToDisk(record).catch(() => {});
   }
 
-  try {
-    localStorage.setItem(PROJECT_MEMORY_STORAGE_KEY, JSON.stringify(next));
-    return { records: next, savedRecord: record };
-  } catch {
-    try {
-      const compactNext = next.map((proj, idx) => {
-        if (idx === 0) return proj;
-        const compactPhotos = { ...proj.photos };
-        (['face', 'crown', 'leftWall', 'rightWall'] as const).forEach((s) => {
-          compactPhotos[s] = {
-            ...compactPhotos[s],
-            supportingPhotos: [],
-            warpedImage: null,
-          };
-        });
-        return { ...proj, photos: compactPhotos };
-      });
-      localStorage.setItem(PROJECT_MEMORY_STORAGE_KEY, JSON.stringify(compactNext));
-      return {
-        records: next,
-        savedRecord: record,
-      };
-    } catch {
-      return {
-        records: next,
-        savedRecord: record,
-        storageWarning:
-          typeof window !== 'undefined' && window.akashDesktop?.isElectron
-            ? undefined
-            : 'Saved in active session memory (use Export .akash.json for large high-res photo archives).',
-      };
-    }
-  }
+  saveHighCapacityCollection(PROJECT_MEMORY_STORAGE_KEY, next);
+  return { records: next, savedRecord: record };
 }
 
 export function deleteProjectRecordFromMemory(id: string): SavedProjectRecord[] {
@@ -319,11 +272,7 @@ export function deleteProjectRecordFromMemory(id: string): SavedProjectRecord[] 
   if (typeof window !== 'undefined' && window.akashDesktop?.isElectron) {
     window.akashDesktop.deleteProjectFromDisk(id).catch(() => {});
   }
-  try {
-    localStorage.setItem(PROJECT_MEMORY_STORAGE_KEY, JSON.stringify(next));
-  } catch {
-    // Ignore errors
-  }
+  saveHighCapacityCollection(PROJECT_MEMORY_STORAGE_KEY, next);
   return next;
 }
 

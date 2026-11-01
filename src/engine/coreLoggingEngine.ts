@@ -467,54 +467,33 @@ export function createDefaultBorehole(): BoreholeRecord {
   };
 }
 
-export function createEmptyBorehole(boreholeId = 'BH-02'): BoreholeRecord {
+export function createEmptyBorehole(boreholeId = 'BH-01'): BoreholeRecord {
   const nowStr = new Date().toISOString().split('T')[0];
   return {
     id: `bh-${Date.now()}`,
     boreholeId,
-    projectName: 'Tunnel Project',
-    tunnelName: 'Tunnel 01',
-    chainageLabel: 'Ch. 0+000',
-    collarElevation: 1000.0,
+    projectName: '',
+    tunnelName: '',
+    chainageLabel: '',
+    collarElevation: 0,
     coordinates: {
-      northing: '0.00 m N',
-      easting: '0.00 m E',
-      elevation: '1000.00 m',
+      northing: '',
+      easting: '',
+      elevation: '',
     },
     inclinationDeg: -90,
     azimuthDeg: 0,
     drillingMethod: 'Wireline Diamond Core (Triple Tube HQ3)',
     coreDiameter: 'HQ3 (61.1 mm)',
-    drillingContractor: 'Contractor Name',
-    pmcConsultant: 'PMC Consultant Name',
-    clientEmployer: 'Client / Employer',
-    loggedBy: 'Site Geologist',
-    reviewedBy: 'Lead Consultant',
+    drillingContractor: '',
+    pmcConsultant: '',
+    clientEmployer: '',
+    loggedBy: '',
+    reviewedBy: '',
     startDate: nowStr,
     completionDate: nowStr,
-    waterTableDepth: 5.0,
-    runs: [
-      {
-        id: `run-${Date.now()}-1`,
-        runNumber: 1,
-        depthFrom: 0.0,
-        depthTo: 3.0,
-        runLength: 3.0,
-        coreRecovered: 2.7,
-        soundPiecesOver10cm: 2.2,
-        tcrPercent: 90.0,
-        rqdPercent: 73.3,
-        rqdRating: 'Fair',
-        lithology: 'Granite',
-        lithologyColor: '#FB7185',
-        weathering: 'W2',
-        strengthGrade: 'R4',
-        fractureFrequency: 4,
-        coreBoxNumber: 1,
-        discontinuitiesDescription: 'Sub-vertical joints, rough clean surfaces',
-        remarks: 'Initial core run',
-      },
-    ],
+    waterTableDepth: 0,
+    runs: [],
     photos: [],
     signOff: {
       contractorName: '',
@@ -536,13 +515,10 @@ export function loadBoreholeRecordsFromStorage(): BoreholeRecord[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      const def = createDefaultBorehole();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([def]));
-      return [def];
+      return [];
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      // Clean legacy names if any contain ESWA
       const cleaned = parsed.map((bh: BoreholeRecord) => {
         if (bh.boreholeId && bh.boreholeId.includes('ESWA')) {
           return {
@@ -554,12 +530,10 @@ export function loadBoreholeRecordsFromStorage(): BoreholeRecord[] {
       });
       return cleaned;
     }
-    const def = createDefaultBorehole();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([def]));
-    return [def];
+    return [];
   } catch (e) {
-    console.warn('Failed to load borehole records from storage, using default', e);
-    return [createDefaultBorehole()];
+    console.warn('Failed to load borehole records from storage', e);
+    return [];
   }
 }
 

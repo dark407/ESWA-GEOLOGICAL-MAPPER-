@@ -144,6 +144,7 @@ import { GeometryManualScreen } from './components/screens/GeometryManualScreen'
 import { GeometryCadScreen } from './components/screens/GeometryCadScreen';
 import { DriveAndPhotosScreen } from './components/screens/DriveAndPhotosScreen';
 import { AppModalsHost } from './components/modals/AppModalsHost';
+import { TunnelMonitoringModal } from './components/TunnelMonitoringModal';
 import { DataStorageTabId } from './components/OverbreakAndProjectMemoryPanel';
 import {
   getActiveGeologistProfile,
@@ -176,6 +177,7 @@ import {
 import { scheduleIdleSave, flushIdleSaves } from './engine/fastAsyncStorageEngine';
 import { FastInput } from './components/FastInput';
 import {
+  Activity,
   AlarmClock,
   AlertTriangle,
   ArrowLeft,
@@ -343,6 +345,7 @@ export default function App({
     loadSavedSurfaceGeometryParameters('BENCH')
   );
   const [isNatmRockMechanicsModalOpen, setIsNatmRockMechanicsModalOpen] = useState<boolean>(false);
+  const [isTunnelMonitoringOpen, setIsTunnelMonitoringOpen] = useState<boolean>(false);
   const [isBruntonCompassOpen, setIsBruntonCompassOpen] = useState<boolean>(false);
   const [isShiftReminderOpen, setIsShiftReminderOpen] = useState<boolean>(false);
   const [isSupportReferenceOpen, setIsSupportReferenceOpen] = useState<boolean>(false);
@@ -543,90 +546,13 @@ export default function App({
   const [pendingTargetMode, setPendingTargetMode] = useState<IndustryMode | null>(null);
 
   // Interactive Mining Ore vs Waste Zone Areas
-  const [miningOreArea, setMiningOreArea] = useState<number>(14.5);
-  const [miningLowGradeArea, setMiningLowGradeArea] = useState<number>(4.2);
-  const [miningWasteArea, setMiningWasteArea] = useState<number>(12.8);
-  const [miningBlastPull, setMiningBlastPull] = useState<number>(3.2);
+  const [miningOreArea, setMiningOreArea] = useState<number>(0);
+  const [miningLowGradeArea, setMiningLowGradeArea] = useState<number>(0);
+  const [miningWasteArea, setMiningWasteArea] = useState<number>(0);
+  const [miningBlastPull, setMiningBlastPull] = useState<number>(0);
 
-  // Interactive Channel Samples & Assay Schedule
-  const [miningChannelSamples, setMiningChannelSamples] = useState<FaceChannelSampleRecord[]>([
-    {
-      id: 'ch_01',
-      sampleNumber: 'CH-01',
-      fromMeter: 0.0,
-      toMeter: 1.2,
-      sampleLengthMeters: 1.2,
-      lithologyOrVein: 'V-01 Quartz-Sulfide Lode',
-      gradeValue: '7.8 g/t Au',
-      sampledBy: 'Mine Geologist',
-      date: new Date().toISOString().split('T')[0],
-      specificGravity: 3.15,
-      zoneCategory: 'ORE',
-      alteration: 'Silicified',
-      sulfidePercent: 6.5,
-      assayGrade: 7.8,
-      metalAccumulation: 9.36,
-      startPoint: { x: 0.8, y: 1.5 },
-      endPoint: { x: 2.0, y: 1.5 },
-    },
-    {
-      id: 'ch_02',
-      sampleNumber: 'CH-02',
-      fromMeter: 1.2,
-      toMeter: 2.5,
-      sampleLengthMeters: 1.3,
-      lithologyOrVein: 'V-01 Massive Sulfide Band',
-      gradeValue: '5.4 g/t Au',
-      sampledBy: 'Mine Geologist',
-      date: new Date().toISOString().split('T')[0],
-      specificGravity: 3.25,
-      zoneCategory: 'ORE',
-      alteration: 'Sericitic',
-      sulfidePercent: 8.0,
-      assayGrade: 5.4,
-      metalAccumulation: 7.02,
-      startPoint: { x: 2.0, y: 1.5 },
-      endPoint: { x: 3.3, y: 1.5 },
-    },
-    {
-      id: 'ch_03',
-      sampleNumber: 'CH-03',
-      fromMeter: 2.5,
-      toMeter: 3.6,
-      sampleLengthMeters: 1.1,
-      lithologyOrVein: 'Stringer Veinlet Zone',
-      gradeValue: '2.1 g/t Au',
-      sampledBy: 'Mine Geologist',
-      date: new Date().toISOString().split('T')[0],
-      specificGravity: 2.85,
-      zoneCategory: 'LOW_GRADE',
-      alteration: 'Chloritic',
-      sulfidePercent: 2.5,
-      assayGrade: 2.1,
-      metalAccumulation: 2.31,
-      startPoint: { x: 3.3, y: 1.5 },
-      endPoint: { x: 4.4, y: 1.5 },
-    },
-    {
-      id: 'ch_04',
-      sampleNumber: 'CH-04',
-      fromMeter: 3.6,
-      toMeter: 4.8,
-      sampleLengthMeters: 1.2,
-      lithologyOrVein: 'Footwall Basalt Waste',
-      gradeValue: '0.2 g/t Au',
-      sampledBy: 'Mine Geologist',
-      date: new Date().toISOString().split('T')[0],
-      specificGravity: 2.70,
-      zoneCategory: 'WASTE',
-      alteration: 'Carbonate',
-      sulfidePercent: 0.5,
-      assayGrade: 0.2,
-      metalAccumulation: 0.24,
-      startPoint: { x: 4.4, y: 1.5 },
-      endPoint: { x: 5.6, y: 1.5 },
-    },
-  ]);
+  // Interactive Channel Samples & Assay Schedule (Zero Pre-Fed Data)
+  const [miningChannelSamples, setMiningChannelSamples] = useState<FaceChannelSampleRecord[]>([]);
 
   // Interactive Mining Geomechanics parameters (Mathews N' & Laubscher MRMR)
   const [miningRqd, setMiningRqd] = useState<number>(75);
@@ -646,88 +572,49 @@ export default function App({
   const [mrmrOrientationPct, setMrmrOrientationPct] = useState<number>(80);
   const [mrmrBlastingPct, setMrmrBlastingPct] = useState<number>(92);
 
-  // Mining Drill Hole Exploration Logging state
-  const [miningDdhHoleId, setMiningDdhHoleId] = useState('UG-DDH-26-04');
-  const [miningDdhCollarE, setMiningDdhCollarE] = useState('421850.5');
-  const [miningDdhCollarN, setMiningDdhCollarN] = useState('6841220.8');
-  const [miningDdhCollarRl, setMiningDdhCollarRl] = useState('620.4');
-  const [miningDdhDip, setMiningDdhDip] = useState('-45.0');
-  const [miningDdhAzimuth, setMiningDdhAzimuth] = useState('135.0');
-  const [miningDdhTotalDepth, setMiningDdhTotalDepth] = useState('185.0');
+  // Mining Drill Hole Exploration Logging state (Zero Pre-Fed Data)
+  const [miningDdhHoleId, setMiningDdhHoleId] = useState('');
+  const [miningDdhCollarE, setMiningDdhCollarE] = useState('');
+  const [miningDdhCollarN, setMiningDdhCollarN] = useState('');
+  const [miningDdhCollarRl, setMiningDdhCollarRl] = useState('');
+  const [miningDdhDip, setMiningDdhDip] = useState('');
+  const [miningDdhAzimuth, setMiningDdhAzimuth] = useState('');
+  const [miningDdhTotalDepth, setMiningDdhTotalDepth] = useState('');
 
-  const [miningDdhIntervals, setMiningDdhIntervals] = useState([
-    {
-      id: 'int_1',
-      from: 42.0,
-      to: 45.2,
-      length: 3.2,
-      lithology: 'Banded Quartz-Carbonate Vein',
-      alteration: 'Silicified + Sericite',
-      sulfides: '6.5% Pyrite, Chalcopyrite',
-      assayGrade: 8.4,
-      qaqc: 'Regular',
-      alpha: 65,
-      beta: 120,
-    },
-    {
-      id: 'int_2',
-      from: 45.2,
-      to: 48.0,
-      length: 2.8,
-      lithology: 'Massive Sulfide Lode',
-      alteration: 'Intense Silicification',
-      sulfides: '18% Pyrite, Galena, Sphalerite',
-      assayGrade: 14.2,
-      qaqc: 'Regular',
-      alpha: 72,
-      beta: 140,
-    },
-    {
-      id: 'int_3',
-      from: 48.0,
-      to: 49.0,
-      length: 1.0,
-      lithology: 'Certified Reference Material (CRM)',
-      alteration: 'Standard OREAS 256',
-      sulfides: 'Standard Reference',
-      assayGrade: 7.66,
-      qaqc: 'CRM Standard',
-      alpha: 0,
-      beta: 0,
-    },
-    {
-      id: 'int_4',
-      from: 49.0,
-      to: 53.5,
-      length: 4.5,
-      lithology: 'Footwall Basalt with Pyrite Stringers',
-      alteration: 'Chloritic + Carbonate',
-      sulfides: '1.5% Disseminated Pyrite',
-      assayGrade: 0.45,
-      qaqc: 'Regular',
-      alpha: 48,
-      beta: 110,
-    },
-  ]);
+  const [miningDdhIntervals, setMiningDdhIntervals] = useState<
+    Array<{
+      id: string;
+      from: number;
+      to: number;
+      length: number;
+      lithology: string;
+      alteration: string;
+      sulfides: string;
+      assayGrade: number;
+      qaqc: string;
+      alpha: number;
+      beta: number;
+    }>
+  >([]);
 
   // TBM Telemetry state
-  const [tbmRingNum, setTbmRingNum] = useState<number>(142);
-  const [tbmKeyPosition, setTbmKeyPosition] = useState<string>('Key Pos 3 (120°)');
-  const [tbmThrustKn, setTbmThrustKn] = useState<number>(24500);
-  const [tbmTorqueKnm, setTbmTorqueKnm] = useState<number>(6800);
-  const [tbmPenetrationMmRev, setTbmPenetrationMmRev] = useState<number>(12.5);
-  const [tbmAdvanceRateMmMin, setTbmAdvanceRateMmMin] = useState<number>(35.0);
-  const [tbmEpbPressureBar, setTbmEpbPressureBar] = useState<number>(2.40);
-  const [tbmGroutPressureBar, setTbmGroutPressureBar] = useState<number>(3.2);
-  const [tbmGroutVolumeM3, setTbmGroutVolumeM3] = useState<number>(4.8);
-  const [tbmDiscWearMm, setTbmDiscWearMm] = useState<number>(14.2);
-  const [tbmRpm, setTbmRpm] = useState<number>(6.4);
-  const [tbmShieldFrictionKn, setTbmShieldFrictionKn] = useState<number>(2400);
+  const [tbmRingNum, setTbmRingNum] = useState<number>(1);
+  const [tbmKeyPosition, setTbmKeyPosition] = useState<string>('Key Pos 1 (0°)');
+  const [tbmThrustKn, setTbmThrustKn] = useState<number>(0);
+  const [tbmTorqueKnm, setTbmTorqueKnm] = useState<number>(0);
+  const [tbmPenetrationMmRev, setTbmPenetrationMmRev] = useState<number>(0);
+  const [tbmAdvanceRateMmMin, setTbmAdvanceRateMmMin] = useState<number>(0);
+  const [tbmEpbPressureBar, setTbmEpbPressureBar] = useState<number>(0);
+  const [tbmGroutPressureBar, setTbmGroutPressureBar] = useState<number>(0);
+  const [tbmGroutVolumeM3, setTbmGroutVolumeM3] = useState<number>(0);
+  const [tbmDiscWearMm, setTbmDiscWearMm] = useState<number>(0);
+  const [tbmRpm, setTbmRpm] = useState<number>(0);
+  const [tbmShieldFrictionKn, setTbmShieldFrictionKn] = useState<number>(0);
   const [tbmActiveCuttersNc, setTbmActiveCuttersNc] = useState<number>(42);
   const [tbmMuckChipType, setTbmMuckChipType] = useState<string>('Slabby / Blocky');
-  const [tbmMuckChipSizeCm, setTbmMuckChipSizeCm] = useState<number>(8.5);
-  const [tbmWaterInflowLMin, setTbmWaterInflowLMin] = useState<number>(45);
-  const [tbmTheoreticalGroutM3, setTbmTheoreticalGroutM3] = useState<number>(8.2);
+  const [tbmMuckChipSizeCm, setTbmMuckChipSizeCm] = useState<number>(0);
+  const [tbmWaterInflowLMin, setTbmWaterInflowLMin] = useState<number>(0);
+  const [tbmTheoreticalGroutM3, setTbmTheoreticalGroutM3] = useState<number>(0);
   const [tbmOverbreakSector, setTbmOverbreakSector] = useState<string>('11:00–01:00 Crown');
 
   // Dedicated Per-Mode View State: MAIN_WINDOW vs ACTIVITY
@@ -738,7 +625,7 @@ export default function App({
     GEOLOGICAL_MODELLING: 'MAIN_WINDOW',
   }));
 
-  // TBM Live Multi-Ring Telemetry Table
+  // TBM Live Multi-Ring Telemetry Table (Zero Pre-Fed Data)
   const [tbmRingsLog, setTbmRingsLog] = useState<
     Array<{
       id: string;
@@ -755,53 +642,7 @@ export default function App({
       hazardStatus: string;
       timestamp: string;
     }>
-  >([
-    {
-      id: 'ring-840',
-      ringNum: 840,
-      thrustKn: 13200,
-      torqueKnm: 2700,
-      rpm: 6.2,
-      penetrationMmRev: 7.2,
-      advanceRateMmMin: 44.6,
-      fpi: 35.8,
-      specificEnergyMjM3: 59.4,
-      netCutterForceKn: 257.1,
-      groutOverbreakM3: 3.2,
-      hazardStatus: 'OPTIMAL BORING',
-      timestamp: '2026-10-18 08:30',
-    },
-    {
-      id: 'ring-841',
-      ringNum: 841,
-      thrustKn: 13500,
-      torqueKnm: 2780,
-      rpm: 6.3,
-      penetrationMmRev: 7.4,
-      advanceRateMmMin: 46.6,
-      fpi: 36.0,
-      specificEnergyMjM3: 60.5,
-      netCutterForceKn: 264.3,
-      groutOverbreakM3: 3.4,
-      hazardStatus: 'OPTIMAL BORING',
-      timestamp: '2026-10-18 10:15',
-    },
-    {
-      id: 'ring-842',
-      ringNum: 842,
-      thrustKn: 13800,
-      torqueKnm: 2850,
-      rpm: 6.4,
-      penetrationMmRev: 7.5,
-      advanceRateMmMin: 48.0,
-      fpi: 36.2,
-      specificEnergyMjM3: 61.8,
-      netCutterForceKn: 271.4,
-      groutOverbreakM3: 3.6,
-      hazardStatus: 'OPTIMAL BORING',
-      timestamp: '2026-10-18 12:00',
-    },
-  ]);
+  >([]);
 
   // 4 Tunnel Surface Photographs (Restores saved photos if present)
   const [photos, setPhotos] = useState<Record<SurfaceType, PhotoSurface>>(() => {
@@ -3949,6 +3790,17 @@ export default function App({
     />
   );
 
+  const tunnelMonitoringModalNode = (
+    <TunnelMonitoringModal
+      isOpen={isTunnelMonitoringOpen}
+      onClose={() => setIsTunnelMonitoringOpen(false)}
+      defaultProject={settings.projectName || activeProjectName || 'Himalayan Hydro Tunnel Lot-1'}
+      defaultLocation={settings.locationName || settings.tunnelName || activeLocationName || 'Headrace Tunnel - Adit 2 Heading'}
+      defaultStructureType={activeMappingDomain === 'TUNNEL' ? 'tunnel' : 'tunnel'}
+      availableProjects={allProjectsList}
+      availableLocations={locationsForSelectedProject}
+    />
+  );
 
   const continuousLoggingModalsNode = (
     <>
@@ -4326,8 +4178,10 @@ export default function App({
           setIsFirstOpening(false);
           setScreen('start');
         }}
+        onOpenTunnelMonitoring={() => setIsTunnelMonitoringOpen(true)}
         projectMemoryModalNode={projectMemoryModalNode}
         natmRockMechanicsModalNode={natmRockMechanicsModalNode}
+        tunnelMonitoringModalNode={tunnelMonitoringModalNode}
         continuousLoggingModalsNode={continuousLoggingModalsNode}
         globalSettingsModalNode={globalSettingsModalNode}
         modeSwitchConfirmationModalNode={modeSwitchConfirmationModalNode}
@@ -5117,6 +4971,17 @@ export default function App({
                 <Shield className="w-3.5 h-3.5 text-cyan-400" />
                 <span>Rock Mechanics &amp; +3m/+6m/+9m Predictor</span>
                 <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-600">v2.6 LIVE</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsTunnelMonitoringOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold bg-slate-900 border border-emerald-400 text-emerald-300 hover:bg-slate-800 shadow-md cursor-pointer transition-all active:scale-95"
+                title="Open Tunnel Monitoring & Geotechnical Instrumentation (Load Cells, Inclinometers, Piezometers, MPBX, Crackmeters, Extensometers)"
+              >
+                <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Monitoring &amp; Instrumentation</span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-600">LIVE</span>
               </button>
 
               {!isMasterSoftware && (
@@ -6316,6 +6181,7 @@ export default function App({
         )}
         {projectMemoryModalNode}
         {natmRockMechanicsModalNode}
+        {tunnelMonitoringModalNode}
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}

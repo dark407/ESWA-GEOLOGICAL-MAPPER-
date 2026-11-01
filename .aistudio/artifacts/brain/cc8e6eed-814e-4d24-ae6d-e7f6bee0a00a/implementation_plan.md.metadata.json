@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive engineering plan for redesigning the Underground Face Mapping Advance Analysis workspace with a grouped category sidebar, clean 2-pane CAD viewport, strict ground-truth data validation (no input = no output), and CAD-grade 3D/2D tunnel profile rendering.",
-  "updatedAt":  "2026-10-30T22:01:58.521780018Z",
+  "summary":  "Implementation plan for the standalone ESWA Geological Mapper Product Showcase & Software Download Website (/website) with Netlify deployment configuration, strict UI isolation from the mapping software, direct Windows .exe and Android .apk downloads, release notes & SHA-256 verification, License Request form, and Top Master Login for uploading and publishing updated software binaries and app releases.",
+  "updatedAt":  "2026-11-01T13:28:20.754132268Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

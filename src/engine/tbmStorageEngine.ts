@@ -13,6 +13,10 @@ import {
   TbmInstrumentReading,
 } from '../types/tbm';
 import { IndustryMode } from '../types/tunnel';
+import {
+  loadHighCapacityCollection,
+  saveHighCapacityCollection,
+} from './fastAsyncStorageEngine';
 
 export const TBM_PROJECTS_KEY = 'eswa_tbm_projects_v2';
 export const TBM_LOCATIONS_KEY = 'eswa_tbm_locations_v2';
@@ -23,6 +27,7 @@ export const TBM_ACTIVE_PROJECT_KEY = 'eswa_tbm_active_project_id_v2';
 export const TBM_ACTIVE_LOCATION_KEY = 'eswa_tbm_active_location_id_v2';
 export const TBM_ACTIVE_RECORD_KEY = 'eswa_tbm_active_record_id_v2';
 export const DEFAULT_STARTUP_MODE_KEY = 'eswa_default_startup_industry_mode_v1';
+export const TBM_STORAGE_INITIALIZED_KEY = 'eswa_tbm_storage_initialized_v2';
 
 // ---------------------------------------------------------------------------
 // STARTUP DEFAULT MODE MANAGEMENT
@@ -53,25 +58,13 @@ export function setDefaultStartupMode(mode: IndustryMode): void {
 // ---------------------------------------------------------------------------
 
 export function loadTbmProjects(): TbmProjectItem[] {
-  try {
-    const raw = localStorage.getItem(TBM_PROJECTS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch {
-    // fallback
-  }
-  const seeded = seedInitialTbmData();
-  return seeded.projects;
+  const loaded = loadHighCapacityCollection<TbmProjectItem>(TBM_PROJECTS_KEY);
+  if (Array.isArray(loaded)) return loaded;
+  return [];
 }
 
 export function saveTbmProjects(projects: TbmProjectItem[]): void {
-  try {
-    localStorage.setItem(TBM_PROJECTS_KEY, JSON.stringify(projects));
-  } catch (err) {
-    console.warn('Storage quota warning while saving TBM projects', err);
-  }
+  saveHighCapacityCollection(TBM_PROJECTS_KEY, projects);
 }
 
 export function createTbmProject(partial: Partial<TbmProjectItem>): TbmProjectItem {
@@ -136,27 +129,15 @@ export function deleteTbmProject(id: string): void {
 // ---------------------------------------------------------------------------
 
 export function loadTbmLocations(projectId?: string): TbmLocationItem[] {
-  try {
-    const raw = localStorage.getItem(TBM_LOCATIONS_KEY);
-    if (raw) {
-      const parsed: TbmLocationItem[] = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return projectId ? parsed.filter((l) => l.projectId === projectId) : parsed;
-      }
-    }
-  } catch {
-    // fallback
+  const loaded = loadHighCapacityCollection<TbmLocationItem>(TBM_LOCATIONS_KEY);
+  if (Array.isArray(loaded)) {
+    return projectId ? loaded.filter((l) => l.projectId === projectId) : loaded;
   }
-  const seeded = seedInitialTbmData();
-  return projectId ? seeded.locations.filter((l) => l.projectId === projectId) : seeded.locations;
+  return [];
 }
 
 export function saveTbmLocations(locations: TbmLocationItem[]): void {
-  try {
-    localStorage.setItem(TBM_LOCATIONS_KEY, JSON.stringify(locations));
-  } catch (err) {
-    console.warn('Storage quota warning while saving TBM locations', err);
-  }
+  saveHighCapacityCollection(TBM_LOCATIONS_KEY, locations);
 }
 
 export function createTbmLocation(partial: Partial<TbmLocationItem>): TbmLocationItem {
@@ -166,65 +147,31 @@ export function createTbmLocation(partial: Partial<TbmLocationItem>): TbmLocatio
 
   const newLoc: TbmLocationItem = {
     id,
-    projectId: partial.projectId || getActiveTbmProjectId() || 'PRJ-TBM-001',
+    projectId: partial.projectId || getActiveTbmProjectId() || '',
     locationName: partial.locationName?.trim() || 'Tunnel Heading Section',
-    tunnelSection: partial.tunnelSection?.trim() || 'Main Drive Zone A',
+    tunnelSection: partial.tunnelSection?.trim() || 'Main Drive',
     excavationDirection: partial.excavationDirection || 'INCREASING',
-    startChainageRd: Number(partial.startChainageRd) || 1420.0,
-    endChainageRd: partial.endChainageRd !== undefined ? Number(partial.endChainageRd) : 1550.0,
+    startChainageRd: Number(partial.startChainageRd) || 0.0,
+    endChainageRd: partial.endChainageRd !== undefined ? Number(partial.endChainageRd) : 100.0,
     chainageReference: partial.chainageReference || 'RD (Meters from Portal)',
     chainageUnits: 'm',
     alignmentReference: partial.alignmentReference || 'Alignment CL-01',
     startDate: partial.startDate || new Date().toISOString().slice(0, 10),
     description: partial.description || '',
-    responsibleGeologist: partial.responsibleGeologist || 'Lead TBM Geologist',
+    responsibleGeologist: partial.responsibleGeologist || '',
     tbmType: partial.tbmType || 'EPB',
     groundType: partial.groundType || 'MIXED_GROUND',
-    machineManufacturer: partial.machineManufacturer || 'Herrenknecht',
-    machineModel: partial.machineModel || 'EPB Shield S-912',
-    machineSerialId: partial.machineSerialId || 'TBM-HK-912',
-    cutterheadDiameterM: Number(partial.cutterheadDiameterM) || 6.65,
-    discCutterCount: Number(partial.discCutterCount) || 46,
+    machineManufacturer: partial.machineManufacturer || '',
+    machineModel: partial.machineModel || '',
+    machineSerialId: partial.machineSerialId || '',
+    cutterheadDiameterM: Number(partial.cutterheadDiameterM) || 6.4,
+    discCutterCount: Number(partial.discCutterCount) || 44,
     discCutterDiameterInches: 17,
     nominalOperatingThrustKn: 16000,
     nominalOperatingTorqueKnm: 2200,
     nominalMaxRpm: 4.5,
     dataSource: partial.dataSource || 'MANUAL_ENTRY',
-    predictedGeology: partial.predictedGeology || [
-      {
-        id: 'PRED-1',
-        startChainage: 1420.0,
-        endChainage: 1475.0,
-        lithology: 'Dense Columnar Basalt',
-        groundType: 'HARD_ROCK',
-        expectedQValue: 12.5,
-        expectedRmr: 68,
-        expectedUcsMpa: 85,
-        hydrogeologyNotes: 'Minor seepage along cooling joints',
-      },
-      {
-        id: 'PRED-2',
-        startChainage: 1475.0,
-        endChainage: 1510.0,
-        lithology: 'Weathered Basalt & Clayey Fault Breccia',
-        groundType: 'MIXED_GROUND',
-        expectedQValue: 1.4,
-        expectedRmr: 38,
-        expectedUcsMpa: 28,
-        hydrogeologyNotes: 'Moderate water ingress potential (15-30 L/min)',
-        hazardsPredicted: ['Overbreak in crown', 'Cutterhead clogging in clay'],
-      },
-      {
-        id: 'PRED-3',
-        startChainage: 1510.0,
-        endChainage: 1550.0,
-        lithology: 'Amygdaloidal Basalt & Welded Tuff',
-        groundType: 'HARD_ROCK',
-        expectedQValue: 8.2,
-        expectedRmr: 58,
-        expectedUcsMpa: 65,
-      },
-    ],
+    predictedGeology: partial.predictedGeology || [],
     createdAt: now,
     updatedAt: now,
   };
@@ -264,42 +211,47 @@ export function deleteTbmLocation(id: string): void {
 // ---------------------------------------------------------------------------
 
 export function loadTbmExcavationRecords(locationId?: string): TbmExcavationRecord[] {
-  try {
-    const raw = localStorage.getItem(TBM_RECORDS_KEY);
-    if (raw) {
-      const parsed: TbmExcavationRecord[] = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return locationId ? parsed.filter((r) => r.locationId === locationId) : parsed;
-      }
-    }
-  } catch {
-    // fallback
+  const loaded = loadHighCapacityCollection<TbmExcavationRecord>(TBM_RECORDS_KEY);
+  if (Array.isArray(loaded)) {
+    return locationId ? loaded.filter((r) => r.locationId === locationId) : loaded;
   }
-  const seeded = seedInitialTbmData();
-  return locationId ? seeded.records.filter((r) => r.locationId === locationId) : seeded.records;
+  return [];
 }
 
 export function saveTbmExcavationRecords(records: TbmExcavationRecord[]): void {
+  saveHighCapacityCollection(TBM_RECORDS_KEY, records);
+}
+
+export function clearAllTbmData(): void {
   try {
-    localStorage.setItem(TBM_RECORDS_KEY, JSON.stringify(records));
+    saveHighCapacityCollection(TBM_RECORDS_KEY, []);
+    saveHighCapacityCollection(TBM_LOCATIONS_KEY, []);
+    saveHighCapacityCollection(TBM_PROJECTS_KEY, []);
+    saveHighCapacityCollection(TBM_FORECASTS_KEY, []);
+    saveHighCapacityCollection(TBM_INSTRUMENTS_KEY, []);
+    localStorage.removeItem(TBM_ACTIVE_PROJECT_KEY);
+    localStorage.removeItem(TBM_ACTIVE_LOCATION_KEY);
+    localStorage.removeItem(TBM_ACTIVE_RECORD_KEY);
+    localStorage.setItem(TBM_STORAGE_INITIALIZED_KEY, 'true');
   } catch (err) {
-    console.warn('Storage quota warning while saving TBM excavation records', err);
+    console.warn('Error clearing TBM storage', err);
   }
 }
 
 export function createTbmExcavationRecord(partial: Partial<TbmExcavationRecord>): TbmExcavationRecord {
   const all = loadTbmExcavationRecords();
   const now = new Date().toISOString();
-  const locId = partial.locationId || getActiveTbmLocationId() || 'LOC-TBM-001';
-  const projId = partial.projectId || getActiveTbmProjectId() || 'PRJ-TBM-001';
+  const locId = partial.locationId || getActiveTbmLocationId() || '';
+  const projId = partial.projectId || getActiveTbmProjectId() || '';
 
-  const startRd = partial.chainageRecord?.startChainage ?? 1420.0;
-  const endRd = partial.chainageRecord?.endChainage ?? 1421.5;
+  const startRd = partial.chainageRecord?.startChainage ?? 0.0;
+  const endRd = partial.chainageRecord?.endChainage ?? (startRd + 1.5);
   const advance = Math.abs(endRd - startRd);
-  const ringNo = partial.chainageRecord?.ringNumber ?? (840 + all.length);
+  const ringNo = partial.chainageRecord?.ringNumber ?? (all.length + 1);
 
   const id = partial.id || `REC-RD_${startRd.toFixed(2)}-R${ringNo}`;
 
+  // Clean template for manual user entry — ZERO auto-fed mock values
   const newRec: TbmExcavationRecord = {
     id,
     projectId: projId,
@@ -316,150 +268,133 @@ export function createTbmExcavationRecord(partial: Partial<TbmExcavationRecord>)
       shift: partial.chainageRecord?.shift || 'DAY',
       shiftStartTime: partial.chainageRecord?.shiftStartTime || '08:00',
       shiftEndTime: partial.chainageRecord?.shiftEndTime || '16:00',
-      stoppageDurationMinutes: partial.chainageRecord?.stoppageDurationMinutes || 25,
-      stoppageReason: partial.chainageRecord?.stoppageReason || 'Disc cutter inspection & ring erection',
-      geologistOrOperator: partial.chainageRecord?.geologistOrOperator || 'Senior TBM Geologist',
-      generalObservations: partial.chainageRecord?.generalObservations || 'Smooth advance with minimal cutter vibration.',
+      stoppageDurationMinutes: partial.chainageRecord?.stoppageDurationMinutes || 0,
+      stoppageReason: partial.chainageRecord?.stoppageReason || '',
+      geologistOrOperator: partial.chainageRecord?.geologistOrOperator || '',
+      generalObservations: partial.chainageRecord?.generalObservations || '',
     },
     geology: partial.geology || {
-      mainLithology: 'Basalt (Massive)',
-      color: 'Dark grey to charcoal',
+      mainLithology: '',
+      color: '',
       grainSize: 'FINE',
-      textureFabric: 'Dense crystalline with sparse plagioclase phenocrysts',
-      weatheringGrade: 'W2_SLIGHTLY',
-      intactStrengthEstimatedMpa: 82,
-      geologicalBoundariesDescription: 'Sharp contact with underlying vesicular basalt',
-      unitThicknessMeters: 4.5,
+      textureFabric: '',
+      weatheringGrade: 'W1_FRESH',
+      intactStrengthEstimatedMpa: 0,
+      geologicalBoundariesDescription: '',
+      unitThicknessMeters: 0,
       degreeOfFracturing: 'MODERATELY_FRACTURED',
-      blockSizeBytes: 35,
+      blockSizeBytes: 0,
       rockMassIntegrity: 'SOLID',
-      instabilitiesNoted: 'Minor face spalling at 12:00 crown position',
+      instabilitiesNoted: '',
       isSqueezingLikely: false,
       isSwellingLikely: false,
-      discontinuities: [
-        {
-          id: 'DISC-1',
-          setNumber: 1,
-          type: 'JOINT',
-          strikeDeg: 45,
-          dipDeg: 78,
-          dipDirectionDeg: 135,
-          spacingCm: 45,
-          persistenceMeters: 3.5,
-          apertureMm: 1.0,
-          roughness: 'ROUGH',
-          infilling: 'CALCITE_QUARTZ',
-          weathering: 'SLIGHTLY_WEATHERED',
-          waterCondition: 'DAMP',
-          isDirectObservation: true,
-        },
-      ],
+      discontinuities: [],
     },
     muck: partial.muck || {
       sampleId: `MUCK-${ringNo}`,
       sampleChainageRd: startRd,
       timestamp: now,
       materialType: 'ROCK_CHIPS',
-      dominantLithology: 'Basalt chips & rock flakes',
-      muckColor: 'Dark grey',
+      dominantLithology: '',
+      muckColor: '',
       gradingDescription: 'WELL_GRADED_CHIPS',
-      finesPercentEstimated: 22,
-      coarsePercentEstimated: 78,
+      finesPercentEstimated: 0,
+      coarsePercentEstimated: 0,
       fragmentShapeAngularity: 'ANGULAR',
-      averageFragmentSizeMm: 38,
-      maxFragmentSizeMm: 120,
-      visibleFracturesInChips: true,
+      averageFragmentSizeMm: 0,
+      maxFragmentSizeMm: 0,
+      visibleFracturesInChips: false,
       faultGougeObserved: false,
-      waterContentVisual: 'MOIST',
+      waterContentVisual: 'DRY',
       samplingMethod: 'BELT_CONVEYOR',
-      geologistInterpretation: 'Favorable rock chip cutting action without cutterhead clogging',
+      geologistInterpretation: '',
       confidence: 'HIGH',
       photoUrls: [],
     },
     telemetry: partial.telemetry || {
       timestamp: now,
       chainageRd: startRd,
-      thrustForceKn: 13800,
-      cutterheadTorqueKnm: 1750,
-      cutterheadRpm: 4.2,
-      penetrationPerRevMm: 4.6,
-      penetrationRateMmMin: 19.3,
-      excavationDurationMin: 45,
-      cutterWearMm: 2.1,
+      thrustForceKn: 0,
+      cutterheadTorqueKnm: 0,
+      cutterheadRpm: 0,
+      penetrationPerRevMm: 0,
+      penetrationRateMmMin: 0,
+      excavationDurationMin: 0,
+      cutterWearMm: 0,
       cuttersReplacedCount: 0,
-      machineDowntimeHours: 0.5,
+      machineDowntimeHours: 0,
       alarmsTriggered: [],
-      epbChamberPressureCenterBar: 1.85,
-      foamExpansionRatio: 12,
-      foamInjectionRateLMin: 450,
+      epbChamberPressureCenterBar: 0,
+      foamExpansionRatio: 0,
+      foamInjectionRateLMin: 0,
     },
     groundwater: partial.groundwater || {
-      inflowRateLitersPerMin: 8.5,
-      waterPressureBar: 1.2,
-      ingressLocation: 'TAIL_SKIN_BRUSHES',
+      inflowRateLitersPerMin: 0,
+      waterPressureBar: 0,
+      ingressLocation: 'FACE_CUTTERHEAD',
       turbidity: 'CLEAR',
-      phEstimated: 7.4,
-      dewateringPumpsActive: 1,
-      preGroutingActionTaken: 'Routine bentonite grease injection in seal chamber #2',
+      phEstimated: 7.0,
+      dewateringPumpsActive: 0,
+      preGroutingActionTaken: '',
       waterInrushRiskLevel: 'SAFE_DRY',
     },
     probeDrilling: partial.probeDrilling || {
-      probeHoleId: `PB-01-${ringNo}`,
-      drilledLengthMeters: 30.0,
-      azimuthDeg: 45,
-      inclinationDeg: 3,
-      drillingSpeedMMin: 1.4,
-      drillingFeedPressureBar: 65,
+      probeHoleId: '',
+      drilledLengthMeters: 0,
+      azimuthDeg: 0,
+      inclinationDeg: 0,
+      drillingSpeedMMin: 0,
+      drillingFeedPressureBar: 0,
       flushingWaterReturn: 'FULL_RETURN',
-      geologyLoggedAhead: 'Continuous sound basalt for next 25m, minor damp zone at 18m',
+      geologyLoggedAhead: '',
       cavityOrVoidDetected: false,
       waterOrGasEncountered: false,
       advanceRecommendation: 'PROCEED_NORMAL',
     },
     classification: partial.classification || {
-      rqdPercent: 75,
-      jn: 6,
-      jr: 2.0,
-      ja: 1.5,
+      rqdPercent: 0,
+      jn: 1,
+      jr: 1.0,
+      ja: 1.0,
       jw: 1.0,
       srf: 1.0,
-      calculatedQ: 16.67,
-      qClassLabel: 'Class Good',
-      rmrStrengthScore: 10,
-      rmrRqdScore: 17,
-      rmrSpacingScore: 12,
-      rmrConditionScore: 22,
-      rmrWaterScore: 10,
-      rmrOrientationAdjustment: -2,
-      calculatedRmr: 69,
-      rmrClassLabel: 'Class II (Good Rock)',
-      gsiScore: 65,
-      fieldPenetrationIndexKnCutterMm: 31.2,
-      specificEnergyMJM3: 28.4,
+      calculatedQ: 0,
+      qClassLabel: 'Pending Input',
+      rmrStrengthScore: 0,
+      rmrRqdScore: 0,
+      rmrSpacingScore: 0,
+      rmrConditionScore: 0,
+      rmrWaterScore: 0,
+      rmrOrientationAdjustment: 0,
+      calculatedRmr: 0,
+      rmrClassLabel: 'Pending Input',
+      gsiScore: 0,
+      fieldPenetrationIndexKnCutterMm: 0,
+      specificEnergyMJM3: 0,
     },
     supportLining: partial.supportLining || {
       ringNumber: ringNo,
       liningType: 'PRECAST_SEGMENT',
       ringTypeUniversal: 'UNIVERSAL_LEFT',
-      keySegmentPositionClock: '2:00',
-      annularGroutVolumeActualM3: 4.85,
-      annularGroutVolumeTheoreticalM3: 4.45,
-      groutRatioActualVsTheo: 1.09,
-      groutInjectionPressureBar: 2.2,
-      tailSealGreaseConsumptionKg: 18.5,
-      ringRollMm: 4,
-      ringPitchMm: 2,
-      ringLeadMm: 6,
-      liningDefectsObserved: 'Clean ring assembly, zero stepped joints or cracking',
+      keySegmentPositionClock: '12:00',
+      annularGroutVolumeActualM3: 0,
+      annularGroutVolumeTheoreticalM3: 0,
+      groutRatioActualVsTheo: 1.0,
+      groutInjectionPressureBar: 0,
+      tailSealGreaseConsumptionKg: 0,
+      ringRollMm: 0,
+      ringPitchMm: 0,
+      ringLeadMm: 0,
+      liningDefectsObserved: '',
     },
     instrumentation: partial.instrumentation || {
       timestamp: now,
       chainageRd: startRd,
       surfaceSettlementMonitoringPointId: `SP-${ringNo}`,
       distanceFromTunnelCenterlineM: 0,
-      surfaceSettlementMeasuredMm: -4.2,
-      theoreticalPeckSettlementMm: -5.1,
-      tunnelDiameterConvergenceMm: 1.2,
+      surfaceSettlementMeasuredMm: 0,
+      theoreticalPeckSettlementMm: 0,
+      tunnelDiameterConvergenceMm: 0,
       settlementThresholdExceeded: false,
     },
     hazards: partial.hazards || [],
@@ -552,71 +487,15 @@ export function setActiveTbmRecordId(id: string): void {
 // ---------------------------------------------------------------------------
 
 export function loadTbmForecasts(projectId?: string): TbmGeologicalForecastRecord[] {
-  try {
-    const raw = localStorage.getItem(TBM_FORECASTS_KEY);
-    if (raw) {
-      const parsed: TbmGeologicalForecastRecord[] = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return projectId ? parsed.filter((f) => f.projectId === projectId) : parsed;
-      }
-    }
-  } catch {
-    // fallback
+  const parsed = loadHighCapacityCollection<TbmGeologicalForecastRecord>(TBM_FORECASTS_KEY);
+  if (Array.isArray(parsed) && parsed.length > 0) {
+    return projectId ? parsed.filter((f) => f.projectId === projectId) : parsed;
   }
-  return [
-    {
-      id: 'FC-01',
-      projectId: projectId || 'PRJ-TBM-001',
-      locationId: 'LOC-TBM-01',
-      forecastDate: new Date().toISOString().slice(0, 10),
-      author: 'Dr. K. Sharma (Principal Engineering Geologist)',
-      startChainageRd: 1435.5,
-      endChainageRd: 1450.0,
-      predictedLithology: 'Vesicular Basalt with Zeolite Infilling & Minor Brecciation',
-      predictedFormations: 'Deccan Traps - Upper Wai Subgroup',
-      expectedQValue: 4.5,
-      expectedRmr: 52,
-      predictedFaultsAndShears: 'Minor slickensided joint shear zone expected near RD 1442m',
-      predictedWaterInflowRisk: 'MODERATE',
-      supportingEvidence: 'Probe hole PB-01-848 drilling torque anomalies and regional seismic refraction',
-      investigationLimitations: 'Forward probe hole drilled to 25m with partial water loss at 18m',
-      confidence: 'HIGH',
-      recommendedActions: 'Maintain EPB support pressure at 1.85 bar; inspect muck discharge for clay paste.',
-      isEncounteredVerified: true,
-      encounteredSummary: 'Encountered vesicular basalt with localized damp zones at RD 1438m. Q=4.8.',
-      matchStatus: 'CONCORDANT',
-    },
-    {
-      id: 'FC-02',
-      projectId: projectId || 'PRJ-TBM-001',
-      locationId: 'LOC-TBM-01',
-      forecastDate: new Date().toISOString().slice(0, 10),
-      author: 'Dr. K. Sharma (Principal Engineering Geologist)',
-      startChainageRd: 1450.0,
-      endChainageRd: 1475.0,
-      predictedLithology: 'Competent Dense Porphyritic Basalt',
-      predictedFormations: 'Deccan Traps - Mahabaleshwar Formation',
-      expectedQValue: 12.5,
-      expectedRmr: 68,
-      predictedFaultsAndShears: 'Near horizontal cooling joints; minimal shear risk',
-      predictedWaterInflowRisk: 'LOW',
-      supportingEvidence: 'Deep borehole BH-TBM-10 core logs and RQD=88%',
-      investigationLimitations: 'Projection based on 40m borehole spacing along alignment',
-      confidence: 'HIGH',
-      recommendedActions: 'Standard 4.5 RPM boring cycle; monitor disc cutter ring wear life.',
-      isEncounteredVerified: false,
-      encounteredSummary: 'Awaiting excavation progress past RD 1450.00m',
-      matchStatus: 'UNVERIFIED',
-    },
-  ];
+  return [];
 }
 
 export function saveTbmForecasts(forecasts: TbmGeologicalForecastRecord[]): void {
-  try {
-    localStorage.setItem(TBM_FORECASTS_KEY, JSON.stringify(forecasts));
-  } catch (err) {
-    console.warn('Storage quota warning saving forecasts', err);
-  }
+  saveHighCapacityCollection(TBM_FORECASTS_KEY, forecasts);
 }
 
 export function createTbmForecast(partial: Partial<TbmGeologicalForecastRecord>): TbmGeologicalForecastRecord {
@@ -663,36 +542,13 @@ export function updateTbmForecast(id: string, updates: Partial<TbmGeologicalFore
 // GEOTECHNICAL INSTRUMENT READINGS CRUD
 // ---------------------------------------------------------------------------
 
-export function loadTbmInstrumentReadings(projectId?: string): TbmInstrumentReading[] {
-  try {
-    const raw = localStorage.getItem(TBM_INSTRUMENTS_KEY);
-    if (raw) {
-      const parsed: TbmInstrumentReading[] = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch {
-    // fallback
-  }
-  const now = new Date().toISOString();
-  return [
-    { id: 'INST-01', instrumentId: 'SP-841', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1423.5, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -3.8, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Directly over tunnel centerline' },
-    { id: 'INST-02', instrumentId: 'SP-842', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1425.0, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -4.2, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Transverse array center' },
-    { id: 'INST-03', instrumentId: 'SP-843', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1426.5, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -4.5, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Maximum settlement location' },
-    { id: 'INST-04', instrumentId: 'SP-844', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1428.0, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -3.9, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Over ring #845' },
-    { id: 'INST-05', instrumentId: 'SP-845', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1429.5, offsetFromCenterlineM: 0.0, baselineValue: 0.0, currentValue: -2.8, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Active face vicinity' },
-    { id: 'INST-06', instrumentId: 'SP-843-L5', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1426.5, offsetFromCenterlineM: -5.0, baselineValue: 0.0, currentValue: -2.9, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Transverse offset 5m West' },
-    { id: 'INST-07', instrumentId: 'SP-843-R5', instrumentType: 'SURFACE_SETTLEMENT', chainageRd: 1426.5, offsetFromCenterlineM: 5.0, baselineValue: 0.0, currentValue: -2.7, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Transverse offset 5m East' },
-    { id: 'INST-08', instrumentId: 'CP-01', instrumentType: 'CONVERGENCE_PIN', chainageRd: 1425.0, offsetFromCenterlineM: 3.3, baselineValue: 6650.0, currentValue: 6648.8, unit: 'mm', alertLevel: 'NORMAL', timestamp: now, notes: 'Horizontal diameter convergence: -1.2mm' },
-    { id: 'INST-09', instrumentId: 'PZ-01', instrumentType: 'PIEZOMETER', chainageRd: 1426.5, offsetFromCenterlineM: 8.0, baselineValue: 125.0, currentValue: 118.5, unit: 'kPa', alertLevel: 'NORMAL', timestamp: now, notes: 'Pore water pressure stable' },
-  ];
+export function loadTbmInstrumentReadings(_projectId?: string): TbmInstrumentReading[] {
+  const parsed = loadHighCapacityCollection<TbmInstrumentReading>(TBM_INSTRUMENTS_KEY);
+  return Array.isArray(parsed) ? parsed : [];
 }
 
 export function saveTbmInstrumentReadings(readings: TbmInstrumentReading[]): void {
-  try {
-    localStorage.setItem(TBM_INSTRUMENTS_KEY, JSON.stringify(readings));
-  } catch (err) {
-    console.warn('Storage quota warning saving instrument readings', err);
-  }
+  saveHighCapacityCollection(TBM_INSTRUMENTS_KEY, readings);
 }
 
 export function createTbmInstrumentReading(partial: Partial<TbmInstrumentReading>): TbmInstrumentReading {

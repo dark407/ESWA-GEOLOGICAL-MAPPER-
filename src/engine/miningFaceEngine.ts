@@ -286,7 +286,7 @@ export interface CompositeGradeResult {
   containedMetalUnits: number; // e.g. grams or kg
   dilutionPercentByMass: number;
   dilutionPercentOverOre: number;
-  verdict: 'MILL' | 'LOW_GRADE_STOCKPILE' | 'WASTE_DUMP';
+  verdict: 'MILL' | 'LOW_GRADE_STOCKPILE' | 'WASTE_DUMP' | 'AWAITING_INPUT';
   verdictDescription: string;
 }
 
@@ -318,8 +318,8 @@ export function calculateCompositeFaceAssays(
       containedMetalUnits: 0,
       dilutionPercentByMass: 0,
       dilutionPercentOverOre: 0,
-      verdict: 'WASTE_DUMP',
-      verdictDescription: 'No channel sample assays available on face.',
+      verdict: 'AWAITING_INPUT',
+      verdictDescription: 'Awaiting User Input: No face channel sample intervals or assay cuts entered yet.',
     };
   }
 

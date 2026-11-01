@@ -1,6 +1,6 @@
 // ============================================================================
 // ESWA TBM MECHANIZED TUNNELING — ISOLATED DATA STORAGE & IMPORT/EXPORT MODAL
-// Strictly isolated from NATM and Mining vaults
+// Strictly isolated from NATM and Mining vaults + Multi-Kilometer Scale Safe
 // ============================================================================
 
 import React, { useState, useMemo } from 'react';
@@ -13,33 +13,30 @@ import {
   Trash2,
   FileSpreadsheet,
   FileJson,
-  FileCode,
   Search,
-  CheckCircle2,
   AlertTriangle,
-  RefreshCw,
   HardDrive,
-  Layers,
+  ChevronLeft,
+  ChevronRight,
+  ArrowRightLeft,
 } from 'lucide-react';
-import {
-  TbmProjectItem,
-  TbmLocationItem,
-  TbmExcavationRecord,
-} from '../../types/tbm';
 import {
   loadTbmProjects,
   loadTbmLocations,
   loadTbmExcavationRecords,
-  saveTbmProjects,
-  saveTbmLocations,
-  saveTbmExcavationRecords,
   deleteTbmProject,
   deleteTbmExcavationRecord,
   seedInitialTbmData,
-  setActiveTbmProjectId,
-  setActiveTbmLocationId,
-  setActiveTbmRecordId,
+  clearAllTbmData,
 } from '../../engine/tbmStorageEngine';
+import {
+  detectPayloadApplicationMode,
+  routeToIsolatedMiningVault,
+  routeToIsolatedTbmVault,
+  transferRecordToApplicationMode,
+  getIsolatedVaultTelemetry,
+} from '../../engine/universalDataRouterEngine';
+import { applyImportedEswaPayload } from '../../engine/userCloudAndPackageEngine';
 
 interface TbmDataStorageModalProps {
   isOpen: boolean;
@@ -49,21 +46,25 @@ interface TbmDataStorageModalProps {
   onLoadRecord: (recordId: string) => void;
 }
 
+const PAGE_SIZE = 50;
+
 export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
   isOpen,
   onClose,
   onLoadProject,
-  onLoadLocation,
   onLoadRecord,
 }) => {
   const [activeTab, setActiveTab] = useState<'records' | 'projects' | 'export_import'>('records');
   const [searchQuery, setSearchQuery] = useState('');
+  const [ringPage, setRingPage] = useState(0);
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const projects = useMemo(() => loadTbmProjects(), [isOpen, statusMsg]);
   const locations = useMemo(() => loadTbmLocations(), [isOpen, statusMsg]);
   const records = useMemo(() => loadTbmExcavationRecords(), [isOpen, statusMsg]);
+  const telemetry = useMemo(() => getIsolatedVaultTelemetry('TBM'), [isOpen, statusMsg]);
 
   if (!isOpen) return null;
 
@@ -79,10 +80,18 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
     );
   });
 
+  const totalRingPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
+  const safeRingPage = Math.min(ringPage, totalRingPages - 1);
+  const pagedRecords = filteredRecords.slice(
+    safeRingPage * PAGE_SIZE,
+    (safeRingPage + 1) * PAGE_SIZE
+  );
+
   // Export full TBM Project JSON
   const handleExportFullJson = () => {
     const backup = {
       format: 'ESWA_TBM_BACKUP_V1',
+      applicationMode: 'TBM',
       exportedAt: new Date().toISOString(),
       projects,
       locations,
@@ -155,7 +164,7 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
     setStatusMsg({ text: 'Excavation & Geotechnical CSV exported successfully.', type: 'success' });
   };
 
-  // Import JSON backup
+  // Smart Cross-App Import JSON backup
   const handleImportJsonFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -164,17 +173,31 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.projects && parsed.locations && parsed.records) {
-          saveTbmProjects(parsed.projects);
-          saveTbmLocations(parsed.locations);
-          saveTbmExcavationRecords(parsed.records);
+        const detectedMode = detectPayloadApplicationMode(parsed);
+
+        if (detectedMode === 'MINING') {
+          const res = routeToIsolatedMiningVault(parsed, 'merge');
           setStatusMsg({
-            text: `Imported ${parsed.projects.length} projects, ${parsed.locations.length} locations, and ${parsed.records.length} ring records!`,
+            text: `Smart Router: Detected MINING file! Routed directly to isolated Mining Vault (${res.summaryMessage})`,
             type: 'success',
           });
-        } else {
-          setStatusMsg({ text: 'Invalid backup format. Missing projects/locations/records keys.', type: 'error' });
+          return;
         }
+
+        if (detectedMode === 'NATM') {
+          const res = applyImportedEswaPayload(parsed, 'merge');
+          setStatusMsg({
+            text: `Smart Router: Detected NATM file! Routed directly to isolated NATM Vault (${res.message})`,
+            type: 'success',
+          });
+          return;
+        }
+
+        const res = routeToIsolatedTbmVault(parsed, 'merge');
+        setStatusMsg({
+          text: res.summaryMessage,
+          type: 'success',
+        });
       } catch (err: any) {
         setStatusMsg({ text: `Failed to import JSON: ${err?.message}`, type: 'error' });
       }
@@ -187,12 +210,19 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
   const handleFactoryReset = () => {
     seedInitialTbmData();
     setConfirmResetOpen(false);
-    setStatusMsg({ text: 'Reset TBM storage to initial site dataset (Metro Line 3 Basalt drive).', type: 'success' });
+    setStatusMsg({ text: 'Reset TBM storage to official sample dataset (Metro Line 3 Basalt drive).', type: 'success' });
+  };
+
+  // Clear all data to 100% clean user-input mode
+  const handleClearAllData = () => {
+    clearAllTbmData();
+    setConfirmClearOpen(false);
+    setStatusMsg({ text: 'All demo and existing TBM data cleared. Database is 100% clean for manual user input.', type: 'success' });
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 select-none font-sans">
-      <div className="bg-slate-900 border border-cyan-500/50 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-100">
+      <div className="bg-slate-900 border border-cyan-500/50 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-100">
         {/* Top Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-cyan-500/20 bg-slate-950/80">
           <div className="flex items-center gap-2.5">
@@ -200,14 +230,17 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-cyan-300 font-mono flex items-center gap-2">
+              <h2 className="text-base font-bold text-cyan-300 font-mono flex items-center gap-2 flex-wrap">
                 <span>TBM ISOLATED DATA VAULT &amp; EXPORT CENTER</span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-600 text-cyan-400 font-bold">
-                  TBM MODE ONLY
+                  ISOLATED TBM ONLY
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-600 text-emerald-400 font-bold">
+                  MULTI-KM SAFE ({telemetry.totalLinearKilometers.toFixed(3)} km / {telemetry.totalLinearMeters.toFixed(1)} m)
                 </span>
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Independent storage isolated from NATM and Mining vaults · {records.length} Ring Records · {projects.length} Projects
+                Strictly isolated TBM storage · {records.length} Ring Records · {projects.length} Projects · Cross-App Smart Router Active
               </p>
             </div>
           </div>
@@ -258,7 +291,7 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
             }`}
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Import / Export &amp; Backup</span>
+            <span>Import / Export &amp; Smart Router</span>
           </button>
         </div>
 
@@ -294,7 +327,10 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
                     type="text"
                     placeholder="Search by Ring #, RD Chainage, Lithology, or Shift..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setRingPage(0);
+                    }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500"
                   />
                 </div>
@@ -313,70 +349,126 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
                   No TBM excavation records found matching &quot;{searchQuery}&quot;.
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-800">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-slate-950 text-slate-400 text-[11px] uppercase border-b border-slate-800">
-                      <tr>
-                        <th className="p-2.5">Ring #</th>
-                        <th className="p-2.5">Chainage (RD)</th>
-                        <th className="p-2.5">Advance</th>
-                        <th className="p-2.5">Shift</th>
-                        <th className="p-2.5">Lithology</th>
-                        <th className="p-2.5">Q / RMR</th>
-                        <th className="p-2.5">FPI</th>
-                        <th className="p-2.5">Grout</th>
-                        <th className="p-2.5 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800 text-slate-300">
-                      {filteredRecords.map((r) => (
-                        <tr key={r.id} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="p-2.5 font-bold text-cyan-300">#{r.chainageRecord.ringNumber}</td>
-                          <td className="p-2.5 text-slate-200">
-                            RD {r.chainageRecord.startChainage.toFixed(2)}m → {r.chainageRecord.endChainage.toFixed(2)}m
-                          </td>
-                          <td className="p-2.5">{r.chainageRecord.advanceLengthMeters.toFixed(2)}m</td>
-                          <td className="p-2.5">{r.chainageRecord.shift}</td>
-                          <td className="p-2.5 text-amber-300 font-medium truncate max-w-[140px]">
-                            {r.geology.mainLithology}
-                          </td>
-                          <td className="p-2.5">
-                            Q {r.classification.calculatedQ.toFixed(1)} · RMR {r.classification.calculatedRmr}
-                          </td>
-                          <td className="p-2.5 text-emerald-400 font-bold">
-                            {r.classification.fieldPenetrationIndexKnCutterMm?.toFixed(1) || '—'}
-                          </td>
-                          <td className="p-2.5">
-                            {r.supportLining.annularGroutVolumeActualM3.toFixed(2)}m³
-                          </td>
-                          <td className="p-2.5 text-right space-x-1.5 whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onLoadRecord(r.id);
-                                onClose();
-                              }}
-                              className="px-2 py-1 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 text-[11px] font-bold cursor-pointer"
-                            >
-                              Load Ring
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                deleteTbmExcavationRecord(r.id);
-                                setStatusMsg({ text: `Deleted ring record #${r.chainageRecord.ringNumber}`, type: 'success' });
-                              }}
-                              className="p-1 rounded text-slate-500 hover:text-rose-400 cursor-pointer"
-                              title="Delete record"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
+                <>
+                  <div className="overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-slate-950 text-slate-400 text-[11px] uppercase border-b border-slate-800">
+                        <tr>
+                          <th className="p-2.5">Ring #</th>
+                          <th className="p-2.5">Chainage (RD)</th>
+                          <th className="p-2.5">Advance</th>
+                          <th className="p-2.5">Shift</th>
+                          <th className="p-2.5">Lithology</th>
+                          <th className="p-2.5">Q / RMR</th>
+                          <th className="p-2.5">FPI</th>
+                          <th className="p-2.5">Grout</th>
+                          <th className="p-2.5 text-right">Actions &amp; Cross-App Transfer</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                        {pagedRecords.map((r) => (
+                          <tr key={r.id} className="hover:bg-slate-800/40 transition-colors">
+                            <td className="p-2.5 font-bold text-cyan-300">#{r.chainageRecord.ringNumber}</td>
+                            <td className="p-2.5 text-slate-200">
+                              RD {r.chainageRecord.startChainage.toFixed(2)}m → {r.chainageRecord.endChainage.toFixed(2)}m
+                            </td>
+                            <td className="p-2.5">{r.chainageRecord.advanceLengthMeters.toFixed(2)}m</td>
+                            <td className="p-2.5">{r.chainageRecord.shift}</td>
+                            <td className="p-2.5 text-amber-300 font-medium truncate max-w-[140px]">
+                              {r.geology.mainLithology}
+                            </td>
+                            <td className="p-2.5">
+                              Q {r.classification.calculatedQ.toFixed(1)} · RMR {r.classification.calculatedRmr}
+                            </td>
+                            <td className="p-2.5 text-emerald-400 font-bold">
+                              {r.classification.fieldPenetrationIndexKnCutterMm?.toFixed(1) || '—'}
+                            </td>
+                            <td className="p-2.5">
+                              {r.supportLining.annularGroutVolumeActualM3.toFixed(2)}m³
+                            </td>
+                            <td className="p-2.5 text-right space-x-1 whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onLoadRecord(r.id);
+                                  onClose();
+                                }}
+                                className="px-2 py-1 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 text-[11px] font-bold cursor-pointer"
+                              >
+                                Load Ring
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const res = transferRecordToApplicationMode('TBM', 'NATM', r);
+                                  setStatusMsg({ text: res.summaryMessage, type: 'success' });
+                                }}
+                                className="px-1.5 py-1 rounded bg-orange-950/70 border border-orange-500/40 text-orange-300 hover:bg-orange-900/60 text-[10px] font-bold cursor-pointer"
+                                title="Send this Ring Record to NATM Vault (reflects only in NATM mode)"
+                              >
+                                → NATM
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const res = transferRecordToApplicationMode('TBM', 'MINING', r);
+                                  setStatusMsg({ text: res.summaryMessage, type: 'success' });
+                                }}
+                                className="px-1.5 py-1 rounded bg-amber-950/70 border border-amber-500/40 text-amber-300 hover:bg-amber-900/60 text-[10px] font-bold cursor-pointer"
+                                title="Send this Ring Record to Mining Vault (reflects only in Mining mode)"
+                              >
+                                → MINING
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  deleteTbmExcavationRecord(r.id);
+                                  setStatusMsg({ text: `Deleted ring record #${r.chainageRecord.ringNumber}`, type: 'success' });
+                                }}
+                                className="p-1 rounded text-slate-500 hover:text-rose-400 cursor-pointer"
+                                title="Delete record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 inline" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Multi-Kilometer Pagination Controls */}
+                  {totalRingPages > 1 && (
+                    <div className="flex items-center justify-between pt-2 text-[11px] text-slate-400">
+                      <span>
+                        Showing {safeRingPage * PAGE_SIZE + 1}–
+                        {Math.min((safeRingPage + 1) * PAGE_SIZE, filteredRecords.length)} of{' '}
+                        {filteredRecords.length} rings (Multi-Kilometer Windowed View)
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={safeRingPage === 0}
+                          onClick={() => setRingPage((p) => Math.max(0, p - 1))}
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 flex items-center gap-1 cursor-pointer"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                        </button>
+                        <span className="px-2 font-bold text-cyan-300">
+                          Page {safeRingPage + 1} / {totalRingPages}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={safeRingPage >= totalRingPages - 1}
+                          onClick={() => setRingPage((p) => Math.min(totalRingPages - 1, p + 1))}
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 flex items-center gap-1 cursor-pointer"
+                        >
+                          Next <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -489,34 +581,44 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
               {/* Import Panel */}
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
                 <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-                  <Upload className="w-4 h-4 text-amber-400" />
-                  <h4 className="font-bold text-slate-200">Import &amp; Restore</h4>
+                  <ArrowRightLeft className="w-4 h-4 text-amber-400" />
+                  <h4 className="font-bold text-slate-200">Smart Cross-Application Import &amp; Restore</h4>
                 </div>
                 <p className="text-slate-400 text-[11px]">
-                  Restore a previously saved .tbm.json file from another PC, field tablet, or team member.
+                  Import a <code>.tbm.json</code> backup into this TBM vault. If a team member sends you a <code>.mining.json</code> or <code>.eswa.json</code> (NATM) file, the Smart Router automatically detects it and routes it exclusively to that mode&apos;s isolated vault!
                 </p>
 
                 <label className="flex flex-col items-center justify-center p-5 rounded-xl border-2 border-dashed border-slate-700 hover:border-cyan-500 bg-slate-900/50 cursor-pointer transition-colors">
                   <Upload className="w-6 h-6 text-cyan-400 mb-1" />
-                  <span className="font-bold text-slate-200">Select .tbm.json File to Import</span>
-                  <span className="text-[10px] text-slate-500 mt-0.5">Click or drag file here</span>
+                  <span className="font-bold text-slate-200">Select JSON File (.tbm.json / .mining.json / .eswa.json)</span>
+                  <span className="text-[10px] text-slate-500 mt-0.5">Auto-detects &amp; routes to target application mode</span>
                   <input
                     type="file"
-                    accept=".json,.tbm.json"
+                    accept=".json,.tbm.json,.mining.json,.eswa.json"
                     onChange={handleImportJsonFile}
                     className="hidden"
                   />
                 </label>
 
-                {/* Reset to Seed Data */}
-                <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
-                  <span className="text-[10px] text-slate-500">Need sample site data?</span>
+                {/* Clear All / Reset Options */}
+                <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClearOpen(true)}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 border border-rose-700 text-rose-300 text-[11px] font-bold cursor-pointer flex items-center gap-1.5"
+                    title="Clear all demo records and start fresh with blank database for manual user entry"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clear All Data (Start Clean Blank Mode)</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setConfirmResetOpen(true)}
-                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-bold cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-[11px] font-bold cursor-pointer"
+                    title="Load optional sample demo dataset"
                   >
-                    Restore Demo Project Data
+                    Load Sample Demo Data
                   </button>
                 </div>
               </div>
@@ -524,16 +626,47 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
           )}
         </div>
 
+        {/* Clear All Data Modal Confirmation */}
+        {confirmClearOpen && (
+          <div className="fixed inset-0 z-60 bg-black/80 flex items-center justify-center p-4">
+            <div className="bg-slate-950 border border-rose-500 rounded-xl p-5 max-w-sm w-full space-y-3 font-mono text-xs shadow-2xl">
+              <div className="flex items-center gap-2 text-rose-400 font-bold">
+                <AlertTriangle className="w-5 h-5" />
+                <span>Confirm Clear All TBM Data</span>
+              </div>
+              <p className="text-slate-300">
+                This will delete all demo/existing projects, locations, and ring excavation records in the TBM vault. NATM and Mining vaults remain untouched.
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearOpen(false)}
+                  className="px-3 py-1.5 rounded bg-slate-800 text-slate-300 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearAllData}
+                  className="px-3 py-1.5 rounded bg-rose-600 text-white font-bold hover:bg-rose-500"
+                >
+                  Yes, Clear TBM Vault
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Factory Reset Modal Confirmation */}
         {confirmResetOpen && (
           <div className="fixed inset-0 z-60 bg-black/80 flex items-center justify-center p-4">
             <div className="bg-slate-950 border border-amber-500 rounded-xl p-5 max-w-sm w-full space-y-3 font-mono text-xs shadow-2xl">
               <div className="flex items-center gap-2 text-amber-400 font-bold">
                 <AlertTriangle className="w-5 h-5" />
-                <span>Confirm Demo Data Reset</span>
+                <span>Confirm Demo Data Load</span>
               </div>
               <p className="text-slate-300">
-                This will reset the isolated TBM storage to the official Metro Line 3 Basalt excavation dataset (8 sample rings with complete geotechnical logs).
+                This will populate the isolated TBM storage with sample site data (Metro Line 3 Basalt drive, 8 sample rings with complete geotechnical logs).
               </p>
               <div className="flex justify-end gap-2 pt-2">
                 <button
@@ -548,7 +681,7 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
                   onClick={handleFactoryReset}
                   className="px-3 py-1.5 rounded bg-amber-500 text-slate-950 font-bold hover:bg-amber-400"
                 >
-                  Yes, Reset Data
+                  Yes, Load Sample Data
                 </button>
               </div>
             </div>
@@ -557,7 +690,7 @@ export const TbmDataStorageModal: React.FC<TbmDataStorageModalProps> = ({
 
         {/* Footer */}
         <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/90 flex items-center justify-between text-xs font-mono text-slate-400">
-          <span>ESWA TBM Isolated Storage System v2.0</span>
+          <span>ESWA TBM Isolated High-Capacity Storage System v3.0 · Multi-Kilometer IndexedDB Engine</span>
           <button
             type="button"
             onClick={onClose}

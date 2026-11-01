@@ -267,10 +267,10 @@ export const InstrumentationMonitoringModal: React.FC<InstrumentationMonitoringM
   };
 
   const handleResetSample = () => {
-    if (confirm('Load fresh realistic NATM monitoring & convergence dataset?')) {
-      const fresh = createDefaultMonitoringSection();
-      saveToStorage(fresh);
-    }
+    const fresh = createDefaultMonitoringSection();
+    saveToStorage(fresh);
+    setSaveSuccessNotice(true);
+    setTimeout(() => setSaveSuccessNotice(false), 2500);
   };
 
   // Add new epoch measurement

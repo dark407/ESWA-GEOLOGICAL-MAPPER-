@@ -353,10 +353,15 @@ export async function requestMasterEmailCode(
     console.warn('[Master Auth] Server challenge sync notice:', backendErr);
   }
 
-  // 4. Direct browser-side FormSubmit AJAX dispatch to both primary & secondary Master emails
+  // 4. Direct browser-side FormSubmit AJAX dispatch to all Master emails
   if (!emailSent && typeof window !== 'undefined') {
     const browserRecipients = Array.from(
-      new Set([cleanEmail, 'akashdhanusheswar@gmail.com', 'dhoniakash707@gmail.com'])
+      new Set([
+        cleanEmail,
+        'akashdhanusheswar@gmail.com',
+        'dhoniakash707@gmail.com',
+        'dhoniakash407@gmail.com',
+      ])
     );
     await Promise.all(
       browserRecipients.map(async (recipient) => {

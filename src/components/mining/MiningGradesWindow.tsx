@@ -121,6 +121,31 @@ export const MiningGradesWindow: React.FC<MiningGradesWindowProps> = ({
         </div>
       </div>
 
+      {/* AWAITING INPUT BANNER WHEN NO SAMPLES EXIST */}
+      {composites.sampleCount === 0 && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/40 text-amber-200 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-300">
+              <Sparkles className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm text-amber-300">Awaiting Face Input (No Pre-Fed Data)</h3>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Head grade, dilution, and blast round reconciliation will calculate dynamically once you draw ore veins or record channel assay cuts.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onReturnToCanvas}
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-2 cursor-pointer transition-all shadow"
+          >
+            <span>Open Face Canvas &amp; Start Mapping</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* KPI METRIC CARDS */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {/* Weighted Face Grade */}
@@ -130,7 +155,8 @@ export const MiningGradesWindow: React.FC<MiningGradesWindowProps> = ({
             <Sparkles className="w-4 h-4 text-amber-400" />
           </div>
           <div className="text-2xl font-black text-amber-400">
-            {composites.weightedGrade} <span className="text-xs font-normal text-slate-400">g/t</span>
+            {composites.sampleCount > 0 ? composites.weightedGrade : '—'}{' '}
+            <span className="text-xs font-normal text-slate-400">g/t</span>
           </div>
           <div className="text-[10px] text-slate-400">
             Cutoff: <strong className="text-emerald-400">{cutoffGrade.toFixed(2)} g/t</strong>
@@ -144,7 +170,7 @@ export const MiningGradesWindow: React.FC<MiningGradesWindowProps> = ({
             <Scale className="w-4 h-4 text-rose-400" />
           </div>
           <div className="text-2xl font-black text-rose-400">
-            {composites.dilutionPercentByMass}%
+            {composites.sampleCount > 0 ? `${composites.dilutionPercentByMass}%` : '—'}
           </div>
           <div className="text-[10px] text-slate-400">Waste by mass across round</div>
         </div>
@@ -156,7 +182,8 @@ export const MiningGradesWindow: React.FC<MiningGradesWindowProps> = ({
             <Truck className="w-4 h-4 text-cyan-400" />
           </div>
           <div className="text-2xl font-black text-cyan-300">
-            {composites.estimatedTonnesPerRound} <span className="text-xs font-normal text-slate-400">t</span>
+            {composites.estimatedTonnesPerRound > 0 ? composites.estimatedTonnesPerRound : Math.round(stopeWidth * stopeHeight * blastPull * 2.85)}{' '}
+            <span className="text-xs font-normal text-slate-400">t</span>
           </div>
           <div className="text-[10px] text-slate-400">Advance: {blastPull}m pull</div>
         </div>
@@ -168,11 +195,11 @@ export const MiningGradesWindow: React.FC<MiningGradesWindowProps> = ({
             <DollarSign className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="text-2xl font-black text-emerald-400">
-            {(composites.containedMetalUnits / 31.1035).toFixed(1)}{' '}
+            {composites.sampleCount > 0 ? (composites.containedMetalUnits / 31.1035).toFixed(1) : '—'}{' '}
             <span className="text-xs font-normal text-slate-400">oz</span>
           </div>
           <div className="text-[10px] text-slate-400">
-            {composites.containedMetalUnits.toFixed(0)} grams metal
+            {composites.sampleCount > 0 ? `${composites.containedMetalUnits.toFixed(0)} grams metal` : 'Awaiting assay cuts'}
           </div>
         </div>
 
@@ -183,7 +210,7 @@ export const MiningGradesWindow: React.FC<MiningGradesWindowProps> = ({
             <TrendingUp className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="text-2xl font-black text-slate-100">
-            ${Math.round(grossRoundRevenue).toLocaleString()}
+            {composites.sampleCount > 0 ? `$${Math.round(grossRoundRevenue).toLocaleString()}` : '—'}
           </div>
           <div className="text-[10px] text-slate-400">@ ${metalPriceAuOz}/oz Au</div>
         </div>
@@ -191,20 +218,26 @@ export const MiningGradesWindow: React.FC<MiningGradesWindowProps> = ({
         {/* Net Profit per Round */}
         <div
           className={`p-3.5 rounded-2xl border space-y-1 ${
-            isProfitable
+            composites.sampleCount === 0
+              ? 'bg-slate-900 border-slate-800 text-slate-400'
+              : isProfitable
               ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-300'
               : 'bg-rose-950/20 border-rose-500/40 text-rose-300'
           }`}
         >
           <div className="flex items-center justify-between text-xs">
             <span>Round Net Margin</span>
-            {isProfitable ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertTriangle className="w-4 h-4 text-rose-400" />}
+            {composites.sampleCount === 0 ? null : isProfitable ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-400" />
+            )}
           </div>
           <div className="text-2xl font-black">
-            ${Math.round(netRoundProfit).toLocaleString()}
+            {composites.sampleCount > 0 ? `$${Math.round(netRoundProfit).toLocaleString()}` : '—'}
           </div>
           <div className="text-[10px] opacity-80">
-            Cost: ${Math.round(totalRoundCost).toLocaleString()}
+            {composites.sampleCount > 0 ? `Cost: $${Math.round(totalRoundCost).toLocaleString()}` : 'Awaiting input'}
           </div>
         </div>
       </div>
@@ -225,6 +258,8 @@ export const MiningGradesWindow: React.FC<MiningGradesWindowProps> = ({
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                     : composites.verdict === 'LOW_GRADE_STOCKPILE'
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : composites.verdict === 'AWAITING_INPUT'
+                    ? 'bg-slate-800 text-slate-300 border border-slate-700'
                     : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                 }`}
               >
@@ -232,6 +267,8 @@ export const MiningGradesWindow: React.FC<MiningGradesWindowProps> = ({
                   ? 'ROUTE TO PROCESSING MILL'
                   : composites.verdict === 'LOW_GRADE_STOCKPILE'
                   ? 'ROUTE TO LOW-GRADE STOCKPILE'
+                  : composites.verdict === 'AWAITING_INPUT'
+                  ? 'AWAITING USER INPUT'
                   : 'DISPATCH TO WASTE ROCK DUMP'}
               </span>
             </div>

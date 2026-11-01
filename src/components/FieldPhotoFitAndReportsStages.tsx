@@ -6139,11 +6139,13 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
         <tr>
           <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
             {activeProject.leftLogoDataUrl ? (
-              <img
-                src={activeProject.leftLogoDataUrl}
-                alt="Client Logo"
-                className="max-h-7 mx-auto object-contain"
-              />
+              <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
+                <img
+                  src={activeProject.leftLogoDataUrl}
+                  alt="Client Logo"
+                  className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
+                />
+              </div>
             ) : (
               <div className="text-[9px] font-bold text-slate-950 leading-tight">
                 {activeProject.clientName || 'CLIENT'}
@@ -6167,11 +6169,13 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
           </td>
           <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
             {activeProject.rightLogoDataUrl ? (
-              <img
-                src={activeProject.rightLogoDataUrl}
-                alt="Contractor Logo"
-                className="max-h-7 mx-auto object-contain"
-              />
+              <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
+                <img
+                  src={activeProject.rightLogoDataUrl}
+                  alt="Contractor Logo"
+                  className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
+                />
+              </div>
             ) : (
               <div className="text-[9px] font-bold text-slate-950 leading-tight">
                 {activeProject.contractorName || 'CONTRACTOR'}
@@ -6223,21 +6227,62 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
                   }))
                 }
                 placeholder="Name"
-                className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[36%] focus:outline-none"
+                className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[32%] min-w-0 focus:outline-none"
               />
               <span className="font-bold text-slate-900 shrink-0">Sign:</span>
-              <input
-                type="text"
-                value={activeRound.contractorGeologistSign ?? ''}
-                onChange={(e) =>
-                  onUpdateRound((r) => ({
-                    ...r,
-                    contractorGeologistSign: e.target.value,
-                  }))
-                }
-                placeholder="Sign"
-                className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[26%] focus:outline-none"
-              />
+              {activeRound.contractorGeologistSign?.startsWith('data:image/') ? (
+                <div className="eswa-signature-fit-box h-7 w-24 border border-slate-300 px-1 relative shrink-0">
+                  <img
+                    src={activeRound.contractorGeologistSign}
+                    alt="Contractor Signature"
+                    className="max-h-full max-w-full w-auto h-auto object-contain"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onUpdateRound((r) => ({ ...r, contractorGeologistSign: '' }))}
+                    title="Clear Signature"
+                    className="absolute top-0 right-0.5 text-[8px] font-black text-rose-600 print:hidden cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  value={activeRound.contractorGeologistSign ?? ''}
+                  onChange={(e) =>
+                    onUpdateRound((r) => ({
+                      ...r,
+                      contractorGeologistSign: e.target.value,
+                    }))
+                  }
+                  placeholder="Sign"
+                  className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[22%] min-w-0 focus:outline-none"
+                />
+              )}
+              <label
+                title="Upload Contractor Signature PNG"
+                className="px-1 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer shrink-0 print:hidden"
+              >
+                PNG
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      onUpdateRound((r) => ({
+                        ...r,
+                        contractorGeologistSign: String(reader.result || ''),
+                      }));
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
             </div>
           </td>
           <td className="border border-slate-900 bg-white px-2 py-1 w-1/2">
@@ -6256,21 +6301,62 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
                   }))
                 }
                 placeholder="Name"
-                className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[36%] focus:outline-none"
+                className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[32%] min-w-0 focus:outline-none"
               />
               <span className="font-bold text-slate-900 shrink-0">Sign:</span>
-              <input
-                type="text"
-                value={activeRound.clientGeologistSign ?? ''}
-                onChange={(e) =>
-                  onUpdateRound((r) => ({
-                    ...r,
-                    clientGeologistSign: e.target.value,
-                  }))
-                }
-                placeholder="Sign"
-                className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[26%] focus:outline-none"
-              />
+              {activeRound.clientGeologistSign?.startsWith('data:image/') ? (
+                <div className="eswa-signature-fit-box h-7 w-24 border border-slate-300 px-1 relative shrink-0">
+                  <img
+                    src={activeRound.clientGeologistSign}
+                    alt="Client Signature"
+                    className="max-h-full max-w-full w-auto h-auto object-contain"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onUpdateRound((r) => ({ ...r, clientGeologistSign: '' }))}
+                    title="Clear Signature"
+                    className="absolute top-0 right-0.5 text-[8px] font-black text-rose-600 print:hidden cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  value={activeRound.clientGeologistSign ?? ''}
+                  onChange={(e) =>
+                    onUpdateRound((r) => ({
+                      ...r,
+                      clientGeologistSign: e.target.value,
+                    }))
+                  }
+                  placeholder="Sign"
+                  className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[22%] min-w-0 focus:outline-none"
+                />
+              )}
+              <label
+                title="Upload Client Signature PNG"
+                className="px-1 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer shrink-0 print:hidden"
+              >
+                PNG
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      onUpdateRound((r) => ({
+                        ...r,
+                        clientGeologistSign: String(reader.result || ''),
+                      }));
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
             </div>
           </td>
         </tr>

@@ -73,6 +73,10 @@ import {
   saveFieldMappingStore,
 } from '../engine/fieldMappingEngine';
 import {
+  getIsolatedVaultTelemetry,
+  transferRecordToApplicationMode,
+} from '../engine/universalDataRouterEngine';
+import {
   countAllPhotosInStore,
   deleteFieldExcavationRound,
   editFieldExcavationRoundMetadata,
@@ -2262,6 +2266,11 @@ const ProjectMemoryModalContent: React.FC<ProjectMemoryModalProps> = ({
     });
   }, [fieldStore.projects, domainFilter]);
 
+  const natmTelemetry = useMemo(
+    () => getIsolatedVaultTelemetry('NATM'),
+    [fieldStore.rounds.length, statusBanner]
+  );
+
   if (!isOpen) return null;
 
   return (
@@ -2272,11 +2281,17 @@ const ProjectMemoryModalContent: React.FC<ProjectMemoryModalProps> = ({
           <div className="flex items-center gap-2.5">
             <Database className="w-5 h-5 text-orange-600 shrink-0" />
             <div>
-              <div className="font-display font-black text-sm sm:text-base tracking-wide text-stone-900">
-                DATA STORAGE, IMPORT &amp; EXPORT
+              <div className="font-display font-black text-sm sm:text-base tracking-wide text-stone-900 flex items-center gap-2 flex-wrap">
+                <span>NATM ISOLATED DATA VAULT, IMPORT &amp; EXPORT</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-100 border border-orange-400 text-orange-900 font-bold">
+                  ISOLATED NATM ONLY
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-400 text-emerald-900 font-bold">
+                  MULTI-KM SAFE ({natmTelemetry.totalLinearKilometers.toFixed(3)} km / {natmTelemetry.totalLinearMeters.toFixed(1)} m)
+                </span>
               </div>
               <div className="text-[11px] text-stone-600">
-                Systematic Project &amp; Mapping File Manager · Quick File Access, Details &amp; Backup
+                Strictly Isolated NATM Project &amp; Mapping File Manager · Smart Cross-App Import Router Active (Auto-routes Mining &amp; TBM files to their vaults)
               </div>
             </div>
           </div>
@@ -2666,6 +2681,30 @@ const ProjectMemoryModalContent: React.FC<ProjectMemoryModalProps> = ({
                                 >
                                   <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-600" />
                                   <span>Move</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const res = transferRecordToApplicationMode('NATM', 'TBM', rd);
+                                    setStatusBanner(res.summaryMessage);
+                                  }}
+                                  className="px-2 py-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-900 border border-cyan-300 font-bold rounded-lg text-[10px] cursor-pointer"
+                                  title="Send this NATM Round to TBM Vault (reflects exclusively in TBM mode)"
+                                >
+                                  → TBM
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const res = transferRecordToApplicationMode('NATM', 'MINING', rd);
+                                    setStatusBanner(res.summaryMessage);
+                                  }}
+                                  className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded-lg text-[10px] cursor-pointer"
+                                  title="Send this NATM Round to Mining Vault (reflects exclusively in Mining mode)"
+                                >
+                                  → MINING
                                 </button>
 
                                 <button

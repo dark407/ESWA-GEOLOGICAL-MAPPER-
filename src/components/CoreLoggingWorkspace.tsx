@@ -633,23 +633,12 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
       const raw = localStorage.getItem(getModeStorageKey(mode));
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return parsed;
         }
       }
     } catch {}
-    // If not found in isolated vault, generate authentic mode-specific default
-    const def =
-      mode === 'MINING'
-        ? createMiningExampleBorehole()
-        : mode === 'TBM'
-        ? createTbmExampleBorehole()
-        : createNatmExampleBorehole();
-    try {
-      localStorage.setItem(getModeStorageKey(mode), JSON.stringify([def]));
-      localStorage.setItem(getModeActiveIdKey(mode), def.id);
-    } catch {}
-    return [def];
+    return [];
   };
 
   const [boreholes, setBoreholes] = useState<BoreholeRecord[]>([]);
@@ -715,20 +704,22 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
 
   // Sync to mode-specific isolated storage
   const updateBorehole = (updated: BoreholeRecord) => {
-    const nextList = boreholes.map((b) => (b.id === updated.id ? { ...updated, updatedAt: new Date().toISOString() } : b));
+    const exists = boreholes.some((b) => b.id === updated.id);
+    const nextList = exists
+      ? boreholes.map((b) => (b.id === updated.id ? { ...updated, updatedAt: new Date().toISOString() } : b))
+      : [{ ...updated, updatedAt: new Date().toISOString() }, ...boreholes];
     setBoreholes(nextList);
+    if (!activeBoreholeIdState) {
+      setActiveBoreholeIdState(updated.id);
+    }
     try {
       localStorage.setItem(getModeStorageKey(activeIndustryMode), JSON.stringify(nextList));
+      localStorage.setItem(getModeActiveIdKey(activeIndustryMode), updated.id);
     } catch {}
   };
 
-  const currentBorehole = boreholes.find((b) => b.id === activeBoreholeIdState) || boreholes[0] || (
-    activeIndustryMode === 'MINING'
-      ? createMiningExampleBorehole()
-      : activeIndustryMode === 'TBM'
-      ? createTbmExampleBorehole()
-      : createNatmExampleBorehole()
-  );
+  const blankFallbackBorehole = useMemo(() => createEmptyBorehole(''), []);
+  const currentBorehole = boreholes.find((b) => b.id === activeBoreholeIdState) || boreholes[0] || blankFallbackBorehole;
   const summary = calculateBoreholeSummary(currentBorehole);
   const rqdBadge = getRqdBadgeColor(summary.overallRqdRating);
 
@@ -806,15 +797,14 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
     };
   }, [currentBorehole.runs, activeIndustryMode]);
 
-  // Open Create Borehole Modal with smart pre-filled values
+  // Open Create Borehole Modal with clean blank fields
   const handleOpenCreateBorehole = () => {
-    const nextNum = boreholes.length + 1;
     setNewBoreholeForm({
-      boreholeId: activeIndustryMode === 'MINING' ? `DDH-MIN-${String(nextNum).padStart(2, '0')}` : activeIndustryMode === 'TBM' ? `PROBE-TBM-R${String(nextNum).padStart(4, '0')}` : `BH-NATM-${String(nextNum).padStart(2, '0')}`,
-      projectName: currentBorehole.projectName || (activeIndustryMode === 'MINING' ? 'Underground Mine Exploration' : activeIndustryMode === 'TBM' ? 'TBM Mechanized Tunnel' : 'Civil Tunnel Project'),
-      tunnelName: currentBorehole.tunnelName || (activeIndustryMode === 'MINING' ? 'Level 620 mRL Stope Drive' : activeIndustryMode === 'TBM' ? 'South Drive Ring' : 'Main Headrace Drive'),
-      chainageLabel: currentBorehole.chainageLabel || (activeIndustryMode === 'MINING' ? 'Level 620 mRL' : activeIndustryMode === 'TBM' ? 'CH 04+215.00 m' : `Ch. 0+${String(nextNum * 100).padStart(3, '0')}`),
-      collarElevation: currentBorehole.collarElevation || 1250.0,
+      boreholeId: '',
+      projectName: currentBorehole.projectName || '',
+      tunnelName: currentBorehole.tunnelName || '',
+      chainageLabel: currentBorehole.chainageLabel || '',
+      collarElevation: currentBorehole.collarElevation || 0,
       northing: currentBorehole.coordinates?.northing || '',
       easting: currentBorehole.coordinates?.easting || '',
       inclinationDeg: -90,
@@ -824,7 +814,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
       drillingContractor: currentBorehole.drillingContractor || '',
       pmcConsultant: currentBorehole.pmcConsultant || '',
       clientEmployer: currentBorehole.clientEmployer || '',
-      loggedBy: activeGeologistProfile?.name || currentBorehole.loggedBy || 'Site Geologist',
+      loggedBy: activeGeologistProfile?.name || currentBorehole.loggedBy || '',
       startDate: new Date().toISOString().split('T')[0],
       waterTableDepth: '',
     });
@@ -873,10 +863,8 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
   // Delete borehole
   const handleDeleteBorehole = (id: string) => {
     if (boreholes.length <= 1) {
-      alert('Cannot delete the only remaining borehole.');
       return;
     }
-    if (!confirm('Are you sure you want to delete this borehole record? This cannot be undone.')) return;
     const remaining = boreholes.filter((b) => b.id !== id);
     setBoreholes(remaining);
     saveBoreholeRecordsToStorage(remaining);
@@ -948,7 +936,6 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
   };
 
   const handleDeleteRun = (runId: string) => {
-    if (!confirm('Are you sure you want to remove this core run?')) return;
     let nextRuns = currentBorehole.runs.filter((r) => r.id !== runId);
     nextRuns = nextRuns.map((r, idx) => ({ ...r, runNumber: idx + 1 }));
     const nextBorehole = {
@@ -1008,7 +995,6 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
   };
 
   const handleDeletePhoto = (photoId: string) => {
-    if (!confirm('Are you sure you want to delete this photo record?')) return;
     const nextPhotos = (currentBorehole.photos || []).filter((p) => p.id !== photoId);
     updateBorehole({
       ...currentBorehole,
@@ -2384,15 +2370,30 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
 
                 <div className="mt-4 pt-3 border-t border-slate-800">
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Signature</label>
-                  <div className="h-20 bg-slate-950 border border-slate-700 rounded-lg flex items-center justify-center overflow-hidden mb-2 relative">
+                  <div className="eswa-signature-fit-box h-20 bg-white border border-slate-300 rounded-lg p-1.5 flex items-center justify-center overflow-hidden mb-2 relative">
                     {currentBorehole.signOff.contractorSignature ? (
-                      <img
-                        src={currentBorehole.signOff.contractorSignature}
-                        alt="Contractor Signature"
-                        className="max-h-16 object-contain invert brightness-200"
-                      />
+                      <>
+                        <img
+                          src={currentBorehole.signOff.contractorSignature}
+                          alt="Contractor Signature"
+                          className="max-h-16 max-w-full w-auto h-auto object-contain"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateBorehole({
+                              ...currentBorehole,
+                              signOff: { ...currentBorehole.signOff, contractorSignature: '' },
+                            })
+                          }
+                          title="Clear Contractor Signature"
+                          className="absolute top-1 right-1.5 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </>
                     ) : (
-                      <span className="text-[10px] text-slate-500 font-bold italic">No signature recorded</span>
+                      <span className="text-[10px] text-slate-400 font-bold italic">No signature recorded</span>
                     )}
                   </div>
 
@@ -2405,6 +2406,31 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
                       <PenTool className="w-3 h-3" />
                       <span>Draw / Sign</span>
                     </button>
+
+                    <label className="px-2.5 py-1.5 rounded text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 flex items-center justify-center gap-1 cursor-pointer transition-colors">
+                      <Upload className="w-3 h-3" />
+                      <span>Upload PNG</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            updateBorehole({
+                              ...currentBorehole,
+                              signOff: {
+                                ...currentBorehole.signOff,
+                                contractorSignature: String(reader.result || ''),
+                              },
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
 
                     {activeGeologistProfile && activeGeologistProfile.role === 'Contractor' && (
                       <button
@@ -2482,15 +2508,30 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
 
                 <div className="mt-4 pt-3 border-t border-slate-800">
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Signature</label>
-                  <div className="h-20 bg-slate-950 border border-slate-700 rounded-lg flex items-center justify-center overflow-hidden mb-2 relative">
+                  <div className="eswa-signature-fit-box h-20 bg-white border border-slate-300 rounded-lg p-1.5 flex items-center justify-center overflow-hidden mb-2 relative">
                     {currentBorehole.signOff.pmcSignature ? (
-                      <img
-                        src={currentBorehole.signOff.pmcSignature}
-                        alt="PMC Signature"
-                        className="max-h-16 object-contain invert brightness-200"
-                      />
+                      <>
+                        <img
+                          src={currentBorehole.signOff.pmcSignature}
+                          alt="PMC Signature"
+                          className="max-h-16 max-w-full w-auto h-auto object-contain"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateBorehole({
+                              ...currentBorehole,
+                              signOff: { ...currentBorehole.signOff, pmcSignature: '' },
+                            })
+                          }
+                          title="Clear PMC Signature"
+                          className="absolute top-1 right-1.5 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </>
                     ) : (
-                      <span className="text-[10px] text-slate-500 font-bold italic">No signature recorded</span>
+                      <span className="text-[10px] text-slate-400 font-bold italic">No signature recorded</span>
                     )}
                   </div>
 
@@ -2503,6 +2544,31 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
                       <PenTool className="w-3 h-3" />
                       <span>Draw / Sign</span>
                     </button>
+
+                    <label className="px-2.5 py-1.5 rounded text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-blue-300 border border-slate-700 flex items-center justify-center gap-1 cursor-pointer transition-colors">
+                      <Upload className="w-3 h-3" />
+                      <span>Upload PNG</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            updateBorehole({
+                              ...currentBorehole,
+                              signOff: {
+                                ...currentBorehole.signOff,
+                                pmcSignature: String(reader.result || ''),
+                              },
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
 
                     {activeGeologistProfile && activeGeologistProfile.role === 'PMC' && (
                       <button
@@ -2580,15 +2646,30 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
 
                 <div className="mt-4 pt-3 border-t border-slate-800">
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Signature</label>
-                  <div className="h-20 bg-slate-950 border border-slate-700 rounded-lg flex items-center justify-center overflow-hidden mb-2 relative">
+                  <div className="eswa-signature-fit-box h-20 bg-white border border-slate-300 rounded-lg p-1.5 flex items-center justify-center overflow-hidden mb-2 relative">
                     {currentBorehole.signOff.clientSignature ? (
-                      <img
-                        src={currentBorehole.signOff.clientSignature}
-                        alt="Client Signature"
-                        className="max-h-16 object-contain invert brightness-200"
-                      />
+                      <>
+                        <img
+                          src={currentBorehole.signOff.clientSignature}
+                          alt="Client Signature"
+                          className="max-h-16 max-w-full w-auto h-auto object-contain"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateBorehole({
+                              ...currentBorehole,
+                              signOff: { ...currentBorehole.signOff, clientSignature: '' },
+                            })
+                          }
+                          title="Clear Client Signature"
+                          className="absolute top-1 right-1.5 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </>
                     ) : (
-                      <span className="text-[10px] text-slate-500 font-bold italic">No signature recorded</span>
+                      <span className="text-[10px] text-slate-400 font-bold italic">No signature recorded</span>
                     )}
                   </div>
 
@@ -2601,6 +2682,31 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
                       <PenTool className="w-3 h-3" />
                       <span>Draw / Sign</span>
                     </button>
+
+                    <label className="px-2.5 py-1.5 rounded text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 flex items-center justify-center gap-1 cursor-pointer transition-colors">
+                      <Upload className="w-3 h-3" />
+                      <span>Upload PNG</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            updateBorehole({
+                              ...currentBorehole,
+                              signOff: {
+                                ...currentBorehole.signOff,
+                                clientSignature: String(reader.result || ''),
+                              },
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
 
                     {activeGeologistProfile && activeGeologistProfile.role === 'Client' && (
                       <button
@@ -3081,7 +3187,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
                 Use your finger or mouse to draw your signature below or upload a PNG file.
               </p>
 
-              <div className="border border-slate-700 rounded-xl overflow-hidden bg-slate-950">
+              <div className="border-2 border-slate-400 rounded-xl overflow-hidden bg-white">
                 <canvas
                   ref={sigCanvasRef}
                   width={380}
@@ -3093,7 +3199,7 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
                   onTouchStart={startDrawingSig}
                   onTouchMove={drawSig}
                   onTouchEnd={stopDrawingSig}
-                  className="w-full h-36 touch-none cursor-crosshair block"
+                  className="w-full h-36 touch-none cursor-crosshair block bg-white"
                 />
               </div>
 

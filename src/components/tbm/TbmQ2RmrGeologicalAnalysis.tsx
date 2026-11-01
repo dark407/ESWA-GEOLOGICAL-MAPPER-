@@ -1213,7 +1213,7 @@ export const TbmQ2RmrGeologicalAnalysis: React.FC<TbmQ2RmrGeologicalAnalysisProp
             <div>
               <h3 className="font-bold text-xs text-cyan-300 uppercase flex items-center gap-2">
                 <Layers className="w-4 h-4 text-cyan-400" />
-                <span>LONGITUDINAL CHAINAGE PROFILE (RD {activeLocation?.startChainageRd.toFixed(2)}m – {activeLocation?.endChainageRd?.toFixed(2) || '1550.00'}m)</span>
+                <span>LONGITUDINAL CHAINAGE PROFILE (RD {(activeLocation?.startChainageRd ?? 0).toFixed(2)}m – {activeLocation?.endChainageRd?.toFixed(2) || '1550.00'}m)</span>
               </h3>
               <p className="text-[11px] text-slate-400">
                 Continuous chainage alignment with geological lithology, rock mass Q/RMR classes, cover depth, and groundwater ingress.
@@ -1231,7 +1231,7 @@ export const TbmQ2RmrGeologicalAnalysis: React.FC<TbmQ2RmrGeologicalAnalysisProp
                   const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = `TBM_Longitudinal_Profile_RD_${activeLocation?.startChainageRd.toFixed(0)}_to_${activeLocation?.endChainageRd?.toFixed(0) || 1550}.svg`;
+                  a.download = `TBM_Longitudinal_Profile_RD_${(activeLocation?.startChainageRd ?? 0).toFixed(0)}_to_${activeLocation?.endChainageRd?.toFixed(0) || 1550}.svg`;
                   document.body.appendChild(a);
                   a.click();
                   document.body.removeChild(a);
@@ -1449,7 +1449,7 @@ export const TbmQ2RmrGeologicalAnalysis: React.FC<TbmQ2RmrGeologicalAnalysisProp
                   const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = `TBM_Predicted_vs_Encountered_Geology_RD_${activeLocation?.startChainageRd.toFixed(0)}_to_${activeLocation?.endChainageRd?.toFixed(0) || 1550}.svg`;
+                  a.download = `TBM_Predicted_vs_Encountered_Geology_RD_${(activeLocation?.startChainageRd ?? 0).toFixed(0)}_to_${activeLocation?.endChainageRd?.toFixed(0) || 1550}.svg`;
                   document.body.appendChild(a);
                   a.click();
                   document.body.removeChild(a);

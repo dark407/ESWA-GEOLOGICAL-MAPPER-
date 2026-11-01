@@ -1063,35 +1063,83 @@ canvas,
   height: 14px !important;
 }
 
+/* ============================================================================
+   QA/QC LOGO & SIGNATURE STRICT FIT CONTAINERS
+   Ensures uploaded logos and signature PNGs strictly fit inside their target box
+   ============================================================================ */
+.eswa-logo-fit-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.eswa-logo-fit-box img {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain !important;
+  display: block;
+}
+
+.eswa-signature-fit-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  background-color: #ffffff;
+}
+
+.eswa-signature-fit-box img {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain !important;
+  mix-blend-mode: multiply;
+  display: block;
+}
+
 @media print {
   @page {
     size: auto;
     margin: 6mm;
   }
   @page a4-portrait {
-    size: A4 portrait;
+    size: 210mm 297mm;
     margin: 6mm;
   }
   @page a4-landscape {
-    size: A4 landscape;
+    size: 297mm 210mm;
     margin: 6mm;
   }
   @page a3-landscape {
-    size: A3 landscape;
+    size: 420mm 297mm;
     margin: 6mm;
   }
   @page a3-portrait {
-    size: A3 portrait;
+    size: 297mm 420mm;
     margin: 6mm;
   }
 
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-sizing: border-box !important;
+  }
+
   body.print-a4-portrait,
-  .print-page-a4 {
+  .print-page-a4,
+  .a4-page {
     page: a4-portrait;
   }
 
   body.print-a3-landscape,
-  .print-page-a3 {
+  .print-page-a3,
+  .a3-landscape-page {
     page: a3-landscape;
   }
 
@@ -1104,6 +1152,44 @@ canvas,
     overflow: visible !important;
     background: #ffffff !important;
     color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  #field-mapping-report-page-1,
+  #field-photo-report-page-1,
+  #field-surface-report-page-1,
+  #field-surface-report-page-2 {
+    width: 198mm !important;
+    max-width: 198mm !important;
+    min-height: 282mm !important;
+    margin: 0 auto !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    box-shadow: none !important;
+  }
+
+  #field-mapping-report-page-2,
+  #field-photo-report-page-2,
+  #field-surface-report-page-3 {
+    width: 198mm !important;
+    max-width: 198mm !important;
+    min-height: 282mm !important;
+    margin: 0 auto !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    box-shadow: none !important;
+  }
+
+  .a4-page {
+    width: 198mm !important;
+    max-width: 198mm !important;
+    margin: 0 auto !important;
+    box-shadow: none !important;
   }
 
   .no-print,
@@ -1267,3 +1353,19 @@ svg:not([aria-hidden="true"]) {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+
+/* ============================================================================
+   FRONT-END QA/QC GLOBAL TYPOGRAPHY, TABLE ALIGNMENT & ACCESSIBILITY GUARDS
+   ============================================================================ */
+table th,
+table td {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: break-word;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--theme-accent, #f59e0b);
+  outline-offset: 2px;
+}
+

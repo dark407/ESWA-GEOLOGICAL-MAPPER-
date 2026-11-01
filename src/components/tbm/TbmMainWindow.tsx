@@ -13,26 +13,14 @@ import {
   Database,
   ArrowRight,
   Play,
-  LogIn,
-  LogOut,
-  User as UserIcon,
-  Cloud,
-  RefreshCw,
   Settings,
-  Shield,
   Layers,
-  CheckCircle2,
-  HardDrive,
-  Download,
-  FolderOpen,
-  Box,
   MessageSquare,
 } from 'lucide-react';
 import { EswaAppBackgroundWatermark, EswaTunnelLogo, playEswaWelcomeChime } from '../EswaBrandIdentity';
-import { ThemeToggleButton, useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../context/ThemeContext';
 import { IndustryMode } from '../../types/tunnel';
-import { GoogleUserAccountInfo, GeologistUserProfile } from '../../engine/userCloudAndPackageEngine';
-import { DeviceIdAndNotificationHeaderWidget } from '../DeviceIdReviewAndNotificationCenter';
+import type { GoogleUserAccountInfo, GeologistUserProfile } from '../../engine/userCloudAndPackageEngine';
 import {
   loadTbmProjects,
   loadTbmLocations,
@@ -40,8 +28,6 @@ import {
   getActiveTbmProjectId,
   getActiveTbmLocationId,
   getActiveTbmRecordId,
-  getDefaultStartupMode,
-  setDefaultStartupMode,
 } from '../../engine/tbmStorageEngine';
 import { TbmDataStorageModal } from './TbmDataStorageModal';
 import { TbmWorkflowShell, TbmWorkflowStage } from './TbmWorkflowShell';
@@ -77,7 +63,6 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
 }) => {
   const [activeWorkflowStage, setActiveWorkflowStage] = useState<TbmWorkflowStage | null>(null);
   const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
-  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const { palette } = useTheme();
 
   // Load isolated TBM state
@@ -201,23 +186,6 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
             showBadge={false}
             isMasterEdition={isMasterSoftware}
           />
-          <div className="mt-2 text-center select-none">
-            <h1 className="text-xl sm:text-2xl font-black tracking-wide uppercase drop-shadow-sm font-display flex items-center justify-center gap-2">
-              {isMasterSoftware ? (
-                <>
-                  <span className="px-2.5 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs sm:text-sm font-black tracking-widest uppercase shadow">
-                    MASTER
-                  </span>
-                  <span className="text-white font-black">ESWA GEOLOGICAL MAPPER</span>
-                </>
-              ) : (
-                <span className="text-white font-black">ESWA GEOLOGICAL MAPPER</span>
-              )}
-            </h1>
-            <p className="text-xs font-mono text-cyan-400 font-semibold tracking-wider mt-0.5">
-              TBM Mechanized Shield Suite
-            </p>
-          </div>
         </div>
 
         {/* ONLY TWO MAIN OPTIONS: 1. TBM Data Analysis & 2. Data & Storage */}
@@ -295,36 +263,7 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
             </button>
           </div>
 
-          {/* OPTION 3: Continuous 3D Tunnel Mapping & Strip CAD */}
-          {onOpenContinuousTunnelLog && (
-            <div className="w-full">
-              <button
-                type="button"
-                onClick={onOpenContinuousTunnelLog}
-                className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 bg-slate-900 hover:bg-slate-850 border-2 border-cyan-500/40 hover:border-cyan-400 transition-all cursor-pointer group shadow-lg shadow-cyan-500/10 text-cyan-300"
-              >
-                <span className="flex items-center gap-2.5">
-                  <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400">
-                    <Box className="w-4 h-4" />
-                  </div>
-                  <div className="text-left font-mono">
-                    <div className="font-bold text-slate-100">
-                      3. Continuous 3D Tunnel Mapping &amp; Strip CAD Log
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-normal">
-                      Multi-ring longitudinal 3D tunnel strip log, unrolled crown &amp; walls CAD
-                    </div>
-                  </div>
-                </span>
-                <span className="text-[11px] font-mono text-cyan-400 font-bold group-hover:underline flex items-center gap-1">
-                  <span>Launch 3D Log</span>
-                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                </span>
-              </button>
-            </div>
-          )}
-
-          {/* OPTION 4: Geotechnical Core Logging */}
+          {/* OPTION 3: Geotechnical Core Logging */}
           {onOpenCoreLogging && (
             <div className="w-full">
               <button
@@ -338,10 +277,7 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
                   </div>
                   <div className="text-left font-mono">
                     <div className="font-bold text-slate-100">
-                      4. Geological &amp; Geotechnical Core Logging
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-normal">
-                      Borehole core runs, RQD %, TCR/SCR, weathering &amp; strip log export
+                      Geological &amp; Geotechnical Core Logging
                     </div>
                   </div>
                 </span>
@@ -353,21 +289,6 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
             </div>
           )}
         </div>
-
-        {/* Compact Site Status Strip */}
-        {currentProject && (
-          <div className="w-full p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-[11px] font-mono flex flex-wrap items-center justify-between text-slate-400 gap-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Active Project: <strong className="text-cyan-300">{currentProject.projectName}</strong></span>
-            </div>
-            {currentRecord && (
-              <div>
-                <span>Latest: <strong className="text-emerald-400">Ring #{currentRecord.chainageRecord.ringNumber}</strong> (RD {currentRecord.chainageRecord.startChainage.toFixed(2)}m)</span>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* TBM Isolated Data Storage Modal */}

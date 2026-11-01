@@ -473,8 +473,8 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
                     {/* Depth Section Graphic Bar for this Sheet */}
                     <div className="p-2 border border-slate-400 bg-slate-50 mb-3">
                       <div className="text-[8.5px] font-bold uppercase tracking-wider text-slate-700 mb-1">
-                        Interval RQD &amp; Lithological Graphic Log ({runsChunk[0]?.depthFrom.toFixed(1)}m –{' '}
-                        {runsChunk[runsChunk.length - 1]?.depthTo.toFixed(1)}m)
+                        Interval RQD &amp; Lithological Graphic Log ({(runsChunk[0]?.depthFrom ?? 0).toFixed(1)}m –{' '}
+                        {(runsChunk[runsChunk.length - 1]?.depthTo ?? 0).toFixed(1)}m)
                       </div>
                       <div className="space-y-1">
                         {runsChunk.map((r) => (
@@ -786,17 +786,17 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
                           </div>
 
                           <div className="mt-2 pt-2 border-t border-slate-300">
-                            <div className="h-14 flex items-center justify-center border border-slate-300 rounded bg-white mb-1 overflow-hidden relative">
+                            <div className="eswa-signature-fit-box h-14 px-2 py-1 flex items-center justify-center border border-slate-300 rounded bg-white mb-1 overflow-hidden relative">
                               {borehole.signOff.contractorSignature ? (
                                 <img
                                   src={borehole.signOff.contractorSignature}
                                   alt="Contractor Signature"
-                                  className="max-h-12 object-contain"
+                                  className="max-h-11 max-w-[85%] w-auto h-auto object-contain"
                                 />
                               ) : (
                                 <span className="text-[8.5px] text-slate-400 font-mono italic">[Signature on File]</span>
                               )}
-                              <div className="absolute top-0.5 right-1 text-[7px] text-slate-400 font-mono uppercase">
+                              <div className="absolute top-0.5 right-1 text-[7px] text-slate-400 font-mono uppercase pointer-events-none">
                                 Stamp / Sign
                               </div>
                             </div>
@@ -825,17 +825,17 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
                           </div>
 
                           <div className="mt-2 pt-2 border-t border-slate-300">
-                            <div className="h-14 flex items-center justify-center border border-slate-300 rounded bg-white mb-1 overflow-hidden relative">
+                            <div className="eswa-signature-fit-box h-14 px-2 py-1 flex items-center justify-center border border-slate-300 rounded bg-white mb-1 overflow-hidden relative">
                               {borehole.signOff.pmcSignature ? (
                                 <img
                                   src={borehole.signOff.pmcSignature}
                                   alt="PMC Signature"
-                                  className="max-h-12 object-contain"
+                                  className="max-h-11 max-w-[85%] w-auto h-auto object-contain"
                                 />
                               ) : (
                                 <span className="text-[8.5px] text-slate-400 font-mono italic">[Signature on File]</span>
                               )}
-                              <div className="absolute top-0.5 right-1 text-[7px] text-slate-400 font-mono uppercase">
+                              <div className="absolute top-0.5 right-1 text-[7px] text-slate-400 font-mono uppercase pointer-events-none">
                                 Stamp / Sign
                               </div>
                             </div>
@@ -864,17 +864,17 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
                           </div>
 
                           <div className="mt-2 pt-2 border-t border-slate-300">
-                            <div className="h-14 flex items-center justify-center border border-slate-300 rounded bg-white mb-1 overflow-hidden relative">
+                            <div className="eswa-signature-fit-box h-14 px-2 py-1 flex items-center justify-center border border-slate-300 rounded bg-white mb-1 overflow-hidden relative">
                               {borehole.signOff.clientSignature ? (
                                 <img
                                   src={borehole.signOff.clientSignature}
                                   alt="Client Signature"
-                                  className="max-h-12 object-contain"
+                                  className="max-h-11 max-w-[85%] w-auto h-auto object-contain"
                                 />
                               ) : (
                                 <span className="text-[8.5px] text-slate-400 font-mono italic">[Signature on File]</span>
                               )}
-                              <div className="absolute top-0.5 right-1 text-[7px] text-slate-400 font-mono uppercase">
+                              <div className="absolute top-0.5 right-1 text-[7px] text-slate-400 font-mono uppercase pointer-events-none">
                                 Stamp / Sign
                               </div>
                             </div>

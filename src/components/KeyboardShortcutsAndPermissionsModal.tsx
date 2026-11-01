@@ -142,6 +142,7 @@ export const KeyboardShortcutsAndPermissionsModal: React.FC<KeyboardShortcutsAnd
   const [permState, setPermState] = useState<MobilePermissionsState | null>(null);
   const [isTestingCamera, setIsTestingCamera] = useState(false);
   const [cameraTestSuccess, setCameraTestSuccess] = useState<boolean | null>(null);
+  const [fileTestMsg, setFileTestMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -413,11 +414,16 @@ export const KeyboardShortcutsAndPermissionsModal: React.FC<KeyboardShortcutsAnd
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          alert(`File access confirmed: ${file.name} (${Math.round(file.size / 1024)} KB)`);
+                          setFileTestMsg(`File access confirmed: ${file.name} (${Math.round(file.size / 1024)} KB)`);
                         }
                       }}
                     />
                   </label>
+                  {fileTestMsg && (
+                    <div className="mt-2 rounded-lg bg-emerald-950/60 border border-emerald-500/40 px-2.5 py-1.5 text-[11px] text-emerald-300 font-medium">
+                      {fileTestMsg}
+                    </div>
+                  )}
                 </div>
               </div>
 

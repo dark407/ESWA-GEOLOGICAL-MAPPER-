@@ -186,11 +186,12 @@ async function startServer() {
         </p>
       </div>`;
 
-      // Target both primary and secondary Master Owner Gmail addresses so whichever inbox is checked receives the code
+      // Target all Master Owner Gmail addresses so whichever inbox is checked receives the code
       const recipientSet = new Set<string>([
         cleanEmail,
         'akashdhanusheswar@gmail.com',
         'dhoniakash707@gmail.com',
+        'dhoniakash407@gmail.com',
       ]);
 
       let emailDelivered = false;
@@ -2390,6 +2391,7 @@ ${safeJsContent}
     software_licenses: Record<string, Record<string, unknown>>;
     software_releases: Record<string, Record<string, unknown>>;
     master_pcs: Record<string, Record<string, unknown>>;
+    deleted_tombstones?: Record<string, string>;
     email_config?: {
       smtpAppPassword?: string;
       oauthAccessToken?: string;
@@ -2407,6 +2409,7 @@ ${safeJsContent}
           software_licenses: parsed.software_licenses || {},
           software_releases: parsed.software_releases || {},
           master_pcs: parsed.master_pcs || {},
+          deleted_tombstones: parsed.deleted_tombstones || {},
           email_config: parsed.email_config || {},
         };
       }
@@ -2418,6 +2421,7 @@ ${safeJsContent}
       software_licenses: {},
       software_releases: {},
       master_pcs: {},
+      deleted_tombstones: {},
       email_config: {},
     };
   };
@@ -2672,23 +2676,47 @@ ${safeJsContent}
     res.status(204).end();
   });
 
+  const isServerRecordTombstoned = (
+    rec: Record<string, unknown> | undefined,
+    tombstones: Record<string, string>
+  ): boolean => {
+    if (!rec) return false;
+    const candidateKeys = [
+      rec.requestId,
+      rec.userId,
+      rec.assignedUserId,
+      rec.pcHardwareId,
+      rec.boundPcHardwareId,
+      rec.email,
+    ]
+      .map((v) => String(v || '').trim().toLowerCase())
+      .filter(Boolean);
+    return candidateKeys.some((k) => Boolean(tombstones[k]));
+  };
+
   app.get('/api/licensing/state', (_req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const store = readServerLicensingStore();
+    const tombstones = store.deleted_tombstones || {};
     res.json({
       ok: true,
-      access_requests: Object.values(store.access_requests),
-      software_licenses: Object.values(store.software_licenses),
+      access_requests: Object.values(store.access_requests).filter(
+        (r) => !isServerRecordTombstoned(r, tombstones)
+      ),
+      software_licenses: Object.values(store.software_licenses).filter(
+        (l) => !isServerRecordTombstoned(l, tombstones)
+      ),
       software_releases: Object.values(store.software_releases),
       master_pcs: Object.values(store.master_pcs),
+      deleted_tombstones: tombstones,
     });
   });
 
   app.post('/api/licensing/upsert', (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     try {
-      const { collection, id, record } = req.body || {};
+      const { collection, id, record, clearTombstone } = req.body || {};
       const validCols = [
         'access_requests',
         'software_licenses',
@@ -2706,8 +2734,36 @@ ${safeJsContent}
         return;
       }
       const store = readServerLicensingStore();
-      const targetMap = store[collection as keyof ServerLicensingStore];
-      targetMap[id] = { ...(targetMap[id] || {}), ...(record as Record<string, unknown>) };
+      if (!store.deleted_tombstones) {
+        store.deleted_tombstones = {};
+      }
+      const recObj = record as Record<string, unknown>;
+      const candidateKeys = [
+        id,
+        recObj.requestId,
+        recObj.userId,
+        recObj.assignedUserId,
+        recObj.pcHardwareId,
+        recObj.boundPcHardwareId,
+        recObj.email,
+      ]
+        .map((v) => String(v || '').trim().toLowerCase())
+        .filter(Boolean);
+
+      if (clearTombstone === true) {
+        for (const k of candidateKeys) {
+          delete store.deleted_tombstones[k];
+        }
+      } else if (
+        (collection === 'access_requests' || collection === 'software_licenses') &&
+        candidateKeys.some((k) => Boolean(store.deleted_tombstones?.[k]))
+      ) {
+        res.json({ ok: true, ignoredTombstoned: true });
+        return;
+      }
+
+      const targetMap = store[collection as 'access_requests' | 'software_licenses' | 'software_releases' | 'master_pcs'];
+      targetMap[id] = { ...(targetMap[id] || {}), ...recObj };
       writeServerLicensingStore(store);
       res.json({ ok: true, item: targetMap[id] });
     } catch (err: unknown) {
@@ -2721,7 +2777,7 @@ ${safeJsContent}
   app.post('/api/licensing/delete', (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     try {
-      const { collection, id } = req.body || {};
+      const { collection, id, relatedIds } = req.body || {};
       const validCols = [
         'access_requests',
         'software_licenses',
@@ -2733,8 +2789,69 @@ ${safeJsContent}
         return;
       }
       const store = readServerLicensingStore();
-      const targetMap = store[collection as keyof ServerLicensingStore];
+      if (!store.deleted_tombstones) {
+        store.deleted_tombstones = {};
+      }
+      const targetMap = store[collection as 'access_requests' | 'software_licenses' | 'software_releases' | 'master_pcs'];
+      const existingRec = targetMap[id];
       delete targetMap[id];
+
+      if (collection === 'access_requests' || collection === 'software_licenses') {
+        const nowIso = new Date().toISOString();
+        const extraIds = Array.isArray(relatedIds) ? relatedIds : [];
+        const allTombstoneKeys = new Set<string>(
+          [
+            id,
+            id.startsWith('req_') ? id.slice(4) : `req_${id}`,
+            ...extraIds,
+            existingRec?.requestId,
+            existingRec?.userId,
+            existingRec?.assignedUserId,
+            existingRec?.pcHardwareId,
+            existingRec?.boundPcHardwareId,
+            existingRec?.email,
+          ]
+            .map((v) => String(v || '').trim().toLowerCase())
+            .filter(Boolean)
+        );
+
+        // Scan both access_requests and software_licenses to purge any linked records
+        for (const [reqKey, reqVal] of Object.entries(store.access_requests)) {
+          const rKeys = [
+            reqKey,
+            reqVal?.requestId,
+            reqVal?.assignedUserId,
+            reqVal?.pcHardwareId,
+            reqVal?.email,
+          ]
+            .map((v) => String(v || '').trim().toLowerCase())
+            .filter(Boolean);
+          if (rKeys.some((k) => allTombstoneKeys.has(k))) {
+            rKeys.forEach((k) => allTombstoneKeys.add(k));
+            delete store.access_requests[reqKey];
+          }
+        }
+
+        for (const [licKey, licVal] of Object.entries(store.software_licenses)) {
+          const lKeys = [
+            licKey,
+            licVal?.userId,
+            licVal?.boundPcHardwareId,
+            licVal?.email,
+          ]
+            .map((v) => String(v || '').trim().toLowerCase())
+            .filter(Boolean);
+          if (lKeys.some((k) => allTombstoneKeys.has(k))) {
+            lKeys.forEach((k) => allTombstoneKeys.add(k));
+            delete store.software_licenses[licKey];
+          }
+        }
+
+        for (const tk of allTombstoneKeys) {
+          store.deleted_tombstones[tk] = nowIso;
+        }
+      }
+
       writeServerLicensingStore(store);
       res.json({ ok: true });
     } catch (err: unknown) {
