@@ -7,7 +7,7 @@ function createMainWindow() {
     height: 960,
     minWidth: 1100,
     minHeight: 720,
-    title: 'Akash Tunnel Joint Tracer — PC Engineering Suite',
+    title: 'ESWA GEOLOGICAL MAPPER',
     backgroundColor: '#0B0E14',
     autoHideMenuBar: true,
     webPreferences: {

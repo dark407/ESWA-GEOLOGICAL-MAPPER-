@@ -59,21 +59,22 @@ import {
 interface SoftwareAccessGateProps {
   onAuthorizedSession: (session: ActivatedClientSession) => void;
   suspendedLicense?: SoftwareLicenseRecord | null;
+  revokedMessage?: string | null;
   isOwnerPreview?: boolean;
   onExitOwnerPreview?: () => void;
 }
 
 /**
- * Normal User Software & Android App Instant Registration & Login Gate:
- * - Freshly installed users simply enter their details (Name, Email, Phone, Organization, Role)
- *   and immediately log into the App / Software without waiting for manual Master activation.
- * - Automatically sends their profile & device info (Android App or PC Software) to the Master App & Master Software
- *   so the Master can view all users and Suspend / Reactivate any user in real time.
- * - Automatically sends a Welcome Email with ESWA Tunnel Mapper App & Software Features.
+ * Normal User Software & Android App First-Time Registration & Access Gate:
+ * - Freshly installed users must enter their Name, Email, Position, and Mobile Number
+ *   before getting access and entering the software.
+ * - Automatically sends their profile & device info to Master Access so the Master Owner
+ *   can manage users, and any Revoke or Delete action reflects on the user side immediately.
  */
 export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
   onAuthorizedSession,
   suspendedLicense = null,
+  revokedMessage = null,
   isOwnerPreview = false,
   onExitOwnerPreview,
 }) => {
@@ -84,12 +85,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
     'instant_register'
   );
 
-  // Instant Registration & Login Form State (Default for Fresh Install)
+  // First-Time User Registration Form State (Name, Email, Position, Mobile Number)
   const [fullName, setFullName] = useState<string>('');
   const [organization, setOrganization] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [phone, setPhone] = useState<string>('');
-  const [roleTitle, setRoleTitle] = useState<string>('Tunnel Geologist / Engineer');
+  const [roleTitle, setRoleTitle] = useState<string>('');
   const [purposeNotes, setPurposeNotes] = useState<string>('');
   const [submittingReq, setSubmittingReq] = useState<boolean>(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
@@ -165,8 +166,10 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
 
   const handleInstantRegisterAndEnter = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim() || !phone.trim() || !organization.trim()) {
-      setRegisterError('Please enter your Full Name, Email, Phone, and Organization.');
+    if (!fullName.trim() || !email.trim() || !roleTitle.trim() || !phone.trim()) {
+      setRegisterError(
+        'Please enter your Name, Email, Position, and Mobile Number to access the software.'
+      );
       return;
     }
     setRegisterError(null);
@@ -184,12 +187,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
         // Ignore
       }
       const result = await registerInstantUserAndLogin({
-        fullName,
-        email,
-        phone,
-        organization,
-        roleTitle,
-        purposeNotes,
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        organization: organization.trim() || roleTitle.trim(),
+        roleTitle: roleTitle.trim(),
+        purposeNotes: purposeNotes.trim(),
       });
       onAuthorizedSession(result.session);
     } catch (err: unknown) {
@@ -209,9 +212,16 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
     try {
       const fresh = await getSoftwareLicenseById(suspendedLicense.userId);
       if (fresh && fresh.status === 'ACTIVE') {
+        const resolvedPos =
+          fresh.boundPcName && fresh.boundPcName.includes('·')
+            ? fresh.boundPcName.split('·').slice(1).join('·').trim()
+            : fresh.password || 'Geologist';
         const restoredSession: ActivatedClientSession = {
           userId: fresh.userId,
           fullName: fresh.fullName,
+          email: fresh.email,
+          phone: fresh.phone,
+          roleTitle: resolvedPos,
           organization: fresh.organization,
           licenseKey: fresh.licenseKey,
           pcHardwareId: pcInfo.pcHardwareId,
@@ -281,7 +291,7 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
     <div className="min-h-dvh w-full bg-[#070A0F] text-slate-100 flex flex-col justify-between p-3.5 sm:p-6 overflow-y-auto">
       {/* Owner Preview Strip (only visible when Master Owner clicks "Preview User Software") */}
       {isOwnerPreview && onExitOwnerPreview && (
-        <div className="max-w-5xl w-full mx-auto mb-3 px-4 py-2 rounded-xl bg-cyan-950/90 border border-cyan-500/60 flex items-center justify-between gap-3 text-xs">
+        <div className="max-w-5xl w-full mx-auto mb-3 px-4 py-2 rounded-xl bg-cyan-950/70 border border-cyan-500/40 flex items-center justify-between gap-3 text-xs">
           <span className="text-cyan-200 font-medium">
             Previewing <strong>Normal User App / Software Edition</strong> (1-Step Instant Registration &amp; Login)
           </span>
@@ -296,8 +306,8 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
       )}
 
       {/* Top Bar: Software Branding & Zero-Warning 1-Tap Install */}
-      <header className="max-w-5xl w-full mx-auto flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/90 pb-3.5">
-        <div className="flex items-center gap-2.5">
+      <header className="max-w-5xl w-full mx-auto flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+        <div className="flex items-center gap-3">
           <EswaTunnelLogo size="sm" />
           <div>
             <div className="font-display font-bold text-sm sm:text-base tracking-wide text-white">
@@ -305,8 +315,8 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
             </div>
             <div className="text-[11px] text-slate-400">
               {isMobileApp
-                ? 'Android Mobile App · Instant Registration & Login'
-                : 'PC Workstation & Mobile App · Instant Registration & Login'}
+                ? 'Android Mobile App · First-Time Registration & Access'
+                : 'PC Workstation & Mobile App · First-Time Registration & Access'}
             </div>
           </div>
         </div>
@@ -319,7 +329,7 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
 
       {/* Main Gate Card */}
       <main className="max-w-xl w-full mx-auto my-auto py-4 sm:py-6">
-        <div className="bg-[#0F141C] border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-5">
+        <div className="bg-[#0F141C] border-2 border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-5">
           {/* Cryptographic Tamper Violation Lockout Alert */}
           {tamperLockout && (
             <div className="p-4 rounded-xl bg-red-950/90 border-2 border-red-500/90 space-y-2.5">
@@ -348,38 +358,45 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
             </div>
           )}
 
-          {/* Suspended Account Alert (if Master Admin suspended this user) */}
-          {suspendedLicense && (
+          {/* Revoked / Deleted / Suspended Account Alert */}
+          {(suspendedLicense || revokedMessage) && (
             <div className="p-4 rounded-xl bg-rose-950/90 border-2 border-rose-500/80 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
                   <Lock className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>ACCOUNT SUSPENDED BY MASTER ADMINISTRATOR</span>
+                  <span>ACCESS REVOKED BY MASTER ADMINISTRATOR</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleCheckSuspendedStatus}
-                  disabled={checkingStatus}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-800 hover:bg-rose-700 text-white text-[11px] font-semibold cursor-pointer shrink-0"
-                >
-                  <RefreshCw
-                    className={`w-3 h-3 ${checkingStatus ? 'animate-spin' : ''}`}
-                  />
-                  <span>{checkingStatus ? 'Checking...' : 'Check Status'}</span>
-                </button>
+                {suspendedLicense?.userId && (
+                  <button
+                    type="button"
+                    onClick={handleCheckSuspendedStatus}
+                    disabled={checkingStatus}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-800 hover:bg-rose-700 text-white text-[11px] font-semibold cursor-pointer shrink-0"
+                  >
+                    <RefreshCw
+                      className={`w-3 h-3 ${checkingStatus ? 'animate-spin' : ''}`}
+                    />
+                    <span>{checkingStatus ? 'Checking...' : 'Check Status'}</span>
+                  </button>
+                )}
               </div>
               <p className="text-xs text-rose-100 leading-relaxed">
-                Hello <strong>{suspendedLicense.fullName}</strong> (
-                <span className="font-mono">{suspendedLicense.userId}</span>), your access on this device has been temporarily suspended by the Master Administrator (
-                <span className="font-mono text-cyan-300">
-                  {MASTER_ADMIN_DEFAULT_EMAIL}
-                </span>
-                ). Once reactivated by the administrator, tap <strong>Check Status</strong> to enter immediately.
+                {revokedMessage || (
+                  <>
+                    Hello <strong>{suspendedLicense?.fullName}</strong> (
+                    <span className="font-mono">{suspendedLicense?.userId}</span>), your access on this device has been revoked by the Master Administrator (
+                    <span className="font-mono text-cyan-300">
+                      {MASTER_ADMIN_DEFAULT_EMAIL}
+                    </span>
+                    ).
+                  </>
+                )}{' '}
+                Once reactivated by the administrator, tap <strong>Check Status</strong> or re-register below.
               </p>
             </div>
           )}
 
-          {/* Mode Switcher Tabs: 1-Step Instant Registration & Login (Default) + Existing User ID Login */}
+          {/* Mode Switcher Tabs: First-Time User Registration (Default) + Existing ID Login */}
           <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800">
             <button
               type="button"
@@ -392,7 +409,7 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
               }}
             >
               <UserPlus className="w-4 h-4 shrink-0" />
-              <span>1. Instant Register &amp; Login</span>
+              <span>1. First-Time User Registration</span>
             </button>
             <button
               type="button"
@@ -411,6 +428,11 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
 
           {gateMode === 'instant_register' ? (
             <div className="space-y-4">
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300 leading-relaxed">
+                Welcome to <strong>ESWA Geological Mapper</strong>. Please enter your{' '}
+                <strong className="text-white">Name, Email, Position, and Mobile Number</strong> to register your profile and enter the software. Your profile will automatically be set as the active Geologist on this device.
+              </div>
+
               {registerError && (
                 <div className="p-3 rounded-lg bg-rose-950/80 border border-rose-700/70 text-xs text-rose-200">
                   {registerError}
@@ -420,13 +442,13 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
               <form onSubmit={handleInstantRegisterAndEnter} className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label className="space-y-1">
-                    <span className="text-xs text-slate-300">Full Name *</span>
+                    <span className="text-xs font-semibold text-slate-200">Name *</span>
                     <input
                       type="text"
                       required
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Your Full Name"
+                      placeholder="Enter your full name"
                       className="w-full px-3 py-2.5 rounded-lg border text-xs focus:outline-none"
                       style={{
                         backgroundColor: '#0F172A',
@@ -436,33 +458,15 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                     />
                   </label>
                   <label className="space-y-1">
-                    <span className="text-xs text-slate-300">
-                      Organization / Project *
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      value={organization}
-                      onChange={(e) => setOrganization(e.target.value)}
-                      placeholder="Company or Tunnel Project"
-                      className="w-full px-3 py-2.5 rounded-lg border text-xs focus:outline-none"
-                      style={{
-                        backgroundColor: '#0F172A',
-                        borderColor: palette.accentHex + '60',
-                        color: '#FFFFFF',
-                      }}
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-300">
-                      Email Address (For Welcome &amp; Update Emails) *
+                    <span className="text-xs font-semibold text-slate-200">
+                      Email *
                     </span>
                     <input
                       type="email"
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@company.com"
+                      placeholder="you@example.com"
                       className="w-full px-3 py-2.5 rounded-lg border text-xs focus:outline-none"
                       style={{
                         backgroundColor: '#0F172A',
@@ -472,15 +476,33 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                     />
                   </label>
                   <label className="space-y-1">
-                    <span className="text-xs text-slate-300">
-                      Phone / WhatsApp Number *
+                    <span className="text-xs font-semibold text-slate-200">
+                      Position *
                     </span>
                     <input
                       type="text"
                       required
+                      value={roleTitle}
+                      onChange={(e) => setRoleTitle(e.target.value)}
+                      placeholder="e.g. Geologist / Senior Tunnel Geologist"
+                      className="w-full px-3 py-2.5 rounded-lg border text-xs focus:outline-none"
+                      style={{
+                        backgroundColor: '#0F172A',
+                        borderColor: palette.accentHex + '60',
+                        color: '#FFFFFF',
+                      }}
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs font-semibold text-slate-200">
+                      Mobile Number *
+                    </span>
+                    <input
+                      type="tel"
+                      required
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+91 ..."
+                      placeholder="+91 98765 43210"
                       className="w-full px-3 py-2.5 rounded-lg border text-xs focus:outline-none"
                       style={{
                         backgroundColor: '#0F172A',
@@ -492,29 +514,14 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                 </div>
 
                 <label className="block space-y-1">
-                  <span className="text-xs text-slate-300">Role / Designation</span>
-                  <input
-                    type="text"
-                    value={roleTitle}
-                    onChange={(e) => setRoleTitle(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border text-xs focus:outline-none"
-                    style={{
-                      backgroundColor: '#0F172A',
-                      borderColor: palette.accentHex + '60',
-                      color: '#FFFFFF',
-                    }}
-                  />
-                </label>
-
-                <label className="block space-y-1">
-                  <span className="text-xs text-slate-300">
-                    Project Site / Notes (Optional)
+                  <span className="text-xs text-slate-400">
+                    Organization / Project Site (Optional)
                   </span>
                   <input
                     type="text"
-                    value={purposeNotes}
-                    onChange={(e) => setPurposeNotes(e.target.value)}
-                    placeholder="Tunnel project site or chainage..."
+                    value={organization}
+                    onChange={(e) => setOrganization(e.target.value)}
+                    placeholder="Company or Tunnel Project Name (optional)"
                     className="w-full px-3 py-2 rounded-lg border text-xs focus:outline-none"
                     style={{
                       backgroundColor: '#0F172A',
@@ -536,10 +543,10 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
                   <CheckCircle2 className="w-4 h-4" />
                   <span>
                     {submittingReq
-                      ? 'Logging In & Sending Welcome Email...'
+                      ? 'Registering & Unlocking Software...'
                       : isMobileApp
-                      ? 'Register Details & Enter Android App Now'
-                      : 'Register Details & Enter Software Now'}
+                      ? 'Submit & Enter Android App'
+                      : 'Submit & Enter Software'}
                   </span>
                 </button>
               </form>

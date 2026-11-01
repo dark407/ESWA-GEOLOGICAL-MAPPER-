@@ -107,8 +107,8 @@ export function createDefaultProbeHole(): ProbeHoleRecord {
     actualDrilledLengthM: 24.0,
     dipDegrees: 4.5,
     azimuthDegrees: 88.0,
-    leadDriller: 'Foreman Hans Gruber',
-    loggingGeologist: 'Senior NATM Geologist',
+    leadDriller: '',
+    loggingGeologist: '',
     intervals: [
       {
         intervalId: 'int-1',
@@ -229,8 +229,8 @@ export function createDefaultProbeHole(): ProbeHoleRecord {
       recommendations: 'Permitted safe excavation advance is capped at 7.0 meters. At Ch 14+327, install pre-excavation microfine cement grout umbrella (12 radial holes) before penetrating shear zone.',
     },
     signOff: {
-      superintendent: 'Eng. Marco Rossi',
-      geologist: 'Dr. Sarah Lindqvist, P.Geo',
+      superintendent: '',
+      geologist: '',
       signOffDate: new Date().toISOString().split('T')[0],
       tarpActionStatus: 'Pre-Excavation Grouting',
     },
@@ -250,7 +250,16 @@ export const ProbeHoleDrillingModal: React.FC<ProbeHoleDrillingModalProps> = ({
   const [record, setRecord] = useState<ProbeHoleRecord>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: ProbeHoleRecord = JSON.parse(saved);
+        if (parsed.leadDriller === 'Foreman Hans Gruber') parsed.leadDriller = '';
+        if (parsed.loggingGeologist === 'Senior NATM Geologist') parsed.loggingGeologist = '';
+        if (parsed.signOff) {
+          if (parsed.signOff.superintendent === 'Eng. Marco Rossi') parsed.signOff.superintendent = '';
+          if (parsed.signOff.geologist === 'Dr. Sarah Lindqvist, P.Geo') parsed.signOff.geologist = '';
+        }
+        return parsed;
+      }
     } catch {
       // fallback
     }
@@ -1223,13 +1232,14 @@ export const ProbeHoleDrillingModal: React.FC<ProbeHoleDrillingModalProps> = ({
                   <input
                     type="text"
                     value={record.signOff.superintendent}
+                    placeholder="Enter Superintendent Name..."
                     onChange={(e) => {
                       saveToStorage({
                         ...record,
                         signOff: { ...record.signOff, superintendent: e.target.value },
                       });
                     }}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs"
+                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs print:placeholder-transparent"
                   />
                 </div>
 
@@ -1238,13 +1248,14 @@ export const ProbeHoleDrillingModal: React.FC<ProbeHoleDrillingModalProps> = ({
                   <input
                     type="text"
                     value={record.signOff.geologist}
+                    placeholder="Enter Geologist / Engineer Name..."
                     onChange={(e) => {
                       saveToStorage({
                         ...record,
                         signOff: { ...record.signOff, geologist: e.target.value },
                       });
                     }}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs"
+                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs print:placeholder-transparent"
                   />
                 </div>
               </div>

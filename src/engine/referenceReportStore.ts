@@ -43,7 +43,7 @@ export function createBenchmarkSampleReportDataUrl(): string {
 
   <text x="915" y="48" class="bold">DRAWING NO: NHPC/TST-VI/HRT/GEO-2024-084</text>
   <text x="915" y="65" class="bold">SCALE: 1:100 (H) • 1:100 (V) | SHEET SIZE: A3 LANDSCAPE</text>
-  <text x="915" y="82" class="bold">LOGGED BY: S. Sharma (Geologist) | CHECKED BY: Dr. R. K. Verma (Res. Geologist)</text>
+  <text x="915" y="82" class="bold">LOGGED BY: ___________________ | CHECKED BY: ___________________</text>
   <text x="915" y="99" class="bold">CONTRACTOR: M/s Patel - Gammon JV | CONSULTANT: NHPC Design Division</text>
 
   <!-- Geological Profile Section -->
@@ -186,20 +186,20 @@ export function createBenchmarkSampleReportDataUrl(): string {
   <line x1="1040" y1="880" x2="1040" y2="965" stroke="#1c1917" stroke-width="1" />
 
   <text x="45" y="902" class="bold">CONTRACTOR GEOLOGIST:</text>
-  <text x="45" y="922" class="sub">Sign: ___________________ Date: 22/03/24</text>
-  <text x="45" y="942" class="bold">Er. A. K. Sharma (Field Geologist)</text>
+  <text x="45" y="922" class="sub">Sign: ___________________ Date: ________</text>
+  <text x="45" y="942" class="bold">Name: ___________________</text>
 
   <text x="380" y="902" class="bold">CHECKED &amp; VERIFIED BY:</text>
-  <text x="380" y="922" class="sub">Sign: ___________________ Date: 23/03/24</text>
-  <text x="380" y="942" class="bold">Er. M. P. Singh (Senior Geologist, NHPC)</text>
+  <text x="380" y="922" class="sub">Sign: ___________________ Date: ________</text>
+  <text x="380" y="942" class="bold">Name: ___________________</text>
 
   <text x="720" y="902" class="bold">RESIDENT GEOTECHNICAL ENGINEER:</text>
-  <text x="720" y="922" class="sub">Sign: ___________________ Date: 24/03/24</text>
-  <text x="720" y="942" class="bold">Dr. R. K. Verma (Chief Geologist, NHPC)</text>
+  <text x="720" y="922" class="sub">Sign: ___________________ Date: ________</text>
+  <text x="720" y="942" class="bold">Name: ___________________</text>
 
   <text x="1060" y="902" class="bold">PROJECT MANAGER / EIC:</text>
-  <text x="1060" y="922" class="sub">Sign: ___________________ Date: 25/03/24</text>
-  <text x="1060" y="942" class="bold">Er. V. K. Patel (General Manager, NHPC)</text>
+  <text x="1060" y="922" class="sub">Sign: ___________________ Date: ________</text>
+  <text x="1060" y="942" class="bold">Name: ___________________</text>
 </svg>`;
 
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;

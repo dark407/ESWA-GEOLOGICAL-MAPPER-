@@ -3319,15 +3319,27 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                   <div className="grid grid-cols-2 gap-4 pt-3 text-[10px]">
                     <div className="border-t border-slate-400 pt-1">
                       <div className="font-bold text-slate-800">Contractor Geologist:</div>
-                      <div className="text-slate-600">
-                        {dataset.geologistContractor || 'Engineering Geologist'}
-                      </div>
+                      <input
+                        type="text"
+                        value={dataset.geologistContractor || ''}
+                        onChange={(e) =>
+                          handleSaveCadEdits({ ...dataset, geologistContractor: e.target.value })
+                        }
+                        placeholder="Enter Geologist Name..."
+                        className="w-full mt-0.5 px-1.5 py-0.5 rounded bg-white border border-slate-300 text-slate-900 font-bold text-[10px] focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                      />
                     </div>
                     <div className="border-t border-slate-400 pt-1">
                       <div className="font-bold text-slate-800">Client / Chief Geologist:</div>
-                      <div className="text-slate-600">
-                        {dataset.geologistClient || 'Approved for NATM / Shaft Construction'}
-                      </div>
+                      <input
+                        type="text"
+                        value={dataset.geologistClient || ''}
+                        onChange={(e) =>
+                          handleSaveCadEdits({ ...dataset, geologistClient: e.target.value })
+                        }
+                        placeholder="Enter Reviewer / Client Name..."
+                        className="w-full mt-0.5 px-1.5 py-0.5 rounded bg-white border border-slate-300 text-slate-900 font-bold text-[10px] focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                      />
                     </div>
                   </div>
                 </div>

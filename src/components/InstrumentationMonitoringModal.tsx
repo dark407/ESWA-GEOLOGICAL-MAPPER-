@@ -220,8 +220,8 @@ export function createDefaultMonitoringSection(): MonitoringSectionRecord {
       },
     ],
     signOff: {
-      monitoringEngineer: 'Er. Rajesh K. Sharma, M.Tech',
-      tunnelManager: 'Chief NATM Resident Engineer',
+      monitoringEngineer: '',
+      tunnelManager: '',
       lastEvaluationDate: new Date().toISOString().split('T')[0],
       tarpStatus: 'GREEN (Normal Stable)',
       actionDirectives: 'Monitoring Section MS-14240 exhibits healthy deformation stabilization (velocity = 0.65 mm/day < 1.0 mm/day). Ground-lining equilibrium achieved. Normal excavation round authorized.',
@@ -242,7 +242,18 @@ export const InstrumentationMonitoringModal: React.FC<InstrumentationMonitoringM
   const [record, setRecord] = useState<MonitoringSectionRecord>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: MonitoringSectionRecord = JSON.parse(saved);
+        if (parsed?.signOff) {
+          if (parsed.signOff.monitoringEngineer === 'Er. Rajesh K. Sharma, M.Tech') {
+            parsed.signOff.monitoringEngineer = '';
+          }
+          if (parsed.signOff.tunnelManager === 'Chief NATM Resident Engineer') {
+            parsed.signOff.tunnelManager = '';
+          }
+        }
+        return parsed;
+      }
     } catch {
       // fallback
     }
@@ -1028,13 +1039,14 @@ export const InstrumentationMonitoringModal: React.FC<InstrumentationMonitoringM
                   <input
                     type="text"
                     value={record.signOff.monitoringEngineer}
+                    placeholder="Enter Instrumentation Engineer Name..."
                     onChange={(e) => {
                       saveToStorage({
                         ...record,
                         signOff: { ...record.signOff, monitoringEngineer: e.target.value },
                       });
                     }}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs"
+                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs print:placeholder-transparent"
                   />
                 </div>
 
@@ -1043,13 +1055,14 @@ export const InstrumentationMonitoringModal: React.FC<InstrumentationMonitoringM
                   <input
                     type="text"
                     value={record.signOff.tunnelManager}
+                    placeholder="Enter Resident Engineer Name..."
                     onChange={(e) => {
                       saveToStorage({
                         ...record,
                         signOff: { ...record.signOff, tunnelManager: e.target.value },
                       });
                     }}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs"
+                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs print:placeholder-transparent"
                   />
                 </div>
               </div>

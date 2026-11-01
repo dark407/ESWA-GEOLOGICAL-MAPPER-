@@ -91,6 +91,47 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
     });
   };
 
+  // Editable Report Personnel & Sign-Off Names (blank by default, persisted per user)
+  const [signOffNames, setSignOffNames] = useState<{
+    geologistName: string;
+    operatorName: string;
+    managerName: string;
+  }>(() => {
+    try {
+      const raw = localStorage.getItem('eswa_tbm_report_personnel_names_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          geologistName: parsed.geologistName || '',
+          operatorName: parsed.operatorName || '',
+          managerName: parsed.managerName || '',
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      geologistName: activeLocation?.responsibleGeologist || '',
+      operatorName: '',
+      managerName: '',
+    };
+  });
+
+  const updateSignOffName = (
+    field: 'geologistName' | 'operatorName' | 'managerName',
+    value: string
+  ) => {
+    setSignOffNames((prev) => {
+      const next = { ...prev, [field]: value };
+      try {
+        localStorage.setItem('eswa_tbm_report_personnel_names_v1', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
   // Filters — dynamic defaults based on actual records
   const [startRingFilter, setStartRingFilter] = useState<number>(() => {
     return records[0]?.chainageRecord?.ringNumber ?? 1;
@@ -152,7 +193,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
       shiftEndTime: '16:00',
       stoppageDurationMinutes: 0,
       stoppageReason: '',
-      geologistOrOperator: activeLocation?.responsibleGeologist || 'Lead TBM Geologist',
+      geologistOrOperator: signOffNames.geologistName || activeLocation?.responsibleGeologist || '',
       generalObservations: 'No records logged yet. Enter ring data in Step 4 Data Collection.',
     },
     geology: {
@@ -596,7 +637,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
     </div>
     <div class="meta-item">
       <span>Responsible Geologist</span>
-      <strong>${activeLocation?.responsibleGeologist || 'Lead TBM Geologist'}</strong>
+      <strong>${signOffNames.geologistName || activeLocation?.responsibleGeologist || '—'}</strong>
     </div>
     <div class="meta-item">
       <span>Ring Records Range</span>
@@ -660,7 +701,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
   <div class="sign-grid">
     <div class="sign-box">
       <span>Lead TBM Engineering Geologist</span>
-      <strong>${activeLocation?.responsibleGeologist || 'Lead TBM Geologist'}</strong>
+      <strong>${signOffNames.geologistName || activeLocation?.responsibleGeologist || '___________________________'}</strong>
       <div style="height: 42px; margin-top: 8px; border: 1px solid #cbd5e1; border-radius: 4px; background: #ffffff; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 3px;">
         ${
           tbmSigns.geologist
@@ -672,7 +713,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
     </div>
     <div class="sign-box">
       <span>Tunnel Project Construction Manager</span>
-      <strong>${activeProject?.contractor || 'Contractor Authority'}</strong>
+      <strong>${signOffNames.managerName || activeProject?.contractor || '___________________________'}</strong>
       <div style="height: 42px; margin-top: 8px; border: 1px solid #cbd5e1; border-radius: 4px; background: #ffffff; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 3px;">
         ${
           tbmSigns.manager
@@ -760,11 +801,23 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Lead Geologist:</span>
-                <strong className="text-slate-200">{activeLocation?.responsibleGeologist || 'Dr. K. Sharma'}</strong>
+                <input
+                  type="text"
+                  value={signOffNames.geologistName}
+                  onChange={(e) => updateSignOffName('geologistName', e.target.value)}
+                  placeholder="Enter Geologist Name..."
+                  className="w-full mt-0.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-100 font-bold text-xs focus:border-cyan-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                />
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">TBM Operator:</span>
-                <strong className="text-slate-200">{activeProject?.contractor || 'Shift Team 1'}</strong>
+                <input
+                  type="text"
+                  value={signOffNames.operatorName}
+                  onChange={(e) => updateSignOffName('operatorName', e.target.value)}
+                  placeholder="Enter Operator Name..."
+                  className="w-full mt-0.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-100 font-bold text-xs focus:border-cyan-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                />
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Rings Excavated:</span>
@@ -853,7 +906,13 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                     )}
                   </div>
                 </div>
-                <p className="text-slate-300 font-bold">Verified &amp; Inspected at Cutterhead Inspection Window</p>
+                <input
+                  type="text"
+                  value={signOffNames.geologistName}
+                  onChange={(e) => updateSignOffName('geologistName', e.target.value)}
+                  placeholder="Enter Site Geologist Name..."
+                  className="w-full px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-slate-100 font-bold text-xs focus:border-cyan-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                />
                 <div className="eswa-signature-fit-box h-11 w-full bg-white rounded border border-slate-700 p-1 flex items-center justify-center overflow-hidden">
                   {tbmSigns.geologist ? (
                     <img
@@ -903,7 +962,13 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
                     )}
                   </div>
                 </div>
-                <p className="text-slate-300 font-bold">Shift Handover Certified</p>
+                <input
+                  type="text"
+                  value={signOffNames.managerName}
+                  onChange={(e) => updateSignOffName('managerName', e.target.value)}
+                  placeholder="Enter Construction Manager Name..."
+                  className="w-full px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-slate-100 font-bold text-xs focus:border-cyan-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                />
                 <div className="eswa-signature-fit-box h-11 w-full bg-white rounded border border-slate-700 p-1 flex items-center justify-center overflow-hidden">
                   {tbmSigns.manager ? (
                     <img
@@ -1782,6 +1847,46 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
             </p>
           </div>
         )}
+
+        {/* Editable Personnel & Sign-Off Bar for All 16 TBM Reports */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-xs">
+          <div>
+            <label className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+              Responsible Geologist Name
+            </label>
+            <input
+              type="text"
+              value={signOffNames.geologistName}
+              onChange={(e) => updateSignOffName('geologistName', e.target.value)}
+              placeholder="Leave blank or type Geologist name..."
+              className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-bold text-xs focus:border-cyan-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+              TBM Operator / Shift Engineer Name
+            </label>
+            <input
+              type="text"
+              value={signOffNames.operatorName}
+              onChange={(e) => updateSignOffName('operatorName', e.target.value)}
+              placeholder="Leave blank or type Operator name..."
+              className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-bold text-xs focus:border-cyan-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+              Construction Manager / Reviewer Name
+            </label>
+            <input
+              type="text"
+              value={signOffNames.managerName}
+              onChange={(e) => updateSignOffName('managerName', e.target.value)}
+              placeholder="Leave blank or type Manager name..."
+              className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-bold text-xs focus:border-cyan-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+            />
+          </div>
+        </div>
 
         {/* Dynamic Real Report Body Content */}
         {renderReportContent()}

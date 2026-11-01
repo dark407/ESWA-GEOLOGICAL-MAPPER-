@@ -132,6 +132,8 @@ if (typeof window !== 'undefined') {
         'eswa_installed_software_version_v1',
         'eswa_master_admin_credentials_v1',
         'eswa_deleted_user_tombstones_v1',
+        'eswa_geologist_user_profiles_v1',
+        'eswa_active_geologist_profile_id_v1',
       ];
       const preservedEntries: Array<[string, string]> = [];
       for (const k of preservedKeys) {
@@ -144,7 +146,37 @@ if (typeof window !== 'undefined') {
       for (const [k, val] of preservedEntries) {
         localStorage.setItem(k, val);
       }
+      localStorage.setItem('eswa_fresh_install_zeroed_v1', 'true');
       // Note: fastAsyncStorageEngine.preloadAllPhotosIntoMemoryAsync() will also clear IndexedDB stores
+    }
+
+    // Purge any legacy pre-seeded dummy geologist profiles ('R. K. Sharma', 'Vikram Malhotra', 'Dr. Amit Roy')
+    const rawProfiles = localStorage.getItem('eswa_geologist_user_profiles_v1');
+    if (rawProfiles) {
+      try {
+        const parsedProfiles = JSON.parse(rawProfiles);
+        if (Array.isArray(parsedProfiles)) {
+          const legacyIds = new Set(['prof_contractor_lead', 'prof_pmc_reviewer', 'prof_client_rep']);
+          const legacyNames = new Set(['r. k. sharma', 'vikram malhotra', 'dr. amit roy']);
+          const cleanedProfiles = parsedProfiles.filter(
+            (p) =>
+              p &&
+              !legacyIds.has(String(p.id || '')) &&
+              !legacyNames.has(String(p.name || '').trim().toLowerCase())
+          );
+          if (cleanedProfiles.length !== parsedProfiles.length) {
+            if (cleanedProfiles.length > 0) {
+              localStorage.setItem('eswa_geologist_user_profiles_v1', JSON.stringify(cleanedProfiles));
+              localStorage.setItem('eswa_active_geologist_profile_id_v1', cleanedProfiles[0].id);
+            } else {
+              localStorage.removeItem('eswa_geologist_user_profiles_v1');
+              localStorage.removeItem('eswa_active_geologist_profile_id_v1');
+            }
+          }
+        }
+      } catch {
+        // Ignore malformed profile list
+      }
     }
 
     // Purge deprecated geological modelling storage and stale mode references

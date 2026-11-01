@@ -3578,9 +3578,18 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                     <h1 className="text-xl font-black text-slate-900 mt-0.5">
                       DRILLHOLE ID: {activeHole.holeId} — TARGET: {activeHole.targetOreZone || 'N/A'}
                     </h1>
-                    <p className="text-xs font-semibold text-slate-700">
-                      Company: {activeHole.miningCompany || 'N/A'} • Contractor: {activeHole.drillingContractor || 'N/A'} • Logged By: {activeHole.loggedBy || 'N/A'}
-                    </p>
+                    <div className="text-xs font-semibold text-slate-700 flex items-center gap-1.5 flex-wrap mt-0.5">
+                      <span>Company: {activeHole.miningCompany || '—'} • Contractor: {activeHole.drillingContractor || '—'} • Logged By:</span>
+                      <input
+                        type="text"
+                        value={activeHole.loggedBy || ''}
+                        onChange={(e) =>
+                          updateActiveHole((hole) => ({ ...hole, loggedBy: e.target.value }))
+                        }
+                        placeholder="Enter Geologist..."
+                        className="w-36 px-1.5 py-0.2 border-b border-slate-400 bg-transparent text-slate-900 font-bold text-xs focus:border-slate-900 outline-none print:border-none print:placeholder-transparent"
+                      />
+                    </div>
                   </div>
                   <div className="text-right font-mono text-xs">
                     <div className="font-black">Core Size: {activeHole.coreDiameter}</div>
@@ -3667,7 +3676,7 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                 </div>
               </div>
 
-              {/* Tri-Party Signatures */}
+              {/* Tri-Party Signatures (Editable & Blank by Default) */}
               <div className="grid grid-cols-3 gap-4 pt-4 border-t-2 border-slate-900 text-xs">
                 <div className="border border-slate-400 p-3">
                   <div className="text-[10px] font-black uppercase text-slate-600">Drilling Contractor</div>
@@ -3678,9 +3687,34 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                       <span className="text-[9px] text-slate-400 italic">[Signature Box]</span>
                     )}
                   </div>
-                  <div className="font-bold border-t border-slate-300 pt-1 truncate">
-                    {activeHole.signOff?.contractorRepName || '____________________'}
-                  </div>
+                  <input
+                    type="text"
+                    value={activeHole.signOff?.contractorRepName || ''}
+                    onChange={(e) =>
+                      updateActiveHole((hole) => ({
+                        ...hole,
+                        signOff: {
+                          ...(hole.signOff || {
+                            contractorRepName: '',
+                            contractorDesignation: '',
+                            contractorCompany: hole.drillingContractor || '',
+                            contractorDate: new Date().toISOString().slice(0, 10),
+                            consultantRepName: '',
+                            consultantDesignation: '',
+                            consultantCompany: hole.explorationConsultant || '',
+                            consultantDate: new Date().toISOString().slice(0, 10),
+                            clientRepName: '',
+                            clientDesignation: '',
+                            clientCompany: hole.miningCompany || '',
+                            clientDate: new Date().toISOString().slice(0, 10),
+                          }),
+                          contractorRepName: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="Enter Contractor Name..."
+                    className="w-full px-1.5 py-0.5 border-t border-slate-300 font-bold text-slate-900 text-xs focus:border-slate-900 outline-none print:border-none print:placeholder-transparent"
+                  />
                   <div className="text-[10px] text-slate-600 truncate">{activeHole.drillingContractor || 'Drilling Supervisor'}</div>
                 </div>
 
@@ -3693,9 +3727,35 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                       <span className="text-[9px] text-slate-400 italic">[Signature Box]</span>
                     )}
                   </div>
-                  <div className="font-bold border-t border-slate-300 pt-1 truncate">
-                    {activeHole.signOff?.consultantRepName || activeHole.loggedBy || '____________________'}
-                  </div>
+                  <input
+                    type="text"
+                    value={activeHole.signOff?.consultantRepName ?? activeHole.loggedBy ?? ''}
+                    onChange={(e) =>
+                      updateActiveHole((hole) => ({
+                        ...hole,
+                        loggedBy: e.target.value,
+                        signOff: {
+                          ...(hole.signOff || {
+                            contractorRepName: '',
+                            contractorDesignation: '',
+                            contractorCompany: hole.drillingContractor || '',
+                            contractorDate: new Date().toISOString().slice(0, 10),
+                            consultantRepName: '',
+                            consultantDesignation: '',
+                            consultantCompany: hole.explorationConsultant || '',
+                            consultantDate: new Date().toISOString().slice(0, 10),
+                            clientRepName: '',
+                            clientDesignation: '',
+                            clientCompany: hole.miningCompany || '',
+                            clientDate: new Date().toISOString().slice(0, 10),
+                          }),
+                          consultantRepName: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="Enter Geologist Name..."
+                    className="w-full px-1.5 py-0.5 border-t border-slate-300 font-bold text-slate-900 text-xs focus:border-slate-900 outline-none print:border-none print:placeholder-transparent"
+                  />
                   <div className="text-[10px] text-slate-600 truncate">Logging Geologist</div>
                 </div>
 
@@ -3708,9 +3768,34 @@ export const MiningCoreLoggingWorkspace: React.FC<MiningCoreLoggingWorkspaceProp
                       <span className="text-[9px] text-slate-400 italic">[Signature Box]</span>
                     )}
                   </div>
-                  <div className="font-bold border-t border-slate-300 pt-1 truncate">
-                    {activeHole.signOff?.clientRepName || '____________________'}
-                  </div>
+                  <input
+                    type="text"
+                    value={activeHole.signOff?.clientRepName || ''}
+                    onChange={(e) =>
+                      updateActiveHole((hole) => ({
+                        ...hole,
+                        signOff: {
+                          ...(hole.signOff || {
+                            contractorRepName: '',
+                            contractorDesignation: '',
+                            contractorCompany: hole.drillingContractor || '',
+                            contractorDate: new Date().toISOString().slice(0, 10),
+                            consultantRepName: '',
+                            consultantDesignation: '',
+                            consultantCompany: hole.explorationConsultant || '',
+                            consultantDate: new Date().toISOString().slice(0, 10),
+                            clientRepName: '',
+                            clientDesignation: '',
+                            clientCompany: hole.miningCompany || '',
+                            clientDate: new Date().toISOString().slice(0, 10),
+                          }),
+                          clientRepName: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="Enter Competent Person Name..."
+                    className="w-full px-1.5 py-0.5 border-t border-slate-300 font-bold text-slate-900 text-xs focus:border-slate-900 outline-none print:border-none print:placeholder-transparent"
+                  />
                   <div className="text-[10px] text-slate-600 truncate">{activeHole.miningCompany || 'Chief Mine Geologist'}</div>
                 </div>
               </div>

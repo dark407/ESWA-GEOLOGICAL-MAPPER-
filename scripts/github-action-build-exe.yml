@@ -95,9 +95,12 @@ jobs:
           path: release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk
           if-no-files-found: warn
 
-      - name: Update Rolling 'latest' Tag to Current Commit
+      - name: Clean Previous 'latest' Release & Update Rolling Tag
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          gh release delete latest --yes --cleanup-tag || true
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -fa latest -m "Latest Master & User Windows .EXE + Android .APK Build #${{ github.run_number }}"

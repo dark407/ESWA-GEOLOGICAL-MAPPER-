@@ -53,7 +53,11 @@ import {
   SavedProjectRecord,
   SurfaceType,
 } from '../types/tunnel';
-import { getLocalMasterPcBypass, getOrGeneratePcHardwareId } from './softwareLicensingEngine';
+import {
+  getLocalActivatedSession,
+  getLocalMasterPcBypass,
+  getOrGeneratePcHardwareId,
+} from './softwareLicensingEngine';
 import {
   detectPayloadApplicationMode,
   routeToIsolatedMiningVault,
@@ -2696,66 +2700,192 @@ export function subscribeToSharedProject(
 // MULTI-USER PIN PROFILE SWITCHER & DIGITAL SIGNATURES
 // ----------------------------------------------------------------------------
 
+const LEGACY_PREFED_PROFILE_IDS = new Set([
+  'prof_contractor_lead',
+  'prof_pmc_reviewer',
+  'prof_client_rep',
+]);
+const LEGACY_PREFED_PROFILE_NAMES = new Set([
+  'r. k. sharma',
+  'vikram malhotra',
+  'dr. amit roy',
+]);
+
+function isLegacyPreFedProfile(p: Partial<GeologistUserProfile> | null | undefined): boolean {
+  if (!p) return true;
+  if (p.id && LEGACY_PREFED_PROFILE_IDS.has(String(p.id))) return true;
+  const cleanName = String(p.name || '').trim().toLowerCase();
+  if (cleanName && LEGACY_PREFED_PROFILE_NAMES.has(cleanName)) return true;
+  return false;
+}
+
 export function getStoredGeologistProfiles(): GeologistUserProfile[] {
+  const { deviceId } = getLocalUserDeviceId();
+  const nowIso = new Date().toISOString();
+  const activatedSession = getLocalActivatedSession();
+  const isMaster = getLocalMasterPcBypass();
+
   try {
     const raw = localStorage.getItem(ESWA_GEOLOGIST_PROFILES_KEY);
     if (raw) {
-      const list = JSON.parse(raw);
-      if (Array.isArray(list) && list.length > 0) return list;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        let validList = parsed.filter((p) => !isLegacyPreFedProfile(p));
+        // In User APK / User Software, remove Master default profile if a normal user registered on this device
+        if (!isMaster && activatedSession?.fullName && activatedSession.userId !== 'MASTER_OWNER') {
+          validList = validList.filter((p) => p.id !== 'prof_master_akash');
+          const regId = `prof_reg_${activatedSession.userId}`;
+          const existingIdx = validList.findIndex((p) => p.id === regId || p.isDefaultOnDevice);
+          const regProfile: GeologistUserProfile = {
+            id: existingIdx >= 0 ? validList[existingIdx].id : regId,
+            name: activatedSession.fullName.trim(),
+            email: activatedSession.email || undefined,
+            designation: (activatedSession.roleTitle || 'Geologist').trim(),
+            role: existingIdx >= 0 ? validList[existingIdx].role : 'Contractor',
+            pin: existingIdx >= 0 ? validList[existingIdx].pin : '1234',
+            pngSignatureDataUrl:
+              existingIdx >= 0 ? validList[existingIdx].pngSignatureDataUrl : undefined,
+            deviceId,
+            isDefaultOnDevice: true,
+            createdAt: existingIdx >= 0 ? validList[existingIdx].createdAt : nowIso,
+            lastActiveAt: nowIso,
+          };
+          if (existingIdx >= 0) {
+            validList[existingIdx] = regProfile;
+          } else {
+            validList.unshift(regProfile);
+          }
+        }
+        if (validList.length !== parsed.length) {
+          localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify(validList));
+        }
+        if (validList.length > 0) {
+          return validList;
+        }
+      }
     }
   } catch {
     // Ignore
   }
 
-  // Default seed profiles for zero-configuration testing
-  const { deviceId } = getLocalUserDeviceId();
-  const nowIso = new Date().toISOString();
-  const defaults: GeologistUserProfile[] = [
-    {
-      id: 'prof_contractor_lead',
-      name: 'R. K. Sharma',
-      designation: 'Senior Tunnel Geologist',
+  // If running in User Edition with a first-time registered user session, use that exact registered user info
+  if (!isMaster && activatedSession?.fullName && activatedSession.userId !== 'MASTER_OWNER') {
+    const userProfile: GeologistUserProfile = {
+      id: `prof_reg_${activatedSession.userId}`,
+      name: activatedSession.fullName.trim(),
+      email: activatedSession.email || undefined,
+      designation: (activatedSession.roleTitle || 'Geologist').trim(),
       role: 'Contractor',
       pin: '1234',
       deviceId,
       isDefaultOnDevice: true,
       createdAt: nowIso,
       lastActiveAt: nowIso,
-    },
-    {
-      id: 'prof_pmc_reviewer',
-      name: 'Vikram Malhotra',
-      designation: 'Resident Geotechnical Consultant',
-      role: 'PMC',
-      pin: '0000',
-      deviceId,
-      isDefaultOnDevice: false,
-      createdAt: nowIso,
-      lastActiveAt: nowIso,
-    },
-    {
-      id: 'prof_client_rep',
-      name: 'Dr. Amit Roy',
-      designation: 'Executive Engineer (Geology)',
-      role: 'Client',
-      pin: '1111',
-      deviceId,
-      isDefaultOnDevice: false,
-      createdAt: nowIso,
-      lastActiveAt: nowIso,
-    },
-  ];
+    };
+    try {
+      localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify([userProfile]));
+      localStorage.setItem(ESWA_ACTIVE_PROFILE_KEY, userProfile.id);
+    } catch {
+      // Ignore
+    }
+    return [userProfile];
+  }
 
+  // In Master Application, Akash Dhanush Eswar is the default Geologist
+  if (isMaster) {
+    const masterDefault: GeologistUserProfile = {
+      id: 'prof_master_akash',
+      name: 'Akash Dhanush Eswar',
+      email: 'akashdhanusheswar@gmail.com',
+      designation: 'Geologist',
+      role: 'Contractor',
+      pin: '1234',
+      deviceId,
+      isDefaultOnDevice: true,
+      createdAt: nowIso,
+      lastActiveAt: nowIso,
+    };
+    try {
+      localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify([masterDefault]));
+      if (!localStorage.getItem(ESWA_ACTIVE_PROFILE_KEY)) {
+        localStorage.setItem(ESWA_ACTIVE_PROFILE_KEY, masterDefault.id);
+      }
+    } catch {
+      // Ignore
+    }
+    return [masterDefault];
+  }
+
+  return [];
+}
+
+/**
+ * Synchronizes the active Geologist Profile in User Settings with the user's first-time
+ * registration information (Name, Email, Position/Designation).
+ */
+export function syncGeologistProfileFromRegisteredUser(input: {
+  userId?: string;
+  fullName: string;
+  email?: string;
+  position?: string;
+  phone?: string;
+}): GeologistUserProfile | null {
+  const cleanName = (input.fullName || '').trim();
+  if (!cleanName) return null;
+  const { deviceId } = getLocalUserDeviceId();
+  const nowIso = new Date().toISOString();
+  const profileId = input.userId ? `prof_reg_${input.userId}` : 'prof_registered_user';
+
+  let existingList: GeologistUserProfile[] = [];
   try {
-    localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify(defaults));
-    if (!localStorage.getItem(ESWA_ACTIVE_PROFILE_KEY)) {
-      localStorage.setItem(ESWA_ACTIVE_PROFILE_KEY, defaults[0].id);
+    const raw = localStorage.getItem(ESWA_GEOLOGIST_PROFILES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        existingList = parsed.filter(
+          (p) => !isLegacyPreFedProfile(p) && p.id !== 'prof_master_akash'
+        );
+      }
     }
   } catch {
     // Ignore
   }
 
-  return defaults;
+  const prev = existingList.find((p) => p.id === profileId || p.isDefaultOnDevice);
+  const updatedProfile: GeologistUserProfile = {
+    id: prev?.id || profileId,
+    name: cleanName,
+    email: input.email?.trim() || prev?.email,
+    designation: (input.position || prev?.designation || 'Geologist').trim(),
+    role: prev?.role || 'Contractor',
+    pin: prev?.pin || '1234',
+    pngSignatureDataUrl: prev?.pngSignatureDataUrl,
+    deviceId: prev?.deviceId || deviceId,
+    isDefaultOnDevice: true,
+    createdAt: prev?.createdAt || nowIso,
+    lastActiveAt: nowIso,
+  };
+
+  const nextList = [
+    updatedProfile,
+    ...existingList
+      .filter((p) => p.id !== updatedProfile.id)
+      .map((p) => ({ ...p, isDefaultOnDevice: false })),
+  ];
+
+  try {
+    localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify(nextList));
+    localStorage.setItem(ESWA_ACTIVE_PROFILE_KEY, updatedProfile.id);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('eswa-geologist-profile-changed', { detail: updatedProfile })
+      );
+    }
+  } catch {
+    // Ignore
+  }
+
+  return updatedProfile;
 }
 
 export function saveGeologistUserProfile(

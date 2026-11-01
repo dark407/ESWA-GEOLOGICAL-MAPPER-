@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import App from './App';
 import { MasterAdminPortalWebsite } from './components/MasterAdminPortalWebsite';
-import { ProductDownloadWebsite } from './components/ProductDownloadWebsite';
 import {
   SoftwareAccessGate,
   SoftwareLiveUpdateNotifier,
@@ -26,35 +25,13 @@ import {
   getConfiguredGithubRepo,
   prepareAndroidApkBlobUrl,
 } from './engine/windowsDesktopEngine';
+import {
+  getStoredGeologistProfiles,
+  syncGeologistProfileFromRegisteredUser,
+} from './engine/userCloudAndPackageEngine';
 import { db } from './firebase';
 
-function isStandalonePublicWebsiteRoute(): boolean {
-  if (import.meta.env.VITE_STANDALONE_WEBSITE === 'true') {
-    return true;
-  }
-  if (typeof window !== 'undefined') {
-    const path = window.location.pathname.toLowerCase();
-    const hash = window.location.hash.toLowerCase();
-    const params = new URLSearchParams(window.location.search);
-    const siteParam = (params.get('site') || '').toLowerCase();
-    if (
-      path === '/website' ||
-      path.startsWith('/website/') ||
-      hash === '#website' ||
-      hash === '#/website' ||
-      siteParam === 'website' ||
-      siteParam === 'download'
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export const RootApplicationRouter: React.FC = () => {
-  const [isStrictStandaloneRoute] = useState<boolean>(() =>
-    isStandalonePublicWebsiteRoute()
-  );
 
   // Detect whether this instance is the Normal User App:
   // - FALSE by default (Master Software for Master Owner on both PC and Android)
@@ -138,14 +115,9 @@ export const RootApplicationRouter: React.FC = () => {
   const [isOwnerPreviewingUserEdition, setIsOwnerPreviewingUserEdition] =
     useState<boolean>(false);
 
-  // Check if URL or saved Master state points to the Standalone Download Website, Master Admin Portal, or Geological Mapping Software
-  const [viewMode, setViewMode] = useState<
-    'public_website' | 'software' | 'admin_website'
-  >(() => {
+  // Check if URL or saved Master state points to Master Admin Portal or Geological Mapping Software
+  const [viewMode, setViewMode] = useState<'software' | 'admin_website'>(() => {
     if (typeof window !== 'undefined') {
-      if (isStandalonePublicWebsiteRoute()) {
-        return 'public_website';
-      }
       const path = window.location.pathname.toLowerCase();
       const search = window.location.search.toLowerCase();
       if (path.startsWith('/admin') || search.includes('portal=admin')) {
@@ -156,18 +128,14 @@ export const RootApplicationRouter: React.FC = () => {
       }
       try {
         const savedView = localStorage.getItem('eswa_master_active_view_mode_v2');
-        if (
-          savedView === 'public_website' ||
-          savedView === 'admin_website' ||
-          savedView === 'software'
-        ) {
+        if (savedView === 'admin_website' || savedView === 'software') {
           return savedView;
         }
       } catch {
         // Ignore
       }
     }
-    return 'public_website';
+    return 'software';
   });
 
   useEffect(() => {
@@ -185,6 +153,7 @@ export const RootApplicationRouter: React.FC = () => {
     useState<ActivatedClientSession | null>(() => getLocalActivatedSession());
   const [suspendedLicenseInfo, setSuspendedLicenseInfo] =
     useState<SoftwareLicenseRecord | null>(null);
+  const [revokedNoticeText, setRevokedNoticeText] = useState<string | null>(null);
 
   useEffect(() => {
     const onHydrated = () => {
@@ -198,9 +167,10 @@ export const RootApplicationRouter: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // If running in Master Software mode (default for Master Owner), ensure Master PC status is active
+    // If running in Master Software mode (default for Master Owner), ensure Master PC status & Akash Dhanush Eswar profile are active
     if (!isUserEdition) {
       setLocalMasterPcBypass(true);
+      getStoredGeologistProfiles();
       return;
     }
 
@@ -213,15 +183,48 @@ export const RootApplicationRouter: React.FC = () => {
       return;
     }
 
+    // Keep User Settings Geologist Profile synced with the first-time registered user's Name, Email & Position
+    syncGeologistProfileFromRegisteredUser({
+      userId: currentSession.userId,
+      fullName: currentSession.fullName,
+      email: currentSession.email,
+      position: currentSession.roleTitle,
+      phone: currentSession.phone,
+    });
+
     const unsub = subscribeUserAccountStatus(
       currentSession.userId,
       (status, lic) => {
         if (status === 'SUSPENDED' || status === 'REVOKED') {
-          setSuspendedLicenseInfo(lic);
+          setSuspendedLicenseInfo(
+            lic || {
+              userId: currentSession.userId,
+              portalScope: 'ESWA_GLOBAL',
+              password: '',
+              licenseKey: currentSession.licenseKey || '',
+              fullName: currentSession.fullName,
+              email: currentSession.email || '',
+              phone: currentSession.phone || '',
+              organization: currentSession.organization || '',
+              boundPcHardwareId: currentSession.pcHardwareId,
+              boundPcName: currentSession.roleTitle || 'Geologist',
+              status: 'REVOKED',
+              installedVersion: '1.0.0',
+              lastSeenAtIso: new Date().toISOString(),
+              createdAtIso: currentSession.activatedAtIso,
+              adminAuthSig: '',
+            }
+          );
+          setRevokedNoticeText(
+            lic
+              ? `Your software access has been revoked by the Master Administrator.`
+              : `Your user account (${currentSession.fullName}) was removed by the Master Administrator.`
+          );
           saveLocalActivatedSession(null);
           setActiveSession(null);
         } else if (status === 'ACTIVE' && lic) {
           setSuspendedLicenseInfo(null);
+          setRevokedNoticeText(null);
         }
       }
     );
@@ -230,10 +233,6 @@ export const RootApplicationRouter: React.FC = () => {
       unsub();
     };
   }, [isUserEdition, activeSession?.userId]);
-
-  const handleOpenPublicWebsite = () => {
-    setViewMode('public_website');
-  };
 
   const handleOpenAdminWebsite = () => {
     setViewMode('admin_website');
@@ -249,34 +248,45 @@ export const RootApplicationRouter: React.FC = () => {
     setViewMode('software');
   };
 
-  // 0. Standalone Public Product Showcase & Software Distribution Website (/website, Netlify deployment, or active Website View)
-  // Public visitors have zero navigation or UI connection back to the mapping software.
-  // Only the authenticated Master Owner (inside the password/OTP-protected Master Release Console) can switch views in AI Studio preview.
-  if (isStrictStandaloneRoute || (viewMode === 'public_website' && !isUserEdition)) {
-    return (
-      <ProductDownloadWebsite
-        onMasterSwitchToSoftware={
-          import.meta.env.VITE_STANDALONE_WEBSITE === 'true'
-            ? undefined
-            : handleSwitchToSoftware
-        }
-        onMasterSwitchToAdminPortal={
-          import.meta.env.VITE_STANDALONE_WEBSITE === 'true'
-            ? undefined
-            : handleOpenAdminWebsite
-        }
-      />
-    );
-  }
+  const handleExitPreviewUserEdition = () => {
+    setIsOwnerPreviewingUserEdition(false);
+    setIsUserEdition(false);
+    setViewMode('admin_website');
+  };
 
   // 1. Standalone Master Admin Licensing & Update Control Website (Only for Master Owner)
   if (viewMode === 'admin_website' && (!isUserEdition || isOwnerPreviewingUserEdition)) {
     return (
       <MasterAdminPortalWebsite
         onSwitchToSoftware={handleSwitchToSoftware}
-        onOpenPublicWebsite={handleOpenPublicWebsite}
         onPreviewUserSoftware={handleStartPreviewUserEdition}
         onMasterPcStatusChanged={() => {}}
+      />
+    );
+  }
+
+  // 2. First-Time User Registration & Access Control Gate for User APK / User Software Edition
+  if (isUserEdition && (!activeSession || suspendedLicenseInfo || revokedNoticeText)) {
+    return (
+      <SoftwareAccessGate
+        onAuthorizedSession={(session) => {
+          setSuspendedLicenseInfo(null);
+          setRevokedNoticeText(null);
+          setActiveSession(session);
+          syncGeologistProfileFromRegisteredUser({
+            userId: session.userId,
+            fullName: session.fullName,
+            email: session.email,
+            position: session.roleTitle,
+            phone: session.phone,
+          });
+        }}
+        suspendedLicense={suspendedLicenseInfo}
+        revokedMessage={revokedNoticeText}
+        isOwnerPreview={isOwnerPreviewingUserEdition}
+        onExitOwnerPreview={
+          isOwnerPreviewingUserEdition ? handleExitPreviewUserEdition : undefined
+        }
       />
     );
   }
@@ -287,6 +297,11 @@ export const RootApplicationRouter: React.FC = () => {
       data-window="root-application-shell"
       data-element-id="root-application-container"
     >
+      <SoftwareLiveUpdateNotifier
+        isMasterSoftware={!isUserEdition}
+        activeSession={activeSession}
+        onOpenAdminPortal={handleOpenAdminWebsite}
+      />
       <div className="flex-1 min-h-0 w-full relative overflow-hidden">
         <App
           isMasterSoftware={!isUserEdition}

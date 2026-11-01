@@ -67,62 +67,46 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ''
           ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: 'true'
 
-      - name: Upload User Windows .EXE Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ESWA-GEOLOGICAL-MAPPER-User-Setup
-          path: |
-            release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe
-            release/AKASH-TUNNEL-MAPPER-User-Setup.exe
-          if-no-files-found: warn
-
       - name: Upload Master Windows .EXE Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ESWA-GEOLOGICAL-MAPPER-Master-Setup
-          path: |
-            release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
-            release/AKASH-TUNNEL-MAPPER-Master-Setup.exe
+          path: release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
           if-no-files-found: warn
 
-      - name: Upload User Android .APK Artifact
+      - name: Upload User Windows .EXE Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ESWA-GEOLOGICAL-MAPPER-User-Android
-          path: |
-            release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk
-            release/ESWA-TUNNEL-MAPPER-User-Android.apk
+          name: ESWA-GEOLOGICAL-MAPPER-User-Setup
+          path: release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe
           if-no-files-found: warn
 
       - name: Upload Master Android .APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ESWA-GEOLOGICAL-MAPPER-Master-Android
-          path: |
-            release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk
-            release/ESWA-TUNNEL-MAPPER-Master-Android.apk
+          path: release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk
           if-no-files-found: warn
 
-      - name: Upload Complete Release Distribution Bundle
+      - name: Upload User Android .APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ESWA-GEOLOGICAL-MAPPER-Distribution-Suite
-          path: |
-            release/*.exe
-            release/*.apk
-            release/user-ota-bundle.json
-            release/latest-release.json
+          name: ESWA-GEOLOGICAL-MAPPER-User-Android
+          path: release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk
           if-no-files-found: warn
 
-      - name: Update Rolling 'latest' Tag to Current Commit
+      - name: Clean Previous 'latest' Release & Update Rolling Tag
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          gh release delete latest --yes --cleanup-tag || true
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -fa latest -m "Latest Master & User Windows .EXE + Android .APK Build #${{ github.run_number }}"
           git push origin latest --force || true
 
-      - name: Publish Master & User Windows .EXE + Android .APK to GitHub Releases (Direct Download)
+      - name: Publish 4 Installers (Master .EXE, User .EXE, Master .APK, User .APK) to GitHub Releases
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         env:
@@ -135,19 +119,18 @@ jobs:
           name: "ESWA GEOLOGICAL MAPPER — Official Windows .EXE & Android .APK Installers [Build #${{ github.run_number }}]"
           body: |
             ### Official Windows PC Software (.EXE) & Standalone Android Apps (.APK) — Build #${{ github.run_number }}
-            1. **User PC Software (.EXE — Share with Field Engineers & Geologists):** `ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
-               - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
-            2. **Master PC Software (.EXE — Master Suite / Owner Access):** `ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`
+            1. **Master PC Software (.EXE — Master Suite / Owner Access):** `ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`
                - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`
-            3. **User Standalone Android App (.APK — Field Mobile Devices):** `ESWA-GEOLOGICAL-MAPPER-User-Android.apk`
-               - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Android.apk`
-            4. **Master Standalone Android App (.APK — Owner Admin App):** `ESWA-GEOLOGICAL-MAPPER-Master-Android.apk`
+            2. **User PC Software (.EXE — Field Engineers & Geologists):** `ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
+               - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
+            3. **Master Standalone Android App (.APK — Owner Admin App):** `ESWA-GEOLOGICAL-MAPPER-Master-Android.apk`
                - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk`
-            5. **Live In-App Auto-Update Bundle (Zero Data Deletion):** `user-ota-bundle.json`
-               - Direct Update Link: `https://github.com/${{ github.repository }}/releases/download/latest/user-ota-bundle.json`
+            4. **User Standalone Android App (.APK — Field Mobile Devices):** `ESWA-GEOLOGICAL-MAPPER-User-Android.apk`
+               - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Android.apk`
           files: |
-            release/*.exe
-            release/*.apk
-            release/user-ota-bundle.json
-            release/latest-release.json
+            release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
+            release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe
+            release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk
+            release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk
           prerelease: false
+

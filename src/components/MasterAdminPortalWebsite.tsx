@@ -46,14 +46,12 @@ import {
 
 interface MasterAdminPortalWebsiteProps {
   onSwitchToSoftware: () => void;
-  onOpenPublicWebsite?: () => void;
   onPreviewUserSoftware?: () => void;
   onMasterPcStatusChanged?: () => void;
 }
 
 export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> = ({
   onSwitchToSoftware,
-  onOpenPublicWebsite,
 }) => {
   // 1. One-Time Master Login Gate State
   const [isVerified, setIsVerified] = useState<boolean>(() => isMasterLocallyVerified());
@@ -236,7 +234,8 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
     if (!busyKey) return;
     setActionBusyId(busyKey);
     try {
-      const targetUserId = lic?.userId || req?.assignedUserId;
+      const targetUserId =
+        lic?.userId || req?.assignedUserId || req?.requestId.replace(/^req_/, '');
       if (targetUserId) {
         await updateSoftwareLicenseAdmin(targetUserId, {
           status: 'REVOKED',
@@ -280,6 +279,8 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
       isRequest: boolean;
       name: string;
       email: string;
+      phone: string;
+      position: string;
       organization: string;
       hardwareId: string;
       status: 'pending' | 'approved' | 'revoked';
@@ -289,6 +290,15 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
     };
 
     const list: UnifiedUser[] = [];
+
+    const extractPosition = (lic?: SoftwareLicenseRecord, req?: AccessRequestRecord): string => {
+      if (req?.roleTitle && req.roleTitle.trim()) return req.roleTitle.trim();
+      if (lic?.boundPcName && lic.boundPcName.includes('·')) {
+        return lic.boundPcName.split('·').slice(1).join('·').trim();
+      }
+      if (lic?.password && lic.password.trim()) return lic.password.trim();
+      return 'Geologist';
+    };
 
     // 1. Add requests and link any matching license
     requests.forEach((r) => {
@@ -317,7 +327,9 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
         isRequest: !matchedLic,
         name: matchedLic?.fullName || r.fullName || 'Unnamed User',
         email: matchedLic?.email || r.email || '',
-        organization: matchedLic?.organization || r.organization || 'Mine Site',
+        phone: matchedLic?.phone || r.phone || 'Not provided',
+        position: extractPosition(matchedLic, r),
+        organization: matchedLic?.organization || r.organization || 'Tunnel Project',
         hardwareId: matchedLic?.boundPcHardwareId || r.pcHardwareId || 'N/A',
         status: resolvedStatus,
         date: matchedLic?.createdAtIso || r.createdAtIso,
@@ -342,6 +354,8 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
           isRequest: false,
           name: l.fullName || 'Licensed User',
           email: l.email || '',
+          phone: l.phone || 'Not provided',
+          position: extractPosition(l, undefined),
           organization: l.organization || 'Field Office',
           hardwareId: l.boundPcHardwareId || 'N/A',
           status: l.status === 'ACTIVE' ? 'approved' : 'revoked',
@@ -358,6 +372,8 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
         return (
           u.name.toLowerCase().includes(q) ||
           u.email.toLowerCase().includes(q) ||
+          u.phone.toLowerCase().includes(q) ||
+          u.position.toLowerCase().includes(q) ||
           u.hardwareId.toLowerCase().includes(q) ||
           u.organization.toLowerCase().includes(q)
         );
@@ -390,7 +406,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
       <div className="min-h-dvh h-dvh w-full bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 select-none overflow-y-auto">
         <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5 my-auto">
           <div className="flex flex-col items-center text-center space-y-2">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30 shadow-inner">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400">
               <ShieldCheck className="w-7 h-7" />
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide">
@@ -604,19 +620,8 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
             <span>Back to App</span>
           </button>
 
-          {onOpenPublicWebsite && (
-            <button
-              type="button"
-              onClick={onOpenPublicWebsite}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-semibold border border-amber-500/40 transition-colors cursor-pointer"
-              title="Open Public Software Download & Release Website"
-            >
-              <span>Download Website</span>
-            </button>
-          )}
-
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-black text-xs border border-amber-500/30">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center text-sm shadow-sm">
               M
             </div>
             <div>
@@ -763,6 +768,14 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
 
                         <div className="text-[11px] font-mono text-slate-400 space-y-0.5 pt-1 border-t border-slate-800/60">
                           <div>
+                            <span className="text-slate-500">Position:</span>{' '}
+                            <span className="text-amber-300 font-semibold">{u.position}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Mobile Number:</span>{' '}
+                            <span className="text-cyan-300 font-bold">{u.phone}</span>
+                          </div>
+                          <div>
                             <span className="text-slate-500">Device ID:</span>{' '}
                             <span className="text-slate-300 font-bold">{u.hardwareId}</span>
                           </div>
@@ -771,9 +784,9 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                             <span className="text-slate-300">{u.organization}</span>
                           </div>
                           <div>
-                            <span className="text-slate-500">Date:</span>{' '}
+                            <span className="text-slate-500">Registered:</span>{' '}
                             <span className="text-slate-300">
-                              {new Date(u.date).toLocaleDateString()}
+                              {new Date(u.date).toLocaleString()}
                             </span>
                           </div>
                         </div>

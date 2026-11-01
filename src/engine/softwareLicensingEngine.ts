@@ -21,10 +21,14 @@ import {
   getPublicShareOrigin,
   getUserAndroidAppShareUrl,
   getUserEditionShareUrl,
+  isRunningInsideNativeAndroidApk,
   normalizeGithubRepoSlug,
   PUBLIC_SHARED_APP_ORIGIN,
   saveConfiguredGithubRepo,
 } from './windowsDesktopEngine';
+
+const DEV_CLOUD_APP_ORIGIN =
+  'https://ais-dev-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
 
 export const CURRENT_SOFTWARE_VERSION = '1.0.0';
 export const MASTER_ADMIN_DEFAULT_EMAIL = 'akashdhanusheswar@gmail.com';
@@ -246,16 +250,22 @@ function fromFirestoreRestFields<T>(
 }
 
 function getServerRelayUrls(subpath: string): string[] {
+  const urls = new Set<string>();
   if (
     typeof window !== 'undefined' &&
     (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
     window.location.origin &&
     window.location.origin !== 'null'
   ) {
-    return [subpath];
+    urls.add(subpath);
   }
   const shareOrigin = getPublicShareOrigin();
-  return [`${shareOrigin}${subpath}`];
+  if (shareOrigin) {
+    urls.add(`${shareOrigin}${subpath}`);
+  }
+  urls.add(`${PUBLIC_SHARED_APP_ORIGIN}${subpath}`);
+  urls.add(`${DEV_CLOUD_APP_ORIGIN}${subpath}`);
+  return Array.from(urls);
 }
 
 async function serverRelayUpsert(
@@ -623,6 +633,9 @@ export interface MasterPcRecord {
 export interface ActivatedClientSession {
   userId: string;
   fullName: string;
+  email?: string;
+  phone?: string;
+  roleTitle?: string;
   organization: string;
   licenseKey: string;
   pcHardwareId: string;
@@ -743,8 +756,34 @@ export function setInstalledSoftwareVersion(version: string): void {
   }
 }
 
+export function isRunningInUserEditionContext(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const win = window as unknown as {
+      __ESWA_EDITION__?: string;
+      eswaDesktop?: { isDesktopApp?: boolean; edition?: string };
+    };
+    if (win.__ESWA_EDITION__ === 'user') return true;
+    if (win.eswaDesktop?.isDesktopApp && win.eswaDesktop.edition === 'user') return true;
+    if (isRunningInsideNativeAndroidApk() && win.__ESWA_EDITION__ !== 'master') {
+      return true;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const editionParam = (params.get('edition') || params.get('mode') || '').toLowerCase();
+    if (editionParam === 'user' || editionParam === 'client' || editionParam === 'app') {
+      return true;
+    }
+  } catch {
+    // Ignore
+  }
+  return false;
+}
+
 export function getLocalMasterPcBypass(): boolean {
   try {
+    if (isRunningInUserEditionContext()) {
+      return false;
+    }
     if (localStorage.getItem(LOCAL_MASTER_PC_BYPASS_KEY) === 'true') return true;
     const sess = getLocalActivatedSession();
     if (
@@ -762,7 +801,12 @@ export function getLocalMasterPcBypass(): boolean {
     ) {
       return true;
     }
-    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.includes('run.app') || window.location.hostname.includes('aistudio'))) {
+    if (
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname.includes('run.app') ||
+        window.location.hostname.includes('aistudio'))
+    ) {
       return true;
     }
     return false;
@@ -787,7 +831,13 @@ export const ESWA_ENTERPRISE_TOKEN_SALT = 'ESWA_ENTERPRISE_TOKEN_SALT_SEC_2026';
 export const ESWA_GATEWAY_SALT = 'ESWA_GATEWAY_API_SIG_2026';
 export const LOCAL_TAMPER_LOCKOUT_KEY = 'eswa_tamper_lockout_active_v1';
 
-export function computeSha256Hex(ascii: string): string {
+export function computeSha256Hex(rawInput: string): string {
+  let ascii = rawInput;
+  try {
+    ascii = unescape(encodeURIComponent(rawInput));
+  } catch {
+    // Keep original string if already byte-encoded
+  }
   function rightRotate(value: number, amount: number) {
     return (value >>> amount) | (value << (32 - amount));
   }
@@ -814,8 +864,7 @@ export function computeSha256Hex(ascii: string): string {
   ascii += '\x80';
   while ((ascii[lengthProperty] % 64) - 56) ascii += '\x00';
   for (i = 0; i < ascii[lengthProperty]; i++) {
-    j = ascii.charCodeAt(i);
-    if (j >> 8) return '';
+    j = ascii.charCodeAt(i) & 0xff;
     words[i >> 2] |= j << (((3 - i) % 4) * 8);
   }
   words[words[lengthProperty]] = (asciiBitLength / maxWord) | 0;
@@ -948,28 +997,34 @@ export function getLocalActivatedSession(): ActivatedClientSession | null {
     if (raw.includes('__eswa_enc__')) {
       const envelope = JSON.parse(raw) as SecureSessionEnvelope;
       if (!envelope || envelope.__eswa_enc__ !== true || !envelope.hwId || !envelope.payload || !envelope.checksum) {
-        triggerTamperViolationLockout('Invalid encrypted token envelope structure.');
+        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
         return null;
       }
 
       // Check if machine hardware ID matches bound token hardware ID
       if (envelope.hwId !== currentHwId) {
-        triggerTamperViolationLockout(`Hardware token mismatch: bound ${envelope.hwId} vs machine ${currentHwId}`);
+        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
         return null;
       }
 
       // Verify cryptographic runtime signature / checksum
       const expectedChecksum = computeSha256Hex(`${envelope.payload}:${envelope.hwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
       if (envelope.checksum !== expectedChecksum) {
-        triggerTamperViolationLockout('Cryptographic token signature verification failed (offline token tampered).');
+        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
         return null;
       }
 
-      const decrypted = xorCipher(atob(envelope.payload), `${envelope.hwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
+      const rawDecrypted = xorCipher(atob(envelope.payload), `${envelope.hwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
+      let decrypted = rawDecrypted;
+      try {
+        decrypted = decodeURIComponent(escape(rawDecrypted));
+      } catch {
+        decrypted = rawDecrypted;
+      }
       session = JSON.parse(decrypted) as ActivatedClientSession;
 
       if (!session || !session.userId || !session.licenseKey || session.pcHardwareId !== envelope.hwId) {
-        triggerTamperViolationLockout('Session payload integrity verification failed.');
+        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
         return null;
       }
     } else {
@@ -986,18 +1041,22 @@ export function getLocalActivatedSession(): ActivatedClientSession | null {
           // Upgrade immediately to secured cryptographic envelope
           saveLocalActivatedSession(session);
         } else {
-          triggerTamperViolationLockout('Legacy session bound to different PC hardware ID.');
+          localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
           return null;
         }
       } else {
-        triggerTamperViolationLockout('Unencrypted, modified, or forged licensing payload detected in storage.');
+        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
         return null;
       }
     }
 
     return session;
-  } catch (err: unknown) {
-    triggerTamperViolationLockout(err instanceof Error ? err.message : 'Session decrypt error');
+  } catch {
+    try {
+      localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
+    } catch {
+      // Ignore
+    }
     return null;
   }
 }
@@ -1016,7 +1075,14 @@ export function saveLocalActivatedSession(session: ActivatedClientSession | null
       pcHardwareId: boundHwId,
     });
 
-    const ciphered = xorCipher(sessionJson, `${boundHwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
+    let utf8Json = sessionJson;
+    try {
+      utf8Json = unescape(encodeURIComponent(sessionJson));
+    } catch {
+      utf8Json = sessionJson;
+    }
+
+    const ciphered = xorCipher(utf8Json, `${boundHwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
     const b64Payload = btoa(ciphered);
     const checksum = computeSha256Hex(`${b64Payload}:${boundHwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
 
@@ -1344,7 +1410,11 @@ export async function submitSoftwareAccessRequest(input: {
     if (isOfflineOrTimeoutError(error)) {
       return record;
     }
-    handleFirestoreError(error, OperationType.CREATE, path);
+    try {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    } catch {
+      return record;
+    }
   }
 }
 
@@ -1514,6 +1584,9 @@ export async function registerInstantUserAndLogin(input: {
   const session: ActivatedClientSession = {
     userId: licenseRecord.userId,
     fullName: licenseRecord.fullName,
+    email: licenseRecord.email,
+    phone: licenseRecord.phone,
+    roleTitle: cleanRole,
     organization: licenseRecord.organization,
     licenseKey: licenseRecord.licenseKey,
     pcHardwareId: validHwId,
@@ -1522,6 +1595,31 @@ export async function registerInstantUserAndLogin(input: {
   saveLocalActivatedSession(session);
   upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, licenseRecord, (x) => x.userId);
   upsertMirrorItem(LOCAL_MIRROR_REQUESTS_KEY, requestRecord, (x) => x.requestId);
+
+  // Also set this user's registration info as the active Geologist Profile in User Settings
+  try {
+    const userGeoProfile = {
+      id: `prof_reg_${userId}`,
+      name: licenseRecord.fullName,
+      email: licenseRecord.email,
+      designation: cleanRole || 'Geologist',
+      role: 'Contractor',
+      pin: '1234',
+      deviceId: validHwId,
+      isDefaultOnDevice: true,
+      createdAt: nowIso,
+      lastActiveAt: nowIso,
+    };
+    localStorage.setItem('eswa_geologist_user_profiles_v1', JSON.stringify([userGeoProfile]));
+    localStorage.setItem('eswa_active_geologist_profile_id_v1', userGeoProfile.id);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('eswa-geologist-profile-changed', { detail: userGeoProfile })
+      );
+    }
+  } catch {
+    // Ignore storage restrictions
+  }
 
   // Sync to all 3 cloud channels (Server Relay + Primary & Secondary Firestore REST + Firebase SDK)
   await Promise.all([
@@ -1702,7 +1800,11 @@ export async function getAccessRequestById(
     if (isOfflineOrTimeoutError(error)) {
       return localMatch;
     }
-    handleFirestoreError(error, OperationType.GET, path);
+    try {
+      handleFirestoreError(error, OperationType.GET, path);
+    } catch {
+      return localMatch;
+    }
   }
 }
 
@@ -1725,6 +1827,15 @@ export async function getSoftwareLicenseById(
       'software_licenses',
       cleanUserId
     );
+    // Note: firestoreRestGetDoc also calls serverRelayFetchCollection which syncs deleted_tombstones!
+    if (isIdDeletedTombstone(cleanUserId) || (localMatch && isLicenseTombstoned(localMatch))) {
+      removeMirrorItem<SoftwareLicenseRecord>(
+        LOCAL_MIRROR_LICENSES_KEY,
+        cleanUserId,
+        (x) => sanitizeIdentifier(x.userId)
+      );
+      return null;
+    }
     if (restLic) {
       upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, restLic, (x) => x.userId);
       return restLic;
@@ -1738,8 +1849,30 @@ export async function getSoftwareLicenseById(
       getDoc(doc(db, 'software_licenses', cleanUserId)),
       2500
     );
-    if (!snap.exists()) return localMatch;
+    const fromCache = Boolean(
+      (snap as unknown as { metadata?: { fromCache?: boolean } })?.metadata?.fromCache
+    );
+    if (!snap.exists()) {
+      // If Firestore server authoritatively reports the document does not exist, it was deleted by Master Admin
+      if (!fromCache) {
+        removeMirrorItem<SoftwareLicenseRecord>(
+          LOCAL_MIRROR_LICENSES_KEY,
+          cleanUserId,
+          (x) => sanitizeIdentifier(x.userId)
+        );
+        return null;
+      }
+      return localMatch;
+    }
     const remote = snap.data() as SoftwareLicenseRecord;
+    if (isLicenseTombstoned(remote)) {
+      removeMirrorItem<SoftwareLicenseRecord>(
+        LOCAL_MIRROR_LICENSES_KEY,
+        cleanUserId,
+        (x) => sanitizeIdentifier(x.userId)
+      );
+      return null;
+    }
     upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, remote, (x) => x.userId);
     return remote;
   } catch {
@@ -1874,7 +2007,9 @@ export async function verifyAndActivateOnePcLogin(input: {
     const nowIso = new Date().toISOString();
     const masterSession: ActivatedClientSession = {
       userId: storedAdmin.email,
-      fullName: 'Master Admin',
+      fullName: 'Akash Dhanush Eswar',
+      email: storedAdmin.email,
+      roleTitle: 'Geologist',
       organization: 'ESWA Master Workstation',
       licenseKey: 'MASTER-PC-BYPASS',
       pcHardwareId,
@@ -1948,15 +2083,47 @@ export async function verifyAndActivateOnePcLogin(input: {
     };
     upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, updatedLicense, (x) => x.userId);
 
+    const resolvedPosition =
+      license.boundPcName && license.boundPcName.includes('·')
+        ? license.boundPcName.split('·').slice(1).join('·').trim()
+        : license.password || 'Geologist';
+
     const session: ActivatedClientSession = {
       userId: license.userId,
       fullName: license.fullName,
+      email: license.email,
+      phone: license.phone,
+      roleTitle: resolvedPosition,
       organization: license.organization,
       licenseKey: license.licenseKey,
       pcHardwareId,
       activatedAtIso: nowIso,
     };
     saveLocalActivatedSession(session);
+
+    try {
+      const userGeoProfile = {
+        id: `prof_reg_${license.userId}`,
+        name: license.fullName,
+        email: license.email,
+        designation: resolvedPosition || 'Geologist',
+        role: 'Contractor',
+        pin: '1234',
+        deviceId: pcHardwareId,
+        isDefaultOnDevice: true,
+        createdAt: nowIso,
+        lastActiveAt: nowIso,
+      };
+      localStorage.setItem('eswa_geologist_user_profiles_v1', JSON.stringify([userGeoProfile]));
+      localStorage.setItem('eswa_active_geologist_profile_id_v1', userGeoProfile.id);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('eswa-geologist-profile-changed', { detail: userGeoProfile })
+        );
+      }
+    } catch {
+      // Ignore storage restrictions
+    }
 
     return {
       ok: true,
@@ -2018,20 +2185,28 @@ export async function verifyAndActivateOnePcLogin(input: {
     }
     return result;
   } catch (error) {
+    const localLic = readLocalMirror<SoftwareLicenseRecord>(
+      LOCAL_MIRROR_LICENSES_KEY
+    ).find((l) => sanitizeIdentifier(l.userId) === cleanUserId);
+    if (localLic) {
+      return validateAndBindLicense(localLic);
+    }
     if (isOfflineOrTimeoutError(error)) {
-      const localLic = readLocalMirror<SoftwareLicenseRecord>(
-        LOCAL_MIRROR_LICENSES_KEY
-      ).find((l) => sanitizeIdentifier(l.userId) === cleanUserId);
-      if (localLic) {
-        return validateAndBindLicense(localLic);
-      }
       return {
         ok: false,
         message:
           'Invalid User ID or offline. Tip: Master Owner can log in directly with akashdhanusheswar@gmail.com and akash@master2026.',
       };
     }
-    handleFirestoreError(error, OperationType.UPDATE, path);
+    try {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    } catch {
+      return {
+        ok: false,
+        message:
+          'Unable to verify credentials online right now. Please check your User ID or internet connection.',
+      };
+    }
   }
 }
 
@@ -2099,7 +2274,11 @@ export async function setMasterPcAuthorization(
     await withFirestoreTimeout(setDoc(doc(db, 'master_pcs', cleanPcId), record));
   } catch (error) {
     if (isOfflineOrTimeoutError(error)) return;
-    handleFirestoreError(error, OperationType.WRITE, path);
+    try {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    } catch {
+      // Saved in local mirror
+    }
   }
 }
 
@@ -2119,7 +2298,11 @@ export async function removeMasterPcAuthorization(pcHardwareId: string): Promise
     await withFirestoreTimeout(deleteDoc(doc(db, 'master_pcs', cleanPcId)));
   } catch (error) {
     if (isOfflineOrTimeoutError(error)) return;
-    handleFirestoreError(error, OperationType.DELETE, path);
+    try {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    } catch {
+      // Removed from local mirror
+    }
   }
 }
 
@@ -2782,7 +2965,7 @@ export async function performInAppOtaAutoUpdate(
 
 /**
  * Real-time listener on the User App / User Software that watches whether the Master Admin
- * has SUSPENDED or REACTIVATEd this user's account.
+ * has SUSPENDED, REVOKED, or DELETED this user's account, and reflects it immediately.
  */
 export function subscribeUserAccountStatus(
   userId: string,
@@ -2800,10 +2983,39 @@ export function subscribeUserAccountStatus(
     return () => {};
   }
 
+  let hasSeenRemoteExistence = false;
+
   const checkStatus = async () => {
     try {
       const lic = await getSoftwareLicenseById(cleanUserId);
+      if (isIdDeletedTombstone(cleanUserId)) {
+        removeMirrorItem<SoftwareLicenseRecord>(
+          LOCAL_MIRROR_LICENSES_KEY,
+          cleanUserId,
+          (x) => sanitizeIdentifier(x.userId)
+        );
+        onStatusChange('REVOKED', null);
+        return;
+      }
+      if (!lic) {
+        // Check if Firestore REST explicitly returns 404 (deleted by Master Admin)
+        const ep = FIRESTORE_REST_ENDPOINTS[0];
+        const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/software_licenses/${encodeURIComponent(
+          cleanUserId
+        )}?key=${ep.apiKey}`;
+        const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
+        if (resp.status === 404) {
+          removeMirrorItem<SoftwareLicenseRecord>(
+            LOCAL_MIRROR_LICENSES_KEY,
+            cleanUserId,
+            (x) => sanitizeIdentifier(x.userId)
+          );
+          onStatusChange('REVOKED', null);
+        }
+        return;
+      }
       if (lic && lic.status) {
+        hasSeenRemoteExistence = true;
         onStatusChange(lic.status, lic);
       }
     } catch {
@@ -2814,23 +3026,54 @@ export function subscribeUserAccountStatus(
   void checkStatus();
   const pollTimer = window.setInterval(() => {
     void checkStatus();
-  }, 120000);
+  }, 2500);
+
+  const handleFocus = () => {
+    void checkStatus();
+  };
+  window.addEventListener('focus', handleFocus);
+  document.addEventListener('visibilitychange', handleFocus);
 
   const unsub = onSnapshot(
     doc(db, 'software_licenses', cleanUserId),
     (snap) => {
-      if (!snap.exists()) return;
+      const fromCache = Boolean(
+        (snap as unknown as { metadata?: { fromCache?: boolean } })?.metadata?.fromCache
+      );
+      if (!snap.exists()) {
+        if (!fromCache || hasSeenRemoteExistence) {
+          removeMirrorItem<SoftwareLicenseRecord>(
+            LOCAL_MIRROR_LICENSES_KEY,
+            cleanUserId,
+            (x) => sanitizeIdentifier(x.userId)
+          );
+          onStatusChange('REVOKED', null);
+        }
+        return;
+      }
+      hasSeenRemoteExistence = true;
       const data = snap.data() as SoftwareLicenseRecord;
+      if (isLicenseTombstoned(data)) {
+        removeMirrorItem<SoftwareLicenseRecord>(
+          LOCAL_MIRROR_LICENSES_KEY,
+          cleanUserId,
+          (x) => sanitizeIdentifier(x.userId)
+        );
+        onStatusChange('REVOKED', null);
+        return;
+      }
       upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, data, (x) => x.userId);
       onStatusChange(data.status, data);
     },
     () => {
-      // Handled by REST poll
+      // Handled by 2.5s REST poll
     }
   );
 
   return () => {
     window.clearInterval(pollTimer);
+    window.removeEventListener('focus', handleFocus);
+    document.removeEventListener('visibilitychange', handleFocus);
     window.setTimeout(() => {
       try {
         unsub();
@@ -3095,11 +3338,46 @@ export function subscribeAdminLicensingData(callbacks: {
   // Emit local mirror immediately so UI is responsive with 0ms delay
   pushFromMirror();
 
-  // Immediately pull from Dual-Cloud HTTPS REST API and repeat every 4 seconds
+  // Immediately pull from Dual-Cloud HTTPS REST API and repeat every 3 seconds
   void refreshAdminLicensingDataFromCloud();
   const restPollTimer = window.setInterval(() => {
     void refreshAdminLicensingDataFromCloud();
-  }, 120000);
+  }, 3000);
+
+  // Real-time Firestore snapshot listeners on software_licenses and access_requests
+  const qLicenses = query(
+    collection(db, 'software_licenses'),
+    where('portalScope', '==', PORTAL_SCOPE)
+  );
+  const unsubLicenses = onSnapshot(
+    qLicenses,
+    (snap) => {
+      if (snap.metadata.fromCache && snap.empty) return;
+      const remoteLics = snap.docs
+        .map((d) => d.data() as SoftwareLicenseRecord)
+        .filter((l) => !isLicenseTombstoned(l));
+      writeLocalMirror(LOCAL_MIRROR_LICENSES_KEY, remoteLics);
+      pushFromMirror();
+    },
+    () => {}
+  );
+
+  const qRequests = query(
+    collection(db, 'access_requests'),
+    where('portalScope', '==', PORTAL_SCOPE)
+  );
+  const unsubRequests = onSnapshot(
+    qRequests,
+    (snap) => {
+      if (snap.metadata.fromCache && snap.empty) return;
+      const remoteReqs = snap.docs
+        .map((d) => d.data() as AccessRequestRecord)
+        .filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r));
+      writeLocalMirror(LOCAL_MIRROR_REQUESTS_KEY, remoteReqs);
+      pushFromMirror();
+    },
+    () => {}
+  );
 
   const handleFocusOrVisible = () => {
     if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -3119,6 +3397,14 @@ export function subscribeAdminLicensingData(callbacks: {
     document.removeEventListener('visibilitychange', handleFocusOrVisible);
     window.removeEventListener('eswa-licensing-mirror-updated', handleMirrorEvent);
     window.removeEventListener('storage', handleMirrorEvent);
+    window.setTimeout(() => {
+      try {
+        unsubLicenses();
+        unsubRequests();
+      } catch {
+        // Ignore unlisten race
+      }
+    }, 250);
   };
 }
 

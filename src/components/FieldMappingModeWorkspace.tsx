@@ -1003,7 +1003,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           faceChainage: toSt || `RD ${liveInterval.toRd}m`,
           roundLength: pullLen,
           date: activeRound.createdAt || activeRound.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
-          mappedBy: activeRound.geologistName || 'Geologist',
+          mappedBy: activeRound.geologistName || '',
           lithology: activeRound.lithologyStrokes?.[0]?.rockName || 'Rock Mass',
         },
         joints: convertedJoints,
@@ -15351,7 +15351,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 faceChainage: `RD ${activeRound?.chainageTo || '3.00'}m`,
                 roundLength: activeRound?.pullLengthMeters || 3.0,
                 date: activeRound?.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
-                mappedBy: activeRound?.geologistName || 'Geologist',
+                mappedBy: activeRound?.geologistName || '',
                 lithology:
                   activeRound?.rockType ||
                   activeRound?.lithologyStrokes?.[0]?.rockName ||
@@ -15666,7 +15666,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       faceChainage: `RD ${r.chainageTo || parsed.toRd.toFixed(1)}m`,
                       roundLength: pullLen,
                       date: r.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
-                      mappedBy: r.geologistName || 'Geologist',
+                      mappedBy: r.geologistName || '',
                       lithology: r.rockType || r.lithologyStrokes?.[0]?.rockName || 'Rock Mass',
                     },
                     joints: (r.jointTraces || []).map((jt) => ({
@@ -15768,7 +15768,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 faceChainage: activeRound?.chainageTo || '103.0',
                 roundLength: 3.0,
                 date: new Date().toISOString().slice(0, 10),
-                mappedBy: activeRound?.geologistName || 'Site Engineering Geologist',
+                mappedBy: activeRound?.geologistName || '',
                 lithology: 'Quartzite',
               }}
               savedGeometries={[]}
@@ -15908,7 +15908,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           faceChainage: activeRound ? `CH ${activeRound.chainageTo}m` : 'Ch. 0+100',
           roundLength: activeRound?.pullLengthMeters || 3.0,
           date: activeRound?.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
-          mappedBy: activeRound?.geologistName || 'Engineering Geologist',
+          mappedBy: activeRound?.geologistName || '',
           lithology: activeRound?.rockType || 'Quartzite',
           industryMode: currentIndustryMode,
         }}
@@ -15939,7 +15939,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           faceChainage: activeRound ? `CH ${activeRound.chainageTo}m` : 'Ch. 0+100',
           roundLength: activeRound?.pullLengthMeters || 3.0,
           date: activeRound?.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
-          mappedBy: activeRound?.geologistName || 'Engineering Geologist',
+          mappedBy: activeRound?.geologistName || '',
           lithology: activeRound?.rockType || 'Quartzite',
           industryMode: currentIndustryMode,
         }}

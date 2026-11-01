@@ -320,8 +320,8 @@ export function createDefaultBorehole(): BoreholeRecord {
     drillingContractor: 'Alpha Geotechnical Drilling Consortium',
     pmcConsultant: 'Arup & Partners International Geotechnics',
     clientEmployer: 'National Highway & Infrastructure Authority',
-    loggedBy: 'Dr. Akash D. (Lead Engineering Geologist)',
-    reviewedBy: 'Chief Geotechnical PMC Engineer',
+    loggedBy: '',
+    reviewedBy: '',
     startDate: nowStr,
     completionDate: nowStr,
     waterTableDepth: 6.8,
@@ -452,15 +452,15 @@ export function createDefaultBorehole(): BoreholeRecord {
       },
     ],
     signOff: {
-      contractorName: 'Er. Rajesh Kumar',
+      contractorName: '',
       contractorDate: nowStr,
-      contractorDesignation: 'Senior Drilling Geologist (Contractor)',
-      pmcName: 'Dr. Michael Chen',
+      contractorDesignation: '',
+      pmcName: '',
       pmcDate: nowStr,
-      pmcDesignation: 'Chief Tunnel Geotechnical Consultant (PMC)',
-      clientName: 'Er. S. Narayanan',
+      pmcDesignation: '',
+      clientName: '',
       clientDate: nowStr,
-      clientDesignation: 'Executive Engineer / Project Director (Client)',
+      clientDesignation: '',
     },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -512,6 +512,15 @@ export function createEmptyBorehole(boreholeId = 'BH-01'): BoreholeRecord {
 }
 
 export function loadBoreholeRecordsFromStorage(): BoreholeRecord[] {
+  const legacyNames = new Set([
+    'Dr. Akash D. (Lead Engineering Geologist)',
+    'Chief Geotechnical PMC Engineer',
+    'Er. Rajesh Kumar',
+    'Dr. Michael Chen',
+    'Er. S. Narayanan',
+  ]);
+  const cleanName = (val?: string) => (val && legacyNames.has(val.trim()) ? '' : val || '');
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
@@ -520,13 +529,24 @@ export function loadBoreholeRecordsFromStorage(): BoreholeRecord[] {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
       const cleaned = parsed.map((bh: BoreholeRecord) => {
-        if (bh.boreholeId && bh.boreholeId.includes('ESWA')) {
-          return {
-            ...bh,
-            boreholeId: bh.boreholeId.replace(/[-_]?ESWA[-_]?/gi, '-').replace(/--+/g, '-').replace(/^-|-$/g, '') || 'BH-01',
-          };
-        }
-        return bh;
+        const nextId =
+          bh.boreholeId && bh.boreholeId.includes('ESWA')
+            ? bh.boreholeId.replace(/[-_]?ESWA[-_]?/gi, '-').replace(/--+/g, '-').replace(/^-|-$/g, '') || 'BH-01'
+            : bh.boreholeId;
+        return {
+          ...bh,
+          boreholeId: nextId,
+          loggedBy: cleanName(bh.loggedBy),
+          reviewedBy: cleanName(bh.reviewedBy),
+          signOff: bh.signOff
+            ? {
+                ...bh.signOff,
+                contractorName: cleanName(bh.signOff.contractorName),
+                pmcName: cleanName(bh.signOff.pmcName),
+                clientName: cleanName(bh.signOff.clientName),
+              }
+            : bh.signOff,
+        };
       });
       return cleaned;
     }
@@ -603,8 +623,8 @@ export function createBenchmarkFaultZoneBorehole(): BoreholeRecord {
     drillingContractor: 'Alpha Geotechnical Drilling Consortium',
     pmcConsultant: 'Arup & Partners International Geotechnics',
     clientEmployer: 'National Highway & Infrastructure Authority',
-    loggedBy: 'Dr. Akash D. (Lead Engineering Geologist)',
-    reviewedBy: 'Chief Geotechnical PMC Engineer',
+    loggedBy: '',
+    reviewedBy: '',
     startDate: nowStr,
     completionDate: nowStr,
     waterTableDepth: 4.2,
@@ -755,15 +775,15 @@ export function createBenchmarkFaultZoneBorehole(): BoreholeRecord {
       },
     ],
     signOff: {
-      contractorName: 'Er. Rajesh Kumar',
+      contractorName: '',
       contractorDate: nowStr,
-      contractorDesignation: 'Senior Drilling Geologist (Contractor)',
-      pmcName: 'Dr. Michael Chen',
+      contractorDesignation: '',
+      pmcName: '',
       pmcDate: nowStr,
-      pmcDesignation: 'Chief Tunnel Geotechnical Consultant (PMC)',
-      clientName: 'Er. S. Narayanan',
+      pmcDesignation: '',
+      clientName: '',
       clientDate: nowStr,
-      clientDesignation: 'Executive Engineer / Project Director (Client)',
+      clientDesignation: '',
     },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -794,8 +814,8 @@ export function createBenchmarkCavernBorehole(): BoreholeRecord {
     drillingContractor: 'Alpha Geotechnical Drilling Consortium',
     pmcConsultant: 'Arup & Partners International Geotechnics',
     clientEmployer: 'National Highway & Infrastructure Authority',
-    loggedBy: 'Dr. Akash D. (Lead Engineering Geologist)',
-    reviewedBy: 'Chief Geotechnical PMC Engineer',
+    loggedBy: '',
+    reviewedBy: '',
     startDate: nowStr,
     completionDate: nowStr,
     waterTableDepth: 8.5,
@@ -895,15 +915,15 @@ export function createBenchmarkCavernBorehole(): BoreholeRecord {
       },
     ],
     signOff: {
-      contractorName: 'Er. Rajesh Kumar',
+      contractorName: '',
       contractorDate: nowStr,
-      contractorDesignation: 'Senior Drilling Geologist (Contractor)',
-      pmcName: 'Dr. Michael Chen',
+      contractorDesignation: '',
+      pmcName: '',
       pmcDate: nowStr,
-      pmcDesignation: 'Chief Tunnel Geotechnical Consultant (PMC)',
-      clientName: 'Er. S. Narayanan',
+      pmcDesignation: '',
+      clientName: '',
       clientDate: nowStr,
-      clientDesignation: 'Executive Engineer / Project Director (Client)',
+      clientDesignation: '',
     },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

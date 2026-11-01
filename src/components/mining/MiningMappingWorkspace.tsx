@@ -522,6 +522,35 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     });
   };
 
+  // Editable Sign-Off Names for Mining Printable Face Sheet (blank by default)
+  const [sheetNames, setSheetNames] = useState<{ geologistName: string; chiefName: string }>(() => {
+    try {
+      const raw = localStorage.getItem('eswa_mining_face_sheet_names_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          geologistName: parsed.geologistName || '',
+          chiefName: parsed.chiefName || '',
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return { geologistName: '', chiefName: '' };
+  });
+
+  const updateSheetName = (role: 'geologistName' | 'chiefName', value: string) => {
+    setSheetNames((prev) => {
+      const next = { ...prev, [role]: value };
+      try {
+        localStorage.setItem('eswa_mining_face_sheet_names_v1', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
   // Storage and Active Stope
   const projects = useMemo(() => loadMiningProjects(), [isSetupWizardOpen, isStorageModalOpen]);
   const stopes = useMemo(() => loadMiningStopes(), [isSetupWizardOpen, isStorageModalOpen]);
@@ -1045,7 +1074,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         roughness: 'Rough Undulating',
         infill: 'Quartz / Pyrite',
         waterInflow: 'DRY',
-        author: 'Mine Geologist',
+        author: sheetNames.geologistName || '',
         createdAt: new Date().toISOString(),
       };
 
@@ -3580,8 +3609,15 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                   <p className="text-[11px] text-slate-700 font-bold mt-0.5 truncate">
                     {currentProject?.projectName || 'Underground Mining Project'} · {currentProject?.mineName || 'Mine Site'}
                   </p>
-                  <div className="text-[10px] text-slate-600 font-bold mt-0.5">
-                    Date: {new Date().toLocaleDateString()} · Geologist: {currentStope?.responsibleGeologist || 'Mine Geologist'}
+                  <div className="text-[10px] text-slate-600 font-bold mt-0.5 flex items-center justify-center gap-1.5">
+                    <span>Date: {new Date().toLocaleDateString()} · Geologist:</span>
+                    <input
+                      type="text"
+                      value={sheetNames.geologistName}
+                      onChange={(e) => updateSheetName('geologistName', e.target.value)}
+                      placeholder="Enter Geologist Name..."
+                      className="w-36 px-1.5 py-0.2 border-b border-slate-400 bg-transparent text-slate-900 font-bold text-[10px] focus:border-slate-900 outline-none print:border-none print:placeholder-transparent"
+                    />
                   </div>
                 </div>
 
@@ -3809,7 +3845,13 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                       )}
                     </div>
                   </div>
-                  <div className="font-bold text-slate-900 mt-1">{currentStope?.responsibleGeologist || 'Mine Geologist'}</div>
+                  <input
+                    type="text"
+                    value={sheetNames.geologistName}
+                    onChange={(e) => updateSheetName('geologistName', e.target.value)}
+                    placeholder="Enter Mine Geologist Name..."
+                    className="w-full mt-1 px-2 py-0.5 rounded bg-white border border-slate-300 font-bold text-slate-900 text-xs focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                  />
                   <div className="eswa-signature-fit-box h-11 w-full bg-white border border-slate-300 rounded mt-1.5 p-1 flex items-center justify-center overflow-hidden">
                     {sheetSigns.geologist ? (
                       <img
@@ -3862,7 +3904,13 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                       )}
                     </div>
                   </div>
-                  <div className="font-bold text-slate-900 mt-1">{currentProject?.mineName || 'Grade Control Department'}</div>
+                  <input
+                    type="text"
+                    value={sheetNames.chiefName}
+                    onChange={(e) => updateSheetName('chiefName', e.target.value)}
+                    placeholder="Enter Chief Mine Geologist Name..."
+                    className="w-full mt-1 px-2 py-0.5 rounded bg-white border border-slate-300 font-bold text-slate-900 text-xs focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                  />
                   <div className="eswa-signature-fit-box h-11 w-full bg-white border border-slate-300 rounded mt-1.5 p-1 flex items-center justify-center overflow-hidden">
                     {sheetSigns.chief ? (
                       <img

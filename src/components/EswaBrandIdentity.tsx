@@ -163,6 +163,7 @@ export const EswaTunnelLogo: React.FC<EswaTunnelLogoProps> = ({
   variant = 'emblem',
   animated = false,
   eagleEntranceAnimation = false,
+  showBadge,
   className = '',
   isMasterEdition = false,
 }) => {
@@ -1066,7 +1067,7 @@ export const EswaAppBackgroundWatermark: React.FC<EswaAppBackgroundWatermarkProp
             width: 'min(58vw, 480px)',
           }}
         >
-          <EswaTunnelLogo size="splash" variant="emblem" className="!w-full !h-auto" />
+          <EswaTunnelLogo size="splash" variant="emblem" showBadge={false} className="!w-full !h-auto" />
         </div>
       )}
     </div>

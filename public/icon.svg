@@ -1,84 +1,286 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 580" width="512" height="512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="80 -25 740 640" width="512" height="512">
   <defs>
-    <linearGradient id="bgBadgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F59E0B" />
-      <stop offset="45%" stop-color="#EA580C" />
-      <stop offset="100%" stop-color="#B45309" />
+    <!-- Official Geological Amber/Orange Base Gradient (THEME_COLOR_PALETTES.orange) -->
+    <linearGradient id="eswaGeoOrangeBase" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EB820E" />
+      <stop offset="35%" stop-color="#F39015" />
+      <stop offset="68%" stop-color="#EE8711" />
+      <stop offset="100%" stop-color="#DC730A" />
     </linearGradient>
+
+    <radialGradient id="eswaGeoWarmGlow" cx="62%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#FAA026" stop-opacity="0.65" />
+      <stop offset="55%" stop-color="#F08A12" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#C95E06" stop-opacity="0" />
+    </radialGradient>
+
+    <pattern id="eswaGeoSurveyGrid" width="240" height="240" patternUnits="userSpaceOnUse">
+      <path d="M 240 0 L 0 0 0 240" fill="none" stroke="#3E1604" stroke-width="1" stroke-opacity="0.28" />
+    </pattern>
+
+    <clipPath id="eswaFoldedStrataSwathClip">
+      <path d="M 840 -40 L 1120 -40 C 1060 220, 1010 430, 960 610 C 900 810, 790 960, 690 1120 L 240 1120 C 330 890, 420 680, 520 470 C 630 250, 740 80, 840 -40 Z" />
+    </clipPath>
+
+    <!-- Crisp White Sticker Cutout Filter Around Entire Emblem -->
+    <filter id="eswaCrispWhiteOutline" x="-14%" y="-14%" width="128%" height="128%">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="4.5" result="dilated" />
+      <feFlood flood-color="#FFFFFF" flood-opacity="1" result="whiteFill" />
+      <feComposite in="whiteFill" in2="dilated" operator="in" result="whiteOutline" />
+      <feMerge>
+        <feMergeNode in="whiteOutline" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Mountain Peak Dark Topographic Gradient -->
     <linearGradient id="eswaMtnPeakGrad" x1="25%" y1="0%" x2="75%" y2="100%">
       <stop offset="0%" stop-color="#4B5563" />
       <stop offset="38%" stop-color="#1F2937" />
       <stop offset="78%" stop-color="#090D14" />
       <stop offset="100%" stop-color="#030508" />
     </linearGradient>
+
     <clipPath id="eswaMtnPeakClip">
       <polygon points="222,332 346,118 368,144 452,22 686,332" />
     </clipPath>
+
+    <!-- Eagle Head Ice-White to Sky-Blue Gradient -->
     <linearGradient id="eswaEagleHeadGrad" x1="15%" y1="10%" x2="92%" y2="85%">
       <stop offset="0%" stop-color="#FFFFFF" />
       <stop offset="48%" stop-color="#E0F2FE" />
       <stop offset="78%" stop-color="#BAE6FD" />
       <stop offset="100%" stop-color="#7DD3FC" />
     </linearGradient>
+
+    <clipPath id="eswaEagleHeadClip">
+      <path d="M 272 268 C 318 228, 378 190, 444 186 C 476 184, 502 194, 514 208 C 546 210, 578 224, 590 250 C 598 268, 594 292, 578 308 C 574 292, 562 280, 544 278 C 516 276, 488 292, 464 316 C 452 328, 444 342, 440 354 L 382 354 C 368 310, 326 276, 272 268 Z" />
+    </clipPath>
+
+    <!-- Horseshoe Tunnel Arch 'E' Inner Rock Wall Gradient -->
     <linearGradient id="eswaTunnelArchWallGrad" x1="0%" y1="95%" x2="90%" y2="10%">
       <stop offset="0%" stop-color="#9A7B4F" />
       <stop offset="35%" stop-color="#856A47" />
       <stop offset="68%" stop-color="#5B6B73" />
       <stop offset="100%" stop-color="#3B4D59" />
     </linearGradient>
+
+    <!-- Horseshoe Tunnel Arch 'E' Outer Concrete/Rock Rim Gradient -->
     <linearGradient id="eswaTunnelRimGrad" x1="0%" y1="100%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#64748B" />
       <stop offset="45%" stop-color="#94A3B8" />
       <stop offset="75%" stop-color="#CBD5E1" />
       <stop offset="100%" stop-color="#64748B" />
     </linearGradient>
+
+    <!-- 'S', 'W', 'A' Sky-Blue to Deep Slate-Teal Rock Gradient -->
     <linearGradient id="eswaLettersBlueRockGrad" x1="50%" y1="0%" x2="50%" y2="100%">
       <stop offset="0%" stop-color="#29A3DC" />
       <stop offset="35%" stop-color="#2B8CBE" />
       <stop offset="72%" stop-color="#3B6275" />
       <stop offset="100%" stop-color="#2A404D" />
     </linearGradient>
+
+    <!-- Folded Sedimentary Rock Band Gradient inside 'S' -->
     <linearGradient id="eswaSFoldBandGrad" x1="0%" y1="20%" x2="100%" y2="80%">
       <stop offset="0%" stop-color="#D4A359" />
       <stop offset="50%" stop-color="#A4753B" />
       <stop offset="100%" stop-color="#7C5329" />
     </linearGradient>
+
+    <clipPath id="eswaLetterSClip">
+      <path d="M 432 384 C 414 366, 386 358, 358 360 C 318 362, 294 384, 294 412 C 294 442, 322 454, 360 466 C 388 474, 398 482, 396 494 C 394 506, 376 512, 354 510 C 332 508, 314 498, 298 486 L 280 518 C 302 534, 330 542, 360 542 C 406 542, 438 520, 438 486 C 438 454, 412 438, 370 426 C 344 418, 334 412, 336 400 C 338 390, 352 384, 372 386 C 390 388, 406 396, 418 406 Z" />
+    </clipPath>
+
+    <clipPath id="eswaLettersWAClip">
+      <path d="M 426 364 L 466 364 L 490 472 L 520 364 L 554 364 L 584 472 L 608 364 L 648 364 L 604 538 L 566 538 L 537 432 L 508 538 L 470 538 Z M 686 364 L 730 364 L 792 538 L 748 538 L 736 502 L 678 502 L 666 538 L 624 538 Z M 707 412 L 688 470 L 726 470 Z" />
+    </clipPath>
   </defs>
 
-  <!-- Geological Orange App Badge Frame -->
-  <rect x="20" y="10" width="780" height="560" rx="120" fill="url(#bgBadgeGrad)" stroke="#FFFFFF" stroke-width="14" />
+  <!-- ==================== 0. FULL-BLEED GEOLOGICAL ORANGE & FOLDED STRATA MAP BACKDROP ==================== -->
+  <g transform="translate(-515, -235)">
+    <rect width="1920" height="1080" fill="url(#eswaGeoOrangeBase)" />
+    <rect width="1920" height="1080" fill="url(#eswaGeoWarmGlow)" />
 
-  <!-- 1. TWIN-PEAK TOPOGRAPHIC MOUNTAIN TRIANGLE -->
-  <polygon points="222,332 346,118 368,144 452,22 686,332" fill="none" stroke="#FFFFFF" stroke-width="19" stroke-linejoin="round" />
-  <g clip-path="url(#eswaMtnPeakClip)">
-    <polygon points="222,332 346,118 368,144 452,22 686,332" fill="url(#eswaMtnPeakGrad)" />
-    <ellipse cx="452" cy="96" rx="28" ry="42" transform="rotate(-14 452 96)" fill="none" stroke="#94A3B8" stroke-width="2" />
-    <ellipse cx="352" cy="176" rx="26" ry="34" transform="rotate(18 352 176)" fill="none" stroke="#94A3B8" stroke-width="2" />
+    <g clip-path="url(#eswaFoldedStrataSwathClip)">
+      <rect x="200" y="-40" width="960" height="1200" fill="#9A3B0A" />
+      <path d="M 220 20 C 430 90, 590 155, 760 260 C 880 335, 980 370, 1140 400" fill="none" stroke="#3E1604" stroke-width="24" stroke-opacity="0.9" />
+      <path d="M 220 66 C 430 136, 590 201, 760 306 C 880 381, 980 416, 1140 446" fill="none" stroke="#FDE68A" stroke-width="15" stroke-opacity="0.9" />
+      <path d="M 220 112 C 430 182, 590 247, 760 352 C 880 427, 980 462, 1140 492" fill="none" stroke="#853208" stroke-width="20" stroke-opacity="0.9" />
+      <path d="M 220 158 C 430 228, 590 293, 760 398 C 880 473, 980 508, 1140 538" fill="none" stroke="#F59E0B" stroke-width="18" stroke-opacity="0.9" />
+      <path d="M 220 204 C 430 274, 590 339, 760 444 C 880 519, 980 554, 1140 584" fill="none" stroke="#290D02" stroke-width="14" stroke-opacity="0.9" />
+      <path d="M 220 250 C 430 320, 590 385, 760 490 C 880 565, 980 600, 1140 630" fill="none" stroke="#FEF3C7" stroke-width="16" stroke-opacity="0.9" />
+      <path d="M 220 296 C 430 366, 590 431, 760 536 C 880 611, 980 646, 1140 676" fill="none" stroke="#9A3B0A" stroke-width="22" stroke-opacity="0.9" />
+      <path d="M 220 342 C 430 412, 590 477, 760 582 C 880 657, 980 692, 1140 722" fill="none" stroke="#D97706" stroke-width="16" stroke-opacity="0.9" />
+      <path d="M 220 388 C 430 458, 590 523, 760 628 C 880 703, 980 738, 1140 768" fill="none" stroke="#3E1604" stroke-width="24" stroke-opacity="0.9" />
+      <path d="M 220 434 C 430 504, 590 569, 760 674 C 880 749, 980 784, 1140 814" fill="none" stroke="#FDE68A" stroke-width="15" stroke-opacity="0.9" />
+      <path d="M 220 480 C 430 550, 590 615, 760 720 C 880 795, 980 830, 1140 860" fill="none" stroke="#853208" stroke-width="20" stroke-opacity="0.9" />
+      <path d="M 220 526 C 430 596, 590 661, 760 766 C 880 841, 980 876, 1140 906" fill="none" stroke="#F59E0B" stroke-width="18" stroke-opacity="0.9" />
+      <path d="M 220 572 C 430 642, 590 707, 760 812 C 880 887, 980 922, 1140 952" fill="none" stroke="#290D02" stroke-width="14" stroke-opacity="0.9" />
+      <path d="M 220 618 C 430 688, 590 753, 760 858 C 880 933, 980 968, 1140 998" fill="none" stroke="#FEF3C7" stroke-width="16" stroke-opacity="0.9" />
+      <path d="M 220 664 C 430 734, 590 799, 760 904 C 880 979, 980 1014, 1140 1044" fill="none" stroke="#9A3B0A" stroke-width="22" stroke-opacity="0.9" />
+      <path d="M 960 470 C 930 570, 895 660, 855 770" fill="none" stroke="#FFFBEB" stroke-width="18" stroke-opacity="0.8" />
+    </g>
+
+    <!-- Concentric Topographic Elevation Contours & Regional Curves -->
+    <g fill="none" stroke="#3E1604" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="1214" cy="158" rx="34" ry="22" transform="rotate(-32 1214 158)" stroke-width="1.25" stroke-opacity="0.75" />
+      <ellipse cx="1218" cy="161" rx="68" ry="44" transform="rotate(-32 1218 161)" stroke-width="1.25" stroke-opacity="0.72" />
+      <ellipse cx="1222" cy="164" rx="102" ry="66" transform="rotate(-32 1222 164)" stroke-width="1.25" stroke-opacity="0.69" />
+      <ellipse cx="1226" cy="167" rx="136" ry="88" transform="rotate(-32 1226 167)" stroke-width="2.1" stroke-opacity="0.66" />
+      <ellipse cx="1230" cy="170" rx="170" ry="110" transform="rotate(-32 1230 170)" stroke-width="1.25" stroke-opacity="0.63" />
+      <ellipse cx="1234" cy="173" rx="204" ry="132" transform="rotate(-32 1234 173)" stroke-width="1.25" stroke-opacity="0.60" />
+      <ellipse cx="1238" cy="176" rx="238" ry="154" transform="rotate(-32 1238 176)" stroke-width="1.25" stroke-opacity="0.57" />
+      <ellipse cx="1242" cy="179" rx="272" ry="176" transform="rotate(-32 1242 179)" stroke-width="2.1" stroke-opacity="0.54" />
+      <ellipse cx="1246" cy="182" rx="306" ry="198" transform="rotate(-32 1246 182)" stroke-width="1.25" stroke-opacity="0.51" />
+      <ellipse cx="1250" cy="185" rx="340" ry="220" transform="rotate(-32 1250 185)" stroke-width="1.25" stroke-opacity="0.48" />
+      <ellipse cx="1254" cy="188" rx="374" ry="242" transform="rotate(-32 1254 188)" stroke-width="1.25" stroke-opacity="0.45" />
+
+      <path d="M 650 -20 C 760 260, 980 480, 860 780 C 780 940, 910 1020, 980 1100" stroke-width="2.0" stroke-opacity="0.62" />
+      <path d="M 677.2 -20 C 794 260, 1024.2 480, 897.4 780 C 810.6 940, 944 1020, 1017.4 1100" stroke-width="1.15" stroke-opacity="0.62" />
+      <path d="M 704.4 -20 C 828 260, 1068.4 480, 934.8 780 C 841.2 940, 978 1020, 1054.8 1100" stroke-width="1.15" stroke-opacity="0.62" />
+      <path d="M 731.6 -20 C 862 260, 1112.6 480, 972.2 780 C 871.8 940, 1012 1020, 1092.2 1100" stroke-width="1.15" stroke-opacity="0.62" />
+      <path d="M 758.8 -20 C 896 260, 1156.8 480, 1009.6 780 C 902.4 940, 1046 1020, 1129.6 1100" stroke-width="2.0" stroke-opacity="0.62" />
+      <path d="M 786 -20 C 930 260, 1201 480, 1047 780 C 933 940, 1080 1020, 1167 1100" stroke-width="1.15" stroke-opacity="0.62" />
+      <path d="M 813.2 -20 C 964 260, 1245.2 480, 1084.4 780 C 963.6 940, 1114 1020, 1204.4 1100" stroke-width="1.15" stroke-opacity="0.62" />
+      <path d="M 840.4 -20 C 998 260, 1289.4 480, 1121.8 780 C 994.2 940, 1148 1020, 1241.8 1100" stroke-width="1.15" stroke-opacity="0.62" />
+      <path d="M 867.6 -20 C 1032 260, 1333.6 480, 1159.2 780 C 1024.8 940, 1182 1020, 1279.2 1100" stroke-width="2.0" stroke-opacity="0.62" />
+    </g>
+
+    <rect width="1920" height="1080" fill="url(#eswaGeoSurveyGrid)" />
   </g>
-  <polygon points="222,332 346,118 368,144 452,22 686,332" fill="none" stroke="#05070A" stroke-width="11" stroke-linejoin="miter" />
 
-  <!-- 2. TOPOGRAPHIC EAGLE HEAD WITH GEOLOGICAL COMPASS EYE -->
-  <path d="M 272 268 C 318 228, 378 190, 444 186 C 476 184, 502 194, 514 208 C 546 210, 578 224, 590 250 C 598 268, 594 292, 578 308 C 574 292, 562 280, 544 278 C 516 276, 488 292, 464 316 C 452 328, 444 342, 440 354" fill="none" stroke="#FFFFFF" stroke-width="9.5" stroke-linecap="round" stroke-linejoin="round" />
-  <path d="M 272 268 C 318 228, 378 190, 444 186 C 476 184, 502 194, 514 208 C 546 210, 578 224, 590 250 C 598 268, 594 292, 578 308 C 574 292, 562 280, 544 278 C 516 276, 488 292, 464 316 C 452 328, 444 342, 440 354 L 382 354 C 368 310, 326 276, 272 268 Z" fill="url(#eswaEagleHeadGrad)" stroke="#090D14" stroke-width="3.5" stroke-linejoin="round" />
-  <path d="M 514 208 C 498 236, 496 268, 516 286" fill="none" stroke="#0F172A" stroke-width="2.5" />
+  <g filter="url(#eswaCrispWhiteOutline)">
+    <!-- ==================== 1. TWIN-PEAK TOPOGRAPHIC MOUNTAIN TRIANGLE ==================== -->
+    <polygon points="222,332 346,118 368,144 452,22 686,332" fill="none" stroke="#FFFFFF" stroke-width="19" stroke-linejoin="round" />
+    <g clip-path="url(#eswaMtnPeakClip)">
+      <polygon points="222,332 346,118 368,144 452,22 686,332" fill="url(#eswaMtnPeakGrad)" />
+      <g fill="none" stroke="#64748B" stroke-width="1.5" opacity="0.58">
+        <path d="M 250 290 C 330 210, 395 145, 448 52 C 495 135, 545 205, 655 315" />
+        <path d="M 246 278 C 335 202, 391 153.8, 451 70.7 C 501 146, 542 211.6, 659 309" />
+        <path d="M 242 266 C 340 194, 387 162.6, 454 89.4 C 507 157, 539 218.2, 663 303" />
+        <path d="M 238 254 C 345 186, 383 171.4, 457 108.1 C 513 168, 536 224.8, 667 297" />
+        <path d="M 234 242 C 350 178, 379 180.2, 460 126.8 C 519 179, 533 231.4, 671 291" />
+        <path d="M 230 230 C 355 170, 375 189, 463 145.5 C 525 190, 530 238, 675 285" />
+        <path d="M 226 218 C 360 162, 371 197.8, 466 164.2 C 531 201, 527 244.6, 679 279" />
+        <path d="M 222 206 C 365 154, 367 206.6, 469 182.9 C 537 212, 524 251.2, 683 273" />
+        <ellipse cx="452" cy="96" rx="28" ry="42" transform="rotate(-14 452 96)" stroke="#94A3B8" stroke-width="1.4" />
+        <ellipse cx="454" cy="98" rx="16" ry="26" transform="rotate(-14 454 98)" stroke="#CBD5E1" stroke-width="1.2" />
+        <ellipse cx="352" cy="176" rx="26" ry="34" transform="rotate(18 352 176)" stroke="#94A3B8" stroke-width="1.3" />
+      </g>
+    </g>
+    <polygon points="222,332 346,118 368,144 452,22 686,332" fill="none" stroke="#05070A" stroke-width="11" stroke-linejoin="miter" />
 
-  <!-- Eagle Eye: Tilted Geological Compass Needle -->
-  <g transform="translate(476, 236) rotate(-36)">
-    <polygon points="-28,0 0,-8 28,0 0,8" fill="#05070A" />
-    <circle cx="0" cy="0" r="7.5" fill="#05070A" />
-    <circle cx="0" cy="0" r="5.2" fill="#BAE6FD" />
-    <circle cx="0" cy="0" r="2.3" fill="#0F172A" />
+    <!-- ==================== 2. TOPOGRAPHIC EAGLE HEAD WITH GEOLOGICAL COMPASS EYE ==================== -->
+    <path d="M 272 268 C 318 228, 378 190, 444 186 C 476 184, 502 194, 514 208 C 546 210, 578 224, 590 250 C 598 268, 594 292, 578 308 C 574 292, 562 280, 544 278 C 516 276, 488 292, 464 316 C 452 328, 444 342, 440 354" fill="none" stroke="#FFFFFF" stroke-width="9.5" stroke-linecap="round" stroke-linejoin="round" />
+    <g clip-path="url(#eswaEagleHeadClip)">
+      <path d="M 272 268 C 318 228, 378 190, 444 186 C 476 184, 502 194, 514 208 C 546 210, 578 224, 590 250 C 598 268, 594 292, 578 308 C 574 292, 562 280, 544 278 C 516 276, 488 292, 464 316 C 452 328, 444 342, 440 354 L 382 354 C 368 310, 326 276, 272 268 Z" fill="url(#eswaEagleHeadGrad)" />
+      <g fill="none" stroke="#1E293B" stroke-width="1.45" stroke-opacity="0.72">
+        <path d="M 268 348 C 338 265, 425 192, 512 214 C 556 228, 584 262, 572 312" />
+        <path d="M 274.6 345.1 C 344.2 260.7, 429.3 195.6, 514.7 217.3 C 557.4 230.4, 582.3 263.9, 568.7 311" />
+        <path d="M 281.3 342.3 C 350.3 256.4, 433.5 199.2, 517.3 220.6 C 558.8 232.7, 580.6 265.8, 565.3 310.1" />
+        <path d="M 287.9 339.4 C 356.5 252.2, 437.8 202.8, 520.0 224.0 C 560.3 235.1, 578.9 267.7, 562.0 309.1" />
+        <path d="M 294.6 336.6 C 362.7 247.9, 442.1 206.4, 522.6 227.3 C 561.7 237.5, 577.2 269.6, 558.7 308.2" />
+        <path d="M 301.2 333.7 C 368.9 243.6, 446.4 210.0, 525.3 230.6 C 563.1 239.9, 575.4 271.5, 555.4 307.2" />
+        <path d="M 307.9 330.9 C 375.0 239.3, 450.6 213.7, 528.0 233.9 C 564.5 242.2, 573.7 273.4, 552.0 306.3" />
+        <path d="M 314.5 328.0 C 381.2 235.1, 454.9 217.3, 530.6 237.3 C 566.0 244.6, 572.0 275.3, 548.7 305.3" />
+        <path d="M 321.2 325.2 C 387.4 230.8, 459.2 220.9, 533.3 240.6 C 567.4 247.0, 570.3 277.2, 545.4 304.4" />
+        <path d="M 327.8 322.3 C 393.6 226.5, 463.5 224.5, 535.9 243.9 C 568.8 249.4, 568.6 279.1, 542.1 303.4" />
+      </g>
+      <path d="M 514 208 C 498 236, 496 268, 516 286" fill="none" stroke="#0F172A" stroke-width="2.2" stroke-opacity="0.85" />
+    </g>
+    <path d="M 272 268 C 318 228, 378 190, 444 186 C 476 184, 502 194, 514 208 C 546 210, 578 224, 590 250 C 598 268, 594 292, 578 308 C 574 292, 562 280, 544 278 C 516 276, 488 292, 464 316 C 452 328, 444 342, 440 354" fill="none" stroke="#090D14" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Eagle Eye: Tilted Geological Compass Needle -->
+    <g transform="translate(476, 236) rotate(-36)">
+      <polygon points="-28,0 0,-8 28,0 0,8" fill="#05070A" />
+      <circle cx="0" cy="0" r="7.5" fill="#05070A" />
+      <circle cx="0" cy="0" r="5.2" fill="#BAE6FD" />
+      <circle cx="0" cy="0" r="2.3" fill="#0F172A" />
+      <circle cx="-1.5" cy="-1.5" r="1.1" fill="#FFFFFF" />
+    </g>
+
+    <!-- ==================== 3. 'ESWA' GEOLOGICAL & TUNNEL PORTAL WORDMARK ==================== -->
+    <g>
+      <!-- ---------- LETTER 'E' AS HORSESHOE TUNNEL PORTAL ARCH ---------- -->
+      <path d="M 152 538 L 152 388 A 128 128 0 0 1 404 352 L 382 362 L 330 388 A 52 52 0 0 0 242 414 L 242 428 L 284 428 L 284 468 L 242 468 L 242 496 L 296 496 L 296 538 Z" fill="none" stroke="#FFFFFF" stroke-width="11" stroke-linejoin="round" />
+      <path d="M 152 538 L 152 388 A 128 128 0 0 1 404 352 L 382 362 A 104 104 0 0 0 174 388 L 174 538 Z" fill="url(#eswaTunnelRimGrad)" stroke="#090D14" stroke-width="4.5" stroke-linejoin="round" />
+      <g stroke="#090D14" stroke-width="2.5">
+        <line x1="152" y1="452" x2="174" y2="452" />
+        <line x1="162" y1="346" x2="182" y2="356" />
+        <line x1="216" y1="278" x2="230" y2="296" />
+        <line x1="306" y1="262" x2="302" y2="284" />
+        <line x1="376" y1="302" x2="358" y2="316" />
+      </g>
+      <path d="M 174 538 L 174 388 A 104 104 0 0 1 382 362 L 330 388 A 52 52 0 0 0 242 414 L 242 428 L 284 428 L 284 468 L 242 468 L 242 496 L 296 496 L 296 538 Z" fill="url(#eswaTunnelArchWallGrad)" stroke="#090D14" stroke-width="4" stroke-linejoin="round" />
+      <polygon points="174,538 222,504 296,504 296,538" fill="#64748B" stroke="#090D14" stroke-width="3" stroke-linejoin="round" />
+      <path d="M 192 518 L 192 392 A 86 86 0 0 1 356 364" fill="none" stroke="#27272A" stroke-width="1.5" stroke-opacity="0.65" />
+      <path d="M 212 502 L 212 396 A 68 68 0 0 1 334 374" fill="none" stroke="#27272A" stroke-width="1.3" stroke-opacity="0.55" />
+
+      <!-- Rock Hammer -->
+      <g transform="translate(192, 456) rotate(-14)">
+        <rect x="-3.5" y="0" width="7" height="48" rx="2.5" fill="#A16207" stroke="#090D14" stroke-width="2.2" />
+        <path d="M -16 -6 L 22 -6 L 14 4 L -16 2 Z" fill="#94A3B8" stroke="#090D14" stroke-width="2.2" stroke-linejoin="round" />
+      </g>
+      <!-- Hand Lens -->
+      <g transform="translate(224, 424) rotate(12)">
+        <circle cx="0" cy="0" r="10" fill="#93C5FD" fill-opacity="0.55" stroke="#090D14" stroke-width="2.6" />
+        <circle cx="0" cy="0" r="6.5" fill="none" stroke="#E2E8F0" stroke-width="1.5" />
+        <rect x="-2.5" y="10" width="5" height="16" rx="2" fill="#CBD5E1" stroke="#090D14" stroke-width="2" />
+      </g>
+      <!-- Drill Core Cylinder -->
+      <g transform="translate(244, 336) rotate(32)">
+        <rect x="-14" y="-6" width="28" height="12" rx="4" fill="#CBD5E1" stroke="#090D14" stroke-width="2.2" />
+        <line x1="-5" y1="-6" x2="-2" y2="6" stroke="#475569" stroke-width="1.8" />
+        <line x1="5" y1="-6" x2="8" y2="6" stroke="#475569" stroke-width="1.8" />
+      </g>
+      <!-- Mineral Crystal -->
+      <polygon points="344,328 356,320 364,332 354,342 342,338" fill="#D97706" stroke="#090D14" stroke-width="2.2" stroke-linejoin="round" />
+
+      <!-- ---------- LETTER 'S' WITH FOLDED SEDIMENTARY ROCK STRATUM ---------- -->
+      <g clip-path="url(#eswaLetterSClip)">
+        <rect x="275" y="355" width="175" height="195" fill="url(#eswaLettersBlueRockGrad)" />
+        <path d="M 275 392 C 325 408, 355 432, 445 478 L 445 516 C 355 468, 320 442, 275 426 Z" fill="url(#eswaSFoldBandGrad)" stroke="#090D14" stroke-width="3" />
+        <path d="M 275 404 C 325 420, 355 444, 445 490" fill="none" stroke="#451A03" stroke-width="1.8" stroke-opacity="0.75" />
+        <path d="M 275 415 C 325 431, 355 455, 445 501" fill="none" stroke="#FEF3C7" stroke-width="1.3" stroke-opacity="0.55" />
+        <path d="M 345 362 L 362 392 L 388 386 M 312 496 L 348 518 L 378 508" fill="none" stroke="#0F172A" stroke-width="2" stroke-opacity="0.65" />
+      </g>
+      <path d="M 432 384 C 414 366, 386 358, 358 360 C 318 362, 294 384, 294 412 C 294 442, 322 454, 360 466 C 388 474, 398 482, 396 494 C 394 506, 376 512, 354 510 C 332 508, 314 498, 298 486 L 280 518 C 302 534, 330 542, 360 542 C 406 542, 438 520, 438 486 C 438 454, 412 438, 370 426 C 344 418, 334 412, 336 400 C 338 390, 352 384, 372 386 C 390 388, 406 396, 418 406 Z" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linejoin="round" />
+      <path d="M 432 384 C 414 366, 386 358, 358 360 C 318 362, 294 384, 294 412 C 294 442, 322 454, 360 466 C 388 474, 398 482, 396 494 C 394 506, 376 512, 354 510 C 332 508, 314 498, 298 486 L 280 518 C 302 534, 330 542, 360 542 C 406 542, 438 520, 438 486 C 438 454, 412 438, 370 426 C 344 418, 334 412, 336 400 C 338 390, 352 384, 372 386 C 390 388, 406 396, 418 406 Z" fill="none" stroke="#090D14" stroke-width="3.5" stroke-linejoin="round" />
+
+      <!-- ---------- LETTERS 'W' AND 'A' WITH FRACTURED ROCK TEXTURE ---------- -->
+      <path d="M 426 364 L 466 364 L 490 472 L 520 364 L 554 364 L 584 472 L 608 364 L 648 364 L 604 538 L 566 538 L 537 432 L 508 538 L 470 538 Z M 686 364 L 730 364 L 792 538 L 748 538 L 736 502 L 678 502 L 666 538 L 624 538 Z M 707 412 L 688 470 L 726 470 Z" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linejoin="round" />
+      <g clip-path="url(#eswaLettersWAClip)">
+        <rect x="420" y="360" width="380" height="185" fill="url(#eswaLettersBlueRockGrad)" />
+        <g fill="none" stroke="#0F172A" stroke-width="2.2" stroke-opacity="0.62">
+          <path d="M 442 430 L 478 452 L 502 438 L 526 468" />
+          <path d="M 468 488 L 498 474 L 516 508" />
+          <path d="M 556 418 L 588 446 L 618 432" />
+          <path d="M 564 492 L 594 476 L 612 512" />
+          <path d="M 658 468 L 692 448 L 722 462 L 758 442" />
+          <path d="M 642 514 L 674 496 L 696 518" />
+          <path d="M 728 486 L 756 504 L 778 492" />
+        </g>
+        <g fill="none" stroke="#BAE6FD" stroke-width="1" stroke-opacity="0.38">
+          <path d="M 444 428 L 480 450 M 558 416 L 590 444 M 660 466 L 694 446" />
+        </g>
+      </g>
+      <path d="M 426 364 L 466 364 L 490 472 L 520 364 L 554 364 L 584 472 L 608 364 L 648 364 L 604 538 L 566 538 L 537 432 L 508 538 L 470 538 Z M 686 364 L 730 364 L 792 538 L 748 538 L 736 502 L 678 502 L 666 538 L 624 538 Z M 707 412 L 688 470 L 726 470 Z" fill="none" stroke="#090D14" stroke-width="3.2" stroke-linejoin="round" />
+    </g>
+
+    <!-- ==================== 4. 'GEOLOGICAL MAPPER' OFFICIAL SUBTITLE ==================== -->
+    <g>
+      <rect x="252" y="544" width="440" height="39" rx="10" fill="#FFFFFF" />
+      <text
+        x="472"
+        y="573"
+        text-anchor="middle"
+        fill="#090D14"
+        font-size="31"
+        font-weight="800"
+        font-family="'Chakra Petch', 'Plus Jakarta Sans', 'DejaVu Sans', Arial, sans-serif"
+        letter-spacing="3.2"
+      >GEOLOGICAL MAPPER</text>
+    </g>
   </g>
-
-  <!-- 3. 'ESWA' GEOLOGICAL & TUNNEL PORTAL WORDMARK -->
-  <!-- Letter 'E' Horseshoe Tunnel Arch -->
-  <path d="M 152 538 L 152 388 A 128 128 0 0 1 404 352 L 382 362 L 330 388 A 52 52 0 0 0 242 414 L 242 428 L 284 428 L 284 468 L 242 468 L 242 496 L 296 496 L 296 538 Z" fill="none" stroke="#FFFFFF" stroke-width="11" stroke-linejoin="round" />
-  <path d="M 152 538 L 152 388 A 128 128 0 0 1 404 352 L 382 362 A 104 104 0 0 0 174 388 L 174 538 Z" fill="url(#eswaTunnelRimGrad)" stroke="#090D14" stroke-width="4.5" stroke-linejoin="round" />
-  <path d="M 174 538 L 174 388 A 104 104 0 0 1 382 362 L 330 388 A 52 52 0 0 0 242 414 L 242 428 L 284 428 L 284 468 L 242 468 L 242 496 L 296 496 L 296 538 Z" fill="url(#eswaTunnelArchWallGrad)" stroke="#090D14" stroke-width="4" stroke-linejoin="round" />
-
-  <!-- Letter 'S' -->
-  <path d="M 432 384 C 414 366, 386 358, 358 360 C 318 362, 294 384, 294 412 C 294 442, 322 454, 360 466 C 388 474, 398 482, 396 494 C 394 506, 376 512, 354 510 C 332 508, 314 498, 298 486 L 280 518 C 302 534, 330 542, 360 542 C 406 542, 438 520, 438 486 C 438 454, 412 438, 370 426 C 344 418, 334 412, 336 400 C 338 390, 352 384, 372 386 C 390 388, 406 396, 418 406 Z" fill="url(#eswaLettersBlueRockGrad)" stroke="#090D14" stroke-width="5" stroke-linejoin="round" />
-
-  <!-- Letters 'W' and 'A' -->
-  <path d="M 426 364 L 466 364 L 490 472 L 520 364 L 554 364 L 584 472 L 608 364 L 648 364 L 604 538 L 566 538 L 537 432 L 508 538 L 470 538 Z M 686 364 L 730 364 L 792 538 L 748 538 L 736 502 L 678 502 L 666 538 L 624 538 Z M 707 412 L 688 470 L 726 470 Z" fill="url(#eswaLettersBlueRockGrad)" stroke="#090D14" stroke-width="5" stroke-linejoin="round" />
 </svg>

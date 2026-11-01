@@ -108,8 +108,8 @@ export function createDefaultShaftRecord(): ShaftMappingRecord {
     advanceLength: 3.2,
     excavationDate: new Date().toISOString().split('T')[0],
     shift: 'Day',
-    geologist: 'Site Tunnel Geologist',
-    tunnelEngineer: 'NATM Resident Engineer',
+    geologist: '',
+    tunnelEngineer: '',
     perimeterSectors: [
       {
         sector: 'North-East (0°-90°)',
@@ -198,7 +198,12 @@ export const ShaftMappingWorkspaceModal: React.FC<ShaftMappingWorkspaceModalProp
   const [record, setRecord] = useState<ShaftMappingRecord>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: ShaftMappingRecord = JSON.parse(saved);
+        if (parsed.geologist === 'Site Tunnel Geologist') parsed.geologist = '';
+        if (parsed.tunnelEngineer === 'NATM Resident Engineer') parsed.tunnelEngineer = '';
+        return parsed;
+      }
     } catch {
       // fallback
     }
@@ -1235,8 +1240,9 @@ export const ShaftMappingWorkspaceModal: React.FC<ShaftMappingWorkspaceModalProp
                     <input
                       type="text"
                       value={record.geologist}
+                      placeholder="Enter Geologist Name..."
                       onChange={(e) => saveToStorage({ ...record, geologist: e.target.value })}
-                      className="w-full px-3 py-1.5 rounded-lg bg-white border-2 border-stone-300 text-black font-bold text-xs focus:border-black outline-hidden"
+                      className="w-full px-3 py-1.5 rounded-lg bg-white border-2 border-stone-300 text-black font-bold text-xs focus:border-black outline-hidden print:placeholder-transparent"
                     />
                   </div>
 
@@ -1245,8 +1251,9 @@ export const ShaftMappingWorkspaceModal: React.FC<ShaftMappingWorkspaceModalProp
                     <input
                       type="text"
                       value={record.tunnelEngineer}
+                      placeholder="Enter Tunnel Engineer Name..."
                       onChange={(e) => saveToStorage({ ...record, tunnelEngineer: e.target.value })}
-                      className="w-full px-3 py-1.5 rounded-lg bg-white border-2 border-stone-300 text-black font-bold text-xs focus:border-black outline-hidden"
+                      className="w-full px-3 py-1.5 rounded-lg bg-white border-2 border-stone-300 text-black font-bold text-xs focus:border-black outline-hidden print:placeholder-transparent"
                     />
                   </div>
                 </div>

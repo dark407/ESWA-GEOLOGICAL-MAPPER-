@@ -416,7 +416,7 @@ export function buildCompleteSampleFieldDataset(
     faceChainage: 'Ch. 1+423.50',
     roundLength: pullLen,
     date: today,
-    mappedBy: 'Er. Akash (Sr. Engineering Geologist)',
+    mappedBy: '',
     lithology:
       'Moderately Jointed Quartzitic Phyllite with Foliation & Clay-Gouge Shear Seam (Class III - Fair Rock)',
     sheetConfig: {

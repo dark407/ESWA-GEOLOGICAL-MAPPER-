@@ -2,8 +2,8 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
 const path = require('path');
 const fs = require('fs');
 
-const APP_PRODUCT_NAME = 'AKASH TUNNEL MAPPER';
-const APP_ID = 'com.akash.tunnelmapper';
+const APP_PRODUCT_NAME = 'ESWA GEOLOGICAL MAPPER';
+const APP_ID = 'com.eswa.geologicalmapper';
 
 app.setName(APP_PRODUCT_NAME);
 if (process.platform === 'win32') {
@@ -287,7 +287,7 @@ function registerDesktopIpcHandlers() {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return { canceled: true };
     const saveRes = await dialog.showSaveDialog(win, {
-      title: 'Export Engineering Sheet to Vector PDF — AKASH TUNNEL MAPPER',
+      title: 'Export Engineering Sheet to Vector PDF — ESWA GEOLOGICAL MAPPER',
       defaultPath: path.join(
         getProjectsDirectoryPath(),
         options.defaultFileName || 'Tunnel_Geological_Sheet_A3.pdf'
@@ -857,7 +857,7 @@ if (!hasSingleInstanceLock) {
             click: () => shell.openPath(getProjectsDirectoryPath()),
           },
           { type: 'separator' },
-          { role: 'quit', label: 'Exit AKASH TUNNEL MAPPER' },
+          { role: 'quit', label: 'Exit ESWA GEOLOGICAL MAPPER' },
         ],
       },
       {

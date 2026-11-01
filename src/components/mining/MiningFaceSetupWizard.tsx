@@ -206,7 +206,13 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
   const [projCommodity, setProjCommodity] = useState<MiningCommodity>(activeProj?.primaryCommodity || 'Gold (Au)');
   const [projGradeUnit, setProjGradeUnit] = useState<'g/t' | '%' | 'ppm' | 'oz/t'>(activeProj?.gradeUnits || 'g/t');
   const [projDatumMrl, setProjDatumMrl] = useState<number>(activeProj?.mineDatumLevelMrl ?? 1000);
-  const [projGeologist, setProjGeologist] = useState(activeProj?.responsibleGeologist || 'Senior Mine Geologist');
+  const [projGeologist, setProjGeologist] = useState(
+    activeProj?.responsibleGeologist &&
+      activeProj.responsibleGeologist !== 'Senior Mine Geologist' &&
+      activeProj.responsibleGeologist !== 'Chief Mine Geologist'
+      ? activeProj.responsibleGeologist
+      : ''
+  );
 
   // -------------------------------------------------------------------------
   // STAGE 2: LOCATION / HEADING STATE (Cross-Section Shape & Size)

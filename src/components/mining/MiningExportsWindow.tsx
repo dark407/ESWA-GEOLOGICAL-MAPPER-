@@ -51,11 +51,23 @@ export const MiningExportsWindow: React.FC<MiningExportsWindowProps> = ({
   onReturnToCanvas,
 }) => {
   const [copiedSummary, setCopiedSummary] = useState(false);
+  const [geologistName, setGeologistName] = useState<string>(() => {
+    const raw = currentStope?.responsibleGeologist || '';
+    if (
+      raw === 'Lead Mine Geologist' ||
+      raw === 'Chief Mine Geologist' ||
+      raw === 'Senior Mine Geologist' ||
+      raw === 'Duty Geologist'
+    ) {
+      return '';
+    }
+    return raw;
+  });
 
   const handoverSummaryText = `=== ESWA UNDERGROUND MINE GEOLOGY SHIFT HANDOVER ===
 Project: ${currentProject?.projectName || 'Underground Gold Mine'}
 Heading: ${driftId} | Level: ${mineLevel} | Chainage: ${chainage}
-Geologist: ${currentStope?.responsibleGeologist || 'Duty Geologist'}
+Geologist: ${geologistName || '—'}
 Date: ${new Date().toLocaleDateString()}
 
 [FACE ASSAY RECONCILIATION]
@@ -260,19 +272,31 @@ Date: ${new Date().toLocaleDateString()}
 
       {/* LIVE DISPATCH PREVIEW BLOCK */}
       <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
           <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
             <FileText className="w-4 h-4 text-purple-400" />
             <span>Shift Handover Geological Dispatch Preview</span>
           </span>
-          <button
-            type="button"
-            onClick={handleCopySummary}
-            className="text-xs font-bold text-purple-400 hover:text-purple-300 flex items-center gap-1 cursor-pointer"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span>{copiedSummary ? 'Copied' : 'Copy Text'}</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-slate-400">Geologist Name:</span>
+              <input
+                type="text"
+                value={geologistName}
+                onChange={(e) => setGeologistName(e.target.value)}
+                placeholder="Enter Geologist Name..."
+                className="px-2.5 py-1 rounded bg-slate-950 border border-slate-700 text-slate-100 font-bold text-xs focus:border-purple-400 outline-none"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleCopySummary}
+              className="text-xs font-bold text-purple-400 hover:text-purple-300 flex items-center gap-1 cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>{copiedSummary ? 'Copied' : 'Copy Text'}</span>
+            </button>
+          </div>
         </div>
 
         <pre className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-emerald-400 overflow-x-auto leading-relaxed whitespace-pre-wrap">

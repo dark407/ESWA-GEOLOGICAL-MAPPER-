@@ -2782,13 +2782,47 @@ export function createNewExcavationRound(
     geologicalDescription: '',
     rockSupportRecommendation: '',
     overbreakNotes: '',
-    geologistName: '',
-    clientRepName: '',
-    contractorRepName: '',
-    contractorGeologistName: '',
-    contractorGeologistSign: '',
-    clientGeologistName: '',
-    clientGeologistSign: '',
+    ...(() => {
+      let defaultGeoName = previousRound?.geologistName || '';
+      let defaultGeoSign = previousRound?.contractorGeologistSign || '';
+      try {
+        if (typeof window !== 'undefined') {
+          const rawProfiles = localStorage.getItem('eswa_geologist_user_profiles_v1');
+          const activeId = localStorage.getItem('eswa_active_geologist_profile_id_v1');
+          if (rawProfiles) {
+            const list = JSON.parse(rawProfiles);
+            if (Array.isArray(list) && list.length > 0) {
+              const found = (activeId && list.find((p: any) => p.id === activeId)) || list[0];
+              if (found?.name) {
+                defaultGeoName = String(found.name);
+                if (found.pngSignatureDataUrl) {
+                  defaultGeoSign = String(found.pngSignatureDataUrl);
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore
+      }
+      const lower = defaultGeoName.trim().toLowerCase();
+      if (
+        lower === 'r. k. sharma' ||
+        lower === 'vikram malhotra' ||
+        lower === 'dr. amit roy'
+      ) {
+        defaultGeoName = '';
+      }
+      return {
+        geologistName: defaultGeoName,
+        clientRepName: '',
+        contractorRepName: '',
+        contractorGeologistName: defaultGeoName,
+        contractorGeologistSign: defaultGeoSign,
+        clientGeologistName: '',
+        clientGeologistSign: '',
+      };
+    })(),
     customTickBoxGroups: createDefaultCustomTickBoxGroups(),
     customTemplateFields: {},
     supportSystem: createDefaultSupportSystem(),

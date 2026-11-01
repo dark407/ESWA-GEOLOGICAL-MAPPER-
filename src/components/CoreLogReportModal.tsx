@@ -1,10 +1,12 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   BoreholeRecord,
   calculateBoreholeSummary,
   getRqdBadgeColor,
   chunkRunsForReport,
   chunkPhotosForReport,
+  loadBoreholeRecordsFromStorage,
+  saveBoreholeRecordsToStorage,
 } from '../engine/coreLoggingEngine';
 import {
   Download,
@@ -20,11 +22,39 @@ import {
 interface CoreLogReportModalProps {
   borehole: BoreholeRecord;
   onClose: () => void;
+  onUpdateBorehole?: (updated: BoreholeRecord) => void;
 }
 
-export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole, onClose }) => {
+export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({
+  borehole: initialBorehole,
+  onClose,
+  onUpdateBorehole,
+}) => {
   const printContainerRef = useRef<HTMLDivElement>(null);
   const [selectedSheetView, setSelectedSheetView] = useState<number | 'all'>('all');
+  const [borehole, setBorehole] = useState<BoreholeRecord>(initialBorehole);
+
+  useEffect(() => {
+    setBorehole(initialBorehole);
+  }, [initialBorehole]);
+
+  const handleUpdateReportBorehole = (updater: (prev: BoreholeRecord) => BoreholeRecord) => {
+    setBorehole((prev) => {
+      const next = updater(prev);
+      try {
+        const all = loadBoreholeRecordsFromStorage();
+        const idx = all.findIndex((b) => b.id === next.id);
+        if (idx >= 0) {
+          all[idx] = next;
+          saveBoreholeRecordsToStorage(all);
+        }
+      } catch {
+        // ignore
+      }
+      onUpdateBorehole?.(next);
+      return next;
+    });
+  };
 
   const summary = calculateBoreholeSummary(borehole);
 
@@ -223,7 +253,28 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
             </td>
             <td className="bg-slate-200 font-black uppercase text-[9px] text-slate-950">Logged By / Checked By:</td>
             <td className="font-bold text-slate-950 text-[9px]">
-              Logged: {borehole.loggedBy || 'Site Geologist'} &bull; Checked: {borehole.reviewedBy || 'PMC Engineer'}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span>Logged:</span>
+                <input
+                  type="text"
+                  value={borehole.loggedBy || ''}
+                  onChange={(e) =>
+                    handleUpdateReportBorehole((prev) => ({ ...prev, loggedBy: e.target.value }))
+                  }
+                  placeholder="Enter Geologist..."
+                  className="w-28 px-1 py-0.2 border-b border-slate-400 bg-transparent text-slate-950 font-bold text-[9px] focus:border-slate-900 outline-none print:border-none print:placeholder-transparent"
+                />
+                <span>&bull; Checked:</span>
+                <input
+                  type="text"
+                  value={borehole.reviewedBy || ''}
+                  onChange={(e) =>
+                    handleUpdateReportBorehole((prev) => ({ ...prev, reviewedBy: e.target.value }))
+                  }
+                  placeholder="Enter Reviewer..."
+                  className="w-28 px-1 py-0.2 border-b border-slate-400 bg-transparent text-slate-950 font-bold text-[9px] focus:border-slate-900 outline-none print:border-none print:placeholder-transparent"
+                />
+              </div>
             </td>
           </tr>
         </tbody>
@@ -777,12 +828,30 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
                               </span>
                               <span className="text-[8.5px] text-slate-500 font-semibold">Drilling &amp; Primary Log</span>
                             </div>
-                            <div className="font-bold text-slate-900 text-[11px]">
-                              {borehole.signOff.contractorName || borehole.drillingContractor || 'Contractor Geologist'}
-                            </div>
-                            <div className="text-[9px] text-slate-600 font-medium">
-                              {borehole.signOff.contractorDesignation || 'Lead Drilling & Geotechnical Engineer'}
-                            </div>
+                            <input
+                              type="text"
+                              value={borehole.signOff.contractorName || ''}
+                              onChange={(e) =>
+                                handleUpdateReportBorehole((prev) => ({
+                                  ...prev,
+                                  signOff: { ...prev.signOff, contractorName: e.target.value },
+                                }))
+                              }
+                              placeholder="Enter Contractor Representative..."
+                              className="w-full px-1.5 py-0.5 rounded bg-white border border-slate-300 font-bold text-slate-900 text-[10.5px] mb-1 focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                            />
+                            <input
+                              type="text"
+                              value={borehole.signOff.contractorDesignation || ''}
+                              onChange={(e) =>
+                                handleUpdateReportBorehole((prev) => ({
+                                  ...prev,
+                                  signOff: { ...prev.signOff, contractorDesignation: e.target.value },
+                                }))
+                              }
+                              placeholder="Designation (e.g. Drilling Geologist)..."
+                              className="w-full px-1.5 py-0.5 rounded bg-white/70 border border-slate-200 text-[9px] text-slate-600 font-medium focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                            />
                           </div>
 
                           <div className="mt-2 pt-2 border-t border-slate-300">
@@ -816,12 +885,30 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
                               </span>
                               <span className="text-[8.5px] text-slate-500 font-semibold">Checked &amp; Verified</span>
                             </div>
-                            <div className="font-bold text-slate-900 text-[11px]">
-                              {borehole.signOff.pmcName || borehole.pmcConsultant || 'PMC Geotechnical Specialist'}
-                            </div>
-                            <div className="text-[9px] text-slate-600 font-medium">
-                              {borehole.signOff.pmcDesignation || 'Senior Tunnel Geotechnical Engineer'}
-                            </div>
+                            <input
+                              type="text"
+                              value={borehole.signOff.pmcName || ''}
+                              onChange={(e) =>
+                                handleUpdateReportBorehole((prev) => ({
+                                  ...prev,
+                                  signOff: { ...prev.signOff, pmcName: e.target.value },
+                                }))
+                              }
+                              placeholder="Enter PMC Representative..."
+                              className="w-full px-1.5 py-0.5 rounded bg-white border border-slate-300 font-bold text-slate-900 text-[10.5px] mb-1 focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                            />
+                            <input
+                              type="text"
+                              value={borehole.signOff.pmcDesignation || ''}
+                              onChange={(e) =>
+                                handleUpdateReportBorehole((prev) => ({
+                                  ...prev,
+                                  signOff: { ...prev.signOff, pmcDesignation: e.target.value },
+                                }))
+                              }
+                              placeholder="Designation (e.g. PMC Engineer)..."
+                              className="w-full px-1.5 py-0.5 rounded bg-white/70 border border-slate-200 text-[9px] text-slate-600 font-medium focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                            />
                           </div>
 
                           <div className="mt-2 pt-2 border-t border-slate-300">
@@ -855,12 +942,30 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({ borehole
                               </span>
                               <span className="text-[8.5px] text-slate-500 font-semibold">Accepted &amp; Approved</span>
                             </div>
-                            <div className="font-bold text-slate-900 text-[11px]">
-                              {borehole.signOff.clientName || borehole.clientEmployer || 'Client Representative'}
-                            </div>
-                            <div className="text-[9px] text-slate-600 font-medium">
-                              {borehole.signOff.clientDesignation || 'Project Director / Executive Engineer'}
-                            </div>
+                            <input
+                              type="text"
+                              value={borehole.signOff.clientName || ''}
+                              onChange={(e) =>
+                                handleUpdateReportBorehole((prev) => ({
+                                  ...prev,
+                                  signOff: { ...prev.signOff, clientName: e.target.value },
+                                }))
+                              }
+                              placeholder="Enter Client Representative..."
+                              className="w-full px-1.5 py-0.5 rounded bg-white border border-slate-300 font-bold text-slate-900 text-[10.5px] mb-1 focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                            />
+                            <input
+                              type="text"
+                              value={borehole.signOff.clientDesignation || ''}
+                              onChange={(e) =>
+                                handleUpdateReportBorehole((prev) => ({
+                                  ...prev,
+                                  signOff: { ...prev.signOff, clientDesignation: e.target.value },
+                                }))
+                              }
+                              placeholder="Designation (e.g. Project Director)..."
+                              className="w-full px-1.5 py-0.5 rounded bg-white/70 border border-slate-200 text-[9px] text-slate-600 font-medium focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                            />
                           </div>
 
                           <div className="mt-2 pt-2 border-t border-slate-300">

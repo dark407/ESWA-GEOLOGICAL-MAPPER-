@@ -129,8 +129,52 @@ export const TunnelMonitoringModal: React.FC<TunnelMonitoringModalProps> = ({
   const [readingDate, setReadingDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [readingTime, setReadingTime] = useState<string>('10:00');
   const [readingValue, setReadingValue] = useState<string>('0.0');
-  const [readingRecordedBy, setReadingRecordedBy] = useState<string>('Field Geotechnical Engineer');
+  const [readingRecordedBy, setReadingRecordedBy] = useState<string>('');
   const [readingNotes, setReadingNotes] = useState<string>('Routine monitoring round');
+
+  // Editable Sign-Off Names for Monitoring Report (blank by default)
+  const [reportSignOff, setReportSignOff] = useState<{
+    leadGeologistName: string;
+    leadGeologistRole: string;
+    residentEngineerName: string;
+    residentEngineerRole: string;
+  }>(() => {
+    try {
+      const raw = localStorage.getItem('eswa_tunnel_monitoring_signoff_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          leadGeologistName: parsed.leadGeologistName || '',
+          leadGeologistRole: parsed.leadGeologistRole || '',
+          residentEngineerName: parsed.residentEngineerName || '',
+          residentEngineerRole: parsed.residentEngineerRole || '',
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      leadGeologistName: '',
+      leadGeologistRole: '',
+      residentEngineerName: '',
+      residentEngineerRole: '',
+    };
+  });
+
+  const updateReportSignOff = (
+    field: 'leadGeologistName' | 'leadGeologistRole' | 'residentEngineerName' | 'residentEngineerRole',
+    value: string
+  ) => {
+    setReportSignOff((prev) => {
+      const next = { ...prev, [field]: value };
+      try {
+        localStorage.setItem('eswa_tunnel_monitoring_signoff_v1', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
   const [mpbxAnchorsInput, setMpbxAnchorsInput] = useState<{ depthM: number; displacementMm: number }[]>([
     { depthM: 2.0, displacementMm: 0.0 },
     { depthM: 4.0, displacementMm: 0.0 },
@@ -1822,18 +1866,39 @@ export const TunnelMonitoringModal: React.FC<TunnelMonitoringModalProps> = ({
                   </p>
                 </div>
 
-                <div className="text-right text-xs space-y-0.5 text-slate-300 print:text-black">
+                <div className="text-right text-xs space-y-1 text-slate-300 print:text-black">
                   <div className="font-bold">
                     Date of Report: <strong>{new Date().toISOString().split('T')[0]}</strong>
                   </div>
-                  <div className="font-bold">
-                    Client: <strong>{clientName}</strong>
+                  <div className="flex items-center justify-end gap-1.5 font-bold">
+                    <span>Client:</span>
+                    <input
+                      type="text"
+                      value={dataset.clientName ?? clientName}
+                      onChange={(e) => handleUpdateDataset({ ...dataset, clientName: e.target.value })}
+                      placeholder="Enter Client..."
+                      className="w-44 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-slate-100 font-bold text-xs text-right focus:border-amber-400 outline-none print:border-none print:bg-transparent print:text-black print:p-0 print:placeholder-transparent"
+                    />
                   </div>
-                  <div className="font-bold">
-                    Contractor: <strong>{contractorName}</strong>
+                  <div className="flex items-center justify-end gap-1.5 font-bold">
+                    <span>Contractor:</span>
+                    <input
+                      type="text"
+                      value={dataset.contractorName ?? contractorName}
+                      onChange={(e) => handleUpdateDataset({ ...dataset, contractorName: e.target.value })}
+                      placeholder="Enter Contractor..."
+                      className="w-44 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-slate-100 font-bold text-xs text-right focus:border-amber-400 outline-none print:border-none print:bg-transparent print:text-black print:p-0 print:placeholder-transparent"
+                    />
                   </div>
-                  <div className="font-bold">
-                    Consultant: <strong>{consultantName}</strong>
+                  <div className="flex items-center justify-end gap-1.5 font-bold">
+                    <span>Consultant:</span>
+                    <input
+                      type="text"
+                      value={dataset.consultantName ?? consultantName}
+                      onChange={(e) => handleUpdateDataset({ ...dataset, consultantName: e.target.value })}
+                      placeholder="Enter Consultant..."
+                      className="w-44 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-slate-100 font-bold text-xs text-right focus:border-amber-400 outline-none print:border-none print:bg-transparent print:text-black print:p-0 print:placeholder-transparent"
+                    />
                   </div>
                 </div>
               </div>
@@ -1923,24 +1988,48 @@ export const TunnelMonitoringModal: React.FC<TunnelMonitoringModalProps> = ({
                 </div>
               </div>
 
-              {/* Sign-off Blocks */}
-              <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-800 print:border-black text-xs">
-                <div className="space-y-6">
-                  <div>
-                    <span className="text-[10px] font-black uppercase text-slate-400 print:text-black block">Lead Monitoring Geologist / Engineer</span>
-                    <div className="mt-4 border-b border-slate-700 print:border-black w-48" />
-                    <span className="font-bold text-slate-200 print:text-black text-[11px] block mt-1">Er. Rajesh K. Sharma, M.Tech</span>
-                    <span className="text-[10px] text-slate-400">Site Geotechnical Team</span>
-                  </div>
+              {/* Sign-off Blocks (Editable & Blank by Default) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-6 border-t border-slate-800 print:border-black text-xs">
+                <div className="space-y-2">
+                  <span className="text-[10px] font-black uppercase text-slate-400 print:text-black block">
+                    Lead Monitoring Geologist / Engineer
+                  </span>
+                  <div className="mt-4 border-b border-slate-700 print:border-black w-56" />
+                  <input
+                    type="text"
+                    value={reportSignOff.leadGeologistName}
+                    onChange={(e) => updateReportSignOff('leadGeologistName', e.target.value)}
+                    placeholder="Enter Geologist / Engineer Name..."
+                    className="w-full max-w-xs px-2.5 py-1 rounded bg-slate-950 border border-slate-700 font-bold text-slate-100 print:text-black text-[11px] block mt-1 focus:border-amber-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                  />
+                  <input
+                    type="text"
+                    value={reportSignOff.leadGeologistRole}
+                    onChange={(e) => updateReportSignOff('leadGeologistRole', e.target.value)}
+                    placeholder="Site Geotechnical Team / Designation..."
+                    className="w-full max-w-xs px-2.5 py-0.5 rounded bg-slate-950/60 border border-slate-800 text-[10px] text-slate-400 print:text-slate-700 block focus:border-amber-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                  />
                 </div>
 
-                <div className="space-y-6">
-                  <div>
-                    <span className="text-[10px] font-black uppercase text-slate-400 print:text-black block">Chief NATM Resident Engineer</span>
-                    <div className="mt-4 border-b border-slate-700 print:border-black w-48" />
-                    <span className="font-bold text-slate-200 print:text-black text-[11px] block mt-1">Lead Tunnel Engineer</span>
-                    <span className="text-[10px] text-slate-400">Owner / Consultant Authority</span>
-                  </div>
+                <div className="space-y-2">
+                  <span className="text-[10px] font-black uppercase text-slate-400 print:text-black block">
+                    Chief NATM Resident Engineer
+                  </span>
+                  <div className="mt-4 border-b border-slate-700 print:border-black w-56" />
+                  <input
+                    type="text"
+                    value={reportSignOff.residentEngineerName}
+                    onChange={(e) => updateReportSignOff('residentEngineerName', e.target.value)}
+                    placeholder="Enter Resident Engineer Name..."
+                    className="w-full max-w-xs px-2.5 py-1 rounded bg-slate-950 border border-slate-700 font-bold text-slate-100 print:text-black text-[11px] block mt-1 focus:border-amber-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                  />
+                  <input
+                    type="text"
+                    value={reportSignOff.residentEngineerRole}
+                    onChange={(e) => updateReportSignOff('residentEngineerRole', e.target.value)}
+                    placeholder="Owner / Consultant Authority..."
+                    className="w-full max-w-xs px-2.5 py-0.5 rounded bg-slate-950/60 border border-slate-800 text-[10px] text-slate-400 print:text-slate-700 block focus:border-amber-400 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
+                  />
                 </div>
               </div>
 

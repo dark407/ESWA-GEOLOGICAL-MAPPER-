@@ -123,7 +123,7 @@ export function createMiningProject(partial: Partial<MiningProjectItem>): Mining
     gradeUnits: partial.gradeUnits || 'g/t',
     mineCoordinateSystem: partial.mineCoordinateSystem || 'Mine Grid Local RL (Datum 1000m)',
     mineDatumLevelMrl: partial.mineDatumLevelMrl || 1000,
-    responsibleGeologist: partial.responsibleGeologist?.trim() || 'Chief Mine Geologist',
+    responsibleGeologist: partial.responsibleGeologist?.trim() || '',
     activeMiningMethod: partial.activeMiningMethod || 'SUBLEVEL_OPEN_STOPING',
     createdAt: now,
     updatedAt: now,
@@ -289,7 +289,7 @@ export function createMiningStope(partial: Partial<MiningStopeItem>): MiningStop
     muckDestinationVerdict: partial.muckDestinationVerdict || 'AWAITING_INPUT',
     dilutedGradeCalculated: partial.dilutedGradeCalculated ?? 0,
     dilutionPercentCalculated: partial.dilutionPercentCalculated ?? 0,
-    responsibleGeologist: partial.responsibleGeologist || 'Lead Mine Geologist',
+    responsibleGeologist: partial.responsibleGeologist?.trim() || '',
     createdAt: now,
     updatedAt: now,
   };

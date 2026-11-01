@@ -197,99 +197,36 @@ try {
     }
   }
 
-  const userExeUrl = githubRepo
-    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
-    : 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe';
-  const masterExeUrl = githubRepo
-    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`
-    : 'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe';
-  const userAndroidApkUrl = githubRepo
-    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Android.apk`
-    : 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk';
-  const masterAndroidApkUrl = githubRepo
-    ? `https://github.com/${githubRepo}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk`
-    : 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk';
-  const userOtaBundleUrl = githubRepo
-    ? `https://github.com/${githubRepo}/releases/download/latest/user-ota-bundle.json`
-    : 'user-ota-bundle.json';
-
-  // Generate self-contained user-ota-bundle.json from the compiled User dist/ assets
-  try {
-    const distDir = path.join(rootDir, 'dist');
-    const assetsSubDir = path.join(distDir, 'assets');
-    let cssContent = '';
-    let jsFilePath = '';
-    if (fs.existsSync(assetsSubDir)) {
-      for (const fn of fs.readdirSync(assetsSubDir)) {
-        if (fn.endsWith('.css')) {
-          cssContent += fs.readFileSync(path.join(assetsSubDir, fn), 'utf8') + '\n';
-        } else if (fn.endsWith('.js') && !jsFilePath) {
-          jsFilePath = path.join(assetsSubDir, fn);
+  // Clean up any extra electron-builder artifacts (win-unpacked, blockmaps, builder-debug.yml, etc.)
+  // so release/ contains ONLY the 4 official installers:
+  // 1. ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
+  // 2. ESWA-GEOLOGICAL-MAPPER-User-Setup.exe
+  // 3. ESWA-GEOLOGICAL-MAPPER-Master-Android.apk
+  // 4. ESWA-GEOLOGICAL-MAPPER-User-Android.apk
+  const allowedReleaseFiles = new Set([
+    'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe',
+    'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe',
+    'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
+    'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
+  ]);
+  if (fs.existsSync(releaseDir)) {
+    for (const entry of fs.readdirSync(releaseDir)) {
+      if (!allowedReleaseFiles.has(entry)) {
+        try {
+          fs.rmSync(path.join(releaseDir, entry), { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
         }
       }
     }
-    let iifeJsContent = '';
-    if (jsFilePath) {
-      const iifeOutPath = path.join(releaseDir, 'temp-ota-iife.js');
-      try {
-        execSync(
-          `npx esbuild "${jsFilePath}" --bundle --format=iife --platform=browser --target=es2020 --minify --outfile="${iifeOutPath}"`,
-          { cwd: rootDir, stdio: 'pipe' }
-        );
-        iifeJsContent = fs.readFileSync(iifeOutPath, 'utf8');
-        fs.rmSync(iifeOutPath, { force: true });
-      } catch {
-        iifeJsContent = fs.readFileSync(jsFilePath, 'utf8');
-      }
-    }
-    if (iifeJsContent) {
-      fs.writeFileSync(
-        path.join(releaseDir, 'user-ota-bundle.json'),
-        JSON.stringify({
-          version: buildVersion,
-          edition: 'user',
-          publishedAtIso: new Date().toISOString(),
-          preserveUserData: true,
-          cssContent,
-          jsContent: iifeJsContent,
-        }),
-        'utf8'
-      );
-    }
-  } catch (otaErr) {
-    console.warn('[Dual Builder] Warning generating user-ota-bundle.json:', otaErr);
   }
 
-  fs.writeFileSync(
-    path.join(releaseDir, 'latest-release.json'),
-    JSON.stringify(
-      {
-        version: buildVersion,
-        githubRepo,
-        publishedAtIso: new Date().toISOString(),
-        userSoftwareExe: 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe',
-        masterSoftwareExe: 'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe',
-        userAndroidApk: 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
-        masterAndroidApk: 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
-        userOtaBundle: 'user-ota-bundle.json',
-        userDownloadUrl: userExeUrl,
-        masterDownloadUrl: masterExeUrl,
-        userAndroidDownloadUrl: userAndroidApkUrl,
-        masterAndroidDownloadUrl: masterAndroidApkUrl,
-        userOtaBundleUrl,
-        preserveUserDataOnUpdate: true,
-      },
-      null,
-      2
-    ),
-    'utf8'
-  );
-
   console.log('\n====================================================================');
-  console.log('  DUAL WINDOWS .EXE + OTA BUNDLE BUILD COMPLETE!');
-  console.log('  1. Master Software: release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe');
-  console.log('  2. User Software:   release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe');
-  console.log('  3. OTA Live Bundle: release/user-ota-bundle.json');
+  console.log('  4 OFFICIAL INSTALLERS BUILD COMPLETE!');
+  console.log('  1. Master EXE: release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe');
+  console.log('  2. User EXE:   release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe');
+  console.log('  3. Master APK: release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk');
+  console.log('  4. User APK:   release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk');
   console.log('====================================================================\n');
 } finally {
   // Restore default edition.json to master

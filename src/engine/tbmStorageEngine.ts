@@ -57,9 +57,28 @@ export function setDefaultStartupMode(mode: IndustryMode): void {
 // PROJECTS CRUD
 // ---------------------------------------------------------------------------
 
+const LEGACY_TBM_NAMES = new Set([
+  'Akash Dhoni (Chief TBM Geologist)',
+  'Akash Dhoni',
+  'Dr. K. Sharma',
+  'Lead TBM Geologist',
+  'Shift Team 1',
+]);
+
+function cleanLegacyTbmName(val?: string): string {
+  if (!val) return '';
+  const trimmed = val.trim();
+  return LEGACY_TBM_NAMES.has(trimmed) ? '' : trimmed;
+}
+
 export function loadTbmProjects(): TbmProjectItem[] {
   const loaded = loadHighCapacityCollection<TbmProjectItem>(TBM_PROJECTS_KEY);
-  if (Array.isArray(loaded)) return loaded;
+  if (Array.isArray(loaded)) {
+    return loaded.map((p) => ({
+      ...p,
+      responsibleGeologist: cleanLegacyTbmName(p.responsibleGeologist),
+    }));
+  }
   return [];
 }
 
@@ -83,7 +102,7 @@ export function createTbmProject(partial: Partial<TbmProjectItem>): TbmProjectIt
     tunnelAlignment: partial.tunnelAlignment?.trim() || 'Main Up-Line Alignment',
     startDate: partial.startDate || new Date().toISOString().slice(0, 10),
     description: partial.description?.trim() || '',
-    responsibleGeologist: partial.responsibleGeologist?.trim() || 'Lead TBM Geologist',
+    responsibleGeologist: cleanLegacyTbmName(partial.responsibleGeologist),
     coordinateSystem: partial.coordinateSystem?.trim() || 'UTM Zone 43N / WGS84',
     units: partial.units || 'METRIC',
     createdAt: now,
@@ -131,7 +150,11 @@ export function deleteTbmProject(id: string): void {
 export function loadTbmLocations(projectId?: string): TbmLocationItem[] {
   const loaded = loadHighCapacityCollection<TbmLocationItem>(TBM_LOCATIONS_KEY);
   if (Array.isArray(loaded)) {
-    return projectId ? loaded.filter((l) => l.projectId === projectId) : loaded;
+    const cleaned = loaded.map((l) => ({
+      ...l,
+      responsibleGeologist: cleanLegacyTbmName(l.responsibleGeologist),
+    }));
+    return projectId ? cleaned.filter((l) => l.projectId === projectId) : cleaned;
   }
   return [];
 }
@@ -213,7 +236,16 @@ export function deleteTbmLocation(id: string): void {
 export function loadTbmExcavationRecords(locationId?: string): TbmExcavationRecord[] {
   const loaded = loadHighCapacityCollection<TbmExcavationRecord>(TBM_RECORDS_KEY);
   if (Array.isArray(loaded)) {
-    return locationId ? loaded.filter((r) => r.locationId === locationId) : loaded;
+    const cleaned = loaded.map((r) => ({
+      ...r,
+      chainageRecord: r.chainageRecord
+        ? {
+            ...r.chainageRecord,
+            geologistOrOperator: cleanLegacyTbmName(r.chainageRecord.geologistOrOperator),
+          }
+        : r.chainageRecord,
+    }));
+    return locationId ? cleaned.filter((r) => r.locationId === locationId) : cleaned;
   }
   return [];
 }
@@ -506,7 +538,7 @@ export function createTbmForecast(partial: Partial<TbmGeologicalForecastRecord>)
     projectId: partial.projectId || 'PRJ-TBM-001',
     locationId: partial.locationId || 'LOC-TBM-01',
     forecastDate: partial.forecastDate || new Date().toISOString().slice(0, 10),
-    author: partial.author?.trim() || 'Lead TBM Geologist',
+    author: cleanLegacyTbmName(partial.author),
     startChainageRd: partial.startChainageRd || 1450.0,
     endChainageRd: partial.endChainageRd || 1475.0,
     predictedLithology: partial.predictedLithology?.trim() || 'Basalt (Massive)',
@@ -593,7 +625,7 @@ export function seedInitialTbmData(): {
     tunnelAlignment: 'Chainage 14+200 to 16+800',
     startDate: '2025-03-01',
     description: 'Twin-tube EPB shield mechanized tunneling through Deccan Trap basalt, pyroclastic tuff, and breccia under densely populated urban fabric.',
-    responsibleGeologist: 'Akash Dhoni (Chief TBM Geologist)',
+    responsibleGeologist: '',
     coordinateSystem: 'WGS84 / UTM Zone 43N',
     units: 'METRIC',
     createdAt: '2025-03-01T08:00:00.000Z',
@@ -613,7 +645,7 @@ export function seedInitialTbmData(): {
     alignmentReference: 'Uplink Centerline Rev-3',
     startDate: '2025-03-05',
     description: 'EPB machine drive transitioning from fresh compact basalt into amygdaloidal weathered basalt with local fault breccia.',
-    responsibleGeologist: 'Akash Dhoni',
+    responsibleGeologist: '',
     tbmType: 'EPB',
     groundType: 'MIXED_GROUND',
     machineManufacturer: 'Herrenknecht AG',
@@ -699,7 +731,7 @@ export function seedInitialTbmData(): {
         shiftEndTime: idx % 2 === 0 ? '16:00' : '04:00',
         stoppageDurationMinutes: 20 + idx * 3,
         stoppageReason: 'Ring build, tail seal inspection & survey check',
-        geologistOrOperator: 'Akash Dhoni',
+        geologistOrOperator: '',
         generalObservations: `Excavation of Ring #${t.ring} in ${t.lith}. FPI stable at ${t.fpi} kN/cutter/mm.`,
       },
       geology: {

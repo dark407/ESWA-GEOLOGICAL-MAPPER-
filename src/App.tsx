@@ -477,7 +477,14 @@ export default function App({
   // Clean Fresh Tunnel Drive Direction & Header Settings State (Restores saved settings if present)
   const [settings, setSettings] = useState<TunnelSettings>(() => {
     const today = new Date().toISOString().slice(0, 10);
+    const activeGeoName =
+      getActiveGeologistProfile()?.name || (isMasterSoftware ? 'Akash Dhanush Eswar' : '');
     if (initialDraft?.settings && typeof initialDraft.settings === 'object') {
+      const savedMappedBy = String(initialDraft.settings.mappedBy || '').trim();
+      const isLegacyName =
+        savedMappedBy.toLowerCase() === 'r. k. sharma' ||
+        savedMappedBy.toLowerCase() === 'vikram malhotra' ||
+        savedMappedBy.toLowerCase() === 'dr. amit roy';
       return {
         projectName: '',
         tunnelName: '',
@@ -489,9 +496,9 @@ export default function App({
         faceChainage: '',
         roundLength: 0,
         date: today,
-        mappedBy: '',
         lithology: '',
         ...initialDraft.settings,
+        mappedBy: isLegacyName || !savedMappedBy ? activeGeoName : savedMappedBy,
         sheetConfig: initialDraft.settings.sheetConfig || loadSavedSheetConfig(),
       };
     }
@@ -506,11 +513,26 @@ export default function App({
       faceChainage: '',
       roundLength: 0,
       date: today,
-      mappedBy: '',
+      mappedBy: activeGeoName,
       lithology: '',
       sheetConfig: loadSavedSheetConfig(),
     };
   });
+
+  useEffect(() => {
+    const handleProfileChange = (e: Event) => {
+      const custom = e as CustomEvent<GeologistUserProfile | null>;
+      const nextName = custom.detail?.name || getActiveGeologistProfile()?.name || '';
+      if (nextName) {
+        setSettings((prev) => ({
+          ...prev,
+          mappedBy: nextName,
+        }));
+      }
+    };
+    window.addEventListener('eswa-geologist-profile-changed', handleProfileChange);
+    return () => window.removeEventListener('eswa-geologist-profile-changed', handleProfileChange);
+  }, []);
 
   // 3-Mode Industry Switcher (NATM | TBM | MINING) with isolated parameter state
   // 3-Mode Industry Switcher (NATM | TBM | MINING) with isolated parameter state

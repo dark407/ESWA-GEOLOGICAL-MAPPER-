@@ -93,8 +93,11 @@ if (fs.existsSync(assetsSubDir)) {
   }
 }
 
+const releaseCacheDir = path.join(os.tmpdir(), 'akash-release-cache');
+fs.mkdirSync(releaseCacheDir, { recursive: true });
+
 function compileStandaloneAppBundle(edition = 'user') {
-  const cachedBundlePath = path.join(releaseDir, `cached-app-${edition}-iife.js`);
+  const cachedBundlePath = path.join(releaseCacheDir, `cached-app-${edition}-iife.js`);
   console.log(`Compiling 100% self-contained standalone bundle for ${edition} edition...`);
   execSync(
     `npx esbuild src/main.tsx --bundle --format=iife --platform=browser --target=es2020 --minify --define:import.meta.env.DEV=false --define:import.meta.env.VITE_SOFTWARE_EDITION='"${edition}"' --define:import.meta.env.MODE='"production"' --loader:.css=empty --outfile="${cachedBundlePath}"`,
@@ -110,11 +113,11 @@ const buildVersion =
   process.env.VITE_APP_BUILD_VERSION ||
   (process.env.GITHUB_RUN_NUMBER ? `1.0.${process.env.GITHUB_RUN_NUMBER}` : '2.5.0');
 
-// Save user-ota-bundle.json in release/ so installed Android APKs & Windows EXEs can hot-update in-place without deleting user data
+// Save user-ota-bundle.json in OS temp cache so release/ strictly contains only the 4 official installers
 if (userIifeJsContent) {
   try {
     fs.writeFileSync(
-      path.join(releaseDir, 'user-ota-bundle.json'),
+      path.join(releaseCacheDir, 'user-ota-bundle.json'),
       JSON.stringify({
         version: buildVersion,
         edition: 'user',
@@ -172,7 +175,7 @@ const selfContainedHtml = `<!doctype html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
-    <title>ESWA TUNNEL MAPPER — Android User App</title>
+    <title>ESWA GEOLOGICAL MAPPER</title>
     <meta name="theme-color" content="#0B0E14" />
     <script>
       window.__ESWA_NATIVE_ANDROID_APK__ = true;
@@ -722,7 +725,7 @@ const outAabPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-PlayStore.
 
 try {
   execSync(
-    `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outApkPath}" "com.eswa.geologicalmapper.user" "ESWA Geological Mapper"`,
+    `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outApkPath}" "com.eswa.geologicalmapper.user" "ESWA GEOLOGICAL MAPPER"`,
     {
       cwd: rootDir,
       stdio: 'inherit',
@@ -744,7 +747,7 @@ const masterSelfContainedHtml = `<!doctype html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
-    <title>ESWA MASTER ADMIN & GEOLOGICAL MAPPER — Android Master App</title>
+    <title>ESWA GEOLOGICAL MAPPER</title>
     <meta name="theme-color" content="#0B0E14" />
     <script>
       window.__ESWA_NATIVE_ANDROID_APK__ = true;
@@ -777,7 +780,7 @@ const masterSelfContainedHtml = `<!doctype html>
 fs.writeFileSync(path.join(stagedWwwDir, 'index.html'), masterSelfContainedHtml, 'utf8');
 try {
   execSync(
-    `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outMasterApkPath}" "com.eswa.geologicalmapper.master" "ESWA Geological Mapper (Master)"`,
+    `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outMasterApkPath}" "com.eswa.geologicalmapper.master" "ESWA GEOLOGICAL MAPPER (Master)"`,
     {
       cwd: rootDir,
       stdio: 'inherit',
@@ -787,9 +790,12 @@ try {
   console.warn('[Android Build] Notice compiling Master APK:', masterApkErr?.message || masterApkErr);
 }
 
-// Clean up temporary android-user-apk directory so workspace remains clean
+// Clean up temporary android-user-apk directory and cached IIFE bundles so release/ stays clean
 try {
   fs.rmSync(androidDir, { recursive: true, force: true });
+  fs.rmSync(path.join(releaseDir, 'cached-app-user-iife.js'), { force: true });
+  fs.rmSync(path.join(releaseDir, 'cached-app-master-iife.js'), { force: true });
 } catch {
   // Ignore cleanup errors
 }
+

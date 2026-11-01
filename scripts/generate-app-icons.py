@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
 """
 Generates high-DPI PWA & Android APK launcher PNG icons using ONLY standard library
-(zlib + struct + math) representing the official ESWA GEOLOGICAL MAPPER Eagle Logo:
-- Rounded Geological Amber-Orange & Slate Field Badge with Crisp White Rim
-- Twin-Peak Dark Topographic Mountain Triangle
-- White/Ice-Blue Topographic Eagle Head with Hooked Beak & Geological Compass Eye
-- 'ESWA' Bold Geological Wordmark (Horseshoe Tunnel Arch 'E', Stratum 'S', Rock 'W' & 'A')
+(zlib + struct + math) reproducing the exact uploaded ESWA GEOLOGICAL MAPPER icon
+(Screenshot_20261029-051204 (1).png):
+- Full-bleed Geological Map Backdrop:
+  * Left side: Diagonal tilted terracotta, chocolate-brown, burnt-sienna, cream-gold & amber
+    sedimentary strata bands + cream quartz vein (#FFFBEB) + sweeping dark contour curves
+  * Right side: Vibrant Golden-Amber Orange (#EB820E -> #F39015 -> #DC730A) with dark-brown
+    concentric topographic ellipses & survey grid lines
+- Centerpiece Emblem with Crisp White Sticker Cutout Outline:
+  * Twin-Peak Dark Topographic Mountain Triangle with concentric peak contour rings & slope lines
+  * White/Ice-Blue Topographic Eagle Head with Hooked Beak & Tilted Geological Compass Eye
+  * 'ESWA' Wordmark:
+    - Horseshoe Tunnel Portal 'E' with segmented rim, flat invert floor, Rock Hammer,
+      Hand Lens, 3-Segment Drill Core & Orange Mineral Crystal
+    - 'S' with Folded Sedimentary Rock Stratum & Bedding Planes
+    - 'W' & 'A' with Sky-Blue to Deep Slate-Teal Fractured Rock Texture
+  * 'GEOLOGICAL MAPPER' Bold Black Subtitle inside Crisp White Sticker Pill at Bottom
 """
 import math
 import os
+import shutil
 import struct
 import zlib
 
@@ -81,19 +93,6 @@ def sample_cubic_bezier(p0, p1, p2, p3, steps=24):
 
 
 def build_eagle_head_polygon():
-    """
-    Exact cubic bezier sampling of EswaBrandIdentity.tsx Eagle Head & Hooked Beak:
-    M 272 268
-    C 318 228, 378 190, 444 186
-    C 476 184, 502 194, 514 208
-    C 546 210, 578 224, 590 250
-    C 598 268, 594 292, 578 308
-    C 574 292, 562 280, 544 278
-    C 516 276, 488 292, 464 316
-    C 452 328, 444 342, 440 354
-    L 382 354
-    C 368 310, 326 276, 272 268 Z
-    """
     segs = [
         ((272, 268), (318, 228), (378, 190), (444, 186)),
         ((444, 186), (476, 184), (502, 194), (514, 208)),
@@ -115,9 +114,6 @@ def build_eagle_head_polygon():
 
 
 def build_letter_s_polygon():
-    """
-    Exact cubic bezier sampling of EswaBrandIdentity.tsx Letter 'S'
-    """
     segs = [
         ((432, 384), (414, 366), (386, 358), (358, 360)),
         ((358, 360), (318, 362), (294, 384), (294, 412)),
@@ -145,16 +141,259 @@ def build_letter_s_polygon():
     return poly
 
 
+# Crisp 5x7 bitmap font for "GEOLOGICAL MAPPER"
+FONT_5X7 = {
+    "G": [
+        "01110",
+        "10001",
+        "10000",
+        "10111",
+        "10001",
+        "10001",
+        "01110",
+    ],
+    "E": [
+        "11111",
+        "10000",
+        "10000",
+        "11110",
+        "10000",
+        "10000",
+        "11111",
+    ],
+    "O": [
+        "01110",
+        "10001",
+        "10001",
+        "10001",
+        "10001",
+        "10001",
+        "01110",
+    ],
+    "L": [
+        "10000",
+        "10000",
+        "10000",
+        "10000",
+        "10000",
+        "10000",
+        "11111",
+    ],
+    "I": [
+        "11111",
+        "00100",
+        "00100",
+        "00100",
+        "00100",
+        "00100",
+        "11111",
+    ],
+    "C": [
+        "01110",
+        "10001",
+        "10000",
+        "10000",
+        "10000",
+        "10001",
+        "01110",
+    ],
+    "A": [
+        "01110",
+        "10001",
+        "10001",
+        "11111",
+        "10001",
+        "10001",
+        "10001",
+    ],
+    "M": [
+        "10001",
+        "11011",
+        "10101",
+        "10101",
+        "10001",
+        "10001",
+        "10001",
+    ],
+    "P": [
+        "11110",
+        "10001",
+        "10001",
+        "11110",
+        "10000",
+        "10000",
+        "10000",
+    ],
+    "R": [
+        "11110",
+        "10001",
+        "10001",
+        "11110",
+        "10100",
+        "10010",
+        "10001",
+    ],
+    " ": [
+        "00000",
+        "00000",
+        "00000",
+        "00000",
+        "00000",
+        "00000",
+        "00000",
+    ],
+}
+
+
+def sample_subtitle_text(sx, sy):
+    """
+    Returns (in_white_pill, in_black_letter) for 'GEOLOGICAL MAPPER'
+    positioned beneath 'S W A' at sy in [538..586], sx in [278..682].
+    """
+    text = "GEOLOGICAL MAPPER"
+    start_x = 290.0
+    start_y = 548.0
+    cell_w = 3.55
+    cell_h = 3.65
+    char_Advance = 6.45 * cell_w  # 5 cols + 1.45 col spacing
+
+    # Check pill bounds with rounded ends
+    pill_x0 = 278.0
+    pill_x1 = 684.0
+    pill_y0 = 540.0
+    pill_y1 = 584.0
+    if sx < pill_x0 - 6 or sx > pill_x1 + 6 or sy < pill_y0 - 6 or sy > pill_y1 + 6:
+        return False, False
+
+    cx = min(max(sx, pill_x0 + 10.0), pill_x1 - 10.0)
+    cy = min(max(sy, pill_y0 + 10.0), pill_y1 - 10.0)
+    in_pill = math.hypot(sx - cx, sy - cy) <= 11.5 or (
+        pill_x0 <= sx <= pill_x1 and pill_y0 <= sy <= pill_y1
+    )
+
+    if not in_pill:
+        return False, False
+
+    rel_y = sy - start_y
+    if 0.0 <= rel_y < 7.0 * cell_h:
+        row = int(rel_y / cell_h)
+        rel_x = sx - start_x
+        if rel_x >= 0.0:
+            c_idx = int(rel_x / char_Advance)
+            if 0 <= c_idx < len(text):
+                in_char_x = rel_x - c_idx * char_Advance
+                col = int(in_char_x / cell_w)
+                if 0 <= col < 5:
+                    ch = text[c_idx]
+                    grid = FONT_5X7.get(ch)
+                    if grid and grid[row][col] == "1":
+                        return True, True
+    return True, False
+
+
+def render_background_pixel(sx, sy):
+    """
+    Renders the exact geological map backdrop from Screenshot_20261029-051204 (1).png
+    in SVG logo coordinates (sx in [80..820], sy in [-20..605]).
+    """
+    # 1. Base orange gradient (#EB820E -> #F39015 -> #EE8711 -> #DC730A)
+    nx = max(0.0, min(1.0, (sx - 80.0) / 740.0))
+    ny = max(0.0, min(1.0, (sy + 20.0) / 625.0))
+    t = 0.55 * nx + 0.45 * ny
+    r = lerp(239, 224, t)
+    g = lerp(138, 120, t)
+    b = lerp(19, 12, t)
+
+    # 2. Diagonal fault boundary separating Left Folded Strata Outcrop from Right Orange Sheet
+    # Runs from (sx=588, sy=-20) down-left to (sx=442, sy=605)
+    fault_x = 588.0 - (sy + 20.0) * 0.235
+    if sx < fault_x:
+        # Left side: Tilted sedimentary strata bands (tilted down from left to right at ~27 deg)
+        # Band coordinate u increases from top-right to bottom-left perpendicular to bedding
+        u = (sy + 20.0) - (sx - 80.0) * 0.49
+        # Base rust-terracotta outcrop fill (#9A3B0A)
+        r, g, b = 154, 59, 10
+
+        # Layered geological beds matching Screenshot_20261029-051204 (1).png
+        if -140.0 <= u < -75.0:
+            r, g, b = 142, 60, 18
+        elif -75.0 <= u < -25.0:
+            r, g, b = 154, 65, 20
+        elif -25.0 <= u < 42.0:
+            # Deep chocolate brown band (#5A270B)
+            r, g, b = 90, 39, 11
+        elif 42.0 <= u < 98.0:
+            # Medium burnt-sienna band (#8D3D13)
+            r, g, b = 141, 61, 19
+        elif 98.0 <= u < 145.0:
+            # Pale cream-gold marker bed (#F0CD7A) with thin brown center seam
+            if 116.0 <= u < 126.0:
+                r, g, b = 154, 68, 22
+            else:
+                r, g, b = 240, 205, 122
+        elif 145.0 <= u < 245.0:
+            # Rich rust-terracotta band (#8E3E14)
+            r, g, b = 142, 62, 20
+        elif 245.0 <= u < 292.0:
+            # Warm golden-amber band (#DF8A19)
+            r, g, b = 223, 138, 25
+        elif 292.0 <= u < 415.0:
+            # Deep espresso-brown band (#4C2008) with warm rust sub-bed
+            if 328.0 <= u < 375.0:
+                r, g, b = 142, 62, 20
+            else:
+                r, g, b = 76, 32, 8
+        elif 415.0 <= u < 452.0:
+            # Cream-beige bed at bottom-left (#DFBC8B)
+            r, g, b = 223, 188, 139
+        elif u >= 452.0:
+            r, g, b = 138, 60, 18
+
+        # Cream/Beige cross-cutting quartz vein exiting beneath 'S' and 'GEOLOGICAL'
+        # Runs from (sx=445, sy=235) to (sx=340, sy=605)
+        vein_x = 445.0 - (sy - 235.0) * 0.285
+        if sy > 230.0 and abs(sx - vein_x) < 16.5:
+            r, g, b = 216, 196, 174
+
+    # 3. Concentric Topographic Ellipses in Upper-Right & Sweeping Regional Contour Lines
+    # Upper-right rotated ellipses centered at (705, -75)
+    dx_e = sx - 705.0
+    dy_e = sy - (-75.0)
+    cos32 = math.cos(math.radians(32.0))
+    sin32 = math.sin(math.radians(32.0))
+    rx_e = dx_e * cos32 + dy_e * sin32
+    ry_e = -dx_e * sin32 + dy_e * cos32
+    ell_d = math.hypot(rx_e / 1.55, ry_e)
+    ring_mod = ell_d % 24.0
+    if ring_mod < 1.8 or ring_mod > 22.2:
+        r = lerp(r, 62, 0.55)
+        g = lerp(g, 22, 0.55)
+        b = lerp(b, 4, 0.55)
+
+    # Sweeping regional contour curves across the sheet
+    reg_v = (sx - 135.0) - 0.32 * sy - 38.0 * math.sin(sy * 0.0085)
+    reg_mod = reg_v % 42.0
+    if reg_mod < 1.6 or reg_mod > 40.4:
+        r = lerp(r, 62, 0.52)
+        g = lerp(g, 22, 0.52)
+        b = lerp(b, 4, 0.52)
+
+    # Subtle survey coordinate grid lines (horizontal at sy=485, vertical at sx=445)
+    if abs(sy - 485.0) < 0.9 or abs(sx - 445.0) < 0.9:
+        r = lerp(r, 62, 0.28)
+        g = lerp(g, 22, 0.28)
+        b = lerp(b, 4, 0.28)
+
+    return r, g, b
+
+
 def render_master_512():
     W = 512
     H = 512
     buf = bytearray(W * H * 4)
 
-    # Geometry in 820x580 SVG space mapped cleanly into 512x512 icon canvas
-    # Center 464, 285 -> 256, 252 with scale 0.72
     mtn_poly = [(222, 332), (346, 118), (368, 144), (452, 22), (686, 332)]
     eagle_poly = build_eagle_head_polygon()
-    eagle_top_edge = eagle_poly[: int(len(eagle_poly) * 0.78)]
     beak_curve = sample_cubic_bezier((514, 208), (498, 236), (496, 268), (516, 286), 14)
 
     s_poly = build_letter_s_polygon()
@@ -185,16 +424,11 @@ def render_master_512():
     ]
     a_hole_poly = [(707, 412), (688, 470), (726, 470)]
 
-    # Horseshoe Tunnel Arch 'E' polygon approximation
-    e_poly = []
-    # Left vertical wall bottom to arch start
-    e_poly.append((152, 538))
-    e_poly.append((152, 392))
-    # Outer arch from (152,392) over center (278,392) R=126 to ~35deg
+    # Horseshoe Tunnel Arch 'E' polygon
+    e_poly = [(152, 538), (152, 392)]
     for deg in range(180, -18, -8):
         rad = math.radians(deg)
         e_poly.append((278 + 126 * math.cos(rad), 392 - 126 * math.sin(rad)))
-    # Inner arch back
     for deg in range(-12, 165, 10):
         rad = math.radians(deg)
         e_poly.append((282 + 54 * math.cos(rad), 414 - 54 * math.sin(rad)))
@@ -210,70 +444,33 @@ def render_master_512():
         ]
     )
 
-    pad = 16.0
-    rad_corner = 108.0
-    inner_x0 = pad + rad_corner
-    inner_x1 = W - pad - rad_corner
-    inner_y0 = pad + rad_corner
-    inner_y1 = H - pad - rad_corner
+    e_floor_poly = [(174, 538), (222, 504), (296, 504), (296, 538)]
+    crystal_poly = [(344, 328), (356, 320), (364, 332), (354, 342), (342, 338)]
 
     cos36 = math.cos(math.radians(36.0))
     sin36 = math.sin(math.radians(36.0))
+    cos14 = math.cos(math.radians(14.0))
+    sin14 = math.sin(math.radians(14.0))
+    cos32 = math.cos(math.radians(-32.0))
+    sin32 = math.sin(math.radians(-32.0))
+
+    # Exact framing matching Screenshot_20261029-051204 (1).png
+    scale_x = 512.0 / 710.0
+    scale_y = 512.0 / 615.0
+    scale_factor = min(scale_x, scale_y)  # ~0.721
 
     for y in range(H):
         for x in range(W):
             px = x + 0.5
             py = y + 0.5
 
-            # 1. Rounded Square App Badge SDF
-            cx = min(max(px, inner_x0), inner_x1)
-            cy = min(max(py, inner_y0), inner_y1)
-            dist_out = math.hypot(px - cx, py - cy) - rad_corner
-            if px >= inner_x0 and px <= inner_x1 and py >= inner_y0 and py <= inner_y1:
-                dist_in = -min(px - pad, W - pad - px, py - pad, H - pad - py)
-                sdf_box = dist_in
-            else:
-                sdf_box = dist_out
-
-            if sdf_box > 1.2:
-                continue
-
-            alpha = 1.0
-            if sdf_box > -1.2:
-                alpha = max(0.0, min(1.0, (1.2 - sdf_box) / 2.4))
-
-            # Warm Geological Amber-Orange Background with Topographic Rings & Dark Vignette
-            nx = px / W
-            ny = py / H
-            bg_r = lerp(245, 180, ny * 0.75 + nx * 0.25)
-            bg_g = lerp(148, 68, ny * 0.8 + nx * 0.2)
-            bg_b = lerp(38, 12, ny)
-
-            # Subtle topographic rings on orange badge background
-            topo_wave = math.sin(
-                math.hypot(px - 256, py - 240) * 0.14
-                + 0.4 * math.sin(px * 0.04)
-                + 0.4 * math.cos(py * 0.04)
-            )
-            if abs(topo_wave) < 0.11:
-                bg_r = lerp(bg_r, 255, 0.16)
-                bg_g = lerp(bg_g, 210, 0.16)
-                bg_b = lerp(bg_b, 140, 0.16)
-
-            # Crisp white & dark outer badge border
-            if sdf_box > -12.0:
-                if sdf_box > -6.5:
-                    bg_r, bg_g, bg_b = 255, 252, 245
-                else:
-                    bg_r, bg_g, bg_b = 15, 23, 42
-
-            r, g, b = bg_r, bg_g, bg_b
-
             # Map pixel (px, py) to SVG coordinate space (sx, sy)
-            sx = (px - 256.0) / 0.72 + 468.0
-            sy = (py - 256.0) / 0.72 + 286.0
+            sx = (px - 256.0) / scale_factor + 462.0
+            sy = (py - 256.0) / scale_factor + 298.0
 
-            # Precompute containment & edge distances for crisp white cutout outline
+            # 0. Full-bleed Geological Orange & Folded Strata Backdrop
+            r, g, b = render_background_pixel(sx, sy)
+
             in_mtn = point_in_poly(sx, sy, mtn_poly)
             d_mtn = dist_to_poly_edges(sx, sy, mtn_poly, True)
 
@@ -294,154 +491,235 @@ def render_master_512():
             in_a = in_a_outer and not in_a_hole
             d_a = min(
                 dist_to_poly_edges(sx, sy, a_outer_poly, True),
-                dist_to_poly_edges(sx, sy, a_hole_poly, True) if in_a_outer else 1e9,
+                dist_to_poly_edges(sx, sy, a_hole_poly, True),
             )
 
-            any_inside = in_mtn or in_eagle or in_e or in_s or in_w or in_a
-            min_edge_dist = min(d_mtn, d_eagle, d_e, d_s, d_w, d_a)
+            in_sub_pill, in_sub_text = sample_subtitle_text(sx, sy)
 
-            # Outer White Cutout Halo around entire Eagle + Mountain + ESWA Logo
-            if not any_inside and min_edge_dist < 13.5:
-                halo_t = max(0.0, min(1.0, (13.5 - min_edge_dist) / 3.0))
-                r = lerp(r, 255, halo_t)
-                g = lerp(g, 255, halo_t)
-                b = lerp(b, 255, halo_t)
-
-            # LAYER 1: TWIN-PEAK TOPOGRAPHIC MOUNTAIN TRIANGLE
-            if in_mtn:
-                mt_t = max(0.0, min(1.0, (sy - 22.0) / 310.0))
-                mr = lerp(68, 8, mt_t)
-                mg = lerp(78, 12, mt_t)
-                mb = lerp(94, 20, mt_t)
-
-                # Topographic contour lines inside mountain
-                c_val = math.sin((sy - 30) * 0.16 + math.sin(sx * 0.035) * 2.2)
-                if abs(c_val) < 0.16:
-                    mr = lerp(mr, 148, 0.45)
-                    mg = lerp(mg, 163, 0.45)
-                    mb = lerp(mb, 184, 0.45)
-
-                # Bold black mountain border
-                if d_mtn < 8.5:
-                    mr, mg, mb = 5, 7, 10
-
-                r, g, b = mr, mg, mb
-
-            # LAYER 2: TOPOGRAPHIC WHITE/ICE-BLUE EAGLE HEAD & COMPASS EYE
-            if not in_eagle and d_eagle < 6.5 and sy < 350:
-                # Crisp white halo separating Eagle from Dark Mountain
+            # White sticker cutout halo around entire emblem
+            min_emblem_dist = min(
+                0.0 if in_mtn else d_mtn,
+                0.0 if in_eagle else d_eagle,
+                0.0 if in_e else d_e,
+                0.0 if in_s else d_s,
+                0.0 if in_w else d_w,
+                0.0 if in_a else d_a,
+            )
+            if min_emblem_dist < 11.5 or in_sub_pill:
                 r, g, b = 255, 255, 255
 
-            if in_eagle:
-                et = max(0.0, min(1.0, (sx - 272.0) / 320.0 * 0.65 + (sy - 186.0) / 170.0 * 0.35))
-                er = lerp(255, 165, et)
-                eg = lerp(255, 230, et)
-                eb = lerp(255, 252, et)
-
-                # Flowing topographic contour lines across Eagle Head & Beak
-                eagle_wave = math.sin((sx * 0.065 + sy * 0.095) + math.sin(sx * 0.025) * 1.6)
-                if abs(eagle_wave) < 0.15:
-                    er = lerp(er, 30, 0.62)
-                    eg = lerp(eg, 41, 0.62)
-                    eb = lerp(eb, 59, 0.62)
-
-                # Beak separation curve
-                d_beak = dist_to_poly_edges(sx, sy, beak_curve, False)
-                if d_beak < 2.2:
-                    er, eg, eb = 15, 23, 42
-
-                # Eagle Head outer dark stroke
-                if d_eagle < 3.6:
-                    er, eg, eb = 9, 13, 20
-
-                # Eagle Eye: Tilted Geological Compass Needle at (476, 236) rotated -36 deg
-                ex = sx - 476.0
-                ey = sy - 236.0
-                rx_eye = ex * cos36 - ey * sin36
-                ry_eye = ex * sin36 + ey * cos36
-                eye_r = math.hypot(ex, ey)
-                # Diamond needle: |rx|/28 + |ry|/8 <= 1
-                if abs(rx_eye) / 28.0 + abs(ry_eye) / 8.2 <= 1.0 or eye_r <= 7.8:
-                    er, eg, eb = 5, 7, 10
-                    if eye_r <= 5.3:
-                        er, eg, eb = 186, 230, 253
-                    if eye_r <= 2.4:
-                        er, eg, eb = 15, 23, 42
-                    if math.hypot(ex + 1.5, ey + 1.5) <= 1.2:
-                        er, eg, eb = 255, 255, 255
-
-                r, g, b = er, eg, eb
-
-            # LAYER 3: 'ESWA' GEOLOGICAL & TUNNEL PORTAL WORDMARK
-            if in_e:
-                # Outer rim vs inner brown/slate rock wall
-                dist_arch_center = math.hypot(sx - 278.0, min(sy, 392.0) - 392.0)
-                if sx < 174 or dist_arch_center > 104:
-                    er, eg, eb = 148, 163, 184
+            # LAYER 1: TWIN-PEAK MOUNTAIN TRIANGLE
+            if in_mtn:
+                if d_mtn < 6.0:
+                    r, g, b = 5, 7, 10
                 else:
-                    wt = max(0.0, min(1.0, (538.0 - sy) / 240.0))
-                    er = lerp(154, 59, wt)
-                    eg = lerp(123, 77, wt)
-                    eb = lerp(79, 89, wt)
-                if d_e < 4.5:
-                    er, eg, eb = 9, 13, 20
-                r, g, b = er, eg, eb
+                    mt = max(0.0, min(1.0, (sy - 22.0) / 310.0))
+                    r = lerp(52, 7, mt)
+                    g = lerp(64, 10, mt)
+                    b = lerp(82, 16, mt)
 
-            if in_s:
-                wt = max(0.0, min(1.0, (sy - 360.0) / 180.0))
-                sr = lerp(41, 42, wt)
-                sg = lerp(163, 64, wt)
-                sb = lerp(220, 77, wt)
-                # Folded ochre rock band inside 'S'
-                band_y = 392.0 + (sx - 275.0) * 0.52
-                if abs(sy - band_y) < 18.0:
-                    sr, sg, sb = 196, 138, 69
-                if d_s < 4.5:
-                    sr, sg, sb = 9, 13, 20
-                r, g, b = sr, sg, sb
+                    # Concentric oval contour target on main peak (452, 96) & left peak (352, 176)
+                    d_p1 = math.hypot((sx - 452.0) * 1.35, sy - 96.0)
+                    d_p2 = math.hypot((sx - 352.0) * 1.15, sy - 176.0)
+                    slope_wave = math.sin((sy + 0.45 * abs(sx - 445.0)) * 0.25)
+                    if (
+                        abs(d_p1 - 22.0) < 1.8
+                        or abs(d_p1 - 38.0) < 1.8
+                        or abs(d_p2 - 26.0) < 1.8
+                        or abs(slope_wave) > 0.92
+                    ):
+                        r = lerp(r, 148, 0.42)
+                        g = lerp(g, 163, 0.42)
+                        b = lerp(b, 184, 0.42)
 
+            # LAYER 2: TOPOGRAPHIC EAGLE HEAD & COMPASS EYE
+            if not in_e and not in_s and not in_w and not in_a:
+                if not in_eagle and d_eagle < 6.5:
+                    r, g, b = 255, 255, 255
+                elif in_eagle:
+                    if d_eagle < 2.8:
+                        r, g, b = 9, 13, 20
+                    else:
+                        et = max(0.0, min(1.0, (sx - 272.0) / 320.0))
+                        r = lerp(255, 186, et)
+                        g = lerp(255, 230, et)
+                        b = lerp(255, 253, et)
+
+                        c_val = math.sin((sy - 180.0 + (sx - 270.0) * 0.36) * 0.42)
+                        if abs(c_val) > 0.88:
+                            r = lerp(r, 30, 0.55)
+                            g = lerp(g, 41, 0.55)
+                            b = lerp(b, 59, 0.55)
+
+                        d_beak = dist_to_poly_edges(sx, sy, beak_curve, False)
+                        if d_beak < 2.0:
+                            r, g, b = 15, 23, 42
+
+                        # Tilted Geological Compass Eye at (476, 236)
+                        dx_eye = sx - 476.0
+                        dy_eye = sy - 236.0
+                        rx_eye = dx_eye * cos36 + dy_eye * sin36
+                        ry_eye = -dx_eye * sin36 + dy_eye * cos36
+                        diamond_val = abs(rx_eye) / 28.0 + abs(ry_eye) / 8.0
+                        dist_eye = math.hypot(dx_eye, dy_eye)
+                        if dist_eye < 2.3:
+                            r, g, b = 15, 23, 42
+                        elif dist_eye < 5.2:
+                            r, g, b = 186, 230, 253
+                        elif dist_eye < 7.8 or diamond_val <= 1.0:
+                            r, g, b = 5, 7, 10
+
+            # LAYER 3A: HORSESHOE TUNNEL ARCH 'E' + GEOLOGICAL TOOLS
+            if in_e:
+                if d_e < 3.0:
+                    r, g, b = 9, 13, 20
+                else:
+                    dist_arch = math.hypot(sx - 278.0, sy - 392.0)
+                    is_outer_rim = (sx < 174.0) or (sy < 392.0 and dist_arch > 104.0)
+                    if is_outer_rim:
+                        r, g, b = 148, 163, 184
+                        if abs(dist_arch - 104.0) < 2.6 or abs(sx - 174.0) < 2.6:
+                            r, g, b = 9, 13, 20
+                        # Radial segment joint ticks on outer rim
+                        if (
+                            dist_to_segment(sx, sy, 152, 452, 174, 452) < 2.0
+                            or dist_to_segment(sx, sy, 162, 346, 182, 356) < 2.0
+                            or dist_to_segment(sx, sy, 216, 278, 230, 296) < 2.0
+                            or dist_to_segment(sx, sy, 306, 262, 302, 284) < 2.0
+                            or dist_to_segment(sx, sy, 376, 302, 358, 316) < 2.0
+                        ):
+                            r, g, b = 9, 13, 20
+                    elif point_in_poly(sx, sy, e_floor_poly):
+                        # Flat grey tunnel invert floor at bottom of 'E'
+                        r, g, b = 100, 116, 139
+                        if dist_to_poly_edges(sx, sy, e_floor_poly, True) < 2.2:
+                            r, g, b = 9, 13, 20
+                    else:
+                        wt = max(0.0, min(1.0, (538.0 - sy) / 260.0))
+                        r = lerp(146, 72, wt)
+                        g = lerp(116, 88, wt)
+                        b = lerp(78, 100, wt)
+                        # Internal tunnel rib rings
+                        if abs(dist_arch - 86.0) < 1.3 or abs(dist_arch - 68.0) < 1.3:
+                            r = lerp(r, 30, 0.45)
+                            g = lerp(g, 35, 0.45)
+                            b = lerp(b, 42, 0.45)
+
+                        # 1. Rock Hammer at (192, 456) rotated -14 deg
+                        hx = (sx - 192.0) * cos14 - (sy - 456.0) * sin14
+                        hy = (sx - 192.0) * sin14 + (sy - 456.0) * cos14
+                        if -4.5 <= hx <= 4.5 and 0.0 <= hy <= 46.0:
+                            r, g, b = (9, 13, 20) if (abs(hx) > 2.8 or hy > 43.5) else (161, 98, 7)
+                        if -16.0 <= hx <= 20.0 and -6.5 <= hy <= 4.0:
+                            r, g, b = (
+                                (9, 13, 20)
+                                if (hx < -13.5 or hx > 17.5 or hy < -4.2 or hy > 1.8)
+                                else (148, 163, 184)
+                            )
+
+                        # 2. Hand Lens at (224, 424)
+                        d_lens = math.hypot(sx - 224.0, sy - 424.0)
+                        if d_lens <= 11.0:
+                            r, g, b = (9, 13, 20) if d_lens > 8.2 else (186, 230, 253)
+                        elif 219.0 <= sx <= 226.0 and 433.0 <= sy <= 449.0:
+                            r, g, b = 203, 213, 225
+
+                        # 3. Drill Core Cylinder at (244, 336) rotated 32 deg
+                        cx_core = (sx - 244.0) * cos32 - (sy - 336.0) * sin32
+                        cy_core = (sx - 244.0) * sin32 + (sy - 336.0) * cos32
+                        if -14.5 <= cx_core <= 14.5 and -6.5 <= cy_core <= 6.5:
+                            if (
+                                abs(cx_core) > 12.2
+                                or abs(cy_core) > 4.5
+                                or abs(cx_core + 4.0) < 1.2
+                                or abs(cx_core - 4.5) < 1.2
+                            ):
+                                r, g, b = 15, 23, 42
+                            else:
+                                r, g, b = 203, 213, 225
+
+                        # 4. Orange Mineral Crystal at (352, 331)
+                        if point_in_poly(sx, sy, crystal_poly):
+                            if dist_to_poly_edges(sx, sy, crystal_poly, True) < 2.0:
+                                r, g, b = 9, 13, 20
+                            else:
+                                r, g, b = 217, 119, 6
+
+            # LAYER 3B: LETTER 'W' AND 'A'
             if in_w or in_a:
-                wt = max(0.0, min(1.0, (sy - 364.0) / 174.0))
-                wr = lerp(41, 42, wt)
-                wg = lerp(163, 64, wt)
-                wb = lerp(220, 77, wt)
-                d_edge = d_w if in_w else d_a
-                if d_edge < 4.5:
-                    wr, wg, wb = 9, 13, 20
-                r, g, b = wr, wg, wb
+                d_wa = d_w if in_w else d_a
+                if not in_s and d_s < 6.0:
+                    r, g, b = 255, 255, 255
+                elif d_wa < 2.8:
+                    r, g, b = 9, 13, 20
+                else:
+                    lt = max(0.0, min(1.0, (sy - 364.0) / 174.0))
+                    r = lerp(41, 42, lt)
+                    g = lerp(163, 64, lt)
+                    b = lerp(220, 77, lt)
+                    # Rock joint fracture lines across 'W' and 'A'
+                    if (
+                        dist_to_segment(sx, sy, 442, 430, 478, 452) < 1.6
+                        or dist_to_segment(sx, sy, 478, 452, 502, 438) < 1.6
+                        or dist_to_segment(sx, sy, 556, 418, 588, 446) < 1.6
+                        or dist_to_segment(sx, sy, 658, 468, 692, 448) < 1.6
+                        or dist_to_segment(sx, sy, 722, 462, 758, 442) < 1.6
+                    ):
+                        r, g, b = 15, 23, 42
+
+            # LAYER 3C: LETTER 'S' WITH FOLDED OCHRE STRATUM
+            if in_s:
+                if d_s < 2.8:
+                    r, g, b = 9, 13, 20
+                else:
+                    st = max(0.0, min(1.0, (sy - 360.0) / 182.0))
+                    r = lerp(41, 42, st)
+                    g = lerp(163, 64, st)
+                    b = lerp(220, 77, st)
+
+                    band_y = 398.0 + (sx - 280.0) * 0.52
+                    if abs(sy - band_y) < 18.0:
+                        if abs(sy - band_y) > 15.2:
+                            r, g, b = 9, 13, 20
+                        elif abs(sy - band_y + 4.0) < 1.2:
+                            r, g, b = 254, 243, 199
+                        else:
+                            r, g, b = 186, 128, 62
+
+            # LAYER 4: 'GEOLOGICAL MAPPER' SUBTITLE PILL & TEXT
+            if in_sub_pill:
+                if in_sub_text:
+                    r, g, b = 9, 13, 20
+                else:
+                    r, g, b = 255, 255, 255
 
             idx = (y * W + x) * 4
             buf[idx] = clamp(r)
             buf[idx + 1] = clamp(g)
             buf[idx + 2] = clamp(b)
-            buf[idx + 3] = clamp(alpha * 255)
+            buf[idx + 3] = 255
 
     return W, H, buf
 
 
 def downsample_bilinear(src_w, src_h, src_buf, dst_w, dst_h):
     dst = bytearray(dst_w * dst_h * 4)
-    scale_x = src_w / dst_w
-    scale_y = src_h / dst_h
-    box_w = max(1, int(round(scale_x)))
-    box_h = max(1, int(round(scale_y)))
-
+    scale = src_w / dst_w
+    support = max(1, int(round(scale)))
     for dy in range(dst_h):
-        sy0 = int(dy * scale_y)
         for dx in range(dst_w):
-            sx0 = int(dx * scale_x)
-            r_acc = g_acc = b_acc = a_acc = 0
-            count = 0
-            for oy in range(box_h):
+            sx0 = int(dx * scale)
+            sy0 = int(dy * scale)
+            r_acc = g_acc = b_acc = a_acc = count = 0
+            for oy in range(support):
                 sy = min(src_h - 1, sy0 + oy)
-                row_off = sy * src_w * 4
-                for ox in range(box_w):
+                for ox in range(support):
                     sx = min(src_w - 1, sx0 + ox)
-                    idx = row_off + sx * 4
-                    r_acc += src_buf[idx]
-                    g_acc += src_buf[idx + 1]
-                    b_acc += src_buf[idx + 2]
-                    a_acc += src_buf[idx + 3]
+                    s_idx = (sy * src_w + sx) * 4
+                    r_acc += src_buf[s_idx]
+                    g_acc += src_buf[s_idx + 1]
+                    b_acc += src_buf[s_idx + 2]
+                    a_acc += src_buf[s_idx + 3]
                     count += 1
             d_idx = (dy * dst_w + dx) * 4
             dst[d_idx] = r_acc // count
@@ -474,11 +752,17 @@ def write_png(filepath, width, height, rgba_bytes):
 
     with open(filepath, "wb") as f:
         f.write(png)
+    try:
+        cache_path = os.path.join("/tmp/akash-release-cache", filepath)
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        shutil.copyfile(filepath, cache_path)
+    except Exception:
+        pass
     print(f"Generated {filepath} ({width}x{height})")
 
 
 def main():
-    print("Rendering 512x512 master icon for ESWA GEOLOGICAL MAPPER (Official Eagle Logo)...")
+    print("Rendering 512x512 master icon for ESWA GEOLOGICAL MAPPER (matching uploaded APK/EXE icon)...")
     mw, mh, mbuf = render_master_512()
 
     write_png("public/pwa-512x512.png", 512, 512, mbuf)
