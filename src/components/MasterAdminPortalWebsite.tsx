@@ -46,12 +46,14 @@ import {
 
 interface MasterAdminPortalWebsiteProps {
   onSwitchToSoftware: () => void;
+  onOpenPublicWebsite?: () => void;
   onPreviewUserSoftware?: () => void;
   onMasterPcStatusChanged?: () => void;
 }
 
 export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> = ({
   onSwitchToSoftware,
+  onOpenPublicWebsite,
 }) => {
   // 1. One-Time Master Login Gate State
   const [isVerified, setIsVerified] = useState<boolean>(() => isMasterLocallyVerified());
@@ -601,6 +603,17 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Back to App</span>
           </button>
+
+          {onOpenPublicWebsite && (
+            <button
+              type="button"
+              onClick={onOpenPublicWebsite}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-semibold border border-amber-500/40 transition-colors cursor-pointer"
+              title="Open Public Software Download & Release Website"
+            >
+              <span>Download Website</span>
+            </button>
+          )}
 
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-black text-xs border border-amber-500/30">

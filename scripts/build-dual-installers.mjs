@@ -180,7 +180,6 @@ try {
   for (const apkName of [
     'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
     'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
-    'ESWA-GEOLOGICAL-MAPPER-release.apk',
   ]) {
     const targetApk = path.join(releaseDir, apkName);
     if (!fs.existsSync(targetApk)) {
@@ -195,27 +194,6 @@ try {
           }
         }
       }
-    }
-  }
-
-  // Create bidirectional compatibility aliases so both ESWA-GEOLOGICAL-MAPPER and AKASH-TUNNEL-MAPPER / ESWA-TUNNEL-MAPPER exist
-  const aliasPairs = [
-    ['ESWA-GEOLOGICAL-MAPPER-User-Setup.exe', 'AKASH-TUNNEL-MAPPER-User-Setup.exe'],
-    ['ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe', 'AKASH-TUNNEL-MAPPER-Master-Setup.exe'],
-    ['ESWA-GEOLOGICAL-MAPPER-User-Android.apk', 'ESWA-TUNNEL-MAPPER-User-Android.apk'],
-    ['ESWA-GEOLOGICAL-MAPPER-Master-Android.apk', 'ESWA-TUNNEL-MAPPER-Master-Android.apk'],
-  ];
-  for (const [primary, legacy] of aliasPairs) {
-    const primaryPath = path.join(releaseDir, primary);
-    const legacyPath = path.join(releaseDir, legacy);
-    if (fs.existsSync(primaryPath) && !fs.existsSync(legacyPath)) {
-      try {
-        fs.copyFileSync(primaryPath, legacyPath);
-      } catch {}
-    } else if (fs.existsSync(legacyPath) && !fs.existsSync(primaryPath)) {
-      try {
-        fs.copyFileSync(legacyPath, primaryPath);
-      } catch {}
     }
   }
 

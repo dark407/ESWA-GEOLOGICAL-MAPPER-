@@ -77,6 +77,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 13. Standalone Download Website Releases
+    match /website_releases/{releaseId} {
+      allow read, write: if true;
+    }
+
     // Fallback: Full permission across any documents to prevent permission errors
     match /{document=**} {
       allow read, write: if true;

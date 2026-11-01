@@ -777,7 +777,7 @@ const masterSelfContainedHtml = `<!doctype html>
 fs.writeFileSync(path.join(stagedWwwDir, 'index.html'), masterSelfContainedHtml, 'utf8');
 try {
   execSync(
-    `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outMasterApkPath}" "com.eswa.geologicalmapper.master" "ESWA Master Admin"`,
+    `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outMasterApkPath}" "com.eswa.geologicalmapper.master" "ESWA Geological Mapper (Master)"`,
     {
       cwd: rootDir,
       stdio: 'inherit',
@@ -785,29 +785,6 @@ try {
   );
 } catch (masterApkErr) {
   console.warn('[Android Build] Notice compiling Master APK:', masterApkErr?.message || masterApkErr);
-}
-
-// Also copy the standalone signed APK to release/ESWA-GEOLOGICAL-MAPPER-release.apk and legacy names
-const releaseNamedApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-release.apk');
-const legacyUserApkPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-User-Android.apk');
-const legacyMasterApkPath = path.join(releaseDir, 'ESWA-TUNNEL-MAPPER-Master-Android.apk');
-
-if (fs.existsSync(outApkPath)) {
-  try {
-    fs.copyFileSync(outApkPath, releaseNamedApkPath);
-    fs.copyFileSync(outApkPath, legacyUserApkPath);
-    console.log(`Synced User standalone APK: ${outApkPath} -> ${releaseNamedApkPath} & ${legacyUserApkPath}`);
-  } catch {
-    // Ignore copy error
-  }
-}
-if (fs.existsSync(outMasterApkPath)) {
-  try {
-    fs.copyFileSync(outMasterApkPath, legacyMasterApkPath);
-    console.log(`Synced Master standalone APK: ${outMasterApkPath} -> ${legacyMasterApkPath}`);
-  } catch {
-    // Ignore copy error
-  }
 }
 
 // Clean up temporary android-user-apk directory so workspace remains clean

@@ -422,6 +422,21 @@
         "status": { "type": "string", "enum": ["new", "reviewed", "resolved"] }
       },
       "required": ["id", "userName", "message", "createdAt", "status"]
+    },
+    "WebsiteRelease": {
+      "title": "WebsiteRelease",
+      "description": "Public software & app release published by the Master Owner on the standalone /website portal.",
+      "type": "object",
+      "properties": {
+        "releaseId": { "type": "string", "maxLength": 128 },
+        "version": { "type": "string", "maxLength": 40 },
+        "title": { "type": "string", "maxLength": 200 },
+        "summary": { "type": "string", "maxLength": 2000 },
+        "publishedAtIso": { "type": "string", "maxLength": 64 },
+        "publishedBy": { "type": "string", "maxLength": 160 },
+        "isCurrent": { "type": "boolean" }
+      },
+      "required": ["releaseId", "version", "title", "publishedAtIso", "isCurrent"]
     }
   },
   "firestore": {
@@ -472,6 +487,10 @@
     "/eswa_user_feedback/{feedbackId}": {
       "schema": { "$ref": "#/entities/UserFeedback" },
       "description": "User feedback items and field reports."
+    },
+    "/website_releases/{releaseId}": {
+      "schema": { "$ref": "#/entities/WebsiteRelease" },
+      "description": "Published Windows .EXE and Android .APK releases on the standalone download website."
     }
   }
 }

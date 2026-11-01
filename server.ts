@@ -2038,19 +2038,34 @@ ${safeJsContent}
           if (releaseData?.id && releaseData.upload_url) {
             const cleanUploadBase = releaseData.upload_url.replace(/\{\?.*$/, '');
             const apkBytes = fs.readFileSync(localApkPath);
-            for (const apkAssetName of [
+            // Remove any legacy duplicate asset names from the GitHub Release so only the 4 official files remain
+            const legacyDuplicateNames = new Set([
               'ESWA-GEOLOGICAL-MAPPER-release.apk',
-              'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
-              'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
               'ESWA-TUNNEL-MAPPER-release.apk',
               'ESWA-TUNNEL-MAPPER-User-Android.apk',
               'ESWA-TUNNEL-MAPPER-Master-Android.apk',
+              'AKASH-TUNNEL-MAPPER-User-Setup.exe',
+              'AKASH-TUNNEL-MAPPER-Master-Setup.exe',
+              'user-ota-bundle.json',
+              'latest-release.json',
+            ]);
+            for (const asset of releaseData.assets || []) {
+              if (legacyDuplicateNames.has(asset.name) && asset.id) {
+                await fetch(
+                  `https://api.github.com/repos/${cleanRepo}/releases/assets/${asset.id}`,
+                  { method: 'DELETE', headers: ghHeaders }
+                ).catch(() => {});
+              }
+            }
+
+            for (const apkAssetName of [
+              'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
+              'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
             ]) {
               const specificCandidateMaster = path.join(runtimeReleaseDir, 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk');
-              const legacyCandidateMaster = path.join(runtimeReleaseDir, 'ESWA-TUNNEL-MAPPER-Master-Android.apk');
               const specificApkPath =
-                apkAssetName.includes('Master')
-                  ? (fs.existsSync(specificCandidateMaster) ? specificCandidateMaster : legacyCandidateMaster)
+                apkAssetName.includes('Master') && fs.existsSync(specificCandidateMaster)
+                  ? specificCandidateMaster
                   : localApkPath;
               const specificBytes = fs.existsSync(specificApkPath)
                 ? fs.readFileSync(specificApkPath)
@@ -2949,6 +2964,150 @@ ${safeJsContent}
         ok: false,
         error: err instanceof Error ? err.message : 'Failed to prepare OTA bundle',
       });
+    }
+  });
+
+  /**
+   * Standalone Download Website Release & Binary Distribution API
+   * - GET /api/website/releases
+   * - POST /api/website/releases
+   * - DELETE /api/website/releases/:releaseId
+   * - POST /api/website/upload-binary
+   * - GET /api/website/download-binary/:fileName
+   */
+  const websiteReleasesStorePath = path.join(runtimeCacheDir, 'website-releases.json');
+  const websiteBinariesDir = path.join(runtimeCacheDir, 'website-binaries');
+
+  const readWebsiteReleasesStore = (): Record<string, unknown>[] => {
+    try {
+      if (fs.existsSync(websiteReleasesStorePath)) {
+        const parsed = JSON.parse(fs.readFileSync(websiteReleasesStorePath, 'utf8'));
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // Ignore read errors
+    }
+    return [];
+  };
+
+  const writeWebsiteReleasesStore = (releases: Record<string, unknown>[]) => {
+    try {
+      fs.mkdirSync(path.dirname(websiteReleasesStorePath), { recursive: true });
+      fs.writeFileSync(websiteReleasesStorePath, JSON.stringify(releases, null, 2), 'utf8');
+    } catch {
+      // Ignore write errors
+    }
+  };
+
+  app.get('/api/website/releases', (_req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.json({ ok: true, releases: readWebsiteReleasesStore() });
+  });
+
+  app.post('/api/website/releases', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    try {
+      const { release } = req.body || {};
+      if (!release || typeof release !== 'object' || !release.releaseId) {
+        res.status(400).json({ ok: false, error: 'Invalid release payload' });
+        return;
+      }
+      const existing = readWebsiteReleasesStore();
+      const updated = [
+        { ...release, isCurrent: true },
+        ...existing
+          .filter((r) => String(r.releaseId) !== String(release.releaseId))
+          .map((r) => ({ ...r, isCurrent: false })),
+      ];
+      writeWebsiteReleasesStore(updated);
+      res.json({ ok: true, releases: updated });
+    } catch (err: unknown) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to save website release',
+      });
+    }
+  });
+
+  app.delete('/api/website/releases/:releaseId', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    try {
+      const targetId = String(req.params.releaseId || '').trim();
+      const existing = readWebsiteReleasesStore().filter(
+        (r) => String(r.releaseId) !== targetId
+      );
+      if (existing.length > 0 && !existing.some((r) => Boolean(r.isCurrent))) {
+        existing[0].isCurrent = true;
+      }
+      writeWebsiteReleasesStore(existing);
+      res.json({ ok: true, releases: existing });
+    } catch (err: unknown) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to delete website release',
+      });
+    }
+  });
+
+  app.post('/api/website/upload-binary', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    try {
+      const { platform, version, fileName, base64Data } = req.body || {};
+      if (!fileName || !base64Data) {
+        res.status(400).json({ ok: false, error: 'Missing fileName or base64Data' });
+        return;
+      }
+      fs.mkdirSync(websiteBinariesDir, { recursive: true });
+      const safeName = String(fileName)
+        .replace(/[^a-zA-Z0-9._-]/g, '_')
+        .slice(0, 140);
+      const versionTag = String(version || 'latest').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const platformTag = String(platform || 'pkg').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storedFileName = `${platformTag}_${versionTag}_${safeName}`;
+      const targetPath = path.join(websiteBinariesDir, storedFileName);
+      const buffer = Buffer.from(String(base64Data), 'base64');
+      fs.writeFileSync(targetPath, buffer);
+      res.json({
+        ok: true,
+        downloadPath: `/api/website/download-binary/${encodeURIComponent(storedFileName)}?name=${encodeURIComponent(safeName)}`,
+      });
+    } catch (err: unknown) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to store uploaded binary',
+      });
+    }
+  });
+
+  app.get('/api/website/download-binary/:storedName', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    try {
+      const storedName = path.basename(String(req.params.storedName || ''));
+      const downloadName = path.basename(
+        String(req.query.name || storedName || 'ESWA-Installer.exe')
+      );
+      const filePath = path.join(websiteBinariesDir, storedName);
+      if (!fs.existsSync(filePath)) {
+        res.status(404).send('Requested release binary not found on server.');
+        return;
+      }
+      const isApk = downloadName.toLowerCase().endsWith('.apk');
+      res.setHeader(
+        'Content-Type',
+        isApk
+          ? 'application/vnd.android.package-archive'
+          : 'application/vnd.microsoft.portable-executable'
+      );
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${downloadName.replace(/"/g, '')}"`
+      );
+      res.sendFile(filePath);
+    } catch (err: unknown) {
+      res.status(500).send(
+        err instanceof Error ? err.message : 'Error downloading binary'
+      );
     }
   });
 

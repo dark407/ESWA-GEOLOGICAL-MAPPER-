@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import App from './App';
 import { MasterAdminPortalWebsite } from './components/MasterAdminPortalWebsite';
+import { ProductDownloadWebsite } from './components/ProductDownloadWebsite';
 import {
   SoftwareAccessGate,
   SoftwareLiveUpdateNotifier,
@@ -27,7 +28,34 @@ import {
 } from './engine/windowsDesktopEngine';
 import { db } from './firebase';
 
+function isStandalonePublicWebsiteRoute(): boolean {
+  if (import.meta.env.VITE_STANDALONE_WEBSITE === 'true') {
+    return true;
+  }
+  if (typeof window !== 'undefined') {
+    const path = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+    const siteParam = (params.get('site') || '').toLowerCase();
+    if (
+      path === '/website' ||
+      path.startsWith('/website/') ||
+      hash === '#website' ||
+      hash === '#/website' ||
+      siteParam === 'website' ||
+      siteParam === 'download'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export const RootApplicationRouter: React.FC = () => {
+  const [isStrictStandaloneRoute] = useState<boolean>(() =>
+    isStandalonePublicWebsiteRoute()
+  );
+
   // Detect whether this instance is the Normal User App:
   // - FALSE by default (Master Software for Master Owner on both PC and Android)
   // - TRUE only when compiled inside User APK (__ESWA_EDITION__='user') or opened explicitly with ?edition=user or ?download=user-apk
@@ -110,30 +138,42 @@ export const RootApplicationRouter: React.FC = () => {
   const [isOwnerPreviewingUserEdition, setIsOwnerPreviewingUserEdition] =
     useState<boolean>(false);
 
-  // Check if URL or saved Master state points to the Software Access Control (Master Admin Portal)
-  const [viewMode, setViewMode] = useState<'software' | 'admin_website'>(() => {
+  // Check if URL or saved Master state points to the Standalone Download Website, Master Admin Portal, or Geological Mapping Software
+  const [viewMode, setViewMode] = useState<
+    'public_website' | 'software' | 'admin_website'
+  >(() => {
     if (typeof window !== 'undefined') {
+      if (isStandalonePublicWebsiteRoute()) {
+        return 'public_website';
+      }
       const path = window.location.pathname.toLowerCase();
       const search = window.location.search.toLowerCase();
       if (path.startsWith('/admin') || search.includes('portal=admin')) {
         return 'admin_website';
       }
+      if (search.includes('view=software') || search.includes('edition=user')) {
+        return 'software';
+      }
       try {
-        const savedView = localStorage.getItem('eswa_master_active_view_mode_v1');
-        if (savedView === 'admin_website' || savedView === 'software') {
+        const savedView = localStorage.getItem('eswa_master_active_view_mode_v2');
+        if (
+          savedView === 'public_website' ||
+          savedView === 'admin_website' ||
+          savedView === 'software'
+        ) {
           return savedView;
         }
       } catch {
         // Ignore
       }
     }
-    return 'software';
+    return 'public_website';
   });
 
   useEffect(() => {
     if (!isUserEdition) {
       try {
-        localStorage.setItem('eswa_master_active_view_mode_v1', viewMode);
+        localStorage.setItem('eswa_master_active_view_mode_v2', viewMode);
       } catch {
         // Ignore
       }
@@ -191,28 +231,15 @@ export const RootApplicationRouter: React.FC = () => {
     };
   }, [isUserEdition, activeSession?.userId]);
 
+  const handleOpenPublicWebsite = () => {
+    setViewMode('public_website');
+  };
+
   const handleOpenAdminWebsite = () => {
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('portal', 'admin');
-      window.history.pushState({}, '', url.toString());
-    } catch {
-      // Ignore
-    }
     setViewMode('admin_website');
   };
 
   const handleSwitchToSoftware = () => {
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('portal');
-      if (url.pathname.toLowerCase().startsWith('/admin')) {
-        url.pathname = '/';
-      }
-      window.history.pushState({}, '', url.toString());
-    } catch {
-      // Ignore
-    }
     setViewMode('software');
   };
 
@@ -222,23 +249,32 @@ export const RootApplicationRouter: React.FC = () => {
     setViewMode('software');
   };
 
-  const handleExitPreviewUserEdition = () => {
-    setIsOwnerPreviewingUserEdition(false);
-    setIsUserEdition(false);
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('edition');
-      window.history.pushState({}, '', url.toString());
-    } catch {
-      // Ignore
-    }
-  };
+  // 0. Standalone Public Product Showcase & Software Distribution Website (/website, Netlify deployment, or active Website View)
+  // Public visitors have zero navigation or UI connection back to the mapping software.
+  // Only the authenticated Master Owner (inside the password/OTP-protected Master Release Console) can switch views in AI Studio preview.
+  if (isStrictStandaloneRoute || (viewMode === 'public_website' && !isUserEdition)) {
+    return (
+      <ProductDownloadWebsite
+        onMasterSwitchToSoftware={
+          import.meta.env.VITE_STANDALONE_WEBSITE === 'true'
+            ? undefined
+            : handleSwitchToSoftware
+        }
+        onMasterSwitchToAdminPortal={
+          import.meta.env.VITE_STANDALONE_WEBSITE === 'true'
+            ? undefined
+            : handleOpenAdminWebsite
+        }
+      />
+    );
+  }
 
   // 1. Standalone Master Admin Licensing & Update Control Website (Only for Master Owner)
   if (viewMode === 'admin_website' && (!isUserEdition || isOwnerPreviewingUserEdition)) {
     return (
       <MasterAdminPortalWebsite
         onSwitchToSoftware={handleSwitchToSoftware}
+        onOpenPublicWebsite={handleOpenPublicWebsite}
         onPreviewUserSoftware={handleStartPreviewUserEdition}
         onMasterPcStatusChanged={() => {}}
       />
