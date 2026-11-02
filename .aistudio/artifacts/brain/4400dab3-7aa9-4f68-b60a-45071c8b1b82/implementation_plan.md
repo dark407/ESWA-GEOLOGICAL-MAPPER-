@@ -1,99 +1,127 @@
-# NMT — Norwegian Method of Tunnelling & Interactive NGI Q-System Support Chart
+# Field Mapping Precision & Native Packaging Upgrade Plan
 
-This update introduces a dedicated **NMT — Norwegian Method of Tunnelling (Advanced NGI Q-System)** mode at the top of the Classifications workspace and embeds an interactive, high-precision **NGI Q-System Rock Support Chart (Grimstad & Barton, 1993 / NGI, 2014)** into the Support System workspace that plots live Roof $(Q, D_e)$ and Wall $(Q_{\text{wall}}, D_{e,\text{wall}})$ coordinates and prescribes NMT support categories (Categories 1–9, Bolt Spacing, Sfr Thickness & Energy Absorption E500/E700/E1000, and RRS I–III Reinforced Ribs of Shotcrete).
+This plan addresses the five field-testing discoveries across the 2D/3D geological mapping engine, interactive 3D inspection workspace, cross-panel boundary tracing workflow, and Windows/Android native installers.
 
-### User Review & Critical Decisions
+---
+
+## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Please review the design and engineering decisions below and click **Proceed** to build, or share any adjustments.
-
-- **Exclusive NMT Mode Toggle in Classifications Window**: Clicking **NMT — Norwegian Method of Tunnelling** at the top of the Q/RMR/GSI window switches the workspace into an exclusive, focused **Advanced NGI Q-Index** view (hiding RMR89 and GSI tabs while active so the NGI Q-System serves as the single authoritative classification "bible"). Switching back to Standard Multi-Classification mode restores Q, RMR89, and GSI tabs with zero data loss.
-- **Full NGI Table 1 & Table 2 Parameter Fidelity**: Implements all official Grimstad & Barton (1993) / NGI (2014) parameter sub-tables, including RQD (nominal 10 rule for $\text{RQD} < 10$), $J_n$ with Tunnel Intersection ($3.0 \times J_n$) and Portal ($2.0 \times J_n$) multipliers, $J_r$ categories (a/b/c + $+1.0$ spacing adjustment), $J_a$ categories (a: wall contact, b: thin filling $<5\text{ mm}$, c: thick filling no wall contact), $J_w$, SRF categories (a: weakness zones, b: competent rock stress $\sigma_c/\sigma_1$ & $\sigma_\theta/\sigma_c$, c: squeezing rock, d: swelling rock), and Table 2 Excavation Support Ratio ($\text{ESR}$).
-- **Live NGI Rock Support Chart in Support System Window**: Renders the logarithmic NGI Q-Chart ($Q$ from $0.001$ to $1000$ on X-axis, $D_e = \text{Span or Height} / \text{ESR}$ from $1$ to $100$ on Y-axis, plus the dual $Q_{\text{wall}}$ axis), plotting both the **Roof/Crown Point** $(Q, D_e)$ and **Wall Point** $(Q_{\text{wall}}, D_{e,\text{wall}})$ and providing one-click auto-application of the chart-derived NMT Support Category (1–9), bolt spacing, fibre-reinforced shotcrete ($S_{fr}$), and RRS ribs to the tunnel support drawing.
-
----
-
-### 1. Overview & Core Concept
-
-- **What It Does**:
-  1. **Top-Level NMT Mode Switcher**: Adds a prominent **NMT — Norwegian Method of Tunnelling** button in the top bar of the Classifications stage. When activated, the screen dedicates 100% of its viewport to the **Advanced NGI Q-Index Workbench**.
-  2. **Complete NGI Q-System Parameter Matrix (Table 1 & Table 2)**:
-     - **Quotient 1 — Rock Mass Geometry ($\text{RQD} / J_n$)**: Interactive RQD selector (0–100% in 5% intervals, enforcing nominal $\text{RQD}=10$ when $\le 10\%$) and $J_n$ selector (0.5 to 20) with explicit checkboxes for **Tunnel Intersection ($3.0 \times J_n$)** and **Portal ($2.0 \times J_n$)**.
-     - **Quotient 2 — Inter-Block Shear Strength ($J_r / J_a$)**: Full categorized $J_r$ selector (Category *a*: Rock-wall contact; Category *b*: Rock-wall contact before 10 cm shear; Category *c*: No rock-wall contact when sheared; plus $+1.0$ if mean spacing $>3\text{ m}$) and categorized $J_a$ selector (Category *a*: Clean/coated wall contact $0.75\text{–}4.0$; Category *b*: Thin filling $<5\text{ mm}$ $4.0\text{–}12.0$; Category *c*: Thick filling no wall contact $5.0\text{–}20.0$).
-     - **Quotient 3 — Active Stress ($J_w / \text{SRF}$)**: Full $J_w$ table ($1.0$ down to $0.05$) with inflow/pressure ratings ($p_w$ in $\text{kg/cm}^2$) and categorized SRF selector (Category *a*: Weakness zones; Category *b*: Competent rock stress $\sigma_c/\sigma_1$ and $\sigma_\theta/\sigma_c$; Category *c*: Squeezing rock; Category *d*: Swelling rock).
-     - **Equivalent Dimension ($D_e$) & Wall Adjustment ($Q_{\text{wall}}$)**: Interactive Table 2 **ESR** selector ($0.8$ to $3.5$) paired with current tunnel span $W$ and wall height $H$ to compute $D_{e,\text{roof}} = W / \text{ESR}$, $D_{e,\text{wall}} = H / \text{ESR}$, and $Q_{\text{wall}}$ ($5Q$ for $Q > 10$; $2.5Q$ for $0.1 \le Q \le 10$; $1.0Q$ for $Q < 0.1$).
-  3. **Interactive NGI Q-System Support Chart in Support System Stage**:
-     - Displays the complete **Figure 1 NGI Rock Support Chart** with Rock Mass Classes **A through G**, Support Category regions **1 through 9**, bolt spacing contours inside and outside shotcrete areas ($1.0\text{ m}$ to $4.0\text{ m}$), fibrecrete thickness bands ($5\text{ cm}$, $6\text{ cm}$, $9\text{ cm}$, $12\text{ cm}$, $15\text{ cm}$, $25\text{ cm}$), energy absorption classes ($E=500\text{ J}$, $E=700\text{ J}$, $E=1000\text{ J}$), and **RRS (Reinforced Ribs of Shotcrete)** curves ($\text{RRS I}$, $\text{RRS II}$, $\text{RRS III}$ with $\text{Si30/6}$, $\text{Si35/6}$, $\text{D40/6}$, $\text{D45/6}$, $\text{D55/6}$ rebar configurations).
-     - Plots live crosshairs for **Crown/Roof $(Q, D_e)$** and **Wall $(Q_{\text{wall}}, D_{e,\text{wall}})$** and includes an **"Apply NGI Chart Support to Tunnel"** button that populates the exact bolt spacing, bolt length ($L = 2 + 0.15 B / \text{ESR}$), Sfr shotcrete thickness, and RRS / rib parameters directly into the 2D/3D Support System.
+> **Confirmed Product Decisions from Field Testing**
+> 1. **Strict User-Traced Visibility (No Automatic Cross-Panel Joint Projections)**: Tracing a joint or dip surface on the Face will **never** automatically generate synthetic projected traces on the Left Wall, Crown, Right Wall, or Strip Log. Only user-logged lithology, user-traced joints, geological features, and dip surfaces appear by default, with an optional **3D Plane Preview** toggle for temporary structural visualization.
+> 2. **Cross-Portion Boundary Continuation with Glowing Snap Indicator**: Stopping a trace near an outline boundary edge displays a contextual bottom bar prompt (**Extend to [Related Portion] →**). Tapping it switches directly to that adjacent portion canvas and places a high-visibility glowing start-point snap marker at the exact corresponding metric coordinate along the shared boundary.
+> 3. **3D Inspector for Both Joints & Dip Surfaces with Dual Orientation Editing**: Enabling the **Inspection Mode** toggle on the canvas allows tapping any Joint Trace or Dip Surface to open the 3D Inspector Module, supporting both interactive 3D plane/disk gizmo dragging and direct Dip / Dip Direction sliders with real-time stereonet and 2D canvas synchronization.
 
 ---
 
-### 2. User Experience & Visual Design
+## 1. Overview & Core Concept
 
-- **Aesthetic Direction**: High-precision Norwegian Geotechnical Institute (NGI) engineering instrumentation aesthetic with crisp logarithmic chart axes, high-contrast classification bands (Classes A–G), and tabular monospace numerals (`IBM Plex Mono`).
-- **Color Palette & Hierarchy**:
-  - **Primary Workspace**: Deep slate (`#020617` / `#0f172a`) with hairline structural borders (`#1e293b`).
-  - **NGI Q-System Chart Canvas**: High-contrast engineering paper theme (`#ffffff` / `#f8fafc`) with clear logarithmic gridlines, distinct support category zone fills, and bold crimson/blue plotting markers for Roof $(Q, D_e)$ and Wall $(Q_{\text{wall}}, D_{e,\text{wall}})$ coordinates.
-  - **NMT Mode Accent**: Calibrated Nordic Amber & Cyan badges highlighting the 3 quotients $(\text{RQD}/J_n)$, $(J_r/J_a)$, and $(J_w/\text{SRF})$, equivalent dimension $D_e$, and Support Category 1–9.
+### Root-Cause Diagnosis: Why Face Joints Appeared on Left Wall, Right Wall, Crown & Strip Log
+During our audit of the mapping and strip-log rendering pipeline, we identified the exact mechanism causing untraced joints to appear on the Crown and Walls:
+- **Infinite 3D Plane Extrapolation on Unfolded Panels**: Whenever a joint was traced on the **Face** with a valid Dip and Dip Direction, the 2D unfolded sketch renderer and the Strip Alignment engine automatically constructed an infinite 3D mathematical plane from the Face trace's centroid and calculated its intersection segments across the Left Wall, Crown, and Right Wall. Those synthetic intersections were injected into the active trace list and rendered as dashed purple curves across the walls and crown even when the geologist had not mapped anything on those portions.
+- **Unfiltered Strip Log Synchronization**: The continuous 3D Strip Log synchronization loop copied all round joints—including Face-only traces and auto-extrapolated plane intersections—directly into the longitudinal strip dataset.
 
----
-
-### 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Dedicated NMT Mode Switch vs. Replacing Standard Tabs**
-  - *Chosen Approach*: Add a prominent **NMT — Norwegian Method of Tunnelling** mode toggle at the top of the Classifications stage. When enabled, only the Advanced NGI Q-System workbench is displayed; when disabled, the standard Q / RMR89 / GSI multi-tab view remains available.
-  - *Why*: Matches the user's request ("in that window top add ntm- norweign method of tunneling if we click that only advanced ngi q index only shows") while preserving 100% backward compatibility with existing RMR89 and GSI workflows.
-- **Decision 2: Analytical Digitization of the NGI Support Chart (Figure 1)**
-  - *Chosen Approach*: Digitally model the logarithmic boundaries of NGI Support Categories 1–9, Sfr thickness contours (5 cm to 25 cm), bolt spacing curves (1.0 m to 4.0 m), bolt length formula $L = 2 + 0.15 B / \text{ESR}$, and RRS I/II/III curves directly in SVG + TypeScript math.
-  - *Why*: Enables exact real-time coordinate plotting of $(Q, D_e)$ and $(Q_{\text{wall}}, D_{e,\text{wall}})$ and deterministic computation of Crown and Wall support prescriptions for any tunnel span/height and ESR value.
+### Core Upgrade Scope
+1. **Pure User-Logged Strip Log & Panel Rendering**: Strip out automatic synthetic projections from the Left Wall, Crown, Right Wall, Strip Alignment view, and Continuous Strip Log so only genuine user-logged lithology, user-traced joints, structural features, and dip surfaces are recorded and displayed, while providing an explicit, opt-in **3D Plane Preview** toggle when theoretical plane intersection checks are desired.
+2. **One-Tap Canvas Inspection Toggle & 3D Dip Surface Inspector**: Add a dedicated **Inspect Mode** toggle button on the mapping toolbar so touching any joint or dip surface on the canvas immediately launches the 3D Inspector. Upgrade the 3D Inspector to load **Dip Surfaces** alongside Joints, complete with interactive 3D orientation gizmo rings, live Dip/Dip Direction sliders, stereonet pole/great-circle feedback, and direct write-back to the mapped feature.
+3. **Seamless Cross-Portion Trace Continuation**: Detect when any lithology boundary, joint trace, foliation/vein band, or geological feature ends at or near a shared boundary edge between portions (Face ↔ Crown, Face ↔ Left Wall, Face ↔ Right Wall, Crown ↔ Left Wall, Crown ↔ Right Wall) and offer a 1-tap bottom prompt to switch panels and snap seamlessly to the exact boundary transfer point.
+4. **Windows `.exe` Custom Icon Embedding**: Fix the build pipeline where executable resource editing was bypassed and multi-resolution ICO layers were missing, ensuring the custom ESWA Geological Mapper icon appears on the `.exe` installer, desktop shortcut, taskbar, and application title bar.
+5. **In-Place Updates Without Data Loss (Windows `.exe` & Android `.apk`)**: Configure consistent application identifiers, monotonic version codes, persistent V1+V2 APK signing keys, and NSIS in-place upgrade directives (`deleteAppDataOnUninstall: false`, `allowUpgrades: true`) alongside an in-app backup/restore safeguard so installing a newer `.exe` or `.apk` updates cleanly over the existing app without uninstalling or losing field data.
 
 ---
 
-### 4. Technical Architecture & Data Strategy
+## 2. User Experience & Visual Design
+
+### Aesthetic & Atmospheric Polarity
+- **Intentional Dark Mode for 3D Spatial Inspection (`#0A0E17` Obsidian Slate)**: The 3D Joint & Dip Surface Inspector uses a deep slate spatial viewport with high-contrast cyan (`#38BDF8`), amber (`#F59E0B`), and emerald (`#10B981`) vector gizmos so dip planes, normal vectors, and stereonet poles read clearly under underground or bright field conditions.
+- **High-Craft Light/Paper Technical Canvas for 2D Mapping (`#F8FAFC` Engineering Paper)**: The 2D Face, Crown, Wall, and Strip Log sheets maintain crisp dark ink linework (`#0F172A`), tabular numeric callouts (`JetBrains Mono`), and high-visibility boundary snap beacons.
+
+### Key Interactive Flows
+
+#### Flow A: Clean Panel Tracing & Optional 3D Plane Preview
+- **Default Field Behavior**: When the user traces joints, lithology contacts, or dip surfaces on the **Face**, the **Crown**, **Left Wall**, **Right Wall**, and **Strip Log** remain completely clean until the user explicitly traces features on those portions.
+- **Strip Log Fidelity**: Opening the **Strip Log** displays strictly the user-logged lithologies, user-traced joints, mapped geological features, and dip surfaces recorded on the strip panels.
+- **Opt-In 3D Plane Preview**: A secondary toolbar toggle (**3D Plane Preview: OFF / ON**) allows the geologist to momentarily preview theoretical plane intersections without polluting saved panel traces or strip log outputs.
+
+#### Flow B: 1-Tap Inspection Mode & 3D Dip Surface Editing
+- **Canvas Inspection Mode Toggle**: A prominent **Inspect 3D** toggle button sits in the primary canvas control bar.
+  - When **Inspect 3D** is active, the canvas cursor/touch mode switches to inspection selection, highlighting interactive hit targets around all mapped **Joint Traces** and **Dip Surfaces**.
+  - Touching or clicking any Joint Trace or Dip Surface on the canvas immediately opens the **3D Structural Inspector Modal** focused on that feature.
+- **3D Dip Surface & Joint Orientation Manipulation**:
+  - **Interactive 3D Disk & Normal Gizmo**: Inside the Three.js viewport, the selected Dip Surface or Joint Plane renders as a translucent geological disk clipped to the tunnel excavation volume, surrounded by an interactive azimuthal ring (Dip Direction `000°–360°`) and inclination arc handle (Dip `00°–90°`). Dragging the gizmo rotates the 3D dip plane in real time.
+  - **Precision Sliders & Stereonet Sync**: Linked Dip Direction and Dip Angle sliders and numeric steppers update simultaneously with the 3D gizmo, dynamically recalculating the lower-hemisphere stereonet great circle, pole position, kinematic daylighting status, and 2D dip symbol orientation on the canvas.
+
+#### Flow C: Cross-Portion Boundary Continuation (`Face ↔ Crown ↔ Walls`)
+- **Boundary Stop Detection**: While drawing a trace (Joint, Lithology Contact, Foliation/Vein, or Structural Feature) on any panel, if the stroke approaches or terminates within the boundary threshold of an adjacent portion outline:
+  - **Face Canvas**: Top Arch boundary → *Crown* (`At Face / Pull M` edge); Left boundary → *Left Wall* (`At Face / Pull M` edge); Right boundary → *Right Wall* (`At Face / Pull M` edge).
+  - **Crown Canvas**: Front edge → *Face* (corresponding arch coordinate); Left Springline → *Left Wall* (top springline at same Pull M); Right Springline → *Right Wall* (top springline at same Pull M).
+  - **Left / Right Wall Canvas**: Front Face edge → *Face* (left/right wall height `Z` above invert); Top Springline edge → *Crown* (left/right springline at same Pull M).
+- **Bottom Action Prompt**: A high-contrast bottom dock banner appears:
+  `Boundary Reached ([Current Panel] → [Target Panel] at [Metric Coord]) • [Extend to [Target Panel] →]`
+- **Seamless Switch & Glowing Snap Marker**: Tapping **Extend to [Target Panel] →** commits the current trace segment, switches the active canvas to the target portion, keeps the same active tool and geological attributes selected, and renders a pulsing **Cyan/Emerald Continuation Beacon** on the exact corresponding boundary point. The user's first tap near the beacon automatically snaps to that exact boundary coordinate so the trace continues across portions with zero gap or misalignment.
+
+#### Flow D: Windows `.exe` Icon & Seamless Windows/Android App Updates
+- **Authentic Windows Application Icon**: The `.exe` installer, desktop shortcut, taskbar button, and window header display the custom ESWA Geological Mapper crest across all DPI scales (`16×16` through `256×256`).
+- **Zero-Uninstall In-Place Update**:
+  - Running a newly downloaded Windows `.exe` installer automatically detects the existing installation, preserves all user project databases in `AppData`, and upgrades the binary in place without requiring uninstallation.
+  - Installing a newly downloaded Android `.apk` shares the exact canonical package ID (`com.eswa.tunnelmapper.user`), deterministic signing certificate, and auto-incremented `versionCode`, allowing Android's package installer to show **"Do you want to update this app? Your existing data will not be lost."**
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+| Decision Area | Chosen Approach | Rationale |
+| :--- | :--- | :--- |
+| **3D Plane Extrapolation** | Disabled by default; isolated behind an opt-in transient preview flag | Prevents false/unmapped joints from contaminating Crown, Wall, and Strip Log engineering deliverables while retaining mathematical plane analysis when requested. |
+| **Cross-Portion Transfer Mapping** | Exact physical-meter parameterization (`zM` elevation, `sM` arch arc-length, `pullM` chainage) | Ensures that custom and asymmetric tunnel geometries transfer boundary coordinates accurately even when panel aspect ratios differ. |
+| **3D Dip Surface Editing** | Unified 3D Inspector supporting both `FieldJointTrace` and `FieldDipPlaneSurface` with gizmo + slider bi-directional sync | Gives field geologists tactile visual verification of dip azimuth and inclination relative to the tunnel drive axis before committing changes. |
+| **Native Update Continuity** | Deterministic keystore + monotonic `versionCode` (Android) & persistent `appId` + `deleteAppDataOnUninstall: false` (Windows) | Eliminates `INSTALL_FAILED_UPDATE_INCOMPATIBLE` on Android and prevents accidental local database deletion during Windows upgrades. |
+
+---
+
+## 4. Technical Architecture & Data Strategy
+
+### System Architecture & Data Flow Diagram
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                     CLASSIFICATIONS STAGE (TOP BAR)                        │
-│  [ Standard Mode (Q | RMR89 | GSI) ]  <══>  [ ★ NMT: Advanced NGI Q-Index ]│
-└───────────────────────────────────────┬────────────────────────────────────┘
-                                        │
-                                        ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│               NMT — ADVANCED NGI Q-INDEX WORKBENCH (TABLE 1 & 2)           │
-│  ┌──────────────────────┐ ┌──────────────────────┐ ┌────────────────────┐  │
-│  │ Quotient 1: RQD / Jn │ │ Quotient 2: Jr / Ja  │ │ Quotient 3: Jw/SRF │  │
-│  │ • RQD (min 10 rule)  │ │ • Jr Cat a, b, c     │ │ • Jw (1.0 to 0.05) │  │
-│  │ • Jn (0.5 to 20)     │ │ • Ja Cat a, b, c     │ │ • SRF Cat a,b,c,d  │  │
-│  │ • Intersection ×3.0  │ │   (Wall contact,     │ │   (Weakness, Stress│  │
-│  │ • Portal ×2.0        │ │    Thin/Thick fill)  │ │    Squeezing/Swell)│  │
-│  └──────────┬───────────┘ └──────────┬───────────┘ └─────────┬──────────┘  │
-│             └────────────────────────┼───────────────────────┘             │
-│                                      ▼                                     │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │ NMT EQUIVALENT DIMENSION & WALL ADJUSTMENT (TABLE 2)                 │  │
-│  │ • ESR Selector (0.8 to 3.5)   • De_roof = Span / ESR                 │  │
-│  │ • Q_roof = (RQD/Jn)×(Jr/Ja)×(Jw/SRF)                                 │  │
-│  │ • Q_wall = 5Q (Q>10) | 2.5Q (0.1≤Q≤10) | Q (Q<0.1)                   │  │
-│  └───────────────────────────────────┬──────────────────────────────────┘  │
-└──────────────────────────────────────┼─────────────────────────────────────┘
-                                       │
-                                       ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│                        SUPPORT SYSTEM STAGE                                │
-│  ┌───────────────────────────────────┬──────────────────────────────────┐  │
-│  │ INTERACTIVE NGI Q-SUPPORT CHART   │ PRESCRIBED NMT SUPPORT SCHEDULE  │  │
-│  │ • Log-Log SVG (Q: 0.001–1000,     │ • Support Category (1 to 9)      │  │
-│  │   De: 1–100, Classes G to A)      │ • Roof vs Wall Support Breakdown │  │
-│  │ • Plotted Crown Point (Q, De)     │ • Bolt Spacing & Length (m)      │  │
-│  │ • Plotted Wall Point (Qwall, De)  │ • Sfr Thickness & Energy (E500+) │  │
-│  │ • RRS I / II / III & Sfr Contours │ • RRS Rebar Spec (Si30–D55/6)    │  │
-│  │                                   │ • [Apply NMT Support to Drawing] │  │
-│  └───────────────────────────────────┴──────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────────┘
+│                        2D UNWRAPPED MAPPING CANVAS                         │
+│  ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────┐  │
+│  │ User-Traced Features │  │ Boundary Stop Engine │  │ Inspect 3D Mode  │  │
+│  │ (Lithology, Joints,  │  │ Detects Edge Stop &  │  │ Toggle ON: Tap   │  │
+│  │  Features, Dip Surf) │  │ Maps Metric (Z,S,X)  │  │ Joint or DipSurf │  │
+│  └──────────┬───────────┘  └──────────┬───────────┘  └────────┬─────────┘  │
+└─────────────┼─────────────────────────┼───────────────────────┼────────────┘
+              │                         │                       │
+              ▼                         ▼                       ▼
+┌─────────────────────────┐  ┌──────────────────────┐  ┌─────────────────────┐
+│   STRIP LOG & REPORT    │  │ CROSS-PANEL SNAP     │  │ 3D INSPECTOR MODULE │
+│ • Filters out synthetic │  │ • Bottom Bar Prompt  │  │ • Three.js Tunnel + │
+│   face projections      │  │ • Switches Panel     │  │   Clipped Dip Disk  │
+│ • Displays only logged  │  │ • Renders Glowing    │  │ • Interactive 3D    │
+│   Crown/Wall/Face items │  │   Snap Target Marker │  │   Gizmo & Sliders   │
+└─────────────────────────┘  └──────────────────────┘  └─────────────────────┘
 ```
 
-- **State & Data Model**:
-  - Extend `qSystem` on the excavation round state with optional NMT fields (`nmtModeEnabled`, `jnMultiplierMode: 'normal' | 'portal_2x' | 'intersection_3x'`, `jrCategory: 'a' | 'b' | 'c'`, `jrSpacingPlusOne: boolean`, `jaCategory: 'a' | 'b' | 'c'`, `srfCategory: 'a' | 'b' | 'c' | 'd'`, `esrValue: number`, `esrCategoryLabel: string`) while keeping `rqd`, `jn`, `jr`, `ja`, `jw`, `srf`, and `qValue` 100% synchronized with existing calculations, FEM/DEM analysis, and final reports.
-- **Interactive Handlers**:
-  - Clicking any NGI Table 1 or Table 2 row updates `qSystem`, recalculates effective $J_n$, $J_r$, $Q_{\text{roof}}$, $Q_{\text{wall}}$, $D_{e,\text{roof}}$, $D_{e,\text{wall}}$, and NGI Support Category (1–9).
-  - In the Support System stage, the **NGI Q-System Rock Support Chart** plots the live $(Q, D_e)$ and $(Q_{\text{wall}}, D_{e,\text{wall}})$ markers and allows one-click syncing of the NMT support parameters directly into the 2D/3D Support System configuration.
+### Interactive State & Mathematical Mapping
+
+1. **Cross-Portion Coordinate Transfer State (`BoundaryContinuationTarget`)**
+   - Stores `{ sourcePanel, targetPanel, featureCategory, linkedFeatureId, targetPointNormalized: { x, y }, metricLabel, dip, dipDirection, lithologyCode }`.
+   - **Metric Parameterization**:
+     - **Face ↔ Left / Right Wall**: Maps vertical normalized coordinate on the Face wall edge to physical height above invert $Z_m \in [0, H_{wall}]$, then converts $Z_m$ to the normalized vertical coordinate along the `At Face (Pull M)` boundary of the Left or Right Wall panel.
+     - **Face ↔ Crown**: Maps the normalized arc position $u \in [0, 1]$ along the Face crown arch perimeter to the transverse arc coordinate across the `At Face (Pull M)` boundary of the Crown panel.
+     - **Crown ↔ Left / Right Wall**: Maps the longitudinal chainage offset $X_{pull} \in [0, L_{pull}]$ along the Left or Right Springline of the Crown directly to the matching longitudinal coordinate along the top Springline of the Left or Right Wall.
+
+2. **3D Inspector Target Polymorphism (`Inspected3DTarget`)**
+   - Supports `{ type: 'joint', id: string } | { type: 'dip_surface', id: string }`.
+   - When a Dip Surface is loaded into the 3D Inspector:
+     - Reconstructs its 3D anchor point on the mapped tunnel boundary (`face`, `crown`, `left_wall`, or `right_wall`) using the tunnel profile geometry.
+     - Renders an interactive 3D plane disk, normal arrow, dip vector arrow, and draggable azimuthal/inclination handles.
+     - Editing Dip or Dip Direction via the 3D gizmo or sliders immediately updates `round.dipPlaneSurfaces` (or `round.jointTraces`), refreshing both the 3D stereonet and the 2D canvas symbol.
+
+3. **Native Packaging & In-Place Update Pipeline**
+   - **Windows Executable Icon & NSIS Updater**:
+     - Generate a compliant multi-resolution `.ico` file (`16×16`, `32×32`, `48×48`, `64×64`, `128×128`, `256×256` PNG/BMP frames) and configure `BrowserWindow` + `app.setAppUserModelId` + `rcedit` embedding (`CSC_IDENTITY_AUTO_DISCOVERY=false` without disabling `signAndEditExecutable`).
+     - Configure NSIS installer flags (`deleteAppDataOnUninstall: false`, `oneClick: false`, `perMachine: false`, `allowElevation: true`) so running a new `.exe` upgrades the existing installation in-place while keeping `IndexedDB` / `localStorage` and file-system project backups untouched.
+   - **Android APK Seamless Upgrade**:
+     - Unify the Android `applicationId` (`com.eswa.tunnelmapper.user`) across the manifest generator and bytecode package, persist a deterministic RSA signing key across builds, and encode a monotonically increasing `versionCode` so Android OS treats every new APK download as an in-place upgrade over the installed app.

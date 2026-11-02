@@ -567,7 +567,7 @@ export function evaluateCustomProfileGeometry(
   const validExplicitSegments = (profile.segments || []).filter(
     (s) => ptMap.has(s.fromPointId) && ptMap.has(s.toPointId)
   );
-  if (validExplicitSegments.length > 0 && validExplicitSegments.length >= pts.length - 1) {
+  if (validExplicitSegments.length > 0) {
     activeSegments.push(...validExplicitSegments);
   } else {
     const segCount = profile.isClosed ? pts.length : pts.length - 1;
@@ -665,24 +665,38 @@ export function evaluateCustomProfileGeometry(
       midHandlePoint = evalBez.points[Math.floor(evalBez.points.length / 2)];
     }
 
-    // Append sampled vertices (avoid duplicating shared start vertex when chained)
-    for (let k = 0; k < sampled.length; k++) {
-      if (idx > 0 && k === 0) {
-        const prevPt = crossSectionPoints[crossSectionPoints.length - 1];
-        if (prevPt && Math.hypot(prevPt.x - sampled[0].x, prevPt.y - sampled[0].y) < 0.05) {
-          continue;
-        }
-      }
-      if (idx === activeSegments.length - 1 && profile.isClosed && k === sampled.length - 1) {
-        const firstPt = crossSectionPoints[0];
-        if (firstPt && Math.hypot(firstPt.x - sampled[k].x, firstPt.y - sampled[k].y) < 0.05) {
-          continue;
-        }
-      }
-      crossSectionPoints.push(sampled[k]);
+    if (typeof seg.lockedLengthMeters === 'number' && seg.lockedLengthMeters > 0) {
+      segArcLength = seg.lockedLengthMeters;
     }
 
-    const isIncludedInTopStrip = seg.includeInTopStrip !== false && zoneRole !== 'open';
+    const surfCfgSeg = profile.surfaceConfig;
+    const isPortionEnabledBySurface =
+      (zoneRole === 'leftWall' && surfCfgSeg?.hasLeftWall !== false) ||
+      (zoneRole === 'rightWall' && surfCfgSeg?.hasRightWall !== false) ||
+      (zoneRole === 'crown' && surfCfgSeg?.hasCrown !== false) ||
+      (zoneRole === 'invert' && surfCfgSeg?.hasInvert !== false);
+
+    const isIncludedInTopStrip =
+      seg.includeInTopStrip !== false && zoneRole !== 'open' && isPortionEnabledBySurface;
+
+    // Append sampled vertices ONLY for active, non-open, enabled portions
+    if (isIncludedInTopStrip) {
+      for (let k = 0; k < sampled.length; k++) {
+        if (crossSectionPoints.length > 0 && k === 0) {
+          const prevPt = crossSectionPoints[crossSectionPoints.length - 1];
+          if (prevPt && Math.hypot(prevPt.x - sampled[0].x, prevPt.y - sampled[0].y) < 0.05) {
+            continue;
+          }
+        }
+        if (idx === activeSegments.length - 1 && profile.isClosed && k === sampled.length - 1) {
+          const firstPt = crossSectionPoints[0];
+          if (firstPt && Math.hypot(firstPt.x - sampled[k].x, firstPt.y - sampled[k].y) < 0.05) {
+            continue;
+          }
+        }
+        crossSectionPoints.push(sampled[k]);
+      }
+    }
 
     if (zoneRole === 'leftWall' && isIncludedInTopStrip) {
       hasDrawnLeftWallSeg = true;
@@ -729,7 +743,9 @@ export function evaluateCustomProfileGeometry(
   const height = Number(Math.max(1.0, maxY - minY).toFixed(3));
 
   const surfCfg = profile.surfaceConfig;
-  const isClosed = profile.isClosed !== false;
+  const hasAnyOpenSegment = activeSegments.some(
+    (s) => s.zoneRole === 'open' || s.includeInTopStrip === false
+  );
   // If the surfaceConfig explicitly defines presence, respect that configuration.
   // Otherwise, determine presence from the actual drawn segments for that zone.
   // Closed non-symmetric shapes (such as triangles or asymmetric arches) must NOT force a non-existent wall to true!
@@ -754,7 +770,15 @@ export function evaluateCustomProfileGeometry(
   const hasInvert =
     surfCfg?.hasInvert !== undefined
       ? surfCfg.hasInvert
-      : hasDrawnInvertSeg || (isClosed && invertLength > 0.01);
+      : hasDrawnInvertSeg || (profile.isClosed !== false && !hasAnyOpenSegment && invertLength > 0.01);
+
+  const isClosed =
+    profile.isClosed !== false &&
+    !hasAnyOpenSegment &&
+    hasLeftWall &&
+    hasRightWall &&
+    hasCrown &&
+    hasInvert;
 
   // Preserve true drawn Left Wall, Right Wall, and Crown lengths independently!
   // Never force Left Wall and Right Wall to an equal average length.
@@ -931,6 +955,8 @@ export function buildAuthoritativeCustomTunnelGeometry(
     hasCrown: evaluated.hasCrown,
     hasLeftWall: evaluated.hasLeftWall,
     hasRightWall: evaluated.hasRightWall,
+    hasInvert: evaluated.hasInvert,
+    isClosed: evaluated.isClosed,
     excavationStage: isTopHeading ? 'TOP_HEADING' : 'FULL_FACE',
     benchHeightRemovedMeters: profile.surfaceConfig?.benchHeightRemovedMeters,
     leftBenchHeightMeters: profile.surfaceConfig?.leftBenchHeightMeters,

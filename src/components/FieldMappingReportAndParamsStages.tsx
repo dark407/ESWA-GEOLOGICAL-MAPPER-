@@ -92,7 +92,7 @@ import {
 import { FieldFemDemReportEmbedSection } from './FieldFemDemAnalysisStage';
 import { createDefaultFemDemConfig } from '../engine/femDemAnalysisEngine';
 
-type StripAlignItemKind = 'joint' | 'vein' | 'feature';
+type StripAlignItemKind = 'joint' | 'vein' | 'feature' | 'dip_surface';
 type JointPointActionMode = 'add_point' | 'bend' | 'move' | 'extend';
 
 type StripAlignPanelId = 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn';
@@ -211,6 +211,7 @@ export const FieldStripAlignmentStage: React.FC<{
       jointTraces: FieldExcavationRound['jointTraces'];
       lithologyStrokes: FieldExcavationRound['lithologyStrokes'];
       structuralFeatures: NonNullable<FieldExcavationRound['structuralFeatures']>;
+      dipPlaneSurfaces: FieldExcavationRound['dipPlaneSurfaces'];
     }[]
   >([]);
 
@@ -245,6 +246,11 @@ export const FieldStripAlignmentStage: React.FC<{
           ...f,
           points: f.points.map((p) => ({ ...p })),
         })),
+        dipPlaneSurfaces: (activeRound.dipPlaneSurfaces || []).map((d) => ({
+          ...d,
+          points: d.points.map((p) => ({ ...p })),
+          outlinePolygon: d.outlinePolygon ? d.outlinePolygon.map((p) => ({ ...p })) : undefined,
+        })),
       },
     ]);
   };
@@ -258,6 +264,7 @@ export const FieldStripAlignmentStage: React.FC<{
       jointTraces: last.jointTraces,
       lithologyStrokes: last.lithologyStrokes,
       structuralFeatures: last.structuralFeatures,
+      dipPlaneSurfaces: last.dipPlaneSurfaces,
     }));
   };
 
@@ -446,7 +453,7 @@ export const FieldStripAlignmentStage: React.FC<{
       });
     }
 
-    if (tr.panel === 'face' && tr.points.length >= 2) {
+    if (Boolean(activeRound.show3DPlanePreview) && tr.panel === 'face' && tr.points.length >= 2) {
       const spatialGeom: TunnelSpatialGeometry = {
         widthM: activeLocation.widthM,
         heightM: activeLocation.heightM,
@@ -552,6 +559,33 @@ export const FieldStripAlignmentStage: React.FC<{
       });
     }
   });
+  (activeRound.dipPlaneSurfaces || []).forEach((dp) => {
+    if (
+      (dp.panel === 'left_wall' ||
+        dp.panel === 'crown' ||
+        dp.panel === 'right_wall' ||
+        dp.panel === 'shaft_sn') &&
+      isStripPanelActive(dp.panel) &&
+      dp.points.length >= 1
+    ) {
+      const col = FIELD_JOINT_GROUP_COLORS[dp.setId || 'unassigned']?.stroke || '#059669';
+      const pts =
+        dp.points.length >= 2
+          ? dp.points
+          : dp.outlinePolygon && dp.outlinePolygon.length >= 2
+          ? dp.outlinePolygon
+          : [dp.points[0], { x: dp.points[0].x + 20, y: dp.points[0].y }];
+      alignableItems.push({
+        id: dp.id,
+        kind: 'dip_surface',
+        panel: dp.panel,
+        label: dp.label || (dp.setId === 'unassigned' ? 'DP' : dp.setId),
+        color: col,
+        points: pts,
+        rawItem: dp,
+      });
+    }
+  });
 
   // Update points of any item (Joint, Vein/Foliation, Lithology, Dip Plane, or Feature) and refresh its orientation
   const updateItemPointsInRound = (
@@ -627,6 +661,19 @@ export const FieldStripAlignmentStage: React.FC<{
             points: nextPoints,
             foliationDipDirection: ori.dipDirection,
             foliationDipAmount: ori.dipAmount,
+          };
+        }),
+      };
+    }
+    if (kind === 'dip_surface') {
+      return {
+        ...r,
+        dipPlaneSurfaces: (r.dipPlaneSurfaces || []).map((dp) => {
+          if (dp.id !== id) return dp;
+          return {
+            ...dp,
+            points: nextPoints,
+            outlinePolygon: undefined,
           };
         }),
       };
@@ -1854,13 +1901,35 @@ export const FieldStripAlignmentStage: React.FC<{
             </button>
           </div>
 
-          {/* Realtime 2-Way Portion Sync Indicator: Face Canvas ↔ Strip Log */}
+          {/* Optional 3D Plane Preview Toggle (OFF by default: only shows user-traced features) */}
+          <button
+            type="button"
+            onClick={() =>
+              onUpdateRound((r) => ({
+                ...r,
+                show3DPlanePreview: !r.show3DPlanePreview,
+              }))
+            }
+            className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+              activeRound.show3DPlanePreview
+                ? 'bg-violet-500/25 border-violet-400 text-violet-200 shadow'
+                : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-slate-200'
+            }`}
+            title="When OFF (default), only user-logged Lithology, Joint Traces, Features, and Dip Surfaces drawn on Walls/Crown are shown. Turn ON to preview 3D plane projections from Face joints."
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>3D Plane Preview: {activeRound.show3DPlanePreview ? 'ON' : 'OFF (User-Logged Only)'}</span>
+          </button>
+
+          {/* Realtime 2-Way Portion Sync Indicator: User-Logged Strip Elements */}
           <div
             className="hidden md:inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-950/70 border border-emerald-500/40 text-[10.5px] font-mono text-emerald-300 font-bold"
-            title="Real-time background sync active: Face Canvas joint traces and unwrapped strip portions synchronized with metric coordinates (x, y)"
+            title="Real-time Strip Log displaying user-logged Lithology, Joint Traces, Geological Features, and Dip Surfaces"
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Face ↔ Strip Sync Active ({activeRound.jointTraces.length} Traces)</span>
+            <span>
+              Strip Log ({alignableItems.length} User-Logged Elements)
+            </span>
           </div>
         </div>
 

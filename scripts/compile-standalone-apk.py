@@ -85,7 +85,7 @@ def build_binary_axml(
         "manifest",
         "package",
         pkg_name_str,
-        "1.6.0",
+        "2.5.0",
         "uses-sdk",
         "uses-permission",
         "android.permission.INTERNET",
@@ -216,13 +216,13 @@ def build_binary_axml(
         string_pool_chunk,
         res_map_chunk,
         start_ns(2),
-        # <manifest package="..." android:versionCode="6" android:versionName="1.6.0">
+        # <manifest package="..." android:versionCode="25" android:versionName="2.5.0">
         start_el(
             2,
             "manifest",
             [
-                attr_int(ns_uri, "versionCode", 6, 0x10),
-                attr_str(ns_uri, "versionName", "1.6.0"),
+                attr_int(ns_uri, "versionCode", 25, 0x10),
+                attr_str(ns_uri, "versionName", "2.5.0"),
                 attr_str(NO_IDX, "package", pkg_name_str),
             ],
         ),

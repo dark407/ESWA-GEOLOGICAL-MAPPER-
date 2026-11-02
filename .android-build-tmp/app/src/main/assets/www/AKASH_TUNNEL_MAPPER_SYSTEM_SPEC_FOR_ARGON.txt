@@ -1,0 +1,385 @@
+================================================================================
+AKASH TUNNEL MAPPER (ESWA TUNNEL SUITE)
+COMPREHENSIVE A-TO-Z ARCHITECTURE, SYSTEM DESIGN & ENGINEERING SPECIFICATION
+FOR GOOGLE ARGON LLM MEDIATOR
+================================================================================
+
+PURPOSE OF THIS SPECIFICATION:
+This document is the authoritative, comprehensive architectural and operational
+reference for "AKASH TUNNEL MAPPER" (also branded as "ESWA TUNNEL MAPPER" / "ESWACAD").
+Provide this text file to Google Argon so it has full, uncompromised context across
+every module, mathematical formulation, data structure, API endpoint, and UI workflow
+when drafting update prompts for this codebase.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. EXECUTIVE SUMMARY & MISSION
+2. RUNTIME ENVIRONMENT & TECH STACK
+3. COORDINATE SYSTEMS & GEOMECHANICAL MATHEMATICS
+4. MASTER FILE TREE & CODEBASE DIRECTORY MAP
+5. CORE ENGINES DEEP DIVE (src/engine/*)
+6. SERVER BACKEND & API MICROSERVICES (server.ts)
+7. USER INTERFACE WORKSPACES & MODALS (src/components/*)
+8. SECURITY, RBAC & 1-PC HARDWARE LOCK
+9. EXPORT & INTEROPERABILITY PIPELINE (DXF, PDF, DOCX, P2P)
+10. PROMPT FORMULATION GUIDELINES FOR GOOGLE ARGON
+
+================================================================================
+1. EXECUTIVE SUMMARY & MISSION
+================================================================================
+AKASH TUNNEL MAPPER is an industrial geotechnical and underground tunnel mapping
+software suite developed for mining, hydro-tunnel, metro, and civil construction
+projects. It runs across Web, Windows Desktop (.EXE / .BAT), and Android (.APK).
+
+Key capabilities:
+- Photogrammetry & Surface Joint Tracing: Extracts geological fractures from photos
+  using a hybrid Computer Vision (CLAHE, Sobel, Ridge Skeleton) + Gemini AI pipeline.
+- 3D Structural Orientation: Converts 2D curved photo traces into True Strike,
+  Dip Angle, and Dip Direction (000°-360°) by 3D projection onto tunnel geometry.
+- Stereonet Analysis: Fisher pole clustering into joint sets (Set 1, Set 2, Set 3,
+  Random) on Schmidt (Equal-Area) and Wulff (Equal-Angle) stereonets.
+- Geotechnical Classification: Automatic evaluation of Barton's Q-System,
+  Bieniawski's RMR (1989), Hoek-Brown GSI, and Romana's SMR.
+- Kinematic Failure & Support Design: Calculates Factor of Safety (FoS) for roof
+  and sidewall wedges, planar sliding, toppling, and spot bolting schedules.
+- Overbreak & Undercut Analysis: Integrates surveyed profiles against design CAD
+  sections to calculate volume differences (m³/m) and diagnose root causes
+  (geological fallout vs. mechanical drill-and-blast deviation).
+- Continuous As-Built Tunnel Logging: Flat unwrapped logging strip
+  (Left Wall -> Crown -> Right Wall) with chainage schedules, lithology contacts,
+  joint intersections, and Bill of Quantities (BoQ).
+- Diamond Drill Core Logging: Geotechnical borehole workspace tracking TCR, SCR,
+  RQD, fracture frequency (FF/m), and weathering indices.
+- 1-PC Hardware Locked Licensing: Anti-piracy device binding tied to hardware
+  hashes, managed via a Master Admin Portal and Firebase Firestore.
+
+================================================================================
+2. RUNTIME ENVIRONMENT & TECH STACK
+================================================================================
+- Frontend: React 19, TypeScript 5.7, Vite 6, Tailwind CSS v4.
+- Icons & Animation: lucide-react, motion.
+- Backend: Node.js 22, Express 4.21, tsx runtime.
+- Port & Binding: 0.0.0.0:3000 (Required by AI Studio container architecture).
+- Full-Stack Pattern: Express server (server.ts) mounts Vite middlewares in dev mode
+  ("dev": "tsx server.ts") and serves compiled dist/ in production ("start": "node server.ts").
+- AI Engine: Server-side Google GenAI TypeScript SDK (@google/genai ^1.0.0) calling
+  Gemini 3.8 Flash and Gemini 3.1 Flash-Lite. Never calls GenAI from the browser.
+- Cloud & Auth: Firebase SDK v11.4 with persistent Firestore and Google OAuth.
+  Configured with experimentalForceLongPolling: true to ensure 100% stability
+  across iframes, desktop webviews, and Android APK webviews.
+- Desktop & Mobile Packaging: Electron 34, NSIS .EXE builder, custom Python/Shell
+  standalone Android APK compiler, and standalone offline Windows .BAT installer.
+
+================================================================================
+3. COORDINATE SYSTEMS & GEOMECHANICAL MATHEMATICS
+================================================================================
+3.1 Photo Space vs. Tunnel Space:
+- Normalized Photo Coordinates (u, v):
+  u in [0.0, 1.0]: Horizontal axis (u=0: left edge, u=1: right edge).
+  v in [0.0, 1.0]: Vertical axis (v=0: top/crown, v=1: invert/floor).
+- Local 3D Tunnel Coordinates (X, Y, Z):
+  X: Lateral position across tunnel width (m).
+  Y: Vertical height above invert level (m).
+  Z: Longitudinal alignment chainage (m), e.g., CH 12+450.50.
+- Drive Direction Azimuth (alpha_drive):
+  Measured clockwise from True North (000°-360°).
+  Surface normal transformations:
+  * Tunnel Face: Opposite to drive direction (alpha_drive +/- 180°).
+  * Left Wall: Oriented at (alpha_drive - 90°).
+  * Right Wall: Oriented at (alpha_drive + 90°).
+  * Crown: Vertical normal (+Y).
+
+3.2 3D Orientation Calculation:
+- Traced polylines P1(u,v) ... Pn(u,v) are back-projected onto the 3D surface mesh.
+- A 3D best-fit plane Ax + By + Cz + D = 0 is computed using SVD / Least-Squares.
+- Dip Angle (beta): beta = arccos(|C| / sqrt(A² + B² + C²)).
+- Dip Direction (theta_dip): Derived from the horizontal gradient vector.
+- Strike (theta_strike): theta_strike = (theta_dip - 90°) mod 360° (Right-Hand Rule).
+
+3.3 Stereonet Pole Projection:
+- Schmidt (Equal-Area): Radius R = sqrt(2) * sin((90° - beta) / 2).
+- Wulff (Equal-Angle): Radius R = tan((90° - beta) / 2).
+- Joint sets grouped via Fisher clustering with concentration parameter (K).
+
+3.4 Barton's Q-System Formulation:
+  Q = (RQD / Jn) * (Jr / Ja) * (Jw / SRF)
+  * Block size parameter: (RQD / Jn)
+  * Inter-block shear strength: (Jr / Ja)
+  * Active stress state: (Jw / SRF)
+  Equivalent excavation dimension: De = Span / ESR.
+  Grimstad & Barton (1993) permanent support recommendation curve calculation.
+
+3.5 Bieniawski's Rock Mass Rating (RMR 1989):
+  RMR89 = R1(UCS) + R2(RQD) + R3(Spacing) + R4(Condition) + R5(Groundwater) + R6(Orientation Adjustment)
+  Classifies rock mass:
+  * Class I: Very Good Rock (81 - 100)
+  * Class II: Good Rock (61 - 80)
+  * Class III: Fair Rock (41 - 60)
+  * Class IV: Poor Rock (21 - 40)
+  * Class V: Very Poor Rock (< 21)
+
+3.6 Overbreak Radial Integration:
+  V_overbreak = 0.5 * integral[0 to 2pi] (r_actual² - r_design²) dTheta * L_round (m³)
+  Partitioned into:
+  - Geological Overbreak (unfavorable joint daylighting / wedge fallout).
+  - Mechanical Overbreak (over-drilling, blast charge excess, burden variance).
+
+================================================================================
+4. MASTER FILE TREE & CODEBASE DIRECTORY MAP
+================================================================================
+/
+├── server.ts                               # Full-Stack Express server with AI & CAD endpoints
+├── package.json                            # Scripts, dependencies, and build specs
+├── vite.config.ts                          # Vite, Tailwind v4, PWA cache configuration
+├── index.html                              # Entry HTML, SEO metadata, theme fonts
+├── firebase-applet-config.json             # Firebase project credentials
+├── firestore.rules                         # Security rules with strict schemas & RBAC
+├── .env.example                            # Template for API keys and environment variables
+│
+├── src/
+│   ├── main.tsx                            # Root application bootstrap & error boundaries
+│   ├── RootApplicationRouter.tsx           # Router for User Mapping, Admin, and Desktop
+│   ├── App.tsx                             # Main workflow state engine
+│   ├── index.css                           # Tailwind CSS layers, theme CSS variables, CAD cursor graphics
+│   │
+│   ├── types/
+│   │   └── tunnel.ts                       # Authoritative type definitions
+│   │
+│   ├── engine/                             # Mathematical & analytical engines
+│   │   ├── cvPipeline.ts                   # CLAHE, Sobel, ridge skeleton, hybrid AI tracer
+│   │   ├── cameraCalibration.ts            # Lens distortion (k1, k2), stereo baseline
+│   │   ├── geometryEngine.ts               # Standard tunnel geometries & top heading transitions
+│   │   ├── customProfileEngine.ts          # Freeform CAD profiles & B-splines
+│   │   ├── orientationEngine.ts            # 3D plane fitting, strike/dip, Fisher clustering
+│   │   ├── overbreakEngine.ts              # Radial overbreak, undercut & volumetric analysis
+│   │   ├── rockMassClassificationEngine.ts # Barton Q, Bieniawski RMR, Hoek-Brown GSI
+│   │   ├── kinematicsSupportAndDxfEngine.ts# Wedge/Planar FoS, rock bolt layout, DXF writer
+│   │   ├── continuous3DStripEngine.ts      # Unwrapped 3D continuous tunnel logging
+│   │   ├── projectNetworkStripEngine.ts    # Multi-round project chainage stitching
+│   │   ├── coreLoggingEngine.ts            # Borehole core run logging, RQD, TCR, SCR
+│   │   ├── cadParser.ts                    # AutoCAD DXF & DWG binary IEEE-754 coordinate extractor
+│   │   ├── photoWarpEngine.ts              # Piecewise projective texture mapping onto tunnel skin
+│   │   ├── pcPhotometric3DTwinEngine.ts    # Multi-angle photogrammetry reconstruction & 3D mesh twin
+│   │   ├── sheetLayoutEngine.ts            # A3 Landscape engineering sheet layout rules
+│   │   ├── pdfAndWordExportEngine.ts       # High-resolution vector PDF & Word export
+│   │   ├── softwareLicensingEngine.ts      # 1-PC hardware-lock validation & machine ID
+│   │   ├── userCloudAndPackageEngine.ts    # Cloud sync & peer package transfers
+│   │   └── windowsDesktopEngine.ts         # Standalone offline PC installer & APK downloader
+│   │
+│   └── components/                         # Interactive UI workspaces and modals
+│       ├── FieldMappingModeWorkspace.tsx   # Touch-optimized field tablet workspace with digital compass
+│       ├── MappingWorkspace.tsx            # Main engineering face mapping canvas with live joint tables
+│       ├── CoreLoggingWorkspace.tsx        # Drill core logging sheet with automated RQD & classification
+│       ├── FreeformCustomProfileEditor.tsx # Interactive CAD profile designer with vertex manipulation
+│       ├── EngineeringSheetModal.tsx       # Standard Face Mapping Engineering Report preview & export
+│       ├── A3ContinuousTunnelLogModal.tsx  # As-Built Continuous Strip A3 Landscape viewer
+│       ├── EswaCadContinuousStripModal.tsx # Focused CAD drafting workspace for continuous strip logging
+│       ├── MasterAdminPortalWebsite.tsx    # Administrator web console for license approvals & hardware IDs
+│       ├── EswaAiExecutiveChatbot.tsx      # Embedded AI Geotechnical Copilot with full runtime context
+│       ├── StereonetAndSupportPanel.tsx    # Interactive stereonet pole plot, great circles & kinematic wedges
+│       ├── GeologyAndQIndexDrawer.tsx      # Deep parameter entry for Barton Q, Bieniawski RMR, Hoek-Brown GSI
+│       ├── OverbreakAndProjectMemoryPanel.tsx# Overbreak comparison, cross-section overlay, historical pulls
+│       └── DeviceIdReviewAndNotificationCenter.tsx # Device-to-device review & approval sync center
+
+================================================================================
+5. CORE ENGINES DEEP DIVE (src/engine/*)
+================================================================================
+5.1 cvPipeline.ts & cameraCalibration.ts:
+- Runs local computer vision directly on the canvas image:
+  * Grayscale conversion.
+  * Contrast Limited Adaptive Histogram Equalization (CLAHE) with tile grid size 8x8.
+  * Sobel horizontal and vertical edge filters to find gradient magnitude and direction.
+  * Dark-Valley ridge extraction linking local intensity minima into multi-point polylines.
+  * Filters out high-frequency noise from rock dust or lighting glare.
+- Camera calibration handles lens barrel/pincushion distortion correction (k1, k2, p1, p2)
+  and calculates stereo baseline distance between multiple camera shots.
+
+5.2 geometryEngine.ts & customProfileEngine.ts:
+- Parameterizes standard cross-sections:
+  * D-Shaped Tunnel (vertical sidewalls + semicircular crown arch).
+  * Horseshoe Tunnel (curved sidewalls with springline fillet radii).
+  * Circular Tunnel (bored TBM profile with invert fill).
+  * Basket-Handle / Multi-Centered Arch.
+- Handles top heading vs. benching division:
+  Splits full profile into Top Heading (excavated first) and Bench/Invert (excavated later)
+  with independent face mapping surfaces and chainage tracking.
+- customProfileEngine.ts supports freeform parametric polylines, B-spline curves,
+  survey control point anchoring, and AutoCAD DXF profile import.
+
+5.3 orientationEngine.ts:
+- Converts 2D polyline vertices (u, v) into 3D world coordinates (X, Y, Z).
+- Fits an orientation plane using Least Squares / SVD.
+- Determines True Dip Angle and True Dip Direction relative to tunnel drive azimuth.
+- Clusters discontinuity poles into Joint Sets using Fisher distribution algorithms.
+
+5.4 overbreakEngine.ts:
+- Samples actual surveyed profile perimeter at 360 angular increments (1° step).
+- Calculates delta r(theta) = r_actual(theta) - r_design(theta).
+- Positive delta r indicates Overbreak; negative delta r indicates Undercut.
+- Calculates total overbreak volume (m³) and linear meter rate (m³/m).
+- Evaluates geological structure influence vs. mechanical drill hole deviation.
+
+5.5 rockMassClassificationEngine.ts:
+- Calculates Barton Q index and recommended support class (1 through 9).
+- Evaluates Bieniawski RMR89 with 6 rating parameters and strike/dip adjustments.
+- Evaluates Geological Strength Index (GSI) via surface condition and block structure.
+- Evaluates Romana Slope Mass Rating (SMR) for surface portal slopes.
+
+5.6 continuous3DStripEngine.ts & projectNetworkStripEngine.ts:
+- Unwraps 3D cylindrical tunnel into an A3 continuous strip:
+  Left Wall (Top Panel) -> Crown (Middle Panel) -> Right Wall (Bottom Panel).
+- Generates chainage ticks, geological contacts, fault zones, joint traces,
+  water inflow symbols, and rock support Bill of Quantities (BoQ) schedules.
+- Connects multi-round excavation pulls into a unified tunnel network.
+
+5.7 softwareLicensingEngine.ts:
+- Computes SHA-256 hardware identifier (pcHardwareId) from machine hardware properties.
+- Checks hardware lock against Firestore /software_licenses/{userId}.
+- Rejects unauthorized machines with hardware mismatch notice.
+- Caches tamper-evident local activation token for offline field operation.
+
+================================================================================
+6. SERVER BACKEND & API MICROSERVICES (server.ts)
+================================================================================
+The Node.js Express server runs on port 3000 (0.0.0.0) with endpoints:
+
+1. POST /api/ai/trace-joints:
+   Receives base64 tunnel image, tunnel width/height, drive azimuth, and CV candidates.
+   Calls Gemini 3.8 Flash to segment, classify, and verify geological discontinuities.
+   Returns multi-point polylines with aperture, roughness, and water condition.
+   Falls back seamlessly to local deterministic CV pipeline if API key is not present.
+
+2. POST /api/ai/eswa-chat:
+   ESWA AI Executive Assistant chatbot. Receives live application state snapshot
+   (active geometry, joint count, overbreak volume, FoS, spot bolting data).
+   Answers technical questions and executes application actions (e.g., opens panels,
+   changes geometry, switches views).
+
+3. POST /api/ai/analyze-geotech:
+   Geotechnical engineering copilot. Diagnoses overbreak root causes (geological vs.
+   mechanical), predicts next-round advance risk, calculates support FoS, and
+   recommends exact spot bolting locations.
+
+4. POST /api/geometry/parse-cad:
+   Parses binary AutoCAD DWG or text DXF files. Scans IEEE-754 double coordinate pairs
+   to reconstruct tunnel geometry cross-sections without external CAD licenses.
+
+5. GET /api/offline-pc-installer:
+   Builds a 100% self-contained offline Windows installer (.BAT / .HTML).
+   Extracts bundled code to %LOCALAPPDATA%\AkashTunnelTracer and creates desktop
+   shortcuts that launch in isolated app windows without requiring internet access.
+
+6. GET /api/ota/latest-bundle:
+   Delivers Over-The-Air update bundles (CSS + IIFE JS) to installed desktop and
+   Android devices, preserving all existing local tunnel project databases.
+
+7. POST /api/github/push-and-build-exe:
+   Commits source code to GitHub and triggers GitHub Actions workflows to build
+   official Windows Master .EXE, User .EXE, and Android .APK artifacts.
+
+================================================================================
+7. USER INTERFACE WORKSPACES & MODALS (src/components/*)
+================================================================================
+7.1 FieldMappingModeWorkspace.tsx:
+- Designed for rugged Android field tablets and touch displays.
+- Digital geological compass with real-time heading and dip needle.
+- Touch/stylus canvas for drawing joint traces directly on rock face photos.
+- Quick-pick geological symbol stamps (Water Inflow, Fault Shear, Rock Bolt, Cavity).
+
+7.2 MappingWorkspace.tsx:
+- Desktop CAD mapping workspace.
+- Dual-canvas synced view: Photograph view alongside Unwrapped CAD profile view.
+- Real-time tabular joint list showing True Dip, Dip Direction, Strike, Roughness,
+  and Aperture for every mapped feature.
+- Live stereonet preview with automatic joint set clustering.
+
+7.3 CoreLoggingWorkspace.tsx:
+- Drill core geotechnical logging workspace.
+- Calculates TCR%, SCR%, RQD%, and Fracture Frequency (FF/m) per run.
+- Photo box cataloging with depth interval markers.
+
+7.4 A3ContinuousTunnelLogModal.tsx & EswaCadContinuousStripModal.tsx:
+- Standard A3 Landscape engineering view matching "As-Built Power Tunnel Log".
+- Dedicated CAD editor for editing strata boundaries, joint lines, and support
+  annotations directly on the unwrapped strip.
+
+7.5 MasterAdminPortalWebsite.tsx:
+- Web portal for the software owner (dhoniakash407@gmail.com).
+- Approves/rejects Access Requests from new client PCs.
+- Issues license keys, resets hardware PC bindings, and publishes OTA releases.
+
+7.6 DeviceIdReviewAndNotificationCenter.tsx:
+- Underground peer-to-peer review center.
+- Field geologists transmit tunnel mapping packages to senior engineers by Device ID.
+- Reviewers inspect, add remarks, sign off, and return approved packages.
+
+================================================================================
+8. SECURITY, RBAC & 1-PC HARDWARE LOCK
+================================================================================
+Firestore Database: ai-studio-eswatunnelmapper-f9204c8f-e68c-461b-9014-9cb7c208d62c
+Security Rules (firestore.rules) enforce:
+- Default Deny on all collections.
+- Strict schema validation for access_requests, software_licenses, software_releases,
+  master_pcs, and device_transfers.
+- Master Admin access restricted to authenticated owner: dhoniakash407@gmail.com.
+- 1-PC Hardware Lock:
+  When a user logs in, incoming().boundPcHardwareId must match the registered
+  hardware ID on the license record. Prevents license sharing across multiple PCs.
+
+================================================================================
+9. EXPORT & INTEROPERABILITY PIPELINE
+================================================================================
+1. AutoCAD DXF:
+   Conforms to AutoCAD Release 12 / 2000 specification.
+   Exports structured layers:
+   - 0_TUNNEL_DESIGN (nominal design excavation line)
+   - 1_ACTUAL_PROFILE (surveyed overbreak/undercut profile)
+   - 2_GEOLOGICAL_JOINTS (traced discontinuities with dip/dip direction tags)
+   - 3_LITHOLOGY_BOUNDARIES (formation contacts)
+   - 4_ROCK_BOLTS (pattern and spot bolts with length/bearing)
+   - 5_ANNOTATIONS_AND_GRID (chainage coordinates and title block)
+
+2. A3 Engineering PDF Sheets:
+   High-resolution vector PDF export in standard A3 Landscape format.
+   Includes title block, 1:50 face cross-section, stereonet projection, Q-System
+   and RMR tables, BoQ summary, and engineer sign-off blocks.
+
+3. Word Documents (.DOCX):
+   Executive geotechnical summary reports with tabular rock mass classifications,
+   photographs, and kinematic stability recommendations.
+
+================================================================================
+10. PROMPT FORMULATION GUIDELINES FOR GOOGLE ARGON
+================================================================================
+When generating prompts for updating this codebase, Google Argon should follow
+these principles:
+
+1. Identify the Exact File & Layer:
+   Specify whether the change targets:
+   - Geometry / Math: src/engine/geometryEngine.ts, orientationEngine.ts, overbreakEngine.ts
+   - Geotechnical Classification: src/engine/rockMassClassificationEngine.ts
+   - AI / Server Backend: server.ts
+   - UI Workspaces: src/components/FieldMappingModeWorkspace.tsx, MappingWorkspace.tsx,
+     A3ContinuousTunnelLogModal.tsx
+   - Types: src/types/tunnel.ts
+
+2. Maintain Math Invariants:
+   - Photo coordinates must strictly remain normalized: u, v in [0.0, 1.0].
+   - Dip direction is clockwise from North: [000°, 360°].
+   - Dip angle is downward from horizontal: [00°, 90°].
+   - All 3D normal transformations must incorporate tunnel drive azimuth (alpha_drive).
+
+3. Respect Runtime Constraints:
+   - Never import @google/genai in the client/React code. All AI calls must go
+     through Express endpoints in server.ts.
+   - Never remove experimentalForceLongPolling: true from src/firebase.ts.
+   - Preserve 1-PC hardware lock validation in firestore.rules and softwareLicensingEngine.ts.
+   - Ensure the dev server runs via tsx server.ts on 0.0.0.0:3000.
+
+4. Output Format:
+   Request concise, surgical diffs or file updates targeting the specific files
+   without breaking existing types or export pipelines.
+================================================================================
+END OF SYSTEM SPECIFICATION
+================================================================================

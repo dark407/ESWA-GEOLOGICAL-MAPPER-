@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for NMT (Norwegian Method of Tunnelling) Advanced NGI Q-System mode in the Classifications window and the interactive NGI Q-System Rock Support Chart (Grimstad & Barton 1993 / NGI 2014) in the Support System window.",
-  "updatedAt":  "2026-10-30T14:54:26.756301102Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Comprehensive implementation plan for resolving automatic Face-to-Walls/Crown joint projections and Strip Log filtering, adding a 1-tap Inspection Mode toggle and 3D Dip Surface Inspector/Editor with interactive gizmo and sliders, implementing cross-portion trace boundary continuation with glowing snap markers, fixing the Windows .exe custom icon embedding, and enabling zero-data-loss in-place updates for Windows .exe and Android .apk builds.",
+  "updatedAt": "2026-11-02T19:23:48.243361364Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

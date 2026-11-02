@@ -50,9 +50,11 @@ import {
 } from 'lucide-react';
 import {
   FieldJointTrace,
+  FieldDipPlaneSurface,
   FieldPanelId,
   FieldJointGroupingId,
   FIELD_JOINT_GROUP_COLORS,
+  buildDipSurfaceOutlineAndCentroid,
 } from '../engine/fieldMappingEngine';
 import {
   TunnelSpatialGeometry,
@@ -88,10 +90,50 @@ import { Joint, JointSet, SurfaceType } from '../types/tunnel';
 export interface NatmJoint3DInspectorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  activeJoint: FieldJointTrace;
+  activeJoint?: FieldJointTrace | null;
   allRoundJoints: FieldJointTrace[];
+  activeDipSurface?: FieldDipPlaneSurface | null;
+  allRoundDipSurfaces?: FieldDipPlaneSurface[];
+  initialInspectTargetType?: 'joint' | 'dip_surface';
   tunnelGeometry: TunnelSpatialGeometry;
   onSaveJoint: (updatedJoint: FieldJointTrace) => void;
+  onSaveDipSurface?: (updatedSurface: FieldDipPlaneSurface) => void;
+}
+
+function convertDipSurfaceToVirtualJoint(dp: FieldDipPlaneSurface): FieldJointTrace {
+  const baseOutline =
+    dp.outlinePolygon && dp.outlinePolygon.length >= 3
+      ? dp.outlinePolygon
+      : buildDipSurfaceOutlineAndCentroid(dp.points, dp.brushRadius || 28).outlinePolygon;
+  const cx =
+    baseOutline.length > 0
+      ? baseOutline.reduce((s, p) => s + p.x, 0) / baseOutline.length
+      : dp.points[0]?.x ?? 420;
+  const cy =
+    baseOutline.length > 0
+      ? baseOutline.reduce((s, p) => s + p.y, 0) / baseOutline.length
+      : dp.points[0]?.y ?? 320;
+  const r = Math.max(24, dp.brushRadius || 28);
+  const strikeRad = (((dp.strike ?? (dp.dipDirection - 90 + 360) % 360) - 90) * Math.PI) / 180;
+  const syntheticPts =
+    dp.points && dp.points.length >= 2
+      ? dp.points
+      : [
+          { x: Number((cx - Math.cos(strikeRad) * r).toFixed(1)), y: Number((cy - Math.sin(strikeRad) * r).toFixed(1)) },
+          { x: Number((cx + Math.cos(strikeRad) * r).toFixed(1)), y: Number((cy + Math.sin(strikeRad) * r).toFixed(1)) },
+        ];
+  return {
+    id: dp.id,
+    label: dp.label || 'DP',
+    panel: dp.panel,
+    points: syntheticPts,
+    dipDirection: dp.dipDirection ?? 135,
+    dipAmount: dp.dipAmount ?? 60,
+    strike: dp.strike ?? ((dp.dipDirection - 90 + 360) % 360),
+    setId: dp.setId || 'unassigned',
+    editedByCompass: true,
+    inspection3D: dp.inspection3D,
+  };
 }
 
 export type InspectionViewTab =
@@ -296,8 +338,13 @@ const NumericStepperInput: React.FC<NumericStepperInputProps> = ({
 };
 
 export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps> = (props) => {
-  if (!props.isOpen || !props.activeJoint) return null;
-  return <NatmJoint3DInspectorModalContent {...props} activeJoint={props.activeJoint} />;
+  const effectiveJoint =
+    props.activeJoint ||
+    (props.activeDipSurface ? convertDipSurfaceToVirtualJoint(props.activeDipSurface) : null) ||
+    props.allRoundJoints[0] ||
+    (props.allRoundDipSurfaces?.[0] ? convertDipSurfaceToVirtualJoint(props.allRoundDipSurfaces[0]) : null);
+  if (!props.isOpen || !effectiveJoint) return null;
+  return <NatmJoint3DInspectorModalContent {...props} activeJoint={effectiveJoint} />;
 };
 
 const NatmJoint3DInspectorModalContent: React.FC<
@@ -307,8 +354,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
   onClose,
   activeJoint,
   allRoundJoints,
+  activeDipSurface = null,
+  allRoundDipSurfaces = [],
+  initialInspectTargetType,
   tunnelGeometry,
   onSaveJoint,
+  onSaveDipSurface,
 }) => {
   // Real-Time Theme Integration (supports light & dark themes seamlessly)
   const { theme, palette } = useTheme();
@@ -321,25 +372,58 @@ const NatmJoint3DInspectorModalContent: React.FC<
   const [isAsideCollapsed, setIsAsideCollapsed] = useState<boolean>(false);
   const [asideWidthMode, setAsideWidthMode] = useState<'compact' | 'standard'>('standard');
 
+  // Target Type: 'joint' vs 'dip_surface'
+  const [inspectTargetType, setInspectTargetType] = useState<'joint' | 'dip_surface'>(
+    initialInspectTargetType || (activeDipSurface ? 'dip_surface' : 'joint')
+  );
+  const [currentDipSurfaceId, setCurrentDipSurfaceId] = useState<string>(
+    activeDipSurface?.id || allRoundDipSurfaces[0]?.id || ''
+  );
+
   // Currently Selected Joint in Inspector (defaults to activeJoint.id, switchable to any joint in round)
   const [currentJointId, setCurrentJointId] = useState<string>(activeJoint.id);
   const [pendingSwitchJointId, setPendingSwitchJointId] = useState<string | null>(null);
   const [showSwitchConfirm, setShowSwitchConfirm] = useState<boolean>(false);
 
-  // Synchronize when activeJoint prop changes from parent
+  // Interactive 3D Plane/Disk Gizmo Drag Mode on Three.js Canvas
+  const [is3DGizmoDragMode, setIs3DGizmoDragMode] = useState<boolean>(
+    Boolean(initialInspectTargetType === 'dip_surface' || activeDipSurface)
+  );
+  const is3DGizmoDragModeRef = useRef<boolean>(is3DGizmoDragMode);
   useEffect(() => {
-    if (activeJoint?.id) {
+    is3DGizmoDragModeRef.current = is3DGizmoDragMode;
+  }, [is3DGizmoDragMode]);
+
+  // Synchronize when activeJoint or activeDipSurface prop changes from parent
+  useEffect(() => {
+    if (initialInspectTargetType === 'dip_surface' && activeDipSurface?.id) {
+      setInspectTargetType('dip_surface');
+      setCurrentDipSurfaceId(activeDipSurface.id);
+      setIs3DGizmoDragMode(true);
+    } else if (activeJoint?.id) {
+      setInspectTargetType(initialInspectTargetType || 'joint');
       setCurrentJointId(activeJoint.id);
     }
-  }, [activeJoint?.id]);
+  }, [activeJoint?.id, activeDipSurface?.id, initialInspectTargetType]);
+
+  const currentDipSurface = useMemo(() => {
+    if (inspectTargetType !== 'dip_surface') return null;
+    return (
+      allRoundDipSurfaces.find((d) => d.id === currentDipSurfaceId) ||
+      activeDipSurface ||
+      allRoundDipSurfaces[0] ||
+      null
+    );
+  }, [inspectTargetType, allRoundDipSurfaces, currentDipSurfaceId, activeDipSurface]);
 
   const currentJoint = useMemo(() => {
+    if (inspectTargetType === 'dip_surface' && currentDipSurface) {
+      return convertDipSurfaceToVirtualJoint(currentDipSurface);
+    }
     return allRoundJoints.find((j) => j.id === currentJointId) || activeJoint;
-  }, [allRoundJoints, currentJointId, activeJoint]);
+  }, [inspectTargetType, currentDipSurface, allRoundJoints, currentJointId, activeJoint]);
 
   // Editable Orientation Parameters
-  // For Crown roof traces, the mapped trace defines the strike direction and the IDEAL dip amount is 90°
-  // (dipping 90° relative to the strike direction), while preserving any custom dip amount saved by the user.
   const isCrown = currentJoint.panel === 'crown';
   const resolvedInitialDip = isCrown
     ? (currentJoint.editedByCompass || currentJoint.inspection3D) &&
@@ -354,13 +438,15 @@ const NatmJoint3DInspectorModalContent: React.FC<
   const [dipAmount, setDipAmount] = useState<number>(resolvedInitialDip);
   const [jointSetId, setJointSetId] = useState<FieldJointGroupingId>(currentJoint.setId || 'unassigned');
 
-  // Hinge Axis of Rotation State (For face & wall traces, plane pivots strictly around the traced line; for crown, ideal 90° dip relative to strike direction)
+  // Hinge Axis of Rotation State (For Dip Surfaces, default to free 3D plane/disk orientation so Dip & Dip Direction can be edited freely in 360°)
   const isFaceTrace = currentJoint.panel === 'face';
   const isWallTrace = currentJoint.panel === 'left_wall' || currentJoint.panel === 'right_wall';
   const isCrownTrace = currentJoint.panel === 'crown';
-  const [isHingeRotationActive, setIsHingeRotationActive] = useState<boolean>(true);
+  const [isHingeRotationActive, setIsHingeRotationActive] = useState<boolean>(
+    inspectTargetType !== 'dip_surface'
+  );
   const [isStrikeLineHingeLocked, setIsStrikeLineHingeLocked] = useState<boolean>(
-    currentJoint.panel === 'crown'
+    inspectTargetType !== 'dip_surface' && currentJoint.panel === 'crown'
   );
   const [hingeDipDeg, setHingeDipDeg] = useState<number>(resolvedInitialDip || 90);
   const [hingeDipSide, setHingeDipSide] = useState<'heading' | 'collar'>(
@@ -396,7 +482,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     currentJoint.inspection3D?.linkedTraceIds || []
   );
 
-  // When switching currentJointId, load its orientation parameters
+  // When switching currentJointId or currentDipSurfaceId or inspectTargetType, load its orientation parameters
   useEffect(() => {
     const isCr = currentJoint.panel === 'crown';
     const resolvedDip = isCr
@@ -411,8 +497,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
     setDipAmount(resolvedDip);
     setHingeDipDeg(resolvedDip);
     setHingeDipSide(isCr && currentJoint.crownDipSign === '-90' ? 'collar' : 'heading');
-    setIsHingeRotationActive(true);
-    setIsStrikeLineHingeLocked(isCr);
+    setIsHingeRotationActive(inspectTargetType !== 'dip_surface');
+    setIsStrikeLineHingeLocked(inspectTargetType !== 'dip_surface' && isCr);
     setJointSetId(currentJoint.setId || 'unassigned');
     setMeasurementSource(
       currentJoint.inspection3D?.measurementSource || (currentJoint.editedByCompass ? 'MANUAL_COMPASS' : 'GEOMETRIC_FIT')
@@ -429,7 +515,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     );
     setPersistenceConfidence(currentJoint.inspection3D?.persistenceConfidence || 'MEDIUM');
     setLinkedTraceIds(currentJoint.inspection3D?.linkedTraceIds || []);
-  }, [currentJointId]);
+  }, [currentJointId, currentDipSurfaceId, inspectTargetType]);
 
   // Check if current joint has unsaved edits
   const hasUnsavedChanges = useMemo(() => {
@@ -1403,6 +1489,15 @@ const NatmJoint3DInspectorModalContent: React.FC<
         target.x -= rightX * dx * panSpeed;
         target.z -= rightZ * dx * panSpeed;
         target.y += dy * panSpeed;
+      } else if (mouseButton === 0 && (is3DGizmoDragModeRef.current || e.altKey)) {
+        // 3D Plane/Disk Gizmo Drag Mode: horizontal drag rotates Dip Direction (0..359°), vertical drag tilts Dip Angle (0..90°)
+        setIsHingeRotationActive(false);
+        setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
+        setDipAmount((prev) => {
+          const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
+          setHingeDipDeg(next);
+          return next;
+        });
       } else if (mouseButton === 0) {
         // Left-click -> ORBIT
         cam.theta -= dx * 0.007;
@@ -1424,7 +1519,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
       e.preventDefault(); // allow right-drag pan without opening browser context menu
     };
 
-    // Touch Event Handlers: 1-finger Orbit, 2-finger Pinch Zoom & Pan Move
+    // Touch Event Handlers: 1-finger Orbit (or 3D Gizmo Drag), 2-finger Pinch Zoom & Pan Move
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 1) {
         touchMode = 'ORBIT';
@@ -1455,8 +1550,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
         const dy = t.clientY - prevTouch.y;
         prevTouch = { x: t.clientX, y: t.clientY };
 
-        cam.theta -= dx * 0.007;
-        cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
+        if (is3DGizmoDragModeRef.current) {
+          setIsHingeRotationActive(false);
+          setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
+          setDipAmount((prev) => {
+            const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
+            setHingeDipDeg(next);
+            return next;
+          });
+        } else {
+          cam.theta -= dx * 0.007;
+          cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
+        }
       } else if (e.touches.length >= 2) {
         const t1 = e.touches[0];
         const t2 = e.touches[1];
@@ -2106,9 +2211,55 @@ const NatmJoint3DInspectorModalContent: React.FC<
       }
     }
 
-    // 5b. Compact 3D Joint Tag (shown only when 'Show 3D Labels' is enabled so the joint plane stays unobstructed)
+    // 5a. 3D Geological Disk Gizmo & Normal/Dip Vectors around Anchor (especially vivid for Dip Surface or 3D Gizmo Mode)
+    if (inspectTargetType === 'dip_surface' || is3DGizmoDragMode) {
+      const gizmoRadius = Math.max(1.1, Math.min(2.6, currentTraceLengthM * 0.65));
+      const circlePts: THREE.Vector3[] = [];
+      const segments = 64;
+      for (let i = 0; i <= segments; i++) {
+        const ang = (i / segments) * Math.PI * 2;
+        const c = Math.cos(ang) * gizmoRadius;
+        const s = Math.sin(ang) * gizmoRadius;
+        circlePts.push(
+          new THREE.Vector3(
+            ax + sx * c + dx * s,
+            ay + sy * c + dy * s,
+            az + sz * c + dz * s
+          )
+        );
+      }
+      const ringGeo = new THREE.BufferGeometry().setFromPoints(circlePts);
+      const ringMat = new THREE.LineBasicMaterial({ color: 0x06b6d4, linewidth: 3 });
+      group.add(new THREE.Line(ringGeo, ringMat));
+
+      // Dip Direction Arrow on Disk (Amber)
+      const dipDirVec = new THREE.Vector3(dx, dy, dz).normalize();
+      const dipArrow = new THREE.ArrowHelper(
+        dipDirVec,
+        new THREE.Vector3(ax, ay, az),
+        gizmoRadius * 1.15,
+        0xf59e0b,
+        0.32,
+        0.18
+      );
+      group.add(dipArrow);
+
+      // Plane Normal Vector Arrow (Emerald)
+      const normVec = new THREE.Vector3(nx, ny, nz).normalize();
+      const normArrow = new THREE.ArrowHelper(
+        normVec,
+        new THREE.Vector3(ax, ay, az),
+        gizmoRadius * 0.95,
+        0x10b981,
+        0.28,
+        0.16
+      );
+      group.add(normArrow);
+    }
+
+    // 5b. Compact 3D Joint / Dip Surface Tag (shown only when 'Show 3D Labels' is enabled so the joint plane stays unobstructed)
     if (showLegendOverlay) {
-      const billboardLabelText = `${dipAmount}°/${dipDirection}° (${currentTraceLengthM}m)`;
+      const billboardLabelText = `${inspectTargetType === 'dip_surface' ? 'DP ' : ''}${dipAmount}°/${dipDirection}° (${currentTraceLengthM}m)`;
       const planeDipSprite = createBillboardLabel(
         billboardLabelText,
         '#0F172A',
@@ -2201,10 +2352,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
     currentTraceLengthM,
     isStrikeLineHingeLocked,
     showLegendOverlay,
+    inspectTargetType,
+    is3DGizmoDragMode,
   ]);
 
   // -------------------------------------------------------------------------
-  // SAVE HANDLER
+  // SAVE HANDLER (SUPPORTS BOTH JOINTS AND DIP SURFACES)
   // -------------------------------------------------------------------------
   const handleSaveInspection = () => {
     const inspectionData: Joint3DInspectionData = {
@@ -2234,6 +2387,28 @@ const NatmJoint3DInspectorModalContent: React.FC<
       persistenceConfidence,
       linkedTraceIds,
     };
+
+    if (inspectTargetType === 'dip_surface' && currentDipSurface && onSaveDipSurface) {
+      const updatedSurface: FieldDipPlaneSurface = {
+        ...currentDipSurface,
+        dipDirection: strikeInfo.dipDirectionDeg,
+        dipAmount: strikeInfo.dipDeg,
+        strike: strikeInfo.strikeRhrDeg,
+        setId: jointSetId,
+        label:
+          jointSetId !== 'unassigned' && (!currentDipSurface.label || currentDipSurface.label === 'DP')
+            ? jointSetId
+            : currentDipSurface.label || 'DP',
+        inspection3D: {
+          ...inspectionData,
+          isOrientationComplete: true,
+        },
+      };
+      onSaveDipSurface(updatedSurface);
+      setSaveStatus('SAVED');
+      setTimeout(() => setSaveStatus('IDLE'), 2400);
+      return;
+    }
 
     const updated: FieldJointTrace = {
       ...currentJoint,
@@ -2564,113 +2739,463 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 </div>
               </div>
 
-              {/* TOP CARD: OTHER TRACED JOINTS IN ROUND (Instant Switching & Editing) */}
+              {/* TOP CARD: TRACED JOINTS & DIP SURFACES IN ROUND (Instant Switching & 3D Editing) */}
               <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-lg space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-700/70 pb-1.5">
-                  <span className="font-bold text-amber-300 uppercase flex items-center gap-1.5 text-xs">
-                    <Layers className="w-4 h-4 text-amber-400" />
-                    <span>Traced Joints in Round ({allRoundJoints.length})</span>
-                  </span>
-                  <span className="text-[10px] text-cyan-300 font-bold">Click to Switch &amp; Edit</span>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/70 pb-2">
+                  <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInspectTargetType('joint');
+                        if (allRoundJoints[0] && !allRoundJoints.some((j) => j.id === currentJointId)) {
+                          setCurrentJointId(allRoundJoints[0].id);
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-[10.5px] font-bold cursor-pointer transition-all ${
+                        inspectTargetType === 'joint'
+                          ? 'bg-amber-500 text-slate-950 font-black shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Joints ({allRoundJoints.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInspectTargetType('dip_surface');
+                        setIs3DGizmoDragMode(true);
+                        if (
+                          allRoundDipSurfaces[0] &&
+                          !allRoundDipSurfaces.some((d) => d.id === currentDipSurfaceId)
+                        ) {
+                          setCurrentDipSurfaceId(allRoundDipSurfaces[0].id);
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-[10.5px] font-bold cursor-pointer transition-all ${
+                        inspectTargetType === 'dip_surface'
+                          ? 'bg-emerald-500 text-slate-950 font-black shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Dip Surfaces ({allRoundDipSurfaces.length})
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-cyan-300 font-bold">Click to Inspect &amp; Edit</span>
                 </div>
 
-              {allRoundJoints.length === 0 ? (
-                <p className="text-[11px] text-slate-500 italic">No joints traced in this round.</p>
-              ) : (
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
-                  {allRoundJoints.map((j) => {
-                    const isCurrent = j.id === currentJointId;
-                    const jColor = FIELD_JOINT_GROUP_COLORS[j.setId || 'unassigned']?.stroke || '#f59e0b';
-                    return (
-                      <div
-                        key={j.id}
-                        onClick={() => handleRequestSwitchJoint(j.id)}
-                        className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                          isCurrent
-                            ? 'bg-amber-500/20 border-amber-400 shadow-md ring-2 ring-amber-400/50'
-                            : 'bg-slate-900/90 hover:bg-slate-700/80 border-slate-700 hover:border-slate-600 text-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-3 h-3 rounded-full shrink-0 border border-white/50"
-                            style={{ backgroundColor: jColor }}
-                          />
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-1.5">
-                              <span className={`font-bold font-mono text-xs ${isCurrent ? 'text-amber-300 font-black' : 'text-white'}`}>
-                                Joint {j.id}
-                              </span>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 uppercase font-mono">
-                                {tunnelGeometry.isVerticalShaft
-                                  ? j.panel === 'face'
-                                    ? 'SHAFT FACE (BOTTOM 0m)'
-                                    : j.panel === 'left_wall'
-                                    ? '1. NE WALL (0°-90°)'
-                                    : j.panel === 'crown'
-                                    ? '2. ES WALL (90°-180°)'
-                                    : j.panel === 'right_wall'
-                                    ? '3. SW WALL (180°-270°)'
-                                    : '4. WN WALL (270°-360°)'
-                                  : j.panel.replace('_', ' ')}
+                {inspectTargetType === 'dip_surface' ? (
+                  allRoundDipSurfaces.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 italic">
+                      No Dip Surfaces mapped in this round yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                      {allRoundDipSurfaces.map((dp) => {
+                        const isCurrent = dp.id === (currentDipSurface?.id || currentDipSurfaceId);
+                        const dpColor =
+                          FIELD_JOINT_GROUP_COLORS[dp.setId || 'unassigned']?.stroke || '#10b981';
+                        return (
+                          <div
+                            key={dp.id}
+                            onClick={() => {
+                              setInspectTargetType('dip_surface');
+                              setCurrentDipSurfaceId(dp.id);
+                              setIs3DGizmoDragMode(true);
+                            }}
+                            className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                              isCurrent
+                                ? 'bg-emerald-500/20 border-emerald-400 shadow-md ring-2 ring-emerald-400/50'
+                                : 'bg-slate-900/90 hover:bg-slate-700/80 border-slate-700 hover:border-slate-600 text-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="w-3 h-3 rounded-full shrink-0 border border-white/50"
+                                style={{ backgroundColor: dpColor }}
+                              />
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`font-bold font-mono text-xs ${
+                                      isCurrent ? 'text-emerald-300 font-black' : 'text-white'
+                                    }`}
+                                  >
+                                    Dip Surface {dp.label || dp.id}
+                                  </span>
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 uppercase font-mono">
+                                    {dp.panel.replace('_', ' ')}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  Set: {dp.setId || 'Unassigned'} · Strike: {dp.strike}°
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 font-mono text-right">
+                              <div className="flex flex-col items-end">
+                                <span className="font-bold text-emerald-300 text-xs">
+                                  {dp.dipAmount}°
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  ➔ {String(dp.dipDirection).padStart(3, '0')}°
+                                </span>
+                              </div>
+                              {isCurrent ? (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-black text-[9.5px]">
+                                  ACTIVE
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[9.5px] hover:text-white">
+                                  Inspect 3D
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                ) : allRoundJoints.length === 0 ? (
+                  <p className="text-[11px] text-slate-500 italic">No joints traced in this round.</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                    {allRoundJoints.map((j) => {
+                      const isCurrent = j.id === currentJointId;
+                      const jColor = FIELD_JOINT_GROUP_COLORS[j.setId || 'unassigned']?.stroke || '#f59e0b';
+                      return (
+                        <div
+                          key={j.id}
+                          onClick={() => handleRequestSwitchJoint(j.id)}
+                          className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                            isCurrent
+                              ? 'bg-amber-500/20 border-amber-400 shadow-md ring-2 ring-amber-400/50'
+                              : 'bg-slate-900/90 hover:bg-slate-700/80 border-slate-700 hover:border-slate-600 text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-3 h-3 rounded-full shrink-0 border border-white/50"
+                              style={{ backgroundColor: jColor }}
+                            />
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`font-bold font-mono text-xs ${isCurrent ? 'text-amber-300 font-black' : 'text-white'}`}>
+                                  Joint {j.id}
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 uppercase font-mono">
+                                  {tunnelGeometry.isVerticalShaft
+                                    ? j.panel === 'face'
+                                      ? 'SHAFT FACE (BOTTOM 0m)'
+                                      : j.panel === 'left_wall'
+                                      ? '1. NE WALL (0°-90°)'
+                                      : j.panel === 'crown'
+                                      ? '2. ES WALL (90°-180°)'
+                                      : j.panel === 'right_wall'
+                                      ? '3. SW WALL (180°-270°)'
+                                      : '4. WN WALL (270°-360°)'
+                                    : j.panel.replace('_', ' ')}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                Set: {j.setId || 'Unassigned'} · Length: {calculatePolylineLengthM(j.points, j.panel, tunnelGeometry).toFixed(2)}m
                               </span>
                             </div>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              Set: {j.setId || 'Unassigned'} · Length: {calculatePolylineLengthM(j.points, j.panel, tunnelGeometry).toFixed(2)}m
-                            </span>
                           </div>
-                        </div>
 
-                        <div className="flex items-center gap-2 font-mono text-right">
-                          <div className="flex flex-col items-end">
-                            <span className="font-bold text-amber-300 text-xs">
-                              {j.dipAmount ?? 65}°
-                            </span>
-                            <span className="text-[10px] text-slate-400">
-                              ➔ {String(j.dipDirection ?? 135).padStart(3, '0')}°
-                            </span>
+                          <div className="flex items-center gap-2 font-mono text-right">
+                            <div className="flex flex-col items-end">
+                              <span className="font-bold text-amber-300 text-xs">
+                                {j.dipAmount ?? 65}°
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                ➔ {String(j.dipDirection ?? 135).padStart(3, '0')}°
+                              </span>
+                            </div>
+                            {isCurrent ? (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[9.5px]">
+                                ACTIVE
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[9.5px] hover:text-white">
+                                Inspect
+                              </span>
+                            )}
                           </div>
-                          {isCurrent ? (
-                            <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[9.5px]">
-                              ACTIVE
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[9.5px] hover:text-white">
-                              Inspect
-                            </span>
-                          )}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Instant Save & Reflect on Canvas Button inside Card */}
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={handleSaveInspection}
+                    className={`w-full py-2 px-3 rounded-xl font-mono text-xs font-black cursor-pointer transition-all flex items-center justify-center gap-2 shadow-md ${
+                      saveStatus === 'SAVED'
+                        ? 'bg-emerald-500 text-slate-950'
+                        : inspectTargetType === 'dip_surface'
+                        ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                        : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                    }`}
+                  >
+                    {saveStatus === 'SAVED' ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Reflected on Canvas!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>
+                          Save &amp; Reflect {inspectTargetType === 'dip_surface' ? 'Dip Surface' : 'Joint'} on Canvas
+                        </span>
+                      </>
+                    )}
+                  </button>
                 </div>
-              )}
-
-              {/* Instant Save & Reflect on Face Canvas Button inside Card */}
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={handleSaveInspection}
-                  className={`w-full py-2 px-3 rounded-xl font-mono text-xs font-black cursor-pointer transition-all flex items-center justify-center gap-2 shadow-md ${
-                    saveStatus === 'SAVED'
-                      ? 'bg-emerald-500 text-slate-950'
-                      : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                  }`}
-                >
-                  {saveStatus === 'SAVED' ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Reflected on Face Canvas!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" />
-                      <span>Save &amp; Reflect on Face Canvas</span>
-                    </>
-                  )}
-                </button>
               </div>
-            </div>
+
+              {/* INTERACTIVE 3D GIZMO DISK + REAL-TIME STEREONET + DIRECT DIP / DIP DIRECTION SLIDERS */}
+              <div className="p-3.5 rounded-xl bg-slate-800/95 border border-cyan-500/40 shadow-lg space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
+                  <span className="font-bold text-cyan-300 uppercase flex items-center gap-1.5 text-xs">
+                    <Compass className="w-4 h-4 text-cyan-400" />
+                    <span>
+                      3D {inspectTargetType === 'dip_surface' ? 'Dip Surface' : 'Joint'} Gizmo, Stereonet &amp; Direct Sliders
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIs3DGizmoDragMode((v) => !v)}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold border cursor-pointer transition-all ${
+                      is3DGizmoDragMode
+                        ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-black shadow'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-cyan-500/50'
+                    }`}
+                    title="When active, dragging directly on the 3D viewport rotates the 3D Plane/Disk Dip Direction and Dip Angle"
+                  >
+                    {is3DGizmoDragMode ? '3D Viewport Gizmo Drag: ON' : '3D Viewport Gizmo Drag: OFF'}
+                  </button>
+                </div>
+
+                {/* Interactive Lower-Hemisphere Equal-Area Stereonet & 3D Plane Disk */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                  <div className="sm:col-span-5 flex flex-col items-center">
+                    {(() => {
+                      const cx = 80;
+                      const cy = 80;
+                      const R = 64;
+                      const dipRad = ((dipAmount ?? 60) * Math.PI) / 180;
+                      const dirRad = (((dipDirection ?? 135) - 90) * Math.PI) / 180;
+                      // Dip vector point on disk (radius proportional to dipAmount / 90)
+                      const rDip = ((dipAmount ?? 60) / 90) * R;
+                      const handleX = cx + rDip * Math.cos(dirRad);
+                      const handleY = cy + rDip * Math.sin(dirRad);
+
+                      // Strike endpoints
+                      const strike1Rad = (((strikeInfo.strikeRhrDeg ?? 45) - 90) * Math.PI) / 180;
+                      const sx1 = cx + R * Math.cos(strike1Rad);
+                      const sy1 = cy + R * Math.sin(strike1Rad);
+                      const sx2 = cx - R * Math.cos(strike1Rad);
+                      const sy2 = cy - R * Math.sin(strike1Rad);
+
+                      // Great circle arc midpoint (bowing toward dip direction)
+                      const bowDist = R * Math.cos(dipRad);
+                      const midArcX = cx + bowDist * Math.cos(dirRad);
+                      const midArcY = cy + bowDist * Math.sin(dirRad);
+                      const ctrlX = 2 * midArcX - 0.5 * (sx1 + sx2);
+                      const ctrlY = 2 * midArcY - 0.5 * (sy1 + sy2);
+
+                      const updateFromStereonetPointer = (e: React.PointerEvent<SVGSVGElement>) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const px = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 160;
+                        const py = ((e.clientY - rect.top) / Math.max(1, rect.height)) * 160;
+                        const dx = px - cx;
+                        const dy = py - cy;
+                        const dist = Math.min(R, Math.hypot(dx, dy));
+                        const nextDir = Math.round(((Math.atan2(dy, dx) * 180) / Math.PI + 90 + 360) % 360);
+                        const nextDip = Math.max(0, Math.min(90, Math.round((dist / R) * 90)));
+                        setIsHingeRotationActive(false);
+                        setDipDirection(nextDir);
+                        setDipAmount(nextDip);
+                        setHingeDipDeg(nextDip);
+                      };
+
+                      return (
+                        <div className="flex flex-col items-center">
+                          <svg
+                            viewBox="0 0 160 160"
+                            className="w-36 h-36 cursor-crosshair touch-none select-none"
+                            onPointerDown={(e) => {
+                              e.currentTarget.setPointerCapture(e.pointerId);
+                              updateFromStereonetPointer(e);
+                            }}
+                            onPointerMove={(e) => {
+                              if (e.buttons > 0) {
+                                updateFromStereonetPointer(e);
+                              }
+                            }}
+                          >
+                            <circle cx={cx} cy={cy} r={R + 6} fill="#020617" stroke="#1e293b" strokeWidth="1.5" />
+                            <circle cx={cx} cy={cy} r={R} fill="#0f172a" stroke="#38bdf8" strokeWidth="1.5" />
+                            <circle cx={cx} cy={cy} r={R * 0.66} fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="2,2" />
+                            <circle cx={cx} cy={cy} r={R * 0.33} fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="2,2" />
+                            <line x1={cx} y1={cy - R} x2={cx} y2={cy + R} stroke="#1e293b" strokeWidth="1" />
+                            <line x1={cx - R} y1={cy} x2={cx + R} y2={cy} stroke="#1e293b" strokeWidth="1" />
+                            <text x={cx} y={11} textAnchor="middle" fill="#f43f5e" fontSize="9" fontWeight="bold">0°</text>
+                            <text x={151} y={cy + 3} textAnchor="middle" fill="#94a3b8" fontSize="8" fontWeight="bold">90°</text>
+                            <text x={cx} y={156} textAnchor="middle" fill="#94a3b8" fontSize="8" fontWeight="bold">180°</text>
+                            <text x={9} y={cy + 3} textAnchor="middle" fill="#94a3b8" fontSize="8" fontWeight="bold">270°</text>
+
+                            {/* Strike Line */}
+                            <line
+                              x1={sx1}
+                              y1={sy1}
+                              x2={sx2}
+                              y2={sy2}
+                              stroke="#10b981"
+                              strokeWidth="1.8"
+                              strokeDasharray="3,2"
+                            />
+                            {/* Great Circle Projection */}
+                            <path
+                              d={`M ${sx1.toFixed(1)} ${sy1.toFixed(1)} Q ${ctrlX.toFixed(1)} ${ctrlY.toFixed(1)} ${sx2.toFixed(1)} ${sy2.toFixed(1)}`}
+                              fill="none"
+                              stroke="#f59e0b"
+                              strokeWidth="2.5"
+                            />
+                            {/* Dip Vector Line + Draggable Gizmo Handle */}
+                            <line
+                              x1={cx}
+                              y1={cy}
+                              x2={handleX}
+                              y2={handleY}
+                              stroke="#06b6d4"
+                              strokeWidth="2.2"
+                            />
+                            <circle
+                              cx={handleX}
+                              cy={handleY}
+                              r="6.5"
+                              fill="#f59e0b"
+                              stroke="#ffffff"
+                              strokeWidth="2"
+                            />
+                          </svg>
+                          <span className="text-[9.5px] text-cyan-300 font-bold text-center mt-0.5">
+                            Drag Gizmo / Stereonet to Rotate 3D Plane
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Direct Dip Direction (0-359°) & Dip Angle (0-90°) Sliders */}
+                  <div className="sm:col-span-7 space-y-2.5">
+                    <div className="space-y-1">
+                      <NumericStepperInput
+                        label="Dip Direction (0°–359°)"
+                        value={dipDirection ?? 135}
+                        min={0}
+                        max={359}
+                        step={1}
+                        unit="°"
+                        isCircular={true}
+                        isLight={isLight}
+                        onChange={(val) => {
+                          setIsHingeRotationActive(false);
+                          setDipDirection(val);
+                        }}
+                      />
+                      <input
+                        type="range"
+                        min={0}
+                        max={359}
+                        value={dipDirection ?? 135}
+                        onChange={(e) => {
+                          setIsHingeRotationActive(false);
+                          setDipDirection(Number(e.target.value));
+                        }}
+                        className="w-full accent-cyan-400 cursor-pointer h-2 bg-slate-900 rounded-lg"
+                      />
+                      <div className="flex items-center justify-between gap-1">
+                        {[
+                          { d: 0, label: '000° FWD' },
+                          { d: 90, label: '090° R' },
+                          { d: 180, label: '180° BACK' },
+                          { d: 270, label: '270° L' },
+                        ].map((btn) => (
+                          <button
+                            key={btn.d}
+                            type="button"
+                            onClick={() => {
+                              setIsHingeRotationActive(false);
+                              setDipDirection(btn.d);
+                            }}
+                            className={`flex-1 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
+                              (dipDirection ?? 135) === btn.d
+                                ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold'
+                                : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {btn.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <NumericStepperInput
+                        label="Dip Angle (0°–90°)"
+                        value={dipAmount ?? 60}
+                        min={0}
+                        max={90}
+                        step={1}
+                        unit="°"
+                        isLight={isLight}
+                        onChange={(val) => {
+                          setDipAmount(val);
+                          setHingeDipDeg(val);
+                        }}
+                      />
+                      <input
+                        type="range"
+                        min={0}
+                        max={90}
+                        value={dipAmount ?? 60}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setDipAmount(val);
+                          setHingeDipDeg(val);
+                        }}
+                        className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-900 rounded-lg"
+                      />
+                      <div className="flex items-center justify-between gap-1">
+                        {[15, 30, 45, 60, 75, 90].map((deg) => (
+                          <button
+                            key={deg}
+                            type="button"
+                            onClick={() => {
+                              setDipAmount(deg);
+                              setHingeDipDeg(deg);
+                            }}
+                            className={`flex-1 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
+                              (dipAmount ?? 60) === deg
+                                ? 'bg-amber-500 text-slate-950 border-amber-300 font-bold'
+                                : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {deg}°
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             {/* 1. Orientation & Angle Conventions */}
             <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-md space-y-3">
               <div className="flex items-center justify-between border-b border-slate-700/70 pb-2">

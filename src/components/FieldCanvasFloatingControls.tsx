@@ -16,6 +16,18 @@ export interface FieldPending2DTrace {
   editedByCompass?: boolean;
 }
 
+export interface CrossPortionBoundaryOption {
+  sourcePanel: FieldPanelId;
+  sourcePanelLabel?: string;
+  targetPanel: FieldPanelId;
+  targetPanelLabel: string;
+  targetPoint: { x: number; y: number };
+  metricLabel?: string;
+  boundaryMetricLabel?: string;
+  edgeDescription?: string;
+  tool?: string;
+}
+
 export interface FieldCanvasFloatingControlsProps {
   isPencilTool: boolean;
   pending2DTrace: FieldPending2DTrace | null;
@@ -29,6 +41,9 @@ export interface FieldCanvasFloatingControlsProps {
   surfaceSegments: SurfaceSegmentItem[];
   onJumpToSurfaceSegment: (idx: number) => void;
   onCommitPending2DTrace: (pendingItem: any) => void;
+  boundaryExtensionOption?: CrossPortionBoundaryOption | null;
+  onExtendToRelatedPortion?: (option: CrossPortionBoundaryOption) => void;
+  onDismissBoundaryOption?: () => void;
 }
 
 export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsProps> = memo(
@@ -45,8 +60,53 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
     surfaceSegments,
     onJumpToSurfaceSegment,
     onCommitPending2DTrace,
+    boundaryExtensionOption = null,
+    onExtendToRelatedPortion,
+    onDismissBoundaryOption,
   }) => {
-    if (!isPencilTool || !pending2DTrace) return null;
+    if ((!isPencilTool || !pending2DTrace) && !boundaryExtensionOption) return null;
+
+    if (!pending2DTrace && boundaryExtensionOption && onExtendToRelatedPortion) {
+      const mLabel = boundaryExtensionOption.metricLabel || boundaryExtensionOption.boundaryMetricLabel || '';
+      const edgeDesc =
+        boundaryExtensionOption.edgeDescription ||
+        `${boundaryExtensionOption.sourcePanelLabel || boundaryExtensionOption.sourcePanel} → ${boundaryExtensionOption.targetPanelLabel}`;
+      return (
+        <div
+          className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 bg-slate-950/95 border-2 border-cyan-400 rounded-xl px-3.5 py-2 shadow-2xl flex flex-wrap items-center gap-2.5 animate-fadeIn"
+          data-window="face-canvas-floating-controls"
+          data-element-id="face-canvas-boundary-extension-bar"
+        >
+          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
+          <div className="text-xs font-bold text-slate-100">
+            <span className="text-cyan-300 font-black uppercase mr-1.5">Boundary Reached:</span>
+            <span className="text-slate-300">{edgeDesc}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onExtendToRelatedPortion(boundaryExtensionOption)}
+            className="px-3 py-1 rounded-lg bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+            title={`Switch to ${boundaryExtensionOption.targetPanelLabel} with a glowing start-point snap marker at ${mLabel}`}
+          >
+            <span>Extend to {boundaryExtensionOption.targetPanelLabel}</span>
+            <span className="font-mono text-[10.5px] bg-slate-950/20 px-1.5 py-0.2 rounded">
+              {mLabel} →
+            </span>
+          </button>
+          {onDismissBoundaryOption && (
+            <button
+              type="button"
+              onClick={onDismissBoundaryOption}
+              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    if (!pending2DTrace) return null;
 
     const isStrikeOnly =
       pending2DTrace.tool === '3_joints' &&
@@ -95,6 +155,23 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
             </span>
           )}
         </div>
+
+        {/* Seamless Cross-Portion Continuation Button when endpoint stops on/near a shared outline boundary */}
+        {boundaryExtensionOption && onExtendToRelatedPortion && pending2DTrace.points.length >= 2 && (
+          <button
+            type="button"
+            onClick={() => onExtendToRelatedPortion(boundaryExtensionOption)}
+            data-window="face-canvas-floating-controls"
+            data-element-id="face-canvas-btn-extend-portion"
+            className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black text-xs flex items-center gap-1 shadow-lg cursor-pointer animate-pulse"
+            title={`Confirm trace on this panel and seamlessly continue on ${boundaryExtensionOption.targetPanelLabel} at ${boundaryExtensionOption.metricLabel}`}
+          >
+            <span>Extend to {boundaryExtensionOption.targetPanelLabel}</span>
+            <span className="font-mono text-[10px] bg-slate-950/20 px-1 rounded">
+              {boundaryExtensionOption.metricLabel} →
+            </span>
+          </button>
+        )}
 
         {/* Pause / Move Canvas Toggle Button */}
         <button

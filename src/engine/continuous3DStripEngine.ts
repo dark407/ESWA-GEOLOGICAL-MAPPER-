@@ -3118,6 +3118,10 @@ export function syncSavedProjectsIntoStripDatasets(
         };
 
         if (j.surface === 'face') {
+          if (!(j as any).allow3DPlaneProjection) {
+            // Do not auto-project Face joints onto Left Wall, Crown, or Right Wall on the Strip Log unless 3D Plane Preview is enabled
+            return;
+          }
           // 1. Add Face trace at the Excavation Face chainage (RD = interval.toRd) using metric (x, y) profile coordinates
           const exactFaceMappedPts: Point2D[] = j.geometry.map((pt, idx) => {
             const vFrac = idx / Math.max(1, j.geometry.length - 1);

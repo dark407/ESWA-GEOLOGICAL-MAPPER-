@@ -3475,6 +3475,7 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
 
     const projectedFaceTraces: FieldJointTrace[] = [];
     if (
+      Boolean(round.show3DPlanePreview) &&
       useContinuousCadMapping &&
       (panel === 'left_wall' || panel === 'crown' || panel === 'right_wall') &&
       panelGeom
@@ -4858,29 +4859,33 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             Face Span W = {location.widthM.toFixed(2)} m (CL at 0.0m)
           </text>
 
-          {/* SPL Markers on Left and Right of the Large Face Picture */}
-          <text
-            x={faceTargetX - 10}
-            y={faceTargetY + faceTargetH * (1 - splRatio) - 4}
-            textAnchor="end"
-            fontSize="11"
-            fontWeight="bold"
-            fontFamily="monospace"
-            fill="#0f172a"
-          >
-            L-SPL ({splHeightM}m)
-          </text>
-          <text
-            x={faceTargetX + faceTargetW + 10}
-            y={faceTargetY + faceTargetH * (1 - splRatio) - 4}
-            textAnchor="start"
-            fontSize="11"
-            fontWeight="bold"
-            fontFamily="monospace"
-            fill="#0f172a"
-          >
-            R-SPL ({splHeightM}m)
-          </text>
+          {/* SPL Markers on Left and Right of the Large Face Picture (only for existing walls) */}
+          {faceDetails.hasLeftWall && faceDetails.showSplLine && (
+            <text
+              x={faceTargetX - 10}
+              y={faceTargetY + faceTargetH * (1 - splRatio) - 4}
+              textAnchor="end"
+              fontSize="11"
+              fontWeight="bold"
+              fontFamily="monospace"
+              fill="#0f172a"
+            >
+              L-SPL ({splHeightM}m)
+            </text>
+          )}
+          {faceDetails.hasRightWall && faceDetails.showSplLine && (
+            <text
+              x={faceTargetX + faceTargetW + 10}
+              y={faceTargetY + faceTargetH * (1 - splRatio) - 4}
+              textAnchor="start"
+              fontSize="11"
+              fontWeight="bold"
+              fontFamily="monospace"
+              fill="#0f172a"
+            >
+              R-SPL ({splHeightM}m)
+            </text>
+          )}
 
           {/* Survey Overbreak (OB) Pre-calculation & Geometry Fitting */}
           {(() => {
@@ -4993,15 +4998,17 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                     strokeWidth="2.2"
                     strokeDasharray="12,5,3,5"
                   />
-                  <line
-                    x1={faceGeom.boxX}
-                    y1={faceGeom.boxY + faceGeom.boxH * (1 - splRatio)}
-                    x2={faceGeom.boxX + faceGeom.boxW}
-                    y2={faceGeom.boxY + faceGeom.boxH * (1 - splRatio)}
-                    stroke="#0f172a"
-                    strokeWidth="2.2"
-                    strokeDasharray="10,5"
-                  />
+                  {faceDetails.showSplLine && (
+                    <line
+                      x1={faceDetails.splLeftPt.x}
+                      y1={faceDetails.splLeftPt.y}
+                      x2={faceDetails.splRightPt.x}
+                      y2={faceDetails.splRightPt.y}
+                      stroke="#0f172a"
+                      strokeWidth="2.2"
+                      strokeDasharray="10,5"
+                    />
+                  )}
                 </g>
 
                 {/* 3. Panel Geological Contents (Lithology, Joints, Planes) */}
@@ -5469,17 +5476,29 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
               strokeWidth="1.8"
               strokeDasharray="10,4,2,4"
             />
-            {!isSurface && effectiveLocation.shape !== 'circular' && (
-              <line
-                x1={left}
-                y1={faceSplY}
-                x2={right}
-                y2={faceSplY}
-                stroke="rgba(217, 119, 6, 0.65)"
-                strokeWidth="2.2"
-                strokeDasharray="8,4"
-              />
-            )}
+            {!isSurface &&
+              effectiveLocation.shape !== 'circular' &&
+              (() => {
+                const faceDetailsForGrid = computeFaceTunnelOutlineDetails(
+                  effectiveLocation,
+                  boxX,
+                  boxY,
+                  boxW,
+                  boxH
+                );
+                if (!faceDetailsForGrid.showSplLine) return null;
+                return (
+                  <line
+                    x1={faceDetailsForGrid.splLeftPt.x}
+                    y1={faceDetailsForGrid.splLeftPt.y}
+                    x2={faceDetailsForGrid.splRightPt.x}
+                    y2={faceDetailsForGrid.splRightPt.y}
+                    stroke="rgba(217, 119, 6, 0.65)"
+                    strokeWidth="2.2"
+                    strokeDasharray="8,4"
+                  />
+                );
+              })()}
             {!isSurface && (
               <FieldTunnelBenchHatchAndLineSvg
                 location={effectiveLocation}
@@ -5890,8 +5909,12 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
     const faceDetails = computeFaceTunnelOutlineDetails(effectiveLocation, boxX, boxY, boxW, boxH);
     const leftWallMidY = (faceDetails.splLeftPt.y + bottom) / 2;
     const rightWallMidY = (faceDetails.splRightPt.y + bottom) / 2;
-    const leftWallLenM = effectiveLocation.leftWallLengthM ?? splHeightM;
-    const rightWallLenM = effectiveLocation.rightWallLengthM ?? splHeightM;
+    const leftWallLenM = faceDetails.hasLeftWall
+      ? geom.leftWallLengthM || effectiveLocation.leftWallLengthM || splHeightM
+      : 0;
+    const rightWallLenM = faceDetails.hasRightWall
+      ? geom.rightWallLengthM || effectiveLocation.rightWallLengthM || splHeightM
+      : 0;
     const totalPerimM =
       (faceDetails.hasLeftWall ? leftWallLenM : 0) +
       (faceDetails.hasCrown ? crownLengthM : 0) +

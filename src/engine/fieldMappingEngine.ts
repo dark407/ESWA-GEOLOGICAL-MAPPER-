@@ -252,6 +252,8 @@ export interface FieldDipPlaneSurface {
   dipAmount: number;
   strike: number;
   setId: FieldJointGroupingId;
+  /** Comprehensive 3D orientation, plane equation, surface intersections, and persistence inspection */
+  inspection3D?: Joint3DInspectionData;
 }
 
 export interface FieldStructuralFeature {
@@ -807,6 +809,8 @@ export interface FieldExcavationRound {
   panelTransforms?: Partial<Record<FieldPanelId, FieldPanelTransform>>;
   /** Independent per-panel Move, Rotate (0/90/180/270), Vertical Mirror, Horizontal Mirror state for Stage 5 (Group Joints) */
   groupJointPanelTransforms?: Partial<Record<FieldPanelId, FieldPanelTransform>>;
+  /** Optional 3D Plane Preview toggle: when false (default), only user-traced joints/features are shown on walls/crown/strip log */
+  show3DPlanePreview?: boolean;
   /** Step 4 Multi-panel Canvas state */
   lithologyStrokes: FieldLithologyStroke[];
   lithologySymbolDensity?: number;
@@ -4577,16 +4581,20 @@ export function computePanelCanvasGeometry(
     tunnelH,
     splHeightM:
       panel === 'left_wall'
-        ? Math.max(0.5, leftWallLengthM || splHeightM)
+        ? hasLeftWall
+          ? Math.max(0.5, leftWallLengthM || splHeightM)
+          : 0
         : panel === 'right_wall'
-        ? Math.max(0.5, rightWallLengthM || splHeightM)
+        ? hasRightWall
+          ? Math.max(0.5, rightWallLengthM || splHeightM)
+          : 0
         : splHeightM,
-    leftWallLengthM: Math.max(0.5, leftWallLengthM || splHeightM),
-    rightWallLengthM: Math.max(0.5, rightWallLengthM || splHeightM),
+    leftWallLengthM: hasLeftWall ? Math.max(0.5, leftWallLengthM || splHeightM) : 0,
+    rightWallLengthM: hasRightWall ? Math.max(0.5, rightWallLengthM || splHeightM) : 0,
     crownRiseM,
     splRatio,
     pullM,
-    crownLengthM: Math.max(0.5, crownLengthM || tunnelW),
+    crownLengthM: hasCrown ? Math.max(0.5, crownLengthM || tunnelW) : 0,
     pxPerMeter,
     hasLeftWall,
     hasRightWall,
@@ -5253,27 +5261,43 @@ export function computeFaceTunnelOutlineDetails(
         invertPoly.reverse();
       }
 
-      const allScrPts = ev.crossSectionPoints.map(toScr);
+      const enabledScrPts: { x: number; y: number }[] = [];
+      for (const seg of ev.segmentMetrics) {
+        if (seg.zoneRole === 'open') continue;
+        const segEnabled =
+          (seg.zoneRole === 'leftWall' && hasLeftWall) ||
+          (seg.zoneRole === 'crown' && hasCrown) ||
+          (seg.zoneRole === 'rightWall' && hasRightWall) ||
+          (seg.zoneRole === 'invert' && hasInvert);
+        if (!segEnabled) continue;
+        for (const pt of seg.sampledPoints) {
+          const scr = toScr(pt);
+          const prev = enabledScrPts[enabledScrPts.length - 1];
+          if (!prev || Math.hypot(prev.x - scr.x, prev.y - scr.y) > 0.5) {
+            enabledScrPts.push(scr);
+          }
+        }
+      }
+      const allScrPts = enabledScrPts.length >= 2 ? enabledScrPts : ev.crossSectionPoints.map(toScr);
       const fillPts = [...allScrPts];
       if (!ev.isClosed && fillPts.length >= 2) {
         const firstP = fillPts[0];
         const lastP = fillPts[fillPts.length - 1];
         if (!hasRightWall && hasLeftWall && hasCrown) {
-          fillPts.push({ x: Math.max(right, lastP.x), y: Math.max(bottom, firstP.y) });
+          fillPts.push({ x: lastP.x, y: firstP.y });
         } else if (!hasLeftWall && hasRightWall && hasCrown) {
-          fillPts.unshift({ x: Math.min(left, firstP.x), y: Math.max(bottom, lastP.y) });
+          fillPts.unshift({ x: firstP.x, y: lastP.y });
         } else if (!hasCrown && hasLeftWall && hasRightWall) {
           fillPts.push({ x: right, y: top }, { x: left, y: top });
         }
       }
       closedFillPathD =
-        fillPts
-          .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-          .join(' ') + ' Z';
-      wallStrokePathD =
-        ev.isClosed && !hasAnyOpenSegment && hasLeftWall && hasRightWall && hasCrown && hasInvert
-          ? closedFillPathD
-          : strokeSubpaths.join(' ');
+        fillPts.length >= 2
+          ? fillPts
+              .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+              .join(' ') + ' Z'
+          : '';
+      wallStrokePathD = strokeSubpaths.join(' ');
     } else if (location.customCrossSectionPoints && location.customCrossSectionPoints.length >= 2) {
       const pts = location.customCrossSectionPoints;
       const minX = Math.min(...pts.map((p) => p.x));
@@ -5288,16 +5312,32 @@ export function computeFaceTunnelOutlineDetails(
       });
       const scrPts = pts.map(toScr);
       const segCount = isClosed ? pts.length : pts.length - 1;
+      const strokeSubpaths: string[] = [];
       for (let i = 0; i < segCount; i++) {
         const p1 = pts[i];
         const p2 = pts[(i + 1) % pts.length];
         const role = inferSegmentZoneRole(p1, p2, minX, maxX, minY, maxY);
         const s1 = scrPts[i];
         const s2 = scrPts[(i + 1) % pts.length];
-        if (role === 'leftWall' && hasLeftWall) leftWallPoly.push(s1, s2);
-        else if (role === 'rightWall' && hasRightWall) rightWallPoly.push(s1, s2);
-        else if (role === 'crown' && hasCrown) crownPoly.push(s1, s2);
-        else if (role === 'invert' && hasInvert) invertPoly.push(s1, s2);
+        let includeSeg = false;
+        if (role === 'leftWall' && hasLeftWall) {
+          leftWallPoly.push(s1, s2);
+          includeSeg = true;
+        } else if (role === 'rightWall' && hasRightWall) {
+          rightWallPoly.push(s1, s2);
+          includeSeg = true;
+        } else if (role === 'crown' && hasCrown) {
+          crownPoly.push(s1, s2);
+          includeSeg = true;
+        } else if (role === 'invert' && hasInvert) {
+          invertPoly.push(s1, s2);
+          includeSeg = true;
+        }
+        if (includeSeg) {
+          strokeSubpaths.push(
+            `M ${s1.x.toFixed(1)} ${s1.y.toFixed(1)} L ${s2.x.toFixed(1)} ${s2.y.toFixed(1)}`
+          );
+        }
       }
       if (
         leftWallPoly.length >= 2 &&
@@ -5314,11 +5354,18 @@ export function computeFaceTunnelOutlineDetails(
       if (crownPoly.length >= 2 && crownPoly[0].x > crownPoly[crownPoly.length - 1].x) {
         crownPoly.reverse();
       }
-      const openCmd = scrPts
+      const activeFillPts = [
+        ...leftWallPoly,
+        ...crownPoly,
+        ...rightWallPoly.slice().reverse(),
+        ...invertPoly.slice().reverse(),
+      ];
+      const fillSourcePts = activeFillPts.length >= 2 ? activeFillPts : scrPts;
+      const openCmd = fillSourcePts
         .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
         .join(' ');
       closedFillPathD = `${openCmd} Z`;
-      wallStrokePathD = isClosed ? closedFillPathD : openCmd;
+      wallStrokePathD = strokeSubpaths.join(' ');
     }
   } else if (location.shape === 'circular') {
     const rx = boxW / 2;

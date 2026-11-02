@@ -410,6 +410,8 @@ export interface TunnelGeometry {
   hasCrown?: boolean;          // Whether Crown portion exists for this section (default true; false for e.g. Transformer Hall face+wall only)
   hasLeftWall?: boolean;       // Whether Left Wall portion exists for this section
   hasRightWall?: boolean;      // Whether Right Wall portion exists for this section
+  hasInvert?: boolean;         // Whether Invert / Floor portion exists for this section
+  isClosed?: boolean;          // Whether the cross-section perimeter is a closed loop
   excavationStage?: 'FULL_FACE' | 'TOP_HEADING' | 'full_face' | 'top_heading'; // Sequential Excavation Top Heading vs Full Face
   benchHeightRemovedMeters?: number; // Lower bench height removed when mapping Top Heading (m)
   leftBenchHeightMeters?: number;    // Left lower bench height removed (m)

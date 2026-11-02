@@ -267,7 +267,10 @@ import {
   PalmRejectionMode,
 } from '../engine/tabletStylusAndZeroLagEngine';
 import { StylusHudAndQuickRadialMenu } from './StylusHudAndQuickRadialMenu';
-import { FieldCanvasFloatingControls } from './FieldCanvasFloatingControls';
+import {
+  FieldCanvasFloatingControls,
+  CrossPortionBoundaryOption,
+} from './FieldCanvasFloatingControls';
 import { FieldFemDemAnalysisStage } from './FieldFemDemAnalysisStage';
 
 interface FieldMappingModeWorkspaceProps {
@@ -880,37 +883,126 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       const projName = (activeProject?.projectName || 'Tunnel Project').trim();
       const locName = (activeLocation.name || 'Main Tunnel').trim();
 
-      const convertedJoints: Joint[] = activeRound.jointTraces.map((tr) => {
-        const metricPts =
-          tr.metricPoints && tr.metricPoints.length === tr.points.length
-            ? tr.metricPoints
-            : computePhysicalMetricPoints(tr.points, tr.panel, activeLocation, activeRound);
-        return {
-          id: tr.id,
-          surface:
-            tr.panel === 'left_wall'
-              ? 'leftWall'
-              : tr.panel === 'right_wall'
-              ? 'rightWall'
-              : tr.panel === 'crown'
-              ? 'crown'
-              : 'face',
-          geometry: metricPts,
-          traceAngle: tr.strike || 0,
-          strike: tr.strike || 0,
-          dip: tr.dipAmount || 45,
-          dipDirection: tr.dipDirection || 90,
-          set: tr.setId || 'J1',
-          featureType: 'joint',
-          confidence: 'High',
-          confidenceScore: 0.9,
-          confidenceBreakdown: { detection: 90, trace: 90, geometric: 90, orientation: 90 },
-          source: 'MANUAL',
-          accepted: true,
-          persistenceMeters: tr.traceLengthM || 1.5,
-          orientationStatus: tr.editedByCompass ? 'DIRECTLY_MEASURED' : 'GEOMETRICALLY_CALCULATED',
-        };
-      });
+      const allow3DProj = Boolean(activeRound.show3DPlanePreview);
+      const convertedJoints: Joint[] = [
+        ...activeRound.jointTraces.map((tr) => {
+          const metricPts =
+            tr.metricPoints && tr.metricPoints.length === tr.points.length
+              ? tr.metricPoints
+              : computePhysicalMetricPoints(tr.points, tr.panel, activeLocation, activeRound);
+          return {
+            id: tr.id,
+            surface: (
+              tr.panel === 'left_wall'
+                ? 'leftWall'
+                : tr.panel === 'right_wall'
+                ? 'rightWall'
+                : tr.panel === 'crown'
+                ? 'crown'
+                : 'face'
+            ) as SurfaceType,
+            geometry: metricPts,
+            traceAngle: tr.strike || 0,
+            strike: tr.strike || 0,
+            dip: tr.dipAmount || 45,
+            dipDirection: tr.dipDirection || 90,
+            set: (tr.setId || 'J1') as unknown as JointSet,
+            featureType: 'joint' as const,
+            confidence: 'High' as const,
+            confidenceScore: 0.9,
+            confidenceBreakdown: { detection: 90, trace: 90, geometric: 90, orientation: 90 },
+            source: 'MANUAL' as const,
+            accepted: true,
+            persistenceMeters: tr.traceLengthM || 1.5,
+            orientationStatus: (
+              tr.editedByCompass ? 'DIRECTLY_MEASURED' : 'GEOMETRICALLY_CALCULATED'
+            ) as any,
+            allow3DPlaneProjection: allow3DProj,
+          } as unknown as Joint;
+        }),
+        ...(activeRound.structuralFeatures || [])
+          .filter(
+            (sf) =>
+              sf.panel === 'left_wall' || sf.panel === 'crown' || sf.panel === 'right_wall'
+          )
+          .map((sf) => {
+            const metricPts = computePhysicalMetricPoints(
+              sf.points,
+              sf.panel,
+              activeLocation,
+              activeRound
+            );
+            return {
+              id: sf.id,
+              surface: (
+                sf.panel === 'left_wall'
+                  ? 'leftWall'
+                  : sf.panel === 'right_wall'
+                  ? 'rightWall'
+                  : 'crown'
+              ) as SurfaceType,
+              geometry: metricPts,
+              traceAngle: ((sf.dipDirection - 90 + 360) % 360),
+              strike: ((sf.dipDirection - 90 + 360) % 360),
+              dip: sf.dipAmount || 60,
+              dipDirection: sf.dipDirection || 90,
+              set: 'F1' as unknown as JointSet,
+              featureType: (
+                sf.featureType === 'shear_zone' || sf.featureType === 'fault'
+                  ? 'shear'
+                  : 'joint'
+              ) as any,
+              confidence: 'High' as const,
+              confidenceScore: 0.95,
+              confidenceBreakdown: { detection: 95, trace: 95, geometric: 95, orientation: 95 },
+              source: 'MANUAL' as const,
+              accepted: true,
+              persistenceMeters: 2.0,
+              orientationStatus: 'DIRECTLY_MEASURED' as any,
+              allow3DPlaneProjection: false,
+            } as unknown as Joint;
+          }),
+        ...(activeRound.dipPlaneSurfaces || [])
+          .filter(
+            (ds) =>
+              ds.panel === 'left_wall' || ds.panel === 'crown' || ds.panel === 'right_wall'
+          )
+          .map((ds) => {
+            const srcPts =
+              ds.outlinePolygon && ds.outlinePolygon.length >= 2 ? ds.outlinePolygon : ds.points;
+            const metricPts = computePhysicalMetricPoints(
+              srcPts,
+              ds.panel,
+              activeLocation,
+              activeRound
+            );
+            return {
+              id: ds.id,
+              surface: (
+                ds.panel === 'left_wall'
+                  ? 'leftWall'
+                  : ds.panel === 'right_wall'
+                  ? 'rightWall'
+                  : 'crown'
+              ) as SurfaceType,
+              geometry: metricPts,
+              traceAngle: ds.strike || ((ds.dipDirection - 90 + 360) % 360),
+              strike: ds.strike || ((ds.dipDirection - 90 + 360) % 360),
+              dip: ds.dipAmount || 45,
+              dipDirection: ds.dipDirection || 90,
+              set: (ds.setId && ds.setId !== 'unassigned' ? ds.setId : 'J1') as unknown as JointSet,
+              featureType: 'joint' as const,
+              confidence: 'High' as const,
+              confidenceScore: 0.95,
+              confidenceBreakdown: { detection: 95, trace: 95, geometric: 95, orientation: 95 },
+              source: 'MANUAL' as const,
+              accepted: true,
+              persistenceMeters: 1.5,
+              orientationStatus: 'DIRECTLY_MEASURED' as any,
+              allow3DPlaneProjection: false,
+            } as unknown as Joint;
+          }),
+      ];
 
       const convertedLithology: LithologyRegion[] = (activeRound.lithologyStrokes || [])
         .filter((st) => st.mode !== 'lithology_erase' && (st.panel === 'left_wall' || st.panel === 'crown' || st.panel === 'right_wall'))
@@ -1038,6 +1130,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   }, [
     activeRound?.jointTraces,
     activeRound?.lithologyStrokes,
+    activeRound?.structuralFeatures,
+    activeRound?.dipPlaneSurfaces,
+    activeRound?.show3DPlanePreview,
     activeRound?.chainageFrom,
     activeRound?.chainageTo,
     activeRound?.pullLengthMeters,
@@ -1258,17 +1353,42 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
   const [is3DJointInspectorOpen, setIs3DJointInspectorOpen] = useState<boolean>(false);
   const [inspectedJointId, setInspectedJointId] = useState<string | null>(null);
+  const [inspectedDipSurfaceId, setInspectedDipSurfaceId] = useState<string | null>(null);
+  const [inspectTargetType, setInspectTargetType] = useState<'joint' | 'dip_surface'>('joint');
+  const [isInspectionModeActive, setIsInspectionModeActive] = useState<boolean>(false);
+  const [lastCompletedBoundaryOption, setLastCompletedBoundaryOption] =
+    useState<CrossPortionBoundaryOption | null>(null);
+  const [boundarySnapBeacon, setBoundarySnapBeacon] = useState<{
+    panel: FieldPanelId;
+    point: FieldPoint2D;
+    label: string;
+    sourcePanel: FieldPanelId;
+    sourcePanelLabel: string;
+    tool: string;
+  } | null>(null);
 
   // Double-tap & double-click tracker to jump into 3D Joint Inspector for a joint set
   const lastJointTapTimeRef = useRef<{ id: string; time: number } | null>(null);
   const handleOpen3DForJoint = useCallback((jointId: string) => {
     setSelectedTraceId(jointId);
     setInspectedJointId(jointId);
+    setInspectTargetType('joint');
+    setIs3DJointInspectorOpen(true);
+  }, []);
+
+  const handleOpen3DForDipSurface = useCallback((dipSurfId: string) => {
+    setSelectedDipSurfaceId(dipSurfId);
+    setInspectedDipSurfaceId(dipSurfId);
+    setInspectTargetType('dip_surface');
     setIs3DJointInspectorOpen(true);
   }, []);
 
   const handleJointTextPointerUp = useCallback((e: React.PointerEvent, jointId: string) => {
     e.stopPropagation();
+    if (isInspectionModeActive) {
+      handleOpen3DForJoint(jointId);
+      return;
+    }
     const now = Date.now();
     const prevTap = lastJointTapTimeRef.current;
     if (prevTap && prevTap.id === jointId && now - prevTap.time < 350) {
@@ -1277,7 +1397,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     } else {
       lastJointTapTimeRef.current = { id: jointId, time: now };
     }
-  }, [handleOpen3DForJoint]);
+  }, [handleOpen3DForJoint, isInspectionModeActive]);
 
   // Stage 4: Field Mapping Canvas State (Single Panel in Stage 4; Full 4-Panel in Stage 5 Group Joints; or 3D Tunnel Mode)
   const [activePanel, setActivePanel] = useState<FieldPanelId>(() =>
@@ -2847,24 +2967,37 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       (activeDrawSubTool === 'pencil' ||
         activeDrawSubTool === 'spline' ||
         activeDrawSubTool === 'polyline');
-    const snapResult = shouldSnapOutline
-      ? snapPointToExactFieldPanelOutline(
-          panelSpacePt,
-          targetPanel,
-          activeLocation,
-          activeRound,
-          30
-        )
-      : {
-          point: clampPointToFieldPanelOutline(
+    // If a Cross-Portion Boundary Snap Beacon is active on this panel and user starts drawing within 75px,
+    // snap the start point directly to the exact cross-portion boundary continuation coordinate!
+    const snapResult =
+      boundarySnapBeacon &&
+      boundarySnapBeacon.panel === targetPanel &&
+      Math.hypot(
+        panelSpacePt.x - boundarySnapBeacon.point.x,
+        panelSpacePt.y - boundarySnapBeacon.point.y
+      ) <= 75
+        ? {
+            point: boundarySnapBeacon.point,
+            snapped: true,
+          }
+        : shouldSnapOutline
+        ? snapPointToExactFieldPanelOutline(
             panelSpacePt,
             targetPanel,
             activeLocation,
             activeRound,
-            0
-          ),
-          snapped: false,
-        };
+            30
+          )
+        : {
+            point: clampPointToFieldPanelOutline(
+              panelSpacePt,
+              targetPanel,
+              activeLocation,
+              activeRound,
+              0
+            ),
+            snapped: false,
+          };
     const pt = snapResult.point;
     if (snapResult.snapped) {
       setOutlineSnapPreviewPt({ panel: targetPanel, point: pt });
@@ -3591,10 +3724,427 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     setPending2DTrace(null);
   };
 
+  /**
+   * Resolves if a trace endpoint on `sourcePanel` stopped at/near a shared outline boundary with an adjacent tunnel portion
+   * (`Face ↔ Crown`, `Face ↔ Left Wall`, `Face ↔ Right Wall`, `Left Wall ↔ Crown`, `Right Wall ↔ Crown`)
+   * and returns the exact corresponding start coordinate on the adjacent panel.
+   */
+  const resolveCrossPortionBoundaryExtension = useCallback(
+    (
+      pts: FieldPoint2D[],
+      sourcePanel: FieldPanelId
+    ): CrossPortionBoundaryOption | null => {
+      if (
+        !activeLocation ||
+        !activeRound ||
+        mappingDomain !== 'TUNNEL' ||
+        isVerticalShaftMode ||
+        pts.length < 2
+      ) {
+        return null;
+      }
+      const lastPt = pts[pts.length - 1];
+      const fGeom = computePanelCanvasGeometry('face', activeLocation, activeRound);
+      const lwGeom = computePanelCanvasGeometry('left_wall', activeLocation, activeRound);
+      const crGeom = computePanelCanvasGeometry('crown', activeLocation, activeRound);
+      const rwGeom = computePanelCanvasGeometry('right_wall', activeLocation, activeRound);
+
+      const panelNames: Record<FieldPanelId, string> = {
+        face: domainPanelMap.face.shortLabel || 'Face',
+        left_wall: domainPanelMap.leftWall.shortLabel || 'Left Wall',
+        crown: domainPanelMap.crown.shortLabel || 'Crown',
+        right_wall: domainPanelMap.rightWall.shortLabel || 'Right Wall',
+        shaft_sn: domainPanelMap.shaftSn?.shortLabel || 'Shaft Wall',
+      };
+
+      const pullM = Math.max(0.5, activeRound.pullLengthMeters || 3.5);
+      const wallH = Math.max(0.5, activeLocation.wallHeightM || activeLocation.heightM * 0.58);
+      const crownSpanM = Math.max(0.5, fGeom.crownLengthM || activeLocation.widthM);
+      const faceWallTopY = fGeom.boxY + fGeom.boxH * (1 - (fGeom.splRatio ?? 0.58));
+
+      if (sourcePanel === 'face') {
+        const snap = snapPointToExactFieldPanelOutline(
+          lastPt,
+          'face',
+          activeLocation,
+          activeRound,
+          42
+        );
+        if (!snap.snapped) return null;
+        const sp = snap.point;
+        const bottomEdgeDist = Math.abs(sp.y - (fGeom.boxY + fGeom.boxH));
+        // Ignore floor/invert edge unless near left/right wall corners
+        if (
+          bottomEdgeDist < 14 &&
+          sp.x > fGeom.boxX + 28 &&
+          sp.x < fGeom.boxX + fGeom.boxW - 28
+        ) {
+          return null;
+        }
+
+        // 1. Face -> Crown Arch (above Springline faceWallTopY)
+        if (sp.y <= faceWallTopY + 14 && fGeom.hasCrown) {
+          const u = Math.max(
+            0.02,
+            Math.min(0.98, (sp.x - fGeom.boxX) / Math.max(1, fGeom.boxW))
+          );
+          const targetPt = clampPointToFieldPanelOutline(
+            {
+              x: Number((crGeom.boxX + u * crGeom.boxW).toFixed(1)),
+              y: Number((crGeom.boxY + 2).toFixed(1)),
+            },
+            'crown',
+            activeLocation,
+            activeRound,
+            0
+          );
+          const mLabel = `Arc ${(u * crownSpanM).toFixed(1)}m @ Face Edge`;
+          return {
+            sourcePanel: 'face',
+            sourcePanelLabel: panelNames.face,
+            targetPanel: 'crown',
+            targetPanelLabel: panelNames.crown,
+            targetPoint: targetPt,
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+
+        // 2. Face -> Left Wall (left side below Springline)
+        if (sp.x <= fGeom.boxX + fGeom.boxW * 0.45 && fGeom.hasLeftWall) {
+          const vWall = Math.max(
+            0.02,
+            Math.min(
+              0.98,
+              (sp.y - faceWallTopY) /
+                Math.max(1, fGeom.boxY + fGeom.boxH - faceWallTopY)
+            )
+          );
+          const targetPt = clampPointToFieldPanelOutline(
+            {
+              x: Number((lwGeom.boxX + lwGeom.boxW - 2).toFixed(1)),
+              y: Number((lwGeom.boxY + vWall * lwGeom.boxH).toFixed(1)),
+            },
+            'left_wall',
+            activeLocation,
+            activeRound,
+            0
+          );
+          const mLabel = `H=${((1 - vWall) * wallH).toFixed(1)}m @ Face Edge`;
+          return {
+            sourcePanel: 'face',
+            sourcePanelLabel: panelNames.face,
+            targetPanel: 'left_wall',
+            targetPanelLabel: panelNames.left_wall,
+            targetPoint: targetPt,
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+
+        // 3. Face -> Right Wall (right side below Springline)
+        if (sp.x >= fGeom.boxX + fGeom.boxW * 0.55 && fGeom.hasRightWall) {
+          const vWall = Math.max(
+            0.02,
+            Math.min(
+              0.98,
+              (sp.y - faceWallTopY) /
+                Math.max(1, fGeom.boxY + fGeom.boxH - faceWallTopY)
+            )
+          );
+          const targetPt = clampPointToFieldPanelOutline(
+            {
+              x: Number((rwGeom.boxX + 2).toFixed(1)),
+              y: Number((rwGeom.boxY + vWall * rwGeom.boxH).toFixed(1)),
+            },
+            'right_wall',
+            activeLocation,
+            activeRound,
+            0
+          );
+          const mLabel = `H=${((1 - vWall) * wallH).toFixed(1)}m @ Face Edge`;
+          return {
+            sourcePanel: 'face',
+            sourcePanelLabel: panelNames.face,
+            targetPanel: 'right_wall',
+            targetPanelLabel: panelNames.right_wall,
+            targetPoint: targetPt,
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+      }
+
+      if (sourcePanel === 'crown') {
+        const u = Math.max(
+          0,
+          Math.min(1, (lastPt.x - crGeom.boxX) / Math.max(1, crGeom.boxW))
+        );
+        const v = Math.max(
+          0,
+          Math.min(1, (lastPt.y - crGeom.boxY) / Math.max(1, crGeom.boxH))
+        );
+        const tolX = 42 / Math.max(1, crGeom.boxW);
+        const tolY = 42 / Math.max(1, crGeom.boxH);
+
+        // Top edge (v ~ 0) -> Face Crown Arch
+        if (v <= tolY) {
+          const rawFacePt = {
+            x: fGeom.boxX + u * fGeom.boxW,
+            y: fGeom.boxY + 4,
+          };
+          const snappedFace = snapPointToExactFieldPanelOutline(
+            rawFacePt,
+            'face',
+            activeLocation,
+            activeRound,
+            240
+          );
+          const mLabel = `Crown Arc ${(u * crownSpanM).toFixed(1)}m`;
+          return {
+            sourcePanel: 'crown',
+            sourcePanelLabel: panelNames.crown,
+            targetPanel: 'face',
+            targetPanelLabel: panelNames.face,
+            targetPoint: snappedFace.point,
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+        // Left edge (u ~ 0) -> Left Wall SPL (Top edge of Left Wall, u_lw = 1 - v)
+        if (u <= tolX && fGeom.hasLeftWall) {
+          const uLw = Math.max(0.02, Math.min(0.98, 1 - v));
+          const mLabel = `Left SPL · Pull ${((1 - v) * pullM).toFixed(1)}m`;
+          return {
+            sourcePanel: 'crown',
+            sourcePanelLabel: panelNames.crown,
+            targetPanel: 'left_wall',
+            targetPanelLabel: panelNames.left_wall,
+            targetPoint: {
+              x: Number((lwGeom.boxX + uLw * lwGeom.boxW).toFixed(1)),
+              y: Number((lwGeom.boxY + 2).toFixed(1)),
+            },
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+        // Right edge (u ~ 1) -> Right Wall SPL (Top edge of Right Wall, u_rw = v)
+        if (u >= 1 - tolX && fGeom.hasRightWall) {
+          const uRw = Math.max(0.02, Math.min(0.98, v));
+          const mLabel = `Right SPL · Pull ${((1 - v) * pullM).toFixed(1)}m`;
+          return {
+            sourcePanel: 'crown',
+            sourcePanelLabel: panelNames.crown,
+            targetPanel: 'right_wall',
+            targetPanelLabel: panelNames.right_wall,
+            targetPoint: {
+              x: Number((rwGeom.boxX + uRw * rwGeom.boxW).toFixed(1)),
+              y: Number((rwGeom.boxY + 2).toFixed(1)),
+            },
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+      }
+
+      if (sourcePanel === 'left_wall') {
+        const u = Math.max(
+          0,
+          Math.min(1, (lastPt.x - lwGeom.boxX) / Math.max(1, lwGeom.boxW))
+        );
+        const v = Math.max(
+          0,
+          Math.min(1, (lastPt.y - lwGeom.boxY) / Math.max(1, lwGeom.boxH))
+        );
+        const tolX = 42 / Math.max(1, lwGeom.boxW);
+        const tolY = 42 / Math.max(1, lwGeom.boxH);
+
+        // Right edge (u ~ 1) -> Face Left Wall
+        if (u >= 1 - tolX) {
+          const rawFacePt = {
+            x: fGeom.boxX + 2,
+            y: faceWallTopY + v * (fGeom.boxY + fGeom.boxH - faceWallTopY),
+          };
+          const snappedFace = snapPointToExactFieldPanelOutline(
+            rawFacePt,
+            'face',
+            activeLocation,
+            activeRound,
+            120
+          );
+          const mLabel = `Left Wall H=${((1 - v) * wallH).toFixed(1)}m`;
+          return {
+            sourcePanel: 'left_wall',
+            sourcePanelLabel: panelNames.left_wall,
+            targetPanel: 'face',
+            targetPanelLabel: panelNames.face,
+            targetPoint: snappedFace.point,
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+        // Top edge (v ~ 0) -> Crown Left SPL (u_crown = 0, v_crown = 1 - u)
+        if (v <= tolY && fGeom.hasCrown) {
+          const vCr = Math.max(0.02, Math.min(0.98, 1 - u));
+          const mLabel = `Left SPL · Pull ${(u * pullM).toFixed(1)}m`;
+          return {
+            sourcePanel: 'left_wall',
+            sourcePanelLabel: panelNames.left_wall,
+            targetPanel: 'crown',
+            targetPanelLabel: panelNames.crown,
+            targetPoint: {
+              x: Number((crGeom.boxX + 2).toFixed(1)),
+              y: Number((crGeom.boxY + vCr * crGeom.boxH).toFixed(1)),
+            },
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+      }
+
+      if (sourcePanel === 'right_wall') {
+        const u = Math.max(
+          0,
+          Math.min(1, (lastPt.x - rwGeom.boxX) / Math.max(1, rwGeom.boxW))
+        );
+        const v = Math.max(
+          0,
+          Math.min(1, (lastPt.y - rwGeom.boxY) / Math.max(1, rwGeom.boxH))
+        );
+        const tolX = 42 / Math.max(1, rwGeom.boxW);
+        const tolY = 42 / Math.max(1, rwGeom.boxH);
+
+        // Left edge (u ~ 0) -> Face Right Wall
+        if (u <= tolX) {
+          const rawFacePt = {
+            x: fGeom.boxX + fGeom.boxW - 2,
+            y: faceWallTopY + v * (fGeom.boxY + fGeom.boxH - faceWallTopY),
+          };
+          const snappedFace = snapPointToExactFieldPanelOutline(
+            rawFacePt,
+            'face',
+            activeLocation,
+            activeRound,
+            120
+          );
+          const mLabel = `Right Wall H=${((1 - v) * wallH).toFixed(1)}m`;
+          return {
+            sourcePanel: 'right_wall',
+            sourcePanelLabel: panelNames.right_wall,
+            targetPanel: 'face',
+            targetPanelLabel: panelNames.face,
+            targetPoint: snappedFace.point,
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+        // Top edge (v ~ 0) -> Crown Right SPL (u_crown = 1, v_crown = u)
+        if (v <= tolY && fGeom.hasCrown) {
+          const vCr = Math.max(0.02, Math.min(0.98, u));
+          const mLabel = `Right SPL · Pull ${((1 - u) * pullM).toFixed(1)}m`;
+          return {
+            sourcePanel: 'right_wall',
+            sourcePanelLabel: panelNames.right_wall,
+            targetPanel: 'crown',
+            targetPanelLabel: panelNames.crown,
+            targetPoint: {
+              x: Number((crGeom.boxX + crGeom.boxW - 2).toFixed(1)),
+              y: Number((crGeom.boxY + vCr * crGeom.boxH).toFixed(1)),
+            },
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+      }
+
+      return null;
+    },
+    [activeLocation, activeRound, mappingDomain, isVerticalShaftMode, domainPanelMap]
+  );
+
+  const activeBoundaryExtensionOption = useMemo<CrossPortionBoundaryOption | null>(() => {
+    if (stage !== 'field_canvas' || mappingDomain !== 'TUNNEL' || isVerticalShaftMode) {
+      return null;
+    }
+    if (pending2DTrace && pending2DTrace.points.length >= 2) {
+      return resolveCrossPortionBoundaryExtension(
+        pending2DTrace.points,
+        pending2DTrace.panel
+      );
+    }
+    if (lastCompletedBoundaryOption && lastCompletedBoundaryOption.sourcePanel === activePanel) {
+      return lastCompletedBoundaryOption;
+    }
+    return null;
+  }, [
+    stage,
+    mappingDomain,
+    isVerticalShaftMode,
+    pending2DTrace,
+    lastCompletedBoundaryOption,
+    activePanel,
+    resolveCrossPortionBoundaryExtension,
+  ]);
+
+  const handleExtendToRelatedPortion = useCallback(
+    (option: CrossPortionBoundaryOption) => {
+      if (pending2DTrace && pending2DTrace.points.length >= 2) {
+        commitPending2DTraceToRound(pending2DTrace);
+      }
+      setLastCompletedBoundaryOption(null);
+      setIs3DMappingMode(false);
+      setActivePanel(option.targetPanel);
+      const bLabel = option.boundaryMetricLabel || option.metricLabel || '';
+      const srcLabel = option.sourcePanelLabel || option.sourcePanel;
+      setBoundarySnapBeacon({
+        panel: option.targetPanel,
+        point: option.targetPoint,
+        label: bLabel,
+        sourcePanel: option.sourcePanel,
+        sourcePanelLabel: srcLabel,
+        tool: activeTool,
+      });
+      if (
+        activeDrawSubTool === 'pencil' ||
+        activeDrawSubTool === 'spline' ||
+        activeDrawSubTool === 'polyline'
+      ) {
+        setPending2DTrace({
+          tool: activeTool,
+          subTool: activeDrawSubTool,
+          panel: option.targetPanel,
+          points: [option.targetPoint],
+          dipDirection: liveDipDirection,
+          dipAmount:
+            option.targetPanel === 'crown' ? 90 : liveDipAmount,
+          strike: (liveDipDirection - 90 + 360) % 360,
+        });
+      }
+      setStatusMessage(
+        `Switched to ${option.targetPanelLabel} — start point anchored at ${bLabel} from ${srcLabel}.`
+      );
+    },
+    [
+      pending2DTrace,
+      activeTool,
+      activeDrawSubTool,
+      liveDipDirection,
+      liveDipAmount,
+      setStatusMessage,
+    ]
+  );
+
   useEffect(() => {
     if (!isPencilTool && pending2DTrace) {
       if (pending2DTrace.points.length >= 2) {
+        const boundaryOpt = resolveCrossPortionBoundaryExtension(
+          pending2DTrace.points,
+          pending2DTrace.panel
+        );
         commitPending2DTraceToRound(pending2DTrace);
+        if (boundaryOpt) {
+          setLastCompletedBoundaryOption(boundaryOpt);
+        }
       } else {
         setPending2DTrace(null);
       }
@@ -4141,6 +4691,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         }
         setPendingPhotogrammetryJoint(newTrace);
       }
+      const boundaryOpt = resolveCrossPortionBoundaryExtension(smoothed, targetPanel);
+      setLastCompletedBoundaryOption(boundaryOpt);
       setCurrentPoints([]);
       return;
     }
@@ -10443,47 +10995,79 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       </button>
                     )}
 
-                    {/* 3D Joint Inspector (Orientation, Intersections, Persistence Analysis) */}
+                    {/* 3D Joint & Dip Surface Inspector + Touch Inspection Mode Toggle */}
                     {stage === 'field_canvas' && (
-                      <button
-                        type="button"
-                        data-window="face-canvas-main-toolbar"
-                        data-element-id="face-canvas-btn-3d-joint-inspector"
-                        data-tool="inspector"
-                        data-role="button"
-                        data-action="open-3d-joint-inspector"
-                        onClick={() => {
-                          if (!activeRound) return;
-                          const targetId = selectedTraceId || activeRound.jointTraces[0]?.id;
-                          if (targetId) {
-                            setInspectedJointId(targetId);
-                            setIs3DJointInspectorOpen(true);
-                          } else {
-                            // Create a default joint trace on active panel so the inspector is ready immediately
-                            const newTr: FieldJointTrace = {
-                              id: `JT-${Date.now().toString(36).toUpperCase()}`,
-                              panel: activePanel,
-                              points: [
-                                { x: 250, y: 350 },
-                                { x: 500, y: 450 },
-                                { x: 750, y: 550 },
-                              ],
-                              dipDirection: activeRound.tunnelDriveDirection || 135,
-                              dipAmount: activePanel === 'crown' ? 90 : 65,
-                              strike: ((activeRound.tunnelDriveDirection || 135) - 90 + 360) % 360,
-                              setId: 'J1',
-                              strokeWidthPx: 3.8,
-                              lineMode: 'smooth',
-                            };
-                            updateActiveRound((r) => ({
-                              ...r,
-                              jointTraces: [newTr],
-                            }));
-                            setSelectedTraceId(newTr.id);
-                            setInspectedJointId(newTr.id);
-                            setIs3DJointInspectorOpen(true);
-                          }
-                        }}
+                      <>
+                        <button
+                          type="button"
+                          data-window="face-canvas-main-toolbar"
+                          data-element-id="face-canvas-btn-toggle-inspection-mode"
+                          data-tool="inspector-toggle"
+                          data-role="button"
+                          data-action="toggle-3d-inspection-mode"
+                          onClick={() => {
+                            setIsInspectionModeActive((prev) => {
+                              const next = !prev;
+                              setStatusMessage(
+                                next
+                                  ? '3D Inspection Mode ON: Touch any Joint Trace or Dip Surface on the canvas to inspect & edit in 3D.'
+                                  : '3D Inspection Mode OFF: Normal mapping tools active.'
+                              );
+                              return next;
+                            });
+                          }}
+                          className={`px-2 py-1 rounded border font-black text-[10px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-all shrink-0 shadow-xs ${
+                            isInspectionModeActive
+                              ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md ring-2 ring-emerald-400/50'
+                              : 'bg-slate-900 hover:bg-slate-800 text-emerald-300 border-emerald-500/40'
+                          }`}
+                          title="Toggle Touch 3D Inspection Mode — when ON, touching any Joint Trace or Dip Surface on the canvas opens the 3D Inspector Module"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>{isInspectionModeActive ? 'Inspect 3D: ON' : 'Inspect 3D: OFF'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          data-window="face-canvas-main-toolbar"
+                          data-element-id="face-canvas-btn-3d-joint-inspector"
+                          data-tool="inspector"
+                          data-role="button"
+                          data-action="open-3d-joint-inspector"
+                          onClick={() => {
+                            if (!activeRound) return;
+                            if (selectedDipSurfaceId) {
+                              handleOpen3DForDipSurface(selectedDipSurfaceId);
+                              return;
+                            }
+                            const targetId = selectedTraceId || activeRound.jointTraces[0]?.id;
+                            if (targetId) {
+                              handleOpen3DForJoint(targetId);
+                            } else if (activeRound.dipPlaneSurfaces.length > 0) {
+                              handleOpen3DForDipSurface(activeRound.dipPlaneSurfaces[0].id);
+                            } else {
+                              // Create a default joint trace on active panel so the inspector is ready immediately
+                              const newTr: FieldJointTrace = {
+                                id: `JT-${Date.now().toString(36).toUpperCase()}`,
+                                panel: activePanel,
+                                points: [
+                                  { x: 250, y: 350 },
+                                  { x: 500, y: 450 },
+                                  { x: 750, y: 550 },
+                                ],
+                                dipDirection: activeRound.tunnelDriveDirection || 135,
+                                dipAmount: activePanel === 'crown' ? 90 : 65,
+                                strike: ((activeRound.tunnelDriveDirection || 135) - 90 + 360) % 360,
+                                setId: 'J1',
+                                strokeWidthPx: 3.8,
+                                lineMode: 'smooth',
+                              };
+                              updateActiveRound((r) => ({
+                                ...r,
+                                jointTraces: [newTr],
+                              }));
+                              handleOpen3DForJoint(newTr.id);
+                            }
+                          }}
                         className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
                           selectedTraceId
                             ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
@@ -10491,9 +11075,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         }`}
                         title="Open 3D Joint Inspector: 3D Orientation, Multi-Surface Intersections, Trace Extent & Persistence Analysis"
                       >
-                        <Box className="w-3 h-3" />
-                        <span>3D Joint Inspector</span>
-                      </button>
+                          <Box className="w-3 h-3" />
+                          <span>3D Joint &amp; Dip Inspector</span>
+                        </button>
+                      </>
                     )}
 
                     {/* Small Top Button for Black & White vs Colour on Canvas */}
@@ -11697,6 +12282,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             return (
                               <g
                                 key={ds.id}
+                                onPointerDown={(e) => {
+                                  if (isInspectionModeActive) {
+                                    e.stopPropagation();
+                                    setActivePanel(panelId);
+                                    handleOpen3DForDipSurface(ds.id);
+                                  }
+                                }}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setActivePanel(panelId);
@@ -11704,6 +12296,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   setSelectedTraceId(null);
                                   setLiveDipDirection(ds.dipDirection);
                                   setLiveDipAmount(ds.dipAmount);
+                                  if (isInspectionModeActive) {
+                                    handleOpen3DForDipSurface(ds.id);
+                                    return;
+                                  }
                                   if (stage === 'joint_grouping' && ds.setId !== activeGroupingSet) {
                                     pushUndoSnapshot();
                                     updateActiveRound((r) => ({
@@ -11900,6 +12496,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             return (
                               <g
                                 key={tr.id}
+                                onPointerDown={(e) => {
+                                  if (isInspectionModeActive) {
+                                    e.stopPropagation();
+                                    setActivePanel(panelId);
+                                    handleOpen3DForJoint(tr.id);
+                                  }
+                                }}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setActivePanel(panelId);
@@ -11910,6 +12513,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   setLiveDipDirection(tr.dipDirection);
                                   setLiveDipAmount(tr.dipAmount);
                                   if (tr.strokeWidthPx) setJointPencilSizePx(tr.strokeWidthPx);
+                                  if (isInspectionModeActive) {
+                                    handleOpen3DForJoint(tr.id);
+                                    return;
+                                  }
                                   if (stage === 'joint_grouping' && tr.setId !== activeGroupingSet) {
                                     pushUndoSnapshot();
                                     updateActiveRound((r) => ({
@@ -12645,6 +13252,57 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           </g>
                         );
                       })()}
+                      {/* Cross-Portion Boundary Continuation Snap Beacon */}
+                      {boundarySnapBeacon && boundarySnapBeacon.panel === activePanel && (() => {
+                        const bp = boundarySnapBeacon.point;
+                        const bx = Math.min(680, Math.max(24, bp.x + 14));
+                        const by = Math.min(930, Math.max(28, bp.y - 18));
+                        return (
+                          <g className="select-none">
+                            <circle
+                              cx={bp.x}
+                              cy={bp.y}
+                              r="18"
+                              fill="none"
+                              stroke="#06B6D4"
+                              strokeWidth="3"
+                              className="animate-ping pointer-events-none"
+                              opacity="0.85"
+                            />
+                            <circle
+                              cx={bp.x}
+                              cy={bp.y}
+                              r="7"
+                              fill="#06B6D4"
+                              stroke="#FFFFFF"
+                              strokeWidth="2"
+                              className="pointer-events-none"
+                            />
+                            <rect
+                              x={bx}
+                              y={by}
+                              width="265"
+                              height="24"
+                              rx="6"
+                              fill="rgba(8, 51, 68, 0.95)"
+                              stroke="#22D3EE"
+                              strokeWidth="1.5"
+                              className="pointer-events-none"
+                            />
+                            <text
+                              x={bx + 8}
+                              y={by + 15.5}
+                              fontSize="9.5"
+                              fontWeight="900"
+                              fill="#A5F3FC"
+                              fontFamily="IBM Plex Mono, monospace"
+                              className="pointer-events-none"
+                            >
+                              {`🔗 Start from ${boundarySnapBeacon.sourcePanelLabel} (${boundarySnapBeacon.label})`}
+                            </text>
+                          </g>
+                        );
+                      })()}
                       {/* Glowing Continuation Anchor & Direct On-Canvas Confirm Button at last trace point */}
                       {pending2DTrace && pending2DTrace.points.length >= 1 && (() => {
                         const lastPt = pending2DTrace.points[pending2DTrace.points.length - 1];
@@ -12768,7 +13426,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 </div>
               )}
 
-              {/* Resumable 2D Trace Confirmation Bar for Pencil, Spline & Polyline */}
+              {/* Resumable 2D Trace Confirmation Bar for Pencil, Spline & Polyline + Cross-Portion Continuation */}
               <FieldCanvasFloatingControls
                 isPencilTool={isPencilTool}
                 pending2DTrace={pending2DTrace}
@@ -12781,7 +13439,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 surfaceActiveSegmentIdx={surfaceActiveSegmentIdx}
                 surfaceSegments={surfaceSegments}
                 onJumpToSurfaceSegment={jumpToSurfaceSegment}
-                onCommitPending2DTrace={commitPending2DTraceToRound}
+                onCommitPending2DTrace={(item) => {
+                  if (item && item.points.length >= 2) {
+                    const bOpt = resolveCrossPortionBoundaryExtension(item.points, item.panel);
+                    commitPending2DTraceToRound(item);
+                    setLastCompletedBoundaryOption(bOpt);
+                  } else {
+                    commitPending2DTraceToRound(item);
+                  }
+                }}
+                boundaryExtensionOption={activeBoundaryExtensionOption}
+                onExtendToRelatedPortion={handleExtendToRelatedPortion}
+                onDismissBoundaryOption={() => setLastCompletedBoundaryOption(null)}
               />
             </div>
           </div>
@@ -13547,9 +14216,22 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   {ds.panel.replace('_', ' ')} Surf #{idx + 1}
                                 </span>
                               </div>
-                              <span className="font-mono font-bold text-xs text-cyan-300">
-                                {String(ds.dipDirection).padStart(3, '0')}°/{ds.dipAmount}°
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-xs text-cyan-300">
+                                  {String(ds.dipDirection).padStart(3, '0')}°/{ds.dipAmount}°
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpen3DForDipSurface(ds.id);
+                                  }}
+                                  className="px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer transition-all bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-slate-950 border-cyan-500/40"
+                                  title="Inspect & Edit Dip Surface in 3D"
+                                >
+                                  3D
+                                </button>
+                              </div>
                             </div>
                             <div className="flex flex-wrap gap-1">
                               {(
@@ -15988,6 +16670,14 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 activeRound.jointTraces[0]) as FieldJointTrace
             }
             allRoundJoints={activeRound.jointTraces}
+            activeDipSurface={
+              activeRound.dipPlaneSurfaces.find((d) => d.id === inspectedDipSurfaceId) ||
+              activeRound.dipPlaneSurfaces.find((d) => d.id === selectedDipSurfaceId) ||
+              activeRound.dipPlaneSurfaces[0] ||
+              null
+            }
+            allRoundDipSurfaces={activeRound.dipPlaneSurfaces}
+            initialInspectTargetType={inspectTargetType}
             tunnelGeometry={{
               widthM: fGeom?.tunnelW || activeLocation?.widthM || 8.5,
               heightM: fGeom?.tunnelH || activeLocation?.heightM || 7.5,
@@ -16022,6 +16712,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               }));
               setLiveDipDirection(updated.dipDirection);
               setLiveDipAmount(updated.dipAmount);
+            }}
+            onSaveDipSurface={(updatedDipSurf) => {
+              updateActiveRound((r) => ({
+                ...r,
+                dipPlaneSurfaces: r.dipPlaneSurfaces.map((d) =>
+                  d.id === updatedDipSurf.id ? updatedDipSurf : d
+                ),
+              }));
+              setLiveDipDirection(updatedDipSurf.dipDirection);
+              setLiveDipAmount(updatedDipSurf.dipAmount);
             }}
           />
         );

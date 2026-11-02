@@ -3869,6 +3869,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
                           <option value="crown">Crown Arch</option>
                           <option value="rightWall">Right Wall</option>
                           <option value="invert">Invert / Base</option>
+                          <option value="open">Open Bit / No Wall (Omit on Face)</option>
                         </select>
                       </label>
                     </div>
@@ -3952,6 +3953,7 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
                             <option value="crown">Crown Arch</option>
                             <option value="rightWall">Right Wall</option>
                             <option value="invert">Invert / Base</option>
+                            <option value="open">Open Bit / No Wall (Omit on Face)</option>
                           </select>
                         </div>
                       );

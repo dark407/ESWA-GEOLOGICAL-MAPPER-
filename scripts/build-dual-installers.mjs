@@ -13,7 +13,7 @@ const releaseDir = path.join(rootDir, 'release');
 const githubRepo = process.env.GITHUB_REPOSITORY || process.env.VITE_GITHUB_REPO || '';
 const buildVersion =
   process.env.VITE_APP_BUILD_VERSION ||
-  (process.env.GITHUB_RUN_NUMBER ? `1.0.${process.env.GITHUB_RUN_NUMBER}` : '1.0.0');
+  (process.env.GITHUB_RUN_NUMBER ? `2.5.${process.env.GITHUB_RUN_NUMBER}` : '2.5.0');
 
 function run(cmd, extraEnv = {}) {
   console.log(`\n[Dual Builder] Running: ${cmd}`);
@@ -102,18 +102,28 @@ function buildWindowsExecutable(edition, configJsonName, outputExeName) {
     console.warn(`[Dual Builder] Vite build notice for ${edition}:`, viteErr?.message || viteErr);
   }
 
+  const ebEnv = {
+    CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+    WIN_CSC_LINK: '',
+    WIN_CSC_KEY_PASSWORD: '',
+    ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: 'true',
+  };
+
   try {
     run(
-      `npx electron-builder --config ${configJsonName} --win nsis --publish never -c.win.signAndEditExecutable=false -c.win.verifyUpdateCodeSignature=false -c.forceCodeSigning=false`,
-      {
-        CSC_IDENTITY_AUTO_DISCOVERY: 'false',
-        WIN_CSC_LINK: '',
-        WIN_CSC_KEY_PASSWORD: '',
-        ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: 'true',
-      }
+      `npx electron-builder --config ${configJsonName} --win nsis --publish never -c.win.verifyUpdateCodeSignature=false -c.forceCodeSigning=false`,
+      ebEnv
     );
   } catch (ebErr) {
-    console.warn(`[Dual Builder] electron-builder notice for ${edition}:`, ebErr?.message || ebErr);
+    console.warn(`[Dual Builder] Primary electron-builder pass notice for ${edition}, retrying with signAndEditExecutable=false:`, ebErr?.message || ebErr);
+    try {
+      run(
+        `npx electron-builder --config ${configJsonName} --win nsis --publish never -c.win.signAndEditExecutable=false -c.win.verifyUpdateCodeSignature=false -c.forceCodeSigning=false`,
+        ebEnv
+      );
+    } catch (retryErr) {
+      console.warn(`[Dual Builder] electron-builder fallback notice for ${edition}:`, retryErr?.message || retryErr);
+    }
   }
 
   if (!fs.existsSync(targetExePath)) {

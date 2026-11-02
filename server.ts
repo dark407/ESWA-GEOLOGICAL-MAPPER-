@@ -919,15 +919,22 @@ USER ANNOTATIONS / DIMENSION PINS ON CANVAS (with X, Y meter coordinates):
 ${JSON.stringify(normalizedAnnotations, null, 2)}
 
 USER SYMMETRY PREFERENCE: ${userSymmetryPreference}
-CRITICAL RULES:
-1. If the user placed dimension pins/annotations (e.g. "W = 6.0m", "H = 8.0m", "Wall = 3.2m", "c 10.2m", "80°", "open") or explicit userParameters, those exact numbers MUST take highest priority!
-2. If no annotation overrides a dimension and the user drew strokes on the canvas (drawnPointCount >= 3), use the PRE-COMPUTED GEOMETRIC METRICS from the user's strokes so the output matches the drawn shape on the meter grid with 100% accuracy!
-3. In tunnel drawings, "c <number>m" (e.g., "c 10.2m", "c 10.6m") denotes the exact CURVED CROWN ARC LENGTH in meters (crownArcLengthM).
-4. If one wall is marked "open" (or openWall is "left" or "right"), set openWall accordingly, hasLeftWall / hasRightWall, isSymmetric = false, and archetype = "open_slashing_drift".
-5. If userSymmetryPreference === "non-symmetric" or the sketch/annotations have different left vs right wall heights, angles, or half-spans, set isSymmetric = false and report leftWallHeightM, rightWallHeightM, leftWallAngleDeg, rightWallAngleDeg, leftSpanM, and rightSpanM independently.
-6. If the drawn roof is flat/rectangular, set crownType = "flat" and archetype = "box_portal".`;
+CRITICAL MAGIC PAPER ANALYSIS RULES:
+1. Read ALL handwritten text, numbers, angles (°), "arc"/"curve" words, and portion labels ("left wall", "right wall", "crown", "invert") drawn or pinned on the canvas image!
+2. If the user wrote or pinned specific lengths (e.g. "4.2m", "c 10.2m", "6m", "8m"), angles (e.g. "90°", "80°", "85°"), or portion types ("arc" vs straight line), those exact numbers and types MUST take highest priority!
+3. OMITTED PORTION RULE: Carefully check which portions actually exist in the user's drawing on the Magic Paper:
+   - If Left Wall is not drawn, set hasLeftWall = false and do NOT include leftWall in solvedPortions.
+   - If Right Wall is not drawn, set hasRightWall = false and do NOT include rightWall in solvedPortions.
+   - If Crown is not drawn, set hasCrown = false and do NOT include crown in solvedPortions.
+   - If Invert / bottom floor line is not drawn, set hasInvert = false and do NOT include invert in solvedPortions.
+4. For each portion that IS drawn on the Magic Paper, include it in solvedPortions in clockwise order (leftWall -> crown -> rightWall -> invert) with:
+   - portion: "leftWall" | "crown" | "rightWall" | "invert"
+   - type: "arc" if curved or labeled "arc"/"curve"/"c", otherwise "line"
+   - lengthM: exact length in meters (from written/pinned label or measured on the 36px=1m grid)
+   - angleDeg: CAD direction angle in degrees (e.g. 90 for vertical upward left wall, 0 for horizontal left-to-right crown, -90 for vertical downward right wall, 180 for horizontal right-to-left invert; or adjusted for inclined wall batters like 80° -> 80 for left wall, -80 for right wall)
+   - arcHeightM: arc rise / sagitta in meters if type === "arc" (0 if line).`;
 
-        const candidateModels = ['gemini-3-flash-preview', 'gemini-2.5-flash'];
+        const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
         for (const modelName of candidateModels) {
           try {
             const response = await ai.models.generateContent({
@@ -954,7 +961,9 @@ CRITICAL RULES:
                     archetype: { type: Type.STRING },
                     openWall: { type: Type.STRING, description: 'none, left, or right' },
                     hasLeftWall: { type: Type.BOOLEAN },
+                    hasCrown: { type: Type.BOOLEAN },
                     hasRightWall: { type: Type.BOOLEAN },
+                    hasInvert: { type: Type.BOOLEAN },
                     widthM: { type: Type.NUMBER },
                     leftSpanM: { type: Type.NUMBER },
                     rightSpanM: { type: Type.NUMBER },
@@ -971,6 +980,26 @@ CRITICAL RULES:
                     invertSagittaM: { type: Type.NUMBER },
                     invertArcLengthM: { type: Type.NUMBER },
                     isSymmetric: { type: Type.BOOLEAN },
+                    solvedPortions: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          portion: {
+                            type: Type.STRING,
+                            description: 'leftWall, crown, rightWall, or invert',
+                          },
+                          type: {
+                            type: Type.STRING,
+                            description: 'line or arc',
+                          },
+                          lengthM: { type: Type.NUMBER },
+                          angleDeg: { type: Type.NUMBER },
+                          arcHeightM: { type: Type.NUMBER },
+                        },
+                        required: ['portion', 'type', 'lengthM', 'angleDeg'],
+                      },
+                    },
                     recognizedDimensions: {
                       type: Type.ARRAY,
                       items: { type: Type.STRING },
@@ -1192,8 +1221,17 @@ CRITICAL RULES:
         controlPoints: clientMetrics?.controlPoints,
         segments: clientMetrics?.segments,
         openWall: finalOpenWall,
-        hasLeftWall: finalOpenWall !== 'left' && !isPolygonalNoSidewall,
-        hasRightWall: finalOpenWall !== 'right' && !isPolygonalNoSidewall,
+        hasLeftWall:
+          typeof aiResult?.hasLeftWall === 'boolean'
+            ? aiResult.hasLeftWall && finalOpenWall !== 'left'
+            : finalOpenWall !== 'left' && !isPolygonalNoSidewall,
+        hasCrown: typeof aiResult?.hasCrown === 'boolean' ? aiResult.hasCrown : true,
+        hasRightWall:
+          typeof aiResult?.hasRightWall === 'boolean'
+            ? aiResult.hasRightWall && finalOpenWall !== 'right'
+            : finalOpenWall !== 'right' && !isPolygonalNoSidewall,
+        hasInvert: typeof aiResult?.hasInvert === 'boolean' ? aiResult.hasInvert : true,
+        solvedPortions: Array.isArray(aiResult?.solvedPortions) ? aiResult.solvedPortions : undefined,
         widthM: Number(finalWidth.toFixed(2)),
         leftSpanM: Number(finalLeftSpan.toFixed(2)),
         rightSpanM: Number(finalRightSpan.toFixed(2)),
