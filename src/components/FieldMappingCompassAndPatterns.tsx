@@ -1564,6 +1564,9 @@ interface FieldLiveCompassInclinometerProps {
   onChangeCrownDipSign: (nextSign: '+90' | '-90') => void;
   onChangeSetId: (nextSet: FieldJointGroupingId) => void;
   onRecalculateFromTrace?: () => void;
+  isRealtimeCompassEnabled?: boolean;
+  onToggleRealtimeCompass?: (nextEnabled: boolean) => void;
+  onOpenRealtimeCompass?: () => void;
 }
 
 /**
@@ -1594,6 +1597,9 @@ export const FieldLiveCompassInclinometer: React.FC<
   onChangeCrownDipSign,
   onChangeSetId,
   onRecalculateFromTrace,
+  isRealtimeCompassEnabled = true,
+  onToggleRealtimeCompass,
+  onOpenRealtimeCompass,
 }) => {
   const compassSvgRef = useRef<SVGSVGElement | null>(null);
   const inclinometerSvgRef = useRef<SVGSVGElement | null>(null);
@@ -1706,6 +1712,42 @@ export const FieldLiveCompassInclinometer: React.FC<
           )}
         </div>
       </div>
+
+      {/* ANDROID APK REAL-TIME MOBILE COMPASS OPTION (ON/OFF TOGGLE + LAUNCH SPLIT WINDOW) */}
+      {onOpenRealtimeCompass && (
+        <div className="bg-slate-950 border border-cyan-500/40 rounded-lg p-2 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+              Mobile Sensor Compass (Android APK)
+            </span>
+            {onToggleRealtimeCompass && (
+              <button
+                type="button"
+                onClick={() => onToggleRealtimeCompass(!isRealtimeCompassEnabled)}
+                className={`px-2 py-0.5 rounded text-[9.5px] font-black uppercase cursor-pointer border transition-all ${
+                  isRealtimeCompassEnabled
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}
+                title="Toggle Real-Time Mobile/Tablet Sensor Compass feature ON or OFF"
+              >
+                {isRealtimeCompassEnabled ? 'ON' : 'OFF'}
+              </button>
+            )}
+          </div>
+          {isRealtimeCompassEnabled && (
+            <button
+              type="button"
+              onClick={onOpenRealtimeCompass}
+              className="w-full py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 text-[10.5px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+              title="Open Two-Screen 3D Joint Plane & Real-Time Mobile Sensor Compass (Locks Screen Rotation & Updates Text Only)"
+            >
+              <Compass className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Real-Time Compass (3D + Tilt Sensor)</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Only show Joint Grouping buttons when in Joint Grouping mode */}
       {(showGroupingSelector || showSetSelector) && (

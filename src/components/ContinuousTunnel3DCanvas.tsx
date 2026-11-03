@@ -656,34 +656,37 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           Math.cos(dipRad) * Math.cos(dipDirRad)
         ).normalize();
 
-        // Extrude a 3D Dip Surface Ribbon along the full trace curve
-        const sampledPts = curve.getPoints(Math.max(12, points.length * 3));
-        const ribbonDepthM = isSelected ? 1.15 : 0.78;
-        const ribVerts: number[] = [];
-        for (let i = 0; i < sampledPts.length - 1; i++) {
-          const p1 = sampledPts[i];
-          const p2 = sampledPts[i + 1];
-          const p1Out = p1.clone().addScaledVector(dipVec, ribbonDepthM);
-          const p2Out = p2.clone().addScaledVector(dipVec, ribbonDepthM);
+        // Only extrude a 3D Dip Surface Ribbon when the structure is explicitly a Dip Surface ('Joint Plane/Surface')
+        // Regular joint traces (J1, J2, J3, etc.) remain crisp 3D trace lines without dip-surface ribbon extrusion.
+        if (trace.structureType === 'Joint Plane/Surface') {
+          const sampledPts = curve.getPoints(Math.max(12, points.length * 3));
+          const ribbonDepthM = isSelected ? 1.15 : 0.78;
+          const ribVerts: number[] = [];
+          for (let i = 0; i < sampledPts.length - 1; i++) {
+            const p1 = sampledPts[i];
+            const p2 = sampledPts[i + 1];
+            const p1Out = p1.clone().addScaledVector(dipVec, ribbonDepthM);
+            const p2Out = p2.clone().addScaledVector(dipVec, ribbonDepthM);
 
-          ribVerts.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p1Out.x, p1Out.y, p1Out.z);
-          ribVerts.push(p2.x, p2.y, p2.z, p2Out.x, p2Out.y, p2Out.z, p1Out.x, p1Out.y, p1Out.z);
-        }
-        if (ribVerts.length > 0) {
-          const ribGeo = new THREE.BufferGeometry();
-          ribGeo.setAttribute('position', new THREE.Float32BufferAttribute(ribVerts, 3));
-          ribGeo.computeVertexNormals();
-          const ribMat = new THREE.MeshStandardMaterial({
-            color: isSelected ? 0xf59e0b : colorNum,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: isSelected ? 0.42 : 0.24,
-            roughness: 0.45,
-            depthWrite: false,
-          });
-          const ribMesh = new THREE.Mesh(ribGeo, ribMat);
-          ribMesh.userData = { isTunnelEntity: true, traceId: trace.id };
-          scene.add(ribMesh);
+            ribVerts.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p1Out.x, p1Out.y, p1Out.z);
+            ribVerts.push(p2.x, p2.y, p2.z, p2Out.x, p2Out.y, p2Out.z, p1Out.x, p1Out.y, p1Out.z);
+          }
+          if (ribVerts.length > 0) {
+            const ribGeo = new THREE.BufferGeometry();
+            ribGeo.setAttribute('position', new THREE.Float32BufferAttribute(ribVerts, 3));
+            ribGeo.computeVertexNormals();
+            const ribMat = new THREE.MeshStandardMaterial({
+              color: isSelected ? 0xf59e0b : colorNum,
+              side: THREE.DoubleSide,
+              transparent: true,
+              opacity: isSelected ? 0.42 : 0.24,
+              roughness: 0.45,
+              depthWrite: false,
+            });
+            const ribMesh = new THREE.Mesh(ribGeo, ribMat);
+            ribMesh.userData = { isTunnelEntity: true, traceId: trace.id };
+            scene.add(ribMesh);
+          }
         }
 
         const discRadius = Math.max(

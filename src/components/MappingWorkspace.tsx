@@ -8866,7 +8866,7 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
                     )}
 
                     {/* Interactive Mini 3D Strike & Dip vs. Tunnel Drive Preview */}
-                    <div className="pt-2">
+                    <div className="pt-2 space-y-2">
                       <Mini3DStrikeDipPreview
                         joint={selectedJoint}
                         geometry={geometry}

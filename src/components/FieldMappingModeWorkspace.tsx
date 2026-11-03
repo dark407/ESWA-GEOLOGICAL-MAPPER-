@@ -46,6 +46,13 @@ import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
 import { NatmJoint3DInspectorModal } from './NatmJoint3DInspectorModal';
 import { TunnelMonitoringModal } from './TunnelMonitoringModal';
 import {
+  RealtimeMobileSplitCompassModal,
+  detectAndroidApkOrMobileSensorEnv,
+  loadRealtimeCompassEnabledSetting,
+  saveRealtimeCompassEnabledSetting,
+  RealtimeCompassDomainMode,
+} from './RealtimeMobileSplitCompassModal';
+import {
   getCrownStrikePair,
 } from '../engine/joint3DInspectorEngine';
 import {
@@ -2142,6 +2149,29 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const [liveDipDirection, setLiveDipDirection] = useState<number>(135);
   const [liveDipAmount, setLiveDipAmount] = useState<number>(62);
   const [liveCrownSign, setLiveCrownSign] = useState<'+90' | '-90'>('+90');
+
+  // Optional Real-Time Mobile/Tablet Sensor Compass (Android APK) state
+  // Strictly restricted to Android APK in Underground Face Mapping (Field Mode) & Surface Mapping only
+  const androidApkSensorEnv = useMemo(() => detectAndroidApkOrMobileSensorEnv(), []);
+  const isRealtimeCompassAvailableInFieldMode =
+    (androidApkSensorEnv.isAndroid || androidApkSensorEnv.isAndroidApkWebView) &&
+    !isVerticalShaftMode;
+
+  const [isRealtimeCompassEnabled, setIsRealtimeCompassEnabled] = useState<boolean>(() =>
+    loadRealtimeCompassEnabledSetting()
+  );
+  const [isRealtimeCompassModalOpen, setIsRealtimeCompassModalOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isRealtimeCompassAvailableInFieldMode && isRealtimeCompassModalOpen) {
+      setIsRealtimeCompassModalOpen(false);
+    }
+  }, [isRealtimeCompassAvailableInFieldMode, isRealtimeCompassModalOpen]);
+
+  const handleToggleRealtimeCompass = useCallback((nextEnabled: boolean) => {
+    setIsRealtimeCompassEnabled(nextEnabled);
+    saveRealtimeCompassEnabledSetting(nextEnabled);
+  }, []);
 
   // Undo / Redo Stacks per Round
   const [undoStack, setUndoStack] = useState<FieldCanvasSnapshot[]>([]);
@@ -9957,6 +9987,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 >
                                   3D
                                 </button>
+                                {isRealtimeCompassAvailableInFieldMode && isRealtimeCompassEnabled && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedTraceId(tr.id);
+                                      setSelectedDipSurfaceId(null);
+                                      setLiveDipDirection(tr.dipDirection);
+                                      setLiveDipAmount(tr.dipAmount);
+                                      setIsRealtimeCompassModalOpen(true);
+                                    }}
+                                    className="px-1.5 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-slate-950 border border-cyan-500/40 text-[9px] font-bold cursor-pointer transition-all flex items-center gap-0.5"
+                                    title="Open Real-Time Mobile Sensor Compass (Android APK)"
+                                  >
+                                    <Compass className="w-2.5 h-2.5" />
+                                    <span>Compass</span>
+                                  </button>
+                                )}
                               </div>
                             </div>
                           );
@@ -10596,6 +10644,35 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         <Redo2 className="w-3 h-3" />
                         <span>Redo</span>
                       </button>
+
+                      {/* Optional Real-Time Mobile Sensor Compass (Android APK - Underground Face Mapping & Surface Mapping only) */}
+                      {isRealtimeCompassAvailableInFieldMode && (
+                        <div className="flex items-center gap-1 bg-slate-900 border border-cyan-500/40 rounded-lg px-1.5 py-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleRealtimeCompass(!isRealtimeCompassEnabled)}
+                            className={`px-1.5 py-0.5 rounded text-[9.5px] font-black uppercase cursor-pointer transition-all ${
+                              isRealtimeCompassEnabled
+                                ? 'bg-emerald-500 text-slate-950'
+                                : 'bg-slate-800 text-slate-400'
+                            }`}
+                            title="Toggle Real-Time Mobile Sensor Compass option ON or OFF (Android APK)"
+                          >
+                            Sensor Compass: {isRealtimeCompassEnabled ? 'ON' : 'OFF'}
+                          </button>
+                          {isRealtimeCompassEnabled && (
+                            <button
+                              type="button"
+                              onClick={() => setIsRealtimeCompassModalOpen(true)}
+                              className="px-2 py-0.5 rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-[10px] font-black flex items-center gap-1 cursor-pointer shadow"
+                              title="Open Two-Screen Real-Time Mobile Compass & 3D Joint Plane"
+                            >
+                              <Compass className="w-3 h-3" />
+                              <span>Real-Time Compass</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -14124,6 +14201,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 >
                                   {isStrikeOnlyHorizontalPanel(tr.panel, isVerticalShaftMode) && tr.inspection3D ? '3D ✓' : '3D'}
                                 </button>
+                                {isRealtimeCompassAvailableInFieldMode && isRealtimeCompassEnabled && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedTraceId(tr.id);
+                                      setSelectedDipSurfaceId(null);
+                                      setLiveDipDirection(tr.dipDirection);
+                                      setLiveDipAmount(tr.dipAmount);
+                                      setIsRealtimeCompassModalOpen(true);
+                                    }}
+                                    className="px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer transition-all bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-slate-950 border-cyan-500/40 flex items-center gap-1"
+                                    title="Open Real-Time Mobile Sensor Compass (Android APK)"
+                                  >
+                                    <Compass className="w-3 h-3" />
+                                    <span>Compass</span>
+                                  </button>
+                                )}
                               </div>
                             </div>
                             <div className="flex flex-wrap gap-1">
@@ -15440,6 +15535,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           onChangeCrownDipSign={setLiveCrownSign}
                           onChangeSetId={() => {}}
                           onRecalculateFromTrace={handleRecalculateSelectedFromTrace}
+                          isRealtimeCompassEnabled={
+                            isRealtimeCompassAvailableInFieldMode && isRealtimeCompassEnabled
+                          }
+                          onToggleRealtimeCompass={
+                            isRealtimeCompassAvailableInFieldMode
+                              ? handleToggleRealtimeCompass
+                              : undefined
+                          }
+                          onOpenRealtimeCompass={
+                            isRealtimeCompassAvailableInFieldMode
+                              ? () => setIsRealtimeCompassModalOpen(true)
+                              : undefined
+                          }
                         />
                       )}
                     </>
@@ -15532,6 +15640,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     onChangeCrownDipSign={handleCrownSignChange}
                     onChangeSetId={() => {}}
                     onRecalculateFromTrace={handleRecalculateSelectedFromTrace}
+                    isRealtimeCompassEnabled={
+                      isRealtimeCompassAvailableInFieldMode && isRealtimeCompassEnabled
+                    }
+                    onToggleRealtimeCompass={
+                      isRealtimeCompassAvailableInFieldMode
+                        ? handleToggleRealtimeCompass
+                        : undefined
+                    }
+                    onOpenRealtimeCompass={
+                      isRealtimeCompassAvailableInFieldMode
+                        ? () => setIsRealtimeCompassModalOpen(true)
+                        : undefined
+                    }
                   />
                 ) : (
                   <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-400">
@@ -15758,6 +15879,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     onChangeCrownDipSign={handleCrownSignChange}
                     onChangeSetId={() => {}}
                     onRecalculateFromTrace={handleRecalculateSelectedFromTrace}
+                    isRealtimeCompassEnabled={
+                      isRealtimeCompassAvailableInFieldMode && isRealtimeCompassEnabled
+                    }
+                    onToggleRealtimeCompass={
+                      isRealtimeCompassAvailableInFieldMode
+                        ? handleToggleRealtimeCompass
+                        : undefined
+                    }
+                    onOpenRealtimeCompass={
+                      isRealtimeCompassAvailableInFieldMode
+                        ? () => setIsRealtimeCompassModalOpen(true)
+                        : undefined
+                    }
                   />
                 )}
               </div>
@@ -16904,6 +17038,163 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         contractorName={activeProject?.contractorName}
         consultantName={activeProject?.consultantName}
       />
+
+      {/* Two-Screen Real-Time Mobile/Tablet Sensor Compass & 3D Joint Plane Modal (Android APK: Underground Face Mapping & Surface Mapping only) */}
+      {isRealtimeCompassAvailableInFieldMode && (() => {
+        const roundTraces = activeRound?.jointTraces || [];
+        const roundDipSurfaces = activeRound?.dipPlaneSurfaces || [];
+        const roundStructFeatures = activeRound?.structuralFeatures || [];
+
+        const activeTraceObj =
+          roundTraces.find((t) => t.id === selectedTraceId) ||
+          roundTraces[roundTraces.length - 1];
+        const activeDipSurfObj =
+          roundDipSurfaces.find((d) => d.id === selectedDipSurfaceId);
+        const activeStructFeatObj =
+          roundStructFeatures.find((f) => f.id === selectedFeatureId);
+
+        const targetPoints =
+          pending2DTrace?.points?.length
+            ? pending2DTrace.points
+            : activeTool === '4_dip_surface' && activeDipSurfObj
+            ? activeDipSurfObj.points || []
+            : activeTool === '5_geo_feature' && activeStructFeatObj
+            ? activeStructFeatObj.points || []
+            : activeTraceObj?.points || [];
+
+        const targetLabel =
+          pending2DTrace?.points?.length
+            ? `Pending Trace (${(activePanel || 'face').replace('_', ' ')})`
+            : activeTool === '4_dip_surface' && activeDipSurfObj
+            ? `Dip Surface (${activeDipSurfObj.setId || 'Unassigned'})`
+            : activeTool === '5_geo_feature' && activeStructFeatObj
+            ? `Feature ${activeStructFeatObj.label || 'Structure'}`
+            : activeTraceObj
+            ? `Joint ${activeTraceObj.setId === 'unassigned' ? 'J' : activeTraceObj.setId}`
+            : 'Traced Joint Plane';
+
+        const compassDomain: RealtimeCompassDomainMode = isVerticalShaftMode
+          ? 'SHAFT'
+          : currentIndustryMode === 'MINING'
+          ? mappingDomain === 'BENCH' || mappingDomain === 'SLOPE'
+            ? 'MINING_BENCH'
+            : 'MINING_STOPE'
+          : mappingDomain === 'SLOPE' || mappingDomain === 'BENCH'
+          ? 'SURFACE_SLOPE'
+          : mappingDomain === 'TRENCH'
+          ? 'SURFACE_TRENCH'
+          : mappingDomain === 'ROCK_SURFACE'
+          ? 'SURFACE_OUTCROP'
+          : 'TUNNEL';
+
+        return (
+          <RealtimeMobileSplitCompassModal
+            isOpen={isRealtimeCompassModalOpen}
+            onClose={() => setIsRealtimeCompassModalOpen(false)}
+            tunnelDriveAzimuthDeg={activeRound?.tunnelDriveDirection ?? 45}
+            initialDipDirectionDeg={liveDipDirection}
+            initialDipAmountDeg={liveDipAmount}
+            featureLabel={targetLabel}
+            activePanel={activePanel}
+            tracePoints2D={targetPoints}
+            domainMode={compassDomain}
+            excavationWidthM={activeLocation?.widthM || 8.5}
+            excavationHeightM={activeLocation?.heightM || 7.5}
+            excavationWallHeightM={activeLocation?.wallHeightM}
+            excavationPullLengthM={activeRound?.pullLengthMeters || 4.0}
+            excavationShape={activeLocation?.shape || 'horseshoe'}
+            onConfirmOrientation={(nextDipDir, nextDipAmt, nextStrike, options) => {
+              handleCompassDipDirectionChange(nextDipDir);
+              handleCompassDipAmountChange(nextDipAmt);
+
+              if (
+                options?.applyMode === 'TRACE_AND_DATA' &&
+                options.alignedPoints2D &&
+                options.alignedPoints2D.length >= 2
+              ) {
+                const newPts = options.alignedPoints2D.map((p) => ({
+                  x: p.x,
+                  y: p.y,
+                }));
+
+                if (pending2DTrace?.points?.length) {
+                  setPending2DTrace((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          points: newPts,
+                          dipDirection: nextDipDir,
+                          dipAmount: nextDipAmt,
+                          strike: nextStrike,
+                          editedByCompass: true,
+                        }
+                      : null
+                  );
+                } else if (activeTool === '4_dip_surface' && activeDipSurfObj) {
+                  updateActiveRound((r) => ({
+                    ...r,
+                    dipPlaneSurfaces: (r.dipPlaneSurfaces || []).map((ds) =>
+                      ds.id === activeDipSurfObj.id
+                        ? {
+                            ...ds,
+                            points: newPts,
+                            dipDirection: nextDipDir,
+                            dipAmount: nextDipAmt,
+                            strike: nextStrike,
+                          }
+                        : ds
+                    ),
+                  }));
+                } else if (activeTool === '5_geo_feature' && activeStructFeatObj) {
+                  updateActiveRound((r) => ({
+                    ...r,
+                    structuralFeatures: (r.structuralFeatures || []).map((ft) =>
+                      ft.id === activeStructFeatObj.id
+                        ? {
+                            ...ft,
+                            points: newPts,
+                            dipDirection: nextDipDir,
+                            dipAmount: nextDipAmt,
+                          }
+                        : ft
+                    ),
+                  }));
+                } else if (activeTraceObj) {
+                  updateActiveRound((r) => ({
+                    ...r,
+                    jointTraces: (r.jointTraces || []).map((tr) =>
+                      tr.id === activeTraceObj.id
+                        ? {
+                            ...tr,
+                            points: newPts,
+                            metricPoints: computePhysicalMetricPoints(
+                              newPts,
+                              tr.panel,
+                              activeLocation,
+                              r
+                            ),
+                            dipDirection: nextDipDir,
+                            dipAmount: nextDipAmt,
+                            strike: nextStrike,
+                            editedByCompass: true,
+                          }
+                        : tr
+                    ),
+                  }));
+                }
+
+                setStatusMessage(
+                  `Real-Time Compass aligned ${targetLabel} trace & updated data to ${String(nextDipDir).padStart(3, '0')}°/${String(nextDipAmt).padStart(2, '0')}°.`
+                );
+              } else {
+                setStatusMessage(
+                  `Real-Time Compass applied ${String(nextDipDir).padStart(3, '0')}°/${String(nextDipAmt).padStart(2, '0')}° to ${targetLabel} data (joint trace kept unchanged).`
+                );
+              }
+            }}
+          />
+        );
+      })()}
 
       </div>
     </div>

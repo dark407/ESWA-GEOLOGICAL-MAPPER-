@@ -4871,8 +4871,6 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
             </div>
           </div>
         </div>
-
-        
       </div>
     </div>
   );

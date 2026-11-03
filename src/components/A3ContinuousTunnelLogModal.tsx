@@ -150,6 +150,7 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
 
   // Build active dataset (applying optional overburden override in Stage 4)
   const dataset = useMemo<ContinuousTunnelStripDataset>(() => {
+    if (!localDataset) return localDataset;
     if (appliedOverburdenOverrideM !== null && appliedOverburdenOverrideM > 0) {
       return {
         ...localDataset,
@@ -165,17 +166,17 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
 
   // Derived schedules for Stage 3, Stage 4, and Stage 5
   const jointInspectionSchedule = useMemo(
-    () => computeContinuous3DJointInspectionSchedule(dataset),
+    () => (dataset ? computeContinuous3DJointInspectionSchedule(dataset) : []),
     [dataset]
   );
 
   const femDemProfile = useMemo(
-    () => computeContinuousStripFemDemProfile(dataset),
+    () => (dataset ? computeContinuousStripFemDemProfile(dataset) : []),
     [dataset]
   );
 
   const advancedGeotechProfile = useMemo(
-    () => computeContinuousAdvancedGeotechProfile(dataset),
+    () => (dataset ? computeContinuousAdvancedGeotechProfile(dataset) : null),
     [dataset]
   );
 
@@ -186,7 +187,7 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
     }
   }, [femDemProfile, selectedFemPullId]);
 
-  if (!isOpen || !dataset) return null;
+  if (!isOpen || !dataset || !advancedGeotechProfile) return null;
 
   const isShaft = dataset.excavationMode === 'SHAFT';
   const startRd = dataset.viewFromRd ?? 0;
