@@ -13,30 +13,28 @@ import {
   ALLOWED_MASTER_EMAILS,
   clearMasterLocalVerification,
   deleteFeedbackItem,
-  getActiveMasterChallengeCode,
   isAllowedMasterEmail,
   isMasterLocallyVerified,
-  requestMasterEmailCode,
   saveMasterLocallyVerified,
   subscribeToAllFeedback,
   TARGET_MASTER_EMAIL,
   updateFeedbackStatus,
   UserFeedbackItem,
-  verifyMasterEmailCode,
+  verifyMasterFixedCredentials,
 } from '../engine/userFeedbackEngine';
-import { getSavedGmailAppPassword, saveGmailAppPassword } from '../firebase';
 import {
   ArrowLeft,
   CheckCircle2,
   Eye,
+  EyeOff,
   KeyRound,
+  Lock,
   LogOut,
   Mail,
   MessageSquare,
   RefreshCw,
   Search,
   ShieldCheck,
-  Sparkles,
   Trash2,
   UserCheck,
   UserX,
@@ -53,20 +51,13 @@ interface MasterAdminPortalWebsiteProps {
 export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> = ({
   onSwitchToSoftware,
 }) => {
-  // 1. One-Time Master Login Gate State
+  // 1. Direct Master Gmail + Fixed Password Login Gate State (No OTP)
   const [isVerified, setIsVerified] = useState<boolean>(() => isMasterLocallyVerified());
   const [emailInput, setEmailInput] = useState<string>(TARGET_MASTER_EMAIL);
-  const [codeInput, setCodeInput] = useState<string>('');
-  const [generatedMasterCode, setGeneratedMasterCode] = useState<string>(
-    () => getActiveMasterChallengeCode() || ''
-  );
-  const [codeRequested, setCodeRequested] = useState<boolean>(false);
+  const [passwordInput, setPasswordInput] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const [authStatusMessage, setAuthStatusMessage] = useState<string>('');
   const [isAuthBusy, setIsAuthBusy] = useState<boolean>(false);
-  const [showSmtpConfig, setShowSmtpConfig] = useState<boolean>(false);
-  const [smtpAppPassInput, setSmtpAppPassInput] = useState<string>(() =>
-    getSavedGmailAppPassword()
-  );
 
   // 2. Navigation Tabs: ONLY 2 tabs (Manage Users & Read Feedback)
   const [activeTab, setActiveTab] = useState<'users' | 'feedback'>('users');
@@ -105,95 +96,30 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
     return () => unsub();
   }, [isVerified]);
 
-  // Request 6-digit code
-  const handleRequestCode = async (e: React.FormEvent) => {
+  // Direct Master Gmail ID + Fixed Password Login (No OTP)
+  const handleMasterPasswordLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = emailInput.trim().toLowerCase();
+    const cleanPass = passwordInput.trim();
+
     if (!isAllowedMasterEmail(cleanEmail)) {
       setAuthStatusMessage(
-        `Access restricted to Master Owner (${ALLOWED_MASTER_EMAILS.join(' / ')}).`
+        `Invalid Gmail Username. Access restricted to Master Owner (${ALLOWED_MASTER_EMAILS[0]}).`
       );
       return;
     }
 
-    if (smtpAppPassInput.trim()) {
-      saveGmailAppPassword(smtpAppPassInput.trim());
-    }
-
     setIsAuthBusy(true);
-    setAuthStatusMessage('Generating & dispatching 6-digit verification code to your email...');
-    const res = await requestMasterEmailCode(cleanEmail, {
-      smtpAppPassword: smtpAppPassInput.trim() || undefined,
-    });
+    const valid = verifyMasterFixedCredentials(cleanEmail, cleanPass);
     setIsAuthBusy(false);
 
-    if (res.demoCode) {
-      setGeneratedMasterCode(res.demoCode);
-    }
-    setCodeRequested(true);
-    setAuthStatusMessage(res.message);
-  };
-
-  // Send code via Interactive Google Sign-In (Gmail OAuth API)
-  const handleSendViaGoogleOAuth = async () => {
-    const cleanEmail = isAllowedMasterEmail(emailInput)
-      ? emailInput.trim().toLowerCase()
-      : TARGET_MASTER_EMAIL;
-    setIsAuthBusy(true);
-    setAuthStatusMessage('Connecting to Gmail OAuth to send verification code directly...');
-    const res = await requestMasterEmailCode(cleanEmail, {
-      smtpAppPassword: smtpAppPassInput.trim() || undefined,
-      useGoogleOAuthPopup: true,
-      existingCode: generatedMasterCode || undefined,
-    });
-    setIsAuthBusy(false);
-    if (res.demoCode) {
-      setGeneratedMasterCode(res.demoCode);
-    }
-    setCodeRequested(true);
-    setAuthStatusMessage(
-      res.emailSent
-        ? `Email delivered directly to ${cleanEmail} via Gmail API! Check your inbox.`
-        : res.message
-    );
-  };
-
-  // Instant 1-Click Auto-Fill & Verify using generated Master Code
-  const handleInstantFillAndVerify = async (codeToUse: string) => {
-    const clean = codeToUse.trim();
-    if (clean.length !== 6) return;
-    setCodeInput(clean);
-    setIsAuthBusy(true);
-    const valid = await verifyMasterEmailCode(clean, emailInput.trim());
-    setIsAuthBusy(false);
     if (valid) {
+      saveMasterLocallyVerified(cleanEmail);
       setIsVerified(true);
       setAuthStatusMessage('');
+      setPasswordInput('');
     } else {
-      saveMasterLocallyVerified(emailInput.trim());
-      setIsVerified(true);
-      setAuthStatusMessage('');
-    }
-  };
-
-  // Verify entered code
-  const handleVerifyCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (codeInput.trim().length !== 6) {
-      setAuthStatusMessage('Please enter the complete 6-digit code.');
-      return;
-    }
-
-    setIsAuthBusy(true);
-    const valid = await verifyMasterEmailCode(codeInput.trim(), emailInput.trim());
-    setIsAuthBusy(false);
-
-    if (valid || (generatedMasterCode && codeInput.trim() === generatedMasterCode)) {
-      saveMasterLocallyVerified(emailInput.trim());
-      setIsVerified(true);
-      setAuthStatusMessage('');
-    } else {
-      setAuthStatusMessage('Invalid or expired code. Please check the 6-digit code below or request a new one.');
+      setAuthStatusMessage('Invalid Master Password. Please enter your fixed Master password.');
     }
   };
 
@@ -201,8 +127,8 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
   const handleMasterSignOut = () => {
     clearMasterLocalVerification();
     setIsVerified(false);
-    setCodeRequested(false);
-    setCodeInput('');
+    setPasswordInput('');
+    setAuthStatusMessage('');
   };
 
   // User Actions: Approve Request
@@ -399,7 +325,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
   }, [feedbackItems, feedbackFilterStatus, feedbackSearchTerm]);
 
   // =========================================================================
-  // VIEW: MASTER LOGIN GATE (Simple one-time 6-digit code)
+  // VIEW: MASTER LOGIN GATE (Direct Gmail ID + Fixed Password — No OTP)
   // =========================================================================
   if (!isVerified) {
     return (
@@ -413,179 +339,82 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
               ESWA Software Access Control
             </h1>
             <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
-              One-time Master Owner verification for installation on this machine.
+              Master Owner Sign-In (Direct Gmail Username &amp; Fixed Password — No OTP Required)
             </p>
           </div>
 
-          {!codeRequested ? (
-            <form onSubmit={handleRequestCode} className="space-y-4">
-              <label className="block space-y-1.5">
-                <span className="text-xs font-bold text-slate-300">Master Email Address</span>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
-                  <input
-                    type="email"
-                    value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
-                    required
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
-                  />
-                </div>
-              </label>
-
-              {/* Optional Gmail App Password Configuration for Direct SMTP Delivery */}
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSmtpConfig((prev) => !prev)}
-                  className="text-[11px] font-semibold text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
-                >
-                  {showSmtpConfig
-                    ? 'Hide Gmail SMTP App Password Settings'
-                    : 'Having trouble receiving mail? Configure Gmail SMTP / Direct Code'}
-                </button>
-                {showSmtpConfig && (
-                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                    <label className="block space-y-1">
-                      <span className="text-[11px] font-semibold text-slate-300">
-                        Gmail 16-Char App Password (Optional for direct SMTP)
-                      </span>
-                      <input
-                        type="password"
-                        value={smtpAppPassInput}
-                        onChange={(e) => setSmtpAppPassInput(e.target.value)}
-                        placeholder="xxxx xxxx xxxx xxxx"
-                        className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-400"
-                      />
-                    </label>
-                    <p className="text-[10px] text-slate-400 leading-relaxed">
-                      If left blank, ESWA automatically dispatches via cloud relay and also provides an instant on-screen Master Verification Code on the next step.
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {authStatusMessage && (
-                <p className="text-xs font-mono text-amber-300 bg-amber-950/40 p-2.5 rounded-xl border border-amber-800/60 leading-relaxed">
-                  {authStatusMessage}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={isAuthBusy}
-                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-amber-500/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isAuthBusy ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Sending Code...</span>
-                  </>
-                ) : (
-                  <>
-                    <KeyRound className="w-4 h-4" />
-                    <span>Send 6-Digit Email Code</span>
-                  </>
-                )}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerifyCode} className="space-y-4">
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1.5">
-                <p className="font-semibold text-white">Verification Code Dispatched</p>
-                <p className="text-slate-400 leading-relaxed">
-                  A 6-digit verification code has been dispatched to{' '}
-                  <span className="text-amber-400 font-mono font-bold">{emailInput}</span>.
-                </p>
-                <div className="pt-1 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isAuthBusy}
-                    onClick={handleSendViaGoogleOAuth}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-semibold text-[11px] flex items-center gap-1.5 cursor-pointer transition-colors"
-                  >
-                    <Mail className="w-3.5 h-3.5" />
-                    <span>Send via Google Sign-In (Gmail API)</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Instant On-Screen Master Backup Code (Prevents lockout when email is delayed/filtered) */}
-              {generatedMasterCode && (
-                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/40 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Instant Master Backup Code</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => void handleInstantFillAndVerify(generatedMasterCode)}
-                      className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] cursor-pointer transition-colors"
-                    >
-                      Auto-Fill &amp; Verify Now
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between bg-slate-950/90 border border-amber-500/30 rounded-lg px-3 py-2">
-                    <span className="text-xs text-slate-400">Active 6-Digit Code:</span>
-                    <span className="font-mono text-lg font-black tracking-[0.25em] text-amber-400">
-                      {generatedMasterCode}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              <label className="block space-y-1.5">
-                <span className="text-xs font-bold text-slate-300">Enter 6-Digit Code</span>
+          <form onSubmit={handleMasterPasswordLogin} className="space-y-4">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-bold text-slate-300">Username (Gmail ID)</span>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
                 <input
-                  type="text"
-                  maxLength={6}
-                  value={codeInput}
-                  onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
+                  type="email"
+                  value={emailInput}
+                  onChange={(e) => {
+                    setEmailInput(e.target.value);
+                    if (authStatusMessage) setAuthStatusMessage('');
+                  }}
+                  placeholder="akashdhanusheswar@gmail.com"
+                  autoComplete="username"
+                  required
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
+                />
+              </div>
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-bold text-slate-300">Master Password</span>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={passwordInput}
+                  onChange={(e) => {
+                    setPasswordInput(e.target.value);
+                    if (authStatusMessage) setAuthStatusMessage('');
+                  }}
+                  placeholder="Enter Master Password"
+                  autoComplete="current-password"
                   autoFocus
                   required
-                  className="w-full py-3 text-center tracking-[0.5em] font-mono text-xl font-black rounded-xl bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-amber-400"
+                  className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
                 />
-              </label>
-
-              {authStatusMessage && (
-                <p className="text-xs font-mono text-amber-300 bg-amber-950/40 p-2.5 rounded-xl border border-amber-800/60 leading-relaxed">
-                  {authStatusMessage}
-                </p>
-              )}
-
-              <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => {
-                    setCodeRequested(false);
-                    setAuthStatusMessage('');
-                  }}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                  title={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  Back
-                </button>
-                <button
-                  type="submit"
-                  disabled={isAuthBusy || codeInput.length !== 6}
-                  className="flex-[2] py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-                >
-                  {isAuthBusy ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Verifying...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Verify &amp; Enter</span>
-                    </>
-                  )}
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-            </form>
-          )}
+            </label>
+
+            {authStatusMessage && (
+              <p className="text-xs font-mono text-amber-300 bg-amber-950/40 p-2.5 rounded-xl border border-amber-800/60 leading-relaxed">
+                {authStatusMessage}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={isAuthBusy || !passwordInput.trim()}
+              className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-amber-500/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isAuthBusy ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Signing In...</span>
+                </>
+              ) : (
+                <>
+                  <KeyRound className="w-4 h-4" />
+                  <span>Login to Master Access Control</span>
+                </>
+              )}
+            </button>
+          </form>
 
           <div className="pt-2 text-center border-t border-slate-800">
             <button

@@ -150,8 +150,17 @@ function buildWindowsExecutable(edition, configJsonName, outputExeName) {
 }
 
 try {
+  const includeUser =
+    process.argv.includes('--include-user') ||
+    process.argv.includes('--all') ||
+    process.env.BUILD_USER_EDITION === 'true';
+
   console.log('====================================================================');
-  console.log('  BUILDING DUAL WINDOWS EXECUTABLES: (1) MASTER .EXE & (2) USER .EXE');
+  console.log(
+    includeUser
+      ? '  BUILDING DUAL WINDOWS EXECUTABLES: (1) MASTER .EXE & (2) USER .EXE'
+      : '  BUILDING MASTER WINDOWS EXECUTABLE (.EXE) & MASTER ANDROID (.APK) ONLY'
+  );
   console.log('====================================================================');
 
   if (!fs.existsSync(releaseDir)) {
@@ -166,15 +175,24 @@ try {
   // 2. Build Executable #1: MASTER SOFTWARE
   buildWindowsExecutable('master', 'electron-builder-master.json', 'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe');
 
-  // 3. Build Executable #2: USER SOFTWARE
-  buildWindowsExecutable('user', 'electron-builder-user.json', 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe');
+  // 3. Build Executable #2: USER SOFTWARE (Only if explicitly requested)
+  if (includeUser) {
+    buildWindowsExecutable('user', 'electron-builder-user.json', 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe');
+  } else {
+    console.log('\n[2/3] Skipping User .EXE build (Master-only update mode active).');
+  }
 
-  // 3b. Build Standalone Master & User Android APKs
-  console.log('\n[3/3] Building Standalone MASTER & USER Android APKs (.APK)...');
+  // 3b. Build Standalone Master Android APK
+  console.log('\n[3/3] Building Standalone MASTER Android APK (.APK)...');
   try {
-    run('node scripts/build-android-apk.mjs', { GITHUB_ACTIONS: 'true' });
+    run(
+      includeUser
+        ? 'node scripts/build-android-apk.mjs --include-user'
+        : 'node scripts/build-android-apk.mjs',
+      { GITHUB_ACTIONS: 'true' }
+    );
   } catch (apkErr) {
-    console.warn('[Dual Builder] Warning building Android APKs:', apkErr);
+    console.warn('[Dual Builder] Warning building Android APK:', apkErr);
   }
 
   // 4. Ensure release/ directory exists
@@ -187,10 +205,11 @@ try {
     path.join(os.tmpdir(), 'akash-release-cache'),
     path.join('/tmp', 'akash-release-cache'),
   ];
-  for (const apkName of [
-    'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
-    'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
-  ]) {
+  const targetApks = includeUser
+    ? ['ESWA-GEOLOGICAL-MAPPER-Master-Android.apk', 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk']
+    : ['ESWA-GEOLOGICAL-MAPPER-Master-Android.apk'];
+
+  for (const apkName of targetApks) {
     const targetApk = path.join(releaseDir, apkName);
     if (!fs.existsSync(targetApk)) {
       for (const sDir of searchDirs) {
@@ -208,11 +227,7 @@ try {
   }
 
   // Clean up any extra electron-builder artifacts (win-unpacked, blockmaps, builder-debug.yml, etc.)
-  // so release/ contains ONLY the 4 official installers:
-  // 1. ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
-  // 2. ESWA-GEOLOGICAL-MAPPER-User-Setup.exe
-  // 3. ESWA-GEOLOGICAL-MAPPER-Master-Android.apk
-  // 4. ESWA-GEOLOGICAL-MAPPER-User-Android.apk
+  // while preserving official installers
   const allowedReleaseFiles = new Set([
     'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe',
     'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe',
@@ -232,11 +247,13 @@ try {
   }
 
   console.log('\n====================================================================');
-  console.log('  4 OFFICIAL INSTALLERS BUILD COMPLETE!');
+  console.log('  MASTER INSTALLERS BUILD COMPLETE!');
   console.log('  1. Master EXE: release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe');
-  console.log('  2. User EXE:   release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe');
-  console.log('  3. Master APK: release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk');
-  console.log('  4. User APK:   release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk');
+  console.log('  2. Master APK: release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk');
+  if (includeUser) {
+    console.log('  3. User EXE:   release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe');
+    console.log('  4. User APK:   release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk');
+  }
   console.log('====================================================================\n');
 } finally {
   // Restore default edition.json to master

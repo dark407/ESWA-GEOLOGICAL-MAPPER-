@@ -53,7 +53,7 @@ jobs:
       - name: Install Dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund --include=dev
 
-      - name: Build Master & User Windows Executables (.EXE) + Master & User Android Apps (.APK)
+      - name: Build Master Windows Executable (.EXE) + Master Android App (.APK)
         run: node scripts/build-dual-installers.mjs
         env:
           CI: false
@@ -74,13 +74,6 @@ jobs:
           path: release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
           if-no-files-found: warn
 
-      - name: Upload User Windows .EXE Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ESWA-GEOLOGICAL-MAPPER-User-Setup
-          path: release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe
-          if-no-files-found: warn
-
       - name: Upload Master Android .APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -88,25 +81,17 @@ jobs:
           path: release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk
           if-no-files-found: warn
 
-      - name: Upload User Android .APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ESWA-GEOLOGICAL-MAPPER-User-Android
-          path: release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk
-          if-no-files-found: warn
-
-      - name: Clean Previous 'latest' Release & Update Rolling Tag
+      - name: Update Rolling 'latest' Tag (Preserving Existing User Release Assets)
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete latest --yes --cleanup-tag || true
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -fa latest -m "Latest Master & User Windows .EXE + Android .APK Build #${{ github.run_number }}"
+          git tag -fa latest -m "Latest Master Windows .EXE + Master Android .APK Build #${{ github.run_number }}"
           git push origin latest --force || true
 
-      - name: Publish Master EXE, User EXE, Android APK Master & Android APK User to GitHub Releases
+      - name: Publish Updated Master EXE & Master Android APK to GitHub Releases
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         env:
@@ -120,12 +105,8 @@ jobs:
           body: |
             ### ESWA GEOLOGICAL MAPPER — Official Software & Android Releases (Build #${{ github.run_number }})
             1. **Master EXE (Windows Master Suite):** `ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`
-            2. **User EXE (Windows Geologist Workstation):** `ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
-            3. **Android APK Master (Master Admin Mobile/Tablet):** `ESWA-GEOLOGICAL-MAPPER-Master-Android.apk`
-            4. **Android APK User (Field Geologist Mobile/Tablet):** `ESWA-GEOLOGICAL-MAPPER-User-Android.apk`
+            2. **Android APK Master (Master Admin Mobile/Tablet):** `ESWA-GEOLOGICAL-MAPPER-Master-Android.apk`
           files: |
             release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
-            release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe
             release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk
-            release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk
           prerelease: false

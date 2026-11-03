@@ -106,15 +106,18 @@ function compileStandaloneAppBundle(edition = 'user') {
   return fs.readFileSync(cachedBundlePath, 'utf8');
 }
 
-const userIifeJsContent = compileStandaloneAppBundle('user');
-fs.writeFileSync(path.join(stagedWwwDir, 'app-bundle.js'), userIifeJsContent, 'utf8');
+const includeUserApk =
+  process.argv.includes('--include-user') ||
+  process.argv.includes('--all') ||
+  process.env.BUILD_USER_APK === 'true';
 
 const buildVersion =
   process.env.VITE_APP_BUILD_VERSION ||
   (process.env.GITHUB_RUN_NUMBER ? `1.0.${process.env.GITHUB_RUN_NUMBER}` : '2.5.0');
 
-// Save user-ota-bundle.json in OS temp cache so release/ strictly contains only the 4 official installers
-if (userIifeJsContent) {
+const userIifeJsContent = includeUserApk ? compileStandaloneAppBundle('user') : '';
+if (includeUserApk && userIifeJsContent) {
+  fs.writeFileSync(path.join(stagedWwwDir, 'app-bundle.js'), userIifeJsContent, 'utf8');
   try {
     fs.writeFileSync(
       path.join(releaseCacheDir, 'user-ota-bundle.json'),
@@ -723,20 +726,24 @@ public class MainActivity extends Activity {
 const outApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk');
 const outAabPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-PlayStore.aab');
 
-try {
-  execSync(
-    `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outApkPath}" "com.eswa.geologicalmapper.user" "ESWA GEOLOGICAL MAPPER"`,
-    {
-      cwd: rootDir,
-      stdio: 'inherit',
-    }
-  );
-} catch (userApkErr) {
-  console.warn('[Android Build] Notice compiling User APK:', userApkErr?.message || userApkErr);
+if (includeUserApk) {
+  try {
+    execSync(
+      `${pyBin} scripts/compile-standalone-apk.py "${stagedWwwDir}" "${outApkPath}" "com.eswa.geologicalmapper.user" "ESWA GEOLOGICAL MAPPER"`,
+      {
+        cwd: rootDir,
+        stdio: 'inherit',
+      }
+    );
+  } catch (userApkErr) {
+    console.warn('[Android Build] Notice compiling User APK:', userApkErr?.message || userApkErr);
+  }
+} else {
+  console.log('[Android Build] Skipping User APK build (Master-only update mode active).');
 }
 
-// 4. Also compile the Standalone MASTER Android App (.APK) with full Software Access Control
-//    Package: com.eswa.geologicalmapper.master | Launcher Name: "ESWA Master Admin"
+// 4. Compile the Standalone MASTER Android App (.APK) with full Software Access Control (Direct Gmail + Fixed Password)
+//    Package: com.eswa.geologicalmapper.master | Launcher Name: "ESWA GEOLOGICAL MAPPER (Master)"
 const outMasterApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk');
 
 const masterIifeJsContent = compileStandaloneAppBundle('master');
@@ -786,6 +793,16 @@ try {
       stdio: 'inherit',
     }
   );
+  if (fs.existsSync(outMasterApkPath)) {
+    try {
+      fs.copyFileSync(
+        outMasterApkPath,
+        path.join(releaseCacheDir, 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk')
+      );
+    } catch {
+      // Ignore cache copy error
+    }
+  }
 } catch (masterApkErr) {
   console.warn('[Android Build] Notice compiling Master APK:', masterApkErr?.message || masterApkErr);
 }

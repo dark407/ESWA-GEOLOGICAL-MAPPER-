@@ -1304,12 +1304,18 @@ export function initEnterpriseSecurityShield(): () => void {
 }
 
 
+export const MASTER_ADMIN_FIXED_PASSWORD = 'Akash11052003';
+
 export function getStoredAdminCredentials(): { email: string; password: string } {
   try {
     const raw = localStorage.getItem(LOCAL_ADMIN_CREDENTIALS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed?.email && parsed?.password) {
+      if (
+        parsed?.email &&
+        parsed?.password &&
+        parsed.password !== 'akash@master2026'
+      ) {
         return parsed;
       }
     }
@@ -1318,7 +1324,7 @@ export function getStoredAdminCredentials(): { email: string; password: string }
   }
   return {
     email: MASTER_ADMIN_DEFAULT_EMAIL,
-    password: 'akash@master2026',
+    password: MASTER_ADMIN_FIXED_PASSWORD,
   };
 }
 
@@ -1989,14 +1995,19 @@ export async function verifyAndActivateOnePcLogin(input: {
   const storedAdmin = getStoredAdminCredentials();
   const { pcHardwareId, pcName } = getOrGeneratePcHardwareId();
 
-  // Allow Master Owner (akashdhanusheswar@gmail.com / admin) to log in directly with Master Password
+  // Allow Master Owner (akashdhanusheswar@gmail.com) to log in directly with Fixed Master Password (Akash11052003)
   const isMasterUser =
     rawUser === storedAdmin.email.toLowerCase() ||
     rawUser === MASTER_ADMIN_DEFAULT_EMAIL.toLowerCase() ||
+    rawUser === 'dhoniakash707@gmail.com' ||
+    rawUser === 'dhoniakash407@gmail.com' ||
     rawUser === 'admin' ||
     rawUser === 'master';
 
-  if (isMasterUser && rawPass === storedAdmin.password) {
+  if (
+    isMasterUser &&
+    (rawPass === MASTER_ADMIN_FIXED_PASSWORD || rawPass === storedAdmin.password)
+  ) {
     setLocalMasterPcBypass(true);
     setMasterPcAuthorization(
       pcHardwareId,
@@ -2195,7 +2206,7 @@ export async function verifyAndActivateOnePcLogin(input: {
       return {
         ok: false,
         message:
-          'Invalid User ID or offline. Tip: Master Owner can log in directly with akashdhanusheswar@gmail.com and akash@master2026.',
+          'Invalid User ID or offline. Tip: Master Owner can log in directly with akashdhanusheswar@gmail.com and Akash11052003.',
       };
     }
     try {

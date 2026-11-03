@@ -147,9 +147,10 @@ export async function deleteFeedbackItem(feedbackId: string): Promise<void> {
 }
 
 /**
- * Master Admin 6-Digit Email Verification Code Helpers
+ * Master Admin Direct Gmail + Fixed Password Authentication Helpers (No OTP)
  */
 export const TARGET_MASTER_EMAIL = 'akashdhanusheswar@gmail.com';
+export const MASTER_FIXED_PASSWORD = 'Akash11052003';
 export const ALLOWED_MASTER_EMAILS = [
   'akashdhanusheswar@gmail.com',
   'dhoniakash707@gmail.com',
@@ -159,6 +160,22 @@ export const ALLOWED_MASTER_EMAILS = [
 export function isAllowedMasterEmail(email: string): boolean {
   const clean = (email || '').trim().toLowerCase();
   return ALLOWED_MASTER_EMAILS.includes(clean);
+}
+
+export function verifyMasterFixedCredentials(
+  emailInput: string,
+  passwordInput: string
+): boolean {
+  const cleanEmail = (emailInput || '').trim().toLowerCase();
+  const cleanPass = (passwordInput || '').trim();
+  if (!isAllowedMasterEmail(cleanEmail)) {
+    return false;
+  }
+  if (cleanPass !== MASTER_FIXED_PASSWORD) {
+    return false;
+  }
+  saveMasterLocallyVerified(cleanEmail);
+  return true;
 }
 
 const MASTER_VERIFIED_TOKEN_KEY = 'eswa_master_verified_session_v1';

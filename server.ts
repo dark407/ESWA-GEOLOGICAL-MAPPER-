@@ -1860,14 +1860,12 @@ ${safeJsContent}
       const rootDir = process.cwd();
       const runtimeReleaseDir = '/tmp/akash-release-cache';
       const releaseFolder = path.join(rootDir, 'release');
-      const localApkCandidates = [
-        path.join(releaseFolder, 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk'),
-        path.join(releaseFolder, 'ESWA-TUNNEL-MAPPER-User-Android.apk'),
-        path.join(runtimeReleaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk'),
-        path.join(runtimeReleaseDir, 'ESWA-TUNNEL-MAPPER-User-Android.apk'),
+      const localMasterApkCandidates = [
+        path.join(releaseFolder, 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk'),
+        path.join(runtimeReleaseDir, 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk'),
       ];
-      const localApkPath =
-        localApkCandidates.find((p) => fs.existsSync(p)) || localApkCandidates[0];
+      const localMasterApkPath =
+        localMasterApkCandidates.find((p) => fs.existsSync(p)) || localMasterApkCandidates[0];
       const workflowTemplatePath = path.join(
         rootDir,
         'scripts',
@@ -2039,9 +2037,9 @@ ${safeJsContent}
         // Push event itself already triggers on: push
       }
 
-      // 8. Immediately publish/update the 'latest' GitHub Release with standalone ESWA-TUNNEL-MAPPER-User-Android.apk if cached
+      // 8. Immediately publish/update ONLY ESWA-GEOLOGICAL-MAPPER-Master-Android.apk on the 'latest' GitHub Release if cached
       let apkReleaseUploaded = false;
-      if (fs.existsSync(localApkPath)) {
+      if (fs.existsSync(localMasterApkPath)) {
         try {
           let releaseData: {
             id?: number;
@@ -2064,8 +2062,8 @@ ${safeJsContent}
                 body: JSON.stringify({
                   tag_name: 'latest',
                   target_commitish: branch,
-                  name: 'ESWA GEOLOGICAL MAPPER — Master .EXE, User .EXE & User Android .APK',
-                  body: 'Official release containing Master Edition (.EXE), User Edition (.EXE), and Standalone User Android App (ESWA-GEOLOGICAL-MAPPER-User-Android.apk).',
+                  name: 'ESWA GEOLOGICAL MAPPER — Official Installers',
+                  body: 'Official release containing Master Edition (.EXE) and Standalone Master Android App (ESWA-GEOLOGICAL-MAPPER-Master-Android.apk).',
                   draft: false,
                   prerelease: false,
                 }),
@@ -2078,69 +2076,37 @@ ${safeJsContent}
 
           if (releaseData?.id && releaseData.upload_url) {
             const cleanUploadBase = releaseData.upload_url.replace(/\{\?.*$/, '');
-            const apkBytes = fs.readFileSync(localApkPath);
-            // Remove any legacy duplicate asset names from the GitHub Release so only the 4 official files remain
-            const legacyDuplicateNames = new Set([
-              'ESWA-GEOLOGICAL-MAPPER-release.apk',
-              'ESWA-TUNNEL-MAPPER-release.apk',
-              'ESWA-TUNNEL-MAPPER-User-Android.apk',
-              'ESWA-TUNNEL-MAPPER-Master-Android.apk',
-              'AKASH-TUNNEL-MAPPER-User-Setup.exe',
-              'AKASH-TUNNEL-MAPPER-Master-Setup.exe',
-              'user-ota-bundle.json',
-              'latest-release.json',
-            ]);
-            for (const asset of releaseData.assets || []) {
-              if (legacyDuplicateNames.has(asset.name) && asset.id) {
-                await fetch(
-                  `https://api.github.com/repos/${cleanRepo}/releases/assets/${asset.id}`,
-                  { method: 'DELETE', headers: ghHeaders }
-                ).catch(() => {});
-              }
+            const masterApkBytes = fs.readFileSync(localMasterApkPath);
+            const masterApkAssetName = 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk';
+            const existingMasterAsset = (releaseData.assets || []).find(
+              (a) => a.name === masterApkAssetName
+            );
+            if (existingMasterAsset?.id) {
+              await fetch(
+                `https://api.github.com/repos/${cleanRepo}/releases/assets/${existingMasterAsset.id}`,
+                { method: 'DELETE', headers: ghHeaders }
+              ).catch(() => {});
             }
-
-            for (const apkAssetName of [
-              'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
-              'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
-            ]) {
-              const specificCandidateMaster = path.join(runtimeReleaseDir, 'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk');
-              const specificApkPath =
-                apkAssetName.includes('Master') && fs.existsSync(specificCandidateMaster)
-                  ? specificCandidateMaster
-                  : localApkPath;
-              const specificBytes = fs.existsSync(specificApkPath)
-                ? fs.readFileSync(specificApkPath)
-                : apkBytes;
-              const existingApkAsset = (releaseData.assets || []).find(
-                (a) => a.name === apkAssetName
-              );
-              if (existingApkAsset?.id) {
-                await fetch(
-                  `https://api.github.com/repos/${cleanRepo}/releases/assets/${existingApkAsset.id}`,
-                  { method: 'DELETE', headers: ghHeaders }
-                ).catch(() => {});
+            const uploadAssetResp = await fetch(
+              `${cleanUploadBase}?name=${masterApkAssetName}`,
+              {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Accept: 'application/vnd.github+json',
+                  'Content-Type': 'application/vnd.android.package-archive',
+                  'Content-Length': String(masterApkBytes.length),
+                  'User-Agent': 'ESWA-Geological-Mapper-GitHub-Sync',
+                },
+                body: masterApkBytes,
               }
-              const uploadAssetResp = await fetch(
-                `${cleanUploadBase}?name=${apkAssetName}`,
-                {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${token}`,
-                    Accept: 'application/vnd.github+json',
-                    'Content-Type': 'application/vnd.android.package-archive',
-                    'Content-Length': String(specificBytes.length),
-                    'User-Agent': 'ESWA-Geological-Mapper-GitHub-Sync',
-                  },
-                  body: specificBytes,
-                }
-              );
-              if (uploadAssetResp.ok) {
-                apkReleaseUploaded = true;
-              }
+            );
+            if (uploadAssetResp.ok) {
+              apkReleaseUploaded = true;
             }
           }
         } catch (err) {
-          console.error('Failed to upload standalone APK to GitHub Release:', err);
+          console.error('Failed to upload standalone Master APK to GitHub Release:', err);
         }
       }
 
