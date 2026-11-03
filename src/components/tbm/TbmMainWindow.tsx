@@ -16,6 +16,7 @@ import {
   Settings,
   Layers,
   MessageSquare,
+  ShieldCheck,
 } from 'lucide-react';
 import { EswaAppBackgroundWatermark, EswaTunnelLogo, playEswaWelcomeChime } from '../EswaBrandIdentity';
 import { useTheme } from '../../context/ThemeContext';
@@ -44,6 +45,8 @@ interface TbmMainWindowProps {
   onGoogleSignIn?: () => void;
   onGoogleSignOut?: () => void;
   isMasterSoftware?: boolean;
+  onOpenAdminPortal?: () => void;
+  pendingRequestCount?: number;
   onOpenFeedback?: () => void;
 }
 
@@ -60,6 +63,8 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
   onGoogleSignIn,
   onGoogleSignOut,
   isMasterSoftware = false,
+  onOpenAdminPortal,
+  pendingRequestCount = 0,
 }) => {
   const [activeWorkflowStage, setActiveWorkflowStage] = useState<TbmWorkflowStage | null>(null);
   const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
@@ -169,6 +174,22 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
           <Settings className="w-4 h-4 text-cyan-400 hover:rotate-90 transition-transform duration-300" />
           <span className="font-semibold">Settings</span>
         </button>
+        {isMasterSoftware && onOpenAdminPortal && (
+          <button
+            type="button"
+            onClick={onOpenAdminPortal}
+            className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs font-semibold rounded-lg border border-cyan-500/50 bg-slate-900/95 hover:bg-slate-800 text-cyan-300 shadow-sm transition-all cursor-pointer whitespace-nowrap"
+            title="Open Software Access Control (Master Admin)"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Software Access Control</span>
+            {pendingRequestCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.2 rounded-full font-bold text-[10px] bg-cyan-500 text-slate-950">
+                {pendingRequestCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Main Center Content: Strict 2 Options (Data Analysis & Storage) */}

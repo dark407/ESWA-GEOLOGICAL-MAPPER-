@@ -23,8 +23,13 @@ import {
   verifyMasterFixedCredentials,
 } from '../engine/userFeedbackEngine';
 import {
+  downloadMasterAndroidApk,
+  downloadMasterEditionDesktopExe,
+} from '../engine/windowsDesktopEngine';
+import {
   ArrowLeft,
   CheckCircle2,
+  Download,
   Eye,
   EyeOff,
   KeyRound,
@@ -32,9 +37,11 @@ import {
   LogOut,
   Mail,
   MessageSquare,
+  Monitor,
   RefreshCw,
   Search,
   ShieldCheck,
+  Smartphone,
   Trash2,
   UserCheck,
   UserX,
@@ -51,13 +58,21 @@ interface MasterAdminPortalWebsiteProps {
 export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> = ({
   onSwitchToSoftware,
 }) => {
-  // 1. Direct Master Gmail + Fixed Password Login Gate State (No OTP)
-  const [isVerified, setIsVerified] = useState<boolean>(() => isMasterLocallyVerified());
+  // 1. Direct Master Gmail + Fixed Password Login Gate State (No OTP — Always loads when opening Software Access Control)
+  const [isVerified, setIsVerified] = useState<boolean>(false);
   const [emailInput, setEmailInput] = useState<string>(TARGET_MASTER_EMAIL);
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [authStatusMessage, setAuthStatusMessage] = useState<string>('');
   const [isAuthBusy, setIsAuthBusy] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem('eswa_master_verified_session_v1');
+    } catch {
+      // Ignore
+    }
+  }, []);
 
   // 2. Navigation Tabs: ONLY 2 tabs (Manage Users & Read Feedback)
   const [activeTab, setActiveTab] = useState<'users' | 'feedback'>('users');
@@ -507,16 +522,40 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
           </button>
         </div>
 
-        {/* Master Log Out Button */}
-        <button
-          type="button"
-          onClick={handleMasterSignOut}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-rose-300 hover:bg-rose-950/30 transition-colors cursor-pointer"
-          title="Sign out master session on this device"
-        >
-          <LogOut className="w-3.5 h-3.5" />
-          <span>Lock</span>
-        </button>
+        {/* Master Only APK & EXE Update Controls + Lock Button */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => downloadMasterAndroidApk()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 transition-colors cursor-pointer"
+            title="Download Updated Master Android App (ESWA-GEOLOGICAL-MAPPER-Master-Android.apk)"
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            <Download className="w-3 h-3" />
+            <span>Master .APK</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => downloadMasterEditionDesktopExe()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 transition-colors cursor-pointer"
+            title="Download Updated Master Windows Software (ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe)"
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <Download className="w-3 h-3" />
+            <span>Master .EXE</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleMasterSignOut}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-rose-300 hover:bg-rose-950/30 transition-colors cursor-pointer"
+            title="Sign out master session on this device"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Lock</span>
+          </button>
+        </div>
       </header>
 
       {/* Main Content Area */}

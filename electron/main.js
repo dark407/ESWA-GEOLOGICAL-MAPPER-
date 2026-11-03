@@ -773,7 +773,7 @@ function createMainWindow() {
   const devStartUrl = process.env.ELECTRON_START_URL;
   let prodIndexFile = path.join(__dirname, '../dist/index.html');
   let softwareEdition = 'master';
-  let bundledBuildVersion = '1.0.0';
+  let bundledBuildVersion = '2.7.0';
   let bundledGithubRepo = '';
   try {
     const editionConfigPath = path.join(__dirname, 'edition.json');
@@ -793,19 +793,28 @@ function createMainWindow() {
     // Default to master
   }
 
-  // Check if an in-place OTA update was installed in %APPDATA%\...\user-data\ota-live\
+  // Check if a strictly newer in-place OTA update was installed in %APPDATA%\...\user-data\ota-live\
   try {
     const otaDir = getOtaLiveDirectoryPath();
     const otaIndexFile = path.join(otaDir, 'index.html');
     const otaManifestFile = path.join(otaDir, 'ota-manifest.json');
     if (fs.existsSync(otaIndexFile) && fs.existsSync(otaManifestFile)) {
       const otaManifest = JSON.parse(fs.readFileSync(otaManifestFile, 'utf8'));
+      const otaEdition = (otaManifest && otaManifest.edition) || softwareEdition;
       if (
         otaManifest &&
         otaManifest.version &&
-        compareSemverStrings(otaManifest.version, bundledBuildVersion) >= 0
+        otaEdition === softwareEdition &&
+        compareSemverStrings(otaManifest.version, bundledBuildVersion) > 0
       ) {
         prodIndexFile = otaIndexFile;
+      } else {
+        try {
+          fs.rmSync(otaIndexFile, { force: true });
+          fs.rmSync(otaManifestFile, { force: true });
+        } catch {
+          // Ignore cleanup warning
+        }
       }
     }
   } catch {

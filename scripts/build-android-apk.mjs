@@ -113,7 +113,7 @@ const includeUserApk =
 
 const buildVersion =
   process.env.VITE_APP_BUILD_VERSION ||
-  (process.env.GITHUB_RUN_NUMBER ? `1.0.${process.env.GITHUB_RUN_NUMBER}` : '2.5.0');
+  (process.env.GITHUB_RUN_NUMBER ? `2.7.${process.env.GITHUB_RUN_NUMBER}` : '2.7.0');
 
 const userIifeJsContent = includeUserApk ? compileStandaloneAppBundle('user') : '';
 if (includeUserApk && userIifeJsContent) {
@@ -138,7 +138,20 @@ if (includeUserApk && userIifeJsContent) {
 
 const otaBootloaderScript = `
 (function() {
+  function compareSemver(vA, vB) {
+    var pA = String(vA || '0.0.0').replace(/[^0-9.]/g, '').split('.').map(function(n) { return parseInt(n, 10) || 0; });
+    var pB = String(vB || '0.0.0').replace(/[^0-9.]/g, '').split('.').map(function(n) { return parseInt(n, 10) || 0; });
+    var len = Math.max(pA.length, pB.length, 3);
+    for (var i = 0; i < len; i++) {
+      var a = pA[i] || 0;
+      var b = pB[i] || 0;
+      if (a > b) return 1;
+      if (a < b) return -1;
+    }
+    return 0;
+  }
   try {
+    try { localStorage.removeItem('eswa_master_verified_session_v1'); } catch (e) {}
     if (!window.indexedDB) return;
     var req = window.indexedDB.open('eswa_ota_code_vault_v1', 1);
     req.onupgradeneeded = function(e) {
@@ -151,12 +164,15 @@ const otaBootloaderScript = `
       try {
         var db = e.target.result;
         if (!db.objectStoreNames.contains('bundles')) return;
-        var tx = db.transaction('bundles', 'readonly');
+        var tx = db.transaction('bundles', 'readwrite');
         var store = tx.objectStore('bundles');
         var getReq = store.get('active_ota_bundle');
         getReq.onsuccess = function() {
           var ota = getReq.result;
-          if (ota && ota.jsContent && ota.version && ota.version !== window.__ESWA_BUNDLED_VERSION__) {
+          if (!ota || !ota.jsContent || !ota.version) return;
+          var currentEdition = window.__ESWA_EDITION__ || 'user';
+          var otaEdition = ota.edition || 'user';
+          if (otaEdition === currentEdition && compareSemver(ota.version, window.__ESWA_BUNDLED_VERSION__) > 0) {
             window.__ESWA_OTA_VERSION__ = ota.version;
             if (ota.cssContent) {
               var styleEl = document.getElementById('eswa-main-css');
@@ -165,6 +181,8 @@ const otaBootloaderScript = `
             var otaScript = document.createElement('script');
             otaScript.textContent = ota.jsContent;
             document.body.appendChild(otaScript);
+          } else {
+            try { store.delete('active_ota_bundle'); } catch (delErr) {}
           }
         };
       } catch (err) {}
@@ -748,6 +766,22 @@ const outMasterApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-Master-An
 
 const masterIifeJsContent = compileStandaloneAppBundle('master');
 fs.writeFileSync(path.join(stagedWwwDir, 'app-bundle.js'), masterIifeJsContent, 'utf8');
+try {
+  fs.writeFileSync(
+    path.join(releaseCacheDir, 'master-ota-bundle.json'),
+    JSON.stringify({
+      version: buildVersion,
+      edition: 'master',
+      publishedAtIso: new Date().toISOString(),
+      preserveUserData: true,
+      cssContent,
+      jsContent: masterIifeJsContent,
+    }),
+    'utf8'
+  );
+} catch {
+  // Ignore write error
+}
 
 const masterSelfContainedHtml = `<!doctype html>
 <html lang="en" data-android-app="true" data-master-android-app="true">

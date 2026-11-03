@@ -28,6 +28,7 @@ import {
   FolderOpen,
   Box,
   MessageSquare,
+  ShieldCheck,
 } from 'lucide-react';
 import { EswaAppBackgroundWatermark, EswaTunnelLogo, playEswaWelcomeChime } from '../EswaBrandIdentity';
 import { ThemeToggleButton, useTheme } from '../../context/ThemeContext';
@@ -59,6 +60,8 @@ export interface MiningMainWindowProps {
   onGoogleSignIn?: () => void;
   onGoogleSignOut?: () => void;
   isMasterSoftware?: boolean;
+  onOpenAdminPortal?: () => void;
+  pendingRequestCount?: number;
   onOpenFeedback?: () => void;
 }
 
@@ -75,6 +78,8 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
   onGoogleSignIn,
   onGoogleSignOut,
   isMasterSoftware = false,
+  onOpenAdminPortal,
+  pendingRequestCount = 0,
 }) => {
   const [activeMiningView, setActiveMiningView] = useState<'MAIN' | 'MAPPING' | 'CORE_LOGGING'>('MAIN');
   const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
@@ -180,6 +185,22 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
           <Settings className="w-4 h-4 text-amber-400 hover:rotate-90 transition-transform duration-300" />
           <span className="font-semibold">Settings</span>
         </button>
+        {isMasterSoftware && onOpenAdminPortal && (
+          <button
+            type="button"
+            onClick={onOpenAdminPortal}
+            className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs font-semibold rounded-lg border border-amber-500/50 bg-slate-900/95 hover:bg-slate-800 text-amber-300 shadow-sm transition-all cursor-pointer whitespace-nowrap"
+            title="Open Software Access Control (Master Admin)"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+            <span>Software Access Control</span>
+            {pendingRequestCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.2 rounded-full font-bold text-[10px] bg-amber-500 text-slate-950">
+                {pendingRequestCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Main Center Content: Strict 3 Options */}

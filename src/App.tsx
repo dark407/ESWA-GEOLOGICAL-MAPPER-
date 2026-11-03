@@ -4228,6 +4228,8 @@ export default function App({
           googleUser={googleUser}
           activeGeologist={activeGeologist}
           isMasterSoftware={isMasterSoftware}
+          onOpenAdminPortal={onOpenAdminPortal}
+          pendingRequestCount={pendingRequestCount}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
           onOpenFeedback={!isMasterSoftware ? () => setIsUserFeedbackModalOpen(true) : undefined}
           onOpenContinuousTunnelLog={() => {
@@ -4272,6 +4274,8 @@ export default function App({
           googleUser={googleUser}
           activeGeologist={activeGeologist}
           isMasterSoftware={isMasterSoftware}
+          onOpenAdminPortal={onOpenAdminPortal}
+          pendingRequestCount={pendingRequestCount}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
           onOpenFeedback={!isMasterSoftware ? () => setIsUserFeedbackModalOpen(true) : undefined}
           onOpenContinuousTunnelLog={() => {
@@ -4928,15 +4932,18 @@ export default function App({
                   );
                 })}
               </div>
-              {isMasterSoftware && !responsive.isMobile && pendingRequestCount > 0 && onOpenAdminPortal && (
+              {isMasterSoftware && onOpenAdminPortal && (
                 <button
                   type="button"
                   onClick={() => onOpenAdminPortal()}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-xs cursor-pointer"
-                  title="Approve pending User PC / Mobile App access requests"
+                  title="Open Software Access Control (Master Admin)"
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>User Requests ({pendingRequestCount})</span>
+                  <span>
+                    Software Access Control
+                    {pendingRequestCount > 0 ? ` (${pendingRequestCount})` : ''}
+                  </span>
                 </button>
               )}
               <button

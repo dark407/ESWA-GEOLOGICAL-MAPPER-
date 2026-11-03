@@ -190,28 +190,31 @@ if (typeof window !== 'undefined') {
     localStorage.removeItem('eswa_geological_modelling_suite_db_v1');
     localStorage.removeItem('eswa_isolated_db_GEOLOGICAL_MODELLING');
 
-    // Clean up stale or deprecated cache keys
-    const staleKeys = ['eswa_active_industry_mode_v1', 'eswa_temp_modelling_cache'];
+    // Clean up stale or deprecated cache keys and legacy OTP verification token
+    const staleKeys = [
+      'eswa_active_industry_mode_v1',
+      'eswa_temp_modelling_cache',
+      'eswa_master_verified_session_v1',
+    ];
     staleKeys.forEach((k) => localStorage.removeItem(k));
   } catch {
     // Ignore storage access restrictions
   }
 }
 
-if (import.meta.env.DEV && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
   navigator.serviceWorker
     .getRegistrations()
     .then((registrations) => {
       for (const registration of registrations) {
-        registration.unregister().catch(() => {});
+        if (import.meta.env.DEV) {
+          registration.unregister().catch(() => {});
+        } else {
+          registration.update().catch(() => {});
+        }
       }
     })
     .catch(() => {});
-} else if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-  // Ensure new releases take control immediately without serving stale bundles
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    console.info('ESWA Suite updated to the latest version.');
-  });
 }
 
 initializeDesktopRuntimeBridge()

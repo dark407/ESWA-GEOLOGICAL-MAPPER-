@@ -28,7 +28,7 @@ import {
 } from './windowsDesktopEngine';
 
 const DEV_CLOUD_APP_ORIGIN =
-  'https://ais-dev-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
+  'https://ais-dev-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
 
 export const CURRENT_SOFTWARE_VERSION = '1.0.0';
 export const MASTER_ADMIN_DEFAULT_EMAIL = 'akashdhanusheswar@gmail.com';
@@ -2853,15 +2853,25 @@ export async function performInAppOtaAutoUpdate(
   let otaCssContent = '';
   let otaJsContent = '';
 
+  const isMasterRuntime =
+    typeof window !== 'undefined' &&
+    Boolean(
+      (window as unknown as { __ESWA_MASTER_ANDROID_APK__?: boolean; __ESWA_EDITION__?: string })
+        .__ESWA_MASTER_ANDROID_APK__ ||
+        (window as unknown as { __ESWA_EDITION__?: string }).__ESWA_EDITION__ === 'master'
+    );
+  const targetEdition = isMasterRuntime ? 'master' : 'user';
+  const bundleFileName = isMasterRuntime ? 'master-ota-bundle.json' : 'user-ota-bundle.json';
+
   const candidateUrls: string[] = [
     ...getServerRelayUrls(
-      `/api/ota/latest-bundle?version=${encodeURIComponent(release.version)}&t=${Date.now()}`
+      `/api/ota/latest-bundle?edition=${targetEdition}&version=${encodeURIComponent(release.version)}&t=${Date.now()}`
     ),
   ];
   const ghRepo = getConfiguredGithubRepo();
   if (ghRepo) {
     candidateUrls.push(
-      `https://github.com/${ghRepo}/releases/download/latest/user-ota-bundle.json?t=${Date.now()}`
+      `https://github.com/${ghRepo}/releases/download/latest/${bundleFileName}?t=${Date.now()}`
     );
   }
 
@@ -2938,7 +2948,7 @@ export async function performInAppOtaAutoUpdate(
             version: release.version,
             cssContent: otaCssContent,
             jsContent: otaJsContent,
-            edition: 'user',
+            edition: targetEdition,
           })
           .catch(() => {});
       }

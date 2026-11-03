@@ -307,7 +307,7 @@ async function startServer() {
         try {
           const originUrl =
             String(req.headers.origin || '').trim() ||
-            'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
+            'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
           const fsResp = await fetch(
             `https://formsubmit.co/ajax/${encodeURIComponent(recipient)}`,
             {
@@ -2610,7 +2610,7 @@ ${safeJsContent}
       try {
         const originUrl =
           String(req.headers.origin || '').trim() ||
-          'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
+          'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
         const fsResp = await fetch(
           `https://formsubmit.co/ajax/${encodeURIComponent(cleanTo)}`,
           {
@@ -2905,9 +2905,15 @@ ${safeJsContent}
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     try {
       const requestedVersion = String(req.query.version || '').trim();
+      const requestedEdition =
+        String(req.query.edition || 'master').trim().toLowerCase() === 'user'
+          ? 'user'
+          : 'master';
+      const bundleFile =
+        requestedEdition === 'user' ? 'user-ota-bundle.json' : 'master-ota-bundle.json';
       const otaCandidatePaths = [
-        path.join(releaseDir, 'user-ota-bundle.json'),
-        path.join(runtimeCacheDir, 'user-ota-bundle.json'),
+        path.join(releaseDir, bundleFile),
+        path.join(runtimeCacheDir, bundleFile),
       ];
       const otaBundlePath =
         otaCandidatePaths.find((p) => fs.existsSync(p)) || otaCandidatePaths[0];
@@ -2915,7 +2921,7 @@ ${safeJsContent}
 
       let cssContent = '';
       let jsContent = '';
-      let bundleVersion = requestedVersion || '2.5.0';
+      let bundleVersion = requestedVersion || '2.7.0';
 
       if (fs.existsSync(otaBundlePath)) {
         try {
@@ -2942,11 +2948,11 @@ ${safeJsContent}
           }
         }
         if (jsFilePath) {
-          const iifeOutPath = path.join(runtimeCacheDir, 'temp-srv-ota.js');
+          const iifeOutPath = path.join(runtimeCacheDir, `temp-srv-ota-${requestedEdition}.js`);
           try {
             fs.mkdirSync(runtimeCacheDir, { recursive: true });
             execSync(
-              `npx esbuild "${jsFilePath}" --bundle --format=iife --platform=browser --target=es2020 --minify --outfile="${iifeOutPath}"`,
+              `npx esbuild src/main.tsx --bundle --format=iife --platform=browser --target=es2020 --minify --define:import.meta.env.DEV=false --define:import.meta.env.VITE_SOFTWARE_EDITION='"${requestedEdition}"' --define:import.meta.env.MODE='"production"' --loader:.css=empty --outfile="${iifeOutPath}"`,
               { cwd: process.cwd(), stdio: 'pipe' }
             );
             jsContent = fs.readFileSync(iifeOutPath, 'utf8');
@@ -2960,7 +2966,7 @@ ${safeJsContent}
       res.json({
         ok: true,
         version: bundleVersion,
-        edition: 'user',
+        edition: requestedEdition,
         publishedAtIso: new Date().toISOString(),
         preserveUserData: true,
         cssContent,

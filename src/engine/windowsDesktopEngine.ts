@@ -330,7 +330,7 @@ export function saveConfiguredGithubRepo(rawInput: string): string {
 }
 
 export const PUBLIC_SHARED_APP_ORIGIN =
-  'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
+  'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
 
 export function getPublicShareOrigin(): string {
   if (typeof window === 'undefined') return PUBLIC_SHARED_APP_ORIGIN;
@@ -457,7 +457,7 @@ export function getGithubMasterAndroidApkDownloadUrl(_customRepo?: string): stri
 }
 
 const DEV_CLOUD_APP_ORIGIN =
-  'https://ais-dev-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
+  'https://ais-dev-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
 
 function getCandidateServerBases(): string[] {
   if (typeof window === 'undefined') return [''];

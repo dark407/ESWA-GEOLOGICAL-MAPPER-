@@ -178,16 +178,22 @@ export function verifyMasterFixedCredentials(
   return true;
 }
 
-const MASTER_VERIFIED_TOKEN_KEY = 'eswa_master_verified_session_v1';
+const LEGACY_OTP_VERIFIED_KEY = 'eswa_master_verified_session_v1';
+const MASTER_VERIFIED_TOKEN_KEY = 'eswa_master_fixed_pass_verified_v4';
 const MASTER_CHALLENGE_COLLECTION = 'eswa_master_auth_challenges';
 
 export function isMasterLocallyVerified(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    const val = localStorage.getItem(MASTER_VERIFIED_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_OTP_VERIFIED_KEY);
+    const val = sessionStorage.getItem(MASTER_VERIFIED_TOKEN_KEY);
     if (!val) return false;
     const parsed = JSON.parse(val);
-    return isAllowedMasterEmail(parsed.email) && parsed.verified === true;
+    return (
+      isAllowedMasterEmail(parsed.email) &&
+      parsed.verified === true &&
+      parsed.authMethod === 'FIXED_PASSWORD_NO_OTP'
+    );
   } catch {
     return false;
   }
@@ -199,11 +205,13 @@ export function saveMasterLocallyVerified(email: string = TARGET_MASTER_EMAIL) {
     ? email.trim().toLowerCase()
     : TARGET_MASTER_EMAIL;
   try {
-    localStorage.setItem(
+    localStorage.removeItem(LEGACY_OTP_VERIFIED_KEY);
+    sessionStorage.setItem(
       MASTER_VERIFIED_TOKEN_KEY,
       JSON.stringify({
         email: cleanEmail,
         verified: true,
+        authMethod: 'FIXED_PASSWORD_NO_OTP',
         verifiedAt: new Date().toISOString(),
       })
     );
@@ -215,7 +223,8 @@ export function saveMasterLocallyVerified(email: string = TARGET_MASTER_EMAIL) {
 export function clearMasterLocalVerification() {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.removeItem(MASTER_VERIFIED_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_OTP_VERIFIED_KEY);
+    sessionStorage.removeItem(MASTER_VERIFIED_TOKEN_KEY);
   } catch {
     // Ignore
   }
