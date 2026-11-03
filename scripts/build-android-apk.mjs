@@ -106,31 +106,26 @@ function compileStandaloneAppBundle(edition = 'user') {
   return fs.readFileSync(cachedBundlePath, 'utf8');
 }
 
-const includeUserApk =
-  process.argv.includes('--include-user') ||
-  process.argv.includes('--all') ||
-  process.env.BUILD_USER_APK === 'true';
+const includeUserApk = !process.argv.includes('--master-only');
 
 const buildVersion =
   process.env.VITE_APP_BUILD_VERSION ||
-  (process.env.GITHUB_RUN_NUMBER ? `2.7.${process.env.GITHUB_RUN_NUMBER}` : '2.7.0');
+  (process.env.GITHUB_RUN_NUMBER ? `2.8.${process.env.GITHUB_RUN_NUMBER}` : '2.8.0');
 
 const userIifeJsContent = includeUserApk ? compileStandaloneAppBundle('user') : '';
 if (includeUserApk && userIifeJsContent) {
   fs.writeFileSync(path.join(stagedWwwDir, 'app-bundle.js'), userIifeJsContent, 'utf8');
+  const userOtaJson = JSON.stringify({
+    version: buildVersion,
+    edition: 'user',
+    publishedAtIso: new Date().toISOString(),
+    preserveUserData: true,
+    cssContent,
+    jsContent: userIifeJsContent,
+  });
   try {
-    fs.writeFileSync(
-      path.join(releaseCacheDir, 'user-ota-bundle.json'),
-      JSON.stringify({
-        version: buildVersion,
-        edition: 'user',
-        publishedAtIso: new Date().toISOString(),
-        preserveUserData: true,
-        cssContent,
-        jsContent: userIifeJsContent,
-      }),
-      'utf8'
-    );
+    fs.writeFileSync(path.join(releaseCacheDir, 'user-ota-bundle.json'), userOtaJson, 'utf8');
+    fs.writeFileSync(path.join(releaseDir, 'user-ota-bundle.json'), userOtaJson, 'utf8');
   } catch {
     // Ignore write error
   }
@@ -753,6 +748,16 @@ if (includeUserApk) {
         stdio: 'inherit',
       }
     );
+    if (fs.existsSync(outApkPath)) {
+      try {
+        fs.copyFileSync(
+          outApkPath,
+          path.join(releaseCacheDir, 'ESWA-GEOLOGICAL-MAPPER-User-Android.apk')
+        );
+      } catch {
+        // Ignore cache copy error
+      }
+    }
   } catch (userApkErr) {
     console.warn('[Android Build] Notice compiling User APK:', userApkErr?.message || userApkErr);
   }
@@ -766,19 +771,17 @@ const outMasterApkPath = path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-Master-An
 
 const masterIifeJsContent = compileStandaloneAppBundle('master');
 fs.writeFileSync(path.join(stagedWwwDir, 'app-bundle.js'), masterIifeJsContent, 'utf8');
+const masterOtaJson = JSON.stringify({
+  version: buildVersion,
+  edition: 'master',
+  publishedAtIso: new Date().toISOString(),
+  preserveUserData: true,
+  cssContent,
+  jsContent: masterIifeJsContent,
+});
 try {
-  fs.writeFileSync(
-    path.join(releaseCacheDir, 'master-ota-bundle.json'),
-    JSON.stringify({
-      version: buildVersion,
-      edition: 'master',
-      publishedAtIso: new Date().toISOString(),
-      preserveUserData: true,
-      cssContent,
-      jsContent: masterIifeJsContent,
-    }),
-    'utf8'
-  );
+  fs.writeFileSync(path.join(releaseCacheDir, 'master-ota-bundle.json'), masterOtaJson, 'utf8');
+  fs.writeFileSync(path.join(releaseDir, 'master-ota-bundle.json'), masterOtaJson, 'utf8');
 } catch {
   // Ignore write error
 }

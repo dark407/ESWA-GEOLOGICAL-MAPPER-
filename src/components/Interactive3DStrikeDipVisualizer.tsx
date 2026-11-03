@@ -640,7 +640,12 @@ interface Interactive3DStrikeDipVisualizerModalProps {
   joints: Joint[];
   jointSets: JointSet[];
   initialSelectedJointId?: string | null;
-  onUpdateJointOrientation?: (jointId: string, dipDirection: number, dip: number) => void;
+  onUpdateJointOrientation?: (
+    jointId: string,
+    dipDirection: number,
+    dip: number,
+    applyMode?: 'TEXT_ONLY' | 'ALIGN_TRACE'
+  ) => void;
   onCaptureSnapshotToSheetAppendix?: (snapshot: StrikeDip3DSnapshotAppendix) => void;
   onDeleteSnapshotFromSheetAppendix?: (snapshotId: string) => void;
   onOpenEngineeringSheet?: () => void;
@@ -1916,12 +1921,45 @@ export const Interactive3DStrikeDipVisualizerModal: React.FC<
                                   onUpdateJointOrientation(
                                     selectedJointId,
                                     primaryVectors.dipDirectionDeg,
-                                    Number(e.target.value)
+                                    Number(e.target.value),
+                                    'TEXT_ONLY'
                                   )
                                 }
                                 className="w-full accent-amber-500"
                               />
                             </label>
+
+                            {/* Two Explicit 3D Joint Inspection Sync Options */}
+                            <div className="grid grid-cols-1 gap-1.5 pt-2 border-t border-slate-200">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onUpdateJointOrientation(
+                                    selectedJointId,
+                                    primaryVectors.dipDirectionDeg,
+                                    primaryVectors.dipDeg,
+                                    'TEXT_ONLY'
+                                  )
+                                }
+                                className="w-full py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] cursor-pointer transition"
+                              >
+                                1. Change Text Only on Canvas
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onUpdateJointOrientation(
+                                    selectedJointId,
+                                    primaryVectors.dipDirectionDeg,
+                                    primaryVectors.dipDeg,
+                                    'ALIGN_TRACE'
+                                  )
+                                }
+                                className="w-full py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer transition shadow-xs"
+                              >
+                                2. Change Trace Alignment on Canvas
+                              </button>
+                            </div>
                           </div>
                         )}
                     </>

@@ -721,8 +721,8 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
     }
   }, [isOpen, handleFitToScreen]);
 
-  // Update selected trace dip and dip direction in real-time
-  const updateSelectedTraceDip = useCallback((newDipDir: number, newDipAngle: number) => {
+  // Update selected trace dip and dip direction in real-time (supports TEXT_ONLY or ALIGN_TRACE)
+  const updateSelectedTraceDip = useCallback((newDipDir: number, newDipAngle: number, alignTraceGeometry = false) => {
     if (!selectedObjectId || selectedObjectType !== 'trace') return;
     let safeDir = Math.round(newDipDir) % 360;
     if (safeDir < 0) safeDir += 360;
@@ -732,8 +732,76 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       ...prev,
       traces: (prev.traces || []).map((t) => {
         if (t.id !== selectedObjectId) return t;
+        let nextPts = t.points || [];
+        if (alignTraceGeometry && nextPts.length >= 2) {
+          // Compute centroid in chainage (x) & perimeter (y)
+          let cx = 0;
+          let cy = 0;
+          nextPts.forEach((p) => {
+            cx += p.x;
+            cy += p.y;
+          });
+          cx /= nextPts.length;
+          cy /= nextPts.length;
+          let totalArc = 0;
+          for (let i = 1; i < nextPts.length; i++) {
+            totalArc += Math.hypot(nextPts[i].x - nextPts[i - 1].x, nextPts[i].y - nextPts[i - 1].y);
+          }
+          const spanLen = Math.max(1.2, totalArc);
+          const driveAz = (prev as any).tunnelDriveAzimuthDeg ?? 0;
+          const relDipRad = (((safeDir - driveAz) % 360) * Math.PI) / 180;
+          const dipRad = (Math.max(2, Math.min(89, safeAngle)) * Math.PI) / 180;
+          const nx = Math.sin(dipRad) * Math.cos(relDipRad); // along tunnel axis
+          const ny = Math.sin(dipRad) * Math.sin(relDipRad); // across tunnel width
+          const nz = Math.cos(dipRad);
+
+          const isInCrown = !isShaft && cy >= leftWallHeight && cy <= leftWallHeight + crownWidth;
+          if (isInCrown && Math.abs(nx) > 0.04) {
+            // Curved crown arch intersection trace across Crown Arch zone
+            const crownMidY = leftWallHeight + crownWidth * 0.5;
+            const halfSpanY = Math.min(crownWidth * 0.44, Math.max(0.8, spanLen * 0.48));
+            const archRiseM = Math.max(1.2, (prev.tunnelDiameterWidthM || 8) * 0.32);
+            const steps = 19;
+            const curvedPts: Point2D[] = [];
+            for (let i = 0; i < steps; i++) {
+              const u = (i / (steps - 1)) * 2 - 1; // -1 .. +1 across crown
+              const yPerim = Math.max(
+                leftWallHeight + 0.15,
+                Math.min(leftWallHeight + crownWidth - 0.15, cy + u * halfSpanY)
+              );
+              const normCrown = (yPerim - crownMidY) / Math.max(0.5, crownWidth * 0.5);
+              const zArch = archRiseM * (1 - Math.min(1, normCrown * normCrown));
+              const zMid = archRiseM * (1 - Math.min(1, Math.pow((cy - crownMidY) / Math.max(0.5, crownWidth * 0.5), 2)));
+              const dxChainage = -(ny * (yPerim - cy) + nz * (zArch - zMid)) / (Math.abs(nx) < 0.12 ? (nx >= 0 ? 0.12 : -0.12) : nx);
+              const clampedX = Math.max(fromRd + 0.15, Math.min(toRd - 0.15, cx + Math.max(-spanLen * 0.65, Math.min(spanLen * 0.65, dxChainage))));
+              curvedPts.push({
+                x: Math.round(clampedX * 100) / 100,
+                y: Math.round(yPerim * 100) / 100,
+              });
+            }
+            nextPts = curvedPts;
+          } else {
+            // Apparent-dip aligned trace on Sidewalls / Shaft perimeter
+            const slopeAngle = Math.atan2(nx, Math.abs(ny) + Math.abs(nz) * 0.5);
+            const halfSpan = spanLen * 0.48;
+            const dx = Math.cos(slopeAngle) * halfSpan;
+            const dy = Math.sin(slopeAngle) * halfSpan;
+            const steps = Math.max(5, nextPts.length);
+            const aligned: Point2D[] = [];
+            for (let i = 0; i < steps; i++) {
+              const f = (i / (steps - 1)) * 2 - 1;
+              aligned.push({
+                x: Math.round(Math.max(fromRd + 0.15, Math.min(toRd - 0.15, cx + dx * f)) * 100) / 100,
+                y: Math.round(Math.max(0.15, Math.min(totalPerimeterM - 0.15, cy + dy * f)) * 100) / 100,
+              });
+            }
+            nextPts = aligned;
+          }
+        }
         return {
           ...t,
+          points: nextPts,
+          rawPoints: nextPts,
           dipDirectionDeg: safeDir,
           dipDeg: safeAngle,
           orientationLabel: `${safeDir.toString().padStart(3, '0')}/${safeAngle.toString().padStart(2, '0')}`,
@@ -741,7 +809,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
       }),
       updatedAt: new Date().toISOString(),
     }));
-  }, [selectedObjectId, selectedObjectType]);
+  }, [selectedObjectId, selectedObjectType, isShaft, leftWallHeight, crownWidth, fromRd, toRd, totalPerimeterM]);
 
   // Merge Two Joint Traces into a single continuous trace
   const handleExecuteMergeTraces = useCallback((id1: string, id2: string) => {
@@ -1208,7 +1276,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           : isHovered
           ? '#38bdf8'
           : color;
-        ctx.lineWidth = isSelected || isMergeMaster ? 2.0 : (trace.fillingThickness === 'Thin' ? 1.1 : 1.5);
+        ctx.lineWidth = isSelected || isMergeMaster ? 1.65 : (trace.fillingThickness === 'Thin' ? 0.9 : 1.15);
 
         if (trace.structureType === 'Shear Zone') {
           ctx.setLineDash([7, 3]);
@@ -1265,80 +1333,125 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           points.forEach((pt) => {
             ctx.fillStyle = isHovered ? '#38bdf8' : color;
             ctx.beginPath();
-            ctx.arc(worldToScreenX(pt.x), worldToScreenY(pt.y), 1.8, 0, Math.PI * 2);
+            ctx.arc(worldToScreenX(pt.x), worldToScreenY(pt.y), 1.3, 0, Math.PI * 2);
             ctx.fill();
           });
         }
 
-        // Structural Geology Dip Tick & Dip Angle Label
+        // Structural Geology Dip Tick & Inline On-Trace Free-Space Label Placement
         if (points.length >= 2) {
-          const midIdx = Math.floor(points.length / 2);
-          const p1 = points[Math.max(0, midIdx - 1)];
-          const p2 = points[Math.min(points.length - 1, midIdx + 1)];
-          const midPt = points[midIdx];
+          const scrPts = points.map((pt) => ({
+            x: worldToScreenX(pt.x),
+            y: worldToScreenY(pt.y),
+          }));
+          const midIdx = Math.floor(scrPts.length / 2);
+          const p1 = scrPts[Math.max(0, midIdx - 1)];
+          const p2 = scrPts[Math.min(scrPts.length - 1, midIdx + 1)];
+          const midPt = scrPts[midIdx];
 
-          const p1x = worldToScreenX(p1.x);
-          const p1y = worldToScreenY(p1.y);
-          const p2x = worldToScreenX(p2.x);
-          const p2y = worldToScreenY(p2.y);
-          const mx = worldToScreenX(midPt.x);
-          const my = worldToScreenY(midPt.y);
-
-          const segAngle = Math.atan2(p2y - p1y, p2x - p1x);
+          const segAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
           const tickSide = trace.dipTickSide === 'left' ? -1 : 1;
-          const tickLen = 10;
+          const tickLen = 7.5;
           const tickAngle = segAngle + (Math.PI / 2) * tickSide;
 
-          const tx = mx + Math.cos(tickAngle) * tickLen;
-          const ty = my + Math.sin(tickAngle) * tickLen;
+          const tx = midPt.x + Math.cos(tickAngle) * tickLen;
+          const ty = midPt.y + Math.sin(tickAngle) * tickLen;
 
-          // Draw perpendicular tick
+          // Draw perpendicular dip tick
           ctx.strokeStyle = isSelected ? '#fbbf24' : color;
-          ctx.lineWidth = 1.4;
+          ctx.lineWidth = 1.1;
           ctx.beginPath();
-          ctx.moveTo(mx, my);
+          ctx.moveTo(midPt.x, midPt.y);
           ctx.lineTo(tx, ty);
           ctx.stroke();
 
-          // Dip angle text - Clean pure text (NO boxy design)
-          const lblX = tx + Math.cos(tickAngle) * 12;
-          const lblY = ty + Math.sin(tickAngle) * 12;
-
-          ctx.font = 'bold 10px monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
-          ctx.lineWidth = 2.5;
-          ctx.strokeText(`${trace.dipDeg}°`, lblX, lblY);
-          ctx.fillStyle = isSelected ? '#ea580c' : (isDarkMode ? '#ffffff' : '#0f172a');
-          ctx.fillText(`${trace.dipDeg}°`, lblX, lblY);
-
-          // Joint Set / Custom Text Label - Clean pure text (NO boxy design, respects hideLabel/deleted text)
+          // Inline On-Trace Label placed at the freest space along the trace strictly inside tunnel outline
           if (!trace.hideLabel) {
             const displayLabel = trace.customLabel !== undefined ? trace.customLabel : trace.setId;
-            if (displayLabel && displayLabel.trim() !== '') {
-              const setBadgeX = mx - Math.cos(tickAngle) * 15;
-              const setBadgeY = my - Math.sin(tickAngle) * 15;
+            const inlineStr =
+              displayLabel && displayLabel.trim() !== ''
+                ? `${displayLabel} ${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`
+                : `${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`;
 
-              ctx.font = 'bold 11px sans-serif';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.95)';
-              ctx.lineWidth = 3;
-              ctx.strokeText(displayLabel, setBadgeX, setBadgeY);
-              ctx.fillStyle = isSelected ? '#ea580c' : color;
-              ctx.fillText(displayLabel, setBadgeX, setBadgeY);
+            // Build cumulative arc lengths in screen space
+            const cum: number[] = [0];
+            for (let k = 1; k < scrPts.length; k++) {
+              cum.push(cum[k - 1] + Math.hypot(scrPts[k].x - scrPts[k - 1].x, scrPts[k].y - scrPts[k - 1].y));
             }
+            const totalScrLen = cum[cum.length - 1] || 1;
+            const sampleAtFrac = (frac: number) => {
+              const targetS = Math.max(0, Math.min(1, frac)) * totalScrLen;
+              let sIdx = 0;
+              while (sIdx < cum.length - 2 && cum[sIdx + 1] < targetS) sIdx++;
+              const segL = Math.max(1e-4, cum[sIdx + 1] - cum[sIdx]);
+              const tLoc = (targetS - cum[sIdx]) / segL;
+              const a = scrPts[sIdx];
+              const b = scrPts[sIdx + 1];
+              let ang = Math.atan2(b.y - a.y, b.x - a.x);
+              if (ang > Math.PI / 2) ang -= Math.PI;
+              if (ang < -Math.PI / 2) ang += Math.PI;
+              return {
+                x: a.x + (b.x - a.x) * tLoc,
+                y: a.y + (b.y - a.y) * tLoc,
+                ang,
+              };
+            };
+
+            const candidateFracs = [0.66, 0.34, 0.74, 0.26, 0.78, 0.22, 0.56];
+            let bestSample = sampleAtFrac(0.66);
+            let bestScore = -1e9;
+            const otherTraces = (currentDataset.traces || []).filter((ot) => ot.id !== trace.id);
+
+            for (const frac of candidateFracs) {
+              const cand = sampleAtFrac(frac);
+              // Must stay strictly inside tunnel strip outline
+              const halfLabelW = Math.max(18, inlineStr.length * 2.5);
+              if (
+                cand.x - halfLabelW < startX + 4 ||
+                cand.x + halfLabelW > endX - 4 ||
+                cand.y < topY + 6 ||
+                cand.y > botY - 6
+              ) {
+                continue;
+              }
+              let minClearance = 999;
+              for (const ot of otherTraces) {
+                for (const op of ot.points || []) {
+                  const ox = worldToScreenX(op.x);
+                  const oy = worldToScreenY(op.y);
+                  const d = Math.hypot(cand.x - ox, cand.y - oy);
+                  if (d < minClearance) minClearance = d;
+                }
+              }
+              const score = Math.min(48, minClearance) - Math.abs(frac - 0.65) * 8;
+              if (score > bestScore) {
+                bestScore = score;
+                bestSample = cand;
+              }
+            }
+
+            ctx.save();
+            ctx.translate(bestSample.x, bestSample.y);
+            ctx.rotate(bestSample.ang);
+            ctx.font = 'bold 8.5px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.strokeStyle = isDarkMode ? 'rgba(9, 13, 22, 0.96)' : 'rgba(255, 255, 255, 0.96)';
+            ctx.lineWidth = 3.2;
+            ctx.strokeText(inlineStr, 0, 0);
+            ctx.fillStyle = isSelected ? '#ea580c' : color;
+            ctx.fillText(inlineStr, 0, 0);
+            ctx.restore();
           }
 
           // HW / FW markers for faults/shears
           if (trace.showHwFw) {
-            const hwX = mx + Math.cos(tickAngle) * 24;
-            const hwY = my + Math.sin(tickAngle) * 24;
-            const fwX = mx - Math.cos(tickAngle) * 24;
-            const fwY = my - Math.sin(tickAngle) * 24;
+            const hwX = midPt.x + Math.cos(tickAngle) * 18;
+            const hwY = midPt.y + Math.sin(tickAngle) * 18;
+            const fwX = midPt.x - Math.cos(tickAngle) * 18;
+            const fwY = midPt.y - Math.sin(tickAngle) * 18;
             ctx.fillStyle = '#ef4444';
-            ctx.font = 'bold 11px sans-serif';
+            ctx.font = 'bold 9px sans-serif';
             ctx.fillText(trace.flipHwFw ? 'FW' : 'HW', hwX, hwY);
             ctx.fillStyle = '#3b82f6';
             ctx.fillText(trace.flipHwFw ? 'HW' : 'FW', fwX, fwY);
@@ -3502,12 +3615,46 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
                           <button
                             key={c.l}
                             type="button"
-                            onClick={() => updateSelectedTraceDip(c.d, selectedTrace.dipDeg)}
+                            onClick={() => updateSelectedTraceDip(c.d, selectedTrace.dipDeg, false)}
                             className="flex-1 min-w-[28px] py-0.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-800 text-stone-300 hover:text-white text-[10px] font-mono text-center cursor-pointer"
                           >
                             {c.l}
                           </button>
                         ))}
+                      </div>
+
+                      {/* Two Explicit 3D Joint Inspection Sync Options: 1. Change Text Only vs 2. Change Trace Alignment */}
+                      <div className="grid grid-cols-1 gap-1.5 pt-2 border-t border-stone-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            pushHistory(currentDataset);
+                            updateSelectedTraceDip(
+                              selectedTrace.dipDirectionDeg,
+                              selectedTrace.dipDeg,
+                              false
+                            );
+                          }}
+                          className="w-full py-1.5 px-2.5 rounded-lg bg-stone-800 hover:bg-stone-700 border border-stone-600 text-stone-100 font-bold text-[10.5px] flex items-center justify-center gap-1.5 cursor-pointer transition"
+                          title="Option 1: Change only the Dip Direction / Dip Angle text on the canvas while keeping the drawn trace curve unchanged"
+                        >
+                          <span>1. Change Text Only on Canvas</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            pushHistory(currentDataset);
+                            updateSelectedTraceDip(
+                              selectedTrace.dipDirectionDeg,
+                              selectedTrace.dipDeg,
+                              true
+                            );
+                          }}
+                          className="w-full py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 border border-emerald-400/50 text-white font-bold text-[10.5px] flex items-center justify-center gap-1.5 cursor-pointer transition shadow"
+                          title="Option 2: Re-align the trace geometry on the canvas (generating curved crown arch trace in Crown or apparent-dip aligned trace on Walls) based on edited Dip Direction & Dip Angle"
+                        >
+                          <span>2. Change Trace Alignment on Canvas</span>
+                        </button>
                       </div>
                     </div>
 

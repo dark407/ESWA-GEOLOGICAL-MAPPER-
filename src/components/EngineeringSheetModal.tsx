@@ -1816,19 +1816,27 @@ export const EngineeringSheetModal: React.FC<EngineeringSheetModalProps> = React
     URL.revokeObjectURL(url);
   };
 
-  // Export high-resolution PNG
+  // Export high-resolution 300+ DPI PNG
   const handleDownloadPNG = () => {
     const svgString = getExportReadySvgString();
     if (!svgString) return;
-    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const highPrecisionSvg = svgString.replace(
+      /<svg\b([^>]*)>/i,
+      '<svg$1 shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality">'
+    );
+    const svgBlob = new Blob([highPrecisionSvg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(svgBlob);
 
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
+      const dpiScale = 3.5; // 300+ DPI Ultra-Sharp Engineering Print Resolution
       const canvas = document.createElement('canvas');
-      canvas.width = sheetW * 2;
-      canvas.height = totalSheetH * 2;
+      canvas.width = Math.round(sheetW * dpiScale);
+      canvas.height = Math.round(totalSheetH * dpiScale);
       const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);

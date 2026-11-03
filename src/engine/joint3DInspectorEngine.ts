@@ -75,6 +75,8 @@ export interface SurfaceIntersectionSegment {
   lengthM: number;
   isObserved: boolean;
   isInferredContinuation: boolean;
+  curvedPoints?: { x: number; y: number }[]; // Multi-point curved intersection in panel metric space
+  curvedPoints3D?: Vec3D[]; // Multi-point 3D intersection along the arched crown surface
 }
 
 export interface Joint3DInspectionData {
@@ -882,22 +884,89 @@ export function calculatePlaneSurfaceIntersections(
     }
   }
 
-  // 4. CROWN ARCH (Z = heightM)
+  // 4. CROWN ARCH (Curved Vault Surface Z = Z_arch(Y))
   let crownSeg: SurfaceIntersectionSegment | undefined;
   if (geom.hasCrown !== false) {
-    const crownC = c * geom.heightM + d;
-    const crownClip = clipLineToRect(a, b, crownC, 0, geom.pullLengthM, 0, geom.widthM);
-    if (crownClip) {
-      const len = Math.hypot(crownClip.p2.x - crownClip.p1.x, crownClip.p2.y - crownClip.p1.y);
+    const w = Math.max(0.5, geom.widthM || 8.0);
+    const pullL = Math.max(0.5, geom.pullLengthM || 3.0);
+    const h = Math.max(1.0, geom.heightM || 6.5);
+    const hw = geom.wallHeightM || h * 0.55;
+    const archRise = Math.max(0.4, h - hw);
+
+    // Sample across the crown arch and solve for plane intersection a*X + b*Y + c*Z_arch(Y) + d = 0
+    const curvedPts2D: { x: number; y: number }[] = [];
+    const curvedPts3D: Vec3D[] = [];
+    const nSamples = 24;
+
+    if (Math.abs(a) > 0.08) {
+      // Parameterize by transverse width Y across [0, w]
+      for (let i = 0; i <= nSamples; i++) {
+        const yVal = (i / nSamples) * w;
+        const normDy = Math.max(-1, Math.min(1, (yVal - w / 2) / (w / 2)));
+        const zArch = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy));
+        const xVal = (-b * yVal - c * zArch - d) / a;
+        if (xVal >= -0.02 && xVal <= pullL + 0.02) {
+          const cx = Math.max(0, Math.min(pullL, Number(xVal.toFixed(3))));
+          const cy = Number(yVal.toFixed(3));
+          const cz = Number(zArch.toFixed(3));
+          curvedPts2D.push({ x: cx, y: cy });
+          curvedPts3D.push({ x: cx, y: cy, z: cz });
+        }
+      }
+    }
+
+    // Fallback or near-longitudinal strike (|a| <= 0.08): clip at representative crown elevation and curve along arch
+    if (curvedPts2D.length < 2) {
+      const crownC = c * (hw + archRise * 0.82) + d;
+      const crownClip = clipLineToRect(a, b, crownC, 0, pullL, 0, w);
+      if (crownClip) {
+        const p1 = crownClip.p1;
+        const p2 = crownClip.p2;
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const chordLen = Math.hypot(dx, dy) || 1;
+        // Normal in (X, Y) pointing toward dip direction
+        const horizNormLen = Math.hypot(a, b) || 1;
+        const dipDirX = (a * (c >= 0 ? 1 : -1)) / horizNormLen;
+        const dipDirY = (b * (c >= 0 ? 1 : -1)) / horizNormLen;
+        const cotDip = Math.min(1.6, Math.abs(c) / Math.max(0.15, horizNormLen));
+        const maxSag = Math.min(pullL * 0.28, w * 0.22, archRise * 0.35 * cotDip * (chordLen / Math.max(w, pullL)));
+
+        curvedPts2D.length = 0;
+        curvedPts3D.length = 0;
+        for (let i = 0; i <= nSamples; i++) {
+          const t = i / nSamples;
+          const archFactor = 4 * t * (1 - t); // 0 at ends, 1 at center
+          const cx = Math.max(0, Math.min(pullL, p1.x + dx * t + dipDirX * maxSag * archFactor));
+          const cy = Math.max(0, Math.min(w, p1.y + dy * t + dipDirY * maxSag * archFactor));
+          const normDy = Math.max(-1, Math.min(1, (cy - w / 2) / (w / 2)));
+          const cz = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy));
+          curvedPts2D.push({ x: Number(cx.toFixed(3)), y: Number(cy.toFixed(3)) });
+          curvedPts3D.push({ x: Number(cx.toFixed(3)), y: Number(cy.toFixed(3)), z: Number(cz.toFixed(3)) });
+        }
+      }
+    }
+
+    if (curvedPts2D.length >= 2) {
+      let arcLen = 0;
+      for (let i = 0; i < curvedPts3D.length - 1; i++) {
+        arcLen += Math.hypot(
+          curvedPts3D[i + 1].x - curvedPts3D[i].x,
+          curvedPts3D[i + 1].y - curvedPts3D[i].y,
+          curvedPts3D[i + 1].z - curvedPts3D[i].z
+        );
+      }
       crownSeg = {
         panel: 'crown',
-        p1: crownClip.p1,
-        p2: crownClip.p2,
-        lengthM: Number(len.toFixed(2)),
+        p1: curvedPts2D[0],
+        p2: curvedPts2D[curvedPts2D.length - 1],
+        lengthM: Number(Math.max(0.05, arcLen).toFixed(2)),
         isObserved: sourcePanel === 'crown',
         isInferredContinuation: sourcePanel !== 'crown',
+        curvedPoints: curvedPts2D,
+        curvedPoints3D: curvedPts3D,
       };
-      totalM += len;
+      totalM += arcLen;
     }
   }
 
@@ -926,7 +995,29 @@ export function clipPlaneToTunnelBox(
   const { a, b, c, d } = plane;
   const eps = 1e-6;
 
-  const customPoly = getCrossSectionVerticesInTunnelFrame(geom);
+  let customPoly = getCrossSectionVerticesInTunnelFrame(geom);
+  if (customPoly.length < 3 && !geom.isVerticalShaft && geom.tunnelShape !== 'rectangular') {
+    // Build a smooth arched D-shaped / horseshoe cross-section polygon so the 3D discontinuity plane
+    // follows the curved crown arch instead of a flat rectangular ceiling
+    const w = Math.max(0.5, geom.widthM || 8.0);
+    const h = Math.max(1.0, geom.heightM || 6.5);
+    const hw = geom.wallHeightM || h * 0.55;
+    const archRise = Math.max(0.4, h - hw);
+    const polyPts: { y: number; z: number }[] = [
+      { y: 0, z: 0 },
+      { y: 0, z: hw },
+    ];
+    const archSteps = 18;
+    for (let i = 1; i < archSteps; i++) {
+      const t = i / archSteps;
+      const py = t * w;
+      const normDy = Math.max(-1, Math.min(1, (py - w / 2) / (w / 2)));
+      const pz = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy));
+      polyPts.push({ y: Number(py.toFixed(3)), z: Number(pz.toFixed(3)) });
+    }
+    polyPts.push({ y: w, z: hw }, { y: w, z: 0 });
+    customPoly = polyPts;
+  }
 
   // The edges of the tunnel envelope in (X, Y, Z)
   const edges: [{ x: number; y: number; z: number }, { x: number; y: number; z: number }][] = [];
@@ -1897,5 +1988,283 @@ export function constructPlaneFromFaceTraceHinge(
 ): FaceTraceHingePlaneResult {
   return constructPlaneFromTraceHinge(points, 'face', hingeDipDeg, directionSide, geom);
 }
+
+/**
+ * Converts a 3D tunnel metric point back into 2D canvas coordinates (1000x800 SVG space) for the given panel.
+ */
+export function tunnel3DMetricToCanvasPoint(
+  pt3D: Vec3D,
+  panel: FieldPanelId,
+  geom: TunnelSpatialGeometry
+): FieldPoint2D {
+  const isVertShaft = Boolean(geom.isVerticalShaft);
+  const D = geom.widthM || 8.0;
+  const pullL = geom.pullLengthM || 3.0;
+  const quadrantArcM = Number(((Math.PI * D) / 4).toFixed(2));
+
+  let panelW = geom.widthM || 8.0;
+  let panelH = geom.heightM || 6.5;
+  if (isVertShaft) {
+    if (panel === 'face') {
+      panelW = D;
+      panelH = D;
+    } else {
+      panelW = quadrantArcM;
+      panelH = pullL;
+    }
+  } else if (panel === 'crown') {
+    panelW = geom.widthM || 8.0;
+    panelH = geom.pullLengthM || 3.0;
+  } else if (panel === 'left_wall' || panel === 'right_wall') {
+    panelW = geom.pullLengthM || 3.0;
+    panelH = geom.wallHeightM || 4.0;
+  }
+
+  const maxBoxW = 845;
+  const maxBoxH = 810;
+  const pxPerMeter = Math.min(maxBoxW / Math.max(0.5, panelW), maxBoxH / Math.max(0.5, panelH));
+  const boxW = panelW * pxPerMeter;
+  const boxH = panelH * pxPerMeter;
+  const boxX = 500 - boxW / 2;
+  const boxY = 495 - boxH / 2;
+
+  let uNorm = 0.5;
+  let vNorm = 0.5;
+
+  if (panel === 'crown' && !isVertShaft) {
+    uNorm = Math.max(0.02, Math.min(0.98, pt3D.y / Math.max(0.5, geom.widthM || 8.0)));
+    vNorm = Math.max(0.02, Math.min(0.98, 1 - pt3D.x / Math.max(0.5, geom.pullLengthM || 3.0)));
+  } else if (panel === 'face' && !isVertShaft) {
+    uNorm = Math.max(0.02, Math.min(0.98, pt3D.y / Math.max(0.5, geom.widthM || 8.0)));
+    vNorm = Math.max(0.02, Math.min(0.98, 1 - pt3D.z / Math.max(0.5, geom.heightM || 6.5)));
+  } else if ((panel === 'left_wall' || panel === 'right_wall') && !isVertShaft) {
+    uNorm = Math.max(0.02, Math.min(0.98, pt3D.x / Math.max(0.5, geom.pullLengthM || 3.0)));
+    vNorm = Math.max(0.02, Math.min(0.98, 1 - pt3D.z / Math.max(0.5, geom.wallHeightM || 4.0)));
+  }
+
+  return {
+    x: Number((boxX + uNorm * boxW).toFixed(1)),
+    y: Number((boxY + vNorm * boxH).toFixed(1)),
+  };
+}
+
+/**
+ * Constructs a 3D discontinuity plane and curved crown arch intersection trace for Crown mapping.
+ * Because the tunnel crown is an arched vault, a dipping plane cutting through the crown produces
+ * a curved intersection line. When Dip Direction or Dip Amount changes in the 3D Joint Inspector,
+ * both the 3D plane and the curved intersection trace on the crown dynamically update.
+ */
+export function constructCurvedCrownPlaneAndTrace(
+  points: FieldPoint2D[],
+  dipDirectionDeg: number,
+  dipDeg: number,
+  geom: TunnelSpatialGeometry
+): {
+  plane: PlaneEquation;
+  anchor3D: Vec3D;
+  drawnCurve3D: Vec3D[];
+  editedCurve3D: Vec3D[];
+  editedCanvasPoints: FieldPoint2D[];
+  planeCoverPolygon3D: Vec3D[];
+} {
+  const w = Math.max(0.5, geom.widthM || 8.0);
+  const pullL = Math.max(0.5, geom.pullLengthM || 3.0);
+  const h = Math.max(1.0, geom.heightM || 6.5);
+  const hw = geom.wallHeightM || h * 0.55;
+  const archRise = Math.max(0.4, h - hw);
+
+  const safePts =
+    points && points.length >= 2
+      ? points
+      : [
+          { x: 350, y: 495 },
+          { x: 650, y: 495 },
+        ];
+
+  const drawnCurve3D = safePts.map((pt) => pointToTunnel3DMetric(pt, 'crown', geom));
+
+  // Compute centroid anchor on the crown arch
+  const avgX = drawnCurve3D.reduce((s, p) => s + p.x, 0) / drawnCurve3D.length;
+  const avgY = drawnCurve3D.reduce((s, p) => s + p.y, 0) / drawnCurve3D.length;
+  const normDy0 = Math.max(-1, Math.min(1, (avgY - w / 2) / (w / 2)));
+  const archZ0 = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy0 * normDy0));
+  const anchor3D: Vec3D = {
+    x: Number(avgX.toFixed(3)),
+    y: Number(avgY.toFixed(3)),
+    z: Number(archZ0.toFixed(3)),
+  };
+
+  // Measure horizontal chord length of the drawn trace
+  const first3D = drawnCurve3D[0];
+  const last3D = drawnCurve3D[drawnCurve3D.length - 1];
+  let chordLenM = Math.hypot(last3D.x - first3D.x, last3D.y - first3D.y);
+  if (chordLenM < 0.4) {
+    chordLenM = Math.min(w * 0.65, pullL * 0.75);
+  }
+
+  const plane = constructJointPlane(
+    dipDirectionDeg,
+    dipDeg,
+    anchor3D,
+    geom.driveAzimuthDeg || 0
+  );
+
+  // Horizontal strike and dip-direction unit vectors in tunnel (X, Y)
+  const relDipRad = degToRad(normalizeAngle360(dipDirectionDeg - (geom.driveAzimuthDeg || 0)));
+  const dipDirX = Math.cos(relDipRad);
+  const dipDirY = Math.sin(relDipRad);
+  // Right-Hand Rule strike unit vector (looking along strike, dips to the right)
+  const strikeDirX = Math.sin(relDipRad);
+  const strikeDirY = -Math.cos(relDipRad);
+
+  // As a plane with dip angle delta cuts the arched crown roof Z_arch(Y),
+  // any drop in roof height dZ = Z_arch(anchor) - Z_arch(s) shifts the trace in the dip direction by cot(delta) * dZ.
+  const clampedDip = Math.max(5, Math.min(90, dipDeg));
+  const cotDip = Math.cos(degToRad(clampedDip)) / Math.max(0.08, Math.sin(degToRad(clampedDip)));
+
+  const nSamples = 20;
+  const editedCurve3D: Vec3D[] = [];
+  const editedCanvasPoints: FieldPoint2D[] = [];
+
+  for (let i = 0; i <= nSamples; i++) {
+    const t = i / nSamples; // 0..1
+    const tau = (t - 0.5) * 2; // -1..+1
+    const s = (t - 0.5) * chordLenM;
+
+    // Base chord position along strike
+    const baseX = anchor3D.x + s * strikeDirX;
+    const baseY = anchor3D.y + s * strikeDirY;
+
+    // Arch elevation drop from apex/anchor across both transverse Y and vault profile
+    const normDyBase = Math.max(-1, Math.min(1, (baseY - w / 2) / (w / 2)));
+    const zAtBase = hw + archRise * Math.sqrt(Math.max(0, 1 - normDyBase * normDyBase));
+    const transDrop = Math.max(0, archZ0 - zAtBase);
+    const vaultDrop = archRise * 0.36 * (1 - tau * tau); // Smooth parabolic arch sag centered on the trace
+
+    // Total curved displacement along dip direction (zero at endpoints tau=±1 so endpoints stay anchored on chord, curving through the crown)
+    const archCurveOffset = (vaultDrop + transDrop * 0.5 * (1 - tau * tau)) * Math.min(1.85, cotDip * 0.85);
+    // Center the curve around anchor3D by subtracting mean offset (2/3 of peak)
+    const centeredOffset = archCurveOffset - archRise * 0.36 * 0.55 * Math.min(1.85, cotDip * 0.85);
+
+    const cx = Math.max(0.04, Math.min(pullL - 0.04, baseX + dipDirX * centeredOffset));
+    const cy = Math.max(0.06, Math.min(w - 0.06, baseY + dipDirY * centeredOffset));
+    const normDy = Math.max(-1, Math.min(1, (cy - w / 2) / (w / 2)));
+    const cz = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy));
+
+    const pt3: Vec3D = {
+      x: Number(cx.toFixed(3)),
+      y: Number(cy.toFixed(3)),
+      z: Number(cz.toFixed(3)),
+    };
+    editedCurve3D.push(pt3);
+    editedCanvasPoints.push(tunnel3DMetricToCanvasPoint(pt3, 'crown', geom));
+  }
+
+  // Build a 3D plane polygon that covers the entire curved trace on the crown and cuts through the curve into the tunnel
+  const coverDepthM = Math.min(h * 0.65, Math.max(1.8, chordLenM * 0.65));
+  const upperBand3D: Vec3D[] = editedCurve3D.map((p) => ({
+    x: Number(Math.max(0, Math.min(pullL, p.x - plane.dipVector.x * 0.35)).toFixed(3)),
+    y: Number(Math.max(0, Math.min(w, p.y - plane.dipVector.y * 0.35)).toFixed(3)),
+    z: Number(Math.min(h + 0.25, p.z - plane.dipVector.z * 0.35).toFixed(3)),
+  }));
+  const lowerBand3D: Vec3D[] = [...editedCurve3D].reverse().map((p) => ({
+    x: Number(Math.max(0, Math.min(pullL, p.x + plane.dipVector.x * coverDepthM)).toFixed(3)),
+    y: Number(Math.max(0, Math.min(w, p.y + plane.dipVector.y * coverDepthM)).toFixed(3)),
+    z: Number(Math.max(0.05, p.z + plane.dipVector.z * coverDepthM).toFixed(3)),
+  }));
+
+  return {
+    plane,
+    anchor3D,
+    drawnCurve3D,
+    editedCurve3D,
+    editedCanvasPoints,
+    planeCoverPolygon3D: [...upperBand3D, ...lowerBand3D],
+  };
+}
+
+/**
+ * Re-computes and aligns the 2D canvas trace polyline points to match the edited 3D Joint Inspection
+ * Dip Direction and Dip Amount when the user selects "Change Trace Alignment on Canvas".
+ */
+export function recomputeAlignedCanvasTracePoints(
+  points: FieldPoint2D[],
+  panel: FieldPanelId,
+  dipDirectionDeg: number,
+  dipDeg: number,
+  geom: TunnelSpatialGeometry
+): FieldPoint2D[] {
+  if (!points || points.length < 2) return points;
+
+  if (panel === 'crown' && !geom.isVerticalShaft) {
+    const res = constructCurvedCrownPlaneAndTrace(points, dipDirectionDeg, dipDeg, geom);
+    return res.editedCanvasPoints;
+  }
+
+  // For Face, Left Wall, Right Wall (or Vertical Shaft):
+  // Calculate the plane equation anchored at the trace midpoint, then align the 2D trace along the plane's intersection with the panel
+  const anchor3D = deriveAnchorPointFromPoints(points, panel, geom);
+  const plane = constructJointPlane(
+    dipDirectionDeg,
+    dipDeg,
+    anchor3D,
+    geom.driveAzimuthDeg || 0
+  );
+
+  // Determine the target 2D canvas direction vector (dxCanvas, dyCanvas) on this panel
+  let targetDx = 1;
+  let targetDy = 0;
+
+  if (panel === 'face') {
+    // Face plane is X = pullLengthM: b*Y + c*Z + const = 0 => tangent in (Y, Z) is (c, -b)
+    // On canvas: +X is +Y_tunnel, +Y_canvas is -Z_tunnel => canvas tangent is (c, b)
+    const len = Math.hypot(plane.c, plane.b);
+    if (len > 1e-4) {
+      targetDx = plane.c / len;
+      targetDy = plane.b / len;
+    }
+  } else if (panel === 'left_wall' || panel === 'right_wall') {
+    // Wall plane is Y = 0 or Y = widthM: a*X + c*Z + const = 0 => tangent in (X, Z) is (c, -a)
+    // On canvas: +X_canvas is +X_tunnel, +Y_canvas is -Z_tunnel => canvas tangent is (c, a)
+    const len = Math.hypot(plane.c, plane.a);
+    if (len > 1e-4) {
+      targetDx = plane.c / len;
+      targetDy = plane.a / len;
+    }
+  }
+
+  // Rotate existing points around their 2D centroid so the chord aligns with (targetDx, targetDy)
+  // while preserving the trace's length and any subtle drawn curvature
+  const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
+  const cy = points.reduce((s, p) => s + p.y, 0) / points.length;
+  const pFirst = points[0];
+  const pLast = points[points.length - 1];
+  const curDx = pLast.x - pFirst.x;
+  const curDy = pLast.y - pFirst.y;
+  const curLen = Math.hypot(curDx, curDy);
+
+  if (curLen < 2) return points;
+
+  const curAngle = Math.atan2(curDy, curDx);
+  let targetAngle = Math.atan2(targetDy, targetDx);
+  // Pick the direction along the line that requires the smallest rotation (< 90°) from the drawn trace
+  const diff = Math.atan2(Math.sin(targetAngle - curAngle), Math.cos(targetAngle - curAngle));
+  if (Math.abs(diff) > Math.PI / 2) {
+    targetAngle += Math.PI;
+  }
+  const rotRad = targetAngle - curAngle;
+  const cosR = Math.cos(rotRad);
+  const sinR = Math.sin(rotRad);
+
+  return points.map((pt) => {
+    const rx = pt.x - cx;
+    const ry = pt.y - cy;
+    return {
+      x: Number((cx + rx * cosR - ry * sinR).toFixed(1)),
+      y: Number((cy + rx * sinR + ry * cosR).toFixed(1)),
+    };
+  });
+}
+
 
 

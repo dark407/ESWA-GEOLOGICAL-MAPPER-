@@ -1912,7 +1912,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
       activeTouchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
 
-    // Handle active two-finger pinch-to-zoom & pan
+    // Handle active two-finger pinch-to-zoom & 3D tunnel rotation
     if (pinchGestureRef.current?.active && activeTouchPointersRef.current.size >= 2) {
       const pts = Array.from(activeTouchPointersRef.current.values());
       const p0 = pts[0];
@@ -1929,10 +1929,11 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
 
       const dMidX = midX - pinchGestureRef.current.startMidX;
       const dMidY = midY - pinchGestureRef.current.startMidY;
-      setViewPan({
-        x: Math.max(-320, Math.min(320, Math.round(pinchGestureRef.current.startPanX - dMidX / nextZoom))),
-        y: Math.max(-280, Math.min(280, Math.round(pinchGestureRef.current.startPanY - dMidY / nextZoom))),
-      });
+      const rawYaw = Math.round(pinchGestureRef.current.startYaw + dMidX * 0.45);
+      const rawPitch = Math.round(pinchGestureRef.current.startPitch + dMidY * 0.45);
+      const wrappedYaw = ((((rawYaw + 180) % 360) + 360) % 360) - 180;
+      const clampedPitch = Math.max(-85, Math.min(85, rawPitch));
+      scheduleRotationUpdate(wrappedYaw, clampedPitch);
       return;
     }
 
@@ -4193,16 +4194,25 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             );
           })}
 
-          {/* 4D. Tool 4: Dip Plane Surfaces in 3D (Real Pencil Outline Connected to Panel/Face Outline or Joint Trace, No Brush Inflation) */}
+          {/* 4D. Tool 4: Dip Plane Surfaces in 3D (Exact Drawn Shape and Size) */}
           {(activeRound.dipPlaneSurfaces || []).map((ds) => {
             if (ds.points.length === 0) return null;
             const { outlinePolygon: poly2D, centroid: centroid2D } =
-              buildDipSurfacePolygonWithOutlineSnap(
-                ds.points,
-                ds.panel,
-                activeLocation,
-                activeRound
-              );
+              ds.outlinePolygon && ds.outlinePolygon.length >= 3
+                ? {
+                    outlinePolygon: ds.outlinePolygon,
+                    centroid:
+                      ds.centroid ||
+                      buildDipSurfaceOutlineAndCentroid(ds.points, ds.brushRadius).centroid,
+                  }
+                : ds.brushRadius && ds.brushRadius >= 10
+                ? buildDipSurfaceOutlineAndCentroid(ds.points, ds.brushRadius)
+                : buildDipSurfacePolygonWithOutlineSnap(
+                    ds.points,
+                    ds.panel,
+                    activeLocation,
+                    activeRound
+                  );
             const mappedPoly3D = poly2D.map((p) => panelPointTo3DSvg(ds.panel, p));
             const mappedPencil3D = ds.points.map((p) => panelPointTo3DSvg(ds.panel, p));
             const centroid = panelPointTo3DSvg(ds.panel, centroid2D);

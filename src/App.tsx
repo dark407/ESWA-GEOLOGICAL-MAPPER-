@@ -190,8 +190,10 @@ import {
   CircleDot,
   Cloud,
   Compass,
+  Crosshair,
   Database,
   Download,
+  Droplets,
   FileSpreadsheet,
   FileText,
   Gauge,
@@ -222,6 +224,8 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { UserFeedbackModal } from './components/UserFeedbackModal';
+import { ProbeHoleDrillingModal } from './components/ProbeHoleDrillingModal';
+import { GroutingAnalysisModal } from './components/GroutingAnalysisModal';
 import { MiningStopeFaceInspectorModal } from './components/MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './components/TbmShieldInspectorModal';
 import { AdvancedBruntonCompassModal } from './components/AdvancedBruntonCompassModal';
@@ -346,6 +350,8 @@ export default function App({
   );
   const [isNatmRockMechanicsModalOpen, setIsNatmRockMechanicsModalOpen] = useState<boolean>(false);
   const [isTunnelMonitoringOpen, setIsTunnelMonitoringOpen] = useState<boolean>(false);
+  const [isProbeHoleDrillingOpen, setIsProbeHoleDrillingOpen] = useState<boolean>(false);
+  const [isGroutingModalOpen, setIsGroutingModalOpen] = useState<boolean>(false);
   const [isBruntonCompassOpen, setIsBruntonCompassOpen] = useState<boolean>(false);
   const [isShiftReminderOpen, setIsShiftReminderOpen] = useState<boolean>(false);
   const [isSupportReferenceOpen, setIsSupportReferenceOpen] = useState<boolean>(false);
@@ -2904,6 +2910,18 @@ export default function App({
   }, [isNatmRockMechanicsModalOpen]);
 
   useEffect(() => {
+    if (isProbeHoleDrillingOpen) {
+      return registerStepBackHandler('probe_hole_drilling', () => setIsProbeHoleDrillingOpen(false), 100, 'Close Probe Hole Drilling');
+    }
+  }, [isProbeHoleDrillingOpen]);
+
+  useEffect(() => {
+    if (isGroutingModalOpen) {
+      return registerStepBackHandler('grouting_modal', () => setIsGroutingModalOpen(false), 100, 'Close Grouting Window');
+    }
+  }, [isGroutingModalOpen]);
+
+  useEffect(() => {
     if (showPhotoScreenAccuracyModal) {
       return registerStepBackHandler('photo_accuracy', () => setShowPhotoScreenAccuracyModal(false), 100, 'Close Photo Accuracy');
     }
@@ -3824,6 +3842,32 @@ export default function App({
     />
   );
 
+  const probeHoleDrillingModalNode = (
+    <ProbeHoleDrillingModal
+      isOpen={isProbeHoleDrillingOpen}
+      onClose={() => setIsProbeHoleDrillingOpen(false)}
+      defaultProjectName={settings.projectName || activeProjectName || 'Himalayan Hydro Headrace Tunnel'}
+      defaultTunnelName={settings.locationName || settings.tunnelName || activeLocationName || 'Headrace Tunnel (HRT-01)'}
+      defaultFaceChainage={settings.faceChainage || settings.chainage || 'CH 12+450.50 m'}
+      defaultLoggedBy={activeGeologist?.name || settings.mappedBy || 'Senior Tunnel Geologist'}
+      tunnelWidthMeters={geometry.width > 0 ? geometry.width : 8.5}
+      tunnelHeightMeters={geometry.height > 0 ? geometry.height : 8.5}
+      onOpenGroutingWindow={() => setIsGroutingModalOpen(true)}
+    />
+  );
+
+  const groutingModalNode = (
+    <GroutingAnalysisModal
+      isOpen={isGroutingModalOpen}
+      onClose={() => setIsGroutingModalOpen(false)}
+      defaultProjectName={settings.projectName || activeProjectName || 'Himalayan Hydro Headrace Tunnel'}
+      defaultTunnelName={settings.locationName || settings.tunnelName || activeLocationName || 'Headrace Tunnel (HRT-01)'}
+      defaultChainage={settings.faceChainage || settings.chainage || 'CH 12+450.50 m'}
+      defaultEngineerName={activeGeologist?.name || settings.mappedBy || 'Senior Geotechnical Engineer'}
+      onOpenProbeHoleWindow={() => setIsProbeHoleDrillingOpen(true)}
+    />
+  );
+
   const continuousLoggingModalsNode = (
     <>
       <ContinuousTunnelLogSetupModal
@@ -4201,9 +4245,13 @@ export default function App({
           setScreen('start');
         }}
         onOpenTunnelMonitoring={() => setIsTunnelMonitoringOpen(true)}
+        onOpenProbeHoleDrilling={() => setIsProbeHoleDrillingOpen(true)}
+        onOpenGrouting={() => setIsGroutingModalOpen(true)}
         projectMemoryModalNode={projectMemoryModalNode}
         natmRockMechanicsModalNode={natmRockMechanicsModalNode}
         tunnelMonitoringModalNode={tunnelMonitoringModalNode}
+        probeHoleDrillingModalNode={probeHoleDrillingModalNode}
+        groutingModalNode={groutingModalNode}
         continuousLoggingModalsNode={continuousLoggingModalsNode}
         globalSettingsModalNode={globalSettingsModalNode}
         modeSwitchConfirmationModalNode={modeSwitchConfirmationModalNode}
@@ -5011,6 +5059,26 @@ export default function App({
                 <Activity className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Monitoring &amp; Instrumentation</span>
                 <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-600">LIVE</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsProbeHoleDrillingOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold bg-slate-900 border border-amber-400 text-amber-300 hover:bg-slate-800 shadow-md cursor-pointer transition-all active:scale-95"
+                title="Open Probe Hole Drilling Window (Simple Logging & Advanced MWD / 3D Look-Ahead Analysis)"
+              >
+                <Crosshair className="w-3.5 h-3.5 text-amber-400" />
+                <span>Probe Hole Drilling</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsGroutingModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold bg-slate-900 border border-teal-400 text-teal-300 hover:bg-slate-800 shadow-md cursor-pointer transition-all active:scale-95"
+                title="Open Separate Grouting Window (Umbrella Fan, Mix/Pressure/Volume Log, Lugeon & GIN Curves)"
+              >
+                <Droplets className="w-3.5 h-3.5 text-teal-400" />
+                <span>Grouting</span>
               </button>
 
               {!isMasterSoftware && (
@@ -6211,6 +6279,8 @@ export default function App({
         {projectMemoryModalNode}
         {natmRockMechanicsModalNode}
         {tunnelMonitoringModalNode}
+        {probeHoleDrillingModalNode}
+        {groutingModalNode}
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
         {modeSwitchConfirmationModalNode}
@@ -6701,6 +6771,9 @@ export default function App({
 
       {projectMemoryModalNode}
       {natmRockMechanicsModalNode}
+      {tunnelMonitoringModalNode}
+      {probeHoleDrillingModalNode}
+      {groutingModalNode}
       {continuousLoggingModalsNode}
       {globalSettingsModalNode}
       {projectConfigModalNode}

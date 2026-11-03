@@ -1129,6 +1129,33 @@ canvas,
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     box-sizing: border-box !important;
+    -webkit-font-smoothing: antialiased !important;
+    text-rendering: geometricPrecision !important;
+  }
+
+  /* Prevent GPU layer bitmap rasterization of SVGs and Canvases during Print-to-PDF */
+  *,
+  .hardware-accelerated,
+  canvas,
+  svg,
+  svg:not([aria-hidden="true"]) {
+    transform: none !important;
+    -webkit-transform: none !important;
+    backface-visibility: visible !important;
+    will-change: auto !important;
+    content-visibility: visible !important;
+  }
+
+  svg,
+  svg * {
+    shape-rendering: geometricPrecision !important;
+    text-rendering: geometricPrecision !important;
+  }
+
+  img,
+  canvas {
+    image-rendering: -webkit-optimize-contrast !important;
+    image-rendering: high-quality !important;
   }
 
   body.print-a4-portrait,

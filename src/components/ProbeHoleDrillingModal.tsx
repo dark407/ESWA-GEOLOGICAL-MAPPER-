@@ -1,1295 +1,1424 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
-  ArrowLeft,
-  ArrowRight,
   AlertTriangle,
-  Check,
+  CheckCircle2,
+  Compass,
+  Crosshair,
   Download,
   Droplets,
-  FileSpreadsheet,
+  FileText,
   Layers,
-  MapPin,
+  Plus,
   Printer,
   RefreshCw,
-  Save,
-  Shield,
-  ShieldAlert,
-  Sparkles,
-  Target,
-  X,
-  Plus,
   Trash2,
-  Activity,
-  Sliders,
-  ChevronRight
+  X,
+  Zap,
 } from 'lucide-react';
+import {
+  ProbeHoleRecord,
+  ProbeRunInterval,
+  buildSampleProbeHoles,
+  computeMwdProfileForHole,
+  evaluateProbeFanLookAhead,
+  loadSavedProbeHoles,
+  saveProbeHolesToStorage,
+} from '../engine/probeHoleAndGroutingEngine';
 
-export interface ProbeIntervalLog {
-  intervalId: string;
-  fromDepthM: number;
-  toDepthM: number;
-  penetrationRateMinPerMeter: number; // min/m
-  feedPressureBar: number;
-  flushReturnPercent: number; // 0 to 100%
-  rockCuttingsLithology: string;
-  rqdForecastPercent: number;
-  voidOrSoftPocketDetected: boolean;
-  remarks: string;
-}
-
-export interface ProbeWaterIngressRecord {
-  id: string;
-  depthMeters: number;
-  flowRateLpm: number;
-  staticPressureBar: number;
-  waterAppearance: 'Clear' | 'Milky' | 'Turbid / Silt' | 'Heavy Mud Slurry';
-  temperatureC: number;
-  actionRequired: 'Monitor' | 'Grout Curtain Ahead' | 'Drainage Hole Required' | 'Immediate Face Halt';
-}
-
-export interface ProbeHoleRecord {
-  id: string;
-  holeId: string;
-  faceStationChainage: string; // e.g. Ch 14+320.00
-  tunnelHeading: string; // e.g. Main Tunnel East Heading
-  holePosition: 'Crown Center' | 'Crown Left Shoulder' | 'Crown Right Shoulder' | 'Invert Drainage' | 'Face Centerline';
-  drillDate: string;
-  shift: 'Day' | 'Night' | 'Swing';
-  rigModel: string;
-  bitDiameterMm: number;
-  plannedLengthM: number;
-  actualDrilledLengthM: number;
-  dipDegrees: number; // e.g. +5° up
-  azimuthDegrees: number; // e.g. 092°
-  leadDriller: string;
-  loggingGeologist: string;
-  
-  // Interval drilling data
-  intervals: ProbeIntervalLog[];
-
-  // Hydrogeological water intercepts
-  waterIngressEvents: ProbeWaterIngressRecord[];
-
-  // Ahead Hazard Evaluation
-  hazardForecast: {
-    faultZoneDistanceMeters: number | null;
-    faultWidthMeters: number | null;
-    highWaterBurstRisk: boolean;
-    cavityOrKarstDetected: boolean;
-    gasDetected: boolean;
-    overallRiskLevel: 'LOW (Green)' | 'MEDIUM (Amber)' | 'HIGH (Red)' | 'CRITICAL (Emergency)';
-    safeAdvanceClearanceMeters: number; // safe distance before mandatory next probe
-    recommendations: string;
-  };
-
-  signOff: {
-    superintendent: string;
-    geologist: string;
-    signOffDate: string;
-    tarpActionStatus: 'Normal Advance' | 'Pre-Excavation Grouting' | 'Drainage Drill Required' | 'Halt & Review';
-  };
-}
-
-const STORAGE_KEY = 'eswa_natm_probe_hole_records';
-
-export function createDefaultProbeHole(): ProbeHoleRecord {
-  return {
-    id: `probe-${Date.now()}`,
-    holeId: 'PH-CRW-14320',
-    faceStationChainage: 'Ch 14+320.00 m',
-    tunnelHeading: 'NATM High-Speed Rail Main Tunnel — North Heading',
-    holePosition: 'Crown Center',
-    drillDate: new Date().toISOString().split('T')[0],
-    shift: 'Day',
-    rigModel: 'Atlas Copco Boomer E2C Dual-Boom Jumbo',
-    bitDiameterMm: 89,
-    plannedLengthM: 24.0,
-    actualDrilledLengthM: 24.0,
-    dipDegrees: 4.5,
-    azimuthDegrees: 88.0,
-    leadDriller: '',
-    loggingGeologist: '',
-    intervals: [
-      {
-        intervalId: 'int-1',
-        fromDepthM: 0.0,
-        toDepthM: 3.0,
-        penetrationRateMinPerMeter: 3.2,
-        feedPressureBar: 120,
-        flushReturnPercent: 95,
-        rockCuttingsLithology: 'Sound Biotite Gneiss chips (competent)',
-        rqdForecastPercent: 75,
-        voidOrSoftPocketDetected: false,
-        remarks: 'Normal drilling resistance, clear return water',
-      },
-      {
-        intervalId: 'int-2',
-        fromDepthM: 3.0,
-        toDepthM: 6.0,
-        penetrationRateMinPerMeter: 3.0,
-        feedPressureBar: 125,
-        flushReturnPercent: 90,
-        rockCuttingsLithology: 'Biotite Gneiss with Quartz veins',
-        rqdForecastPercent: 78,
-        voidOrSoftPocketDetected: false,
-        remarks: 'Steady drilling advance',
-      },
-      {
-        intervalId: 'int-3',
-        fromDepthM: 6.0,
-        toDepthM: 9.0,
-        penetrationRateMinPerMeter: 2.8,
-        feedPressureBar: 120,
-        flushReturnPercent: 88,
-        rockCuttingsLithology: 'Quartzitic Schist',
-        rqdForecastPercent: 70,
-        voidOrSoftPocketDetected: false,
-        remarks: 'Minor drop in flush return',
-      },
-      {
-        intervalId: 'int-4',
-        fromDepthM: 9.0,
-        toDepthM: 12.0,
-        penetrationRateMinPerMeter: 1.4,
-        feedPressureBar: 90,
-        flushReturnPercent: 50,
-        rockCuttingsLithology: 'Fractured Chlorite Schist & Clay Gouge',
-        rqdForecastPercent: 32,
-        voidOrSoftPocketDetected: true,
-        remarks: 'Rapid rod penetration spike at 10.4m, water ingress noticed',
-      },
-      {
-        intervalId: 'int-5',
-        fromDepthM: 12.0,
-        toDepthM: 15.0,
-        penetrationRateMinPerMeter: 1.1,
-        feedPressureBar: 80,
-        flushReturnPercent: 30,
-        rockCuttingsLithology: 'Severe Shear Gouge & Breccia',
-        rqdForecastPercent: 20,
-        voidOrSoftPocketDetected: true,
-        remarks: 'Shear zone intersection between 10.4m and 13.8m. Heavy water rush.',
-      },
-      {
-        intervalId: 'int-6',
-        fromDepthM: 15.0,
-        toDepthM: 18.0,
-        penetrationRateMinPerMeter: 2.5,
-        feedPressureBar: 110,
-        flushReturnPercent: 70,
-        rockCuttingsLithology: 'Gneiss transition with healed micro-shears',
-        rqdForecastPercent: 55,
-        voidOrSoftPocketDetected: false,
-        remarks: 'Ground regaining competence beyond 16.5m',
-      },
-      {
-        intervalId: 'int-7',
-        fromDepthM: 18.0,
-        toDepthM: 21.0,
-        penetrationRateMinPerMeter: 3.4,
-        feedPressureBar: 130,
-        flushReturnPercent: 92,
-        rockCuttingsLithology: 'Intact Granodiorite Gneiss',
-        rqdForecastPercent: 82,
-        voidOrSoftPocketDetected: false,
-        remarks: 'Stable competent bedrock reached',
-      },
-      {
-        intervalId: 'int-8',
-        fromDepthM: 21.0,
-        toDepthM: 24.0,
-        penetrationRateMinPerMeter: 3.6,
-        feedPressureBar: 135,
-        flushReturnPercent: 95,
-        rockCuttingsLithology: 'Intact Granodiorite Gneiss',
-        rqdForecastPercent: 85,
-        voidOrSoftPocketDetected: false,
-        remarks: 'Target borehole end depth reached',
-      },
-    ],
-    waterIngressEvents: [
-      {
-        id: 'wi-1',
-        depthMeters: 10.8,
-        flowRateLpm: 68,
-        staticPressureBar: 3.5,
-        waterAppearance: 'Turbid / Silt',
-        temperatureC: 17.5,
-        actionRequired: 'Grout Curtain Ahead',
-      },
-    ],
-    hazardForecast: {
-      faultZoneDistanceMeters: 10.4,
-      faultWidthMeters: 3.4,
-      highWaterBurstRisk: true,
-      cavityOrKarstDetected: false,
-      gasDetected: false,
-      overallRiskLevel: 'HIGH (Red)',
-      safeAdvanceClearanceMeters: 7.0,
-      recommendations: 'Permitted safe excavation advance is capped at 7.0 meters. At Ch 14+327, install pre-excavation microfine cement grout umbrella (12 radial holes) before penetrating shear zone.',
-    },
-    signOff: {
-      superintendent: '',
-      geologist: '',
-      signOffDate: new Date().toISOString().split('T')[0],
-      tarpActionStatus: 'Pre-Excavation Grouting',
-    },
-  };
-}
-
-interface ProbeHoleDrillingModalProps {
+export interface ProbeHoleDrillingModalProps {
   isOpen: boolean;
   onClose: () => void;
+  defaultProjectName?: string;
+  defaultTunnelName?: string;
+  defaultFaceChainage?: string;
+  defaultLoggedBy?: string;
+  tunnelWidthMeters?: number;
+  tunnelHeightMeters?: number;
+  onOpenGroutingWindow?: () => void;
 }
 
 export const ProbeHoleDrillingModal: React.FC<ProbeHoleDrillingModalProps> = ({
   isOpen,
   onClose,
+  defaultProjectName = 'Himalayan Hydro Headrace Tunnel',
+  defaultTunnelName = 'Headrace Tunnel (HRT-01)',
+  defaultFaceChainage = 'CH 12+450.50 m',
+  defaultLoggedBy = 'Senior Tunnel Geologist',
+  tunnelWidthMeters = 8.5,
+  tunnelHeightMeters = 8.5,
+  onOpenGroutingWindow,
 }) => {
-  const [activeStep, setActiveStep] = useState<'setup' | 'intervals' | 'water' | 'hazards' | 'signoff'>('setup');
-  const [record, setRecord] = useState<ProbeHoleRecord>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed: ProbeHoleRecord = JSON.parse(saved);
-        if (parsed.leadDriller === 'Foreman Hans Gruber') parsed.leadDriller = '';
-        if (parsed.loggingGeologist === 'Senior NATM Geologist') parsed.loggingGeologist = '';
-        if (parsed.signOff) {
-          if (parsed.signOff.superintendent === 'Eng. Marco Rossi') parsed.signOff.superintendent = '';
-          if (parsed.signOff.geologist === 'Dr. Sarah Lindqvist, P.Geo') parsed.signOff.geologist = '';
-        }
-        return parsed;
-      }
-    } catch {
-      // fallback
-    }
-    return createDefaultProbeHole();
+  const [holes, setHoles] = useState<ProbeHoleRecord[]>(() =>
+    loadSavedProbeHoles()
+  );
+  const [selectedHoleId, setSelectedHoleId] = useState<string>(() => {
+    const initial = loadSavedProbeHoles();
+    return initial[0]?.id || 'ph-sample-1';
   });
+  const [activeTab, setActiveTab] = useState<'SIMPLE_LOGGING' | 'ADVANCED_MWD_AND_3D'>('SIMPLE_LOGGING');
+  const [showReportPreview, setShowReportPreview] = useState<boolean>(false);
+  const faceSvgRef = useRef<SVGSVGElement | null>(null);
+  const [isDraggingCollar, setIsDraggingCollar] = useState<boolean>(false);
 
-  const [saveSuccessNotice, setSaveSuccessNotice] = useState<boolean>(false);
+  const activeHole = useMemo(
+    () => holes.find((h) => h.id === selectedHoleId) || holes[0] || null,
+    [holes, selectedHoleId]
+  );
 
-  const saveToStorage = (updated: ProbeHoleRecord) => {
-    setRecord(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch {
-      // ignore
-    }
-  };
+  const mwdProfile = useMemo(
+    () => (activeHole ? computeMwdProfileForHole(activeHole) : []),
+    [activeHole]
+  );
 
-  const handleManualSave = () => {
-    saveToStorage(record);
-    setSaveSuccessNotice(true);
-    setTimeout(() => setSaveSuccessNotice(false), 2500);
-  };
-
-  const handleResetSample = () => {
-    const fresh = createDefaultProbeHole();
-    saveToStorage(fresh);
-    setSaveSuccessNotice(true);
-    setTimeout(() => setSaveSuccessNotice(false), 2500);
-  };
-
-  // Add new interval run
-  const handleAddInterval = () => {
-    const last = record.intervals[record.intervals.length - 1];
-    const from = last ? last.toDepthM : 0;
-    const to = from + 3.0;
-    const newInt: ProbeIntervalLog = {
-      intervalId: `int-${Date.now()}`,
-      fromDepthM: from,
-      toDepthM: to,
-      penetrationRateMinPerMeter: 3.0,
-      feedPressureBar: 120,
-      flushReturnPercent: 90,
-      rockCuttingsLithology: 'Gneiss chips',
-      rqdForecastPercent: 70,
-      voidOrSoftPocketDetected: false,
-      remarks: '',
-    };
-    saveToStorage({
-      ...record,
-      intervals: [...record.intervals, newInt],
-      actualDrilledLengthM: to,
-    });
-  };
-
-  // Add new water ingress event
-  const handleAddWaterEvent = () => {
-    const newEvent: ProbeWaterIngressRecord = {
-      id: `wi-${Date.now()}`,
-      depthMeters: 12.0,
-      flowRateLpm: 25,
-      staticPressureBar: 2.0,
-      waterAppearance: 'Clear',
-      temperatureC: 16.0,
-      actionRequired: 'Monitor',
-    };
-    saveToStorage({
-      ...record,
-      waterIngressEvents: [...record.waterIngressEvents, newEvent],
-    });
-  };
+  const fanSummary = useMemo(() => evaluateProbeFanLookAhead(holes), [holes]);
 
   if (!isOpen) return null;
 
+  const updateHolesAndPersist = (nextHoles: ProbeHoleRecord[]) => {
+    setHoles(nextHoles);
+    saveProbeHolesToStorage(nextHoles);
+  };
+
+  const handleUpdateActiveHole = (patch: Partial<ProbeHoleRecord>) => {
+    if (!activeHole) return;
+    const next = holes.map((h) =>
+      h.id === activeHole.id
+        ? { ...h, ...patch, updatedAt: new Date().toISOString() }
+        : h
+    );
+    updateHolesAndPersist(next);
+  };
+
+  const handleAddProbeHole = () => {
+    const nextIdx = holes.length + 1;
+    const today = new Date().toISOString().slice(0, 10);
+    const newHole: ProbeHoleRecord = {
+      id: `ph-${Date.now()}`,
+      holeId: `PH-0${nextIdx} (Face Probe)`,
+      projectName: activeHole?.projectName || defaultProjectName,
+      tunnelName: activeHole?.tunnelName || defaultTunnelName,
+      faceChainage: activeHole?.faceChainage || defaultFaceChainage,
+      date: today,
+      loggedBy: activeHole?.loggedBy || defaultLoggedBy,
+      positionLabel: 'Face Center',
+      collarX: 0,
+      collarY: Number((tunnelHeightMeters * 0.55).toFixed(2)),
+      holeDiameterMm: 76,
+      totalLengthMeters: 24,
+      overlapLengthMeters: 5,
+      azimuthDeg: 42,
+      lookOutAngleDeg: 5,
+      dipAngleDeg: 5,
+      updatedAt: new Date().toISOString(),
+      intervals: [
+        {
+          id: `int-${Date.now()}-1`,
+          fromMeters: 0,
+          toMeters: 6,
+          ropMetersPerMin: 0.9,
+          feedPressureBar: 65,
+          rotationPressureBar: 52,
+          flushWaterColor: 'Clear',
+          waterInflowLMin: 4,
+          waterPressureBar: 0.5,
+          estimatedRqdPct: 80,
+          rockMassClass: 'Class II (Good)',
+          cavityOrFaultDetected: false,
+          geologicalRemarks: 'Competent rock mass ahead of face.',
+        },
+        {
+          id: `int-${Date.now()}-2`,
+          fromMeters: 6,
+          toMeters: 15,
+          ropMetersPerMin: 1.1,
+          feedPressureBar: 60,
+          rotationPressureBar: 48,
+          flushWaterColor: 'Slightly Milky',
+          waterInflowLMin: 9,
+          waterPressureBar: 1.1,
+          estimatedRqdPct: 72,
+          rockMassClass: 'Class III (Fair)',
+          cavityOrFaultDetected: false,
+          geologicalRemarks: 'Moderately jointed rock, minor seepage.',
+        },
+        {
+          id: `int-${Date.now()}-3`,
+          fromMeters: 15,
+          toMeters: 24,
+          ropMetersPerMin: 0.95,
+          feedPressureBar: 64,
+          rotationPressureBar: 50,
+          flushWaterColor: 'Clear',
+          waterInflowLMin: 5,
+          waterPressureBar: 0.8,
+          estimatedRqdPct: 78,
+          rockMassClass: 'Class II (Good)',
+          cavityOrFaultDetected: false,
+          geologicalRemarks: 'Fresh blocky rock to end of hole.',
+        },
+      ],
+    };
+    const next = [...holes, newHole];
+    updateHolesAndPersist(next);
+    setSelectedHoleId(newHole.id);
+  };
+
+  const handleDeleteActiveHole = () => {
+    if (!activeHole || holes.length <= 1) return;
+    const next = holes.filter((h) => h.id !== activeHole.id);
+    updateHolesAndPersist(next);
+    setSelectedHoleId(next[0].id);
+  };
+
+  const handleAddInterval = () => {
+    if (!activeHole) return;
+    const last = activeHole.intervals[activeHole.intervals.length - 1];
+    const fromM = last ? last.toMeters : 0;
+    const toM = Number((fromM + 6).toFixed(1));
+    const newIntv: ProbeRunInterval = {
+      id: `int-${Date.now()}`,
+      fromMeters: fromM,
+      toMeters: toM,
+      ropMetersPerMin: 1.0,
+      feedPressureBar: 62,
+      rotationPressureBar: 50,
+      flushWaterColor: 'Clear',
+      waterInflowLMin: 5,
+      waterPressureBar: 0.8,
+      estimatedRqdPct: 75,
+      rockMassClass: 'Class II (Good)',
+      cavityOrFaultDetected: false,
+      geologicalRemarks: 'Logged probe interval.',
+    };
+    const nextIntervals = [...activeHole.intervals, newIntv];
+    handleUpdateActiveHole({
+      intervals: nextIntervals,
+      totalLengthMeters: Math.max(activeHole.totalLengthMeters, toM),
+    });
+  };
+
+  const handleUpdateInterval = (intvId: string, patch: Partial<ProbeRunInterval>) => {
+    if (!activeHole) return;
+    const nextIntervals = activeHole.intervals.map((item) =>
+      item.id === intvId ? { ...item, ...patch } : item
+    );
+    const maxTo = nextIntervals.reduce((acc, i) => Math.max(acc, i.toMeters), activeHole.totalLengthMeters);
+    handleUpdateActiveHole({
+      intervals: nextIntervals,
+      totalLengthMeters: maxTo,
+    });
+  };
+
+  const handleRemoveInterval = (intvId: string) => {
+    if (!activeHole || activeHole.intervals.length <= 1) return;
+    const nextIntervals = activeHole.intervals.filter((i) => i.id !== intvId);
+    handleUpdateActiveHole({ intervals: nextIntervals });
+  };
+
+  const handleLoadSampleFan = () => {
+    const sample = buildSampleProbeHoles(
+      defaultProjectName,
+      defaultTunnelName,
+      defaultFaceChainage
+    );
+    updateHolesAndPersist(sample);
+    setSelectedHoleId(sample[0].id);
+  };
+
+  // Interactive Tunnel Face Collar placement handler
+  const updateCollarFromPointer = (clientX: number, clientY: number) => {
+    if (!faceSvgRef.current || !activeHole) return;
+    const rect = faceSvgRef.current.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const normX = (clientX - rect.left) / rect.width;
+    const normY = (clientY - rect.top) / rect.height;
+
+    const halfW = tunnelWidthMeters / 2;
+    const rawX = (normX - 0.5) * (tunnelWidthMeters * 1.15);
+    const rawY = (1 - normY) * (tunnelHeightMeters * 1.15);
+
+    const clampedX = Number(Math.max(-halfW * 0.92, Math.min(halfW * 0.92, rawX)).toFixed(2));
+    const clampedY = Number(Math.max(0.4, Math.min(tunnelHeightMeters * 0.95, rawY)).toFixed(2));
+
+    let posLabel: ProbeHoleRecord['positionLabel'] = 'Face Center';
+    if (clampedY > tunnelHeightMeters * 0.75) posLabel = 'Crown Arch';
+    else if (clampedX < -halfW * 0.35) posLabel = clampedY < tunnelHeightMeters * 0.3 ? 'Left Invert' : 'Left Wall / Springline';
+    else if (clampedX > halfW * 0.35) posLabel = clampedY < tunnelHeightMeters * 0.3 ? 'Right Invert' : 'Right Wall / Springline';
+
+    handleUpdateActiveHole({
+      collarX: clampedX,
+      collarY: clampedY,
+      positionLabel: posLabel,
+    });
+  };
+
+  const handleExportJson = () => {
+    const blob = new Blob([JSON.stringify({ holes, fanSummary }, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `NATM_Probe_Holes_${(activeHole?.faceChainage || 'CH').replace(/\s+/g, '_')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex flex-col w-screen h-[100dvh] overflow-hidden text-black font-sans">
-      {/* Top Header */}
-      <header className="h-14 px-4 bg-white border-b-2 border-stone-300 flex items-center justify-between shrink-0 shadow-md">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-black bg-stone-100 hover:bg-stone-200 border-2 border-stone-400 transition-all cursor-pointer shadow-xs active:scale-95"
-            title="Return to NATM Main Window"
-          >
-            <ArrowLeft className="w-4 h-4 text-amber-700" />
-            <span className="font-extrabold text-black">NATM Window</span>
-          </button>
-
-          <div className="h-6 w-px bg-stone-300" />
-
-          <div className="flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-amber-100 border border-amber-500 flex items-center justify-center text-amber-900 font-black">
-              <Target className="w-4 h-4 text-amber-800" />
-            </span>
+    <div className="fixed inset-0 z-[90] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="w-full max-w-[1440px] max-h-[95dvh] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-slate-100">
+        {/* TOP HEADER BAR */}
+        <div className="px-4 py-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400">
+              <Crosshair className="w-5 h-5" />
+            </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-sm sm:text-base font-black text-black tracking-tight leading-none">
-                  Probe Hole Drilling &amp; Hazard Forecast
-                </h1>
-                <span className="px-2 py-0.5 rounded text-[11px] font-black bg-amber-100 text-black border border-amber-500 uppercase tracking-wider">
-                  Forward Probing Ahead
+                <h2 className="text-sm sm:text-base font-extrabold tracking-tight text-white">
+                  NATM Probe Hole Drilling &amp; Look-Ahead Analysis
+                </h2>
+                <span className="text-xs font-mono text-amber-300">
+                  · {activeHole?.faceChainage || defaultFaceChainage}
                 </span>
               </div>
-              <p className="text-[11px] font-bold text-stone-600 hidden sm:block">
-                Penetration rate logging • Ingress flow &amp; pressure • Forward hazard forecast
+              <p className="text-xs text-slate-400">
+                Forward Geotechnical Exploration · Simple Field Logging &amp; Advanced MWD / 3D Probe Fan Analysis
               </p>
             </div>
           </div>
+
+          {/* MODE SWITCHER: SIMPLE vs ADVANCED + ACTIONS */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center p-1 rounded-xl bg-slate-900 border border-slate-700">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('SIMPLE_LOGGING');
+                  setShowReportPreview(false);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  activeTab === 'SIMPLE_LOGGING' && !showReportPreview
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                1. Simple &amp; Effective Logging
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('ADVANCED_MWD_AND_3D');
+                  setShowReportPreview(false);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  activeTab === 'ADVANCED_MWD_AND_3D' && !showReportPreview
+                    ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                2. Advanced Analysis (Face Collar, MWD &amp; 3D Fan)
+              </button>
+            </div>
+
+            {onOpenGroutingWindow && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenGroutingWindow();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                title="Switch directly to Separate Grouting Window"
+              >
+                <Droplets className="w-3.5 h-3.5" />
+                <span>Open Grouting Window</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowReportPreview((prev) => !prev)}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                showReportPreview
+                  ? 'bg-white text-slate-950 border-white'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>{showReportPreview ? 'Back to Workspace' : 'Engineering Report'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleLoadSampleFan}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-slate-300 flex items-center gap-1 cursor-pointer"
+              title="Reset / Load 3-Hole Himalayan Headrace Sample Probe Fan"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sample Fan</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-600/80 text-slate-300 hover:text-white border border-slate-700 cursor-pointer"
+              title="Close Probe Hole Drilling Window"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          {saveSuccessNotice && (
-            <span className="text-xs font-black text-emerald-800 bg-emerald-100 border border-emerald-400 px-2.5 py-1 rounded-md animate-fade-in flex items-center gap-1">
-              <Check className="w-3.5 h-3.5 text-emerald-700" /> Saved
+        {/* TOP LOOK-AHEAD SAFETY & SUMMARY BANNER */}
+        <div
+          className={`px-4 py-2.5 border-b flex flex-wrap items-center justify-between gap-3 shrink-0 ${
+            fanSummary.overallStatus === 'HAZARD_HIGH_INFLOW_OR_CAVITY'
+              ? 'bg-rose-950/60 border-rose-500/40 text-rose-100'
+              : fanSummary.overallStatus === 'CAUTION_FRACTURED'
+              ? 'bg-amber-950/60 border-amber-500/40 text-amber-100'
+              : 'bg-emerald-950/50 border-emerald-500/40 text-emerald-100'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            {fanSummary.overallStatus === 'SAFE_COMPETENT' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertTriangle
+                className={`w-4 h-4 shrink-0 ${
+                  fanSummary.overallStatus === 'HAZARD_HIGH_INFLOW_OR_CAVITY'
+                    ? 'text-rose-400'
+                    : 'text-amber-400'
+                }`}
+              />
+            )}
+            <span className="text-xs font-medium leading-snug">
+              {fanSummary.engineeringRecommendation}
             </span>
-          )}
+          </div>
 
-          <button
-            type="button"
-            onClick={handleManualSave}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-black bg-emerald-400 hover:bg-emerald-500 border-2 border-emerald-600 transition-all cursor-pointer shadow-xs active:scale-95"
-          >
-            <Save className="w-3.5 h-3.5 text-black" />
-            <span className="text-black font-extrabold">Save Log</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleResetSample}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-black text-black bg-stone-100 hover:bg-stone-200 border-2 border-stone-300 transition-all cursor-pointer shadow-xs"
-            title="Reset to default authentic probe hole dataset"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-stone-700" />
-            <span className="text-black font-extrabold">Reset</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-black text-black bg-stone-100 hover:bg-stone-200 border-2 border-stone-300 transition-all cursor-pointer shadow-xs"
-          >
-            <Printer className="w-3.5 h-3.5 text-black" />
-            <span className="hidden md:inline text-black font-extrabold">Print</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Step Navigation Bar */}
-      <div className="bg-stone-100 border-b-2 border-stone-300 px-4 py-2 flex items-center justify-between gap-2 overflow-x-auto shrink-0">
-        <div className="flex items-center gap-1.5 min-w-max">
-          <button
-            type="button"
-            onClick={() => setActiveStep('setup')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-2 border-2 cursor-pointer ${
-              activeStep === 'setup'
-                ? 'bg-black text-white border-black shadow-xs'
-                : 'bg-white text-black border-stone-300 hover:border-black'
-            }`}
-          >
-            <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-black ${
-              activeStep === 'setup' ? 'bg-amber-400 text-black' : 'bg-stone-200 text-black'
-            }`}>1</span>
-            <span>Probe Rig &amp; Geometry</span>
-          </button>
-
-          <ArrowRight className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-
-          <button
-            type="button"
-            onClick={() => setActiveStep('intervals')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-2 border-2 cursor-pointer ${
-              activeStep === 'intervals'
-                ? 'bg-black text-white border-black shadow-xs'
-                : 'bg-white text-black border-stone-300 hover:border-black'
-            }`}
-          >
-            <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-black ${
-              activeStep === 'intervals' ? 'bg-amber-400 text-black' : 'bg-stone-200 text-black'
-            }`}>2</span>
-            <span>Interval Drilling Log</span>
-          </button>
-
-          <ArrowRight className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-
-          <button
-            type="button"
-            onClick={() => setActiveStep('water')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-2 border-2 cursor-pointer ${
-              activeStep === 'water'
-                ? 'bg-black text-white border-black shadow-xs'
-                : 'bg-white text-black border-stone-300 hover:border-black'
-            }`}
-          >
-            <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-black ${
-              activeStep === 'water' ? 'bg-amber-400 text-black' : 'bg-stone-200 text-black'
-            }`}>3</span>
-            <span>Water Ingress &amp; Seeps</span>
-          </button>
-
-          <ArrowRight className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-
-          <button
-            type="button"
-            onClick={() => setActiveStep('hazards')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-2 border-2 cursor-pointer ${
-              activeStep === 'hazards'
-                ? 'bg-black text-white border-black shadow-xs'
-                : 'bg-white text-black border-stone-300 hover:border-black'
-            }`}
-          >
-            <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-black ${
-              activeStep === 'hazards' ? 'bg-amber-400 text-black' : 'bg-stone-200 text-black'
-            }`}>4</span>
-            <span>Forward Hazard Forecast</span>
-          </button>
-
-          <ArrowRight className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-
-          <button
-            type="button"
-            onClick={() => setActiveStep('signoff')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-2 border-2 cursor-pointer ${
-              activeStep === 'signoff'
-                ? 'bg-black text-white border-black shadow-xs'
-                : 'bg-white text-black border-stone-300 hover:border-black'
-            }`}
-          >
-            <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-black ${
-              activeStep === 'signoff' ? 'bg-amber-400 text-black' : 'bg-stone-200 text-black'
-            }`}>5</span>
-            <span>TARP Dispatch &amp; Sign-Off</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-4 text-xs font-mono shrink-0">
+            <span>
+              Safe Excavation Ahead:{' '}
+              <strong className="text-white">{fanSummary.safeAdvanceLengthMeters} m</strong>
+            </span>
+            <span>·</span>
+            <span>
+              Total Probe Inflow:{' '}
+              <strong className="text-cyan-300">{fanSummary.totalWaterInflowLMin} L/min</strong>
+            </span>
+            <span>·</span>
+            <span>
+              Avg Look-Ahead RQD:{' '}
+              <strong className="text-amber-300">{fanSummary.averageRqdPct}%</strong>
+            </span>
+            <span>·</span>
+            <span>
+              Avg MWD Energy:{' '}
+              <strong className="text-emerald-300">
+                {fanSummary.averageSpecificEnergyMjM3} MJ/m³
+              </strong>
+            </span>
+          </div>
         </div>
 
-        {/* Hazard Level Badge */}
-        <div className="hidden lg:flex items-center gap-2">
-          <span className="text-xs font-extrabold text-stone-700">Ahead Status:</span>
-          <span className={`px-2.5 py-0.5 rounded text-xs font-black border ${
-            record.hazardForecast.overallRiskLevel.includes('Red')
-              ? 'bg-red-100 text-red-950 border-red-500'
-              : record.hazardForecast.overallRiskLevel.includes('Amber')
-              ? 'bg-amber-100 text-amber-950 border-amber-500'
-              : 'bg-emerald-100 text-emerald-950 border-emerald-500'
-          }`}>
-            {record.hazardForecast.overallRiskLevel}
-          </span>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto p-4 bg-stone-200/60 flex flex-col">
-        {/* STEP 1: PROBE SETUP */}
-        {activeStep === 'setup' && (
-          <div className="max-w-4xl mx-auto w-full space-y-4">
-            <div className="bg-white rounded-xl border-2 border-stone-300 shadow-sm p-5 space-y-4">
-              <div className="border-b border-stone-200 pb-3 flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-black text-black">Step 1: Probe Hole Geometry &amp; Rig Configuration</h2>
-                  <p className="text-xs font-bold text-stone-600">
-                    Define face chainage station, probe orientation vector, drill rig model, and target penetration length.
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 rounded bg-stone-100 text-black font-black text-xs border border-stone-300">
-                  {record.faceStationChainage}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Probe Hole ID</label>
-                  <input
-                    type="text"
-                    value={record.holeId}
-                    onChange={(e) => saveToStorage({ ...record, holeId: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Face Chainage Station</label>
-                  <input
-                    type="text"
-                    value={record.faceStationChainage}
-                    onChange={(e) => saveToStorage({ ...record, faceStationChainage: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Tunnel Heading</label>
-                  <input
-                    type="text"
-                    value={record.tunnelHeading}
-                    onChange={(e) => saveToStorage({ ...record, tunnelHeading: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Hole Face Location</label>
-                  <select
-                    value={record.holePosition}
-                    onChange={(e) => saveToStorage({ ...record, holePosition: e.target.value as any })}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
+        {/* MAIN SCROLLABLE BODY */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* PROBE HOLE SELECTOR BAR */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+            <div className="flex flex-wrap items-center gap-2">
+              {holes.map((h) => {
+                const isSelected = activeHole?.id === h.id;
+                const peakInflow = h.intervals.reduce(
+                  (acc, i) => Math.max(acc, i.waterInflowLMin),
+                  0
+                );
+                const hasCavity = h.intervals.some((i) => i.cavityOrFaultDetected);
+                return (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => setSelectedHoleId(h.id)}
+                    className={`px-3.5 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                      isSelected
+                        ? 'bg-slate-800 border-amber-400 text-white shadow-md'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'
+                    }`}
                   >
-                    <option value="Crown Center">Crown Center (Ahead Probing)</option>
-                    <option value="Crown Left Shoulder">Crown Left Shoulder</option>
-                    <option value="Crown Right Shoulder">Crown Right Shoulder</option>
-                    <option value="Face Centerline">Face Centerline</option>
-                    <option value="Invert Drainage">Invert Drainage</option>
-                  </select>
-                </div>
+                    <div>
+                      <div className="text-xs font-mono font-bold flex items-center gap-1.5">
+                        <span>{h.holeId}</span>
+                        {hasCavity && (
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                        )}
+                      </div>
+                      <div className="text-[11px] font-mono text-slate-400">
+                        {h.positionLabel} · L={h.totalLengthMeters}m · Q={peakInflow} L/min
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
 
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Planned Probe Length (m)</label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={record.plannedLengthM}
-                    onChange={(e) => saveToStorage({ ...record, plannedLengthM: parseFloat(e.target.value) || 1 })}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
+              <button
+                type="button"
+                onClick={handleAddProbeHole}
+                className="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Probe Hole</span>
+              </button>
+            </div>
 
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Actual Drilled Length (m)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={record.actualDrilledLengthM}
-                    onChange={(e) => saveToStorage({ ...record, actualDrilledLengthM: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Dip Inclination (°)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={record.dipDegrees}
-                    onChange={(e) => saveToStorage({ ...record, dipDegrees: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Azimuth (°)</label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={record.azimuthDegrees}
-                    onChange={(e) => saveToStorage({ ...record, azimuthDegrees: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Drill Bit Diameter (mm)</label>
-                  <input
-                    type="number"
-                    value={record.bitDiameterMm}
-                    onChange={(e) => saveToStorage({ ...record, bitDiameterMm: parseInt(e.target.value) || 76 })}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-              </div>
-
-              {/* Jumbo / Drilling Rig Info */}
-              <div className="p-4 rounded-xl bg-stone-100 border-2 border-stone-300 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Drill Jumbo / Rig Model</label>
-                  <input
-                    type="text"
-                    value={record.rigModel}
-                    onChange={(e) => saveToStorage({ ...record, rigModel: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white border-2 border-stone-300 text-black font-bold text-xs focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Lead Driller / Rig Operator</label>
-                  <input
-                    type="text"
-                    value={record.leadDriller}
-                    onChange={(e) => saveToStorage({ ...record, leadDriller: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white border-2 border-stone-300 text-black font-bold text-xs focus:border-black outline-hidden"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportJson}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-slate-200 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export JSON</span>
+              </button>
+              {holes.length > 1 && (
                 <button
                   type="button"
-                  onClick={() => setActiveStep('intervals')}
-                  className="px-4 py-2.5 rounded-lg bg-black text-white hover:bg-stone-800 font-black text-xs flex items-center gap-2 cursor-pointer transition-all shadow-sm active:scale-95"
+                  onClick={handleDeleteActiveHole}
+                  className="px-2.5 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900/80 border border-rose-500/40 text-xs font-mono text-rose-200 flex items-center gap-1 cursor-pointer"
                 >
-                  <span>Proceed to Interval Drilling Log</span>
-                  <ArrowRight className="w-4 h-4 text-amber-400" />
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Hole</span>
                 </button>
-              </div>
+              )}
             </div>
           </div>
-        )}
 
-        {/* STEP 2: INTERVAL DRILLING LOG */}
-        {activeStep === 'intervals' && (
-          <div className="max-w-6xl mx-auto w-full space-y-4">
-            <div className="bg-white rounded-xl border-2 border-stone-300 shadow-sm p-4 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-200 pb-3">
+          {/* PRINTABLE ENGINEERING REPORT PREVIEW */}
+          {showReportPreview && activeHole ? (
+            <div className="bg-white text-slate-900 rounded-2xl p-6 shadow-xl space-y-5 max-w-5xl mx-auto">
+              <div className="flex items-start justify-between border-b-2 border-slate-900 pb-4">
                 <div>
-                  <h2 className="text-base font-black text-black flex items-center gap-2">
-                    <span>Step 2: Discrete Drilling Interval Logs</span>
-                    <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-black border border-amber-400 font-extrabold">
-                      Total: {record.intervals.length} Runs ({record.actualDrilledLengthM}m)
-                    </span>
-                  </h2>
-                  <p className="text-xs font-bold text-stone-600">
-                    Track penetration rate (min/m), feed pressure, flush water loss %, rock cuttings lithology, and rod drop detection.
-                  </p>
+                  <div className="text-xs font-mono uppercase tracking-wider text-slate-600 font-bold">
+                    NATM Forward Probe Drilling &amp; Look-Ahead Geotechnical Report
+                  </div>
+                  <h3 className="text-xl font-black text-slate-950 mt-0.5">
+                    {activeHole.projectName} — {activeHole.tunnelName}
+                  </h3>
+                  <div className="text-xs font-mono text-slate-700 mt-1">
+                    Face Chainage: <strong>{activeHole.faceChainage}</strong> · Date:{' '}
+                    <strong>{activeHole.date}</strong> · Logged By:{' '}
+                    <strong>{activeHole.loggedBy}</strong>
+                  </div>
                 </div>
-
                 <button
                   type="button"
-                  onClick={handleAddInterval}
-                  className="px-3 py-1.5 rounded-lg text-xs font-black bg-black text-white hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 shrink-0"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer print:hidden"
                 >
-                  <Plus className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Add 3m Interval</span>
+                  <Printer className="w-4 h-4" />
+                  <span>Print / Save PDF Report</span>
                 </button>
               </div>
 
-              {/* Intervals Table */}
-              <div className="border border-stone-300 rounded-xl overflow-hidden shadow-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono bg-slate-100 p-3.5 rounded-xl border border-slate-300">
+                <div>
+                  <span className="text-slate-500 block">Overall Look-Ahead Status</span>
+                  <strong className="text-slate-950 text-sm">
+                    {fanSummary.overallStatus.replace(/_/g, ' ')}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Safe Advance Distance</span>
+                  <strong className="text-emerald-700 text-sm">
+                    {fanSummary.safeAdvanceLengthMeters} m
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Total Fan Water Inflow</span>
+                  <strong className="text-sky-700 text-sm">
+                    {fanSummary.totalWaterInflowLMin} L/min
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Weighted Mean RQD / DSE</span>
+                  <strong className="text-slate-900 text-sm">
+                    {fanSummary.averageRqdPct}% · {fanSummary.averageSpecificEnergyMjM3} MJ/m³
+                  </strong>
+                </div>
+              </div>
+
+              {holes.map((hole) => {
+                const holeMwd = computeMwdProfileForHole(hole);
+                return (
+                  <div key={hole.id} className="space-y-2 border border-slate-300 rounded-xl p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                      <strong className="text-sm font-mono text-slate-900">
+                        {hole.holeId} — {hole.positionLabel} (Collar X={hole.collarX}m, Y={hole.collarY}m)
+                      </strong>
+                      <span className="text-xs font-mono text-slate-600">
+                        Ø {hole.holeDiameterMm}mm · Length {hole.totalLengthMeters}m · Overlap {hole.overlapLengthMeters}m · Azimuth {hole.azimuthDeg}° · Dip {hole.dipAngleDeg}°
+                      </span>
+                    </div>
+                    <table className="w-full text-left border-collapse text-xs font-mono">
+                      <thead>
+                        <tr className="border-b border-slate-300 bg-slate-50 text-slate-700">
+                          <th className="py-1.5 px-2">Depth (m)</th>
+                          <th className="py-1.5 px-2">ROP (m/min)</th>
+                          <th className="py-1.5 px-2">Feed/Rot (bar)</th>
+                          <th className="py-1.5 px-2">MWD DSE (MJ/m³)</th>
+                          <th className="py-1.5 px-2">Inflow (L/min)</th>
+                          <th className="py-1.5 px-2">RQD (%)</th>
+                          <th className="py-1.5 px-2">Rock Class</th>
+                          <th className="py-1.5 px-2">Geological Remarks</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {hole.intervals.map((intv, idx) => {
+                          const m = holeMwd[idx];
+                          return (
+                            <tr
+                              key={intv.id}
+                              className={`border-b border-slate-200 ${
+                                m?.isHazardZone ? 'bg-rose-50 font-semibold' : ''
+                              }`}
+                            >
+                              <td className="py-1.5 px-2">
+                                {intv.fromMeters.toFixed(1)}–{intv.toMeters.toFixed(1)}
+                              </td>
+                              <td className="py-1.5 px-2">{intv.ropMetersPerMin.toFixed(2)}</td>
+                              <td className="py-1.5 px-2">
+                                {intv.feedPressureBar}/{intv.rotationPressureBar}
+                              </td>
+                              <td className="py-1.5 px-2">{m?.specificEnergyMjPerM3}</td>
+                              <td className="py-1.5 px-2">{intv.waterInflowLMin}</td>
+                              <td className="py-1.5 px-2">{intv.estimatedRqdPct}%</td>
+                              <td className="py-1.5 px-2">{intv.rockMassClass}</td>
+                              <td className="py-1.5 px-2">{intv.geologicalRemarks}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
+
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-xs text-slate-800">
+                <strong>Engineering Decision &amp; Sign-Off Recommendation:</strong>{' '}
+                {fanSummary.engineeringRecommendation}
+              </div>
+            </div>
+          ) : activeTab === 'SIMPLE_LOGGING' && activeHole ? (
+            /* ============================================================================
+               MODE 1: SIMPLE & EFFECTIVE FIELD LOGGING
+               ============================================================================ */
+            <div className="space-y-4">
+              {/* HOLE COLLAR & DRILLING SETUP PARAMETERS */}
+              <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <span className="text-xs font-mono uppercase tracking-wider font-bold text-amber-400">
+                    Probe Hole Collar &amp; Setup Parameters
+                  </span>
+                  <span className="text-xs font-mono text-slate-400">
+                    Mandatory Overlap: {activeHole.overlapLengthMeters} m · Effective Reach:{' '}
+                    {(
+                      activeHole.totalLengthMeters *
+                      Math.cos(((activeHole.dipAngleDeg || 0) * Math.PI) / 180)
+                    ).toFixed(1)}{' '}
+                    m
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 text-xs">
+                  <label className="space-y-1 lg:col-span-2">
+                    <span className="text-slate-400 font-medium block">Probe Hole ID</span>
+                    <input
+                      type="text"
+                      value={activeHole.holeId}
+                      onChange={(e) => handleUpdateActiveHole({ holeId: e.target.value })}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono text-white"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 font-medium block">Face Position</span>
+                    <select
+                      value={activeHole.positionLabel}
+                      onChange={(e) =>
+                        handleUpdateActiveHole({
+                          positionLabel: e.target.value as ProbeHoleRecord['positionLabel'],
+                        })
+                      }
+                      className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono text-white"
+                    >
+                      <option value="Crown Arch">Crown Arch</option>
+                      <option value="Face Center">Face Center</option>
+                      <option value="Left Wall / Springline">Left Wall / Springline</option>
+                      <option value="Right Wall / Springline">Right Wall / Springline</option>
+                      <option value="Left Invert">Left Invert</option>
+                      <option value="Right Invert">Right Invert</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 font-medium block">Face Chainage</span>
+                    <input
+                      type="text"
+                      value={activeHole.faceChainage}
+                      onChange={(e) => handleUpdateActiveHole({ faceChainage: e.target.value })}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono text-white"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 font-medium block">Hole Length (m)</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={activeHole.totalLengthMeters}
+                      onChange={(e) =>
+                        handleUpdateActiveHole({
+                          totalLengthMeters: Math.max(1, parseFloat(e.target.value) || 20),
+                        })
+                      }
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono text-white"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 font-medium block">Bit Ø (mm)</span>
+                    <input
+                      type="number"
+                      step="1"
+                      value={activeHole.holeDiameterMm}
+                      onChange={(e) =>
+                        handleUpdateActiveHole({
+                          holeDiameterMm: Math.max(38, parseFloat(e.target.value) || 76),
+                        })
+                      }
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono text-white"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 font-medium block">Look-Out (°)</span>
+                    <input
+                      type="number"
+                      step="1"
+                      value={activeHole.lookOutAngleDeg}
+                      onChange={(e) =>
+                        handleUpdateActiveHole({
+                          lookOutAngleDeg: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono text-white"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-slate-400 font-medium block">Inclination Dip (°)</span>
+                    <input
+                      type="number"
+                      step="1"
+                      value={activeHole.dipAngleDeg}
+                      onChange={(e) =>
+                        handleUpdateActiveHole({
+                          dipAngleDeg: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono text-white"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* RUN-BY-RUN DEPTH INTERVAL FIELD LOGGING TABLE */}
+              <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-xs font-mono uppercase tracking-wider font-bold text-cyan-400">
+                      Simple &amp; Effective Depth Interval Log (ROP, Water Inflow, RQD &amp; Rock Class)
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Record drilling penetration rate, water ingress, flush color, and rock mass quality along the probe hole.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddInterval}
+                    className="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Depth Run</span>
+                  </button>
+                </div>
+
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-stone-900 text-white font-black uppercase text-[11px]">
-                      <tr>
-                        <th className="p-2.5">Interval</th>
-                        <th className="p-2.5">Pen. Rate (min/m)</th>
-                        <th className="p-2.5">Feed Press (bar)</th>
-                        <th className="p-2.5">Flush Ret (%)</th>
-                        <th className="p-2.5">RQD (%)</th>
-                        <th className="p-2.5">Void / Rod Drop</th>
-                        <th className="p-2.5">Rock Cuttings &amp; Remarks</th>
-                        <th className="p-2.5 text-center">Action</th>
+                  <table className="w-full text-left border-collapse text-xs font-mono">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 bg-slate-900/60">
+                        <th className="py-2 px-2">From (m)</th>
+                        <th className="py-2 px-2">To (m)</th>
+                        <th className="py-2 px-2">ROP (m/min)</th>
+                        <th className="py-2 px-2">Feed (bar)</th>
+                        <th className="py-2 px-2">Flush Return</th>
+                        <th className="py-2 px-2">Water (L/min)</th>
+                        <th className="py-2 px-2">Est. RQD (%)</th>
+                        <th className="py-2 px-2">Rock Class</th>
+                        <th className="py-2 px-2">Cavity/Fault</th>
+                        <th className="py-2 px-2 min-w-[200px]">Geological Notes</th>
+                        <th className="py-2 px-2"></th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-stone-200 bg-white">
-                      {record.intervals.map((int, idx) => (
-                        <tr key={int.intervalId} className={`hover:bg-amber-50/50 ${int.voidOrSoftPocketDetected ? 'bg-red-50/60' : ''}`}>
-                          <td className="p-2.5 font-black text-black whitespace-nowrap">
-                            {int.fromDepthM.toFixed(1)}m - {int.toDepthM.toFixed(1)}m
-                          </td>
-                          <td className="p-2.5">
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={int.penetrationRateMinPerMeter}
-                              onChange={(e) => {
-                                const updated = [...record.intervals];
-                                updated[idx].penetrationRateMinPerMeter = parseFloat(e.target.value) || 0;
-                                saveToStorage({ ...record, intervals: updated });
-                              }}
-                              className="w-20 px-2 py-1 rounded bg-stone-50 border border-stone-300 font-mono font-bold text-xs focus:border-black outline-hidden"
-                            />
-                          </td>
-                          <td className="p-2.5">
-                            <input
-                              type="number"
-                              value={int.feedPressureBar}
-                              onChange={(e) => {
-                                const updated = [...record.intervals];
-                                updated[idx].feedPressureBar = parseInt(e.target.value) || 0;
-                                saveToStorage({ ...record, intervals: updated });
-                              }}
-                              className="w-20 px-2 py-1 rounded bg-stone-50 border border-stone-300 font-mono font-bold text-xs focus:border-black outline-hidden"
-                            />
-                          </td>
-                          <td className="p-2.5">
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={int.flushReturnPercent}
-                              onChange={(e) => {
-                                const updated = [...record.intervals];
-                                updated[idx].flushReturnPercent = parseInt(e.target.value) || 0;
-                                saveToStorage({ ...record, intervals: updated });
-                              }}
-                              className={`w-16 px-2 py-1 rounded border font-mono font-bold text-xs focus:border-black outline-hidden ${
-                                int.flushReturnPercent < 60 ? 'bg-red-100 text-red-900 border-red-400' : 'bg-stone-50 border-stone-300'
-                              }`}
-                            />
-                          </td>
-                          <td className="p-2.5">
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={int.rqdForecastPercent}
-                              onChange={(e) => {
-                                const updated = [...record.intervals];
-                                updated[idx].rqdForecastPercent = parseInt(e.target.value) || 0;
-                                saveToStorage({ ...record, intervals: updated });
-                              }}
-                              className="w-16 px-2 py-1 rounded bg-stone-50 border border-stone-300 font-mono font-bold text-xs focus:border-black outline-hidden"
-                            />
-                          </td>
-                          <td className="p-2.5 text-center">
-                            <input
-                              type="checkbox"
-                              checked={int.voidOrSoftPocketDetected}
-                              onChange={(e) => {
-                                const updated = [...record.intervals];
-                                updated[idx].voidOrSoftPocketDetected = e.target.checked;
-                                saveToStorage({ ...record, intervals: updated });
-                              }}
-                              className="w-4 h-4 accent-red-600 rounded"
-                            />
-                          </td>
-                          <td className="p-2.5">
-                            <input
-                              type="text"
-                              value={int.rockCuttingsLithology}
-                              onChange={(e) => {
-                                const updated = [...record.intervals];
-                                updated[idx].rockCuttingsLithology = e.target.value;
-                                saveToStorage({ ...record, intervals: updated });
-                              }}
-                              className="w-full px-2 py-1 rounded bg-stone-50 border border-stone-300 text-black font-bold text-xs focus:border-black outline-hidden"
-                            />
-                          </td>
-                          <td className="p-2.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (record.intervals.length <= 1) return;
-                                const filtered = record.intervals.filter((_, i) => i !== idx);
-                                saveToStorage({ ...record, intervals: filtered });
-                              }}
-                              className="text-stone-400 hover:text-red-600 cursor-pointer p-1"
-                              title="Delete interval"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                    <tbody>
+                      {activeHole.intervals.map((intv, idx) => {
+                        const mwd = mwdProfile[idx];
+                        return (
+                          <tr
+                            key={intv.id}
+                            className={`border-b border-slate-800/80 ${
+                              mwd?.isHazardZone
+                                ? 'bg-rose-950/30'
+                                : 'hover:bg-slate-900/40'
+                            }`}
+                          >
+                            <td className="py-2 px-1.5">
+                              <input
+                                type="number"
+                                step="0.5"
+                                value={intv.fromMeters}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    fromMeters: parseFloat(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-16 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-white"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5">
+                              <input
+                                type="number"
+                                step="0.5"
+                                value={intv.toMeters}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    toMeters: parseFloat(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-16 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-white"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5">
+                              <input
+                                type="number"
+                                step="0.05"
+                                value={intv.ropMetersPerMin}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    ropMetersPerMin: parseFloat(e.target.value) || 0.1,
+                                  })
+                                }
+                                className={`w-18 px-2 py-1 rounded bg-slate-900 border font-bold ${
+                                  intv.ropMetersPerMin >= 2.0
+                                    ? 'border-rose-500 text-rose-300'
+                                    : 'border-slate-700 text-amber-300'
+                                }`}
+                              />
+                            </td>
+                            <td className="py-2 px-1.5">
+                              <input
+                                type="number"
+                                step="1"
+                                value={intv.feedPressureBar}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    feedPressureBar: parseFloat(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-16 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-white"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5">
+                              <select
+                                value={intv.flushWaterColor}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    flushWaterColor: e.target.value as ProbeRunInterval['flushWaterColor'],
+                                  })
+                                }
+                                className="px-2 py-1 rounded bg-slate-900 border border-slate-700 text-white"
+                              >
+                                <option value="Clear">Clear</option>
+                                <option value="Slightly Milky">Slightly Milky</option>
+                                <option value="Muddy Brown">Muddy Brown</option>
+                                <option value="Red/Ochre">Red/Ochre</option>
+                                <option value="Black/Graphitic">Black/Graphitic</option>
+                                <option value="Total Water Loss">Total Water Loss</option>
+                              </select>
+                            </td>
+                            <td className="py-2 px-1.5">
+                              <input
+                                type="number"
+                                step="1"
+                                value={intv.waterInflowLMin}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    waterInflowLMin: parseFloat(e.target.value) || 0,
+                                  })
+                                }
+                                className={`w-16 px-2 py-1 rounded bg-slate-900 border font-bold ${
+                                  intv.waterInflowLMin >= 25
+                                    ? 'border-cyan-400 text-cyan-300'
+                                    : 'border-slate-700 text-white'
+                                }`}
+                              />
+                            </td>
+                            <td className="py-2 px-1.5">
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                max="100"
+                                value={intv.estimatedRqdPct}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    estimatedRqdPct: Math.min(
+                                      100,
+                                      Math.max(0, parseFloat(e.target.value) || 0)
+                                    ),
+                                  })
+                                }
+                                className="w-16 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-emerald-300 font-bold"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5">
+                              <select
+                                value={intv.rockMassClass}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    rockMassClass: e.target.value as ProbeRunInterval['rockMassClass'],
+                                  })
+                                }
+                                className="px-2 py-1 rounded bg-slate-900 border border-slate-700 text-white"
+                              >
+                                <option value="Class I (Very Good)">Class I (Very Good)</option>
+                                <option value="Class II (Good)">Class II (Good)</option>
+                                <option value="Class III (Fair)">Class III (Fair)</option>
+                                <option value="Class IV (Poor)">Class IV (Poor)</option>
+                                <option value="Class V (Shear/Fault)">Class V (Shear/Fault)</option>
+                              </select>
+                            </td>
+                            <td className="py-2 px-1.5 text-center">
+                              <input
+                                type="checkbox"
+                                checked={intv.cavityOrFaultDetected}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    cavityOrFaultDetected: e.target.checked,
+                                  })
+                                }
+                                className="w-4 h-4 accent-rose-500 cursor-pointer"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5">
+                              <input
+                                type="text"
+                                value={intv.geologicalRemarks}
+                                onChange={(e) =>
+                                  handleUpdateInterval(intv.id, {
+                                    geologicalRemarks: e.target.value,
+                                  })
+                                }
+                                className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-200"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5">
+                              {activeHole.intervals.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveInterval(intv.id)}
+                                  className="p-1 rounded hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 cursor-pointer"
+                                  title="Remove Interval"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              {/* Penetration Profile Visual Graph */}
-              <div className="bg-stone-50 border-2 border-stone-300 rounded-xl p-4 space-y-2">
-                <div className="text-xs font-black text-black uppercase">Penetration Rate Profile (min/m along borehole length)</div>
-                <div className="h-16 flex items-end gap-1.5 pt-2 border-b-2 border-black">
-                  {record.intervals.map((int, i) => {
-                    const heightPercent = Math.min(100, Math.max(15, (int.penetrationRateMinPerMeter / 5.0) * 100));
-                    const isSoft = int.penetrationRateMinPerMeter < 1.8;
+              {/* VISUAL STRIP PROFILE OF ACTIVE PROBE HOLE */}
+              <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="font-bold text-slate-300 uppercase">
+                    Visual Look-Ahead Strip Profile — {activeHole.holeId} (0 m to {activeHole.totalLengthMeters} m)
+                  </span>
+                  <span className="text-slate-400">
+                    Green = Competent · Amber = Fractured · Red = Shear / High Water Hazard
+                  </span>
+                </div>
+                <div className="w-full h-12 rounded-xl bg-slate-900 border border-slate-800 overflow-hidden flex">
+                  {activeHole.intervals.map((intv, idx) => {
+                    const m = mwdProfile[idx];
+                    const span = Math.max(0.5, intv.toMeters - intv.fromMeters);
+                    const widthPct = (span / Math.max(1, activeHole.totalLengthMeters)) * 100;
+                    const bgClass = m?.isHazardZone
+                      ? 'bg-rose-600/80 border-r border-rose-400'
+                      : intv.estimatedRqdPct < 60
+                      ? 'bg-amber-600/75 border-r border-amber-400'
+                      : 'bg-emerald-600/75 border-r border-emerald-400';
                     return (
-                      <div key={int.intervalId} className="flex-1 flex flex-col items-center gap-1 group relative">
-                        <div
-                          style={{ height: `${heightPercent}%` }}
-                          className={`w-full rounded-t transition-all ${
-                            isSoft ? 'bg-red-500' : 'bg-amber-500'
-                          }`}
-                        />
-                        <span className="text-[9px] font-mono font-bold text-stone-600">
-                          {int.toDepthM}m
+                      <div
+                        key={intv.id}
+                        style={{ width: `${widthPct}%` }}
+                        className={`h-full flex flex-col items-center justify-center px-1 text-[10px] font-mono text-white truncate ${bgClass}`}
+                        title={`${intv.fromMeters}–${intv.toMeters}m: RQD ${intv.estimatedRqdPct}%, Q=${intv.waterInflowLMin} L/min, ROP=${intv.ropMetersPerMin} m/min`}
+                      >
+                        <span className="font-bold">
+                          {intv.fromMeters}–{intv.toMeters}m
+                        </span>
+                        <span>
+                          RQD {intv.estimatedRqdPct}% · {intv.waterInflowLMin}L/m
                         </span>
                       </div>
                     );
                   })}
                 </div>
-                <div className="flex items-center justify-between text-[11px] font-bold text-stone-600">
-                  <span>Face (0.0m)</span>
-                  <span className="text-red-700 font-black">Low min/m = Soft fault / void penetration drop</span>
-                  <span>End of Hole ({record.actualDrilledLengthM}m)</span>
-                </div>
               </div>
             </div>
-          </div>
-        )}
-
-        {/* STEP 3: WATER INGRESS LOG */}
-        {activeStep === 'water' && (
-          <div className="max-w-4xl mx-auto w-full space-y-4">
-            <div className="bg-white rounded-xl border-2 border-stone-300 shadow-sm p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-stone-200 pb-3">
-                <div>
-                  <h2 className="text-base font-black text-black">Step 3: Hydrogeological Water Ingress &amp; Seepage Events</h2>
-                  <p className="text-xs font-bold text-stone-600">
-                    Log water inflow rate, static pressure, water turbidity, and pre-excavation grouting triggers.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAddWaterEvent}
-                  className="px-3 py-1.5 rounded-lg text-xs font-black bg-cyan-700 hover:bg-cyan-800 text-white flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5 text-cyan-200" />
-                  <span>Log Water Event</span>
-                </button>
-              </div>
-
-              {record.waterIngressEvents.length === 0 ? (
-                <div className="p-8 text-center bg-stone-50 rounded-xl border-2 border-dashed border-stone-300">
-                  <Droplets className="w-8 h-8 text-stone-400 mx-auto mb-2" />
-                  <p className="text-xs font-bold text-stone-600">No significant water ingress logged in this probe hole.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {record.waterIngressEvents.map((ev, idx) => (
-                    <div key={ev.id} className="p-4 rounded-xl border-2 border-cyan-300 bg-cyan-50/50 space-y-3">
-                      <div className="flex items-center justify-between border-b border-cyan-200 pb-2">
-                        <span className="text-xs font-black text-cyan-900 flex items-center gap-1.5">
-                          <Droplets className="w-3.5 h-3.5 text-cyan-700" />
-                          Ingress Event #{idx + 1} at Depth {ev.depthMeters}m
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const filtered = record.waterIngressEvents.filter((_, i) => i !== idx);
-                            saveToStorage({ ...record, waterIngressEvents: filtered });
-                          }}
-                          className="text-stone-400 hover:text-red-600 cursor-pointer p-1"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                        <div>
-                          <label className="block text-[11px] font-black text-black mb-1">Depth (m)</label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            value={ev.depthMeters}
-                            onChange={(e) => {
-                              const updated = [...record.waterIngressEvents];
-                              updated[idx].depthMeters = parseFloat(e.target.value) || 0;
-                              saveToStorage({ ...record, waterIngressEvents: updated });
-                            }}
-                            className="w-full px-2.5 py-1.5 rounded bg-white border border-stone-300 text-black font-mono font-bold text-xs"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-black text-black mb-1">Flow Rate (L/min)</label>
-                          <input
-                            type="number"
-                            value={ev.flowRateLpm}
-                            onChange={(e) => {
-                              const updated = [...record.waterIngressEvents];
-                              updated[idx].flowRateLpm = parseFloat(e.target.value) || 0;
-                              saveToStorage({ ...record, waterIngressEvents: updated });
-                            }}
-                            className="w-full px-2.5 py-1.5 rounded bg-white border border-stone-300 text-black font-mono font-bold text-xs"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-black text-black mb-1">Pressure (bar)</label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            value={ev.staticPressureBar}
-                            onChange={(e) => {
-                              const updated = [...record.waterIngressEvents];
-                              updated[idx].staticPressureBar = parseFloat(e.target.value) || 0;
-                              saveToStorage({ ...record, waterIngressEvents: updated });
-                            }}
-                            className="w-full px-2.5 py-1.5 rounded bg-white border border-stone-300 text-black font-mono font-bold text-xs"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-black text-black mb-1">Appearance</label>
-                          <select
-                            value={ev.waterAppearance}
-                            onChange={(e) => {
-                              const updated = [...record.waterIngressEvents];
-                              updated[idx].waterAppearance = e.target.value as any;
-                              saveToStorage({ ...record, waterIngressEvents: updated });
-                            }}
-                            className="w-full px-2.5 py-1.5 rounded bg-white border border-stone-300 text-black font-bold text-xs"
-                          >
-                            <option value="Clear">Clear</option>
-                            <option value="Milky">Milky</option>
-                            <option value="Turbid / Silt">Turbid / Silt</option>
-                            <option value="Heavy Mud Slurry">Heavy Mud Slurry</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-black text-black mb-1">Mandatory Engineering Action</label>
-                        <select
-                          value={ev.actionRequired}
-                          onChange={(e) => {
-                            const updated = [...record.waterIngressEvents];
-                            updated[idx].actionRequired = e.target.value as any;
-                            saveToStorage({ ...record, waterIngressEvents: updated });
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded bg-white border-2 border-cyan-400 text-black font-black text-xs"
-                        >
-                          <option value="Monitor">Monitor (Normal face advance)</option>
-                          <option value="Grout Curtain Ahead">Pre-Excavation Grout Curtain Ahead</option>
-                          <option value="Drainage Hole Required">Dedicated Sub-Horizontal Drainage Hole</option>
-                          <option value="Immediate Face Halt">Immediate Face Halt &amp; Evacuate</option>
-                        </select>
-                      </div>
+          ) : (
+            /* ============================================================================
+               MODE 2: ADVANCED MWD SPECIFIC ENERGY, FACE COLLAR CANVAS & 3D PROBE FAN
+               ============================================================================ */
+            activeHole && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                {/* LEFT COLUMN (5 COLS): INTERACTIVE TUNNEL FACE COLLAR PLACEMENT CANVAS */}
+                <div className="lg:col-span-5 bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-3 flex flex-col">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div>
+                      <span className="text-xs font-mono uppercase tracking-wider font-bold text-amber-400 block">
+                        1. Interactive Tunnel Face Probe Collar Map
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Click or drag on the tunnel face cross-section to position {activeHole.holeId}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+                    <span className="text-xs font-mono text-cyan-300">
+                      X={activeHole.collarX}m, Y={activeHole.collarY}m
+                    </span>
+                  </div>
 
-        {/* STEP 4: HAZARD FORECAST */}
-        {activeStep === 'hazards' && (
-          <div className="max-w-4xl mx-auto w-full space-y-4">
-            <div className="bg-white rounded-xl border-2 border-stone-300 shadow-sm p-5 space-y-4">
-              <div className="border-b border-stone-200 pb-3 flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-black text-black">Step 4: Ahead-of-Face Geological Hazard Assessment</h2>
-                  <p className="text-xs font-bold text-stone-600">
-                    Calculated forward hazard clearance and safe advance distance before mandatory overlapping probe hole.
-                  </p>
-                </div>
-                <span className={`px-2.5 py-1 rounded text-xs font-black border ${
-                  record.hazardForecast.overallRiskLevel.includes('Red')
-                    ? 'bg-red-100 text-red-950 border-red-500'
-                    : 'bg-emerald-100 text-emerald-950 border-emerald-500'
-                }`}>
-                  {record.hazardForecast.overallRiskLevel}
-                </span>
-              </div>
-
-              {/* 2D Tunnel & Forward Probe Vector Schematic */}
-              <div className="border-2 border-stone-300 rounded-xl p-3 bg-stone-900 shadow-inner">
-                <div className="text-[11px] font-mono font-bold text-white mb-1">
-                  LONGITUDINAL PROFILE AHEAD OF FACE (PROBE VECTOR &amp; HAZARD ENCOUNTER)
-                </div>
-
-                <svg viewBox="0 0 600 160" className="w-full h-auto bg-stone-950 rounded border border-stone-800">
-                  {/* Excavated Tunnel Profile */}
-                  <rect x="10" y="30" width="140" height="90" fill="#334155" stroke="#94A3B8" strokeWidth="2" />
-                  <line x1="150" y1="30" x2="150" y2="120" stroke="#EF4444" strokeWidth="4" />
-                  <text x="145" y="24" textAnchor="end" fill="#F87171" fontSize="10" fontWeight="900">TUNNEL FACE</text>
-
-                  {/* Forward Probe Vector */}
-                  <line x1="150" y1="45" x2="520" y2="25" stroke="#F59E0B" strokeWidth="3" strokeDasharray="5 3" />
-                  <text x="320" y="20" fill="#FBBF24" fontSize="9" fontWeight="900">
-                    PROBE HOLE (24m @ +4.5° DIP)
-                  </text>
-
-                  {/* Encountered Fault / Shear Zone Ahead */}
-                  <polygon points="310,15 350,15 365,145 325,145" fill="#EF4444" fillOpacity="0.45" stroke="#EF4444" strokeWidth="2" />
-                  <text x="340" y="85" textAnchor="middle" fill="#FFFFFF" fontSize="9" fontWeight="900">
-                    SHEAR ZONE (10.4m - 13.8m)
-                  </text>
-
-                  {/* Safe Advance Limit Barrier */}
-                  <line x1="260" y1="15" x2="260" y2="145" stroke="#10B981" strokeWidth="2" strokeDasharray="3 3" />
-                  <text x="255" y="140" textAnchor="end" fill="#34D399" fontSize="9" fontWeight="900">
-                    SAFE ADVANCE LIMIT (7.0m)
-                  </text>
-                </svg>
-              </div>
-
-              {/* Hazard Parameter Inputs */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Fault Distance Ahead (m)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={record.hazardForecast.faultZoneDistanceMeters || ''}
-                    onChange={(e) => {
-                      saveToStorage({
-                        ...record,
-                        hazardForecast: {
-                          ...record.hazardForecast,
-                          faultZoneDistanceMeters: parseFloat(e.target.value) || null,
-                        },
-                      });
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Fault Width (m)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={record.hazardForecast.faultWidthMeters || ''}
-                    onChange={(e) => {
-                      saveToStorage({
-                        ...record,
-                        hazardForecast: {
-                          ...record.hazardForecast,
-                          faultWidthMeters: parseFloat(e.target.value) || null,
-                        },
-                      });
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Safe Advance Clearance (m)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={record.hazardForecast.safeAdvanceClearanceMeters}
-                    onChange={(e) => {
-                      saveToStorage({
-                        ...record,
-                        hazardForecast: {
-                          ...record.hazardForecast,
-                          safeAdvanceClearanceMeters: parseFloat(e.target.value) || 0,
-                        },
-                      });
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-emerald-50 border-2 border-emerald-500 text-black font-black text-sm focus:border-black outline-hidden"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 pt-2">
-                  <input
-                    type="checkbox"
-                    id="waterBurst"
-                    checked={record.hazardForecast.highWaterBurstRisk}
-                    onChange={(e) => {
-                      saveToStorage({
-                        ...record,
-                        hazardForecast: {
-                          ...record.hazardForecast,
-                          highWaterBurstRisk: e.target.checked,
-                        },
-                      });
-                    }}
-                    className="w-4 h-4 accent-red-600 rounded"
-                  />
-                  <label htmlFor="waterBurst" className="text-xs font-black text-black cursor-pointer">
-                    High Water Burst Potential Ahead
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-2 pt-2">
-                  <input
-                    type="checkbox"
-                    id="cavity"
-                    checked={record.hazardForecast.cavityOrKarstDetected}
-                    onChange={(e) => {
-                      saveToStorage({
-                        ...record,
-                        hazardForecast: {
-                          ...record.hazardForecast,
-                          cavityOrKarstDetected: e.target.checked,
-                        },
-                      });
-                    }}
-                    className="w-4 h-4 accent-amber-600 rounded"
-                  />
-                  <label htmlFor="cavity" className="text-xs font-black text-black cursor-pointer">
-                    Karst Cavity / Void Void Intercept
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-2 pt-2">
-                  <input
-                    type="checkbox"
-                    id="gas"
-                    checked={record.hazardForecast.gasDetected}
-                    onChange={(e) => {
-                      saveToStorage({
-                        ...record,
-                        hazardForecast: {
-                          ...record.hazardForecast,
-                          gasDetected: e.target.checked,
-                        },
-                      });
-                    }}
-                    className="w-4 h-4 accent-purple-600 rounded"
-                  />
-                  <label htmlFor="gas" className="text-xs font-black text-black cursor-pointer">
-                    Harmful Gas (CH4 / H2S) Alert
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-black uppercase mb-1">Geotechnical Advance Directives</label>
-                <textarea
-                  rows={2}
-                  value={record.hazardForecast.recommendations}
-                  onChange={(e) => {
-                    saveToStorage({
-                      ...record,
-                      hazardForecast: {
-                        ...record.hazardForecast,
-                        recommendations: e.target.value,
-                      },
-                    });
-                  }}
-                  className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs focus:border-black outline-hidden"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* STEP 5: SIGNOFF & TARP DISPATCH */}
-        {activeStep === 'signoff' && (
-          <div className="max-w-4xl mx-auto w-full space-y-4">
-            <div className="bg-white rounded-xl border-2 border-stone-300 shadow-sm p-5 space-y-4">
-              <div className="border-b border-stone-200 pb-3 flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-black text-black">Step 5: Forward Probing Sign-Off &amp; Shift TARP Action</h2>
-                  <p className="text-xs font-bold text-stone-600">
-                    Issue shift geotechnical directives to tunnel excavation superintendent.
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 rounded bg-black text-white font-black text-xs">
-                  {record.holeId}
-                </span>
-              </div>
-
-              {/* TARP Action Selector */}
-              <div className="p-4 rounded-xl border-2 border-stone-300 bg-stone-50 space-y-3">
-                <div className="text-xs font-black text-black uppercase">TARP Operational Response Trigger</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-                  {(['Normal Advance', 'Pre-Excavation Grouting', 'Drainage Drill Required', 'Halt & Review'] as const).map((status) => (
-                    <button
-                      key={status}
-                      type="button"
-                      onClick={() => {
-                        saveToStorage({
-                          ...record,
-                          signOff: { ...record.signOff, tarpActionStatus: status },
-                        });
+                  <div className="flex-1 min-h-[290px] bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-center p-2 select-none">
+                    <svg
+                      ref={faceSvgRef}
+                      viewBox="0 0 360 320"
+                      className="w-full h-full max-h-[310px] cursor-crosshair touch-none"
+                      onPointerDown={(e) => {
+                        setIsDraggingCollar(true);
+                        updateCollarFromPointer(e.clientX, e.clientY);
                       }}
-                      className={`p-3 rounded-lg text-xs font-black border-2 cursor-pointer transition-all text-left ${
-                        record.signOff.tarpActionStatus === status
-                          ? status === 'Normal Advance'
-                            ? 'bg-emerald-500 text-black border-black shadow-xs'
-                            : status === 'Pre-Excavation Grouting'
-                            ? 'bg-amber-400 text-black border-black shadow-xs'
-                            : 'bg-red-500 text-white border-black shadow-xs'
-                          : 'bg-white text-black border-stone-300 hover:border-black'
-                      }`}
+                      onPointerMove={(e) => {
+                        if (isDraggingCollar) {
+                          updateCollarFromPointer(e.clientX, e.clientY);
+                        }
+                      }}
+                      onPointerUp={() => setIsDraggingCollar(false)}
+                      onPointerLeave={() => setIsDraggingCollar(false)}
                     >
-                      {status}
-                    </button>
-                  ))}
+                      {/* Coordinate Grid */}
+                      <line x1="180" y1="20" x2="180" y2="290" stroke="#334155" strokeDasharray="4 4" />
+                      <line x1="30" y1="280" x2="330" y2="280" stroke="#475569" strokeWidth="2" />
+                      <line x1="30" y1="160" x2="330" y2="160" stroke="#334155" strokeDasharray="4 4" />
+
+                      {/* Horseshoe Tunnel Face Profile */}
+                      <path
+                        d="M 55 280 L 55 155 A 125 125 0 0 1 305 155 L 305 280 Z"
+                        fill="#0F172A"
+                        stroke="#F59E0B"
+                        strokeWidth="2.5"
+                      />
+
+                      {/* Look-Ahead Perimeter Envelope (Dashed Outer Ring) */}
+                      <path
+                        d="M 42 286 L 42 150 A 138 138 0 0 1 318 150 L 318 286 Z"
+                        fill="none"
+                        stroke="#38BDF8"
+                        strokeWidth="1.2"
+                        strokeDasharray="5 4"
+                        opacity="0.65"
+                      />
+
+                      {/* Render All Probe Hole Collars & Look-Out Vectors */}
+                      {holes.map((h) => {
+                        const cx = 180 + (h.collarX / (tunnelWidthMeters / 2)) * 120;
+                        const cy = 280 - (h.collarY / tunnelHeightMeters) * 240;
+                        const isAct = h.id === activeHole.id;
+                        const radOut = ((h.lookOutAngleDeg || 5) * Math.PI) / 180;
+                        const dirX = h.collarX >= 0 ? 1 : -1;
+                        const tipX = cx + dirX * Math.sin(radOut) * 42;
+                        const tipY = cy - Math.sin(((h.dipAngleDeg || 4) * Math.PI) / 180) * 42;
+
+                        return (
+                          <g
+                            key={h.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedHoleId(h.id);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            {/* Trajectory Vector Arrow */}
+                            <line
+                              x1={cx}
+                              y1={cy}
+                              x2={tipX}
+                              y2={tipY}
+                              stroke={isAct ? '#22D3EE' : '#94A3B8'}
+                              strokeWidth={isAct ? 2.5 : 1.5}
+                              strokeDasharray="3 2"
+                            />
+                            <circle
+                              cx={tipX}
+                              cy={tipY}
+                              r={3}
+                              fill={isAct ? '#22D3EE' : '#94A3B8'}
+                            />
+                            {/* Collar Ring */}
+                            <circle
+                              cx={cx}
+                              cy={cy}
+                              r={isAct ? 10 : 7}
+                              fill={isAct ? '#F59E0B' : '#1E293B'}
+                              stroke={isAct ? '#FFFFFF' : '#F59E0B'}
+                              strokeWidth={isAct ? 2.5 : 1.5}
+                            />
+                            <text
+                              x={cx}
+                              y={cy - 13}
+                              fill={isAct ? '#FDE68A' : '#CBD5E1'}
+                              fontSize="10"
+                              fontFamily="monospace"
+                              fontWeight="bold"
+                              textAnchor="middle"
+                            >
+                              {h.holeId.split(' ')[0]}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      <text x="180" y="305" fill="#94A3B8" fontSize="10" fontFamily="monospace" textAnchor="middle">
+                        Tunnel Centerline (0.0 m) · Span {tunnelWidthMeters.toFixed(1)}m × Height {tunnelHeightMeters.toFixed(1)}m
+                      </text>
+                    </svg>
+                  </div>
+                </div>
+
+                {/* RIGHT COLUMN (7 COLS): MWD SPECIFIC ENERGY CHART & 3D PROBE FAN PROJECTION */}
+                <div className="lg:col-span-7 space-y-4">
+                  {/* MWD DRILLING SPECIFIC ENERGY & ROP PROFILE VS DEPTH */}
+                  <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-cyan-400" />
+                        <span className="text-xs font-mono uppercase tracking-wider font-bold text-cyan-400">
+                          2. MWD Drilling Specific Energy (DSE) &amp; Penetration Profile — {activeHole.holeId}
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        Teale (1965) Specific Energy (MJ/m³) vs. ROP (m/min) &amp; Water Inflow
+                      </span>
+                    </div>
+
+                    <div className="w-full h-52 bg-slate-900 rounded-xl border border-slate-800 p-3">
+                      <svg viewBox="0 0 600 175" className="w-full h-full">
+                        {/* Horizontal Reference Lines */}
+                        {[0, 0.25, 0.5, 0.75, 1].map((t, i) => {
+                          const y = 18 + t * 125;
+                          return (
+                            <line
+                              key={i}
+                              x1="45"
+                              y1={y}
+                              x2="575"
+                              y2={y}
+                              stroke="#1E293B"
+                              strokeWidth="1"
+                            />
+                          );
+                        })}
+
+                        {/* Plot Hazard Bars, DSE Line (Cyan), and ROP Line (Amber) */}
+                        {(() => {
+                          const maxDepth = Math.max(10, activeHole.totalLengthMeters);
+                          const dsePoints: string[] = [];
+                          const ropPoints: string[] = [];
+
+                          return (
+                            <>
+                              {mwdProfile.map((m) => {
+                                const x1 = 45 + (m.fromMeters / maxDepth) * 530;
+                                const x2 = 45 + (m.toMeters / maxDepth) * 530;
+                                const xm = (x1 + x2) * 0.5;
+                                const yDse =
+                                  143 - Math.min(1, m.specificEnergyMjPerM3 / 400) * 120;
+                                const yRop =
+                                  143 - Math.min(1, m.ropMetersPerMin / 3.5) * 120;
+                                dsePoints.push(`${xm.toFixed(1)},${yDse.toFixed(1)}`);
+                                ropPoints.push(`${xm.toFixed(1)},${yRop.toFixed(1)}`);
+
+                                return (
+                                  <g key={m.intervalId}>
+                                    {m.isHazardZone && (
+                                      <rect
+                                        x={x1}
+                                        y={18}
+                                        width={Math.max(6, x2 - x1)}
+                                        height={125}
+                                        fill="#F43F5E"
+                                        opacity="0.22"
+                                      />
+                                    )}
+                                    <circle cx={xm} cy={yDse} r="4" fill="#22D3EE" />
+                                    <circle cx={xm} cy={yRop} r="4" fill="#F59E0B" />
+                                    <text
+                                      x={xm}
+                                      y={162}
+                                      fill="#94A3B8"
+                                      fontSize="9"
+                                      fontFamily="monospace"
+                                      textAnchor="middle"
+                                    >
+                                      {m.fromMeters}-{m.toMeters}m
+                                    </text>
+                                  </g>
+                                );
+                              })}
+                              {dsePoints.length > 1 && (
+                                <polyline
+                                  fill="none"
+                                  stroke="#22D3EE"
+                                  strokeWidth="2.5"
+                                  points={dsePoints.join(' ')}
+                                />
+                              )}
+                              {ropPoints.length > 1 && (
+                                <polyline
+                                  fill="none"
+                                  stroke="#F59E0B"
+                                  strokeWidth="2.5"
+                                  strokeDasharray="4 3"
+                                  points={ropPoints.join(' ')}
+                                />
+                              )}
+                            </>
+                          );
+                        })()}
+
+                        {/* Legend */}
+                        <circle cx="65" cy="10" r="4" fill="#22D3EE" />
+                        <text x="74" y="13" fill="#22D3EE" fontSize="9.5" fontFamily="monospace">
+                          Specific Energy (MJ/m³)
+                        </text>
+                        <circle cx="235" cy="10" r="4" fill="#F59E0B" />
+                        <text x="244" y="13" fill="#F59E0B" fontSize="9.5" fontFamily="monospace">
+                          Penetration Rate ROP (m/min)
+                        </text>
+                        <rect x="425" y="5" width="10" height="10" fill="#F43F5E" opacity="0.5" />
+                        <text x="440" y="13" fill="#FDA4AF" fontSize="9.5" fontFamily="monospace">
+                          Detected Fault / Water Hazard Zone
+                        </text>
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* 3D LOOK-AHEAD LONGITUDINAL & FAN PROJECTION */}
+                  <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-2">
+                        <Compass className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xs font-mono uppercase tracking-wider font-bold text-emerald-400">
+                          3. 3D Look-Ahead Probe Fan &amp; Hazard Projection Ahead of Tunnel Face
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        Safe Advance Gate: +{fanSummary.safeAdvanceLengthMeters} m
+                      </span>
+                    </div>
+
+                    <div className="w-full h-56 bg-slate-900 rounded-xl border border-slate-800 p-3">
+                      <svg viewBox="0 0 620 190" className="w-full h-full">
+                        {/* Excavated Tunnel Left of Face */}
+                        <rect
+                          x="15"
+                          y="42"
+                          width="95"
+                          height="108"
+                          fill="#1E293B"
+                          stroke="#94A3B8"
+                          strokeWidth="2"
+                        />
+                        <text
+                          x="62"
+                          y="95"
+                          fill="#E2E8F0"
+                          fontSize="10"
+                          fontFamily="monospace"
+                          fontWeight="bold"
+                          textAnchor="middle"
+                        >
+                          EXCAVATED
+                        </text>
+                        <text
+                          x="62"
+                          y="109"
+                          fill="#94A3B8"
+                          fontSize="8.5"
+                          fontFamily="monospace"
+                          textAnchor="middle"
+                        >
+                          {activeHole.faceChainage}
+                        </text>
+
+                        {/* Future Planned Tunnel Excavation Envelope */}
+                        <rect
+                          x="110"
+                          y="42"
+                          width="485"
+                          height="108"
+                          fill="#0F172A"
+                          stroke="#475569"
+                          strokeDasharray="5 4"
+                        />
+
+                        {/* Active Tunnel Face Plane */}
+                        <line
+                          x1="110"
+                          y1="25"
+                          x2="110"
+                          y2="165"
+                          stroke="#F59E0B"
+                          strokeWidth="3"
+                        />
+                        <text
+                          x="110"
+                          y="18"
+                          fill="#FBBF24"
+                          fontSize="9.5"
+                          fontFamily="monospace"
+                          fontWeight="bold"
+                          textAnchor="middle"
+                        >
+                          ACTIVE FACE (0m)
+                        </text>
+
+                        {/* Safe Advance Gate Line */}
+                        {(() => {
+                          const maxReach = 28;
+                          const safeX =
+                            110 + (fanSummary.safeAdvanceLengthMeters / maxReach) * 475;
+                          return (
+                            <g>
+                              <line
+                                x1={safeX}
+                                y1="28"
+                                x2={safeX}
+                                y2="165"
+                                stroke="#10B981"
+                                strokeWidth="2"
+                                strokeDasharray="4 3"
+                              />
+                              <text
+                                x={safeX}
+                                y="180"
+                                fill="#34D399"
+                                fontSize="9.5"
+                                fontFamily="monospace"
+                                fontWeight="bold"
+                                textAnchor="middle"
+                              >
+                                Safe Advance Limit (+{fanSummary.safeAdvanceLengthMeters}m)
+                              </text>
+                            </g>
+                          );
+                        })()}
+
+                        {/* Render All Probe Holes & Interval Segments Ahead of Face */}
+                        {holes.map((h) => {
+                          const maxReach = 28;
+                          const startY =
+                            148 - (h.collarY / Math.max(1, tunnelHeightMeters)) * 102;
+                          const dipRad = ((h.dipAngleDeg || 0) * Math.PI) / 180;
+                          const hMwd = computeMwdProfileForHole(h);
+
+                          return (
+                            <g key={h.id}>
+                              {h.intervals.map((intv, idx) => {
+                                const m = hMwd[idx];
+                                const x1 =
+                                  110 +
+                                  ((intv.fromMeters * Math.cos(dipRad)) / maxReach) * 475;
+                                const y1 =
+                                  startY -
+                                  ((intv.fromMeters * Math.sin(dipRad)) / maxReach) * 140;
+                                const x2 =
+                                  110 +
+                                  ((intv.toMeters * Math.cos(dipRad)) / maxReach) * 475;
+                                const y2 =
+                                  startY -
+                                  ((intv.toMeters * Math.sin(dipRad)) / maxReach) * 140;
+
+                                const segColor = m?.isHazardZone
+                                  ? '#F43F5E'
+                                  : intv.estimatedRqdPct < 60
+                                  ? '#F59E0B'
+                                  : '#22D3EE';
+
+                                return (
+                                  <g key={intv.id}>
+                                    <line
+                                      x1={x1}
+                                      y1={y1}
+                                      x2={x2}
+                                      y2={y2}
+                                      stroke={segColor}
+                                      strokeWidth={h.id === activeHole.id ? 5 : 3}
+                                      strokeLinecap="round"
+                                    />
+                                    {m?.isHazardZone && (
+                                      <ellipse
+                                        cx={(x1 + x2) * 0.5}
+                                        cy={(y1 + y2) * 0.5}
+                                        rx={Math.max(10, (x2 - x1) * 0.5)}
+                                        ry="18"
+                                        fill="#F43F5E"
+                                        opacity="0.24"
+                                        stroke="#FDA4AF"
+                                        strokeDasharray="3 2"
+                                      />
+                                    )}
+                                  </g>
+                                );
+                              })}
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              {/* Sign-Off Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Tunnel Superintendent</label>
-                  <input
-                    type="text"
-                    value={record.signOff.superintendent}
-                    placeholder="Enter Superintendent Name..."
-                    onChange={(e) => {
-                      saveToStorage({
-                        ...record,
-                        signOff: { ...record.signOff, superintendent: e.target.value },
-                      });
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs print:placeholder-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black uppercase mb-1">Logging Geotechnical Engineer</label>
-                  <input
-                    type="text"
-                    value={record.signOff.geologist}
-                    placeholder="Enter Geologist / Engineer Name..."
-                    onChange={(e) => {
-                      saveToStorage({
-                        ...record,
-                        signOff: { ...record.signOff, geologist: e.target.value },
-                      });
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-stone-50 border-2 border-stone-300 text-black font-bold text-xs print:placeholder-transparent"
-                  />
-                </div>
-              </div>
-
-              {/* Export Buttons */}
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(record, null, 2));
-                    const dl = document.createElement('a');
-                    dl.setAttribute('href', dataStr);
-                    dl.setAttribute('download', `${record.holeId}_Forward_Probe_Log.json`);
-                    dl.click();
-                  }}
-                  className="flex-1 py-2.5 px-4 rounded-lg bg-stone-900 hover:bg-black text-white text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95"
-                >
-                  <Download className="w-4 h-4 text-amber-400" />
-                  <span>Export JSON Dataset</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="flex-1 py-2.5 px-4 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95"
-                >
-                  <Printer className="w-4 h-4 text-amber-200" />
-                  <span>Print Shift Directives Sheet</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
+            )
+          )}
+        </div>
+      </div>
     </div>
   );
 };

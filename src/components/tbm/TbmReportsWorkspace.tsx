@@ -30,6 +30,7 @@ import {
   calculateBartonGrimstadSupport,
   calculateRmrGeomechanicalProperties,
 } from '../../engine/tbmCalculationsEngine';
+import { exportCanvasesAsPdfDocument } from '../../engine/fieldMappingEngine';
 
 export interface TbmReportsWorkspaceProps {
   records: TbmExcavationRecord[];
@@ -459,8 +460,123 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
       window.print();
     } catch (e) {
       console.warn('Direct print failed, invoking download fallback', e);
-      handleDownloadReportPdfHtml();
+      handleDownloadStandalonePdf();
     }
+  };
+
+  // Helper to download a true 300-DPI (3508 x 2480 px) standalone binary .pdf TBM report
+  const handleDownloadStandalonePdf = () => {
+    const DPI_SCALE = 2.0;
+    const W = 1754;
+    const H = 1240;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(W * DPI_SCALE);
+    canvas.height = Math.round(H * DPI_SCALE);
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(DPI_SCALE, DPI_SCALE);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 3.5;
+    ctx.strokeRect(28, 28, W - 56, H - 56);
+
+    // Header Banner
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(36, 36, W - 72, 82);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`ESWA TBM MECHANIZED TUNNELING — ${currentDef.title.toUpperCase()}`, 54, 72);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(
+      `Project: ${activeProject?.projectName || 'TBM Tunnel Project'}  |  Heading: ${activeLocation?.locationName || 'Main Drive'}  |  TBM: ${activeLocation?.tbmType || 'EPB'} (Ø${activeLocation?.cutterheadDiameterM || 6.4}m)  |  Rings: #${startRingFilter}–#${endRingFilter}`,
+      54,
+      102
+    );
+
+    // Table Header
+    let y = 142;
+    const cols = [
+      { label: 'RING #', w: 95 },
+      { label: 'RD INTERVAL (m)', w: 215 },
+      { label: 'MAIN LITHOLOGY & WEATH.', w: 330 },
+      { label: 'BARTON Q', w: 185 },
+      { label: 'RMR89', w: 165 },
+      { label: 'THRUST (kN)', w: 135 },
+      { label: 'TORQUE (kNm)', w: 140 },
+      { label: 'FPI (kN/c/mm)', w: 140 },
+      { label: 'GROUT (m³)', w: 130 },
+      { label: 'KEY POS', w: 147 },
+    ];
+    let x = 36;
+    ctx.fillStyle = '#0284c7';
+    ctx.fillRect(36, y, W - 72, 34);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 13px monospace';
+    cols.forEach((c) => {
+      ctx.fillText(c.label, x + 8, y + 22);
+      x += c.w;
+    });
+    y += 34;
+
+    const rowsToDraw = filteredRecords.slice(0, 22);
+    if (rowsToDraw.length === 0) {
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(36, y, W - 72, 48);
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.strokeRect(36, y, W - 72, 48);
+      ctx.fillStyle = '#64748b';
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText('No excavation ring records logged yet for this interval.', 54, y + 30);
+      y += 48;
+    } else {
+      rowsToDraw.forEach((r, idx) => {
+        const rH = 38;
+        ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+        ctx.fillRect(36, y, W - 72, rH);
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.strokeRect(36, y, W - 72, rH);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 12.5px monospace';
+        const vals = [
+          `#${r.chainageRecord.ringNumber}`,
+          `RD ${r.chainageRecord.startChainage.toFixed(2)}–${r.chainageRecord.endChainage.toFixed(2)}m`,
+          `${(r.geology.mainLithology || 'Logged Ground').slice(0, 24)} (${r.geology.weatheringGrade || 'W1'})`,
+          `${r.classification.calculatedQ.toFixed(2)} (${(r.classification.qClassLabel || '').slice(0, 12)})`,
+          `${r.classification.calculatedRmr} (${(r.classification.rmrClassLabel || '').slice(0, 12)})`,
+          String(r.telemetry.thrustForceKn || 0),
+          String(r.telemetry.cutterheadTorqueKnm || 0),
+          (r.classification.fieldPenetrationIndexKnCutterMm || 0).toFixed(2),
+          (r.supportLining.annularGroutVolumeActualM3 || 0).toFixed(2),
+          r.supportLining.keySegmentPositionClock || '12:00',
+        ];
+        let rx = 36;
+        vals.forEach((v, i) => {
+          ctx.fillText(v, rx + 8, y + 24);
+          rx += cols[i].w;
+        });
+        y += rH;
+      });
+    }
+
+    // Bottom Sign-off Box
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(36, H - 92, W - 72, 54);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(
+      `Lead TBM Geologist: ${signOffNames.geologistName || activeLocation?.responsibleGeologist || '____________________'}   |   TBM Operator: ${signOffNames.operatorName || '____________________'}   |   Construction Manager: ${signOffNames.managerName || activeProject?.contractor || '____________________'}`,
+      52,
+      H - 59
+    );
+
+    const fileName = `${selectedReportType}_Ring_${startRingFilter}_to_${endRingFilter}_300DPI.pdf`;
+    exportCanvasesAsPdfDocument([canvas], fileName, 'landscape', 'A4');
   };
 
   // Helper to download standalone official PDF / HTML report
@@ -1602,12 +1718,22 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={handleDownloadReportPdfHtml}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-black cursor-pointer shadow-lg shadow-cyan-500/25 active:scale-95 transition-all"
-            title="Download publication-grade styled report as HTML / PDF document"
+            onClick={handleDownloadStandalonePdf}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono text-xs font-black cursor-pointer shadow-lg shadow-amber-500/25 active:scale-95 transition-all"
+            title="Download standalone 300-DPI PDF document (.pdf)"
           >
             <Download className="w-4 h-4" />
-            <span>Download Report (PDF/HTML)</span>
+            <span>Download PDF (300 DPI)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadReportPdfHtml}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-black cursor-pointer shadow-lg shadow-cyan-500/25 active:scale-95 transition-all"
+            title="Download publication-grade styled report as HTML document"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download HTML</span>
           </button>
 
           <button

@@ -1,107 +1,122 @@
-# 3D Tunnel Pull-Length Canvas (Half-In / Half-Out Joint Plane) & Visual Screen Top-to-Bottom True-North Compass Plan
+# Implementation Plan: NATM Probe Hole Drilling & Grouting Modules
 
-This plan updates the Real-Time Mobile Compass & Inclinometer modal so that:
-1. **Left Screen (3D Tunnel with Pull Length & Face Behind Walls/Crown)**: Renders the **exact tunnel shape and dimensions** (Width, Height, Arch Profile, and **Pull Length**) in its ideal 3D viewing position—with the **Left Wall, Right Wall, and Crown** extending along the pull length and the **Tunnel Face positioned at the back** behind the walls and crown.
-2. **Traced-Length-Only Joint Plane (Half Inside Tunnel / Half Outside Tunnel)**: Renders the 3D joint plane **strictly along the traced joint length only**, extending **50% inside the tunnel excavation** and **50% outside the tunnel** into the surrounding rock mass.
-3. **Right Screen (True-North Compass & Visual Screen Top-to-Bottom Guide)**: Fixes Android False North by locking strictly to the **Hardware Magnetometer (`deviceorientationabsolute`)** with full 3D East-North-Up (`ENU`) rotation math, where the **Bottom direction of the visual screen** gives the **Dip Direction (`000°–360°`)** and the **angle between Visual Screen Top and Bottom** gives the **Dip Amount (`00°–90°`)**.
+## 1. Overview & Objectives
+In conventional underground excavation and NATM (New Austrian Tunnelling Method), forward exploration and ground treatment are critical safety and engineering gates before advancing into unknown ground.
 
----
-
-## User Review & Confirmed Specifications
-
-> [!IMPORTANT]
-> This updated plan incorporates all of your exact geometric and sensor requirements:
-
-- **Exact 3D Tunnel Shape, Size & Pull Length (Face Behind Wall & Crown)**:
-  - The 3D viewport constructs the exact tunnel cross-section (`excavationWidthM`, `excavationHeightM`, `excavationShape` such as Horseshoe, D-Shaped, Circular, or Rectangular) extruded along the **Pull Length** (`pullLengthM`), with the **Left Wall**, **Right Wall**, and **Crown** forming the 3D tunnel bay in front and the **Face** positioned at the back end of the pull length.
-- **Traced-Length-Only 3D Joint Plane (Half Inside / Half Outside Tunnel)**:
-  - Instead of a full-tunnel disc, the 3D joint plane is sized **strictly to the length of your traced joint line**.
-  - The traced joint line sits at the center of the plane so **half of the plane extends inside the tunnel void** (semi-transparent amber with grid lines) and **half extends outside the tunnel shell** into the rock mass (distinct outer-rock wireframe/tint), clearly showing how the discontinuity cuts through the excavation boundary.
-- **True Magnetic North & Visual Screen Top-to-Bottom Orientation**:
-  - Eliminates False North by separating `deviceorientationabsolute` (True/Magnetic North hardware magnetometer) from relative `deviceorientation` (which uses an arbitrary startup angle on Android).
-  - Uses the **Visual Screen Top-to-Bottom axis** (automatically adapting to Portrait or Horizontal/Landscape screen orientation):
-    - **Visual Screen Bottom Direction** = **Dip Direction (`000°–360°` from North)**.
-    - **Angle Between Visual Screen Top and Bottom** = **Dip Amount (`00°–90°`)**.
+Based on your design choices, this plan adds **Probe Hole Drilling** and **Grouting** directly after **Tunnel Monitoring & Instrumentation** on the NATM Main Window:
+1. **One row layout** housing two dedicated cards:
+   - **Probe Hole Drilling**: Forward probing, penetration logs, face collar positioning, and look-ahead hazard analysis.
+   - **Grouting**: Pre-excavation umbrella & consolidation rings, injection pressure/volume logging, Lugeon permeability tests, and GIN curves.
+2. **Dedicated Separate Windows / Workspaces** for Probe Hole Drilling and Grouting, ensuring focused workflows without clutter.
+3. **Dual Execution Mode**: Both Simple (quick field entries) and Advanced Analysis (interactive canvas, MWD energy curves, 3D fan look-ahead, Lugeon/GIN graphs, and PDF reports).
+4. **Universal Edition Availability**: Fully accessible on both **User** and **Master** editions across **Android APK** and **Windows Desktop EXE**.
 
 ---
 
-## 1. Overview & Core Concept
+## 2. Proposed Architecture & Component Design
 
-- **What It Does**:
-  1. **Left Screen — 3D Tunnel Bay (Walls + Crown along Pull Length + Face at Back)**:
-     - Displays the 3D tunnel with its exact width, height, and pull length in an ideal isometric/perspective camera position looking into the tunnel drive so the **Left Wall**, **Right Wall**, and **Crown** frame the pull length and the **Tunnel Face sits cleanly behind them**.
-     - Maps the user's drawn trace onto the active panel (Face, Left Wall, Right Wall, or Crown) at its exact traced coordinates and length.
-     - Builds a **Traced-Length 3D Joint Plane** centered on the trace line that projects **half inside the tunnel** and **half outside the tunnel**.
-  2. **Right Screen — Visual Screen Top-to-Bottom Compass & Inclinometer**:
-     - Displays a True-North 360° Compass (`N 000°`, `E 090°`, `S 180°`, `W 270°`) and a `0°–90°` Top-to-Bottom Inclinometer, plus an on-screen visual guide showing how **Screen Top → Screen Bottom** drives Dip Direction and Dip Amount in real time.
-- **Target Audience / Persona**: Tunnel geologists, rock mechanics engineers, and mining face mappers using Android phones or tablets in the field.
+### 2.1 NATM Main Window Entry Points (`src/components/screens/WelcomeScreen.tsx` & `src/App.tsx`)
+Directly after Item #3 (`Tunnel Monitoring & Instrumentation`), add a balanced side-by-side row containing two interactive cards:
+- **Card A: Probe Hole Drilling (Forward Geotechnical Exploration)**
+  - Icon: Drill / Borehole compass (`Crosshair` / `Compass` / `Milestone`)
+  - Subtitle: *Forward probing, penetration rate, water inflow & look-ahead hazard prediction*
+  - Action buttons: `Open` (Fresh setup/logging) and `Resume` (Active probe hole session)
+- **Card B: Grouting & Ground Treatment (Pre-Excavation & Consolidation)**
+  - Icon: Pressure / Grout fluid injector (`ShieldCheck` / `Layers` / `Activity`)
+  - Subtitle: *Umbrella pipe arch, radial consolidation, Lugeon water test & GIN analysis*
+  - Action buttons: `Open` (Fresh round setup) and `Resume` (Active grout take log)
 
----
-
-## 2. User Experience & Visual Design
-
-- **Key User Flows**:
-  1. **Trace Joint & Open Real-Time Compass**: The user traces a joint of any length on the Face, Wall, or Crown and opens the Real-Time Compass window.
-  2. **Inspect 3D Tunnel & Half-In / Half-Out Joint Plane (Left Screen)**:
-     - The Left Screen immediately shows the 3D tunnel with its exact width, height, and pull length, with the **Face positioned behind the Left Wall, Right Wall, and Crown**.
-     - The 3D joint plane matches the **exact length of the traced line** and bisects the tunnel boundary: **half inside the tunnel** and **half outside the tunnel**.
-  3. **Orient Visual Screen Top-to-Bottom (Right Screen)**:
-     - As the user tilts and rotates their Android device (in either Portrait or Horizontal mode), the **Visual Screen Bottom direction** points to the **Dip Direction (`000°–360°`)** on the True-North compass, and the **tilt angle between Visual Screen Top and Bottom** sets the **Dip Amount (`00°–90°`)** on the inclinometer.
-  4. **True North Verification & One-Tap Calibration**:
-     - If local tunnel steel ribs or magnetic declination offset the magnetometer compared to a handheld compass, the user can adjust the **North Calibration Offset** or tap **Match Real Compass** so the app's North matches their physical compass.
-  5. **Lock, Fine-Tune & Confirm OK**:
-     - Tapping the compass locks the reading for optional `-5° / -1° / +1° / +5°` fine-tuning; clicking **OK** updates only the orientation text (`Dip Direction / Dip Amount`) on the main face canvas.
-- **Visual Identity & Theme**:
-  - *Aesthetic Direction*: Precision underground geotechnical CAD & field instrument HUD.
-  - *Color Palette & Mood*: Deep obsidian 3D viewport (`#070b14`), translucent slate-blue tunnel Crown & Walls (`#1e293b` with `#38bdf8` structural rib edges along the pull length), highlighted back Face plane, glowing yellow-white traced joint line (`#fef08a`), dual-zone 3D Joint Plane (**Inner-Tunnel Half** in warm amber `#f59e0b` and **Outer-Rock Half** in cyan-emerald `#10b981` / `#22d3ee`), and True-North crimson (`#ef4444`).
+Both buttons open their respective full-screen modal workspaces with complete offline persistence.
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+### 2.2 Probe Hole Drilling Workspace Modal (`src/components/ProbeHoleDrillingModal.tsx`)
+A responsive, high-contrast geotechnical modal containing two distinct operational modes:
 
-- **Decision 1: Ideal 3D Tunnel Camera & Geometry (Face Behind Wall & Crown with Pull Length)**
-  - *Chosen Approach*: Build the 3D tunnel bay from $z = +\frac{L_{\text{pull}}}{2}$ (front portal entrance of the current pull round) to $z = -\frac{L_{\text{pull}}}{2}$ (the **Tunnel Face** at the back of the pull length), with the **Left Wall**, **Right Wall**, and **Crown** spanning the pull length in front of the Face and graduated pull-length station rings every $1\text{ m}$.
-  - *Why*: Matches the real-world perspective of standing in front of the tunnel round looking toward the advancing face behind the newly excavated walls and crown.
-- **Decision 2: Half-Inside / Half-Outside Traced-Length 3D Joint Plane**
-  - *Chosen Approach*: For the user's traced 3D polyline $\mathbf{P}_0, \mathbf{P}_1, \dots, \mathbf{P}_n$ of total length $L_{\text{trace}}$, construct a two-part 3D ribbon mesh centered on $\mathbf{P}_i$:
-    - **Inner-Tunnel Half**: Extends from $\mathbf{P}_i$ by $+\frac{D}{2}$ into the tunnel interior along the plane's dip-parallel vector.
-    - **Outer-Rock Half**: Extends from $\mathbf{P}_i$ by $-\frac{D}{2}$ outside the tunnel into the rock mass behind the face/wall/crown.
-    - Width along the trace is strictly bounded by $\mathbf{P}_0 \dots \mathbf{P}_n$ ("traced length only").
-  - *Why*: Clearly visualizes both the traced length on the rock surface and the 3D attitude of the joint plane Half-In and Half-Out of the tunnel boundary.
-- **Decision 3: Solving False North on Android via Strict `deviceorientationabsolute` & Visual Screen Top-to-Bottom 3D Matrix**
-  - *Chosen Approach*:
-    - Never allow uncalibrated `deviceorientation` (`absolute: false`) events to overwrite `deviceorientationabsolute` magnetometer readings on Android.
-    - Construct the full W3C 3D orthogonal rotation matrix $\mathbf{R}_{\text{ENU}}(\alpha, \beta, \gamma)$ mapping Device coordinates to Earth **East (`+X`), North (`+Y`), Up (`+Z`)**.
-    - Determine the **Visual Screen Top-to-Bottom unit vector** $\mathbf{u}_{\text{top}\to\text{bottom}}$ in device space using the active screen orientation angle (`0°`, `90°`, `180°`, `270°`), transform it into Earth ENU space $\mathbf{v} = \mathbf{R}_{\text{ENU}}\,\mathbf{u}_{\text{top}\to\text{bottom}} = (v_E, v_N, v_U)$, and compute:
-      - **Dip Direction (`0°–360°`)**: Direction of Visual Screen Bottom in the horizontal East-North plane, $\text{atan2}(v_E, v_N) \pmod{360^\circ}$, blended smoothly with the screen's downward face normal when near vertical ($85^\circ\text{–}90^\circ$) to prevent gimbal flip.
-      - **Dip Amount (`0°–90°`)**: Tilt angle between Visual Screen Top and Visual Screen Bottom, $\arcsin(\min(1, |v_U|))$.
+#### A. Simple & Effective Field Logging Mode
+- **Quick Probe Hole Metadata**: Hole ID (e.g., `PH-01-Face-Center`), Face Station/Chainage, Collar Location $(X, Y)$ on face, Target Length (e.g., 25.0 m), Drilling Azimuth & Dip Angle.
+- **Run Interval Data Grid**:
+  - Depth From – To (m)
+  - Rate of Penetration (ROP in m/min or min/m)
+  - Drilling Feed Pressure (bar) & Flush Return Color/Turbidity
+  - Water Inflow (L/min) with sudden ingress warning badge
+  - Estimated RQD (%) & Rock Mass Class ahead of tunnel face
+  - Cavity / Fault Encounter Log (depth, gap thickness, clay gouge description)
+- **Immediate Look-Ahead Safety Indicator**: Green (Dry/Competent), Amber (Moderate Inflow/Fracturing), Red (Hazard Alert: High pressure water or cavity ahead).
+
+#### B. Advanced Geotechnical & MWD Analysis Mode
+- **Interactive Tunnel Face Collar Layout Canvas**:
+  - Live 2D Tunnel Cross-Section showing collar points (Face Center, Crown Arch, Left Invert, Right Invert) with live mouse/touch repositioning.
+  - Hole trajectory projection ahead of face (Plan view and Longitudinal cross-section).
+- **MWD Specific Energy Profile vs. Depth**:
+  - Real-time chart displaying Drilling Specific Energy (DSE in $\text{MJ/m}^3$) calculated from feed force, torque, ROP, and hole diameter.
+  - Sudden drops highlight open joints, clay seams, or karstic cavities.
+- **3D Look-Ahead Probe Fan Projection**:
+  - 3D perspective visualization projecting the probe holes $15\text{m} - 30\text{m}$ beyond the active excavation face, showing overlap with the planned tunnel design profile.
+- **Hazard Zone Predictor**:
+  - Auto-calculated safe excavation distance ahead of current face before mandatory re-probing.
 
 ---
 
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+### 2.3 Grouting & Ground Treatment Workspace Modal (`src/components/GroutingAnalysisModal.tsx`)
+A dedicated engineering modal equipped with:
 
-- **Architecture & Geometry Diagram**:
-```
-┌────────────────────────────────────────────────────────────────────────────────────┐
-│                    RealtimeMobileSplitCompassModal (50/50 Split)                   │
-├──────────────────────────────────────────┬─────────────────────────────────────────┤
-│ LEFT SCREEN: 3D Tunnel + Pull Length     │ RIGHT SCREEN: Visual Screen Compass     │
-│                                          │                                         │
-│      [CROWN / ARCH ALONG PULL LENGTH]    │  ┌───────────────────────────────────┐  │
-│         ╱──────────────────────╲         │  │   VISUAL SCREEN TOP (HIGH EDGE)   │  │
-│        ╱   ┌────────────────┐   ╲        │  │                 │                 │  │
-│  LEFT │    │  TUNNEL FACE   │    │ RIGHT │  │     Angle Top→Bottom = DIP AMT    │  │
-│  WALL │    │ (Behind Wall & │    │ WALL  │  │                 ▼                 │  │
-│ (Pull │    │     Crown)     │    │(Pull) │  │  VISUAL SCREEN BOTTOM = DIP DIR   │  │
-│  Len) │    │  ╔══════════╗  │    │       │  └───────────────────────────────────┘  │
-│        ╲   └──╫──────────╫──┘   ╱        │                                         │
-│         ╲─────╫──────────╫─────╱         │  • True-North Magnetometer (Absolute)   │
-│               ╚══════════╝               │  • Normal 360° Compass (N=000°)         │
-│       Traced-Length Joint Plane:         │  • 0°–90° Top-to-Bottom Inclinometer    │
-│    50% Inside Tunnel / 50% Outside       │  • True North Calibration Offset        │
-└──────────────────────────────────────────┴─────────────────────────────────────────┘
-```
+#### A. Grout Hole Pattern & Layout
+- **Grouting Type Selection**:
+  - *Pre-Excavation Forepoling / Umbrella Grout Curtain* (ahead of face)
+  - *Radial Consolidation / Annular Rock Mass Grouting* (surrounding perimeter)
+  - *Water Ingress Cutoff Grouting* (localized fissures)
+- **Interactive Ring Layout**: Fan of holes numbered #1 to #N with individual dip, collaring offset, and length.
 
-- **State & Props Integration**:
-  - `excavationWidthM`, `excavationHeightM`, `excavationPullLengthM` (defaulting to the active round pull length, e.g. `3.5m`–`5.0m`, with an interactive pull-length readout in the 3D header), and `excavationShape` drive the exact 3D tunnel mesh.
-  - `tracePoints2D` and `activePanel` (`face`, `left_wall`, `right_wall`, `crown`) place the traced polyline directly onto the corresponding 3D tunnel surface and generate the two-sided **Half-Inside / Half-Outside** 3D ribbon plane along that exact trace length.
+#### B. Hole-by-Hole Injection Logging
+- Real-time tabular logger for each hole:
+  - Mix Ratio: Water-to-Cement ($W:C$ by weight: 0.5:1, 0.7:1, 1:1, etc.) or Microfine / Chemical / Polyurethane resin
+  - Injection Stage / Depth interval (m)
+  - Gauge Pressure ($P$ in bar) & Target Refusal Pressure
+  - Grout Take ($Q$ in Liters or Bags of Cement)
+  - Refusal Status: Target pressure reached, volume limit reached, or surface leakage detected
+
+#### C. Lugeon Water Pressure Test & GIN Refusal Curves
+- **Lugeon Test Calculator**: Automated calculation of Lugeon value ($1\text{ Lu} \approx 1\text{ L/min/m at } 10\text{ bar}$) with flow regime diagnosis (Laminar, Turbulent, Dilation, Washout, Void filling).
+- **GIN (Grouting Intensity Number) Analysis**:
+  - Dynamic $P \times V = \text{GIN}$ hyperbolic refusal curve plot.
+  - Automatically flags over-grouting risk to prevent hydraulic fracturing of tunnel walls or arch.
+
+#### D. Engineering Report & Data Storage
+- High-resolution, multi-page printable engineering report containing ring diagrams, Lugeon tables, and GIN curves.
+- Export as printable report and JSON/CSV backup stored in isolated NATM database storage.
+
+---
+
+### 2.4 Data Engine & Persistence (`src/engine/probeHoleAndGroutingEngine.ts`)
+- TypeScript data models: `ProbeHoleRecord`, `ProbeRunInterval`, `GroutRingRecord`, `GroutHoleLog`, `LugeonTestRecord`.
+- Offline storage routines syncing with `localStorage` and mode vault (`eswa_strict_vault_NATM`), preserving user drafts across app restarts and app updates.
+
+---
+
+## 3. Step-by-Step Implementation Strategy
+
+1. **Step 1: Data Models & Geotechnical Calculators**
+   - Create `/src/engine/probeHoleAndGroutingEngine.ts` with complete types, MWD specific energy formulas, Lugeon flow calculations, GIN hyperbolic curves, and sample datasets.
+2. **Step 2: Probe Hole Drilling Component**
+   - Build `/src/components/ProbeHoleDrillingModal.tsx` featuring Simple depth/water/ROP logging, interactive tunnel face canvas, MWD charts, and 3D look-ahead fan.
+3. **Step 3: Grouting Component**
+   - Build `/src/components/GroutingAnalysisModal.tsx` featuring Umbrella/Consolidation ring layouts, hole-by-hole injection records, Lugeon permeability tests, GIN curves, and printable report generator.
+4. **Step 4: WelcomeScreen & App.tsx Integration**
+   - In `/src/components/screens/WelcomeScreen.tsx`, render the side-by-side row for Probe Hole Drilling and Grouting directly after `Tunnel Monitoring & Instrumentation`.
+   - Wire state, modal handlers, and keyboard/resume shortcuts in `/src/App.tsx`.
+5. **Step 5: Multi-Platform Verification & Dual Installer Build**
+   - Test compilation (`npm run build` / `tsc`).
+   - Run verification tests to ensure flawless operation in both User and Master editions for Android APK and Windows Desktop.
+
+---
+
+## 4. Verification & Validation Plan
+- **UI & Layout Verification**: Confirm that the NATM Main Window displays Probe Hole and Grouting side-by-side cleanly without breaking responsive constraints on mobile APK and desktop EXE.
+- **Interactive Canvas Testing**: Test collar dragging on the tunnel face cross-section and trajectory rendering in probe fan view.
+- **Geotechnical Calculation Accuracy**:
+  - Verify MWD specific energy calculations ($E = \frac{F}{A} + \frac{2\pi \cdot N \cdot T}{A \cdot ROP}$).
+  - Verify Lugeon calculation ($\text{Lu} = \frac{10 \cdot q}{p \cdot L}$).
+  - Verify GIN curve limit checking ($P \cdot V \le \text{GIN}_{\text{target}}$).
+- **Report & Print Validation**: Verify that the generated Grouting and Probe summary reports format cleanly for export/printing.
+- **Build Verification**: Run `npm run build` to confirm zero lint/type errors.

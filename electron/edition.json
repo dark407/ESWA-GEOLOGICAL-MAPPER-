@@ -1,3 +1,6 @@
 {
-  "edition": "master"
+  "edition": "master",
+  "githubRepo": "",
+  "buildVersion": "2.5.0",
+  "builtAtIso": "2026-11-03T17:20:50.977Z"
 }

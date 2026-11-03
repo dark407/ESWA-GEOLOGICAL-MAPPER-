@@ -2191,12 +2191,14 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
   colorMode?: 'bw' | 'color';
   tunnelDriveDirection?: number;
   isSelected?: boolean;
+  isCompactStrip?: boolean;
   onClick?: (e: React.MouseEvent<SVGGElement>) => void;
 }> = ({
   feature,
   colorMode = 'bw',
   tunnelDriveDirection = 45,
   isSelected = false,
+  isCompactStrip = false,
   onClick,
 }) => {
   if (feature.points.length < 2) return null;
@@ -2219,6 +2221,39 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
     tunnelDriveDirection
   );
 
+  // Compute an inline label point along the feature at 64% arc length (away from the 50% dip tick)
+  const inlineLabelSample = React.useMemo(() => {
+    const pts = feature.points;
+    let total = 0;
+    const lens: number[] = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const l = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+      lens.push(l);
+      total += l;
+    }
+    if (total <= 1e-3) return { x: mid.x, y: mid.y, deg };
+    const target = total * 0.64;
+    let acc = 0;
+    for (let i = 0; i < lens.length; i++) {
+      const l = lens[i];
+      if (acc + l >= target || i === lens.length - 1) {
+        const t = l > 1e-4 ? Math.max(0.15, Math.min(0.85, (target - acc) / l)) : 0.5;
+        const p0 = pts[i];
+        const p1 = pts[i + 1];
+        let aDeg = (Math.atan2(p1.y - p0.y, p1.x - p0.x) * 180) / Math.PI;
+        if (aDeg > 90) aDeg -= 180;
+        if (aDeg < -90) aDeg += 180;
+        return {
+          x: p0.x + (p1.x - p0.x) * t,
+          y: p0.y + (p1.y - p0.y) * t,
+          deg: aDeg,
+        };
+      }
+      acc += l;
+    }
+    return { x: mid.x, y: mid.y, deg };
+  }, [feature.points, mid.x, mid.y, deg]);
+
   const isColor = colorMode === 'color';
   const isFaultLike =
     feature.featureType === 'fault' || feature.featureType === 'thrust_fault';
@@ -2234,14 +2269,18 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
     ? '#0284c7'
     : '#0f172a';
 
-  const baseStrokeW = Math.max(
+  const rawStrokeW = Math.max(
     1.2,
     Math.min(
       18,
-      feature.strokeWidthPx ?? (isFaultLike ? 4.6 : 3.6)
+      feature.strokeWidthPx ?? (isFaultLike ? 4.2 : 3.2)
     )
   );
-  const symSizeScale = Math.max(0.4, Math.min(2.5, (feature.symbolSize ?? 100) / 100));
+  const baseStrokeW = isCompactStrip
+    ? Math.max(1.1, Math.min(2.4, rawStrokeW * 0.48))
+    : rawStrokeW;
+  const rawSymScale = Math.max(0.4, Math.min(2.5, (feature.symbolSize ?? 100) / 100));
+  const symSizeScale = isCompactStrip ? rawSymScale * 0.55 : rawSymScale;
   const symDensityPct = Math.max(20, Math.min(220, feature.symbolDensity ?? 100));
 
   // Sample geological feature symbols along the path scaled by symbolDensity & symbolSize
@@ -2274,7 +2313,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
     accum = (accum + segLen) % baseTickStep;
   }
 
-  const tickLen = (feature.featureType === 'shear_zone' ? 20 : 16) * Math.sqrt(symSizeScale);
+  const tickLen = (feature.featureType === 'shear_zone' ? 18 : 14) * Math.sqrt(symSizeScale);
   const tickX = mid.x + tickUx * tickLen;
   const tickY = mid.y + tickUy * tickLen;
 
@@ -2301,7 +2340,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
   const hwUy = tickUy * hwSign;
   const fwUx = -hwUx;
   const fwUy = -hwUy;
-  const hwOffset = 30 * Math.sqrt(symSizeScale);
+  const hwOffset = (isCompactStrip ? 16 : 26) * Math.sqrt(symSizeScale);
   const hwPt = { x: mid.x + hwUx * hwOffset, y: mid.y + hwUy * hwOffset };
   const fwPt = { x: mid.x + fwUx * hwOffset, y: mid.y + fwUy * hwOffset };
   const isReverseOrThrust =
@@ -2324,7 +2363,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
       : 'ANT';
   const foldRole = feature.foldElementRole || 'fold_complete';
   const isSyncline = feature.foldSubType === 'syncline';
-  const limbOffset = 28 * Math.sqrt(symSizeScale);
+  const limbOffset = (isCompactStrip ? 15 : 24) * Math.sqrt(symSizeScale);
   const limb1Pt = { x: mid.x + tickUx * limbOffset, y: mid.y + tickUy * limbOffset };
   const limb2Pt = { x: mid.x - tickUx * limbOffset, y: mid.y - tickUy * limbOffset };
 
@@ -2354,7 +2393,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
           d={d}
           fill="none"
           stroke={isColor ? '#f3e8ff' : '#cbd5e1'}
-          strokeWidth={Math.max(10, 18 * symSizeScale)}
+          strokeWidth={Math.max(isCompactStrip ? 5 : 10, (isCompactStrip ? 9 : 18) * symSizeScale)}
           strokeLinecap="round"
         />
       )}
@@ -2362,7 +2401,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
         d={d}
         fill="none"
         stroke={strokeCol}
-        strokeWidth={isSelected ? baseStrokeW + 1.8 : baseStrokeW}
+        strokeWidth={isSelected ? baseStrokeW + 1.5 : baseStrokeW}
         strokeDasharray={
           feature.featureType === 'litho_contact'
             ? '10,6'
@@ -2398,7 +2437,8 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
         })}
 
       {/* Hanging Wall (HW) & Footwall (FW) Structural Block Denotation across Fault Plane */}
-      {isFaultLike &&
+      {!isCompactStrip &&
+        isFaultLike &&
         (faultRole === 'fault_complete' ||
           faultRole === 'hanging_wall' ||
           faultRole === 'footwall') &&
@@ -2411,20 +2451,20 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
                 }, ${faultRole === 'hanging_wall' ? mid.y - 18 : hwPt.y})`}
               >
                 <rect
-                  x="-24"
-                  y="-10"
-                  width="48"
-                  height="19"
+                  x="-22"
+                  y="-9"
+                  width="44"
+                  height="17"
                   rx="4"
                   fill={isColor ? '#fef2f2' : '#ffffff'}
                   stroke={strokeCol}
-                  strokeWidth="1.8"
+                  strokeWidth="1.5"
                 />
                 <text
                   x="0"
-                  y="3.5"
+                  y="3"
                   textAnchor="middle"
-                  fontSize="11.5"
+                  fontSize="10"
                   fontWeight="900"
                   fontFamily="IBM Plex Mono, monospace"
                   fill={strokeCol}
@@ -2440,20 +2480,20 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
                 }, ${faultRole === 'footwall' ? mid.y - 18 : fwPt.y})`}
               >
                 <rect
-                  x="-24"
-                  y="-10"
-                  width="48"
-                  height="19"
+                  x="-22"
+                  y="-9"
+                  width="44"
+                  height="17"
                   rx="4"
                   fill={isColor ? '#f0fdf4' : '#ffffff'}
                   stroke="#0f172a"
-                  strokeWidth="1.8"
+                  strokeWidth="1.5"
                 />
                 <text
                   x="0"
-                  y="3.5"
+                  y="3"
                   textAnchor="middle"
-                  fontSize="11.5"
+                  fontSize="10"
                   fontWeight="900"
                   fontFamily="IBM Plex Mono, monospace"
                   fill="#0f172a"
@@ -2477,7 +2517,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
               x2={tp.x + tp.nx * sy + tp.tx * sx}
               y2={tp.y + tp.ny * sy + tp.ty * sx}
               stroke={strokeCol}
-              strokeWidth={Math.max(1.5, baseStrokeW * 0.55)}
+              strokeWidth={Math.max(1.2, baseStrokeW * 0.55)}
             />
           );
         })}
@@ -2494,7 +2534,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
                 d={`M ${tp.x - tp.tx * 7} ${tp.y - tp.ty * 7} Q ${tp.x + tp.nx * 9 * symSizeScale} ${tp.y + tp.ny * 9 * symSizeScale}, ${tp.x + tp.tx * 7} ${tp.y + tp.ty * 7}`}
                 fill="none"
                 stroke={strokeCol}
-                strokeWidth="2"
+                strokeWidth={isCompactStrip ? '1.3' : '2'}
               />
             );
           }
@@ -2507,7 +2547,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
                 x2={tp.x + tp.nx * 8 * symSizeScale}
                 y2={tp.y + tp.ny * 8 * symSizeScale}
                 stroke={strokeCol}
-                strokeWidth="2"
+                strokeWidth={isCompactStrip ? '1.3' : '2'}
               />
             );
           }
@@ -2519,7 +2559,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
                 x2={tp.x + tp.nx * aLen}
                 y2={tp.y + tp.ny * aLen}
                 stroke={strokeCol}
-                strokeWidth={Math.max(1.4, baseStrokeW * 0.5)}
+                strokeWidth={Math.max(1.2, baseStrokeW * 0.5)}
               />
               {isSyncline ? (
                 <>
@@ -2549,7 +2589,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
         })}
 
       {/* Fold Crest (CR) & Opposing Limbs (L1 / L2) Badges when Fold Complete is active */}
-      {isFold && foldRole === 'fold_complete' && (
+      {!isCompactStrip && isFold && foldRole === 'fold_complete' && (
         <g>
           {feature.showFoldCrest !== false && (
             <g transform={`translate(${mid.x}, ${mid.y + 18 * symSizeScale})`}>
@@ -2640,7 +2680,7 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
               x2={tp.x + tp.nx * cLen}
               y2={tp.y + tp.ny * cLen}
               stroke={strokeCol}
-              strokeWidth={Math.max(1.3, baseStrokeW * 0.5)}
+              strokeWidth={Math.max(1.1, baseStrokeW * 0.5)}
             />
           );
         })}
@@ -2652,22 +2692,23 @@ export const FieldStructuralFeatureSvgElement: React.FC<{
         x2={tickX}
         y2={tickY}
         stroke={strokeCol}
-        strokeWidth="2.8"
+        strokeWidth={isCompactStrip ? '1.5' : '2.4'}
       />
-      <circle cx={tickX} cy={tickY} r={2.6 * Math.sqrt(symSizeScale)} fill={strokeCol} />
+      <circle cx={tickX} cy={tickY} r={(isCompactStrip ? 1.8 : 2.4) * Math.sqrt(symSizeScale)} fill={strokeCol} />
 
-      {/* Clean inline structural label along feature showing Dip Direction & Dip Amount */}
-      <g transform={`translate(${mid.x}, ${mid.y - 12 * symSizeScale}) rotate(${deg.toFixed(1)})`}>
+      {/* Clean inline structural label placed directly ON the feature line at its free segment */}
+      <g transform={`translate(${inlineLabelSample.x.toFixed(1)}, ${inlineLabelSample.y.toFixed(1)}) rotate(${inlineLabelSample.deg.toFixed(1)})`}>
         <text
           x="0"
           y="0"
+          dy="0.32em"
           textAnchor="middle"
-          fontSize="14.5"
+          fontSize={isCompactStrip ? '8.2' : '12.5'}
           fontWeight="900"
           fontFamily="Arial, sans-serif"
           fill={strokeCol}
           stroke="#ffffff"
-          strokeWidth="3.6"
+          strokeWidth={isCompactStrip ? '2.5' : '3.4'}
           paintOrder="stroke"
         >
           {computedFeatureTitle} {String(feature.dipDirection).padStart(3, '0')}°/
@@ -3567,20 +3608,38 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
           };
         } else if (panel === 'crown' && inter.crown && inter.crown.lengthM > 0.05) {
           seg = inter.crown;
-          // seg.p1.x, seg.p2.x is pull distance [0..pullLengthM]
-          // seg.p1.y, seg.p2.y is lateral position from Left Springline [0..widthM]
-          const sx1 = Math.max(0, Math.min(1, seg.p1.y / spatialGeom.widthM));
-          const sy1 = Math.max(0, Math.min(1, 1 - seg.p1.x / spatialGeom.pullLengthM));
-          const sx2 = Math.max(0, Math.min(1, seg.p2.y / spatialGeom.widthM));
-          const sy2 = Math.max(0, Math.min(1, 1 - seg.p2.x / spatialGeom.pullLengthM));
-          p1Mapped = {
-            x: Number((targetBoxX + sx1 * targetBoxW).toFixed(1)),
-            y: Number((targetBoxY + sy1 * targetBoxH).toFixed(1)),
-          };
-          p2Mapped = {
-            x: Number((targetBoxX + sx2 * targetBoxW).toFixed(1)),
-            y: Number((targetBoxY + sy2 * targetBoxH).toFixed(1)),
-          };
+          if (inter.crown.curvedPoints && inter.crown.curvedPoints.length >= 2) {
+            const mappedCurve = inter.crown.curvedPoints.map((cp) => {
+              const sx = Math.max(0, Math.min(1, cp.y / spatialGeom.widthM));
+              const sy = Math.max(0, Math.min(1, 1 - cp.x / spatialGeom.pullLengthM));
+              return {
+                x: Number((targetBoxX + sx * targetBoxW).toFixed(1)),
+                y: Number((targetBoxY + sy * targetBoxH).toFixed(1)),
+              };
+            });
+            projectedFaceTraces.push({
+              ...ft,
+              id: `proj-${panel}-${ft.id}`,
+              panel,
+              points: mappedCurve,
+            });
+            seg = undefined;
+          } else {
+            // seg.p1.x, seg.p2.x is pull distance [0..pullLengthM]
+            // seg.p1.y, seg.p2.y is lateral position from Left Springline [0..widthM]
+            const sx1 = Math.max(0, Math.min(1, seg.p1.y / spatialGeom.widthM));
+            const sy1 = Math.max(0, Math.min(1, 1 - seg.p1.x / spatialGeom.pullLengthM));
+            const sx2 = Math.max(0, Math.min(1, seg.p2.y / spatialGeom.widthM));
+            const sy2 = Math.max(0, Math.min(1, 1 - seg.p2.x / spatialGeom.pullLengthM));
+            p1Mapped = {
+              x: Number((targetBoxX + sx1 * targetBoxW).toFixed(1)),
+              y: Number((targetBoxY + sy1 * targetBoxH).toFixed(1)),
+            };
+            p2Mapped = {
+              x: Number((targetBoxX + sx2 * targetBoxW).toFixed(1)),
+              y: Number((targetBoxY + sy2 * targetBoxH).toFixed(1)),
+            };
+          }
         } else if (panel === 'right_wall' && inter.rightWall && inter.rightWall.lengthM > 0.05) {
           seg = inter.rightWall;
           // seg.p1.x, seg.p2.x is pull distance [0..pullLengthM]
@@ -3623,8 +3682,36 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
       );
     const isVerticalShaftForTraces =
       isVerticalShaftLocation(location) || round.undergroundSubMode === 'vertical_shaft';
+
+    // Collect obstacles from structural features and dip surfaces so joint trace labels sit at the freest space on the trace
+    const featureAndSurfaceObstacles: { x: number; y: number; radius?: number }[] = [];
+    for (const f of features) {
+      for (const fp of f.points) {
+        featureAndSurfaceObstacles.push({ x: fp.x, y: fp.y, radius: useContinuousCadMapping ? 14 : 24 });
+      }
+    }
+    for (const pl of planes) {
+      if (pl.points && pl.points.length > 0) {
+        const cx = pl.points.reduce((s, p) => s + p.x, 0) / pl.points.length;
+        const cy = pl.points.reduce((s, p) => s + p.y, 0) / pl.points.length;
+        featureAndSurfaceObstacles.push({ x: cx, y: cy, radius: useContinuousCadMapping ? 18 : 30 });
+      }
+    }
+
     const inlineLabels = computeTraceInlineLabelPlacements(traces, {
       isVerticalShaft: isVerticalShaftForTraces,
+      fontSize: useContinuousCadMapping ? 7.6 : 10.2,
+      extraObstacles: featureAndSurfaceObstacles,
+      panelBounds: useContinuousCadMapping
+        ? {
+            minX: targetBoxX + 4,
+            maxX: targetBoxX + targetBoxW - 4,
+            minY: targetBoxY + 4,
+            maxY: targetBoxY + targetBoxH - 4,
+          }
+        : undefined,
+      location: useContinuousCadMapping ? undefined : location,
+      round: useContinuousCadMapping ? undefined : round,
     });
 
     return (
@@ -3805,10 +3892,11 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             feature={feat}
             colorMode={colorMode}
             tunnelDriveDirection={round.tunnelDriveDirection}
+            isCompactStrip={useContinuousCadMapping}
           />
         ))}
 
-        {/* 4. Joint Traces with perpendicular dip tick and clean inline text along the trace */}
+        {/* 4. Joint Traces with perpendicular dip tick and clean inline text inside free space along the trace */}
         {traces.map((tr) => {
           if (tr.points.length < 2) return null;
           const d =
@@ -3821,7 +3909,10 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             colorMode === 'bw'
               ? '#0f172a'
               : FIELD_JOINT_GROUP_COLORS[tr.setId]?.stroke || '#0f172a';
-          const trW = Math.max(1.2, Math.min(16, tr.strokeWidthPx ?? 3.8));
+          const rawTrW = tr.strokeWidthPx ?? 2.6;
+          const trW = useContinuousCadMapping
+            ? Math.max(0.95, Math.min(1.9, rawTrW * 0.45))
+            : Math.max(1.1, Math.min(2.6, rawTrW * 0.65));
           const lbl = inlineLabels[tr.id];
           const isStrikeOnlyTr = isStrikeOnlyHorizontalPanel(
             tr.panel,
@@ -3841,8 +3932,9 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
             tr.dipDirection,
             round.tunnelDriveDirection
           );
-          const tickX = mid.x + tickUx * 15;
-          const tickY = mid.y + tickUy * 15;
+          const tickLen = useContinuousCadMapping ? 7.5 : 11;
+          const tickX = mid.x + tickUx * tickLen;
+          const tickY = mid.y + tickUy * tickLen;
           return (
             <g key={tr.id}>
               <path
@@ -3860,23 +3952,24 @@ export const FieldUnfoldedMonochromeSketchSvg: React.FC<{
                   x2={tickX}
                   y2={tickY}
                   stroke={strokeColor}
-                  strokeWidth="2.6"
+                  strokeWidth={useContinuousCadMapping ? '1.35' : '1.9'}
                 />
               )}
               {lbl && (
                 <g
-                  transform={`translate(${lbl.x}, ${lbl.y}) rotate(${lbl.angleDeg})`}
+                  transform={`translate(${lbl.x.toFixed(1)}, ${lbl.y.toFixed(1)}) rotate(${lbl.angleDeg.toFixed(1)})`}
                 >
                   <text
                     x="0"
                     y="0"
+                    dy="0.32em"
                     textAnchor="middle"
-                    fontSize="13.5"
+                    fontSize={useContinuousCadMapping ? '7.6' : '10.2'}
                     fontWeight="bold"
                     fontFamily="monospace"
                     fill={strokeColor}
                     stroke="#ffffff"
-                    strokeWidth="3.5"
+                    strokeWidth={useContinuousCadMapping ? '2.4' : '3.0'}
                     paintOrder="stroke"
                   >
                     {lbl.text}

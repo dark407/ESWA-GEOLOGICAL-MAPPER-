@@ -6468,14 +6468,15 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
         const svgEl = origSvgs[idx];
         const targetCloneSvg = cloneSvgs[idx];
         if (!targetCloneSvg) continue;
-        const pngUrl = await renderSvgElementToHighResPngDataUrl(svgEl, 1400);
+        const pngUrl = await renderSvgElementToHighResPngDataUrl(svgEl, 3200);
         if (pngUrl) {
           const imgEl = document.createElement('img');
           imgEl.src = pngUrl;
-          imgEl.setAttribute('width', '680');
+          imgEl.setAttribute('width', '700');
           imgEl.style.maxWidth = '100%';
           imgEl.style.height = 'auto';
           imgEl.style.border = '1px solid #0f172a';
+          imgEl.style.imageRendering = '-webkit-optimize-contrast';
           targetCloneSvg.replaceWith(imgEl);
         }
       }
@@ -6499,6 +6500,7 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
           body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; font-size: 8.5pt; }
           table { width: 100%; border-collapse: collapse; margin-bottom: 3pt; }
           th, td { border: 1px solid #0f172a; padding: 2.5pt 4pt; font-size: 8pt; }
+          img { image-rendering: -webkit-optimize-contrast; }
           .page-break { page-break-before: always; }
         </style>
       </head>
@@ -6527,18 +6529,22 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
     const svg2 = page2El?.querySelector('svg') as SVGSVGElement | null;
 
     const [png1, png2] = await Promise.all([
-      renderSvgElementToHighResPngDataUrl(svg1, 1400),
-      renderSvgElementToHighResPngDataUrl(svg2, 1400),
+      renderSvgElementToHighResPngDataUrl(svg1, 3200),
+      renderSvgElementToHighResPngDataUrl(svg2, 3200),
     ]);
 
     const buildPhotoReportCanvas = (pngUrl: string | null, pageNum: 1 | 2): Promise<HTMLCanvasElement> => {
       return new Promise((resolve) => {
+        const DPI_SCALE = 2.0; // Supersample 1240x1754 -> 2480x3508 (True 300 DPI ISO A4 Portrait)
         const W = 1240;
         const H = 1754;
         const canvas = document.createElement('canvas');
-        canvas.width = W;
-        canvas.height = H;
+        canvas.width = Math.round(W * DPI_SCALE);
+        canvas.height = Math.round(H * DPI_SCALE);
         const ctx = canvas.getContext('2d')!;
+        ctx.scale(DPI_SCALE, DPI_SCALE);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, W, H);
         ctx.strokeStyle = '#0f172a';
@@ -6578,7 +6584,10 @@ export const FieldTwoPagePhotoReportStage: React.FC<{
           return;
         }
         const img = new Image();
+        img.crossOrigin = 'anonymous';
         img.onload = () => {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           const availW = W - 88;
           const availH = H - 220;
           const sc = Math.min(availW / Math.max(1, img.width), availH / Math.max(1, img.height));

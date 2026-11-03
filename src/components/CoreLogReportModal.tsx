@@ -18,6 +18,7 @@ import {
 import {
   syncCoreLogForAiTraining,
 } from '../engine/userCloudAndPackageEngine';
+import { exportCanvasesAsPdfDocument } from '../engine/fieldMappingEngine';
 
 interface CoreLogReportModalProps {
   borehole: BoreholeRecord;
@@ -69,6 +70,132 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({
   const handlePrint = () => {
     syncCoreLogForAiTraining(borehole, 'EXPORT_GENERATED');
     window.print();
+  };
+
+  const handleDownloadPdf = () => {
+    syncCoreLogForAiTraining(borehole, 'EXPORT_GENERATED');
+    const DPI_SCALE = 2.0; // 1240x1754 -> 2480x3508 (True 300 DPI ISO A4 Portrait)
+    const W = 1240;
+    const H = 1754;
+    const canvases: HTMLCanvasElement[] = [];
+
+    const drawHeaderOnCanvas = (ctx: CanvasRenderingContext2D, sheetNo: number, subtitle: string) => {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(28, 28, W - 56, H - 56);
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(36, 36, W - 72, 134);
+
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(36, 36, W - 72, 46);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 19px Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`GEOTECHNICAL CORE LOGGING REPORT — ${subtitle.toUpperCase()}`, 50, 65);
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 15px monospace';
+      ctx.fillText(`BH: ${borehole.boreholeId}  |  Sheet ${sheetNo}/${totalSheets}`, W - 50, 65);
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 13px Arial, sans-serif';
+      ctx.fillText(
+        `Project: ${borehole.projectName || '-'}   |   Client: ${borehole.clientEmployer || '-'}   |   Contractor: ${borehole.drillingContractor || '-'}`,
+        50,
+        104
+      );
+      ctx.fillText(
+        `Location: ${borehole.chainageLabel || borehole.tunnelName || '-'}   |   Incl/Az: ${borehole.inclinationDeg}° / ${borehole.azimuthDeg}°   |   Core: ${borehole.coreDiameter || 'HQ3'}   |   Total Depth: ${summary.totalDrilledDepth.toFixed(2)}m`,
+        50,
+        130
+      );
+      ctx.fillText(
+        `Average TCR: ${summary.averageTcr.toFixed(1)}%   |   Average RQD: ${summary.averageRqd.toFixed(1)}% (${summary.overallRqdRating})   |   Logged By: ${borehole.loggedBy || '-'}`,
+        50,
+        156
+      );
+
+      // Footer
+      ctx.strokeRect(36, H - 68, W - 72, 32);
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(
+        `Contractor: ${borehole.signOff.contractorName || borehole.drillingContractor || '________'}   |   PMC: ${borehole.signOff.pmcName || borehole.pmcConsultant || '________'}   |   Client: ${borehole.signOff.clientName || borehole.clientEmployer || '________'}`,
+        50,
+        H - 47
+      );
+    };
+
+    runSheets.forEach((runsChunk, cIdx) => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(W * DPI_SCALE);
+      c.height = Math.round(H * DPI_SCALE);
+      const ctx = c.getContext('2d')!;
+      ctx.scale(DPI_SCALE, DPI_SCALE);
+      drawHeaderOnCanvas(ctx, cIdx + 1, 'Drilling Runs & RQD Log');
+
+      let y = 186;
+      const cols = [
+        { label: 'RUN', w: 56 },
+        { label: 'FROM (m)', w: 86 },
+        { label: 'TO (m)', w: 86 },
+        { label: 'LEN (m)', w: 76 },
+        { label: 'TCR %', w: 80 },
+        { label: 'RQD %', w: 84 },
+        { label: 'RATING', w: 100 },
+        { label: 'LITHOLOGY', w: 180 },
+        { label: 'WEATH/STR', w: 106 },
+        { label: 'BOX #', w: 70 },
+        { label: 'DISCONTINUITIES & REMARKS', w: 244 },
+      ];
+      let x = 36;
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(36, y, W - 72, 32);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 11.5px Arial, sans-serif';
+      cols.forEach((col) => {
+        ctx.fillText(col.label, x + 6, y + 21);
+        x += col.w;
+      });
+      y += 32;
+
+      runsChunk.forEach((r, idx) => {
+        const rH = 54;
+        ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+        ctx.fillRect(36, y, W - 72, rH);
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.strokeRect(36, y, W - 72, rH);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 12px monospace';
+        const vals = [
+          `#${r.runNumber}`,
+          r.depthFrom.toFixed(2),
+          r.depthTo.toFixed(2),
+          r.runLength.toFixed(2),
+          `${r.tcrPercent.toFixed(1)}%`,
+          `${r.rqdPercent.toFixed(1)}%`,
+          r.rqdRating,
+          (r.lithology || '-').slice(0, 22),
+          `${r.weathering} / ${r.strengthGrade}`,
+          `#${r.coreBoxNumber}`,
+          (r.discontinuitiesDescription || r.remarks || 'Intact core').slice(0, 34),
+        ];
+        let rx = 36;
+        vals.forEach((v, i) => {
+          ctx.fillText(v, rx + 6, y + 31);
+          rx += cols[i].w;
+        });
+        y += rH;
+      });
+
+      canvases.push(c);
+    });
+
+    const safeId = borehole.boreholeId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    exportCanvasesAsPdfDocument(canvases, `Geotechnical_Core_Log_${safeId}_300DPI_A4.pdf`, 'portrait', 'A4');
   };
 
   const handleDownloadHtml = () => {
@@ -356,6 +483,16 @@ export const CoreLogReportModal: React.FC<CoreLogReportModalProps> = ({
                 </button>
               ))}
             </div>
+
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              className="px-3.5 py-1.5 rounded-lg text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Download standalone 300-DPI A4 PDF file"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download PDF (300 DPI)</span>
+            </button>
 
             <button
               type="button"

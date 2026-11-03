@@ -637,15 +637,29 @@ function registerDesktopIpcHandlers() {
       const otaIndexFile = path.join(otaDir, 'index.html');
       const otaManifestFile = path.join(otaDir, 'ota-manifest.json');
 
+      let configuredEdition = 'master';
+      try {
+        const editionConfigPath = path.join(__dirname, 'edition.json');
+        if (fs.existsSync(editionConfigPath)) {
+          const parsedEdition = JSON.parse(fs.readFileSync(editionConfigPath, 'utf8'));
+          if (parsedEdition && parsedEdition.edition === 'user') {
+            configuredEdition = 'user';
+          }
+        }
+      } catch {
+        // Ignore
+      }
+      const targetEdition =
+        configuredEdition === 'user' ? 'user' : edition === 'user' ? 'user' : 'master';
+
       let finalHtml = typeof htmlContent === 'string' && htmlContent.trim() ? htmlContent : '';
       if (!finalHtml && typeof jsContent === 'string' && jsContent.trim()) {
-        const targetEdition = edition === 'master' ? 'master' : 'user';
         finalHtml = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AKASH TUNNEL MAPPER — v${version}</title>
+    <title>ESWA GEOLOGICAL MAPPER — v${version}</title>
     <script>
       window.__ESWA_EDITION__ = '${targetEdition}';
       window.__ESWA_OTA_VERSION__ = '${version}';
@@ -665,6 +679,7 @@ function registerDesktopIpcHandlers() {
 
       writeJsonFileAtomicSync(otaManifestFile, {
         version: String(version),
+        edition: targetEdition,
         appliedAtIso: new Date().toISOString(),
         hasSelfContainedHtml: Boolean(finalHtml),
       });

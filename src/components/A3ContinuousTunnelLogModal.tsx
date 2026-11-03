@@ -13,7 +13,9 @@ import {
   FileText,
   ArrowRight,
   RefreshCw,
+  Download,
 } from 'lucide-react';
+import { exportContinuousTunnelLogAsA3Pdf } from '../engine/fieldMappingEngine';
 import { SavedProjectRecord } from '../types/tunnel';
 import {
   ContinuousTunnelStripDataset,
@@ -413,13 +415,23 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
             </div>
 
             {activeWizardStage === 6 && (
-              <button
-                onClick={() => window.print()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition-all cursor-pointer"
-              >
-                <Printer className="w-4 h-4" />
-                Print A3 Landscape PDF
-              </button>
+              <>
+                <button
+                  onClick={() => exportContinuousTunnelLogAsA3Pdf(dataset)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow transition-all cursor-pointer"
+                  title="Download standalone 400-DPI ISO A3 Landscape PDF file"
+                >
+                  <Download className="w-4 h-4" />
+                  Download A3 PDF (400 DPI)
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition-all cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  Print A3 Landscape PDF
+                </button>
+              </>
             )}
 
             <button
@@ -2809,7 +2821,7 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                           );
                         })}
 
-                        {/* 6. Discontinuity Joint Traces Layer (`dataset.traces` — Exact ESWA CAD Rendering, No Dip Surface Ribbons) */}
+                        {/* 6. Discontinuity Joint Traces Layer (`dataset.traces` — Crisp Strip Thickness & Inline Free-Space Labels Inside Tunnel Outline) */}
                         {(dataset.traces || []).map((trace) => {
                           const points = trace.points || [];
                           if (points.length < 2) return null;
@@ -2817,8 +2829,8 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                           const color = resolveStripTraceColor(trace);
 
                           const svgPts = points.map((pt) => ({
-                            x: rdToX(pt.x),
-                            y: yToSvgY(pt.y),
+                            x: Math.max(padL + 1, Math.min(padL + plotW - 1, rdToX(pt.x))),
+                            y: Math.max(padT + 1, Math.min(padT + plotH - 1, yToSvgY(pt.y))),
                           }));
                           const dPath = svgPts
                             .map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`)
@@ -2826,12 +2838,12 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
 
                           const dashArray =
                             trace.structureType === 'Shear Zone'
-                              ? '7,3'
+                              ? '6,2.5'
                               : trace.structureType === 'Bedding/Foliation'
-                              ? '3,3'
+                              ? '3,2.5'
                               : undefined;
 
-                          // Structural Geology Dip Tick & Dip Angle Label matching ESWA CAD
+                          // Structural Geology Dip Tick & Inline On-Trace Free-Space Label
                           const midIdx = Math.floor(svgPts.length / 2);
                           const p1 = svgPts[Math.max(0, midIdx - 1)];
                           const p2 = svgPts[Math.min(svgPts.length - 1, midIdx + 1)];
@@ -2839,21 +2851,77 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
 
                           const segAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
                           const tickSide = trace.dipTickSide === 'left' ? -1 : 1;
-                          const tickLen = 10;
+                          const tickLen = 7;
                           const tickAngle = segAngle + (Math.PI / 2) * tickSide;
 
                           const tx = midPt.x + Math.cos(tickAngle) * tickLen;
                           const ty = midPt.y + Math.sin(tickAngle) * tickLen;
 
-                          const lblX = tx + Math.cos(tickAngle) * 12;
-                          const lblY = ty + Math.sin(tickAngle) * 12;
-
                           const displayLabel =
                             trace.customLabel !== undefined ? trace.customLabel : trace.setId;
-                          const setBadgeX =
-                            midPt.x - Math.cos(tickAngle) * 15 + (trace.labelOffset?.dx || 0);
-                          const setBadgeY =
-                            midPt.y - Math.sin(tickAngle) * 15 + (trace.labelOffset?.dy || 0);
+                          const inlineText =
+                            displayLabel && displayLabel.trim() !== ''
+                              ? `${displayLabel} ${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`
+                              : `${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`;
+
+                          // Compute arc-length inline placement at freest space along the trace strictly inside tunnel outline
+                          const cumLen: number[] = [0];
+                          for (let k = 1; k < svgPts.length; k++) {
+                            cumLen.push(
+                              cumLen[k - 1] +
+                                Math.hypot(svgPts[k].x - svgPts[k - 1].x, svgPts[k].y - svgPts[k - 1].y)
+                            );
+                          }
+                          const totalLen = cumLen[cumLen.length - 1] || 1;
+                          const sampleTraceAt = (frac: number) => {
+                            const targetS = Math.max(0, Math.min(1, frac)) * totalLen;
+                            let sIdx = 0;
+                            while (sIdx < cumLen.length - 2 && cumLen[sIdx + 1] < targetS) sIdx++;
+                            const segL = Math.max(1e-4, cumLen[sIdx + 1] - cumLen[sIdx]);
+                            const tLoc = (targetS - cumLen[sIdx]) / segL;
+                            const a = svgPts[sIdx];
+                            const b = svgPts[sIdx + 1];
+                            let deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+                            if (deg > 90) deg -= 180;
+                            if (deg < -90) deg += 180;
+                            return {
+                              x: a.x + (b.x - a.x) * tLoc,
+                              y: a.y + (b.y - a.y) * tLoc,
+                              deg,
+                            };
+                          };
+
+                          const candidateFracs = [0.66, 0.34, 0.74, 0.26, 0.78, 0.22, 0.56];
+                          let bestInline = sampleTraceAt(0.66);
+                          let bestScore = -1e9;
+                          const otherTraces = (dataset.traces || []).filter((ot) => ot.id !== trace.id);
+
+                          for (const frac of candidateFracs) {
+                            const cand = sampleTraceAt(frac);
+                            const halfW = Math.max(16, inlineText.length * 2.2);
+                            if (
+                              cand.x - halfW < padL + 4 ||
+                              cand.x + halfW > padL + plotW - 4 ||
+                              cand.y < padT + 6 ||
+                              cand.y > padT + plotH - 6
+                            ) {
+                              continue;
+                            }
+                            let minClearance = 999;
+                            for (const ot of otherTraces) {
+                              for (const op of ot.points || []) {
+                                const ox = rdToX(op.x);
+                                const oy = yToSvgY(op.y);
+                                const d = Math.hypot(cand.x - ox, cand.y - oy);
+                                if (d < minClearance) minClearance = d;
+                              }
+                            }
+                            const score = Math.min(44, minClearance) - Math.abs(frac - 0.65) * 8;
+                            if (score > bestScore) {
+                              bestScore = score;
+                              bestInline = cand;
+                            }
+                          }
 
                           return (
                             <g
@@ -2866,21 +2934,21 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                                   d={dPath}
                                   fill="none"
                                   stroke="rgba(251, 191, 36, 0.35)"
-                                  strokeWidth={5}
+                                  strokeWidth={3.6}
                                 />
                               )}
 
-                              {/* Joint Trace Polyline */}
+                              {/* Joint Trace Polyline (Crisp Strip Log Thickness) */}
                               <path
                                 d={dPath}
                                 fill="none"
                                 stroke={isSelected ? '#fbbf24' : color}
                                 strokeWidth={
                                   isSelected
-                                    ? 2.0
+                                    ? 1.6
                                     : trace.fillingThickness === 'Thin'
-                                    ? 1.1
-                                    : 1.5
+                                    ? 0.85
+                                    : 1.1
                                 }
                                 strokeDasharray={dashArray}
                               />
@@ -2891,7 +2959,7 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                                   key={`v-${trace.id}-${vIdx}`}
                                   cx={pt.x}
                                   cy={pt.y}
-                                  r={1.8}
+                                  r={1.15}
                                   fill={color}
                                 />
                               ))}
@@ -2903,41 +2971,30 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                                 x2={tx}
                                 y2={ty}
                                 stroke={isSelected ? '#fbbf24' : color}
-                                strokeWidth={1.4}
+                                strokeWidth={1.0}
                               />
 
-                              {/* Dip Angle Text Label */}
-                              <text
-                                x={lblX}
-                                y={lblY}
-                                fontSize={9.5}
-                                fontFamily="monospace"
-                                fontWeight={700}
-                                fill={isSelected ? '#ea580c' : '#0f172a'}
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                stroke="rgba(255,255,255,0.95)"
-                                strokeWidth={2.5}
-                                paintOrder="stroke"
-                              >
-                                {trace.dipDeg}°
-                              </text>
-
-                              {/* Joint Set / Custom Text Label */}
-                              {!trace.hideLabel && displayLabel && displayLabel.trim() !== '' && (
+                              {/* Inline On-Trace Label placed in free space along the trace line */}
+                              {!trace.hideLabel && (
                                 <text
-                                  x={setBadgeX}
-                                  y={setBadgeY}
-                                  fontSize={10.5}
-                                  fontWeight={700}
+                                  x={bestInline.x + (trace.labelOffset?.dx || 0)}
+                                  y={bestInline.y + (trace.labelOffset?.dy || 0)}
+                                  dy="0.32em"
+                                  transform={`rotate(${bestInline.deg.toFixed(1)}, ${(
+                                    bestInline.x + (trace.labelOffset?.dx || 0)
+                                  ).toFixed(1)}, ${(
+                                    bestInline.y + (trace.labelOffset?.dy || 0)
+                                  ).toFixed(1)})`}
+                                  fontSize={7.8}
+                                  fontFamily="Arial, sans-serif"
+                                  fontWeight={900}
                                   fill={isSelected ? '#ea580c' : color}
                                   textAnchor="middle"
-                                  dominantBaseline="middle"
-                                  stroke="rgba(255,255,255,0.95)"
-                                  strokeWidth={3}
+                                  stroke="rgba(255,255,255,0.96)"
+                                  strokeWidth={2.8}
                                   paintOrder="stroke"
                                 >
-                                  {displayLabel}
+                                  {inlineText}
                                 </text>
                               )}
 
@@ -2945,9 +3002,9 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                               {trace.showHwFw && (
                                 <>
                                   <text
-                                    x={midPt.x + Math.cos(tickAngle) * 24}
-                                    y={midPt.y + Math.sin(tickAngle) * 24}
-                                    fontSize={10}
+                                    x={midPt.x + Math.cos(tickAngle) * 18}
+                                    y={midPt.y + Math.sin(tickAngle) * 18}
+                                    fontSize={8}
                                     fontWeight={700}
                                     fill="#ef4444"
                                     textAnchor="middle"
@@ -2956,9 +3013,9 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                                     {trace.flipHwFw ? 'FW' : 'HW'}
                                   </text>
                                   <text
-                                    x={midPt.x - Math.cos(tickAngle) * 24}
-                                    y={midPt.y - Math.sin(tickAngle) * 24}
-                                    fontSize={10}
+                                    x={midPt.x - Math.cos(tickAngle) * 18}
+                                    y={midPt.y - Math.sin(tickAngle) * 18}
+                                    fontSize={8}
                                     fontWeight={700}
                                     fill="#3b82f6"
                                     textAnchor="middle"

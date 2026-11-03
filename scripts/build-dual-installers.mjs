@@ -96,50 +96,62 @@ function buildWindowsExecutable(edition, configJsonName, outputExeName) {
   console.log(`====================================================================`);
   writeEditionConfig(edition);
 
+  if (fs.existsSync(targetExePath)) {
+    try {
+      fs.unlinkSync(targetExePath);
+    } catch {}
+  }
+
   try {
     run('npx vite build', { VITE_SOFTWARE_EDITION: edition });
   } catch (viteErr) {
     console.warn(`[Dual Builder] Vite build notice for ${edition}:`, viteErr?.message || viteErr);
   }
 
-  const ebEnv = {
-    CSC_IDENTITY_AUTO_DISCOVERY: 'false',
-    WIN_CSC_LINK: '',
-    WIN_CSC_KEY_PASSWORD: '',
-    ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: 'true',
-  };
+  const hasLocalElectron =
+    fs.existsSync(path.join(rootDir, 'node_modules', 'electron')) ||
+    process.env.GITHUB_ACTIONS === 'true';
 
-  try {
-    run(
-      `npx electron-builder --config ${configJsonName} --win nsis --publish never -c.win.verifyUpdateCodeSignature=false -c.forceCodeSigning=false`,
-      ebEnv
-    );
-  } catch (ebErr) {
-    console.warn(`[Dual Builder] Primary electron-builder pass notice for ${edition}, retrying with signAndEditExecutable=false:`, ebErr?.message || ebErr);
+  if (hasLocalElectron) {
+    const ebEnv = {
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+      WIN_CSC_LINK: '',
+      WIN_CSC_KEY_PASSWORD: '',
+      ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: 'true',
+    };
+
     try {
       run(
-        `npx electron-builder --config ${configJsonName} --win nsis --publish never -c.win.signAndEditExecutable=false -c.win.verifyUpdateCodeSignature=false -c.forceCodeSigning=false`,
+        `npx electron-builder --config ${configJsonName} --win nsis --publish never -c.electronVersion=35.0.0 -c.win.verifyUpdateCodeSignature=false -c.forceCodeSigning=false`,
         ebEnv
       );
-    } catch (retryErr) {
-      console.warn(`[Dual Builder] electron-builder fallback notice for ${edition}:`, retryErr?.message || retryErr);
+    } catch (ebErr) {
+      console.warn(`[Dual Builder] Primary electron-builder pass notice for ${edition}, retrying with signAndEditExecutable=false:`, ebErr?.message || ebErr);
+      try {
+        run(
+          `npx electron-builder --config ${configJsonName} --win nsis --publish never -c.electronVersion=35.0.0 -c.win.signAndEditExecutable=false -c.win.verifyUpdateCodeSignature=false -c.forceCodeSigning=false`,
+          ebEnv
+        );
+      } catch (retryErr) {
+        console.warn(`[Dual Builder] electron-builder fallback notice for ${edition}:`, retryErr?.message || retryErr);
+      }
     }
-  }
 
-  if (!fs.existsSync(targetExePath)) {
-    const candidates = [
-      path.join(releaseDir, outputExeName),
-      path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-Setup.exe'),
-      path.join(releaseDir, 'ESWA GEOLOGICAL MAPPER Setup.exe'),
-      path.join(releaseDir, `ESWA GEOLOGICAL MAPPER (${edition === 'master' ? 'Master' : 'User'}) Setup.exe`),
-    ];
-    for (const cand of candidates) {
-      if (fs.existsSync(cand)) {
-        try {
-          fs.copyFileSync(cand, targetExePath);
-          console.log(`[Dual Builder] Normalized installer output: ${cand} -> ${targetExePath}`);
-          break;
-        } catch {}
+    if (!fs.existsSync(targetExePath)) {
+      const candidates = [
+        path.join(releaseDir, outputExeName),
+        path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-Setup.exe'),
+        path.join(releaseDir, 'ESWA GEOLOGICAL MAPPER Setup.exe'),
+        path.join(releaseDir, `ESWA GEOLOGICAL MAPPER (${edition === 'master' ? 'Master' : 'User'}) Setup.exe`),
+      ];
+      for (const cand of candidates) {
+        if (fs.existsSync(cand)) {
+          try {
+            fs.copyFileSync(cand, targetExePath);
+            console.log(`[Dual Builder] Normalized installer output: ${cand} -> ${targetExePath}`);
+            break;
+          } catch {}
+        }
       }
     }
   }
@@ -147,18 +159,30 @@ function buildWindowsExecutable(edition, configJsonName, outputExeName) {
   if (!fs.existsSync(targetExePath)) {
     buildFallbackWindowsPackage(edition, targetExePath);
   }
+
+  if (fs.existsSync(targetExePath)) {
+    const cacheDirs = [
+      path.join(os.tmpdir(), 'akash-release-cache'),
+      path.join('/tmp', 'akash-release-cache'),
+    ];
+    for (const cDir of cacheDirs) {
+      try {
+        fs.mkdirSync(cDir, { recursive: true });
+        fs.copyFileSync(targetExePath, path.join(cDir, outputExeName));
+      } catch {
+        // Ignore cache copy error
+      }
+    }
+  }
 }
 
 try {
-  const includeUser =
-    process.argv.includes('--include-user') ||
-    process.argv.includes('--all') ||
-    process.env.BUILD_USER_EDITION === 'true';
+  const includeUser = !process.argv.includes('--master-only');
 
   console.log('====================================================================');
   console.log(
     includeUser
-      ? '  BUILDING DUAL WINDOWS EXECUTABLES: (1) MASTER .EXE & (2) USER .EXE'
+      ? '  BUILDING DUAL WINDOWS EXECUTABLES (.EXE) & DUAL ANDROID APPS (.APK): USER + MASTER'
       : '  BUILDING MASTER WINDOWS EXECUTABLE (.EXE) & MASTER ANDROID (.APK) ONLY'
   );
   console.log('====================================================================');
@@ -175,20 +199,20 @@ try {
   // 2. Build Executable #1: MASTER SOFTWARE
   buildWindowsExecutable('master', 'electron-builder-master.json', 'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe');
 
-  // 3. Build Executable #2: USER SOFTWARE (Only if explicitly requested)
+  // 3. Build Executable #2: USER SOFTWARE (Default: enabled so both User and Master .EXE receive all updates)
   if (includeUser) {
     buildWindowsExecutable('user', 'electron-builder-user.json', 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe');
   } else {
     console.log('\n[2/3] Skipping User .EXE build (Master-only update mode active).');
   }
 
-  // 3b. Build Standalone Master Android APK
-  console.log('\n[3/3] Building Standalone MASTER Android APK (.APK)...');
+  // 3b. Build Standalone User & Master Android APKs
+  console.log('\n[3/3] Building Standalone USER & MASTER Android APKs (.APK)...');
   try {
     run(
       includeUser
         ? 'node scripts/build-android-apk.mjs --include-user'
-        : 'node scripts/build-android-apk.mjs',
+        : 'node scripts/build-android-apk.mjs --master-only',
       { GITHUB_ACTIONS: 'true' }
     );
   } catch (apkErr) {
@@ -227,12 +251,14 @@ try {
   }
 
   // Clean up any extra electron-builder artifacts (win-unpacked, blockmaps, builder-debug.yml, etc.)
-  // while preserving official installers
+  // while preserving official installers and OTA bundles
   const allowedReleaseFiles = new Set([
     'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe',
     'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe',
     'ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
     'ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
+    'user-ota-bundle.json',
+    'master-ota-bundle.json',
   ]);
   if (fs.existsSync(releaseDir)) {
     for (const entry of fs.readdirSync(releaseDir)) {
@@ -247,7 +273,7 @@ try {
   }
 
   console.log('\n====================================================================');
-  console.log('  MASTER INSTALLERS BUILD COMPLETE!');
+  console.log('  DUAL USER & MASTER INSTALLERS BUILD COMPLETE!');
   console.log('  1. Master EXE: release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe');
   console.log('  2. Master APK: release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk');
   if (includeUser) {

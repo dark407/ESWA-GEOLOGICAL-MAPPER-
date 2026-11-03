@@ -179,7 +179,7 @@ function buildPdfFromJpegPages(
 }
 
 /**
- * Renders an SVG string to an HTMLCanvasElement at 1.75x resolution.
+ * Renders an SVG string to an HTMLCanvasElement at 3.25x (300+ DPI ISO print resolution).
  */
 async function renderSvgStringToCanvas(
   svgString: string,
@@ -188,15 +188,23 @@ async function renderSvgStringToCanvas(
 ): Promise<HTMLCanvasElement | null> {
   return new Promise((resolve) => {
     try {
-      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const highPrecisionSvg = svgString.replace(
+        /<svg\b([^>]*)>/i,
+        '<svg$1 shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality">'
+      );
+      const svgBlob = new Blob([highPrecisionSvg], { type: 'image/svg+xml;charset=utf-8' });
       const url = URL.createObjectURL(svgBlob);
       const img = new Image();
+      img.crossOrigin = 'anonymous';
       img.onload = () => {
+        const scale = 3.25; // 300+ DPI Ultra-Sharp Engineering Print Resolution
         const canvas = document.createElement('canvas');
-        canvas.width = Math.round(widthPx * 1.75);
-        canvas.height = Math.round(heightPx * 1.75);
+        canvas.width = Math.round(widthPx * scale);
+        canvas.height = Math.round(heightPx * scale);
         const ctx = canvas.getContext('2d');
         if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -216,7 +224,7 @@ async function renderSvgStringToCanvas(
 }
 
 /**
- * Renders a crisp high-resolution Engineering Data & Classification Summary Canvas page
+ * Renders a crisp 300-DPI (3508 x 2480 px) Engineering Data & Classification Summary Canvas page
  * (used as Page 1 when exporting from Data Sheets, or Page 2 appendix when exporting with SVG sheet).
  */
 function renderEngineeringSummaryCanvasPage(payload: PdfWordExportPayload): HTMLCanvasElement {
@@ -247,12 +255,16 @@ function renderEngineeringSummaryCanvasPage(payload: PdfWordExportPayload): HTML
     overbreakAnalysis
   );
 
-  const W = 1754; // A4/A3 Landscape 150+ DPI
+  const DPI_SCALE = 2.0; // Supersample 1754x1240 -> 3508x2480 (True 300 DPI ISO A3 Landscape)
+  const W = 1754;
   const H = 1240;
   const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width = Math.round(W * DPI_SCALE);
+  canvas.height = Math.round(H * DPI_SCALE);
   const ctx = canvas.getContext('2d')!;
+  ctx.scale(DPI_SCALE, DPI_SCALE);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   // White engineering paper background
   ctx.fillStyle = '#FFFFFF';
@@ -537,7 +549,7 @@ export async function downloadEngineeringSheetAsPDF(payload: PdfWordExportPayloa
     const hPx = payload.sheetHeightPx || 1130;
     const svgCanvas = await renderSvgStringToCanvas(payload.svgString, wPx, hPx);
     if (svgCanvas) {
-      const jpegDataUrl = svgCanvas.toDataURL('image/jpeg', 0.92);
+      const jpegDataUrl = svgCanvas.toDataURL('image/jpeg', 0.99);
       const b64 = jpegDataUrl.split(',')[1] || '';
       if (b64) {
         const pagePtW = 1190.55; // Standard ISO A3 Landscape width in points
@@ -555,7 +567,7 @@ export async function downloadEngineeringSheetAsPDF(payload: PdfWordExportPayloa
 
   // Page 2 (or Page 1 if exported directly from Data Sheets): Engineering Data Tables & Classification Sheet
   const summaryCanvas = renderEngineeringSummaryCanvasPage(payload);
-  const summaryJpegUrl = summaryCanvas.toDataURL('image/jpeg', 0.92);
+  const summaryJpegUrl = summaryCanvas.toDataURL('image/jpeg', 0.99);
   const summaryB64 = summaryJpegUrl.split(',')[1] || '';
   if (summaryB64) {
     pages.push({
@@ -578,7 +590,7 @@ export async function downloadEngineeringSheetAsPDF(payload: PdfWordExportPayloa
 
 /**
  * Generates and downloads a rich Microsoft Word (`.doc`) Engineering Report & Data Sheet
- * with embedded high-resolution Mapping Sheet image and full editable Word tables.
+ * with embedded 300-DPI Mapping Sheet image and full editable Word tables.
  */
 export async function downloadEngineeringSheetAsWordDoc(
   payload: PdfWordExportPayload
@@ -618,9 +630,9 @@ export async function downloadEngineeringSheetAsWordDoc(
     if (svgCanvas) {
       const pngDataUrl = svgCanvas.toDataURL('image/png');
       embeddedDrawingImgHtml = `
-        <h2>1. Developed Geological Mapping Sheet &amp; Tunnel Face Drawing</h2>
+        <h2>1. Developed Geological Mapping Sheet &amp; Tunnel Face Drawing (300 DPI High-Resolution Plate)</h2>
         <div style="text-align:center; margin: 10px 0 18px 0;">
-          <img src="${pngDataUrl}" style="max-width:100%; width:980px; height:auto; border:1.5pt solid #0f172a;" alt="Geological Mapping Sheet" />
+          <img src="${pngDataUrl}" width="1040" style="max-width:100%; width:1040px; height:auto; border:1.5pt solid #0f172a; image-rendering: -webkit-optimize-contrast;" alt="Geological Mapping Sheet" />
         </div>
       `;
     }

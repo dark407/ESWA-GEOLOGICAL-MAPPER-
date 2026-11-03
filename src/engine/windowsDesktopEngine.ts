@@ -698,11 +698,6 @@ async function triggerAuthenticatedApkDownload(
   );
 }
 
-/**
- * Directly opens/downloads the real ~80 MB GitHub Actions Windows .EXE installer
- * (AKASH-TUNNEL-MAPPER-User-Setup.exe or AKASH-TUNNEL-MAPPER-Master-Setup.exe)
- * from GitHub Releases (or notifies the UI if the GitHub repository slug needs to be entered).
- */
 function triggerGithubActionsExeDownload(
   edition: 'master' | 'user',
   customRepo?: string
@@ -715,16 +710,15 @@ function triggerGithubActionsExeDownload(
       ? 'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe'
       : 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe';
 
-  if (!repo) {
-    window.dispatchEvent(
-      new CustomEvent('eswa-github-repo-needed', {
-        detail: { edition, fileName: exeFileName },
-      })
-    );
-    return;
-  }
+  const base =
+    window.location.origin.startsWith('http://') ||
+    window.location.origin.startsWith('https://')
+      ? ''
+      : DEV_CLOUD_APP_ORIGIN;
 
-  const directReleaseExeUrl = `https://github.com/${repo}/releases/download/latest/${exeFileName}`;
+  const directReleaseExeUrl = repo
+    ? `https://github.com/${repo}/releases/download/latest/${exeFileName}`
+    : `${base}/api/windows/download-exe?edition=${edition}&v=${Date.now()}`;
 
   const win = window as unknown as {
     akashDesktop?: { openExternalUrl?: (url: string) => Promise<unknown> };
@@ -732,13 +726,15 @@ function triggerGithubActionsExeDownload(
   };
   const openExt =
     win.akashDesktop?.openExternalUrl || win.eswaDesktop?.openExternalUrl;
-  if (openExt) {
+  if (openExt && directReleaseExeUrl.startsWith('http')) {
     void openExt(directReleaseExeUrl);
   } else {
     const a = document.createElement('a');
     a.href = directReleaseExeUrl;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
+    if (repo) {
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+    }
     a.download = exeFileName;
     a.style.display = 'none';
     document.body.appendChild(a);

@@ -11050,21 +11050,106 @@ export const MappingWorkspace: React.FC<MappingWorkspaceProps> = React.memo(({
         joints={joints}
         jointSets={jointSets}
         initialSelectedJointId={selectedJointId}
-        onUpdateJointOrientation={(jointId, dipDirection, dip) => {
+        onUpdateJointOrientation={(jointId, dipDirection, dip, applyMode = 'TEXT_ONLY') => {
           const strike = (dipDirection - 90 + 360) % 360;
           onUpdateJointsWithHistory(
-            joints.map((j) =>
-              j.id === jointId
-                ? {
-                    ...j,
-                    dipDirection,
-                    dip,
-                    strike,
-                    orientationStatus: 'DIRECTLY_MEASURED',
+            joints.map((j) => {
+              if (j.id !== jointId) return j;
+              let nextGeometry = j.geometry;
+              if (applyMode === 'ALIGN_TRACE' && j.geometry && j.geometry.length >= 2) {
+                let cx = 0;
+                let cy = 0;
+                j.geometry.forEach((p) => {
+                  cx += p.x;
+                  cy += p.y;
+                });
+                cx /= j.geometry.length;
+                cy /= j.geometry.length;
+                let totalArc = 0;
+                for (let i = 1; i < j.geometry.length; i++) {
+                  totalArc += Math.hypot(
+                    j.geometry[i].x - j.geometry[i - 1].x,
+                    j.geometry[i].y - j.geometry[i - 1].y
+                  );
+                }
+                const spanLen = Math.max(0.8, totalArc);
+                const driveAz = settings.driveDirection || 0;
+                const relDipRad = (((dipDirection - driveAz) % 360) * Math.PI) / 180;
+                const dipRad = (Math.max(2, Math.min(89, dip)) * Math.PI) / 180;
+                const nx = Math.sin(dipRad) * Math.cos(relDipRad);
+                const ny = Math.sin(dipRad) * Math.sin(relDipRad);
+                const nz = Math.cos(dipRad);
+                const crownArc = Math.max(3.0, geometry.crownArcLength || geometry.width * 1.25);
+                const pullLen = Math.max(1.5, settings.roundLength || 4.0);
+                const wallH = Math.max(1.5, geometry.wallHeight || geometry.height * 0.55);
+
+                if (j.surface === 'crown' && Math.abs(nx) > 0.04) {
+                  const halfSpanX = Math.min(crownArc * 0.44, Math.max(0.5, spanLen * 0.48));
+                  const archRise = Math.max(0.8, geometry.height - wallH);
+                  const steps = 19;
+                  const curved: { x: number; y: number }[] = [];
+                  for (let i = 0; i < steps; i++) {
+                    const u = (i / (steps - 1)) * 2 - 1;
+                    const xVal = Math.max(
+                      -crownArc * 0.48,
+                      Math.min(crownArc * 0.48, cx + u * halfSpanX)
+                    );
+                    const normC = xVal / Math.max(0.5, crownArc * 0.5);
+                    const normMid = cx / Math.max(0.5, crownArc * 0.5);
+                    const zArch = archRise * (1 - Math.min(1, normC * normC));
+                    const zMid = archRise * (1 - Math.min(1, normMid * normMid));
+                    const dyDrive =
+                      -(ny * (xVal - cx) + nz * (zArch - zMid)) /
+                      (Math.abs(nx) < 0.12 ? (nx >= 0 ? 0.12 : -0.12) : nx);
+                    const yVal = Math.max(
+                      0.1,
+                      Math.min(
+                        pullLen - 0.1,
+                        cy + Math.max(-spanLen * 0.65, Math.min(spanLen * 0.65, dyDrive))
+                      )
+                    );
+                    curved.push({
+                      x: Number(xVal.toFixed(3)),
+                      y: Number(yVal.toFixed(3)),
+                    });
                   }
-                : j
-            )
+                  nextGeometry = curved;
+                } else {
+                  const slopeAng = Math.atan2(nx, Math.abs(ny) + Math.abs(nz) * 0.5);
+                  const halfSpan = spanLen * 0.48;
+                  const dx = Math.cos(slopeAng) * halfSpan;
+                  const dy = Math.sin(slopeAng) * halfSpan;
+                  const steps = Math.max(5, j.geometry.length);
+                  const aligned: { x: number; y: number }[] = [];
+                  for (let i = 0; i < steps; i++) {
+                    const f = (i / (steps - 1)) * 2 - 1;
+                    aligned.push({
+                      x: Number(Math.max(0.1, Math.min(pullLen - 0.1, cx + dx * f)).toFixed(3)),
+                      y: Number(Math.max(0.1, Math.min(wallH - 0.1, cy + dy * f)).toFixed(3)),
+                    });
+                  }
+                  nextGeometry = aligned;
+                }
+              }
+              return {
+                ...j,
+                geometry: nextGeometry,
+                dipDirection,
+                dip,
+                strike,
+                orientationStatus: 'DIRECTLY_MEASURED',
+              };
+            })
           );
+          if (applyMode === 'ALIGN_TRACE') {
+            onUpdateStatusMessage?.(
+              `Updated joint ${jointId} orientation (${String(dipDirection).padStart(3, '0')}°/${dip}°) and aligned trace curve on canvas.`
+            );
+          } else {
+            onUpdateStatusMessage?.(
+              `Updated joint ${jointId} orientation text (${String(dipDirection).padStart(3, '0')}°/${dip}°) on canvas.`
+            );
+          }
         }}
         onCaptureSnapshotToSheetAppendix={(snapshot) => {
           onUpdateSettings?.((prev) => ({

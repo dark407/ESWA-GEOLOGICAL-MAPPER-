@@ -11893,27 +11893,43 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       ...t,
                       points: t.points.map(ptToBox),
                     }));
-                    const dipObstacles = pDipSurfaces.map((ds) => {
-                      const pts = ds.points.map(ptToBox);
-                      let cx = 0;
-                      let cy = 0;
-                      pts.forEach((p) => {
-                        cx += p.x;
-                        cy += p.y;
-                      });
-                      return {
-                        x: cx / Math.max(1, pts.length),
-                        y: cy / Math.max(1, pts.length),
-                        radius: isTCanvas ? 34 : 48,
-                      };
-                    });
+                    const dipObstacles = [
+                      ...pDipSurfaces.map((ds) => {
+                        const pts = ds.points.map(ptToBox);
+                        let cx = 0;
+                        let cy = 0;
+                        pts.forEach((p) => {
+                          cx += p.x;
+                          cy += p.y;
+                        });
+                        return {
+                          x: cx / Math.max(1, pts.length),
+                          y: cy / Math.max(1, pts.length),
+                          radius: isTCanvas ? 30 : 42,
+                        };
+                      }),
+                      ...pFeatures.flatMap((ft) =>
+                        ft.points.map((pt) => {
+                          const mp = ptToBox(pt);
+                          return { x: mp.x, y: mp.y, radius: isTCanvas ? 20 : 28 };
+                        })
+                      ),
+                    ];
                     const effectiveLabelFontSize = isTCanvas
-                      ? Math.max(9, Math.round(canvasTextSize * 0.85))
+                      ? Math.max(8, Math.round(canvasTextSize * 0.78))
                       : canvasTextSize;
                     const pTraceLabelMap = computeTraceInlineLabelPlacements(mappedTracesForLabels, {
                       fontSize: effectiveLabelFontSize,
                       extraObstacles: dipObstacles,
                       isVerticalShaft: isVerticalShaftMode,
+                      panelBounds: {
+                        minX: targetBox.x,
+                        maxX: targetBox.x + targetBox.w,
+                        minY: targetBox.y,
+                        maxY: targetBox.y + targetBox.h,
+                      },
+                      location: isTCanvas ? undefined : activeLocation,
+                      round: isTCanvas ? undefined : activeRound,
                     });
 
                     const clipId = `field-panel-clip-${panelId}`;
@@ -12721,7 +12737,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                     <title>{`Joint ${prefixLabel}: ${inlineText} · Double-click or double-tap to inspect in 3D`}</title>
                                     <text
                                       x={placement.x}
-                                      y={placement.y + effectiveLabelFontSize * 0.35}
+                                      y={placement.y}
+                                      dy="0.32em"
                                       textAnchor="middle"
                                       transform={`rotate(${placement.angleDeg.toFixed(
                                         1
@@ -12731,7 +12748,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                       fontFamily="Arial, sans-serif"
                                       fill={grpColor.stroke}
                                       stroke="#ffffff"
-                                      strokeWidth="3.5"
+                                      strokeWidth="4.2"
                                       paintOrder="stroke"
                                     >
                                       {inlineText}
@@ -16840,10 +16857,26 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               shaftCenterMedianStatus: activeRound?.shaftCenterMedianStatus || 'closed',
             }}
             onSaveJoint={(updated) => {
-              updateActiveRound((r) => ({
-                ...r,
-                jointTraces: r.jointTraces.map((t) => (t.id === updated.id ? updated : t)),
-              }));
+              updateActiveRound((r) => {
+                const clampedPts = (updated.points || []).map((pt) =>
+                  clampPointToFieldPanelOutline(pt, updated.panel, activeLocation, r)
+                );
+                const metricPoints = computePhysicalMetricPoints(
+                  clampedPts,
+                  updated.panel,
+                  activeLocation,
+                  r
+                );
+                const syncedJoint: FieldJointTrace = {
+                  ...updated,
+                  points: clampedPts,
+                  metricPoints,
+                };
+                return {
+                  ...r,
+                  jointTraces: r.jointTraces.map((t) => (t.id === updated.id ? syncedJoint : t)),
+                };
+              });
               setLiveDipDirection(updated.dipDirection);
               setLiveDipAmount(updated.dipAmount);
             }}

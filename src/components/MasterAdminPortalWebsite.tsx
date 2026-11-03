@@ -25,6 +25,8 @@ import {
 import {
   downloadMasterAndroidApk,
   downloadMasterEditionDesktopExe,
+  downloadUserAndroidApk,
+  downloadUserEditionDesktopExe,
 } from '../engine/windowsDesktopEngine';
 import {
   ArrowLeft,

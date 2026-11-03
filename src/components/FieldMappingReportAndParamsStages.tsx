@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import {
   APERTURE_OPTIONS,
+  alignFieldTracePointsTo3DOrientation,
   buildAutoPopulatedTemplateDictionary,
   computeFieldQValue,
   computeFieldRmrValue,
@@ -2223,6 +2224,90 @@ export const FieldStripAlignmentStage: React.FC<{
                       +
                     </button>
                     <span className="text-slate-500 text-[10px]">°</span>
+                  </div>
+
+                  {/* Two Explicit 3D Joint Inspection Sync Options: Change Text Only vs Change Trace Alignment */}
+                  <div className="flex items-center gap-1.5 pl-1 border-l border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const strikeDeg = (((tr.dipDirection - 90) % 360) + 360) % 360;
+                        onUpdateRound((r) => ({
+                          ...r,
+                          jointTraces: r.jointTraces.map((t) =>
+                            t.id === realId
+                              ? {
+                                  ...t,
+                                  dipDirection: tr.dipDirection,
+                                  dipAmount: tr.dipAmount,
+                                  strike: strikeDeg,
+                                  editedByCompass: true,
+                                  inspection3D: t.inspection3D
+                                    ? {
+                                        ...t.inspection3D,
+                                        isOrientationComplete: true,
+                                      }
+                                    : undefined,
+                                }
+                              : t
+                          ),
+                        }));
+                      }}
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 text-[10.5px] font-bold flex items-center gap-1 cursor-pointer"
+                      title="Option 1: Update only the Dip Direction / Dip Amount text on the canvas while keeping the drawn trace curve unchanged"
+                    >
+                      <Check className="w-3 h-3 text-cyan-400" />
+                      1. Change Text Only
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pushUndo();
+                        const alignedPts = alignFieldTracePointsTo3DOrientation(
+                          tr.points,
+                          tr.panel,
+                          tr.dipDirection,
+                          tr.dipAmount,
+                          activeLocation,
+                          activeRound
+                        );
+                        const metricPoints = computePhysicalMetricPoints(
+                          alignedPts,
+                          tr.panel,
+                          activeLocation,
+                          activeRound
+                        );
+                        const strikeDeg = (((tr.dipDirection - 90) % 360) + 360) % 360;
+                        onUpdateRound((r) => ({
+                          ...r,
+                          jointTraces: r.jointTraces.map((t) =>
+                            t.id === realId
+                              ? {
+                                  ...t,
+                                  points: alignedPts,
+                                  metricPoints,
+                                  dipDirection: tr.dipDirection,
+                                  dipAmount: tr.dipAmount,
+                                  strike: strikeDeg,
+                                  editedByCompass: true,
+                                  inspection3D: t.inspection3D
+                                    ? {
+                                        ...t.inspection3D,
+                                        isOrientationComplete: true,
+                                      }
+                                    : undefined,
+                                }
+                              : t
+                          ),
+                        }));
+                      }}
+                      className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/50 text-[10.5px] font-bold flex items-center gap-1 cursor-pointer shadow"
+                      title="Option 2: Re-align the joint trace geometry on the canvas (generating curved arch trace on Crown or apparent-dip aligned trace on Walls/Face) based on edited Dip Direction & Dip Amount"
+                    >
+                      <Compass className="w-3 h-3 text-amber-200" />
+                      2. Change Trace Alignment
+                    </button>
                   </div>
                 </div>
 
@@ -5264,8 +5349,8 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
       ) as unknown as SVGSVGElement | null;
       const vbH = svgEl?.viewBox?.baseVal?.height || 610;
       const [pngDataUrl, supportPngUrl] = await Promise.all([
-        renderSvgElementToHighResPngDataUrl(svgEl, 1600, Math.round((1600 * vbH) / 920)),
-        renderSvgElementToHighResPngDataUrl(supSvgEl, 1400, 740),
+        renderSvgElementToHighResPngDataUrl(svgEl, 3200, Math.round((3200 * vbH) / 920)),
+        renderSvgElementToHighResPngDataUrl(supSvgEl, 2800, 1480),
       ]);
       exportFieldMappingTwoPageWordSheet(
         activeProject,
@@ -5310,7 +5395,7 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
   const handleExportTwoPagePdfDoc = async (pageSize: 'A4' | 'A3' = 'A4') => {
     try {
       setIsExportingPdf(true);
-      setExportBanner(`Rendering high-resolution ${isSurface ? '3-Page' : '2-Page'} ${pageSize} standalone PDF...`);
+      setExportBanner(`Rendering 300-DPI Ultra-HD ${isSurface ? '3-Page' : '2-Page'} ${pageSize} standalone PDF...`);
       const svgEl = (document.getElementById(
         'field-surface-report-svg'
       ) ||
@@ -5322,8 +5407,8 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
       ) as unknown as SVGSVGElement | null;
       const vbH = svgEl?.viewBox?.baseVal?.height || 610;
       const [pngDataUrl, supportPngUrl] = await Promise.all([
-        renderSvgElementToHighResPngDataUrl(svgEl, 1600, Math.round((1600 * vbH) / 920)),
-        renderSvgElementToHighResPngDataUrl(supSvgEl, 1400, 740),
+        renderSvgElementToHighResPngDataUrl(svgEl, 3200, Math.round((3200 * vbH) / 920)),
+        renderSvgElementToHighResPngDataUrl(supSvgEl, 2800, 1480),
       ]);
       await exportFieldMappingTwoPagePdfSheet(
         {

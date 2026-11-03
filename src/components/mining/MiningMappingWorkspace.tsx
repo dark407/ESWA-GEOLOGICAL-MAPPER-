@@ -118,6 +118,10 @@ import { MiningChannelsWindow } from './MiningChannelsWindow';
 import { MiningStructureWindow } from './MiningStructureWindow';
 import { MiningGeotechWindow } from './MiningGeotechWindow';
 import { MiningExportsWindow } from './MiningExportsWindow';
+import {
+  exportCanvasesAsPdfDocument,
+  renderSvgElementToHighResPngDataUrl,
+} from '../../engine/fieldMappingEngine';
 
 export type MiningCanvasTool =
   | 'SELECT'
@@ -3692,7 +3696,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
 
               {/* Face Drawing Preview (Includes Stope Boundary, All Mapped Features, and Channel Samples) */}
               <div className="h-72 border-2 border-slate-900 rounded bg-white flex items-center justify-center p-2">
-                <svg viewBox={`0 0 ${canvasW} ${canvasH}`} className="w-full h-full">
+                <svg id="mining-print-face-svg" viewBox={`0 0 ${canvasW} ${canvasH}`} className="w-full h-full">
                   <LithologyPatternDefs prefix="mining-print" forPrintSheet={true} />
                   {/* Stope Closed Boundary */}
                   <polygon
@@ -3936,6 +3940,132 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                   className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-xs font-bold text-slate-800 cursor-pointer"
                 >
                   Close
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const svgEl = document.getElementById('mining-print-face-svg') as unknown as SVGSVGElement | null;
+                    const facePng = await renderSvgElementToHighResPngDataUrl(svgEl, 3200);
+                    const DPI_SCALE = 2.0; // 1240x1754 -> 2480x3508 (True 300 DPI ISO A4 Portrait)
+                    const W = 1240;
+                    const H = 1754;
+                    const c = document.createElement('canvas');
+                    c.width = Math.round(W * DPI_SCALE);
+                    c.height = Math.round(H * DPI_SCALE);
+                    const ctx = c.getContext('2d')!;
+                    ctx.scale(DPI_SCALE, DPI_SCALE);
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, W, H);
+                    ctx.strokeStyle = '#0f172a';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(28, 28, W - 56, H - 56);
+
+                    ctx.fillStyle = '#0f172a';
+                    ctx.fillRect(36, 36, W - 72, 74);
+                    ctx.fillStyle = '#f59e0b';
+                    ctx.font = 'bold 21px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('UNDERGROUND MINING GEOLOGICAL FACE SHEET (300 DPI)', W / 2, 68);
+                    ctx.fillStyle = '#f8fafc';
+                    ctx.font = 'bold 13.5px monospace';
+                    ctx.fillText(
+                      `${currentProject?.projectName || 'Mining Project'}  |  Heading: ${driftId} (${chainage})  |  Level: ${mineLevel}  |  Shape: ${stopeShape.toUpperCase()} (${stopeWidth}m×${stopeHeight}m)`,
+                      W / 2,
+                      96
+                    );
+
+                    const finishExport = () => {
+                      let y = 780;
+                      ctx.textAlign = 'left';
+                      ctx.fillStyle = '#0f172a';
+                      ctx.font = 'bold 15px monospace';
+                      ctx.fillText(
+                        `CHANNEL ASSAYS & COMPOSITE SUMMARY — Weighted Grade: ${composites.weightedGrade} g/t  |  Dilution: ${composites.dilutionPercentByMass}%  |  Verdict: ${composites.verdict}`,
+                        44,
+                        y
+                      );
+                      y += 14;
+                      ctx.fillStyle = '#0f172a';
+                      ctx.fillRect(36, y, W - 72, 30);
+                      ctx.fillStyle = '#ffffff';
+                      ctx.font = 'bold 12px monospace';
+                      const cols = [
+                        { label: 'SAMPLE ID', w: 200 },
+                        { label: 'INTERVAL (m)', w: 240 },
+                        { label: 'ASSAY GRADE', w: 240 },
+                        { label: 'SG', w: 180 },
+                        { label: 'CATEGORY', w: 308 },
+                      ];
+                      let x = 36;
+                      cols.forEach((col) => {
+                        ctx.fillText(col.label, x + 10, y + 20);
+                        x += col.w;
+                      });
+                      y += 30;
+                      channelSamples.slice(0, 14).forEach((s, idx) => {
+                        ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        ctx.fillRect(36, y, W - 72, 30);
+                        ctx.strokeStyle = '#cbd5e1';
+                        ctx.strokeRect(36, y, W - 72, 30);
+                        ctx.fillStyle = '#0f172a';
+                        ctx.font = 'bold 12px monospace';
+                        const vals = [
+                          s.sampleNumber,
+                          `${s.fromMeter} – ${s.toMeter} m`,
+                          `${typeof s.assayGrade === 'number' ? s.assayGrade.toFixed(2) : s.gradeValue} g/t`,
+                          String(s.specificGravity || 3.35),
+                          s.zoneCategory || 'ORE',
+                        ];
+                        let rx = 36;
+                        vals.forEach((v, i) => {
+                          ctx.fillText(v, rx + 10, y + 20);
+                          rx += cols[i].w;
+                        });
+                        y += 30;
+                      });
+
+                      ctx.strokeStyle = '#0f172a';
+                      ctx.lineWidth = 2;
+                      ctx.strokeRect(36, H - 84, W - 72, 46);
+                      ctx.fillStyle = '#0f172a';
+                      ctx.font = 'bold 13.5px monospace';
+                      ctx.fillText(
+                        `Mapped By (Mine Geologist): ${sheetNames.geologistName || '____________________'}   |   Approved By (Chief Geologist): ${sheetNames.chiefName || '____________________'}`,
+                        50,
+                        H - 55
+                      );
+
+                      const safeCh = chainage.replace(/[^a-zA-Z0-9_-]/g, '_');
+                      exportCanvasesAsPdfDocument([c], `${driftId}_${safeCh}_Mining_Face_Sheet_300DPI.pdf`, 'portrait', 'A4');
+                    };
+
+                    if (facePng) {
+                      const img = new Image();
+                      img.crossOrigin = 'anonymous';
+                      img.onload = () => {
+                        ctx.strokeStyle = '#0f172a';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(36, 124, W - 72, 620);
+                        const availW = W - 96;
+                        const availH = 600;
+                        const sc = Math.min(availW / Math.max(1, img.width), availH / Math.max(1, img.height));
+                        const dw = img.width * sc;
+                        const dh = img.height * sc;
+                        ctx.drawImage(img, (W - dw) / 2, 134 + (availH - dh) / 2, dw, dh);
+                        finishExport();
+                      };
+                      img.onerror = () => finishExport();
+                      img.src = facePng;
+                    } else {
+                      finishExport();
+                    }
+                  }}
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center gap-2 cursor-pointer shadow-md"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download PDF (300 DPI)</span>
                 </button>
                 <button
                   type="button"

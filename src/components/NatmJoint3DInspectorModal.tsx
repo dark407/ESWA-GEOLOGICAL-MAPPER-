@@ -82,6 +82,8 @@ import {
   TraceHingePlaneResult,
   JointFractureIntensityAndAreaResult,
   pointToTunnel3DMetric,
+  constructCurvedCrownPlaneAndTrace,
+  recomputeAlignedCanvasTracePoints,
 } from '../engine/joint3DInspectorEngine';
 import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
 import { createTunnelGeometry } from '../engine/geometryEngine';
@@ -385,10 +387,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
   const [pendingSwitchJointId, setPendingSwitchJointId] = useState<string | null>(null);
   const [showSwitchConfirm, setShowSwitchConfirm] = useState<boolean>(false);
 
-  // Interactive 3D Plane/Disk Gizmo Drag Mode on Three.js Canvas
-  const [is3DGizmoDragMode, setIs3DGizmoDragMode] = useState<boolean>(
-    Boolean(initialInspectTargetType === 'dip_surface' || activeDipSurface)
-  );
+  // Interactive 3D Plane/Disk Gizmo Drag Mode on Three.js Canvas (defaults to false so 1-finger/mouse drag rotates the 3D tunnel)
+  const [is3DGizmoDragMode, setIs3DGizmoDragMode] = useState<boolean>(false);
   const is3DGizmoDragModeRef = useRef<boolean>(is3DGizmoDragMode);
   useEffect(() => {
     is3DGizmoDragModeRef.current = is3DGizmoDragMode;
@@ -399,7 +399,6 @@ const NatmJoint3DInspectorModalContent: React.FC<
     if (initialInspectTargetType === 'dip_surface' && activeDipSurface?.id) {
       setInspectTargetType('dip_surface');
       setCurrentDipSurfaceId(activeDipSurface.id);
-      setIs3DGizmoDragMode(true);
     } else if (activeJoint?.id) {
       setInspectTargetType(initialInspectTargetType || 'joint');
       setCurrentJointId(activeJoint.id);
@@ -626,9 +625,30 @@ const NatmJoint3DInspectorModalContent: React.FC<
   // MATHEMATICAL CALCULATIONS (REAL & VALIDATED)
   // -------------------------------------------------------------------------
 
-  // 3a. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on Face, Walls & Crown)
+  // 3a. Curved Crown Arch Plane & Trace Calculation (for arched tunnel crown mapping)
+  const crownCurvedData = useMemo(() => {
+    if (
+      currentJoint.panel !== 'crown' ||
+      tunnelGeometry.isVerticalShaft ||
+      !currentJoint.points ||
+      currentJoint.points.length < 2
+    ) {
+      return null;
+    }
+    return constructCurvedCrownPlaneAndTrace(
+      currentJoint.points,
+      dipDirection ?? 135,
+      dipAmount ?? 60,
+      tunnelGeometry
+    );
+  }, [currentJoint.panel, currentJoint.points, dipDirection, dipAmount, tunnelGeometry]);
+
+  // 3a-ii. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on Face & Walls; on Crown only if Strike Hinge Lock is explicitly checked)
   const hingePlaneResult = useMemo<TraceHingePlaneResult | null>(() => {
     if (!isHingeRotationActive || currentJoint.points.length < 2) return null;
+    if (currentJoint.panel === 'crown' && !tunnelGeometry.isVerticalShaft && !isStrikeLineHingeLocked) {
+      return null;
+    }
     return constructPlaneFromTraceHinge(
       currentJoint.points,
       currentJoint.panel || 'face',
@@ -647,10 +667,10 @@ const NatmJoint3DInspectorModalContent: React.FC<
     isStrikeLineHingeLocked,
   ]);
 
-  // 1. Strike Convention & Angles (keeps Strike invariant when rotating around a locked Strike Line Hinge)
+  // 1. Strike Convention & Angles (keeps Strike invariant only when rotating around an explicitly locked Strike Line Hinge)
   const strikeInfo = useMemo(() => {
     const base = calculateStrikeFromDipDirection(dipDirection ?? 135, dipAmount ?? 60);
-    if ((currentJoint.panel === 'crown' || isStrikeLineHingeLocked) && hingePlaneResult) {
+    if (isStrikeLineHingeLocked && hingePlaneResult) {
       const fixedStrike = hingePlaneResult.strikeRhrDeg;
       const fixedAlt = (fixedStrike + 180) % 360;
       const p1 = Math.min(fixedStrike, fixedAlt);
@@ -669,8 +689,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
         isOrientationComplete: true,
       };
     }
-    return base;
-  }, [dipDirection, dipAmount, currentJoint.panel, isStrikeLineHingeLocked, hingePlaneResult]);
+    return {
+      ...base,
+      isOrientationComplete: true,
+    };
+  }, [dipDirection, dipAmount, isStrikeLineHingeLocked, hingePlaneResult]);
 
   // 1b. True Dip vs. Surface Apparent Dips Matrix (Analytical Geological Calculation)
   const apparentMatrix = useMemo<TunnelSurfacesApparentDipMatrix>(() => {
@@ -802,9 +825,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
     }
   };
 
-  const handleConfirmSwitch = (saveFirst: boolean) => {
+  const handleConfirmSwitch = (
+    saveFirst: boolean,
+    applyMode: 'TEXT_ONLY' | 'ALIGN_TRACE' = 'TEXT_ONLY'
+  ) => {
     if (saveFirst) {
-      handleSaveInspection();
+      handleSaveInspection(applyMode);
     }
     if (pendingSwitchJointId) {
       setCurrentJointId(pendingSwitchJointId);
@@ -1459,12 +1485,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
     let prevMouse = { x: 0, y: 0 };
 
     // Pinch & Multi-Touch State
-    let touchMode: 'NONE' | 'ORBIT' | 'PINCH_PAN' = 'NONE';
+    let touchMode: 'NONE' | 'ORBIT' | 'PINCH_ROTATE_ZOOM' = 'NONE';
     let prevTouch = { x: 0, y: 0 };
     let initialPinchDist = 0;
     let initialRadius = 17;
-    let initialMidpoint = { x: 0, y: 0 };
-    let initialTarget = { x: 0, y: 0, z: 0 };
+    let prevMidpoint = { x: 0, y: 0 };
+    let prevPinchAngle = 0;
 
     const onMouseDown = (e: MouseEvent) => {
       isMouseDown = true;
@@ -1499,7 +1525,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           return next;
         });
       } else if (mouseButton === 0) {
-        // Left-click -> ORBIT
+        // Left-click -> ORBIT 3D Tunnel Outline
         cam.theta -= dx * 0.007;
         cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
       }
@@ -1519,22 +1545,22 @@ const NatmJoint3DInspectorModalContent: React.FC<
       e.preventDefault(); // allow right-drag pan without opening browser context menu
     };
 
-    // Touch Event Handlers: 1-finger Orbit (or 3D Gizmo Drag), 2-finger Pinch Zoom & Pan Move
+    // Touch Event Handlers: 1-finger Orbit (or 3D Gizmo Drag when explicitly enabled), 2-finger Pinch Zoom & 3D Tunnel Orbit Rotation
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 1) {
         touchMode = 'ORBIT';
         prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       } else if (e.touches.length >= 2) {
-        touchMode = 'PINCH_PAN';
+        touchMode = 'PINCH_ROTATE_ZOOM';
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         initialPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
         initialRadius = camSphericalRef.current.radius;
-        initialMidpoint = {
+        prevMidpoint = {
           x: (t1.clientX + t2.clientX) / 2,
           y: (t1.clientY + t2.clientY) / 2,
         };
-        initialTarget = { ...targetOffsetRef.current };
+        prevPinchAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
       }
     };
 
@@ -1542,7 +1568,6 @@ const NatmJoint3DInspectorModalContent: React.FC<
       if (touchMode === 'NONE') return;
       if (e.cancelable) e.preventDefault();
       const cam = camSphericalRef.current;
-      const target = targetOffsetRef.current;
 
       if (e.touches.length === 1 && touchMode === 'ORBIT') {
         const t = e.touches[0];
@@ -1570,6 +1595,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           x: (t1.clientX + t2.clientX) / 2,
           y: (t1.clientY + t2.clientY) / 2,
         };
+        const currentAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
 
         // 1. Pinch Zoom
         if (initialPinchDist > 0) {
@@ -1577,16 +1603,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
           cam.radius = Math.max(3, Math.min(55, initialRadius * scale));
         }
 
-        // 2. Two-Finger Pan / Move
-        const dMidX = currentMidpoint.x - initialMidpoint.x;
-        const dMidY = currentMidpoint.y - initialMidpoint.y;
-        const panSpeed = cam.radius * 0.0016;
-        const rightX = Math.cos(cam.theta);
-        const rightZ = -Math.sin(cam.theta);
+        // 2. Two-Finger Pinch & Drag -> Always Rotate 3D Tunnel Outline (even if 3D Gizmo Drag mode is on)
+        const dMidX = currentMidpoint.x - prevMidpoint.x;
+        const dMidY = currentMidpoint.y - prevMidpoint.y;
+        let dAngle = currentAngle - prevPinchAngle;
+        if (dAngle > Math.PI) dAngle -= Math.PI * 2;
+        if (dAngle < -Math.PI) dAngle += Math.PI * 2;
 
-        target.x = initialTarget.x - rightX * dMidX * panSpeed;
-        target.z = initialTarget.z - rightZ * dMidX * panSpeed;
-        target.y = initialTarget.y + dMidY * panSpeed;
+        cam.theta -= dMidX * 0.0075 + dAngle * 0.45;
+        cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dMidY * 0.0075));
+
+        prevMidpoint = currentMidpoint;
+        prevPinchAngle = currentAngle;
       }
     };
 
@@ -1730,47 +1758,269 @@ const NatmJoint3DInspectorModalContent: React.FC<
       const grpColor = FIELD_JOINT_GROUP_COLORS[jointSetId]?.stroke || '#d97706';
 
       if (planeDisplayMode === 'TRACED_LENGTH') {
-        // Traced Joint Length Plane: spans strictly the exact 2D traced joint length (-R_s to +R_s along the traced axis)
-        const R_s = tracedHalfLen;
-        let R_up = R_s;
-        let R_down = R_s;
-        if (isCrownNonPenetratingHinge) {
-          // Crown strike line hinge plane in 3D joint inspection:
-          // Top edge is strictly the Crown Strike Line Hinge (R_up = 0, never penetrates above the crown arch)
-          // and pivots downward toward the invert at dipAmount (ideal 90°) relative to the strike direction!
-          R_up = 0;
-          const dipSin = Math.max(0.25, Math.sin((dipAmount * Math.PI) / 180));
-          const maxToInvert = Math.max(0.5, ay / dipSin);
-          R_down =
-            tracedPlaneDepthMode === 'HALF_TRACE'
-              ? Math.min(maxToInvert, R_s)
-              : Math.min(maxToInvert, R_s * 2);
-        } else if (tracedPlaneDepthMode === 'ONE_SIDED') {
-          R_up = 0;
-          R_down = R_s * 2;
-        } else if (tracedPlaneDepthMode === 'HALF_TRACE') {
-          R_up = R_s * 0.5;
-          R_down = R_s * 0.5;
+        if (inspectTargetType === 'dip_surface' && currentDipSurface) {
+          // Exact Drawn Shape & Size in 3D for Dip Surface
+          const rawPoly2D =
+            currentDipSurface.outlinePolygon && currentDipSurface.outlinePolygon.length >= 3
+              ? currentDipSurface.outlinePolygon
+              : buildDipSurfaceOutlineAndCentroid(
+                  currentDipSurface.points,
+                  currentDipSurface.brushRadius
+                ).outlinePolygon;
+
+          const surfPanel = currentDipSurface.panel || 'face';
+          const surfPts3D = rawPoly2D.map((pt) => {
+            const m = pointToTunnel3DMetric(pt, surfPanel, tunnelGeometry);
+            return new THREE.Vector3(m.y, m.z, m.x);
+          });
+
+          if (surfPts3D.length >= 3) {
+            // 1. Compute exact 3D centroid of the drawn Dip Surface polygon
+            const polyCentroid3D = new THREE.Vector3();
+            surfPts3D.forEach((p) => polyCentroid3D.add(p));
+            polyCentroid3D.divideScalar(surfPts3D.length);
+
+            // 2. Determine local panel normal in Three.js coordinates (x=transverse, y=elevation, z=advance)
+            let surfNormal = new THREE.Vector3(0, 0, -1);
+            if (surfPanel === 'left_wall') {
+              surfNormal.set(1, 0, 0);
+            } else if (surfPanel === 'right_wall') {
+              surfNormal.set(-1, 0, 0);
+            } else if (surfPanel === 'crown') {
+              const cx = (tunnelGeometry.widthM || 8.5) / 2;
+              const hw = tunnelGeometry.wallHeightM || 4.2;
+              surfNormal.set(cx - polyCentroid3D.x, hw - polyCentroid3D.y, 0);
+              if (surfNormal.lengthSq() < 1e-4) surfNormal.set(0, -1, 0);
+              else surfNormal.normalize();
+            } else {
+              // Estimate from polygon vertices via Newell's method, fallback to -Z
+              const newell = new THREE.Vector3();
+              for (let i = 0; i < surfPts3D.length; i++) {
+                const curr = surfPts3D[i];
+                const next = surfPts3D[(i + 1) % surfPts3D.length];
+                newell.x += (curr.y - next.y) * (curr.z + next.z);
+                newell.y += (curr.z - next.z) * (curr.x + next.x);
+                newell.z += (curr.x - next.x) * (curr.y + next.y);
+              }
+              if (newell.lengthSq() > 1e-5) surfNormal.copy(newell.normalize());
+            }
+
+            // 3. Target geological plane normal from Dip Direction & Dip Amount
+            const targetNormal = new THREE.Vector3(nx, ny, nz).normalize();
+            if (surfNormal.dot(targetNormal) < 0) {
+              targetNormal.negate();
+            }
+
+            // 4. Rotate exact drawn 3D polygon around its centroid onto the Dip Plane (preserving 100% exact drawn shape & size)
+            const quat = new THREE.Quaternion().setFromUnitVectors(surfNormal, targetNormal);
+            const tiltedPts3D = surfPts3D.map((p) =>
+              p.clone().sub(polyCentroid3D).applyQuaternion(quat).add(polyCentroid3D)
+            );
+
+            // 5. Project onto 2D orthonormal basis on the tilted plane for exact concave/convex triangulation
+            const uAxis = new THREE.Vector3(sx, sy, sz).normalize();
+            const vAxis = new THREE.Vector3().crossVectors(targetNormal, uAxis).normalize();
+            const contour2D = tiltedPts3D.map((p) => {
+              const rel = p.clone().sub(polyCentroid3D);
+              return new THREE.Vector2(rel.dot(uAxis), rel.dot(vAxis));
+            });
+
+            const triangles = THREE.ShapeUtils.triangulateShape(contour2D, []);
+            const dipPositions: number[] = [];
+            const dipNormals: number[] = [];
+            const dipIndices: number[] = [];
+
+            tiltedPts3D.forEach((p) => {
+              dipPositions.push(p.x, p.y, p.z);
+              dipNormals.push(nx, ny, nz);
+            });
+            triangles.forEach((tri) => {
+              dipIndices.push(tri[0], tri[1], tri[2]);
+            });
+
+            const dipGeo = new THREE.BufferGeometry();
+            dipGeo.setAttribute('position', new THREE.Float32BufferAttribute(dipPositions, 3));
+            dipGeo.setAttribute('normal', new THREE.Float32BufferAttribute(dipNormals, 3));
+            dipGeo.setIndex(dipIndices);
+
+            const dipMat = new THREE.MeshStandardMaterial({
+              color: new THREE.Color(grpColor),
+              transparent: true,
+              opacity: 0.76,
+              side: THREE.DoubleSide,
+              roughness: 0.28,
+              metalness: 0.08,
+              depthWrite: false,
+            });
+            group.add(new THREE.Mesh(dipGeo, dipMat));
+
+            // 6. Exact Perimeter Border of the Tilted Dip Surface
+            const borderGeo = new THREE.BufferGeometry().setFromPoints([...tiltedPts3D, tiltedPts3D[0]]);
+            const borderMat = new THREE.LineBasicMaterial({
+              color: 0xfbbf24,
+              linewidth: 3,
+              transparent: true,
+              opacity: 0.98,
+            });
+            group.add(new THREE.Line(borderGeo, borderMat));
+
+            // 7. In-plane Strike/Dip Hatch Lines clipped inside the exact drawn polygon
+            let minU = Infinity,
+              maxU = -Infinity,
+              minV = Infinity,
+              maxV = -Infinity;
+            contour2D.forEach((pt) => {
+              if (pt.x < minU) minU = pt.x;
+              if (pt.x > maxU) maxU = pt.x;
+              if (pt.y < minV) minV = pt.y;
+              if (pt.y > maxV) maxV = pt.y;
+            });
+            const pointInPoly2D = (x: number, y: number): boolean => {
+              let inside = false;
+              for (let i = 0, j = contour2D.length - 1; i < contour2D.length; j = i++) {
+                const xi = contour2D[i].x,
+                  yi = contour2D[i].y;
+                const xj = contour2D[j].x,
+                  yj = contour2D[j].y;
+                const intersect =
+                  yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-9) + xi;
+                if (intersect) inside = !inside;
+              }
+              return inside;
+            };
+            const spanMax = Math.max(maxU - minU, maxV - minV, 0.2);
+            const gridStep = Math.max(0.12, spanMax / 5);
+            const sampleStep = spanMax / 36;
+            const gridPositions: number[] = [];
+            for (let u = minU + gridStep; u < maxU; u += gridStep) {
+              for (let v = minV; v < maxV; v += sampleStep) {
+                const vNext = Math.min(maxV, v + sampleStep);
+                if (pointInPoly2D(u, (v + vNext) * 0.5)) {
+                  const p0 = polyCentroid3D
+                    .clone()
+                    .addScaledVector(uAxis, u)
+                    .addScaledVector(vAxis, v);
+                  const p1 = polyCentroid3D
+                    .clone()
+                    .addScaledVector(uAxis, u)
+                    .addScaledVector(vAxis, vNext);
+                  gridPositions.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
+                }
+              }
+            }
+            for (let v = minV + gridStep; v < maxV; v += gridStep) {
+              for (let u = minU; u < maxU; u += sampleStep) {
+                const uNext = Math.min(maxU, u + sampleStep);
+                if (pointInPoly2D((u + uNext) * 0.5, v)) {
+                  const p0 = polyCentroid3D
+                    .clone()
+                    .addScaledVector(uAxis, u)
+                    .addScaledVector(vAxis, v);
+                  const p1 = polyCentroid3D
+                    .clone()
+                    .addScaledVector(uAxis, uNext)
+                    .addScaledVector(vAxis, v);
+                  gridPositions.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
+                }
+              }
+            }
+            if (gridPositions.length > 0) {
+              const gridGeo = new THREE.BufferGeometry();
+              gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
+              const gridMat = new THREE.LineBasicMaterial({
+                color: new THREE.Color(grpColor).getHex(),
+                transparent: true,
+                opacity: 0.42,
+              });
+              group.add(new THREE.LineSegments(gridGeo, gridMat));
+            }
+
+            // 8. Exact Surface Footprint Outline on Tunnel Wall/Face/Crown (for reference)
+            const footprintGeo = new THREE.BufferGeometry().setFromPoints([
+              ...surfPts3D,
+              surfPts3D[0],
+            ]);
+            const footprintMat = new THREE.LineBasicMaterial({
+              color: 0x06b6d4,
+              linewidth: 2.5,
+              transparent: true,
+              opacity: 0.85,
+            });
+            group.add(new THREE.Line(footprintGeo, footprintMat));
+
+            // Also render the original drawn centerline/pencil stroke on the tunnel surface
+            if (currentDipSurface.points && currentDipSurface.points.length >= 2) {
+              const strokePts = currentDipSurface.points.map((pt) => {
+                const m = pointToTunnel3DMetric(pt, surfPanel, tunnelGeometry);
+                return new THREE.Vector3(m.y, m.z, m.x);
+              });
+              const strokeGeo = new THREE.BufferGeometry().setFromPoints(strokePts);
+              const strokeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 3.5 });
+              group.add(new THREE.Line(strokeGeo, strokeMat));
+            }
+          }
         } else {
-          // MATCH_TRACE: square patch of exact traced length (2 * R_s by 2 * R_s) centered on the 2D trace
-          R_up = R_s;
-          R_down = R_s;
-        }
+          // Traced Joint Length Plane: spans strictly the exact 2D traced joint length (-R_s to +R_s along the traced axis)
+          const R_s = tracedHalfLen;
+          let R_up = R_s;
+          let R_down = R_s;
+          if (isCrownNonPenetratingHinge) {
+            // Crown strike line hinge plane in 3D joint inspection:
+            R_up = 0.28;
+            const dipSin = Math.max(0.25, Math.sin((dipAmount * Math.PI) / 180));
+            const maxToInvert = Math.max(0.5, ay / dipSin);
+            R_down =
+              tracedPlaneDepthMode === 'HALF_TRACE'
+                ? Math.min(maxToInvert, R_s)
+                : Math.min(maxToInvert, R_s * 1.85);
+          } else if (tracedPlaneDepthMode === 'ONE_SIDED') {
+            R_up = 0;
+            R_down = R_s * 2;
+          } else if (tracedPlaneDepthMode === 'HALF_TRACE') {
+            R_up = R_s * 0.5;
+            R_down = R_s * 0.5;
+          } else {
+            // MATCH_TRACE: square patch of exact traced length (2 * R_s by 2 * R_s) centered on the 2D trace
+            R_up = R_s;
+            R_down = R_s;
+          }
 
-        const numCols = 16;
-        const numRows = 12;
-        const tracedPositions: number[] = [];
-        const tracedNormals: number[] = [];
-        const tracedUvs: number[] = [];
-        const tracedIndices: number[] = [];
+          const numCols = 20;
+          const numRows = 12;
+          const tracedPositions: number[] = [];
+          const tracedNormals: number[] = [];
+          const tracedUvs: number[] = [];
+          const tracedIndices: number[] = [];
 
-        for (let r = 0; r <= numRows; r++) {
-          const vFrac = r / numRows;
-          const vDist = -R_up + vFrac * (R_up + R_down);
-          for (let c = 0; c <= numCols; c++) {
-            const uFrac = c / numCols;
-            const uDist = -R_s + uFrac * (2 * R_s);
+          // Helper: interpolate along the 3D curved crown trace when inspecting a Crown joint
+          const sampleCrownCurve3D = (uFrac: number): [number, number, number] | null => {
+            if (!crownCurvedData || isStrikeLineHingeLocked || crownCurvedData.editedCurve3D.length < 2) {
+              return null;
+            }
+            const pts = crownCurvedData.editedCurve3D;
+            const scaled = Math.max(0, Math.min(pts.length - 1, uFrac * (pts.length - 1)));
+            const idx = Math.min(pts.length - 2, Math.floor(scaled));
+            const frac = scaled - idx;
+            const p0 = pts[idx];
+            const p1 = pts[idx + 1];
+            // Map tunnel metric (x=drive, y=transverse, z=elevation) -> Three.js (x=y, y=z, z=x)
+            return [
+              p0.y + (p1.y - p0.y) * frac,
+              p0.z + (p1.z - p0.z) * frac,
+              p0.x + (p1.x - p0.x) * frac,
+            ];
+          };
 
+          const getPt = (uDist: number, vDist: number, uFracOverride?: number): [number, number, number] => {
+            const uFrac = uFracOverride !== undefined ? uFracOverride : (uDist + R_s) / Math.max(1e-4, 2 * R_s);
+            const curvedBase = sampleCrownCurve3D(uFrac);
+            if (curvedBase) {
+              const [bx, by, bz] = curvedBase;
+              const px = bx + vDist * dx;
+              const py = Math.max(0.02, by + vDist * dy);
+              const pz = bz + vDist * dz;
+              return [px, py, pz];
+            }
             const px = ax + uDist * sx + vDist * dx;
             const hingeRoofY = isCrownNonPenetratingHinge
               ? Math.min(ay + uDist * sy, getCrownArchRoofY(ax + uDist * sx))
@@ -1780,113 +2030,136 @@ const NatmJoint3DInspectorModalContent: React.FC<
               ? Math.max(0, Math.min(rawPy, getCrownArchRoofY(px)))
               : rawPy;
             const pz = az + uDist * sz + vDist * dz;
+            return [px, py, pz];
+          };
 
-            tracedPositions.push(px, py, pz);
-            tracedNormals.push(nx, ny, nz);
-            tracedUvs.push(uFrac, vFrac);
+          for (let r = 0; r <= numRows; r++) {
+            const vFrac = r / numRows;
+            const vDist = -R_up + vFrac * (R_up + R_down);
+            for (let c = 0; c <= numCols; c++) {
+              const uFrac = c / numCols;
+              const uDist = -R_s + uFrac * (2 * R_s);
+              const [px, py, pz] = getPt(uDist, vDist, uFrac);
+
+              tracedPositions.push(px, py, pz);
+              tracedNormals.push(nx, ny, nz);
+              tracedUvs.push(uFrac, vFrac);
+            }
           }
-        }
 
-        for (let r = 0; r < numRows; r++) {
-          for (let c = 0; c < numCols; c++) {
-            const i0 = r * (numCols + 1) + c;
-            const i1 = i0 + 1;
-            const i2 = (r + 1) * (numCols + 1) + c;
-            const i3 = i2 + 1;
+          for (let r = 0; r < numRows; r++) {
+            for (let c = 0; c < numCols; c++) {
+              const i0 = r * (numCols + 1) + c;
+              const i1 = i0 + 1;
+              const i2 = (r + 1) * (numCols + 1) + c;
+              const i3 = i2 + 1;
 
-            tracedIndices.push(i0, i2, i1);
-            tracedIndices.push(i1, i2, i3);
+              tracedIndices.push(i0, i2, i1);
+              tracedIndices.push(i1, i2, i3);
+            }
           }
-        }
 
-        const tracedGeo = new THREE.BufferGeometry();
-        tracedGeo.setAttribute('position', new THREE.Float32BufferAttribute(tracedPositions, 3));
-        tracedGeo.setAttribute('normal', new THREE.Float32BufferAttribute(tracedNormals, 3));
-        tracedGeo.setAttribute('uv', new THREE.Float32BufferAttribute(tracedUvs, 2));
-        tracedGeo.setIndex(tracedIndices);
+          const tracedGeo = new THREE.BufferGeometry();
+          tracedGeo.setAttribute('position', new THREE.Float32BufferAttribute(tracedPositions, 3));
+          tracedGeo.setAttribute('normal', new THREE.Float32BufferAttribute(tracedNormals, 3));
+          tracedGeo.setAttribute('uv', new THREE.Float32BufferAttribute(tracedUvs, 2));
+          tracedGeo.setIndex(tracedIndices);
 
-        const tracedPlaneMat = new THREE.MeshStandardMaterial({
-          color: new THREE.Color(grpColor),
-          transparent: true,
-          opacity: 0.68,
-          side: THREE.DoubleSide,
-          roughness: 0.3,
-          metalness: 0.08,
-          depthWrite: false,
-        });
-
-        const tracedPlaneMesh = new THREE.Mesh(tracedGeo, tracedPlaneMat);
-        group.add(tracedPlaneMesh);
-
-        // Exact Traced Length Plane Perimeter Outline (following non-penetrating crown hinge along top edge)
-        const getPt = (uDist: number, vDist: number): [number, number, number] => {
-          const px = ax + uDist * sx + vDist * dx;
-          const hingeRoofY = isCrownNonPenetratingHinge
-            ? Math.min(ay + uDist * sy, getCrownArchRoofY(ax + uDist * sx))
-            : ay + uDist * sy;
-          const rawPy = hingeRoofY + vDist * dy;
-          const py = isCrownNonPenetratingHinge
-            ? Math.max(0, Math.min(rawPy, getCrownArchRoofY(px)))
-            : rawPy;
-          const pz = az + uDist * sz + vDist * dz;
-          return [px, py, pz];
-        };
-
-        const borderPos: number[] = [];
-        for (let c = 0; c < numCols; c++) {
-          const u0 = -R_s + (c / numCols) * (2 * R_s);
-          const u1 = -R_s + ((c + 1) / numCols) * (2 * R_s);
-          borderPos.push(...getPt(u0, -R_up), ...getPt(u1, -R_up));
-          borderPos.push(...getPt(u0, R_down), ...getPt(u1, R_down));
-        }
-        borderPos.push(...getPt(-R_s, -R_up), ...getPt(-R_s, R_down));
-        borderPos.push(...getPt(R_s, -R_up), ...getPt(R_s, R_down));
-
-        const borderGeo = new THREE.BufferGeometry();
-        borderGeo.setAttribute('position', new THREE.Float32BufferAttribute(borderPos, 3));
-        const borderMat = new THREE.LineBasicMaterial({
-          color: 0xfbbf24,
-          linewidth: 2.5,
-          transparent: true,
-          opacity: 0.95,
-        });
-        group.add(new THREE.LineSegments(borderGeo, borderMat));
-
-        // Proportional internal subdivision grid lines on the traced-length plane
-        const gridStep = Math.max(0.25, Number((currentTraceLengthM / 4).toFixed(2)));
-        const gridPositions: number[] = [];
-        for (let step = -R_up + gridStep; step < R_down - 0.02; step += gridStep) {
-          if (Math.abs(step) < 0.05) continue;
-          for (let c = 0; c < numCols; c++) {
-            const u0 = -R_s + (c / numCols) * (2 * R_s);
-            const u1 = -R_s + ((c + 1) / numCols) * (2 * R_s);
-            gridPositions.push(...getPt(u0, step), ...getPt(u1, step));
-          }
-        }
-        for (let step = -R_s + gridStep; step < R_s - 0.02; step += gridStep) {
-          if (Math.abs(step) < 0.05) continue;
-          gridPositions.push(...getPt(step, -R_up), ...getPt(step, R_down));
-        }
-        if (gridPositions.length > 0) {
-          const gridGeo = new THREE.BufferGeometry();
-          gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
-          const gridMat = new THREE.LineBasicMaterial({
-            color: new THREE.Color(grpColor).getHex(),
+          const tracedPlaneMat = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(grpColor),
             transparent: true,
-            opacity: 0.35,
+            opacity: 0.68,
+            side: THREE.DoubleSide,
+            roughness: 0.3,
+            metalness: 0.08,
+            depthWrite: false,
           });
-          group.add(new THREE.LineSegments(gridGeo, gridMat));
-        }
 
-        // Exact 3D Polyline of the 2D Mapped Trace Points on the surface
-        if (currentJoint.points && currentJoint.points.length >= 2) {
-          const polyPts = currentJoint.points.map((pt) => {
-            const m = pointToTunnel3DMetric(pt, currentJoint.panel || 'face', tunnelGeometry);
-            return new THREE.Vector3(m.y, m.z, m.x);
+          const tracedPlaneMesh = new THREE.Mesh(tracedGeo, tracedPlaneMat);
+          group.add(tracedPlaneMesh);
+
+          const borderPos: number[] = [];
+          for (let c = 0; c < numCols; c++) {
+            const uFrac0 = c / numCols;
+            const uFrac1 = (c + 1) / numCols;
+            const u0 = -R_s + uFrac0 * (2 * R_s);
+            const u1 = -R_s + uFrac1 * (2 * R_s);
+            borderPos.push(...getPt(u0, -R_up, uFrac0), ...getPt(u1, -R_up, uFrac1));
+            borderPos.push(...getPt(u0, R_down, uFrac0), ...getPt(u1, R_down, uFrac1));
+          }
+          borderPos.push(...getPt(-R_s, -R_up, 0), ...getPt(-R_s, R_down, 0));
+          borderPos.push(...getPt(R_s, -R_up, 1), ...getPt(R_s, R_down, 1));
+
+          const borderGeo = new THREE.BufferGeometry();
+          borderGeo.setAttribute('position', new THREE.Float32BufferAttribute(borderPos, 3));
+          const borderMat = new THREE.LineBasicMaterial({
+            color: 0xfbbf24,
+            linewidth: 2.5,
+            transparent: true,
+            opacity: 0.95,
           });
-          const polyGeo = new THREE.BufferGeometry().setFromPoints(polyPts);
-          const polyMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 4 });
-          group.add(new THREE.Line(polyGeo, polyMat));
+          group.add(new THREE.LineSegments(borderGeo, borderMat));
+
+          // Proportional internal subdivision grid lines on the traced-length plane
+          const gridStep = Math.max(0.25, Number((currentTraceLengthM / 4).toFixed(2)));
+          const gridPositions: number[] = [];
+          for (let step = -R_up + gridStep; step < R_down - 0.02; step += gridStep) {
+            if (Math.abs(step) < 0.05) continue;
+            for (let c = 0; c < numCols; c++) {
+              const uFrac0 = c / numCols;
+              const uFrac1 = (c + 1) / numCols;
+              const u0 = -R_s + uFrac0 * (2 * R_s);
+              const u1 = -R_s + uFrac1 * (2 * R_s);
+              gridPositions.push(...getPt(u0, step, uFrac0), ...getPt(u1, step, uFrac1));
+            }
+          }
+          for (let step = -R_s + gridStep; step < R_s - 0.02; step += gridStep) {
+            if (Math.abs(step) < 0.05) continue;
+            const uFrac = (step + R_s) / Math.max(1e-4, 2 * R_s);
+            gridPositions.push(...getPt(step, -R_up, uFrac), ...getPt(step, R_down, uFrac));
+          }
+          if (gridPositions.length > 0) {
+            const gridGeo = new THREE.BufferGeometry();
+            gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
+            const gridMat = new THREE.LineBasicMaterial({
+              color: new THREE.Color(grpColor).getHex(),
+              transparent: true,
+              opacity: 0.35,
+            });
+            group.add(new THREE.LineSegments(gridGeo, gridMat));
+          }
+
+          // Exact 3D Polyline of the Crown Curved Intersection Trace (or 2D Mapped Trace Points)
+          if (crownCurvedData && !isStrikeLineHingeLocked && crownCurvedData.editedCurve3D.length >= 2) {
+            // 1. Live Edited Curved Crown Trace where the 3D plane cuts right through the crown arch
+            const editedPts = crownCurvedData.editedCurve3D.map(
+              (m) => new THREE.Vector3(m.y, m.z, m.x)
+            );
+            const editedGeo = new THREE.BufferGeometry().setFromPoints(editedPts);
+            const editedMat = new THREE.LineBasicMaterial({ color: 0x06b6d4, linewidth: 4.5 });
+            group.add(new THREE.Line(editedGeo, editedMat));
+
+            // 2. Original Drawn Trace on Crown (for visual reference)
+            const drawnPts = crownCurvedData.drawnCurve3D.map(
+              (m) => new THREE.Vector3(m.y, m.z + 0.015, m.x)
+            );
+            const drawnGeo = new THREE.BufferGeometry().setFromPoints(drawnPts);
+            const drawnMat = new THREE.LineBasicMaterial({
+              color: 0x38bdf8,
+              linewidth: 2.5,
+              transparent: true,
+              opacity: 0.65,
+            });
+            group.add(new THREE.Line(drawnGeo, drawnMat));
+          } else if (currentJoint.points && currentJoint.points.length >= 2) {
+            const polyPts = currentJoint.points.map((pt) => {
+              const m = pointToTunnel3DMetric(pt, currentJoint.panel || 'face', tunnelGeometry);
+              return new THREE.Vector3(m.y, m.z, m.x);
+            });
+            const polyGeo = new THREE.BufferGeometry().setFromPoints(polyPts);
+            const polyMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 4 });
+            group.add(new THREE.Line(polyGeo, polyMat));
+          }
         }
       } else if (planeDisplayMode === 'EXTENDED') {
         const wTunnel = tunnelGeometry.widthM || 8.5;
@@ -2211,28 +2484,31 @@ const NatmJoint3DInspectorModalContent: React.FC<
       }
     }
 
-    // 5a. 3D Geological Disk Gizmo & Normal/Dip Vectors around Anchor (especially vivid for Dip Surface or 3D Gizmo Mode)
+    // 5a. 3D Geological Disk Gizmo & Normal/Dip Vectors around Anchor
     if (inspectTargetType === 'dip_surface' || is3DGizmoDragMode) {
-      const gizmoRadius = Math.max(1.1, Math.min(2.6, currentTraceLengthM * 0.65));
-      const circlePts: THREE.Vector3[] = [];
-      const segments = 64;
-      for (let i = 0; i <= segments; i++) {
-        const ang = (i / segments) * Math.PI * 2;
-        const c = Math.cos(ang) * gizmoRadius;
-        const s = Math.sin(ang) * gizmoRadius;
-        circlePts.push(
-          new THREE.Vector3(
-            ax + sx * c + dx * s,
-            ay + sy * c + dy * s,
-            az + sz * c + dz * s
-          )
-        );
+      const gizmoRadius = Math.max(0.75, Math.min(2.2, currentTraceLengthM * 0.55));
+      // Only render the circular ring gizmo for joints in 3D Gizmo Drag mode; Dip Surfaces show their exact drawn polygon shape instead
+      if (inspectTargetType !== 'dip_surface') {
+        const circlePts: THREE.Vector3[] = [];
+        const segments = 64;
+        for (let i = 0; i <= segments; i++) {
+          const ang = (i / segments) * Math.PI * 2;
+          const c = Math.cos(ang) * gizmoRadius;
+          const s = Math.sin(ang) * gizmoRadius;
+          circlePts.push(
+            new THREE.Vector3(
+              ax + sx * c + dx * s,
+              ay + sy * c + dy * s,
+              az + sz * c + dz * s
+            )
+          );
+        }
+        const ringGeo = new THREE.BufferGeometry().setFromPoints(circlePts);
+        const ringMat = new THREE.LineBasicMaterial({ color: 0x06b6d4, linewidth: 3 });
+        group.add(new THREE.Line(ringGeo, ringMat));
       }
-      const ringGeo = new THREE.BufferGeometry().setFromPoints(circlePts);
-      const ringMat = new THREE.LineBasicMaterial({ color: 0x06b6d4, linewidth: 3 });
-      group.add(new THREE.Line(ringGeo, ringMat));
 
-      // Dip Direction Arrow on Disk (Amber)
+      // Dip Direction Arrow on Surface (Amber)
       const dipDirVec = new THREE.Vector3(dx, dy, dz).normalize();
       const dipArrow = new THREE.ArrowHelper(
         dipDirVec,
@@ -2316,21 +2592,30 @@ const NatmJoint3DInspectorModalContent: React.FC<
         group.add(new THREE.Line(rightTraceGeo, rightTraceMat));
       }
 
-      // Crown Arch Intersection Trace in Emerald Green
+      // Crown Arch Intersection Trace in Emerald Green (Curved along arched crown roof)
       if (surfaceIntersections.crown) {
-        const c1 = surfaceIntersections.crown.p1;
-        const c2 = surfaceIntersections.crown.p2;
-        const getCrownY = (xVal: number) => {
-          const dx = (xVal - cx) / (w / 2);
-          const clamped = Math.max(-1, Math.min(1, dx));
-          return hw + archRise * Math.sqrt(Math.max(0, 1 - clamped * clamped));
-        };
-        const crownTraceGeo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(c1.y, getCrownY(c1.y), c1.x),
-          new THREE.Vector3(c2.y, getCrownY(c2.y), c2.x),
-        ]);
-        const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.5 });
-        group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
+        const curved3D = surfaceIntersections.crown.curvedPoints3D;
+        if (curved3D && curved3D.length >= 2) {
+          const crownTraceGeo = new THREE.BufferGeometry().setFromPoints(
+            curved3D.map((pt) => new THREE.Vector3(pt.y, pt.z, pt.x))
+          );
+          const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.8 });
+          group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
+        } else {
+          const c1 = surfaceIntersections.crown.p1;
+          const c2 = surfaceIntersections.crown.p2;
+          const getCrownY = (xVal: number) => {
+            const dx = (xVal - cx) / (w / 2);
+            const clamped = Math.max(-1, Math.min(1, dx));
+            return hw + archRise * Math.sqrt(Math.max(0, 1 - clamped * clamped));
+          };
+          const crownTraceGeo = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(c1.y, getCrownY(c1.y), c1.x),
+            new THREE.Vector3(c2.y, getCrownY(c2.y), c2.x),
+          ]);
+          const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.5 });
+          group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
+        }
       }
     }
   }, [
@@ -2348,18 +2633,20 @@ const NatmJoint3DInspectorModalContent: React.FC<
     currentJoint,
     currentJoint.panel,
     hingePlaneResult,
+    crownCurvedData,
     hingeDipDeg,
     currentTraceLengthM,
     isStrikeLineHingeLocked,
     showLegendOverlay,
     inspectTargetType,
+    currentDipSurface,
     is3DGizmoDragMode,
   ]);
 
   // -------------------------------------------------------------------------
-  // SAVE HANDLER (SUPPORTS BOTH JOINTS AND DIP SURFACES)
+  // SAVE HANDLER (SUPPORTS BOTH 'TEXT_ONLY' AND 'ALIGN_TRACE' MODES)
   // -------------------------------------------------------------------------
-  const handleSaveInspection = () => {
+  const handleSaveInspection = (applyMode: 'TEXT_ONLY' | 'ALIGN_TRACE' = 'TEXT_ONLY') => {
     const inspectionData: Joint3DInspectionData = {
       jointId: currentJoint.id,
       sourcePanel: currentJoint.panel,
@@ -2410,8 +2697,20 @@ const NatmJoint3DInspectorModalContent: React.FC<
       return;
     }
 
+    const nextPoints =
+      applyMode === 'ALIGN_TRACE'
+        ? recomputeAlignedCanvasTracePoints(
+            currentJoint.points,
+            currentJoint.panel,
+            strikeInfo.dipDirectionDeg,
+            strikeInfo.dipDeg,
+            tunnelGeometry
+          )
+        : currentJoint.points;
+
     const updated: FieldJointTrace = {
       ...currentJoint,
+      points: nextPoints,
       dipDirection: strikeInfo.dipDirectionDeg,
       dipAmount: strikeInfo.dipDeg,
       strike: strikeInfo.strikeRhrDeg,
@@ -2763,7 +3062,6 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       type="button"
                       onClick={() => {
                         setInspectTargetType('dip_surface');
-                        setIs3DGizmoDragMode(true);
                         if (
                           allRoundDipSurfaces[0] &&
                           !allRoundDipSurfaces.some((d) => d.id === currentDipSurfaceId)
@@ -2800,7 +3098,6 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             onClick={() => {
                               setInspectTargetType('dip_surface');
                               setCurrentDipSurfaceId(dp.id);
-                              setIs3DGizmoDragMode(true);
                             }}
                             className={`p-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                               isCurrent
@@ -2927,33 +3224,36 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   </div>
                 )}
 
-                {/* Instant Save & Reflect on Canvas Button inside Card */}
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    onClick={handleSaveInspection}
-                    className={`w-full py-2 px-3 rounded-xl font-mono text-xs font-black cursor-pointer transition-all flex items-center justify-center gap-2 shadow-md ${
-                      saveStatus === 'SAVED'
-                        ? 'bg-emerald-500 text-slate-950'
-                        : inspectTargetType === 'dip_surface'
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
-                        : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                    }`}
-                  >
-                    {saveStatus === 'SAVED' ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        <span>Reflected on Canvas!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Save className="w-4 h-4" />
-                        <span>
-                          Save &amp; Reflect {inspectTargetType === 'dip_surface' ? 'Dip Surface' : 'Joint'} on Canvas
-                        </span>
-                      </>
+                {/* Two Explicit Apply Options: Change Text Only vs Change Trace Alignment on Canvas */}
+                <div className="pt-1.5 space-y-1.5">
+                  <div className="text-[10px] font-bold text-amber-300 uppercase tracking-wide flex items-center justify-between">
+                    <span>Apply Edited 3D Inspection to Canvas:</span>
+                    {saveStatus === 'SAVED' && (
+                      <span className="text-emerald-400 flex items-center gap-1 font-black">
+                        <Check className="w-3.5 h-3.5" /> Reflected on Canvas!
+                      </span>
                     )}
-                  </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveInspection('TEXT_ONLY')}
+                      className="py-2 px-2.5 rounded-xl font-mono text-[11px] font-black cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-md bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-300"
+                      title="Update Dip Direction, Dip Amount & Strike text on the canvas while keeping the drawn trace line unchanged"
+                    >
+                      <Save className="w-3.5 h-3.5 shrink-0" />
+                      <span>1. Change Text Only on Canvas</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveInspection('ALIGN_TRACE')}
+                      className="py-2 px-2.5 rounded-xl font-mono text-[11px] font-black cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-md bg-cyan-500 hover:bg-cyan-400 text-slate-950 border border-cyan-300"
+                      title="Update both text and trace alignment (curved crown arch intersection or apparent-dip trace) on the canvas based on edited 3D joint inspection"
+                    >
+                      <Compass className="w-3.5 h-3.5 shrink-0" />
+                      <span>2. Change Trace Alignment on Canvas</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -3477,7 +3777,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 </div>
               )}
 
-              {/* CROWN TRACE DIP AMOUNT & PLANE TILT CONTROL */}
+              {/* CROWN CURVED STRIKE LINE & 3D PLANE CUTTING THROUGH CURVE CONTROL */}
               {isCrownTrace && isHingeRotationActive && (
                 <div className="p-3 rounded-lg bg-gradient-to-br from-sky-500/15 via-slate-900 to-sky-950/20 border border-sky-500/40 space-y-2.5">
                   <div className="flex items-center justify-between">
@@ -3486,11 +3786,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       <span className="text-[11px] font-bold text-sky-300">
                         {tunnelGeometry.isVerticalShaft
                           ? '2. ES Wall (90°–180°) Trace Hinge & Dip Tilt:'
-                          : 'Crown Strike Line Hinge & Dip Tilt:'}
+                          : 'Crown Curved Strike Trace & 3D Cutting Plane:'}
                       </span>
                     </div>
                     <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono font-bold border border-sky-500/40 text-[10px]">
-                      Strike Locked: {strikeInfo.strikePairLabel}
+                      Strike: {strikeInfo.strikePairLabel}
                     </span>
                   </div>
 
@@ -3502,24 +3802,66 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       </>
                     ) : (
                       <>
-                        The mapped Crown trace (<strong className="text-sky-300">{strikeInfo.strikePairLabel}</strong>) acts as a <strong className="text-sky-300">fixed non-penetrating Strike Line Hinge</strong> on the crown arch. Decreasing Dip Amount pivots the plane strictly downward from the crown hinge without penetrating the crown or changing Strike.
+                        On the arched <strong className="text-sky-300">Crown</strong>, the strike/intersection trace is curved and the <strong className="text-sky-300">3D plane covers all of the curve and cuts right through the curve</strong>. Changing <strong className="text-cyan-300">Dip Direction</strong> or <strong className="text-sky-300">Dip Amount</strong> dynamically updates both the 3D plane on the curve and the curved crown intersection trace.
                       </>
                     )}
                   </p>
 
-                  {/* Live Dip Amount Slider */}
+                  {/* Live Crown Dip Direction Slider (0° - 359°) */}
+                  <div className="space-y-1.5 bg-slate-900/90 p-2.5 rounded-lg border border-cyan-500/25">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-slate-200">Crown Curve Dip Direction (α):</span>
+                      <span className="font-mono font-black text-cyan-400 bg-cyan-950/90 px-2 py-0.5 rounded border border-cyan-500/50 text-xs shadow-sm">
+                        {String(dipDirection ?? 135).padStart(3, '0')}°
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={359}
+                      value={dipDirection ?? 135}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setDipDirection(val);
+                      }}
+                      className="w-full accent-cyan-400 cursor-pointer h-2 bg-slate-800 rounded-lg"
+                    />
+                    <div className="flex items-center justify-between gap-1 pt-0.5">
+                      {[
+                        { d: 0, label: '000° FWD' },
+                        { d: 90, label: '090° R' },
+                        { d: 180, label: '180° BACK' },
+                        { d: 270, label: '270° L' },
+                      ].map((btn) => (
+                        <button
+                          key={btn.d}
+                          type="button"
+                          onClick={() => setDipDirection(btn.d)}
+                          className={`flex-1 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
+                            (dipDirection ?? 135) === btn.d
+                              ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Live Crown Dip Amount Slider (1° - 90°) */}
                   <div className="space-y-1.5 bg-slate-900/90 p-2.5 rounded-lg border border-sky-500/20">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-bold text-slate-200">Crown Strike Dip Amount (δ):</span>
+                      <span className="font-bold text-slate-200">Crown Curve Dip Amount (δ):</span>
                       <span className="font-mono font-black text-sky-400 bg-sky-950/90 px-2 py-0.5 rounded border border-sky-500/50 text-xs shadow-sm">
-                        {hingeDipDeg}° {hingeDipDeg === 90 ? '(Ideal 90° to Strike)' : ''}
+                        {dipAmount ?? hingeDipDeg}°
                       </span>
                     </div>
                     <input
                       type="range"
                       min={1}
                       max={90}
-                      value={hingeDipDeg}
+                      value={dipAmount ?? hingeDipDeg}
                       onChange={(e) => {
                         const val = Number(e.target.value);
                         setHingeDipDeg(val);
@@ -3529,7 +3871,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     />
                     {/* Quick Preset Angles */}
                     <div className="flex items-center justify-between gap-1 pt-1">
-                      {[90, 80, 75, 60, 45, 30].map((deg) => (
+                      {[90, 80, 70, 60, 45, 30].map((deg) => (
                         <button
                           key={deg}
                           type="button"
@@ -3538,48 +3880,14 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             setDipAmount(deg);
                           }}
                           className={`flex-1 py-1 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
-                            hingeDipDeg === deg
+                            (dipAmount ?? hingeDipDeg) === deg
                               ? 'bg-sky-500 text-slate-950 border-sky-300 font-bold shadow-sm'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                           }`}
                         >
-                          {deg === 90 ? '90° Ideal' : `${deg}°`}
+                          {deg}°
                         </button>
                       ))}
-                    </div>
-                  </div>
-
-                  {/* Tilt Direction Side (Relative to Strike Direction) */}
-                  <div className="space-y-1 pt-0.5">
-                    <div className="flex items-center justify-between text-[10px] text-slate-300">
-                      <span>Dip Side Relative to Strike:</span>
-                      <span className="font-mono font-bold text-sky-300">
-                        {hingeDipSide === 'heading' ? 'Strike + 90° (RHR Side)' : 'Strike - 90° (Opposite Side)'}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setHingeDipSide('heading')}
-                        className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
-                          hingeDipSide === 'heading'
-                            ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-sm'
-                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                        }`}
-                      >
-                        Dip Side +90° to Strike
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setHingeDipSide('collar')}
-                        className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
-                          hingeDipSide === 'collar'
-                            ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-sm'
-                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                        }`}
-                      >
-                        Dip Side -90° to Strike
-                      </button>
                     </div>
                   </div>
 
@@ -3587,37 +3895,55 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   <div className="p-2 rounded bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between text-[10px] font-mono">
                     <div>
                       <span className="text-slate-400">Dip Amount: </span>
-                      <strong className="text-sky-400 font-bold">{hingePlaneResult?.derivedDipDeg ?? dipAmount}°</strong>
+                      <strong className="text-sky-400 font-bold">{dipAmount ?? hingeDipDeg}°</strong>
                     </div>
                     <div>
                       <span className="text-slate-400">Dip Dir: </span>
                       <strong className="text-cyan-400 font-bold">
-                        {hingePlaneResult?.derivedDipDirectionDeg ?? dipDirection}°
+                        {String(dipDirection ?? 135).padStart(3, '0')}°
                       </strong>
                     </div>
                     <div>
                       <span className="text-slate-400">Strike (RHR): </span>
                       <strong className="text-emerald-400 font-bold">
-                        {hingePlaneResult?.strikeRhrDeg ?? strikeInfo.strikeRhrDeg}°
+                        {strikeInfo.strikeRhrDeg}°
                       </strong>
                     </div>
                   </div>
 
-                  {/* Toggle */}
+                  {/* Two Canvas Sync Options directly inside Crown Inspector Card */}
+                  <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveInspection('TEXT_ONLY')}
+                      className="py-1.5 px-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono text-[10px] font-black cursor-pointer shadow"
+                    >
+                      Change Text Only on Canvas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveInspection('ALIGN_TRACE')}
+                      className="py-1.5 px-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-[10px] font-black cursor-pointer shadow"
+                    >
+                      Change Trace Alignment
+                    </button>
+                  </div>
+
+                  {/* Optional Strike Lock Toggle */}
                   <label
                     onClick={(e) => e.stopPropagation()}
                     className="flex items-center gap-2 cursor-pointer pt-0.5 text-[9.5px] text-slate-400 hover:text-slate-200"
                   >
                     <input
                       type="checkbox"
-                      checked={isHingeRotationActive}
+                      checked={isStrikeLineHingeLocked}
                       onChange={(e) => {
                         e.stopPropagation();
-                        setIsHingeRotationActive(e.target.checked);
+                        setIsStrikeLineHingeLocked(e.target.checked);
                       }}
                       className="accent-sky-500 rounded cursor-pointer"
                     />
-                    <span>Tilt plane strictly relative to crown strike direction (Recommended)</span>
+                    <span>Lock initial chord strike angle (optional)</span>
                   </label>
                 </div>
               )}
@@ -5206,7 +5532,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
             <p className="text-slate-300">
               Do you want to save current changes for <strong>Joint {currentJoint.id}</strong> (Dip {dipAmount}° ∠ {dipDirection}°) and reflect them onto the Face Canvas before switching to Joint {pendingSwitchJointId}?
             </p>
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => {
@@ -5226,10 +5552,17 @@ const NatmJoint3DInspectorModalContent: React.FC<
               </button>
               <button
                 type="button"
-                onClick={() => handleConfirmSwitch(true)}
+                onClick={() => handleConfirmSwitch(true, 'TEXT_ONLY')}
                 className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-md cursor-pointer"
               >
-                Save &amp; Reflect on Canvas
+                Change Text Only on Canvas
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmSwitch(true, 'ALIGN_TRACE')}
+                className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black shadow-md cursor-pointer"
+              >
+                Change Trace Alignment on Canvas
               </button>
             </div>
           </div>

@@ -3419,13 +3419,14 @@ export function buildDipSurfaceOutlineAndCentroid(
     const dx = p1.x - p0.x;
     const dy = p1.y - p0.y;
     const len = Math.hypot(dx, dy) || 1;
-    const nx = (-dy / len) * 14;
-    const ny = (dx / len) * 14;
+    const halfW = Math.max(8, brushRadius >= 10 ? brushRadius : 14);
+    const nx = (-dy / len) * halfW;
+    const ny = (dx / len) * halfW;
     const poly = [
-      { x: p0.x + nx, y: p0.y + ny },
-      { x: p1.x + nx, y: p1.y + ny },
-      { x: p1.x - nx, y: p1.y - ny },
-      { x: p0.x - nx, y: p0.y - ny },
+      { x: Number((p0.x + nx).toFixed(1)), y: Number((p0.y + ny).toFixed(1)) },
+      { x: Number((p1.x + nx).toFixed(1)), y: Number((p1.y + ny).toFixed(1)) },
+      { x: Number((p1.x - nx).toFixed(1)), y: Number((p1.y - ny).toFixed(1)) },
+      { x: Number((p0.x - nx).toFixed(1)), y: Number((p0.y - ny).toFixed(1)) },
     ];
     return {
       outlinePolygon: poly,
@@ -3433,15 +3434,57 @@ export function buildDipSurfaceOutlineAndCentroid(
     };
   }
 
-  // Pencil trace polygon: decimate slightly to keep clean connected pencil vertices
+  // Decimate slightly to keep clean connected vertices
   const poly: FieldPoint2D[] = [rawPoints[0]];
   for (let i = 1; i < rawPoints.length - 1; i++) {
     const prev = poly[poly.length - 1];
-    if (Math.hypot(rawPoints[i].x - prev.x, rawPoints[i].y - prev.y) >= 4.5) {
+    if (Math.hypot(rawPoints[i].x - prev.x, rawPoints[i].y - prev.y) >= 3.5) {
       poly.push(rawPoints[i]);
     }
   }
   poly.push(rawPoints[rawPoints.length - 1]);
+
+  // If drawn with a wide Brush stroke (brushRadius >= 10) as an open stroke (not a closed loop),
+  // build the exact painted ribbon polygon of half-width `brushRadius` around the stroke spine
+  const startEndDist = Math.hypot(
+    poly[0].x - poly[poly.length - 1].x,
+    poly[0].y - poly[poly.length - 1].y
+  );
+  if (brushRadius >= 10 && poly.length >= 2 && startEndDist > Math.max(36, brushRadius * 1.35)) {
+    const leftSide: FieldPoint2D[] = [];
+    const rightSide: FieldPoint2D[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const pPrev = poly[Math.max(0, i - 1)];
+      const pNext = poly[Math.min(poly.length - 1, i + 1)];
+      const tx = pNext.x - pPrev.x;
+      const ty = pNext.y - pPrev.y;
+      const tLen = Math.hypot(tx, ty) || 1;
+      const nx = (-ty / tLen) * brushRadius;
+      const ny = (tx / tLen) * brushRadius;
+      leftSide.push({
+        x: Number((poly[i].x + nx).toFixed(1)),
+        y: Number((poly[i].y + ny).toFixed(1)),
+      });
+      rightSide.push({
+        x: Number((poly[i].x - nx).toFixed(1)),
+        y: Number((poly[i].y - ny).toFixed(1)),
+      });
+    }
+    const ribbonPoly = [...leftSide, ...rightSide.reverse()];
+    let rSumX = 0;
+    let rSumY = 0;
+    for (const p of ribbonPoly) {
+      rSumX += p.x;
+      rSumY += p.y;
+    }
+    return {
+      outlinePolygon: ribbonPoly,
+      centroid: {
+        x: Math.round(rSumX / ribbonPoly.length),
+        y: Math.round(rSumY / ribbonPoly.length),
+      },
+    };
+  }
 
   let sumX = 0;
   let sumY = 0;
@@ -3474,6 +3517,11 @@ export function buildDipSurfacePolygonWithOutlineSnap(
   const geom = computePanelCanvasGeometry(panel, location, round);
   const start = pencilPts[0];
   const end = pencilPts[pencilPts.length - 1];
+
+  // If the user already drew a self-closed loop, preserve the exact drawn loop directly
+  if (Math.hypot(end.x - start.x, end.y - start.y) <= 28) {
+    return buildDipSurfaceOutlineAndCentroid(pencilPts, 0);
+  }
 
   // 1. Check if start and end points connect to an existing Joint Trace on this panel
   const panelTraces = (round.jointTraces || []).filter(
@@ -3545,10 +3593,24 @@ export function buildDipSurfacePolygonWithOutlineSnap(
         }
       });
       if (sDist <= 42 && eDist <= 42 && sIdx !== -1 && eIdx !== -1) {
+        const n = perimLoop.length;
+        const fwdSteps = (sIdx - eIdx + n) % n;
+        const bwdSteps = (eIdx - sIdx + n) % n;
+        const arcPts: FieldPoint2D[] = [];
+        if (fwdSteps <= bwdSteps) {
+          for (let step = 1; step < fwdSteps; step++) {
+            arcPts.push(perimLoop[(eIdx + step) % n]);
+          }
+        } else {
+          for (let step = 1; step < bwdSteps; step++) {
+            arcPts.push(perimLoop[(eIdx - step + n) % n]);
+          }
+        }
         const closedPts = [
           perimLoop[sIdx],
           ...pencilPts.slice(1, -1),
           perimLoop[eIdx],
+          ...arcPts,
         ];
         return buildDipSurfaceOutlineAndCentroid(closedPts, 0);
       }
@@ -3832,6 +3894,9 @@ export function computeTraceInlineLabelPlacements(
     fontSize?: number;
     extraObstacles?: { x: number; y: number; radius?: number }[];
     isVerticalShaft?: boolean;
+    panelBounds?: { minX: number; maxX: number; minY: number; maxY: number };
+    location?: FieldTunnelLocationItem;
+    round?: FieldExcavationRound;
   }
 ): Record<string, TraceInlineLabelPlacement> {
   const result: Record<string, TraceInlineLabelPlacement> = {};
@@ -3844,11 +3909,69 @@ export function computeTraceInlineLabelPlacements(
     angleDeg: number;
   }[] = [];
 
-  const baseFontSize = options?.fontSize ?? 15;
-  const isVerticalShaft = Boolean(options?.isVerticalShaft);
+  const baseFontSize = options?.fontSize ?? 12.5;
+  const isVerticalShaft = Boolean(
+    options?.isVerticalShaft ?? (options?.location?.undergroundSubMode === 'vertical_shaft')
+  );
+
+  // Helper: distance from point (px, py) to segment (ax, ay)-(bx, by)
+  const distPointToSeg = (
+    px: number,
+    py: number,
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number
+  ): number => {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq <= 1e-6) return Math.hypot(px - ax, py - ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  };
+
+  // Helper: sample point and tangent angle at true arc-length fraction [0..1] along polyline
+  const samplePolylineAtFraction = (
+    pts: FieldPoint2D[],
+    frac: number
+  ): { x: number; y: number; deg: number; totalLen: number } => {
+    if (pts.length === 1) {
+      return { x: pts[0].x, y: pts[0].y, deg: 0, totalLen: 0 };
+    }
+    const segLens: number[] = [];
+    let totalLen = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const l = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+      segLens.push(l);
+      totalLen += l;
+    }
+    if (totalLen <= 1e-4) {
+      return { x: pts[0].x, y: pts[0].y, deg: 0, totalLen: 0 };
+    }
+    const targetDist = Math.max(0, Math.min(totalLen, frac * totalLen));
+    let acc = 0;
+    for (let i = 0; i < segLens.length; i++) {
+      const l = segLens[i];
+      if (acc + l >= targetDist || i === segLens.length - 1) {
+        const localT = l > 1e-4 ? Math.max(0, Math.min(1, (targetDist - acc) / l)) : 0.5;
+        const p0 = pts[i];
+        const p1 = pts[i + 1];
+        const x = p0.x + (p1.x - p0.x) * localT;
+        const y = p0.y + (p1.y - p0.y) * localT;
+        let deg = (Math.atan2(p1.y - p0.y, p1.x - p0.x) * 180) / Math.PI;
+        if (deg > 90) deg -= 180;
+        if (deg < -90) deg += 180;
+        return { x, y, deg, totalLen };
+      }
+      acc += l;
+    }
+    const last = pts[pts.length - 1];
+    return { x: last.x, y: last.y, deg: 0, totalLen };
+  };
 
   for (const tr of traces) {
-    if (tr.points.length < 2) continue;
+    if (!tr.points || tr.points.length < 2) continue;
     const prefix = tr.label || (tr.setId === 'unassigned' ? 'J' : tr.setId || 'J');
     const isStrikeOnlyPanel = isStrikeOnlyHorizontalPanel(tr.panel, isVerticalShaft);
     const isConfirmed3D =
@@ -3861,86 +3984,135 @@ export function computeTraceInlineLabelPlacements(
     const crownPair = getCrownStrikePair(strikeVal);
     const text = isStrikeOnlyPanel
       ? isConfirmed3D
-        ? `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}° (STR ${crownPair.label})`
+        ? `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`
         : `${prefix} STR ${crownPair.label}`
       : `${prefix} ${String(tr.dipDirection).padStart(3, '0')}°/${tr.dipAmount}°`;
 
-    const boxW = Math.max(54, Math.round(text.length * (baseFontSize * 0.62) + 16));
-    const boxH = Math.max(22, Math.round(baseFontSize + 8));
+    const boxW = Math.max(36, Math.round(text.length * (baseFontSize * 0.56) + 8));
+    const boxH = Math.max(13, Math.round(baseFontSize + 4));
 
-    // Multiple candidate fractions along the trace
-    const candidateFractions = [0.5, 0.38, 0.62, 0.25, 0.75, 0.15, 0.85];
-    // Multiple perpendicular offsets (both sides, varying distances)
-    const offsetMultipliers = [14, -14, 24, -24, 36, -36];
+    // Determine bounding box of this trace or explicit panelBounds to keep label strictly inside tunnel outline
+    let minX = options?.panelBounds?.minX ?? -Infinity;
+    let maxX = options?.panelBounds?.maxX ?? Infinity;
+    let minY = options?.panelBounds?.minY ?? -Infinity;
+    let maxY = options?.panelBounds?.maxY ?? Infinity;
+    if (options?.location && options?.round && !options?.panelBounds) {
+      const geom = computePanelCanvasGeometry(tr.panel, options.location, options.round);
+      const exc = getPanelActiveExcavationBounds(tr.panel, options.location, options.round);
+      minX = geom.boxX + 6;
+      maxX = geom.boxX + geom.boxW - 6;
+      minY = exc.minY + 6;
+      maxY = Math.max(minY + 10, exc.maxY - 6);
+    }
+
+    // Midpoint where dip tick is located so we keep the inline text clear of the dip tick when trace is long enough
+    const midSample = samplePolylineAtFraction(tr.points, 0.5);
+
+    // Candidate arc-length fractions along the trace: prioritize free space on the trace away from the 0.5 dip tick
+    const candidateFractions = [
+      0.66, 0.34, 0.74, 0.26, 0.58, 0.42, 0.81, 0.19, 0.5, 0.86, 0.14,
+    ];
+    // Place INLINE inside the trace line first (dist = 0), only nudging slightly if every inline spot is blocked
+    const offsetMultipliers = [0, 6, -6, 11, -11];
 
     let bestCand = {
-      x: tr.points[Math.floor(tr.points.length / 2)].x,
-      y: tr.points[Math.floor(tr.points.length / 2)].y,
-      angleDeg: 0,
+      x: midSample.x,
+      y: midSample.y,
+      angleDeg: midSample.deg,
       score: Infinity,
     };
 
-    for (const frac of candidateFractions) {
-      const idx = Math.max(
-        0,
-        Math.min(tr.points.length - 2, Math.floor((tr.points.length - 1) * frac))
-      );
-      const p0 = tr.points[idx];
-      const p1 = tr.points[idx + 1];
-      const mx = (p0.x + p1.x) / 2;
-      const my = (p0.y + p1.y) / 2;
-      let deg = (Math.atan2(p1.y - p0.y, p1.x - p0.x) * 180) / Math.PI;
-      // Keep text upright (-89° to +89°)
-      if (deg > 90) deg -= 180;
-      if (deg < -90) deg += 180;
+    for (const dist of offsetMultipliers) {
+      for (const frac of candidateFractions) {
+        const samp = samplePolylineAtFraction(tr.points, frac);
+        const deg = samp.deg;
+        const rad = (deg * Math.PI) / 180;
+        const tx = Math.cos(rad);
+        const ty = Math.sin(rad);
+        const nx = Math.sin(rad);
+        const ny = -Math.cos(rad);
 
-      const rad = (deg * Math.PI) / 180;
-      const nx = Math.sin(rad);
-      const ny = -Math.cos(rad);
+        const candX = samp.x + nx * dist;
+        const candY = samp.y + ny * dist;
 
-      for (const dist of offsetMultipliers) {
-        const candX = mx + nx * dist;
-        const candY = my + ny * dist;
+        let penalty = 0;
 
-        // Check collision with already placed labels
-        let overlapPenalty = 0;
+        // 1. Ensure entire rotated label span stays strictly inside tunnel outline / panel bounds
+        const sampleSpans = [-0.44, -0.22, 0, 0.22, 0.44];
+        for (const sf of sampleSpans) {
+          const sx = candX + tx * (boxW * sf);
+          const sy = candY + ty * (boxW * sf);
+          if (sx < minX) penalty += (minX - sx) * 25 + 600;
+          if (sx > maxX) penalty += (sx - maxX) * 25 + 600;
+          if (sy < minY) penalty += (minY - sy) * 25 + 600;
+          if (sy > maxY) penalty += (sy - maxY) * 25 + 600;
+
+          if (
+            options?.location &&
+            options?.round &&
+            !options?.panelBounds &&
+            !isPointInsideFieldPanelOutline({ x: sx, y: sy }, tr.panel, options.location, options.round, -5)
+          ) {
+            penalty += 900;
+          }
+        }
+
+        // 2. Avoid covering the midpoint dip tick if trace is long enough to sit alongside it
+        if (samp.totalLen > boxW * 1.45 && Math.abs(dist) < 4) {
+          const distToMid = Math.hypot(candX - midSample.x, candY - midSample.y);
+          const minMidClearance = boxW * 0.36;
+          if (distToMid < minMidClearance) {
+            penalty += (minMidClearance - distToMid) * 4;
+          }
+        }
+
+        // 3. Check collision with already placed labels
         for (const pl of placedLabels) {
           const dx = Math.abs(candX - pl.x);
           const dy = Math.abs(candY - pl.y);
-          const requiredX = (boxW + pl.boxW) / 2 + 8;
-          const requiredY = (boxH + pl.boxH) / 2 + 6;
+          const requiredX = (boxW + pl.boxW) * 0.46 + 5;
+          const requiredY = (boxH + pl.boxH) * 0.55 + 4;
           if (dx < requiredX && dy < requiredY) {
-            overlapPenalty += (requiredX - dx) * 10 + (requiredY - dy) * 10 + 500;
+            penalty += (requiredX - dx) * 18 + (requiredY - dy) * 18 + 700;
           }
         }
 
-        // Check collision with extra obstacles (e.g. centroids of dip surfaces)
+        // 4. Check collision with extra obstacles (e.g. structural features, dip surfaces)
         if (options?.extraObstacles) {
           for (const obs of options.extraObstacles) {
             const d = Math.hypot(candX - obs.x, candY - obs.y);
-            const r = obs.radius ?? 40;
+            const r = obs.radius ?? 26;
             if (d < r) {
-              overlapPenalty += (r - d) * 15 + 300;
+              penalty += (r - d) * 16 + 400;
             }
           }
         }
 
-        // Check collision against other traces' points to prevent text lying right across other joint lines
+        // 5. Check clearance from ALL segments of all OTHER traces so no other line touches or crosses the text
+        const minLineClearance = Math.max(10, boxH * 0.78);
         for (const otherTr of traces) {
-          if (otherTr.id === tr.id) continue;
-          for (let pi = 0; pi < otherTr.points.length; pi += 2) {
-            const opt = otherTr.points[pi];
-            const distToOtherLine = Math.hypot(candX - opt.x, candY - opt.y);
-            if (distToOtherLine < boxH * 0.8) {
-              overlapPenalty += (boxH * 0.8 - distToOtherLine) * 8;
+          if (otherTr.id === tr.id || !otherTr.points || otherTr.points.length < 2) continue;
+          for (let k = 0; k < otherTr.points.length - 1; k++) {
+            const a = otherTr.points[k];
+            const b = otherTr.points[k + 1];
+            for (const sf of [-0.36, 0, 0.36]) {
+              const sx = candX + tx * (boxW * sf);
+              const sy = candY + ty * (boxW * sf);
+              const dSeg = distPointToSeg(sx, sy, a.x, a.y, b.x, b.y);
+              if (dSeg < minLineClearance) {
+                penalty += (minLineClearance - dSeg) * 28 + 320;
+              } else if (dSeg < minLineClearance * 1.6) {
+                // Reward extra free space away from other lines
+                penalty += (minLineClearance * 1.6 - dSeg) * 2.5;
+              }
             }
           }
         }
 
-        // Prefer centered fraction and smaller perpendicular offset
-        const centerDistPenalty = Math.abs(frac - 0.5) * 15;
-        const offsetPenalty = Math.abs(dist) * 0.4;
-        const totalScore = overlapPenalty + centerDistPenalty + offsetPenalty;
+        // Strongly prefer inline on-trace placement (dist === 0) and moderate distance from endpoints
+        const inlinePreferencePenalty = Math.abs(dist) * 12;
+        const endProximityPenalty = Math.max(0, Math.abs(frac - 0.5) - 0.22) * 25;
+        const totalScore = penalty + inlinePreferencePenalty + endProximityPenalty;
 
         if (totalScore < bestCand.score) {
           bestCand = {
@@ -3949,17 +4121,30 @@ export function computeTraceInlineLabelPlacements(
             angleDeg: deg,
             score: totalScore,
           };
-          if (overlapPenalty === 0) {
-            // Found a clear candidate position with zero overlap!
-            break;
-          }
         }
       }
-
-      if (bestCand.score < 20) {
-        // Clear spot found, stop searching fractions
+      // If we found an unobstructed inline placement on the trace itself, lock it in immediately
+      if (dist === 0 && bestCand.score < 45) {
         break;
       }
+    }
+
+    // Final safety clamp if location & round are provided so label center never escapes outline
+    if (options?.location && options?.round && !options?.panelBounds) {
+      const safePt = clampPointToFieldPanelOutline(
+        { x: bestCand.x, y: bestCand.y },
+        tr.panel,
+        options.location,
+        options.round,
+        Math.max(8, Math.round(boxH * 0.5))
+      );
+      bestCand.x = safePt.x;
+      bestCand.y = safePt.y;
+    } else if (options?.panelBounds) {
+      const padX = Math.min(boxW * 0.35, (options.panelBounds.maxX - options.panelBounds.minX) * 0.25);
+      const padY = Math.min(boxH * 0.5, (options.panelBounds.maxY - options.panelBounds.minY) * 0.25);
+      bestCand.x = Math.max(options.panelBounds.minX + padX, Math.min(options.panelBounds.maxX - padX, bestCand.x));
+      bestCand.y = Math.max(options.panelBounds.minY + padY, Math.min(options.panelBounds.maxY - padY, bestCand.y));
     }
 
     placedLabels.push({
@@ -3979,36 +4164,6 @@ export function computeTraceInlineLabelPlacements(
       boxW,
       boxH,
     };
-  }
-
-  // Iterative relaxation pass: if any two label boxes still overlap, gently separate them
-  for (let iter = 0; iter < 4; iter++) {
-    let moved = false;
-    for (let i = 0; i < placedLabels.length; i++) {
-      for (let j = i + 1; j < placedLabels.length; j++) {
-        const a = placedLabels[i];
-        const b = placedLabels[j];
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        const minDist = (a.boxW + b.boxW) / 4 + (a.boxH + b.boxH) / 2 + 6;
-        if (dist < minDist) {
-          const push = (minDist - dist) * 0.5;
-          const ux = dx / dist;
-          const uy = dy / dist;
-          a.x -= ux * push;
-          a.y -= uy * push;
-          b.x += ux * push;
-          b.y += uy * push;
-          result[a.id].x = a.x;
-          result[a.id].y = a.y;
-          result[b.id].x = b.x;
-          result[b.id].y = b.y;
-          moved = true;
-        }
-      }
-    }
-    if (!moved) break;
   }
 
   return result;
@@ -7355,7 +7510,7 @@ export function exportFieldMappingTwoPageWordSheet(
  */
 export function renderSvgElementToHighResPngDataUrl(
   svgEl: SVGSVGElement | null,
-  targetW = 1600,
+  targetW = 3200,
   targetH?: number
 ): Promise<string | null> {
   return new Promise((resolve) => {
@@ -7367,22 +7522,29 @@ export function renderSvgElementToHighResPngDataUrl(
       const vb = svgEl.viewBox?.baseVal;
       const vbW = vb && vb.width > 0 ? vb.width : svgEl.clientWidth || 920;
       const vbH = vb && vb.height > 0 ? vb.height : svgEl.clientHeight || 610;
-      const outW = targetW;
-      const outH = targetH || Math.max(200, Math.round((outW * vbH) / Math.max(1, vbW)));
+      // Enforce minimum 2800px width (300+ DPI print quality) even if caller passes smaller legacy value
+      const outW = Math.max(2800, targetW);
+      const outH = targetH
+        ? Math.max(1800, Math.round((outW * targetH) / Math.max(1, targetW)))
+        : Math.max(400, Math.round((outW * vbH) / Math.max(1, vbW)));
 
       const clone = svgEl.cloneNode(true) as SVGSVGElement;
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
       clone.setAttribute('width', String(outW));
       clone.setAttribute('height', String(outH));
+      clone.setAttribute('shape-rendering', 'geometricPrecision');
+      clone.setAttribute('text-rendering', 'geometricPrecision');
+      clone.setAttribute('image-rendering', 'optimizeQuality');
       if (!clone.getAttribute('viewBox')) {
         clone.setAttribute('viewBox', `0 0 ${vbW} ${vbH}`);
       }
 
-      // Add baseline SVG styles for crisp typography and geometric precision
+      // Add baseline SVG styles for crisp 300-DPI typography and geometric precision
       const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
       styleEl.textContent = `
-        text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; shape-rendering: geometricPrecision; }
+        * { shape-rendering: geometricPrecision; text-rendering: geometricPrecision; }
+        text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; shape-rendering: geometricPrecision; text-rendering: geometricPrecision; }
         svg { background: #ffffff; }
       `;
       clone.insertBefore(styleEl, clone.firstChild);
@@ -7392,6 +7554,7 @@ export function renderSvgElementToHighResPngDataUrl(
       const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
       const url = URL.createObjectURL(svgBlob);
       const img = new Image();
+      img.crossOrigin = 'anonymous';
 
       let settled = false;
       const timeout = setTimeout(() => {
@@ -7400,7 +7563,7 @@ export function renderSvgElementToHighResPngDataUrl(
           URL.revokeObjectURL(url);
           resolve(null);
         }
-      }, 3000);
+      }, 4500);
 
       img.onload = () => {
         if (settled) return;
@@ -7412,6 +7575,8 @@ export function renderSvgElementToHighResPngDataUrl(
           canvas.height = outH;
           const ctx = canvas.getContext('2d');
           if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -7499,7 +7664,8 @@ export function exportCanvasesAsPdfDocument(
   }[] = [];
 
   for (const c of canvases) {
-    const jpegDataUrl = c.toDataURL('image/jpeg', 0.94);
+    // 0.99 quality ensures razor-sharp 300+ DPI typography and CAD linework with zero JPEG mosquito noise
+    const jpegDataUrl = c.toDataURL('image/jpeg', 0.99);
     const b64 = jpegDataUrl.split(',')[1] || '';
     if (!b64) continue;
 
@@ -7750,11 +7916,11 @@ export async function exportFieldMappingTwoPagePdfSheet(
     ),
   ]);
 
-  // Scaled dimensions: A4 portrait is 1240 x 1754, A3 portrait is 1754 x 2480
+  // True 300-DPI Print Resolution: A4 portrait is 2480 x 3508 px, A3 portrait is 3508 x 4960 px
   const isA3 = pageSize === 'A3';
-  const W = isA3 ? 1754 : 1240;
-  const H = isA3 ? 2480 : 1754;
-  const scale = isA3 ? 1754 / 1240 : 1.0;
+  const W = isA3 ? 3508 : 2480;
+  const H = isA3 ? 4960 : 3508;
+  const scale = isA3 ? 3508 / 1240 : 2.0;
 
   const margin = Math.round(24 * scale);
   const innerPad = Math.round(10 * scale);
@@ -7764,6 +7930,8 @@ export async function exportFieldMappingTwoPagePdfSheet(
   const yBottom = H - margin - innerPad - signH - Math.round(10 * scale);
 
   const drawHeaderAndSign = (ctx: CanvasRenderingContext2D, pageNum: 1 | 2) => {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, W, H);
 
@@ -8212,8 +8380,9 @@ export async function exportFieldMappingTwoPagePdfSheet(
   const words = descText.replace(/\n+/g, ' ').split(' ');
   let descLine = '';
   let ly = y2 + 36 * scale;
+  const maxDescLineW = p2ContentW - 24 * scale;
   for (const w of words) {
-    if ((descLine + w).length > Math.round(120 * scale)) {
+    if (ctx2.measureText(descLine + w).width > maxDescLineW) {
       ctx2.fillText(descLine, margin + innerPad + 12 * scale, ly);
       descLine = w + ' ';
       ly += 16 * scale;
@@ -8349,12 +8518,16 @@ export function exportContinuousTunnelLogAsA3Pdf(
   customFilename?: string
 ): void {
   try {
+    const DPI_SCALE = 2.0; // Supersample 2380x1684 -> 4760x3368 (Ultra-HD 400 DPI A3 Landscape Blueprint)
     const W = 2380;
     const H = 1684;
     const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
+    canvas.width = Math.round(W * DPI_SCALE);
+    canvas.height = Math.round(H * DPI_SCALE);
     const ctx = canvas.getContext('2d')!;
+    ctx.scale(DPI_SCALE, DPI_SCALE);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     // 1. Sheet Background and Heavy A3 Engineering Border
     ctx.fillStyle = '#ffffff';
@@ -8892,8 +9065,8 @@ export function processCleanFieldCameraFrame(options: {
     enableShadowRemove = true,
   } = options;
 
-  const targetW = enableAutoUpscale ? 1600 : 1280;
-  const targetH = enableAutoUpscale ? 1000 : 800;
+  const targetW = enableAutoUpscale ? 2560 : 1920;
+  const targetH = enableAutoUpscale ? 1600 : 1200;
 
   const canvas = document.createElement('canvas');
   canvas.width = targetW;
@@ -9041,8 +9214,8 @@ export function processCleanFieldCameraFrame(options: {
   }
 
   return {
-    dataUrl: canvas.toDataURL('image/jpeg', 0.92),
-    resolutionLabel: `${targetW}×${targetH} HD`,
+    dataUrl: canvas.toDataURL('image/jpeg', 0.98),
+    resolutionLabel: `${targetW}×${targetH} Ultra-HD`,
     dateTimeFormatted,
     rdChainage,
     panelLabel,
@@ -10206,6 +10379,109 @@ export function isPointInsideHatchedExcavationPortion(
   }
   return false;
 }
+
+/**
+ * Re-computes and aligns a joint trace's 2D canvas polyline points to match an edited 3D orientation
+ * (Dip Direction & Dip Amount), generating a curved arch intersection trace on the Crown or an
+ * apparent-dip aligned trace on the Face/Walls, and clamping every vertex strictly inside the tunnel outline.
+ */
+export function alignFieldTracePointsTo3DOrientation(
+  points: FieldPoint2D[],
+  panel: FieldPanelId,
+  dipDirectionDeg: number,
+  dipAmountDeg: number,
+  location: FieldTunnelLocationItem,
+  round: FieldExcavationRound
+): FieldPoint2D[] {
+  if (!points || points.length < 2) return points;
+
+  const isShaft = location.undergroundSubMode === 'vertical_shaft';
+  const driveAz = Number(round?.tunnelDriveDirection ?? location?.defaultDriveAzimuth ?? 0);
+  const relDipRad = (((dipDirectionDeg - driveAz) % 360 + 360) % 360) * (Math.PI / 180);
+  const dipRad = Math.max(5, Math.min(90, dipAmountDeg)) * (Math.PI / 180);
+
+  const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
+  const cy = points.reduce((s, p) => s + p.y, 0) / points.length;
+  const pFirst = points[0];
+  const pLast = points[points.length - 1];
+  const chordLen = Math.max(50, Math.hypot(pLast.x - pFirst.x, pLast.y - pFirst.y));
+
+  if (panel === 'crown' && !isShaft) {
+    // On Crown canvas: -Y_canvas is +X_tunnel (Forward), +X_canvas is +Y_tunnel (Right Wall)
+    // Strike unit vector in tunnel (X, Y) is (sin(relDip), -cos(relDip))
+    // In canvas (X, Y), strike unit vector is (-cos(relDip), -sin(relDip))
+    // Dip direction unit vector in canvas (X, Y) is (sin(relDip), -cos(relDip))
+    const strikeCanvasX = -Math.cos(relDipRad);
+    const strikeCanvasY = -Math.sin(relDipRad);
+    const dipCanvasX = Math.sin(relDipRad);
+    const dipCanvasY = -Math.cos(relDipRad);
+
+    // Because the crown roof is an arched vault, a dipping plane cutting the crown creates a smooth curve
+    // whose sag in the dip direction scales with cot(dip)
+    const cotDip = Math.cos(dipRad) / Math.max(0.12, Math.sin(dipRad));
+    const maxCurveSagPx = Math.min(chordLen * 0.34, chordLen * 0.22 * Math.min(1.8, cotDip));
+
+    const nSamples = 20;
+    const curvedPts: FieldPoint2D[] = [];
+    for (let i = 0; i <= nSamples; i++) {
+      const t = i / nSamples; // 0..1
+      const tau = (t - 0.5) * 2; // -1..+1
+      const s = (t - 0.5) * chordLen;
+      const archSag = maxCurveSagPx * (1 - tau * tau - 0.55);
+      const rawPt = {
+        x: Number((cx + s * strikeCanvasX + archSag * dipCanvasX).toFixed(1)),
+        y: Number((cy + s * strikeCanvasY + archSag * dipCanvasY).toFixed(1)),
+      };
+      curvedPts.push(clampPointToFieldPanelOutline(rawPt, panel, location, round, 4));
+    }
+    return curvedPts;
+  }
+
+  // Face, Left Wall, Right Wall (or Vertical Shaft):
+  // Normal in tunnel frame: a = sin(dip)*cos(relDip), b = sin(dip)*sin(relDip), c = cos(dip)
+  const na = Math.sin(dipRad) * Math.cos(relDipRad);
+  const nb = Math.sin(dipRad) * Math.sin(relDipRad);
+  const nc = Math.cos(dipRad);
+
+  let targetDx = 1;
+  let targetDy = 0;
+  if (panel === 'face') {
+    const len = Math.hypot(nc, nb);
+    if (len > 1e-4) {
+      targetDx = nc / len;
+      targetDy = nb / len;
+    }
+  } else {
+    const len = Math.hypot(nc, na);
+    if (len > 1e-4) {
+      targetDx = nc / len;
+      targetDy = na / len;
+    }
+  }
+
+  const curDx = pLast.x - pFirst.x;
+  const curDy = pLast.y - pFirst.y;
+  const curAngle = Math.atan2(curDy, curDx);
+  let targetAngle = Math.atan2(targetDy, targetDx);
+  const diff = Math.atan2(Math.sin(targetAngle - curAngle), Math.cos(targetAngle - curAngle));
+  if (Math.abs(diff) > Math.PI / 2) {
+    targetAngle += Math.PI;
+  }
+  const rotRad = targetAngle - curAngle;
+  const cosR = Math.cos(rotRad);
+  const sinR = Math.sin(rotRad);
+
+  return points.map((pt) => {
+    const rx = pt.x - cx;
+    const ry = pt.y - cy;
+    const rotated = {
+      x: Number((cx + rx * cosR - ry * sinR).toFixed(1)),
+      y: Number((cy + rx * sinR + ry * cosR).toFixed(1)),
+    };
+    return clampPointToFieldPanelOutline(rotated, panel, location, round, 4);
+  });
+}
+
 
 
 

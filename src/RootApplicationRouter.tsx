@@ -42,10 +42,18 @@ export const RootApplicationRouter: React.FC = () => {
         __ESWA_EDITION__?: string;
         __ESWA_NATIVE_ANDROID_APK__?: boolean;
         __ESWA_MASTER_ANDROID_APK__?: boolean;
+        eswaDesktop?: { edition?: string };
+        akashDesktop?: { edition?: string };
       };
+      const desktopEdition = (
+        win.eswaDesktop?.edition ||
+        win.akashDesktop?.edition ||
+        ''
+      ).toLowerCase();
       if (
         win.__ESWA_MASTER_ANDROID_APK__ === true ||
-        win.__ESWA_EDITION__ === 'master'
+        win.__ESWA_EDITION__ === 'master' ||
+        desktopEdition === 'master'
       ) {
         return false;
       }
@@ -59,7 +67,11 @@ export const RootApplicationRouter: React.FC = () => {
       ) {
         return false;
       }
-      if (win.__ESWA_EDITION__ === 'user' || win.__ESWA_NATIVE_ANDROID_APK__ === true) {
+      if (
+        win.__ESWA_EDITION__ === 'user' ||
+        desktopEdition === 'user' ||
+        win.__ESWA_NATIVE_ANDROID_APK__ === true
+      ) {
         return true;
       }
       if (
