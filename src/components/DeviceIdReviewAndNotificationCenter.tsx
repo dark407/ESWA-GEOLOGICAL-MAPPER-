@@ -15,9 +15,11 @@ import {
   Loader2,
   MessageSquareWarning,
   PackageCheck,
+  RefreshCw,
   RotateCcw,
   Send,
   ShieldCheck,
+  Sparkles,
   X,
 } from 'lucide-react';
 import {
@@ -39,6 +41,17 @@ import {
   subscribeToDeviceTransfersAndNotifications,
   submitReviewerDecisionOnTransfer,
 } from '../engine/userCloudAndPackageEngine';
+import {
+  CURRENT_SOFTWARE_VERSION,
+  SoftwareReleaseRecord,
+  getInstalledSoftwareVersion,
+  getLatestPublishedSoftwareRelease,
+  getUpdateNotificationsEnabled,
+  performInAppOtaAutoUpdate,
+  refreshAdminLicensingDataFromCloud,
+  setUpdateNotificationsEnabled,
+  subscribeClientSoftwareUpdates,
+} from '../engine/softwareLicensingEngine';
 import {
   FieldExcavationRound,
   FieldProjectItem,
@@ -67,13 +80,30 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
   );
   const [copiedId, setCopiedId] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'notifications' | 'incoming' | 'outgoing' | 'device_id'>('notifications');
+  const [activeTab, setActiveTab] = useState<
+    'notifications' | 'incoming' | 'outgoing' | 'device_id' | 'software_update'
+  >('notifications');
 
   const [incomingTransfers, setIncomingTransfers] = useState<EswaDeviceTransferRecord[]>([]);
   const [outgoingTransfers, setOutgoingTransfers] = useState<EswaDeviceTransferRecord[]>([]);
   const [notifications, setNotifications] = useState<EswaAppNotificationItem[]>([]);
   const [liveToast, setLiveToast] = useState<EswaAppNotificationItem | null>(null);
   const [inspectingTransfer, setInspectingTransfer] = useState<EswaDeviceTransferRecord | null>(null);
+
+  // Software Auto-Update & Notification Toggle State
+  const [updateNotifEnabled, setUpdateNotifEnabledState] = useState<boolean>(() =>
+    getUpdateNotificationsEnabled()
+  );
+  const [targetedRelease, setTargetedRelease] = useState<SoftwareReleaseRecord | null>(null);
+  const [latestCloudRelease, setLatestCloudRelease] = useState<SoftwareReleaseRecord | null>(() =>
+    getLatestPublishedSoftwareRelease()
+  );
+  const [installedVer, setInstalledVer] = useState<string>(() => getInstalledSoftwareVersion());
+  const [isAutoUpdating, setIsAutoUpdating] = useState(false);
+  const [autoUpdateProgress, setAutoUpdateProgress] = useState<number>(0);
+  const [autoUpdateStatus, setAutoUpdateStatus] = useState<string>('');
+  const [dismissedUpdateVer, setDismissedUpdateVer] = useState<string | null>(null);
+  const [checkingForUpdate, setCheckingForUpdate] = useState(false);
 
   const [aliasInput, setAliasInput] = useState(deviceInfo.customAlias || '');
   const [savingAlias, setSavingAlias] = useState(false);
@@ -86,8 +116,10 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
 
   useEffect(() => {
     const info = getLocalUserDeviceId(currentUser?.uid, currentUser?.email);
-    setDeviceInfo(info);
-    setAliasInput(info.customAlias || '');
+    setDeviceInfo((prev) =>
+      prev.deviceId === info.deviceId && prev.customAlias === info.customAlias ? prev : info
+    );
+    setAliasInput((prev) => (prev === (info.customAlias || '') ? prev : info.customAlias || ''));
     registerOrUpdateUserDeviceId(currentUser, info.customAlias).catch(() => {});
   }, [currentUser?.uid, currentUser?.email]);
 
@@ -110,6 +142,104 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
     });
     return unsubscribe;
   }, [deviceInfo.deviceId, deviceInfo.customAlias, currentUser?.uid]);
+
+  useEffect(() => {
+    const unsubUpdate = subscribeClientSoftwareUpdates((rel) => {
+      setTargetedRelease((prev) =>
+        prev?.releaseId === rel?.releaseId && prev?.version === rel?.version ? prev : rel
+      );
+      const latest = rel || getLatestPublishedSoftwareRelease();
+      setLatestCloudRelease((prev) =>
+        prev?.releaseId === latest?.releaseId && prev?.version === latest?.version ? prev : latest
+      );
+      const ver = getInstalledSoftwareVersion();
+      setInstalledVer((prev) => (prev === ver ? prev : ver));
+    });
+    const syncToggle = () => {
+      const enabled = getUpdateNotificationsEnabled();
+      setUpdateNotifEnabledState((prev) => (prev === enabled ? prev : enabled));
+      const ver = getInstalledSoftwareVersion();
+      setInstalledVer((prev) => (prev === ver ? prev : ver));
+      const latest = getLatestPublishedSoftwareRelease();
+      setLatestCloudRelease((prev) =>
+        prev?.releaseId === latest?.releaseId && prev?.version === latest?.version ? prev : latest
+      );
+    };
+    window.addEventListener('eswa-update-toggle-changed', syncToggle);
+    return () => {
+      unsubUpdate();
+      window.removeEventListener('eswa-update-toggle-changed', syncToggle);
+    };
+  }, []);
+
+  const handleToggleUpdateNotif = (nextVal: boolean, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setUpdateNotificationsEnabled(nextVal);
+    setUpdateNotifEnabledState(nextVal);
+  };
+
+  const handleRunOneClickAutoUpdate = async (releaseToInstall?: SoftwareReleaseRecord | null) => {
+    const targetRel: SoftwareReleaseRecord = releaseToInstall ||
+      targetedRelease ||
+      latestCloudRelease || {
+        releaseId: `rel_auto_${Date.now()}`,
+        portalScope: 'ESWA_GLOBAL_PORTAL_V1',
+        version: CURRENT_SOFTWARE_VERSION,
+        title: `ESWA Geological Mapper v${CURRENT_SOFTWARE_VERSION} Auto-Update`,
+        releaseNotes:
+          'In-place automatic software & app update with zero data deletion.',
+        downloadUrl: '',
+        targetScope: 'ALL_PCS',
+        targetIdentifierCsv: 'ALL',
+        isMandatory: false,
+        status: 'PUBLISHED',
+        publishedAtIso: new Date().toISOString(),
+        adminAuthSig: 'ESWA-AUTO-OTA',
+      };
+
+    setIsAutoUpdating(true);
+    setAutoUpdateProgress(5);
+    setAutoUpdateStatus(`Starting 1-click automatic update to v${targetRel.version}...`);
+    try {
+      await performInAppOtaAutoUpdate(targetRel, (pct, msg) => {
+        setAutoUpdateProgress(pct);
+        setAutoUpdateStatus(msg);
+      });
+      setInstalledVer(targetRel.version);
+      setTargetedRelease(null);
+      setStatusMsg(
+        `✓ Updated to v${targetRel.version} automatically! Reloading latest build with all your projects preserved...`
+      );
+      setTimeout(() => {
+        window.location.reload();
+      }, 900);
+    } catch (err: any) {
+      setAutoUpdateStatus(err?.message || 'Update encountered an issue.');
+      setIsAutoUpdating(false);
+    }
+  };
+
+  const handleCheckLatestUpdateFromCloud = async () => {
+    setCheckingForUpdate(true);
+    setStatusMsg(null);
+    try {
+      await refreshAdminLicensingDataFromCloud();
+      const latest = getLatestPublishedSoftwareRelease();
+      setLatestCloudRelease(latest);
+      const current = getInstalledSoftwareVersion();
+      setInstalledVer(current);
+      if (latest && latest.version !== current) {
+        setTargetedRelease(latest);
+        setStatusMsg(`New software update v${latest.version} is available! Click "1-Click Auto-Update Now" below.`);
+      } else {
+        setStatusMsg(`You are on version v${current}. You can still click "1-Click Auto-Update & Refresh App" to pull the latest hotfix bundle.`);
+      }
+    } catch {
+      setStatusMsg('Checked local & cloud release channels.');
+    } finally {
+      setCheckingForUpdate(false);
+    }
+  };
 
   const filteredIncomingTransfers = useMemo(() => {
     if (!industryMode) return incomingTransfers;
@@ -226,6 +356,69 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
           </button>
         </div>
 
+        {/* User Main Screen Update Notification Toggle & 1-Click Auto-Update Trigger */}
+        <div
+          onClick={() => {
+            setActiveTab('software_update');
+            setModalOpen(true);
+          }}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              setActiveTab('software_update');
+              setModalOpen(true);
+            }
+          }}
+          title="Software Update Notification Toggle & 1-Click Automatic App/Software Updater"
+          className={`flex items-center gap-1.5 rounded-lg border cursor-pointer transition-all select-none ${
+            targetedRelease && updateNotifEnabled
+              ? 'border-emerald-400/80 bg-emerald-950/70 hover:bg-emerald-900/70 text-emerald-200 shadow-md shadow-emerald-500/20'
+              : 'border-slate-700/80 bg-slate-900/90 hover:bg-slate-800 text-slate-200'
+          } ${compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-[11px]'}`}
+        >
+          <Sparkles
+            className={`w-3.5 h-3.5 shrink-0 ${
+              targetedRelease && updateNotifEnabled
+                ? 'text-emerald-400 animate-spin'
+                : updateNotifEnabled
+                ? 'text-emerald-400'
+                : 'text-slate-500'
+            }`}
+          />
+          <span className="font-semibold hidden lg:inline">
+            {targetedRelease && updateNotifEnabled
+              ? `Update v${targetedRelease.version}`
+              : 'Auto-Update'}
+          </span>
+          {/* Inline Notification Toggle Switch */}
+          <button
+            type="button"
+            onClick={(e) => handleToggleUpdateNotif(!updateNotifEnabled, e)}
+            title={
+              updateNotifEnabled
+                ? 'Update Notifications ON (Click to toggle OFF)'
+                : 'Update Notifications OFF (Click to toggle ON)'
+            }
+            className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border transition-colors duration-200 ease-in-out ${
+              updateNotifEnabled
+                ? 'bg-emerald-500/90 border-emerald-300'
+                : 'bg-slate-700 border-slate-600'
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition duration-200 ease-in-out mt-0.2 ${
+                updateNotifEnabled ? 'translate-x-3' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+          {targetedRelease && updateNotifEnabled && (
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-400 text-slate-950 font-mono font-extrabold text-[9px] leading-tight animate-pulse">
+              NEW
+            </span>
+          )}
+        </div>
+
         {/* Notification Bell & Review Inbox Trigger */}
         <button
           type="button"
@@ -249,6 +442,74 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
           )}
         </button>
       </div>
+
+      {/* Live Floating 1-Click Software Auto-Update Banner (when Notification Toggle is ON and a new release arrives) */}
+      {updateNotifEnabled &&
+        targetedRelease &&
+        dismissedUpdateVer !== targetedRelease.version && (
+          <div className="fixed top-14 right-4 z-[9999] max-w-md w-full bg-slate-900/95 border-2 border-emerald-500/80 rounded-xl shadow-2xl p-4 text-slate-100 backdrop-blur-md animate-in fade-in slide-in-from-top-3">
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg shrink-0 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-extrabold text-white">
+                      New Update Available: v{targetedRelease.version}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[9px] font-bold">
+                      1-CLICK AUTO-UPDATE
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
+                    {targetedRelease.title || 'New features & improvements ready.'}{' '}
+                    {targetedRelease.releaseNotes ? `— ${targetedRelease.releaseNotes}` : ''}
+                  </p>
+                  {isAutoUpdating ? (
+                    <div className="mt-2.5 space-y-1.5">
+                      <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-400 transition-all duration-300"
+                          style={{ width: `${Math.max(8, autoUpdateProgress)}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] font-mono text-emerald-300 flex items-center gap-1.5">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>{autoUpdateStatus}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mt-3">
+                      <button
+                        type="button"
+                        onClick={() => void handleRunOneClickAutoUpdate(targetedRelease)}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[11px] flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Update App & Software Automatically
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDismissedUpdateVer(targetedRelease.version)}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold cursor-pointer"
+                      >
+                        Later
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDismissedUpdateVer(targetedRelease.version)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
       {/* Live Floating In-App Notification Banner */}
       {liveToast && (
@@ -334,13 +595,13 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                 </div>
                 <div>
                   <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                    <span>ESWA Device ID & Peer Review Hub</span>
+                    <span>ESWA Device ID, Live Auto-Update & Peer Review Hub</span>
                     <span className="px-2 py-0.5 rounded bg-cyan-950/90 border border-cyan-500/40 font-mono text-xs text-cyan-300">
                       {deviceInfo.deviceId}
                     </span>
                   </h2>
                   <p className="text-[11px] text-slate-400">
-                    Receive & approve face mapping packages by 6-character Device ID with inside-app & OS notifications
+                    1-Click Automatic Software Updates (Zero Data Loss) & Peer Review by Device ID
                   </p>
                 </div>
               </div>
@@ -367,6 +628,23 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
 
             {/* Navigation Tabs */}
             <div className="px-5 pt-2.5 bg-slate-900 border-b border-slate-800 flex items-center gap-2 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setActiveTab('software_update')}
+                className={`px-3 py-2 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                  activeTab === 'software_update'
+                    ? 'border-emerald-400 text-emerald-300'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span>App Auto-Update</span>
+                {targetedRelease && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-emerald-400 text-slate-950 font-mono text-[10px] font-extrabold">
+                    v{targetedRelease.version}
+                  </span>
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('notifications')}
@@ -439,6 +717,140 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
+                </div>
+              )}
+
+              {/* TAB 0: 1-CLICK SOFTWARE AUTO-UPDATE & NOTIFICATION TOGGLE */}
+              {activeTab === 'software_update' && (
+                <div className="space-y-4">
+                  {/* Notification Toggle Card */}
+                  <div className="p-4 rounded-xl bg-slate-950 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="text-xs font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4" />
+                        Main Screen Update Notification Toggle & In-App OTA Updater
+                      </div>
+                      <p className="text-xs text-slate-300">
+                        When enabled, you receive an instant badge on the Main Screen whenever an update is pushed. Clicking <strong>Update App &amp; Software Automatically</strong> updates your Android App (.APK) or Windows Software (.EXE) in-place without reinstalling or losing any projects.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-xs font-mono font-bold text-slate-300">
+                        {updateNotifEnabled ? 'Notifications: ON' : 'Notifications: OFF'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleUpdateNotif(!updateNotifEnabled)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 ease-in-out ${
+                          updateNotifEnabled
+                            ? 'bg-emerald-500 border-emerald-300'
+                            : 'bg-slate-700 border-slate-600'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ease-in-out mt-0.5 ${
+                            updateNotifEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Installed vs Latest Cloud Version Status */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                      <div className="text-[11px] font-bold uppercase text-slate-400">
+                        Installed App / Software Version
+                      </div>
+                      <div className="text-xl font-mono font-extrabold text-white">
+                        v{installedVer}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        100% of your local tunnel projects, photos &amp; login stay intact during updates.
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                      <div className="text-[11px] font-bold uppercase text-emerald-400">
+                        Latest Available Cloud Version
+                      </div>
+                      <div className="text-xl font-mono font-extrabold text-emerald-300 flex items-center gap-2">
+                        <span>
+                          v{targetedRelease?.version || latestCloudRelease?.version || CURRENT_SOFTWARE_VERSION}
+                        </span>
+                        {targetedRelease && (
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
+                            UPDATE READY
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-300">
+                        {targetedRelease?.title ||
+                          latestCloudRelease?.title ||
+                          'Latest ESWA Geological Mapper Production Release'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Release Notes & 1-Click Action */}
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-white">
+                        1-Click Automatic In-Place Update (No Re-Download or Reinstall Needed)
+                      </div>
+                      <button
+                        type="button"
+                        disabled={checkingForUpdate || isAutoUpdating}
+                        onClick={() => void handleCheckLatestUpdateFromCloud()}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-cyan-300 flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${checkingForUpdate ? 'animate-spin' : ''}`} />
+                        <span>Check for Updates</span>
+                      </button>
+                    </div>
+
+                    {(targetedRelease?.releaseNotes || latestCloudRelease?.releaseNotes) && (
+                      <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300 whitespace-pre-wrap">
+                        {targetedRelease?.releaseNotes || latestCloudRelease?.releaseNotes}
+                      </div>
+                    )}
+
+                    {isAutoUpdating ? (
+                      <div className="space-y-2 pt-1">
+                        <div className="w-full h-3 rounded-full bg-slate-800 overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-400 transition-all duration-300"
+                            style={{ width: `${Math.max(8, autoUpdateProgress)}%` }}
+                          />
+                        </div>
+                        <div className="text-xs font-mono text-emerald-300 flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>
+                            {autoUpdateProgress}% — {autoUpdateStatus}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-3 pt-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleRunOneClickAutoUpdate(
+                              targetedRelease || latestCloudRelease
+                            )
+                          }
+                          className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                          <span>
+                            {targetedRelease
+                              ? `1-Click Auto-Update to v${targetedRelease.version} Now`
+                              : '1-Click Auto-Update & Refresh App Now'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

@@ -339,12 +339,18 @@ const NumericStepperInput: React.FC<NumericStepperInputProps> = ({
   );
 };
 
+const EMPTY_DIP_SURFACES: FieldDipPlaneSurface[] = [];
+
 export const NatmJoint3DInspectorModal: React.FC<NatmJoint3DInspectorModalProps> = (props) => {
-  const effectiveJoint =
-    props.activeJoint ||
-    (props.activeDipSurface ? convertDipSurfaceToVirtualJoint(props.activeDipSurface) : null) ||
-    props.allRoundJoints[0] ||
-    (props.allRoundDipSurfaces?.[0] ? convertDipSurfaceToVirtualJoint(props.allRoundDipSurfaces[0]) : null);
+  const firstRoundJoint = props.allRoundJoints?.[0] || null;
+  const firstRoundDipSurface = props.allRoundDipSurfaces?.[0] || null;
+  const effectiveJoint = useMemo(() => {
+    if (props.activeJoint) return props.activeJoint;
+    if (props.activeDipSurface) return convertDipSurfaceToVirtualJoint(props.activeDipSurface);
+    if (firstRoundJoint) return firstRoundJoint;
+    if (firstRoundDipSurface) return convertDipSurfaceToVirtualJoint(firstRoundDipSurface);
+    return null;
+  }, [props.activeJoint, props.activeDipSurface, firstRoundJoint, firstRoundDipSurface]);
   if (!props.isOpen || !effectiveJoint) return null;
   return <NatmJoint3DInspectorModalContent {...props} activeJoint={effectiveJoint} />;
 };
@@ -357,12 +363,37 @@ const NatmJoint3DInspectorModalContent: React.FC<
   activeJoint,
   allRoundJoints,
   activeDipSurface = null,
-  allRoundDipSurfaces = [],
+  allRoundDipSurfaces = EMPTY_DIP_SURFACES,
   initialInspectTargetType,
-  tunnelGeometry,
+  tunnelGeometry: rawTunnelGeometry,
   onSaveJoint,
   onSaveDipSurface,
 }) => {
+  const tunnelGeometry = useMemo<TunnelSpatialGeometry>(
+    () => rawTunnelGeometry,
+    [
+      rawTunnelGeometry.widthM,
+      rawTunnelGeometry.heightM,
+      rawTunnelGeometry.wallHeightM,
+      rawTunnelGeometry.leftWallHeightM,
+      rawTunnelGeometry.rightWallHeightM,
+      rawTunnelGeometry.pullLengthM,
+      rawTunnelGeometry.driveAzimuthDeg,
+      rawTunnelGeometry.currentChainageM,
+      rawTunnelGeometry.tunnelShape,
+      rawTunnelGeometry.hasLeftWall,
+      rawTunnelGeometry.hasRightWall,
+      rawTunnelGeometry.hasCrown,
+      rawTunnelGeometry.hasInvert,
+      rawTunnelGeometry.isVerticalShaft,
+      rawTunnelGeometry.mappingDomain,
+      rawTunnelGeometry.excavationApproach,
+      rawTunnelGeometry.shaftHalfSide,
+      rawTunnelGeometry.shaftCenterMedianStatus,
+      rawTunnelGeometry.crossSectionPoints,
+      rawTunnelGeometry.customProfile,
+    ]
+  );
   // Real-Time Theme Integration (supports light & dark themes seamlessly)
   const { theme, palette } = useTheme();
   const isLight = theme === 'light' || Boolean(palette?.isLightBg);
@@ -437,21 +468,88 @@ const NatmJoint3DInspectorModalContent: React.FC<
   const [dipAmount, setDipAmount] = useState<number>(resolvedInitialDip);
   const [jointSetId, setJointSetId] = useState<FieldJointGroupingId>(currentJoint.setId || 'unassigned');
 
-  // Hinge Axis of Rotation State (For Dip Surfaces, default to free 3D plane/disk orientation so Dip & Dip Direction can be edited freely in 360°)
-  const isFaceTrace = currentJoint.panel === 'face';
-  const isWallTrace = currentJoint.panel === 'left_wall' || currentJoint.panel === 'right_wall';
-  const isCrownTrace = currentJoint.panel === 'crown';
+  // Hinge Axis of Rotation State:
+  // - On Underground Face & Walls: Plane takes the drawn joint trace as its stationary hinge axis (rotates around that trace). Changing Dip Amount directly tilts the plane toward Vertical (90°) or Horizontal (0°), so an Indication Warning Modal is shown before changing Dip Amount.
+  // - On Crown & Surface Mapping (Vice Versa): Plane takes the drawn joint trace as the Strike trace hinge. Dip Amount changes freely around that Strike trace; changing Strike / Dip Direction rotates the plane horizontally, so an Indication Warning Modal is shown before changing Strike / Dip Direction.
+  const isSurfaceMapping = Boolean(
+    tunnelGeometry.mappingDomain && tunnelGeometry.mappingDomain !== 'TUNNEL'
+  );
+  const isCrownOrSurface =
+    (!tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown') || isSurfaceMapping;
+  const isFaceTrace = currentJoint.panel === 'face' && !isSurfaceMapping;
+  const isWallTrace =
+    (currentJoint.panel === 'left_wall' || currentJoint.panel === 'right_wall') &&
+    !isSurfaceMapping;
+  const isCrownTrace = currentJoint.panel === 'crown' || isSurfaceMapping;
+
   const [isHingeRotationActive, setIsHingeRotationActive] = useState<boolean>(
     inspectTargetType !== 'dip_surface'
   );
   const [isStrikeLineHingeLocked, setIsStrikeLineHingeLocked] = useState<boolean>(
-    inspectTargetType !== 'dip_surface' && currentJoint.panel === 'crown'
+    inspectTargetType !== 'dip_surface' && isCrownOrSurface
   );
   const [hingeDipDeg, setHingeDipDeg] = useState<number>(resolvedInitialDip || 90);
   const [hingeDipSide, setHingeDipSide] = useState<'heading' | 'collar'>(
     currentJoint.panel === 'crown' && currentJoint.crownDipSign === '-90' ? 'collar' : 'heading'
   );
   const [showIntensityMethodModal, setShowIntensityMethodModal] = useState<boolean>(false);
+
+  // Pre-Change Indication Warning Modal State for Face Dip Amount vs Crown/Surface Strike Direction
+  const [faceDipChangeConfirmedForJointId, setFaceDipChangeConfirmedForJointId] = useState<string | null>(null);
+  const [crownStrikeChangeConfirmedForJointId, setCrownStrikeChangeConfirmedForJointId] = useState<string | null>(null);
+  const [hingeIndicationModal, setHingeIndicationModal] = useState<{
+    mode: 'FACE_DIP_AMOUNT' | 'CROWN_SURFACE_STRIKE_DIR';
+    targetValue: number;
+    currentValue: number;
+  } | null>(null);
+
+  const handleRequestDipAmountChange = (nextDip: number) => {
+    const clamped = Math.max(0, Math.min(90, Math.round(nextDip)));
+    // In Crown & Surface Mapping (or Dip Surface), Dip Amount tilts the plane around the Strike trace freely:
+    if (inspectTargetType === 'dip_surface' || isCrownOrSurface) {
+      setDipAmount(clamped);
+      setHingeDipDeg(Math.max(1, clamped));
+      return;
+    }
+    // On Underground Face / Walls: Changing Dip Amount tilts the plane toward Vertical (90°) or Horizontal (0°) away from the drawn trace hinge. Show Indication Warning Modal first!
+    if (faceDipChangeConfirmedForJointId !== currentJoint.id) {
+      setHingeIndicationModal({
+        mode: 'FACE_DIP_AMOUNT',
+        targetValue: clamped,
+        currentValue: dipAmount ?? 60,
+      });
+      return;
+    }
+    setIsHingeRotationActive(false);
+    setDipAmount(clamped);
+    setHingeDipDeg(Math.max(1, clamped));
+  };
+
+  const handleRequestDipDirectionOrStrikeChange = (nextDipDir: number) => {
+    const normDir = ((Math.round(nextDipDir) % 360) + 360) % 360;
+    if (inspectTargetType === 'dip_surface') {
+      setIsHingeRotationActive(false);
+      setDipDirection(normDir);
+      return;
+    }
+    // In Crown & Surface Mapping: Plane is hinged on the Strike trace. Changing Strike / Dip Direction rotates the plane horizontally! Show Indication Warning Modal first!
+    if (isCrownOrSurface && isStrikeLineHingeLocked && crownStrikeChangeConfirmedForJointId !== currentJoint.id) {
+      setHingeIndicationModal({
+        mode: 'CROWN_SURFACE_STRIKE_DIR',
+        targetValue: normDir,
+        currentValue: dipDirection ?? 135,
+      });
+      return;
+    }
+    if (isCrownOrSurface) {
+      setIsStrikeLineHingeLocked(false);
+      setIsHingeRotationActive(false);
+      setDipDirection(normDir);
+    } else {
+      // On Face / Walls: keep rotating around the drawn trace hinge unless unlocked
+      setDipDirection(normDir);
+    }
+  };
 
   const [measurementSource, setMeasurementSource] = useState<'MANUAL_COMPASS' | 'GEOMETRIC_FIT' | 'PHOTOGRAMMETRY_MULTIVIEW'>(
     currentJoint.inspection3D?.measurementSource || (currentJoint.editedByCompass ? 'MANUAL_COMPASS' : 'GEOMETRIC_FIT')
@@ -483,7 +581,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
   // When switching currentJointId or currentDipSurfaceId or inspectTargetType, load its orientation parameters
   useEffect(() => {
-    const isCr = currentJoint.panel === 'crown';
+    const isCr = currentJoint.panel === 'crown' || isSurfaceMapping;
     const resolvedDip = isCr
       ? (currentJoint.editedByCompass || currentJoint.inspection3D) &&
         typeof currentJoint.dipAmount === 'number' &&
@@ -498,6 +596,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     setHingeDipSide(isCr && currentJoint.crownDipSign === '-90' ? 'collar' : 'heading');
     setIsHingeRotationActive(inspectTargetType !== 'dip_surface');
     setIsStrikeLineHingeLocked(inspectTargetType !== 'dip_surface' && isCr);
+    setHingeIndicationModal(null);
     setJointSetId(currentJoint.setId || 'unassigned');
     setMeasurementSource(
       currentJoint.inspection3D?.measurementSource || (currentJoint.editedByCompass ? 'MANUAL_COMPASS' : 'GEOMETRIC_FIT')
@@ -514,7 +613,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     );
     setPersistenceConfidence(currentJoint.inspection3D?.persistenceConfidence || 'MEDIUM');
     setLinkedTraceIds(currentJoint.inspection3D?.linkedTraceIds || []);
-  }, [currentJointId, currentDipSurfaceId, inspectTargetType]);
+  }, [currentJointId, currentDipSurfaceId, inspectTargetType, isSurfaceMapping]);
 
   // Check if current joint has unsaved edits
   const hasUnsavedChanges = useMemo(() => {
@@ -578,7 +677,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
   useEffect(() => {
     if (tunnelGeometry.pullLengthM && tunnelGeometry.pullLengthM > 0) {
-      setPlotPlaneAdvanceM(tunnelGeometry.pullLengthM);
+      const nextPull = tunnelGeometry.pullLengthM;
+      setPlotPlaneAdvanceM((prev) => (prev === nextPull ? prev : nextPull));
     }
   }, [tunnelGeometry.pullLengthM]);
 
@@ -752,10 +852,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
   useEffect(() => {
     if (hingePlaneResult) {
       if (typeof hingePlaneResult.derivedDipDeg === 'number' && !isNaN(hingePlaneResult.derivedDipDeg)) {
-        setDipAmount(hingePlaneResult.derivedDipDeg);
+        const nextDip = hingePlaneResult.derivedDipDeg;
+        setDipAmount((prev) => (Math.abs((prev ?? 0) - nextDip) < 1e-4 ? prev : nextDip));
       }
       if (typeof hingePlaneResult.derivedDipDirectionDeg === 'number' && !isNaN(hingePlaneResult.derivedDipDirectionDeg)) {
-        setDipDirection(hingePlaneResult.derivedDipDirectionDeg);
+        const nextDir = hingePlaneResult.derivedDipDirectionDeg;
+        setDipDirection((prev) => (Math.abs((prev ?? 0) - nextDir) < 1e-4 ? prev : nextDir));
       }
     }
   }, [hingePlaneResult]);
@@ -1471,7 +1573,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
       const thetaDeg = Math.round((cam.theta * 180 / Math.PI) * 10) / 10;
       if (Math.abs(thetaDeg - lastThetaDegRef.current) >= 0.5) {
         lastThetaDegRef.current = thetaDeg;
-        setCameraTheta(cam.theta);
+        setCameraTheta((prev) => (Math.abs(prev - cam.theta) < 1e-4 ? prev : cam.theta));
       }
 
       renderer.render(scene, camera);
@@ -1516,14 +1618,22 @@ const NatmJoint3DInspectorModalContent: React.FC<
         target.z -= rightZ * dx * panSpeed;
         target.y += dy * panSpeed;
       } else if (mouseButton === 0 && (is3DGizmoDragModeRef.current || e.altKey)) {
-        // 3D Plane/Disk Gizmo Drag Mode: horizontal drag rotates Dip Direction (0..359°), vertical drag tilts Dip Angle (0..90°)
-        setIsHingeRotationActive(false);
-        setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
-        setDipAmount((prev) => {
-          const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
-          setHingeDipDeg(next);
-          return next;
-        });
+        // 3D Plane Gizmo Drag Mode: For joint traces, rotate strictly around the locked trace hinge; for dip surfaces, allow 360° disk rotation
+        if (inspectTargetType === 'dip_surface') {
+          setIsHingeRotationActive(false);
+          setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
+          setDipAmount((prev) => {
+            const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
+            setHingeDipDeg(next);
+            return next;
+          });
+        } else {
+          setHingeDipDeg((prev) => {
+            const next = Math.max(1, Math.min(90, Math.round(prev + (dy + dx * 0.5) * 0.45)));
+            if (isCrownOrSurface) setDipAmount(next);
+            return next;
+          });
+        }
       } else if (mouseButton === 0) {
         // Left-click -> ORBIT 3D Tunnel Outline
         cam.theta -= dx * 0.007;
@@ -3317,10 +3427,22 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         const dist = Math.min(R, Math.hypot(dx, dy));
                         const nextDir = Math.round(((Math.atan2(dy, dx) * 180) / Math.PI + 90 + 360) % 360);
                         const nextDip = Math.max(0, Math.min(90, Math.round((dist / R) * 90)));
-                        setIsHingeRotationActive(false);
-                        setDipDirection(nextDir);
-                        setDipAmount(nextDip);
-                        setHingeDipDeg(nextDip);
+                        if (inspectTargetType === 'dip_surface') {
+                          setIsHingeRotationActive(false);
+                          setDipDirection(nextDir);
+                          setDipAmount(nextDip);
+                          setHingeDipDeg(nextDip);
+                        } else if (isCrownOrSurface) {
+                          // On Crown & Surface Mapping: Dip Amount changes freely around the Strike trace; changing Strike/Dip Direction triggers Indication Modal if locked
+                          setDipAmount(nextDip);
+                          setHingeDipDeg(Math.max(1, nextDip));
+                          if (Math.abs(nextDir - (dipDirection ?? 135)) >= 3) {
+                            handleRequestDipDirectionOrStrikeChange(nextDir);
+                          }
+                        } else {
+                          // On Face & Walls: Plane rotates around the drawn joint trace hinge; changing Dip Amount directly triggers Indication Modal if not confirmed
+                          handleRequestDipAmountChange(nextDip);
+                        }
                       };
 
                       return (
@@ -3392,11 +3514,15 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     })()}
                   </div>
 
-                  {/* Direct Dip Direction (0-359°) & Dip Angle (0-90°) Sliders */}
+                  {/* Direct Dip Direction (0-359°) & Dip Angle (0-90°) Sliders with Trace Hinge Protection */}
                   <div className="sm:col-span-7 space-y-2.5">
                     <div className="space-y-1">
                       <NumericStepperInput
-                        label="Dip Direction (0°–359°)"
+                        label={
+                          isCrownOrSurface
+                            ? 'Strike / Dip Direction (0°–359° · Rotates Plane)'
+                            : 'Dip Direction (0°–359°)'
+                        }
                         value={dipDirection ?? 135}
                         min={0}
                         max={359}
@@ -3405,8 +3531,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         isCircular={true}
                         isLight={isLight}
                         onChange={(val) => {
-                          setIsHingeRotationActive(false);
-                          setDipDirection(val);
+                          handleRequestDipDirectionOrStrikeChange(val);
                         }}
                       />
                       <input
@@ -3415,8 +3540,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         max={359}
                         value={dipDirection ?? 135}
                         onChange={(e) => {
-                          setIsHingeRotationActive(false);
-                          setDipDirection(Number(e.target.value));
+                          handleRequestDipDirectionOrStrikeChange(Number(e.target.value));
                         }}
                         className="w-full accent-cyan-400 cursor-pointer h-2 bg-slate-900 rounded-lg"
                       />
@@ -3431,8 +3555,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             key={btn.d}
                             type="button"
                             onClick={() => {
-                              setIsHingeRotationActive(false);
-                              setDipDirection(btn.d);
+                              handleRequestDipDirectionOrStrikeChange(btn.d);
                             }}
                             className={`flex-1 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
                               (dipDirection ?? 135) === btn.d
@@ -3448,7 +3571,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
                     <div className="space-y-1">
                       <NumericStepperInput
-                        label="Dip Angle (0°–90°)"
+                        label={
+                          isCrownOrSurface
+                            ? 'Dip Amount Around Strike Trace (0°–90°)'
+                            : 'Dip Amount (0°–90° · Vertical/Horizontal Tilt)'
+                        }
                         value={dipAmount ?? 60}
                         min={0}
                         max={90}
@@ -3456,8 +3583,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         unit="°"
                         isLight={isLight}
                         onChange={(val) => {
-                          setDipAmount(val);
-                          setHingeDipDeg(val);
+                          handleRequestDipAmountChange(val);
                         }}
                       />
                       <input
@@ -3466,9 +3592,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         max={90}
                         value={dipAmount ?? 60}
                         onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setDipAmount(val);
-                          setHingeDipDeg(val);
+                          handleRequestDipAmountChange(Number(e.target.value));
                         }}
                         className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-900 rounded-lg"
                       />
@@ -3478,8 +3602,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             key={deg}
                             type="button"
                             onClick={() => {
-                              setDipAmount(deg);
-                              setHingeDipDeg(deg);
+                              handleRequestDipAmountChange(deg);
                             }}
                             className={`flex-1 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
                               (dipAmount ?? 60) === deg
@@ -3802,15 +3925,17 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       </>
                     ) : (
                       <>
-                        On the arched <strong className="text-sky-300">Crown</strong>, the strike/intersection trace is curved and the <strong className="text-sky-300">3D plane covers all of the curve and cuts right through the curve</strong>. Changing <strong className="text-cyan-300">Dip Direction</strong> or <strong className="text-sky-300">Dip Amount</strong> dynamically updates both the 3D plane on the curve and the curved crown intersection trace.
+                        In <strong className="text-sky-300">{isSurfaceMapping ? 'Surface Mapping' : 'Crown Mapping'}</strong>, your drawn joint trace acts as the <strong className="text-emerald-300">fixed Strike trace hinge</strong>. Changing <strong className="text-sky-300">Dip Amount</strong> tilts the 3D plane around that Strike trace. Only changing <strong className="text-cyan-300">Strike / Dip Direction</strong> rotates the plane horizontally (with an indication notice first).
                       </>
                     )}
                   </p>
 
-                  {/* Live Crown Dip Direction Slider (0° - 359°) */}
+                  {/* Live Crown/Surface Strike / Dip Direction Slider (0° - 359°) — gated by Indication Modal */}
                   <div className="space-y-1.5 bg-slate-900/90 p-2.5 rounded-lg border border-cyan-500/25">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-bold text-slate-200">Crown Curve Dip Direction (α):</span>
+                      <span className="font-bold text-slate-200">
+                        {isSurfaceMapping ? 'Surface' : 'Crown'} Strike / Dip Direction (Rotates Plane):
+                      </span>
                       <span className="font-mono font-black text-cyan-400 bg-cyan-950/90 px-2 py-0.5 rounded border border-cyan-500/50 text-xs shadow-sm">
                         {String(dipDirection ?? 135).padStart(3, '0')}°
                       </span>
@@ -3822,7 +3947,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       value={dipDirection ?? 135}
                       onChange={(e) => {
                         const val = Number(e.target.value);
-                        setDipDirection(val);
+                        handleRequestDipDirectionOrStrikeChange(val);
                       }}
                       className="w-full accent-cyan-400 cursor-pointer h-2 bg-slate-800 rounded-lg"
                     />
@@ -3836,7 +3961,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         <button
                           key={btn.d}
                           type="button"
-                          onClick={() => setDipDirection(btn.d)}
+                          onClick={() => handleRequestDipDirectionOrStrikeChange(btn.d)}
                           className={`flex-1 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
                             (dipDirection ?? 135) === btn.d
                               ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold'
@@ -3852,7 +3977,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   {/* Live Crown Dip Amount Slider (1° - 90°) */}
                   <div className="space-y-1.5 bg-slate-900/90 p-2.5 rounded-lg border border-sky-500/20">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-bold text-slate-200">Crown Curve Dip Amount (δ):</span>
+                      <span className="font-bold text-slate-200">
+                        Dip Amount Around Strike Trace Hinge (δ):
+                      </span>
                       <span className="font-mono font-black text-sky-400 bg-sky-950/90 px-2 py-0.5 rounded border border-sky-500/50 text-xs shadow-sm">
                         {dipAmount ?? hingeDipDeg}°
                       </span>
@@ -5563,6 +5690,98 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black shadow-md cursor-pointer"
               >
                 Change Trace Alignment on Canvas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INDICATION WARNING MODAL BEFORE CHANGING FACE DIP AMOUNT OR CROWN/SURFACE STRIKE DIRECTION */}
+      {hingeIndicationModal && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="max-w-lg w-full p-5 rounded-2xl bg-slate-900 border-2 border-amber-500/70 shadow-2xl font-mono text-xs text-slate-100 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="font-black text-amber-300 text-sm uppercase tracking-wide">
+                  {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT'
+                    ? 'Indication Notice: Changing Dip Amount on Face / Wall'
+                    : `Indication Notice: Rotating Strike Direction on ${isSurfaceMapping ? 'Surface Mapping' : 'Crown'}`}
+                </div>
+                <p className="text-slate-300 text-[11px] leading-relaxed">
+                  {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT' ? (
+                    <>
+                      On the <strong className="text-amber-300">Excavation Face / Sidewall</strong>, the 3D discontinuity plane uses your{' '}
+                      <strong className="text-emerald-300">drawn joint trace as its stationary axis hinge</strong> and rotates based only on that trace.
+                      <br />
+                      <br />
+                      If you change the <strong className="text-amber-300">Dip Amount</strong> directly (from{' '}
+                      <strong className="text-white">{hingeIndicationModal.currentValue}°</strong> to{' '}
+                      <strong className="text-amber-300">{hingeIndicationModal.targetValue}°</strong>), the 3D plane will tilt toward{' '}
+                      <strong className="text-cyan-300">Vertical (90°) or Horizontal (0°)</strong> and detach from the drawn trace inclination.
+                    </>
+                  ) : (
+                    <>
+                      In <strong className="text-cyan-300">{isSurfaceMapping ? 'Surface Mapping' : 'Crown Mapping'}</strong> (vice versa to Face), your drawn joint trace is the{' '}
+                      <strong className="text-emerald-300">fixed Strike trace hinge</strong>: changing <strong className="text-sky-300">Dip Amount</strong> tilts the plane around that Strike trace without rotating it.
+                      <br />
+                      <br />
+                      Changing <strong className="text-amber-300">Strike / Dip Direction</strong> (from{' '}
+                      <strong className="text-white">{hingeIndicationModal.currentValue}°</strong> to{' '}
+                      <strong className="text-amber-300">{hingeIndicationModal.targetValue}°</strong>) will rotate the 3D plane horizontally away from your drawn Strike trace.
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setHingeIndicationModal(null)}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold cursor-pointer"
+              >
+                {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT'
+                  ? 'Keep Locked to Trace Hinge (Cancel)'
+                  : 'Keep Locked to Strike Trace (Cancel)'}
+              </button>
+              {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = Math.max(1, Math.min(90, hingeIndicationModal.targetValue));
+                    setIsHingeRotationActive(true);
+                    setHingeDipDeg(target);
+                    setHingeIndicationModal(null);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black shadow-md cursor-pointer"
+                >
+                  Rotate Around Trace Hinge Only
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (hingeIndicationModal.mode === 'FACE_DIP_AMOUNT') {
+                    setFaceDipChangeConfirmedForJointId(currentJoint.id);
+                    setIsHingeRotationActive(false);
+                    setDipAmount(hingeIndicationModal.targetValue);
+                    setHingeDipDeg(Math.max(1, hingeIndicationModal.targetValue));
+                  } else {
+                    setCrownStrikeChangeConfirmedForJointId(currentJoint.id);
+                    setIsStrikeLineHingeLocked(false);
+                    setIsHingeRotationActive(false);
+                    setDipDirection(hingeIndicationModal.targetValue);
+                  }
+                  setHingeIndicationModal(null);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-md cursor-pointer"
+              >
+                {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT'
+                  ? `Proceed & Change Dip Amount (${hingeIndicationModal.targetValue}°)`
+                  : `Proceed & Rotate Plane Strike (${hingeIndicationModal.targetValue}°)`}
               </button>
             </div>
           </div>

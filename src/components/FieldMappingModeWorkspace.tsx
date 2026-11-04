@@ -17101,6 +17101,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               hasCrown: fGeom?.hasCrown ?? true,
               hasInvert: fGeom?.hasInvert ?? true,
               isVerticalShaft: isVerticalShaftMode,
+              mappingDomain,
               excavationApproach: activeRound?.excavationApproach,
               shaftHalfSide: activeRound?.shaftHalfSide || 'left_half',
               shaftCenterMedianStatus: activeRound?.shaftCenterMedianStatus || 'closed',

@@ -316,6 +316,8 @@ export function saveConfiguredGithubRepo(rawInput: string): string {
   const clean = normalizeGithubRepoSlug(rawInput);
   if (typeof window !== 'undefined') {
     try {
+      const prev = localStorage.getItem(GITHUB_REPO_STORAGE_KEY) || '';
+      if (prev === clean) return clean;
       if (clean) {
         localStorage.setItem(GITHUB_REPO_STORAGE_KEY, clean);
       } else {

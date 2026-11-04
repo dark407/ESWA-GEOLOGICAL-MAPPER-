@@ -30,10 +30,13 @@ export interface PoorRockProportionsEstimatorViewProps {
   initialFaults?: FaultZoneCrossing[];
 }
 
+const EMPTY_DOMAINS: AlignmentDomainSegment[] = [];
+const EMPTY_FAULTS: FaultZoneCrossing[] = [];
+
 export const PoorRockProportionsEstimatorView: React.FC<PoorRockProportionsEstimatorViewProps> = ({
   totalLengthDefault = 100,
-  initialDomains = [],
-  initialFaults = [],
+  initialDomains = EMPTY_DOMAINS,
+  initialFaults = EMPTY_FAULTS,
 }) => {
   const [totalLength, setTotalLength] = useState<number>(totalLengthDefault);
   const [domains, setDomains] = useState<AlignmentDomainSegment[]>(initialDomains);

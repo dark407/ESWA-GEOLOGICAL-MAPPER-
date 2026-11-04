@@ -2,10 +2,19 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AccessRequestRecord,
   approveRequestAndCreateLicense,
+  CURRENT_SOFTWARE_VERSION,
   deleteSoftwareLicenseAdmin,
+  deleteSoftwareReleaseAdmin,
+  extractGoogleDriveFileId,
   generateOnePcLicenseKey,
+  getGoogleDriveSyncConfig,
+  GoogleDrivePermanentSyncConfig,
+  overwriteGoogleDriveFileInPlace,
+  publishSoftwareUpdateRelease,
   rejectAccessRequestAdmin,
+  saveGoogleDriveSyncConfig,
   SoftwareLicenseRecord,
+  SoftwareReleaseRecord,
   subscribeAdminLicensingData,
   updateSoftwareLicenseAdmin,
 } from '../engine/softwareLicensingEngine';
@@ -76,12 +85,13 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
     }
   }, []);
 
-  // 2. Navigation Tabs: ONLY 2 tabs (Manage Users & Read Feedback)
-  const [activeTab, setActiveTab] = useState<'users' | 'feedback'>('users');
+  // 2. Navigation Tabs: Manage Users, User Feedback, and Auto-Updates & Google Drive Sync
+  const [activeTab, setActiveTab] = useState<'users' | 'feedback' | 'updates_drive'>('users');
 
   // 3. User Access Management State
   const [requests, setRequests] = useState<AccessRequestRecord[]>([]);
   const [licenses, setLicenses] = useState<SoftwareLicenseRecord[]>([]);
+  const [releases, setReleases] = useState<SoftwareReleaseRecord[]>([]);
   const [userSearchTerm, setUserSearchTerm] = useState<string>('');
   const [userFilterStatus, setUserFilterStatus] = useState<'all' | 'pending' | 'approved' | 'revoked'>('all');
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
@@ -92,13 +102,32 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
   const [feedbackFilterStatus, setFeedbackFilterStatus] = useState<'all' | 'new' | 'reviewed' | 'resolved'>('all');
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
 
-  // Subscribe to Licensing & User Access requests
+  // 5. 1-Click Auto-Update Broadcast & Permanent Google Drive Sync State
+  const [newRelVersion, setNewRelVersion] = useState<string>(() => {
+    const parts = CURRENT_SOFTWARE_VERSION.split('.').map((n) => parseInt(n, 10) || 0);
+    return `${parts[0] || 2}.${parts[1] || 8}.${(parts[2] || 0) + 1}`;
+  });
+  const [newRelTitle, setNewRelTitle] = useState<string>(
+    '3D Joint Trace Hinge Precision & Live Auto-Update Release'
+  );
+  const [newRelNotes, setNewRelNotes] = useState<string>(
+    '• Restored 3D Joint Inspection stationary trace hinge with pre-change Dip/Strike warning modal\n• Added Main Screen Update Notification Toggle & 1-Click In-Place Auto-Updater'
+  );
+  const [publishingRel, setPublishingRel] = useState<boolean>(false);
+  const [driveCfg, setDriveCfg] = useState<GoogleDrivePermanentSyncConfig>(() =>
+    getGoogleDriveSyncConfig()
+  );
+  const [driveAccessToken, setDriveAccessToken] = useState<string>('');
+  const [driveSyncStatus, setDriveSyncStatus] = useState<string>('');
+  const [driveSyncBusy, setDriveSyncBusy] = useState<boolean>(false);
+
+  // Subscribe to Licensing, User Access requests & Published Releases
   useEffect(() => {
     if (!isVerified) return;
     const unsub = subscribeAdminLicensingData({
       onRequests: (reqList) => setRequests(reqList || []),
       onLicenses: (licList) => setLicenses(licList || []),
-      onReleases: () => {},
+      onReleases: (relList) => setReleases(relList || []),
       onMasterPcs: () => {},
     });
     return () => unsub();
@@ -486,7 +515,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
           </div>
         </div>
 
-        {/* 2 Primary Tabs: Users & Feedback */}
+        {/* 3 Primary Tabs: Users, Feedback & Auto-Update / Google Drive Sync */}
         <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
           <button
             type="button"
@@ -526,6 +555,19 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
             >
               {filteredFeedback.length}
             </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('updates_drive')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'updates_drive'
+                ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                : 'text-emerald-300 hover:text-white'
+            }`}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Auto-Updates &amp; Drive Sync</span>
           </button>
         </div>
 
@@ -861,6 +903,322 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* =================================================================== */}
+        {/* TAB 3: 1-CLICK APP AUTO-UPDATE & PERMANENT GOOGLE DRIVE SYNC        */}
+        {/* =================================================================== */}
+        {activeTab === 'updates_drive' && (
+          <div className="space-y-5">
+            {driveSyncStatus && (
+              <div className="p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-500/50 text-emerald-200 text-xs font-mono flex items-center justify-between gap-2">
+                <span>{driveSyncStatus}</span>
+                <button
+                  type="button"
+                  onClick={() => setDriveSyncStatus('')}
+                  className="text-emerald-300 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* SECTION A: 1-Click Broadcast Software Update to All Existing Users */}
+            <div className="bg-slate-900 border border-emerald-500/40 rounded-2xl p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-black text-emerald-300 uppercase tracking-wider">
+                    1. Push Live Auto-Update Notification to All Users' Main Screen
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    When you click <strong>Broadcast Update to All Users</strong>, every connected User App (.APK) and User PC Software (.EXE) immediately shows an Update Notification Badge on the Main Screen so users can 1-Click Auto-Update in-place without reinstalling or needing new download links.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => downloadUserAndroidApk()}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-emerald-300 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>User .APK</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadUserEditionDesktopExe()}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-cyan-300 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Monitor className="w-3.5 h-3.5" />
+                    <span>User .EXE</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    New Release Version (e.g. 2.8.5)
+                  </label>
+                  <input
+                    type="text"
+                    value={newRelVersion}
+                    onChange={(e) => setNewRelVersion(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-emerald-300 font-bold focus:outline-none focus:border-emerald-400"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Update Headline Shown on User Main Screen
+                  </label>
+                  <input
+                    type="text"
+                    value={newRelTitle}
+                    onChange={(e) => setNewRelTitle(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Release Notes / What's New
+                </label>
+                <textarea
+                  rows={2}
+                  value={newRelNotes}
+                  onChange={(e) => setNewRelNotes(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <span className="text-[11px] font-mono text-slate-400">
+                  Active Published Releases: {releases.length}
+                </span>
+                <button
+                  type="button"
+                  disabled={publishingRel || !newRelVersion.trim()}
+                  onClick={async () => {
+                    setPublishingRel(true);
+                    try {
+                      const rec = await publishSoftwareUpdateRelease({
+                        version: newRelVersion.trim(),
+                        title: newRelTitle.trim() || `ESWA Update v${newRelVersion.trim()}`,
+                        releaseNotes: newRelNotes.trim(),
+                        downloadUrl: 'GITHUB_USER_EXE',
+                        targetScope: 'ALL_PCS',
+                        targetIdentifierCsv: 'ALL',
+                        isMandatory: false,
+                      });
+                      setDriveSyncStatus(
+                        `✓ Broadcasted v${rec.version} to all User Apps & PC Software! Existing users can now click the Main Screen Update Notification Toggle to auto-update in 1 click.`
+                      );
+                    } finally {
+                      setPublishingRel(false);
+                    }
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${publishingRel ? 'animate-spin' : ''}`} />
+                  <span>Broadcast Update v{newRelVersion} to All Users Now</span>
+                </button>
+              </div>
+
+              {releases.length > 0 && (
+                <div className="pt-3 border-t border-slate-800 space-y-2">
+                  <div className="text-[11px] font-bold uppercase text-slate-400">
+                    Recent Broadcasted Releases
+                  </div>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {releases.slice(0, 5).map((r) => (
+                      <div
+                        key={r.releaseId}
+                        className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="truncate">
+                          <span className="font-mono font-bold text-emerald-300">
+                            v{r.version}
+                          </span>{' '}
+                          <span className="text-slate-200 font-semibold">{r.title}</span>{' '}
+                          <span className="text-[10px] font-mono text-slate-500">
+                            ({new Date(r.publishedAtIso).toLocaleString()})
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void deleteSoftwareReleaseAdmin(r.releaseId)}
+                          className="p-1 text-slate-500 hover:text-rose-400 cursor-pointer"
+                          title="Delete release"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* SECTION B: Permanent Google Drive File-ID Overwrite Automation */}
+            <div className="bg-slate-900 border border-cyan-500/40 rounded-2xl p-5 space-y-4">
+              <div>
+                <h3 className="text-sm font-black text-cyan-300 uppercase tracking-wider">
+                  2. Permanent Google Drive File-ID Overwrite (Keep LinkedIn &amp; Website Links Unchanged Forever)
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Paste your existing Google Drive share links or File IDs once below. Both <strong>GitHub Actions (`build-installer.yml`)</strong> and the <strong>1-Click Sync</strong> button overwrite the <em>exact same File IDs in-place</em> (`PATCH /upload/drive/v3/files/&#123;fileId&#125;?uploadType=media`), so you never have to re-upload files or change links on LinkedIn or your website!
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    User Android App (.APK) — Drive Link or File ID
+                  </label>
+                  <input
+                    type="text"
+                    value={driveCfg.userApkFileId}
+                    onChange={(e) =>
+                      setDriveCfg((prev) => ({
+                        ...prev,
+                        userApkFileId: extractGoogleDriveFileId(e.target.value),
+                      }))
+                    }
+                    placeholder="Paste Drive link or File ID (GDRIVE_USER_APK_FILE_ID)"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    User Windows Software (.EXE) — Drive Link or File ID
+                  </label>
+                  <input
+                    type="text"
+                    value={driveCfg.userExeFileId}
+                    onChange={(e) =>
+                      setDriveCfg((prev) => ({
+                        ...prev,
+                        userExeFileId: extractGoogleDriveFileId(e.target.value),
+                      }))
+                    }
+                    placeholder="Paste Drive link or File ID (GDRIVE_USER_EXE_FILE_ID)"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Master Android App (.APK) — Drive Link or File ID
+                  </label>
+                  <input
+                    type="text"
+                    value={driveCfg.masterApkFileId}
+                    onChange={(e) =>
+                      setDriveCfg((prev) => ({
+                        ...prev,
+                        masterApkFileId: extractGoogleDriveFileId(e.target.value),
+                      }))
+                    }
+                    placeholder="Paste Drive link or File ID (GDRIVE_MASTER_APK_FILE_ID)"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-amber-300 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Master Windows Software (.EXE) — Drive Link or File ID
+                  </label>
+                  <input
+                    type="text"
+                    value={driveCfg.masterExeFileId}
+                    onChange={(e) =>
+                      setDriveCfg((prev) => ({
+                        ...prev,
+                        masterExeFileId: extractGoogleDriveFileId(e.target.value),
+                      }))
+                    }
+                    placeholder="Paste Drive link or File ID (GDRIVE_MASTER_EXE_FILE_ID)"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-amber-300 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Google Drive OAuth Access Token (for Direct Browser 1-Click Overwrite)
+                  </label>
+                  <input
+                    type="password"
+                    value={driveAccessToken}
+                    onChange={(e) => setDriveAccessToken(e.target.value)}
+                    placeholder="Optional: Paste Google OAuth Bearer Token for direct browser Drive overwrite"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-white focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const saved = saveGoogleDriveSyncConfig(driveCfg);
+                      setDriveCfg(saved);
+                      setDriveSyncStatus(
+                        '✓ Saved Permanent Google Drive File IDs! Your LinkedIn & Website share links will remain identical across all updates.'
+                      );
+                    }}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-white cursor-pointer"
+                  >
+                    Save File IDs
+                  </button>
+                  <button
+                    type="button"
+                    disabled={driveSyncBusy}
+                    onClick={async () => {
+                      setDriveSyncBusy(true);
+                      try {
+                        const saved = saveGoogleDriveSyncConfig({
+                          ...driveCfg,
+                          lastSyncedVersion: newRelVersion,
+                          lastSyncedAtIso: new Date().toISOString(),
+                        });
+                        setDriveCfg(saved);
+                        if (driveAccessToken.trim() && saved.userExeFileId) {
+                          const res = await overwriteGoogleDriveFileInPlace({
+                            fileId: saved.userExeFileId,
+                            accessToken: driveAccessToken.trim(),
+                            content: JSON.stringify({
+                              version: newRelVersion,
+                              updatedAtIso: new Date().toISOString(),
+                            }),
+                          });
+                          setDriveSyncStatus(res.message);
+                        } else {
+                          await publishSoftwareUpdateRelease({
+                            version: newRelVersion.trim(),
+                            title: newRelTitle.trim() || `ESWA Update v${newRelVersion.trim()}`,
+                            releaseNotes: newRelNotes.trim(),
+                            downloadUrl: saved.userExeFileId
+                              ? `https://drive.google.com/uc?export=download&id=${saved.userExeFileId}`
+                              : 'GITHUB_USER_EXE',
+                            targetScope: 'ALL_PCS',
+                            targetIdentifierCsv: 'ALL',
+                            isMandatory: false,
+                          });
+                          setDriveSyncStatus(
+                            `✓ Permanent Google Drive File IDs saved & Release v${newRelVersion} synced! GitHub Actions (scripts/update-google-drive-files.mjs) automatically overwrites these exact File IDs on every push.`
+                          );
+                        }
+                      } finally {
+                        setDriveSyncBusy(false);
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${driveSyncBusy ? 'animate-spin' : ''}`} />
+                    <span>1-Click Drive Sync</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </main>

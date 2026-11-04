@@ -793,7 +793,9 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
 
   useEffect(() => {
     const unsub = subscribeClientSoftwareUpdates((rel) => {
-      setAvailableRelease(rel);
+      setAvailableRelease((prev) =>
+        prev?.releaseId === rel?.releaseId && prev?.version === rel?.version ? prev : rel
+      );
     });
     return () => unsub();
   }, [installedVer]);

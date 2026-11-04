@@ -139,7 +139,10 @@ function readLocalMirror<T>(key: string): T[] {
 
 function writeLocalMirror<T>(key: string, items: T[]): void {
   try {
-    localStorage.setItem(key, JSON.stringify(items));
+    const nextJson = JSON.stringify(items);
+    const prevJson = localStorage.getItem(key);
+    if (prevJson === nextJson) return;
+    localStorage.setItem(key, nextJson);
     window.dispatchEvent(new CustomEvent('eswa-licensing-mirror-updated'));
   } catch {
     // Ignore storage errors
@@ -3555,6 +3558,169 @@ export function subscribeAdminLicensingData(callbacks: {
   };
 }
 
+export const UPDATE_NOTIF_TOGGLE_STORAGE_KEY = 'eswa_update_notifications_enabled_v1';
+export const GDRIVE_SYNC_CONFIG_STORAGE_KEY = 'eswa_gdrive_permanent_file_ids_v1';
+
+export interface GoogleDrivePermanentSyncConfig {
+  userApkFileId: string;
+  userExeFileId: string;
+  masterApkFileId: string;
+  masterExeFileId: string;
+  driveFolderUrl?: string;
+  lastSyncedVersion?: string;
+  lastSyncedAtIso?: string;
+}
+
+export function getUpdateNotificationsEnabled(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const raw = localStorage.getItem(UPDATE_NOTIF_TOGGLE_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+export function setUpdateNotificationsEnabled(enabled: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(UPDATE_NOTIF_TOGGLE_STORAGE_KEY, enabled ? 'true' : 'false');
+    window.dispatchEvent(new CustomEvent('eswa-update-toggle-changed'));
+  } catch {
+    // Ignore storage error
+  }
+}
+
+export function extractGoogleDriveFileId(input: string): string {
+  const trimmed = (input || '').trim();
+  if (!trimmed) return '';
+  const matchD = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]{10,})/);
+  if (matchD?.[1]) return matchD[1];
+  const matchId = trimmed.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+  if (matchId?.[1]) return matchId[1];
+  return trimmed.replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+export function getGoogleDriveSyncConfig(): GoogleDrivePermanentSyncConfig {
+  const fallback: GoogleDrivePermanentSyncConfig = {
+    userApkFileId: '',
+    userExeFileId: '',
+    masterApkFileId: '',
+    masterExeFileId: '',
+    driveFolderUrl: '',
+  };
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(GDRIVE_SYNC_CONFIG_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<GoogleDrivePermanentSyncConfig>;
+    return {
+      userApkFileId: extractGoogleDriveFileId(parsed.userApkFileId || ''),
+      userExeFileId: extractGoogleDriveFileId(parsed.userExeFileId || ''),
+      masterApkFileId: extractGoogleDriveFileId(parsed.masterApkFileId || ''),
+      masterExeFileId: extractGoogleDriveFileId(parsed.masterExeFileId || ''),
+      driveFolderUrl: (parsed.driveFolderUrl || '').trim(),
+      lastSyncedVersion: parsed.lastSyncedVersion,
+      lastSyncedAtIso: parsed.lastSyncedAtIso,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveGoogleDriveSyncConfig(
+  cfg: Partial<GoogleDrivePermanentSyncConfig>
+): GoogleDrivePermanentSyncConfig {
+  const current = getGoogleDriveSyncConfig();
+  const next: GoogleDrivePermanentSyncConfig = {
+    ...current,
+    ...cfg,
+    userApkFileId: extractGoogleDriveFileId(
+      cfg.userApkFileId !== undefined ? cfg.userApkFileId : current.userApkFileId
+    ),
+    userExeFileId: extractGoogleDriveFileId(
+      cfg.userExeFileId !== undefined ? cfg.userExeFileId : current.userExeFileId
+    ),
+    masterApkFileId: extractGoogleDriveFileId(
+      cfg.masterApkFileId !== undefined ? cfg.masterApkFileId : current.masterApkFileId
+    ),
+    masterExeFileId: extractGoogleDriveFileId(
+      cfg.masterExeFileId !== undefined ? cfg.masterExeFileId : current.masterExeFileId
+    ),
+  };
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(GDRIVE_SYNC_CONFIG_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Ignore storage error
+    }
+  }
+  return next;
+}
+
+/**
+ * Overwrites an existing file on Google Drive in-place using its permanent File ID
+ * (`PATCH https://www.googleapis.com/upload/drive/v3/files/{fileId}?uploadType=media`).
+ * Because the File ID never changes, the shared Google Drive link on LinkedIn and websites
+ * remains 100% identical forever while serving the newest binary.
+ */
+export async function overwriteGoogleDriveFileInPlace(params: {
+  fileId: string;
+  accessToken: string;
+  content: Blob | ArrayBuffer | string;
+  mimeType?: string;
+}): Promise<{ ok: boolean; fileId: string; message: string }> {
+  const cleanFileId = extractGoogleDriveFileId(params.fileId);
+  const cleanToken = (params.accessToken || '').trim();
+  if (!cleanFileId) {
+    return { ok: false, fileId: '', message: 'Missing Google Drive File ID.' };
+  }
+  if (!cleanToken) {
+    return { ok: false, fileId: cleanFileId, message: 'Missing Google Drive OAuth Access Token.' };
+  }
+  try {
+    const resp = await fetch(
+      `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(cleanFileId)}?uploadType=media&supportsAllDrives=true`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${cleanToken}`,
+          'Content-Type': params.mimeType || 'application/octet-stream',
+        },
+        body: params.content,
+      }
+    );
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      return {
+        ok: false,
+        fileId: cleanFileId,
+        message: `Google Drive API HTTP ${resp.status}: ${errText.slice(0, 180) || resp.statusText}`,
+      };
+    }
+    return {
+      ok: true,
+      fileId: cleanFileId,
+      message: `Overwrote permanent Drive File ID (${cleanFileId}) in-place — share link unchanged.`,
+    };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      fileId: cleanFileId,
+      message: err instanceof Error ? err.message : 'Network error updating Google Drive file.',
+    };
+  }
+}
+
+export function getLatestPublishedSoftwareRelease(): SoftwareReleaseRecord | null {
+  const allReleases = readLocalMirror<SoftwareReleaseRecord>(LOCAL_MIRROR_RELEASES_KEY);
+  const published = allReleases
+    .filter((r) => r.status === 'PUBLISHED' && r.releaseId !== 'GITHUB_REPO_CONFIG')
+    .sort((a, b) => (b.publishedAtIso || '').localeCompare(a.publishedAtIso || ''));
+  return published[0] || null;
+}
+
 /**
  * Real-time listener on the Software Side for targeted Software Updates.
  */
@@ -3616,12 +3782,13 @@ export function subscribeClientSoftwareUpdates(
   void pollRemoteReleases();
   const relPollTimer = window.setInterval(() => {
     void pollRemoteReleases();
-  }, 180000);
+  }, 15000);
 
   const handleLocalChange = () => {
     evaluateReleases(readLocalMirror<SoftwareReleaseRecord>(LOCAL_MIRROR_RELEASES_KEY));
   };
   window.addEventListener('eswa-licensing-mirror-updated', handleLocalChange);
+  window.addEventListener('eswa-update-toggle-changed', handleLocalChange);
   window.addEventListener('storage', handleLocalChange);
 
   const qRel = query(
@@ -3646,6 +3813,7 @@ export function subscribeClientSoftwareUpdates(
   return () => {
     window.clearInterval(relPollTimer);
     window.removeEventListener('eswa-licensing-mirror-updated', handleLocalChange);
+    window.removeEventListener('eswa-update-toggle-changed', handleLocalChange);
     window.removeEventListener('storage', handleLocalChange);
     window.setTimeout(() => {
       try {
@@ -3656,3 +3824,4 @@ export function subscribeClientSoftwareUpdates(
     }, 250);
   };
 }
+

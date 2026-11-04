@@ -32,13 +32,15 @@ export interface SequentialFace3DReconstructionViewProps {
   initialFaceLogs?: SequentialFaceLog[];
 }
 
+const EMPTY_FACE_LOGS: SequentialFaceLog[] = [];
+
 export const SequentialFace3DReconstructionView: React.FC<SequentialFace3DReconstructionViewProps> = ({
   geometry,
   tunnelWidth: propTunnelWidth,
   tunnelHeight: propTunnelHeight,
   spanW: propSpanW,
   heightH: propHeightH,
-  initialFaceLogs = [],
+  initialFaceLogs = EMPTY_FACE_LOGS,
 }) => {
   const defaultWidth = propSpanW ?? propTunnelWidth ?? geometry?.width ?? 8.4;
   const defaultHeight = propHeightH ?? propTunnelHeight ?? geometry?.height ?? 7.2;

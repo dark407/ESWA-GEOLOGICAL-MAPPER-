@@ -40,6 +40,7 @@ export interface TunnelSpatialGeometry {
   leftWallHeightM?: number;
   rightWallHeightM?: number;
   isVerticalShaft?: boolean;
+  mappingDomain?: string;
   excavationApproach?: string;
   shaftHalfSide?: 'left_half' | 'right_half';
   shaftCenterMedianStatus?: 'closed' | 'open';
